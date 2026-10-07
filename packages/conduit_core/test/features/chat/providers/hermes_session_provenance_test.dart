@@ -6,11 +6,13 @@ import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -298,7 +300,12 @@ void main() {
     );
 
     Future<
-      ({ProviderContainer container, _SwitchableHermesConfig config, List<String> asked})
+      ({
+        ProviderContainer container,
+        _SwitchableHermesConfig config,
+        List<String> asked,
+        _RecordingHermesApi service,
+      })
     >
     bind({
       required bool accept,
@@ -306,6 +313,7 @@ void main() {
     }) async {
       final asked = <String>[];
       late _SwitchableHermesConfig config;
+      final service = _RecordingHermesApi();
       final container = ProviderContainer(
         overrides: [
           openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
@@ -330,6 +338,12 @@ void main() {
             asked.add(name);
             return accept;
           }),
+          hermesApiServiceProvider.overrideWithValue(service),
+          selectedModelProvider.overrideWith(_SelectedHermesModel.new),
+          reviewerModeProvider.overrideWithValue(false),
+          webSearchEnabledProvider.overrideWith(_NoWebSearch.new),
+          imageGenerationEnabledProvider.overrideWith(_NoImageGeneration.new),
+          codeInterpreterEnabledProvider.overrideWith(_NoCodeInterpreter.new),
         ],
       );
       container.read(hermesConfigProvider);
@@ -353,7 +367,12 @@ void main() {
       container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
         history,
       ]);
-      return (container: container, config: config, asked: asked);
+      return (
+        container: container,
+        config: config,
+        asked: asked,
+        service: service,
+      );
     }
 
     test('offers to switch, and switches when accepted', () async {
@@ -367,6 +386,30 @@ void main() {
 
       check(bound.asked).deepEquals(<String>['Other agent']);
       check(bound.config.switchedTo).deepEquals(<String>[otherId]);
+    });
+
+    test('does not send into a chat opened during the switch', () async {
+      final bound = await bind(
+        accept: true,
+        connectionIdentity: otherIdentity,
+      );
+      addTearDown(bound.container.dispose);
+      bound.config.onSwitch = () => bound.container
+          .read(activeConversationProvider.notifier)
+          .set(_openWebUiConversation('opened-chat', const <ChatMessage>[]));
+
+      await check(
+        sendMessageWithContainer(bound.container, 'for the bound chat', null),
+      ).throws<StateError>();
+
+      check(bound.config.switchedTo).deepEquals(<String>[otherId]);
+      check(
+        bound.container.read(activeConversationProvider)?.id,
+      ).equals('opened-chat');
+      check(
+        bound.container.read(chatMessagesProvider).map((m) => m.content),
+      ).not((it) => it.contains('for the bound chat'));
+      check(bound.service.sessionIds).isEmpty();
     });
 
     test('keeps the active connection when declined', () async {
@@ -417,6 +460,7 @@ final class _SwitchableHermesConfig extends _FixedHermesConfig {
 
   final HermesConnectionProfile other;
   final List<String> switchedTo = <String>[];
+  void Function()? onSwitch;
 
   @override
   String documentTrustPrincipalId() => activePrincipal;
@@ -441,5 +485,26 @@ final class _SwitchableHermesConfig extends _FixedHermesConfig {
   @override
   Future<void> setActiveConnection(String connectionId) async {
     switchedTo.add(connectionId);
+    onSwitch?.call();
   }
+}
+
+final class _SelectedHermesModel extends SelectedModel {
+  @override
+  Model build() => hermesSyntheticModel();
+}
+
+final class _NoWebSearch extends WebSearchEnabledNotifier {
+  @override
+  bool build() => false;
+}
+
+final class _NoImageGeneration extends ImageGenerationEnabledNotifier {
+  @override
+  bool build() => false;
+}
+
+final class _NoCodeInterpreter extends CodeInterpreterEnabledNotifier {
+  @override
+  bool build() => false;
 }

@@ -14,8 +14,22 @@ Future<void> _sendMessageInternal(
   if (hermesSelectedAtStart != null && isHermesModel(hermesSelectedAtStart)) {
     // Before anything below is captured: switching connections replaces the
     // Hermes runtime and the selected model.
+    final ownerBeforeOffer = captureChatMutationOwner(
+      ref,
+      ref.read(activeConversationProvider) as Conversation?,
+    );
     final offer = _offerHermesConnectionSwitchForMixedChat(ref);
-    if (offer is Future<void>) await offer;
+    if (offer is Future<void>) {
+      await offer;
+      // The user may have opened another chat while the prompt or the switch
+      // ran; this text belongs to the chat it was typed in. Thrown so the
+      // composer keeps the text instead of treating it as sent.
+      if (!chatMutationTokenStillActive(ref, ownerBeforeOffer)) {
+        throw StateError(
+          'The conversation changed while preparing the message.',
+        );
+      }
+    }
   }
   final conversationAtSendStart =
       ref.read(activeConversationProvider) as Conversation?;
