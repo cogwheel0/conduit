@@ -5,6 +5,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_manager.dart';
@@ -489,6 +490,19 @@ _harness({
     serverSelection: container.read(_serverSelectionProvider.notifier),
     markerStore: markerStore,
   );
+}
+
+/// Account summaries whose write fails after a turn, as one refused during
+/// a sign-out does.
+final class _FailingAccountSummaries extends OpenWebUiAccountSummaries {
+  @override
+  Map<String, OpenWebUiAccountSummary> build() => const {};
+
+  @override
+  Future<void> recordUser(String accountId, User user) async {
+    await Future<void>.delayed(Duration.zero);
+    throw StateError('preference writes are closed');
+  }
 }
 
 final class _ThrowingActiveConversation extends ActiveConversationNotifier {
@@ -1472,18 +1486,20 @@ void main() {
         },
       );
 
-      // Signing out of the account is what deletes its data now; a session
-      // merely ending keeps it.
-      await harness.container
-          .read(openWebUiAccountStorageIsolationProvider.notifier)
-          .purgeAccount(_server.id);
+      // Another user turning up on the open account is what still purges it:
+      // the database belongs to someone else.
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .settled;
+      }
 
       check(revocationWrites).equals(2);
       check(cacheClearCalls).equals(2);
       check(purgeCalls).equals(1);
-      check(harness.markerStore.read(_server.id)).isNull();
-      check(harness.container.read(openWebUiDatabaseAccessProvider))
-          .equals(OpenWebUiDatabaseAccessPhase.closed);
+      check(harness.markerStore.read(_server.id)?.userId).equals(_userB.id);
     },
   );
 
@@ -2103,6 +2119,53 @@ void main() {
         check(harness.markerStore.read(_server.id)).isNotNull();
       },
     );
+
+    test(
+      'signing out of the account still open deletes only its data',
+      () async {
+        final purged = <String>[];
+        final cleared = <String>[];
+        final harness = await _harness(
+          databasePurge: (serverId) async => purged.add(serverId),
+          additionalOverrides: [
+            openWebUiAccountPrivateDataClearProvider.overrideWithValue(
+              (accountId) async => cleared.add(accountId),
+            ),
+          ],
+        );
+
+        await harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .purgeAccount(_server.id);
+
+        check(purged).deepEquals([_server.id]);
+        // Its settings go with it, as an inactive account's do.
+        check(cleared).deepEquals([_server.id]);
+        check(harness.markerStore.read(_server.id)).isNull();
+        check(
+          harness.container.read(openWebUiCertifiedDatabaseServerProvider),
+        ).isNull();
+        check(harness.container.read(openWebUiDatabaseAccessProvider))
+            .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
+      },
+    );
+
+    test('a failing account summary write is not left uncaught', () async {
+      final harness = await _harness(
+        additionalOverrides: [
+          openWebUiAccountSummariesProvider.overrideWith(
+            _FailingAccountSummaries.new,
+          ),
+        ],
+      );
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+      await Future<void>.delayed(Duration.zero);
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+    });
 
     test('purging an inactive account leaves the active one open', () async {
       final purged = <String>[];

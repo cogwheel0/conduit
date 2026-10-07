@@ -361,47 +361,55 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   }
 
   /// Deletes [accountId]'s local data: its database, owner marker, Hermes
-  /// session trust and cached auth data.
+  /// session trust and account-scoped settings.
   ///
-  /// For signing out of an account, after the account has been removed or
-  /// switched away from. It never targets the database a certified session
-  /// has open; when [accountId] is still the active account, the ordinary
-  /// isolation purge runs instead.
+  /// For signing out of an account, after storage has removed it. Only
+  /// [accountId]'s files are touched, never whichever account the providers
+  /// currently name. If its database is still open, it is closed first and
+  /// kept closed until its files are gone.
   Future<void> purgeAccount(String accountId) async {
     if (_disposed) return;
-    // Judge "active" by what storage durably selected, not by the provider
-    // chain: mid-transition the API client can still carry the account just
-    // left, and treating that as active would run the isolation purge, whose
-    // follow-up then deletes whichever account really is active.
-    if (PreferencesStore.getString(PreferenceKeys.activeServerId) ==
-        accountId) {
-      _certifiedIdentity = null;
-      _pendingIdentity = null;
-      _purgeRequired = true;
-      _beginIsolation(reason: 'account-signed-out');
-      await _settled;
-      return;
+    final stillOpen =
+        ref.read(openWebUiCertifiedDatabaseServerProvider) == accountId;
+    if (stillOpen) {
+      if (_purgeRunning) {
+        // Whatever that purge was for, this account's files are going now;
+        // its completion must not go on to certify or purge anything else.
+        _purgeGeneration++;
+        _purgeRunning = false;
+      }
+      _closeAtAccountBoundary(reason: 'account-signed-out');
+      ref.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
     }
-    final ownerMarker = ref
-        .read(openWebUiAccountOwnerMarkerStoreProvider)
-        .read(accountId);
-    final ownerUserId = ownerMarker?.userId.trim();
-    if (ownerMarker != null && ownerUserId != null && ownerUserId.isNotEmpty) {
-      await HermesMixedSessionBindingTrustStore.forgetStorageAccount(
-        HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
-          serverId: accountId,
-          userId: ownerUserId,
-          tokenFingerprint: ownerMarker.tokenFingerprint,
-        ),
+    try {
+      final ownerMarker = ref
+          .read(openWebUiAccountOwnerMarkerStoreProvider)
+          .read(accountId);
+      final ownerUserId = ownerMarker?.userId.trim();
+      if (ownerMarker != null &&
+          ownerUserId != null &&
+          ownerUserId.isNotEmpty) {
+        await HermesMixedSessionBindingTrustStore.forgetStorageAccount(
+          HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
+            serverId: accountId,
+            userId: ownerUserId,
+            tokenFingerprint: ownerMarker.tokenFingerprint,
+          ),
+        );
+      }
+      await ref.read(openWebUiDatabasePurgeProvider)(accountId);
+      await _removeOwnerMarker(accountId);
+      await ref.read(openWebUiAccountPrivateDataClearProvider)(accountId);
+      DebugLogger.log(
+        'account-database-purged',
+        scope: 'auth/storage-isolation',
       );
+    } finally {
+      // Back to judging the next identity as a cold start would.
+      if (stillOpen && !_disposed) {
+        ref.read(openWebUiDatabaseAccessProvider.notifier).reenterBootstrap();
+      }
     }
-    await ref.read(openWebUiDatabasePurgeProvider)(accountId);
-    await _removeOwnerMarker(accountId);
-    await ref.read(openWebUiAccountPrivateDataClearProvider)(accountId);
-    DebugLogger.log(
-      'account-database-purged',
-      scope: 'auth/storage-isolation',
-    );
   }
 
   void _onAuthenticated(_OpenWebUiAccountIdentity identity) {
@@ -760,20 +768,32 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         certifiedUser.id == identity.userId) {
       // Recorded here, where the account and its user are known to belong
       // together, rather than from a later read of whichever is active.
-      try {
-        unawaited(
-          ref
-              .read(openWebUiAccountSummariesProvider.notifier)
-              .recordUser(serverId, certifiedUser),
-        );
-        unawaited(migrateDeviceSettingsIntoAccount(serverId));
-      } catch (error, stackTrace) {
+      // Neither is awaited, so a failure is caught on its own future (a
+      // sign-out under way refuses preference writes, for one) as well as
+      // when it is thrown synchronously.
+      void logSummaryFailure(Object error, StackTrace stackTrace) {
         DebugLogger.error(
           'certified-account-summary-failed',
           scope: 'auth/storage-isolation',
           error: error,
           stackTrace: stackTrace,
         );
+      }
+
+      try {
+        unawaited(
+          ref
+              .read(openWebUiAccountSummariesProvider.notifier)
+              .recordUser(serverId, certifiedUser)
+              .catchError(logSummaryFailure),
+        );
+        unawaited(
+          migrateDeviceSettingsIntoAccount(
+            serverId,
+          ).catchError(logSummaryFailure),
+        );
+      } catch (error, stackTrace) {
+        logSummaryFailure(error, stackTrace);
       }
       try {
         // A fresh account may have published while the database gate was
