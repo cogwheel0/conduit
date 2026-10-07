@@ -46,6 +46,7 @@ class AdaptiveAuthHarness {
     this.addingAccountFrom,
     this.abandonablePendingSignIn = false,
     this.accountsController,
+    this.savedServersError,
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer(
       (_) async => savedUsername == null ? null : {'username': savedUsername!},
@@ -56,6 +57,11 @@ class AdaptiveAuthHarness {
     when(() => _storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => _storage.saveLocalUserAvatar(null)).thenAnswer((_) async {});
     when(() => _storage.getReviewerMode()).thenAnswer((_) async => false);
+    if (savedServersError case final error?) {
+      when(
+        () => _storage.getOpenWebUiRegistryStrict(),
+      ).thenAnswer((_) async => throw error);
+    }
     if (authActions != null) {
       // A sign-in attempt first saves the server it was opened for.
       registerFallbackValue(server);
@@ -104,6 +110,9 @@ class AdaptiveAuthHarness {
 
   /// Replaces the account actions, so a test sees which it asked for.
   final OpenWebUiAccountsController? accountsController;
+
+  /// What reading the saved servers fails with, as a Keychain error does.
+  final Object? savedServersError;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
@@ -138,6 +147,14 @@ class AdaptiveAuthHarness {
           path: Routes.serverConnection,
           name: RouteNames.serverConnection,
           builder: (_, _) => const ServerConnectionPage(),
+        ),
+        GoRoute(
+          path: Routes.addServer,
+          name: RouteNames.addServer,
+          builder: (_, state) => ServerConnectionPage(
+            addingAccount: true,
+            serverId: state.extra is String ? state.extra as String : null,
+          ),
         ),
         GoRoute(
           path: Routes.backendChooser,
