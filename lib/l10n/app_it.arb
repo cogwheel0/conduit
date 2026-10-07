@@ -4129,5 +4129,5 @@
   "hermesSwitchConnectionPromptTitle": "Passare a {name}?",
   "hermesSwitchConnectionPromptMessage": "La sessione Hermes di questa chat appartiene a {name}. Passa a quella connessione per continuarla, oppure mantieni quella attuale per iniziare una nuova sessione.",
   "hermesSwitchConnectionConfirm": "Passa",
-  "hermesKeepCurrentConnection": "Mantieni attuale"
+  "hermesKeepCurrentConnection": "Mantieni quella attuale"
 }
