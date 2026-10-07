@@ -33,30 +33,42 @@ jobs:
       - run: flutter pub get
       # Every workspace member with codegen, not only this job's own: a
       # package is analyzed against the generated code of what it imports.
-      - name: Generate code
-        shell: bash
-        run: |
-          for dir in . packages/* apps/*; do
-            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
-              echo "::group::build_runner in $dir"
-              (cd "$dir" && dart run build_runner build)
-              echo "::endgroup::"
-            fi
-          done
-      # Errors fail the job; warnings and infos do not yet. The app carries
-      # riverpod_lint findings from before this workflow existed (main has
-      # the same ones), which want their own clean-up. The packages below are
-      # clean and stay held to --fatal-infos.
-      - run: flutter analyze --no-fatal-warnings --no-fatal-infos
-      # Compiling and loading each test file separately was most of this
-      # step; the runner groups the files into a few entrypoints.
-      - run: dart run tool/run_test_shards.dart
-        timeout-minutes: 30
-      - name: Android native tests
-        run: |
-          flutter build apk --debug --target-platform android-arm64
-          cd android
-          ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
+      # Each member keeps its own build cache, and the app never waited on
+      # the packages' output, so the app and the packages generate side by
+      # side.
+      - parallel:
+          - name: Generate code (app)
+            run: dart run build_runner build
+          - name: Generate code (packages)
+            shell: bash
+            run: |
+              for dir in packages/* apps/*; do
+                if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+                  echo "::group::build_runner in $dir"
+                  (cd "$dir" && dart run build_runner build)
+                  echo "::endgroup::"
+                fi
+              done
+      # Analysis, the Dart tests and the Android build each need only the
+      # generated code, so they run side by side; the job fails once all
+      # three finish if any of them failed. The analyzer skips the test
+      # runner's temporary test/.shards_*/ entrypoints, as it does every
+      # dot-directory.
+      - parallel:
+          # Errors fail the job; warnings and infos do not yet. The app
+          # carries riverpod_lint findings from before this workflow existed
+          # (main has the same ones), which want their own clean-up. The
+          # packages below are clean and stay held to --fatal-infos.
+          - run: flutter analyze --no-fatal-warnings --no-fatal-infos
+          # Compiling and loading each test file separately was most of this
+          # step; the runner groups the files into a few entrypoints.
+          - run: dart run tool/run_test_shards.dart
+            timeout-minutes: 30
+          - name: Android native tests
+            run: |
+              flutter build apk --debug --target-platform android-arm64
+              cd android
+              ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
 
   # Each workspace member analyzes and tests on its own, which is what proves
   # the pub workspace actually works per package.
@@ -83,22 +95,29 @@ jobs:
       - run: flutter pub get
       # Every workspace member with codegen, not only this job's own: a
       # package is analyzed against the generated code of what it imports.
-      - name: Generate code
-        shell: bash
-        run: |
-          for dir in . packages/* apps/*; do
-            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
-              echo "::group::build_runner in $dir"
-              (cd "$dir" && dart run build_runner build)
-              echo "::endgroup::"
-            fi
-          done
-      - name: Analyze
-        working-directory: ${{ matrix.package }}
-        run: dart analyze --fatal-infos
-      - name: Test
-        working-directory: ${{ matrix.package }}
-        run: dart test
+      # Each member keeps its own build cache, and the app never waited on
+      # the packages' output, so the app and the packages generate side by
+      # side.
+      - parallel:
+          - name: Generate code (app)
+            run: dart run build_runner build
+          - name: Generate code (packages)
+            shell: bash
+            run: |
+              for dir in packages/* apps/*; do
+                if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+                  echo "::group::build_runner in $dir"
+                  (cd "$dir" && dart run build_runner build)
+                  echo "::endgroup::"
+                fi
+              done
+      - parallel:
+          - name: Analyze
+            working-directory: ${{ matrix.package }}
+            run: dart analyze --fatal-infos
+          - name: Test
+            working-directory: ${{ matrix.package }}
+            run: dart test
 
   # The web-safe packages must survive dart2js, and must not be
   # able to reach dio, drift or conduit_core. Both are cheap to check and
