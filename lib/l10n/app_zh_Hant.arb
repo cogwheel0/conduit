@@ -975,9 +975,9 @@
   "chatSettingsApplied": "已套用聊天設定",
   "chatSettingsAppliedDescription": "此聊天有已儲存的設定，每次回覆都會使用。",
   "chatSettingsTurnOnAdvanced": "開啟「進階」以變更",
-  "chatSettingsDescription": "這些設定僅適用於此聊天。設為「繼承」的項目使用你的預設值。",
+  "chatSettingsDescription": "這些設定僅適用於此聊天。設為「你的預設」的項目使用你設定中的預設值。",
   "chatSettingsSystemPrompt": "系統提示詞",
-  "chatSettingsSystemPromptEmptyNote": "空白提示詞不會傳送任何系統提示詞，即使你設定了預設提示詞。選擇「繼承」即可使用預設提示詞。",
+  "chatSettingsSystemPromptEmptyNote": "空白提示詞不會傳送任何系統提示詞，即使你設定了預設提示詞。選擇「你的預設」即可使用預設提示詞。",
   "chatSettingsParameters": "參數",
   "chatSettingsInherit": "你的預設",
   "chatSettingsModelDefault": "模型預設",
@@ -1218,7 +1218,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "並建立新的分享連結。",
+  "shareChatDeleteAndCreate": "移除目前的連結，以便建立新的連結。",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

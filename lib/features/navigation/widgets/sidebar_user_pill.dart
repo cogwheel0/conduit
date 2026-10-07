@@ -440,7 +440,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         // The profile details editor preselects the stored gender and birth
         // date and saves every field, so it must not open on a profile that
         // was never loaded. A cached one opens the sheet at once; it is
-        // refreshed behind the sheet, which then takes the newer copy.
+        // refreshed behind the sheet, which then takes the newer copy, and
+        // its Profile page editors wait for that refresh.
         final cachedProfile = hasAccountProfile
             ? ref.read(accountProfileProvider).asData?.value
             : null;
@@ -469,6 +470,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             displayName: displayName,
             initials: initial,
             rootAccount: rootAccount,
+            // On a cached copy the Profile page waits for the refresh: its
+            // editors save every field, so one opened on the cached copy
+            // would write it over newer server values.
+            profilePending: cachedProfile != null,
             // Read when the sheet opens, so a toggle made while it was closed
             // is already reflected; the action re-checks on delivery, and an
             // Advanced change made inside the sheet rebuilds these rows.
@@ -570,8 +575,13 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
   }
 
   /// Refreshes the account profile after the Settings sheet opened on the
-  /// cached [shown] copy, and hands the sheet the newer one when it differs,
-  /// so its editors save over what the server holds now.
+  /// cached [shown] copy, hands the sheet the newer one when it differs, and
+  /// then fills in its Profile page, which waited on a loading row.
+  ///
+  /// The page's editors save every field, so they only become reachable once
+  /// the sheet holds the copy the server has now; one opened on the cached
+  /// copy would write its older bio, gender, birth date or photo back. When
+  /// the refresh fails the cached copy is all there is, and the page shows it.
   ///
   /// Nothing reaches the sheet once it was closed and opened again, or once
   /// another account signed in: the sheet belongs to the account it was
@@ -588,18 +598,19 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
   }) async {
     if (!ref.context.mounted) return;
     final userId = ref.read(currentUserProvider2)?.id;
+    var refreshed = true;
     try {
       await ref
           .read(accountProfileProvider.notifier)
           .refresh()
           .timeout(const Duration(seconds: 5));
     } catch (error) {
+      refreshed = false;
       DebugLogger.warning(
         'account-profile-refresh-failed',
         scope: 'navigation/profile',
         data: {'error': error.toString()},
       );
-      return;
     }
     if (!ref.context.mounted ||
         generation != _nativeProfileSheetGeneration ||
@@ -607,32 +618,36 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ref.read(currentUserProvider2)?.id != userId) {
       return;
     }
-    final fresh = ref.read(accountProfileProvider).asData?.value;
-    if (fresh == null ||
-        fresh.id != shown.id ||
-        !nativeProfileSheetFieldsDiffer(shown, fresh)) {
-      return;
-    }
+    final fresh = refreshed
+        ? ref.read(accountProfileProvider).asData?.value
+        : null;
+    if (refreshed && (fresh == null || fresh.id != shown.id)) return;
     final bridge = NativeSheetBridge.instance;
-    final updated = await bridge.updateProfile(
-      _nativeAccountProfileUser(
-        ref,
-        l10n: l10n,
-        user: user,
-        api: api,
-        displayName: displayName,
-        initials: initials,
-        accountProfile: fresh,
-      ),
-    );
-    if (!updated) return;
+    final profile = fresh ?? shown;
+    if (fresh != null && nativeProfileSheetFieldsDiffer(shown, fresh)) {
+      final updated = await bridge.updateProfile(
+        _nativeAccountProfileUser(
+          ref,
+          l10n: l10n,
+          user: user,
+          api: api,
+          displayName: displayName,
+          initials: initials,
+          accountProfile: fresh,
+        ),
+      );
+      // The editors would still read the cached copy, so the page stays on
+      // its loading row.
+      if (!updated) return;
+    }
     await bridge.applyDetailPatch(
       detailId: NativeSheetRoutes.profile,
       items: const [],
+      clearSubtitle: true,
       sections: buildNativeProfileDetailSections(
         l10n,
         displayName: displayName,
-        accountProfile: fresh,
+        accountProfile: profile,
       ),
     );
   }
@@ -675,6 +690,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     required String initials,
     required NativeProfileRootAccount? rootAccount,
     required NativeProfileRootVisibility visibility,
+    bool profilePending = false,
     Uint8List? hermesAvatarBytes,
   }) {
     final l10n = AppLocalizations.of(context)!;
@@ -762,7 +778,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       supportItems: supportItems,
       sections: sections,
       detailSheets: [
-        if (user != null)
+        if (user != null && profilePending)
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: NativeSheetRoutes.profile,
+            title: nativeProfileTitle(l10n),
+            subtitle: l10n.loadingShort,
+          )
+        else if (user != null)
           NativeSheetDetailConfig(
             id: NativeSheetRoutes.profile,
             title: nativeProfileTitle(l10n),

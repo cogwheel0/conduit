@@ -184,6 +184,10 @@ Future<void> _tapAvatar(WidgetTester tester) async {
   await tester.pump();
 }
 
+List<String> _itemIds(Iterable<PlatformNativeSheetSection> sections) => [
+  for (final section in sections) ...section.items.map((item) => item.id),
+];
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -229,7 +233,8 @@ void main() {
     check(about.subtitle).equals('New');
   });
 
-  testWidgets('an unchanged profile leaves the sheet alone', (tester) async {
+  testWidgets('an unchanged profile keeps the sheet copy and fills in the '
+      'Profile page', (tester) async {
     final harness = await _pump(tester, cached: _profile(bio: 'Same'));
 
     await _tapAvatar(tester);
@@ -239,9 +244,66 @@ void main() {
 
     check(harness.presented).length.equals(1);
     check(harness.profileUpdates).isEmpty();
+    final profilePage = harness.patches.singleWhere(
+      (patch) => patch.detailId == NativeSheetRoutes.profile,
+    );
+    check(_itemIds(profilePage.sections)).contains('profile-details');
+    check(profilePage.clearSubtitle).isTrue();
+  });
+
+  testWidgets('the Profile page offers no editor until the refresh lands, '
+      'so none can save the cached copy', (tester) async {
+    final harness = await _pump(tester, cached: _profile(bio: 'Old'));
+
+    await _tapAvatar(tester);
+
+    final profilePage = harness.presented.single.detailSheets.singleWhere(
+      (detail) => detail.id == NativeSheetRoutes.profile,
+    );
+    final ids = [
+      ...profilePage.items.map((item) => item.id),
+      for (final section in profilePage.sections)
+        ...section.items.map((item) => item.id),
+    ];
+    for (final editor in const [
+      'profile-photo',
+      'profile-name',
+      'profile-about',
+      'profile-details',
+    ]) {
+      check(ids).not((it) => it.contains(editor));
+    }
     check(
       harness.patches.where((p) => p.detailId == NativeSheetRoutes.profile),
     ).isEmpty();
+
+    harness.profiles.pending!.complete(_profile(bio: 'New'));
+    await tester.pump();
+    await tester.pump();
+
+    final patched = harness.patches.singleWhere(
+      (patch) => patch.detailId == NativeSheetRoutes.profile,
+    );
+    check(_itemIds(patched.sections)).contains('profile-details');
+  });
+
+  testWidgets('a failed refresh fills in the Profile page from the cached '
+      'copy', (tester) async {
+    final harness = await _pump(tester, cached: _profile(bio: 'Old'));
+
+    await _tapAvatar(tester);
+    harness.profiles.pending!.completeError(StateError('offline'));
+    await tester.pump();
+    await tester.pump();
+
+    check(harness.profileUpdates).isEmpty();
+    final profilePage = harness.patches.singleWhere(
+      (patch) => patch.detailId == NativeSheetRoutes.profile,
+    );
+    final about = [
+      for (final section in profilePage.sections) ...section.items,
+    ].singleWhere((item) => item.id == 'profile-about');
+    check(about.subtitle).equals('Old');
   });
 
   testWidgets('a refresh that lands after another account signed in is '

@@ -309,6 +309,49 @@ void main() {
       expect(find.text('typed'), findsOneWidget);
     });
 
+    testWidgets('while a save is on its way nothing asks or closes, and the '
+        'save then closes the sheet', (tester) async {
+      final harness = _Harness(advanced: true, targets: const [_tool, _pipe]);
+      await harness.pumpSheetRoute(tester);
+      await tester.tap(
+        find.byKey(const Key('personal-valves-target-tool-shared_tool')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(regionField(), 'typed');
+      await tester.pump();
+      final gate = harness.holdPosts = Completer<void>();
+      await tester.tap(save());
+      await tester.pump();
+
+      await tester.tap(find.byType(SheetCloseButton), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      await tester.tap(
+        find.byKey(const Key('personal-valves-back')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      await tester.fling(find.text('Shared tool'), const Offset(0, 500), 2000);
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text('Your settings'), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text('Your settings'), findsNothing);
+      expect(find.text(_en.personalToolSettingsSaved), findsOneWidget);
+      expect(
+        harness.valveRequests.where((r) => r.method == 'POST'),
+        hasLength(1),
+      );
+    });
+
     testWidgets('going back to the list with edits asks first', (
       tester,
     ) async {
@@ -377,6 +420,9 @@ class _Harness {
   /// Number of generated `fieldN` string properties added to the schema.
   final int fieldCount;
   final List<RequestOptions> requests = [];
+
+  /// While set, a save waits for it before the server answers.
+  Completer<void>? holdPosts;
   late final ProviderContainer container = _container();
 
   /// Requests to any tool or function valve route. The composer makes other,
@@ -389,7 +435,10 @@ class _Harness {
       serverConfig: _server,
       workerManager: WorkerManager(),
     );
-    api.dio.httpClientAdapter = _Adapter(_serve);
+    api.dio.httpClientAdapter = _Adapter(
+      _serve,
+      hold: (request) => request.method == 'POST' ? holdPosts?.future : null,
+    );
     api.dio.interceptors.clear();
     final container = ProviderContainer(
       overrides: [
@@ -522,16 +571,22 @@ class _Harness {
 }
 
 class _Adapter implements HttpClientAdapter {
-  _Adapter(this.handler);
+  _Adapter(this.handler, {this.hold});
 
   final ResponseBody Function(RequestOptions request) handler;
+
+  /// Holds a request until the returned future completes.
+  final Future<void>? Function(RequestOptions request)? hold;
 
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
-  ) async => handler(options);
+  ) async {
+    await hold?.call(options);
+    return handler(options);
+  }
 
   @override
   void close({bool force = false}) {}

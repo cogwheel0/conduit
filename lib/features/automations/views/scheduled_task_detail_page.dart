@@ -199,7 +199,11 @@ class _TaskDetailState extends ConsumerState<_TaskDetail> {
   Future<void> _setActive(bool active) async {
     final owner = _owner;
     final l10n = AppLocalizations.of(context)!;
-    if (owner == null || _pendingActive != null) return;
+    if (owner == null ||
+        _pendingActive != null ||
+        _runPhase == _RunPhase.requesting) {
+      return;
+    }
     setState(() => _pendingActive = active);
     try {
       final task = await _notifier.setActive(
@@ -232,28 +236,48 @@ class _TaskDetailState extends ConsumerState<_TaskDetail> {
   /// Asks the server to run the task once, then reads History until a run
   /// newer than the request shows, for up to [scheduledTaskRunPollLimit]
   /// reads. The request's reply only means the server accepted it.
+  ///
+  /// While the request is on its way the active switch waits, and Run now
+  /// waits for a switch change, so neither reply replaces the task the other
+  /// one returned later.
   Future<void> _run() async {
     final owner = _owner;
     final l10n = AppLocalizations.of(context)!;
-    if (owner == null || _runBusy) return;
-    // What History held before the request. A run is the requested one only
-    // if it is not one of these and is not older than the newest of them,
-    // the task's own last run time included when History is not loaded.
-    final before = <AutomationRun>[..._runs, ?_task?.lastRun, ?_requestedRun];
-    final knownIds = {for (final run in before) run.id};
-    int? newestBefore = _task?.lastRunAtNs;
-    for (final run in before) {
-      final at = run.createdAtNs;
-      if (at != null && (newestBefore == null || at > newestBefore)) {
-        newestBefore = at;
-      }
-    }
+    if (owner == null || _runBusy || _pendingActive != null) return;
     _runPoll?.cancel();
     setState(() {
       _runPhase = _RunPhase.requesting;
       _runError = null;
     });
     try {
+      // What History held right before the request. A run is the requested
+      // one only if it is not one of these and is not older than the newest
+      // of them, the task's own last run time included. History is read
+      // again first: a scheduled run that finished after this screen loaded
+      // would otherwise pass for the requested one.
+      var latest = const <AutomationRun>[];
+      try {
+        latest = await _notifier.runs(widget.taskId, owner: owner);
+      } on AutomationsOwnerChangedException {
+        rethrow;
+      } catch (_) {
+        // The request still goes; what this screen knew is the baseline.
+      }
+      _requireOwner(owner);
+      final before = <AutomationRun>[
+        ...latest,
+        ..._runs,
+        ?_task?.lastRun,
+        ?_requestedRun,
+      ];
+      final knownIds = {for (final run in before) run.id};
+      int? newestBefore = _task?.lastRunAtNs;
+      for (final run in before) {
+        final at = run.createdAtNs;
+        if (at != null && (newestBefore == null || at > newestBefore)) {
+          newestBefore = at;
+        }
+      }
       final accepted = await _notifier.run(widget.taskId, owner: owner);
       _requireOwner(owner);
       setState(() {
@@ -576,7 +600,14 @@ class _TaskDetailState extends ConsumerState<_TaskDetail> {
               key: const Key('scheduled-task-active-switch'),
               value: pending ?? task.isActive,
               semanticLabel: l10n.scheduledTaskActiveLabel,
-              onChanged: pending != null || _deleting ? null : _setActive,
+              // A Run now on its way returns the task too; one change at a
+              // time keeps an older reply from undoing a newer one.
+              onChanged:
+                  pending != null ||
+                      _deleting ||
+                      _runPhase == _RunPhase.requesting
+                  ? null
+                  : _setActive,
             ),
             preserveTrailingSemantics: true,
           ),
@@ -712,9 +743,11 @@ class _TaskDetailState extends ConsumerState<_TaskDetail> {
             title: l10n.scheduledTaskRunNow,
             titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
             foregroundColor: context.conduitTheme.buttonPrimary,
-            enabled: !_runBusy && !_deleting,
+            enabled: !_runBusy && !_deleting && _pendingActive == null,
             status: _runPhase == _RunPhase.requesting ? const _Spinner() : null,
-            onTap: _runBusy || _deleting ? null : _run,
+            onTap: _runBusy || _deleting || _pendingActive != null
+                ? null
+                : _run,
           ),
         ],
       ),

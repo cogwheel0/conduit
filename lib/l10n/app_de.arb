@@ -977,9 +977,9 @@
   "chatSettingsApplied": "Chat-Einstellungen aktiv",
   "chatSettingsAppliedDescription": "Dieser Chat hat gespeicherte Einstellungen, die bei jeder Antwort verwendet werden.",
   "chatSettingsTurnOnAdvanced": "Aktiviere „Erweitert“, um sie zu ändern",
-  "chatSettingsDescription": "Diese Einstellungen gelten nur für diesen Chat. Alles, was auf „Übernehmen“ steht, nutzt deine Standardwerte.",
+  "chatSettingsDescription": "Diese Einstellungen gelten nur für diesen Chat. Alles, was auf „Dein Standard“ steht, nutzt den Standardwert aus deinen Einstellungen.",
   "chatSettingsSystemPrompt": "System-Prompt",
-  "chatSettingsSystemPromptEmptyNote": "Ein leerer Prompt sendet gar keinen System-Prompt, auch wenn du einen Standard-Prompt hast. Wähle „Übernehmen“, um deinen Standard zu nutzen.",
+  "chatSettingsSystemPromptEmptyNote": "Ein leerer Prompt sendet gar keinen System-Prompt, auch wenn du einen Standard-Prompt hast. Wähle „Dein Standard“, um deinen Standard zu nutzen.",
   "chatSettingsParameters": "Parameter",
   "chatSettingsInherit": "Dein Standard",
   "chatSettingsModelDefault": "Modellstandard",
@@ -1220,7 +1220,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "und einen neuen geteilten Link erstellen.",
+  "shareChatDeleteAndCreate": "Entfernt den aktuellen Link, damit du einen neuen erstellen kannst.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

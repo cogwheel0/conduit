@@ -2194,9 +2194,9 @@
   "chatSettingsApplied": "Nastavenia chatu použité",
   "chatSettingsAppliedDescription": "Tento chat má uložené nastavenia a používajú sa pri každej odpovedi.",
   "chatSettingsTurnOnAdvanced": "Na zmenu zapnite Pokročilé",
-  "chatSettingsDescription": "Tieto nastavenia platia len pre tento chat. Všetko nastavené na Prevziať používa vaše predvolené hodnoty.",
+  "chatSettingsDescription": "Tieto nastavenia platia len pre tento chat. Všetko nastavené na „Vaše predvolené“ používa predvolenú hodnotu z vašich nastavení.",
   "chatSettingsSystemPrompt": "Systémový prompt",
-  "chatSettingsSystemPromptEmptyNote": "Prázdny prompt neodošle žiadny systémový prompt, ani keď máte predvolený. Zvoľte Prevziať, aby sa použil váš predvolený.",
+  "chatSettingsSystemPromptEmptyNote": "Prázdny prompt neodošle žiadny systémový prompt, ani keď máte predvolený. Zvoľte „Vaše predvolené“, aby sa použil váš predvolený.",
   "chatSettingsParameters": "Parametre",
   "chatSettingsInherit": "Vaše predvolené",
   "chatSettingsModelDefault": "Predvolené modelu",
@@ -2708,7 +2708,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "a vytvoriť nový zdieľaný odkaz.",
+  "shareChatDeleteAndCreate": "Odstráni aktuálny odkaz, aby ste mohli vytvoriť nový.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

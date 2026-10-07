@@ -176,6 +176,35 @@ enum ChatDraftSendNowOutcome {
   admissionFailed,
 }
 
+/// Where [draftId] goes back among [ids], given [seenOrder], the ids in the
+/// order the user saw when it was removed (the draft included).
+///
+/// It goes right after the nearest draft that preceded it there and is still
+/// in [ids], else right before the nearest one that followed it. Neighbours
+/// that left meanwhile, or were removed and are not back yet, are skipped, so
+/// drafts removed one after another and put back in any order end up in the
+/// order they started in. With no neighbour left, or no [seenOrder], it goes
+/// to [fallback], clamped to [ids].
+int chatDraftRestoreIndex(
+  List<String> ids, {
+  required List<String> seenOrder,
+  required String draftId,
+  required int fallback,
+}) {
+  final at = seenOrder.indexOf(draftId);
+  if (at >= 0) {
+    for (var i = at - 1; i >= 0; i--) {
+      final found = ids.indexOf(seenOrder[i]);
+      if (found >= 0) return found + 1;
+    }
+    for (var i = at + 1; i < seenOrder.length; i++) {
+      final found = ids.indexOf(seenOrder[i]);
+      if (found >= 0) return found;
+    }
+  }
+  return fallback.clamp(0, ids.length);
+}
+
 /// [draft]'s files in order, found among the files [queue] itself captured. A
 /// file another queue holds, under another account or on another chat, is never
 /// one of them, even at the same pathname. A file that is no longer held is
@@ -453,6 +482,12 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
   /// the draft was removed; it names the chat and account the draft belongs
   /// to, and nothing is restored under any other.
   ///
+  /// [seenOrder], when given, is the order of draft ids the user saw when they
+  /// removed it, the draft included. The draft then goes back next to the
+  /// neighbours it had there (see [chatDraftRestoreIndex]), so drafts removed
+  /// one after another and put back in any order keep their original order;
+  /// [index] only applies when none of those neighbours is queued.
+  ///
   /// [attachments] are the draft's files as they were held then, in order. An
   /// upload is never resumed, so a draft comes back only when every one of its
   /// files had finished uploading. Returns whether the draft is queued again.
@@ -461,6 +496,7 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     QueuedChatDraft draft,
     int index, {
     List<QueuedDraftAttachment> attachments = const <QueuedDraftAttachment>[],
+    List<String> seenOrder = const <String>[],
   }) {
     if (attachments.length != draft.attachmentIds.length) return false;
     for (final (i, held) in attachments.indexed) {
@@ -509,7 +545,15 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
         current.id,
         (queue) => queue._copyWith(
           drafts: [...queue.drafts]
-            ..insert(index.clamp(0, queue.drafts.length), draft),
+            ..insert(
+              chatDraftRestoreIndex(
+                [for (final other in queue.drafts) other.id],
+                seenOrder: seenOrder,
+                draftId: draft.id,
+                fallback: index,
+              ),
+              draft,
+            ),
         ),
       );
     }

@@ -975,9 +975,9 @@
   "chatSettingsApplied": "Chatinstellingen toegepast",
   "chatSettingsAppliedDescription": "Deze chat heeft opgeslagen instellingen, die bij elk antwoord worden gebruikt.",
   "chatSettingsTurnOnAdvanced": "Zet Geavanceerd aan om ze te wijzigen",
-  "chatSettingsDescription": "Deze instellingen gelden alleen voor deze chat. Alles wat op Overnemen staat, gebruikt je standaardwaarden.",
+  "chatSettingsDescription": "Deze instellingen gelden alleen voor deze chat. Alles wat op ‘Jouw standaard’ staat, gebruikt de standaardwaarde uit je instellingen.",
   "chatSettingsSystemPrompt": "Systeemprompt",
-  "chatSettingsSystemPromptEmptyNote": "Een lege prompt stuurt helemaal geen systeemprompt mee, ook als je een standaardprompt hebt. Kies Overnemen om je standaard te gebruiken.",
+  "chatSettingsSystemPromptEmptyNote": "Een lege prompt stuurt helemaal geen systeemprompt mee, ook als je een standaardprompt hebt. Kies ‘Jouw standaard’ om je standaard te gebruiken.",
   "chatSettingsParameters": "Parameters",
   "chatSettingsInherit": "Jouw standaard",
   "chatSettingsModelDefault": "Modelstandaard",
@@ -1218,7 +1218,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "en een nieuwe gedeelde link maken.",
+  "shareChatDeleteAndCreate": "Verwijdert de huidige link zodat je een nieuwe kunt maken.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

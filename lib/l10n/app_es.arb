@@ -975,9 +975,9 @@
   "chatSettingsApplied": "Ajustes del chat aplicados",
   "chatSettingsAppliedDescription": "Este chat tiene ajustes guardados y se usan en cada respuesta.",
   "chatSettingsTurnOnAdvanced": "Activa Avanzado para cambiarlos",
-  "chatSettingsDescription": "Estos ajustes se aplican solo a este chat. Todo lo que esté en Heredar usa tus valores predeterminados.",
+  "chatSettingsDescription": "Estos ajustes se aplican solo a este chat. Todo lo que esté en «Tu predeterminado» usa el valor de tus ajustes.",
   "chatSettingsSystemPrompt": "Prompt del sistema",
-  "chatSettingsSystemPromptEmptyNote": "Un prompt vacío no envía ningún prompt del sistema, aunque tengas uno predeterminado. Elige Heredar para usar el tuyo.",
+  "chatSettingsSystemPromptEmptyNote": "Un prompt vacío no envía ningún prompt del sistema, aunque tengas uno predeterminado. Elige «Tu predeterminado» para usar el tuyo.",
   "chatSettingsParameters": "Parámetros",
   "chatSettingsInherit": "Tu predeterminado",
   "chatSettingsModelDefault": "Predeterminado del modelo",
@@ -1218,7 +1218,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "y crear un nuevo enlace compartido.",
+  "shareChatDeleteAndCreate": "Elimina el enlace actual para que puedas crear uno nuevo.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

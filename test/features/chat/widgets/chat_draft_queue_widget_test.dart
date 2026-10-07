@@ -620,6 +620,49 @@ void main() {
     expect(find.text(en.queuedDraftRemoved), findsNothing);
   });
 
+  for (final (removeOrder, undoOrder) in const [
+    (['a', 'b'], ['a', 'b']),
+    (['a', 'b'], ['b', 'a']),
+    (['b', 'a'], ['a', 'b']),
+    (['c', 'a'], ['c', 'a']),
+  ]) {
+    testWidgets('drafts removed as $removeOrder and put back as $undoOrder '
+        'keep their order', (tester) async {
+      final rig = await _pump(tester);
+      for (final text in ['a', 'b', 'c']) {
+        await rig.type(text);
+        await tester.tap(find.text(queueLabel));
+        await tester.pump();
+      }
+      final byText = {for (final draft in rig.drafts) draft.text: draft.id};
+      dismissSessionNote(tester);
+      await openQueue(tester);
+      await tester.pumpAndSettle();
+
+      for (final text in removeOrder) {
+        await tester.tap(find.byKey(Key('chat-draft-delete-${byText[text]}')));
+        await tester.pump();
+      }
+      // Each offer sits where its draft was.
+      double top(String text) {
+        final undo = find.byKey(Key('chat-draft-undo-${byText[text]}'));
+        final card = find.byKey(Key('chat-draft-delete-${byText[text]}'));
+        return tester
+            .getTopLeft(undo.evaluate().isEmpty ? card : undo)
+            .dy;
+      }
+
+      expect(top('a'), lessThan(top('b')));
+      expect(top('b'), lessThan(top('c')));
+
+      for (final text in undoOrder) {
+        await tester.tap(find.byKey(Key('chat-draft-undo-${byText[text]}')));
+        await tester.pump();
+      }
+      expect(rig.drafts.map((d) => d.text), ['a', 'b', 'c']);
+    });
+  }
+
   testWidgets('the offer to put a draft back goes away after a while', (
     tester,
   ) async {

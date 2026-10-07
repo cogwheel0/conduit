@@ -622,7 +622,8 @@ class _NotificationTargetEditorState extends State<_NotificationTargetEditor> {
         onChanged: _busy ? null : onChanged,
         semanticLabel: title,
       ),
-      onTap: () => onChanged(!value),
+      // Held like the switch while a request runs, as the action rows are.
+      onTap: _busy ? null : () => onChanged(!value),
     );
   }
 

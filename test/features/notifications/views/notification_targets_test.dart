@@ -6,6 +6,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
     show AdaptiveButton, AdaptiveSwitch;
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -308,6 +309,43 @@ void main() {
       await tester.pumpAndSettle();
       expect(session.wire.writes, hasLength(1));
       expect(find.byKey(const Key('notification-target-save')), findsNothing);
+    });
+
+    testWidgets('while a save is on its way the switch rows take no tap', (
+      tester,
+    ) async {
+      final session = await _pump(tester);
+      await _openEditor(tester, 'ops');
+      final row = find.byKey(const Key('notification-target-enabled'));
+      bool shown() => tester
+          .widget<AdaptiveSwitch>(
+            find.descendant(of: row, matching: find.byType(AdaptiveSwitch)),
+          )
+          .value;
+      await tester.tap(row);
+      await tester.pump();
+      final edited = shown();
+      final gate = Completer<void>();
+      session.wire.holdWrites = gate;
+      await tester.ensureVisible(
+        find.byKey(const Key('notification-target-save')),
+      );
+      await tester.tap(find.byKey(const Key('notification-target-save')));
+      await tester.pump();
+
+      await tester.ensureVisible(row);
+      await tester.tap(row, warnIfMissed: false);
+      await tester.pump();
+      expect(shown(), edited);
+      expect(tester.widget<UtilityRow>(row).onTap, isNull);
+      expect(
+        tester.getSemantics(row),
+        isSemantics(hasTapAction: false, hasEnabledState: true),
+      );
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(session.wire.writes, hasLength(1));
     });
 
     testWidgets('Delete waits for confirmation', (tester) async {

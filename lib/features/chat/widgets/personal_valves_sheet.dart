@@ -138,10 +138,13 @@ class _PersonalValvesSheetState extends ConsumerState<PersonalValvesSheet> {
     ref.watch(openWebUiAuthSessionEpochProvider);
     final ownerCurrent = widget.owner.isCurrent(ref.read);
     final canGoBack = _target != null && widget.targets.length > 1;
-    final dirty =
-        ownerCurrent &&
-        _target != null &&
-        _hasEdits(ref.watch(personalValvesEditorProvider(_key)));
+    final editor = ownerCurrent && _target != null
+        ? ref.watch(personalValvesEditorProvider(_key))
+        : null;
+    final dirty = editor != null && _hasEdits(editor);
+    // A save on its way can't be called back, and it closes the sheet when it
+    // lands; nothing closes or asks to discard until then.
+    final saving = editor?.saving ?? false;
 
     // showCustom does not inset for the software keyboard, so the sheet does
     // it the way ThemedSheets.showSurface does. The surface wraps its child in
@@ -151,6 +154,7 @@ class _PersonalValvesSheetState extends ConsumerState<PersonalValvesSheet> {
     // Back, the close button and a swipe all ask before throwing edits away.
     return DiscardChangesScope(
       dirty: dirty,
+      busy: saving,
       child: AnimatedPadding(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
@@ -158,7 +162,7 @@ class _PersonalValvesSheetState extends ConsumerState<PersonalValvesSheet> {
           bottom: MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: SheetDismissGuard(
-          guarded: dirty,
+          guarded: dirty || saving,
           onDismissRequest: () => Navigator.of(context).maybePop(),
           child: ConduitModalSheetSurface(
             showHandle: false,
@@ -173,7 +177,7 @@ class _PersonalValvesSheetState extends ConsumerState<PersonalValvesSheet> {
                       ConduitIconButton(
                         key: const Key('personal-valves-back'),
                         tooltip: l10n.back,
-                        onPressed: _backToTargets,
+                        onPressed: saving ? null : _backToTargets,
                         icon: Platform.isIOS
                             ? CupertinoIcons.chevron_back
                             : Icons.arrow_back,
@@ -188,7 +192,9 @@ class _PersonalValvesSheetState extends ConsumerState<PersonalValvesSheet> {
                     ),
                     SheetCloseButton(
                       tooltip: l10n.close,
-                      onPressed: () => Navigator.of(context).maybePop(),
+                      onPressed: saving
+                          ? null
+                          : () => Navigator.of(context).maybePop(),
                     ),
                   ],
                 ),

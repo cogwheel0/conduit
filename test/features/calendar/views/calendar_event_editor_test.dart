@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:conduit/features/calendar/views/calendar_sheet_frame.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
@@ -806,6 +805,36 @@ void main() {
       expect(find.byKey(_save), findsNothing);
     });
 
+    testWidgets('while a save is on its way nothing asks or closes, and the '
+        'save then closes the editor', (tester) async {
+      final session = await pumpCalendar(tester);
+      await openEdit(tester);
+      await typeInto(tester, 'calendar-editor-title', 'Renamed');
+      final gate = Completer<void>();
+      session.wire.holdWrites = gate;
+
+      await tester.tap(find.byKey(_save));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(session.wire.writes, hasLength(1));
+
+      await tester.tap(find.byTooltip('Close').last);
+      await tester.pumpAndSettle();
+      expect(find.text(_discardTitle), findsNothing);
+      await tester.drag(find.text('Edit event').last, const Offset(0, 400));
+      await tester.pumpAndSettle();
+      expect(find.text(_discardTitle), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text(_discardTitle), findsNothing);
+      expect(find.byKey(_save), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(_save), findsNothing);
+      expect(find.text(_discardTitle), findsNothing);
+      expect(session.wire.stored('ev-mine')!['title'], 'Renamed');
+    });
+
     testWidgets('an untouched editor still swipes away', (tester) async {
       await pumpCalendar(tester);
       await openAdd(tester);
@@ -913,8 +942,9 @@ void main() {
       await tester.pumpAndSettle();
       await openAdd(tester);
 
-      final list = find.descendant(
-        of: find.byType(CalendarSheetFrame),
+      // The form's own list, the nearest scrollable around its fields.
+      final list = find.ancestor(
+        of: find.byKey(const Key('calendar-editor-title')),
         matching: find.byType(Scrollable),
       );
       final save = tester.getRect(find.byKey(_save));
@@ -923,6 +953,69 @@ void main() {
       await tester.drag(list.first, const Offset(0, -300));
       await tester.pumpAndSettle();
       expect(tester.getRect(find.byKey(_save)), save);
+    });
+
+    testWidgets('in landscape with the keyboard up the form, Save and a long '
+        'error scroll as one and nothing overflows', (tester) async {
+      final session = await pumpCalendar(tester);
+      // A phone on its side with the keyboard up leaves a strip of screen.
+      tester.view.physicalSize = const Size(844, 390);
+      await tester.pumpAndSettle();
+      await openEdit(tester);
+      await tester.showKeyboard(find.byKey(const Key('calendar-editor-title')));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 160);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      // The sheet scrolls as a whole rather than pinning the footer.
+      final sheetScroll = tester.widget<SingleChildScrollView>(
+        find.ancestor(
+          of: find.byKey(_save),
+          matching: find.byKey(const Key('calendar-sheet-scroll')),
+        ),
+      );
+      expect(sheetScroll.physics, isNot(isA<NeverScrollableScrollPhysics>()));
+      // The title field kept its focus through the change of layout.
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(
+                of: find.byKey(const Key('calendar-editor-title')),
+                matching: find.byType(EditableText),
+              ),
+            )
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+
+      await typeInto(tester, 'calendar-editor-title', 'Renamed');
+      session.wire.rejectWrites = (
+        status: 400,
+        detail: List.filled(40, 'The server explains at length.').join(' '),
+      );
+      await tester.ensureVisible(find.byKey(_save));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(_save));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final error = tester.widget<Text>(
+        find.byKey(const Key('calendar-editor-error')),
+      );
+      expect(error.maxLines, 3);
+
+      // Save is reached by scrolling the sheet, and works from there.
+      session.wire.rejectWrites = null;
+      await tester.ensureVisible(find.byKey(_save));
+      await tester.pumpAndSettle();
+      final keyboardTop = 390 - 160;
+      expect(
+        tester.getRect(find.byKey(_save)).bottom,
+        lessThanOrEqualTo(keyboardTop),
+      );
+      await tester.tap(find.byKey(_save));
+      await tester.pumpAndSettle();
+      expect(session.wire.stored('ev-mine')!['title'], 'Renamed');
     });
 
     testWidgets('times follow the device\'s 24-hour setting', (tester) async {

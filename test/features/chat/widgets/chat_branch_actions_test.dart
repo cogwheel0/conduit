@@ -409,6 +409,29 @@ void main() {
       },
     );
 
+    testWidgets('a screen reader can continue from the previewed response', (
+      tester,
+    ) async {
+      final c = await open(tester);
+      await tester.tap(pagerButton(_en.previousLabel).first);
+      await tester.pumpAndSettle();
+
+      final pill = action(_en.chatBranchContinueFromResponse);
+      expect(
+        tester.getSemantics(pill),
+        isSemantics(
+          label: _en.chatBranchContinueFromResponse,
+          isButton: true,
+          hasTapAction: true,
+        ),
+      );
+      tester.semantics.tap(
+        find.semantics.byLabel(_en.chatBranchContinueFromResponse),
+      );
+      await settle(tester);
+      expect(visibleIds(c), ['u1', 'a1', 'u3', 'a4']);
+    });
+
     testWidgets('is refused with a clear state while a response runs', (
       tester,
     ) async {

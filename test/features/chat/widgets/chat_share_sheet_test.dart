@@ -16,6 +16,7 @@ import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -341,7 +342,7 @@ void main() {
     expect(
       find.descendant(
         of: deleteRow,
-        matching: find.text('Delete this link and create a new shared link.'),
+        matching: find.text(l10n.shareChatDeleteLink),
       ),
       findsOneWidget,
     );
@@ -389,6 +390,11 @@ void main() {
         ),
         findsOneWidget,
       );
+      // Delete reads as the action with what it means under it, as on the
+      // native sheet, not as one run-on title.
+      final deleteRow = tester.widget<UtilityRow>(delete);
+      check(deleteRow.title).equals(l10n.shareChatDeleteLink);
+      check(deleteRow.subtitle).equals(l10n.shareChatDeleteAndCreate);
       check(l10n.chatShareAudience).equals('Who has access');
       check(l10n.chatShareAudienceDescription)
           .equals('Choose who can open this chat');

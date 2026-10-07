@@ -707,6 +707,48 @@ void main() {
       expect(find.byKey(const Key('calendar-event-delete')), findsOneWidget);
     });
 
+    testWidgets('an answer on its way holds Edit without showing it as '
+        'loading', (tester) async {
+      final session = await pumpCalendar(
+        tester,
+        configureWire: (wire) => wire.events = [
+          eventJson(
+            'ev-mine',
+            'cal-mine',
+            attendees: [attendeeJson('ev-mine', 'user-1')],
+          ),
+        ],
+      );
+      await tester.tap(item('ev-mine|'));
+      await tester.pumpAndSettle();
+      ConduitButton edit() => tester.widget<ConduitButton>(
+        find.byKey(const Key('calendar-event-edit')),
+      );
+      expect(edit().isLoading, isFalse);
+
+      final gate = Completer<void>();
+      session.wire.holdWrites = gate;
+      await tester.tap(rsvp('Going'));
+      await tester.pump();
+      expect(find.byKey(const Key('calendar-rsvp-sending')), findsOneWidget);
+      expect(edit().onPressed, isNull);
+      expect(edit().isLoading, isFalse);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(edit().onPressed, isNotNull);
+
+      // Fetching the event to edit is what shows on Edit.
+      final read = Completer<void>();
+      session.wire.holdEventReads = read;
+      await tester.tap(find.byKey(const Key('calendar-event-edit')));
+      await tester.pump();
+      expect(edit().isLoading, isTrue);
+      read.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-editor-save')), findsOneWidget);
+    });
+
     testWidgets('an event in a read-only calendar can be neither', (
       tester,
     ) async {

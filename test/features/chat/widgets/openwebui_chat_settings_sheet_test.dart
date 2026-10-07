@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit/features/chat/widgets/openwebui_chat_settings_sheet.dart';
@@ -135,6 +136,7 @@ void main() {
     Model model = _model,
     bool advanced = true,
     bool native = false,
+    Future<void> Function()? accessGate,
   }) async {
     if (native) {
       // The presenter iOS 26 devices use: CNBottomSheet supplies Flutter's
@@ -170,7 +172,10 @@ void main() {
             role: 'user',
           ),
         ),
-        openWebUiChatSettingsAccessProvider.overrideWith((ref) async => access),
+        openWebUiChatSettingsAccessProvider.overrideWith((ref) async {
+          await accessGate?.call();
+          return access;
+        }),
         appSettingsProvider.overrideWith(() => settings),
       ],
     );
@@ -956,6 +961,41 @@ void main() {
       expect(find.text(_en.chatSettingsTitle), findsNothing);
     });
 
+    testWidgets('while a save is on its way nothing asks or closes, and the '
+        'save then closes the sheet', (tester) async {
+      await tester.runAsync(() => seed('c1', {}));
+      Completer<void>? gate;
+      final container = await openSheet(
+        tester,
+        active: _conversation('c1'),
+        accessGate: () async => gate?.future,
+      );
+
+      await typeInto(tester, field('seed'), '7');
+      // The save reads the permissions first; holding them holds the save.
+      gate = Completer<void>();
+      container.invalidate(openWebUiChatSettingsAccessProvider);
+      await tester.tap(saveButton());
+      await tester.pump();
+
+      await tester.tap(closeButton(), warnIfMissed: false);
+      await tester.pump();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pump();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text(_en.chatSettingsTitle), findsOneWidget);
+
+      gate.complete();
+      await settle(tester);
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text(_en.chatSettingsTitle), findsNothing);
+      expect((await stored(tester, 'c1'))!['seed'], 7);
+    });
+
     testWidgets('swiping a clean sheet down closes it', (tester) async {
       await tester.runAsync(() => seed('c1', {}));
       await openSheet(tester, active: _conversation('c1'));
@@ -973,6 +1013,28 @@ void main() {
   });
 
   group('wording', () {
+    test('the description and the empty-prompt note name the default choice '
+        'as it is labelled, in every language', () {
+      for (final locale in AppLocalizations.supportedLocales) {
+        final l10n = lookupAppLocalizations(locale);
+        final label = l10n.chatSettingsInherit;
+        expect(
+          l10n.chatSettingsDescription,
+          contains(label),
+          reason: '$locale chatSettingsDescription',
+        );
+        expect(
+          l10n.chatSettingsSystemPromptEmptyNote,
+          contains(label),
+          reason: '$locale chatSettingsSystemPromptEmptyNote',
+        );
+      }
+      expect(
+        lookupAppLocalizations(const Locale('fr')).chatSettingsInherit,
+        'Votre valeur par défaut',
+      );
+    });
+
     testWidgets('unset settings read as the user\'s own default', (
       tester,
     ) async {

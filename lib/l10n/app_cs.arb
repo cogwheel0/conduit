@@ -2194,9 +2194,9 @@
   "chatSettingsApplied": "Nastavení chatu použito",
   "chatSettingsAppliedDescription": "Tento chat má uložená nastavení a používají se pro každou odpověď.",
   "chatSettingsTurnOnAdvanced": "Pro změnu zapněte Pokročilé",
-  "chatSettingsDescription": "Tato nastavení platí jen pro tento chat. Vše nastavené na Převzít používá vaše výchozí hodnoty.",
+  "chatSettingsDescription": "Tato nastavení platí jen pro tento chat. Vše nastavené na „Vaše výchozí“ používá výchozí hodnotu z vašeho nastavení.",
   "chatSettingsSystemPrompt": "Systémový prompt",
-  "chatSettingsSystemPromptEmptyNote": "Prázdný prompt neodešle žádný systémový prompt, ani když máte výchozí. Zvolte Převzít, aby se použil váš výchozí.",
+  "chatSettingsSystemPromptEmptyNote": "Prázdný prompt neodešle žádný systémový prompt, ani když máte výchozí. Zvolte „Vaše výchozí“, aby se použil váš výchozí.",
   "chatSettingsParameters": "Parametry",
   "chatSettingsInherit": "Vaše výchozí",
   "chatSettingsModelDefault": "Výchozí modelu",
@@ -2708,7 +2708,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "a vytvořit nový sdílený odkaz.",
+  "shareChatDeleteAndCreate": "Odstraní současný odkaz, abyste mohli vytvořit nový.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },
@@ -5890,8 +5890,8 @@
   "calendarVisibilityFooter": "Zobrazují se události ze zaškrtnutých kalendářů. Klepnutím na kalendář jeho události zobrazíte nebo skryjete.",
   "personalizationMemoryTypeUserDescription": "Preference, fakt nebo pokyn týkající se vás.",
   "personalizationMemoryTypeContextDescription": "Souvislosti, na které se má pamatovat v dalších chatech.",
-  "personalizationMemoryTypeUnknown": "Tato vzpomínka má typ, který aplikace nezná. Zůstane beze změny, dokud nevyberete jiný.",
-  "personalizationMemoryAccountChanged": "Účet se změnil. Zavřete toto okno a otevřete vzpomínku znovu.",
+  "personalizationMemoryTypeUnknown": "Tato paměť má typ, který aplikace nezná. Zůstane beze změny, dokud nevyberete jiný.",
+  "personalizationMemoryAccountChanged": "Účet se změnil. Zavřete toto okno a otevřete paměť znovu.",
   "notificationTargetDeliveryAwayDescription": "Jen když Open WebUI nepoužíváte.",
   "notificationTargetDeliveryAlwaysDescription": "Pokaždé, i když jste aktivní.",
   "notificationTargetTestNeedsSave": "Chcete-li změny otestovat, nejprve je uložte.",

@@ -223,6 +223,8 @@ void main() {
         session.wire.runRequests.single.uri.path,
         '/api/v1/automations/a/run',
       );
+      // History was read once right before the request, as its baseline.
+      expect(session.wire.where('GET', '/runs'), hasLength(1));
       expect(find.text('Running…'), findsOneWidget);
       // Run now cannot be pressed again while the first run is awaited.
       final run = tester.widget<UtilityRow>(
@@ -235,7 +237,7 @@ void main() {
       // A read before the server records anything keeps waiting.
       await tester.pump(scheduledTaskRunPollInterval);
       await tester.pump();
-      expect(session.wire.where('GET', '/runs'), hasLength(1));
+      expect(session.wire.where('GET', '/runs'), hasLength(2));
       expect(find.text('Running…'), findsOneWidget);
 
       // The server records the outcome, and the next read finds it.
@@ -254,7 +256,7 @@ void main() {
 
       // Watching stopped once the run showed, and nothing ran again.
       await tester.pump(scheduledTaskRunPollInterval * 3);
-      expect(session.wire.where('GET', '/runs'), hasLength(2));
+      expect(session.wire.where('GET', '/runs'), hasLength(3));
       expect(session.wire.runRequests, hasLength(1));
     });
 
@@ -284,6 +286,74 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Model not found'), findsOneWidget);
+    });
+
+    testWidgets('a scheduled run that finished after the page loaded is not '
+        'taken for the requested one', (tester) async {
+      final session = await _open(tester);
+      // The schedule ran while the page was open; the page has not heard.
+      session.wire.runs['a'] = [runJson('scheduled', createdAt: 1791320000)];
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await tester.pump();
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pump();
+      expect(find.text('Running…'), findsOneWidget);
+      expect(find.text('Run finished.'), findsNothing);
+
+      session.wire.runs['a'] = [
+        runJson('requested', status: 'error', error: 'Model not found'),
+        runJson('scheduled', createdAt: 1791320000),
+      ];
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pumpAndSettle();
+      expect(
+        find.text('The run failed. See History for details.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Run now and the switch wait for each other', (tester) async {
+      final session = await _open(tester);
+      final runHold = session.wire.hold('POST', '/api/v1/automations/a/run');
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await reach(tester, runHold);
+      AdaptiveSwitch toggle() => tester.widget<AdaptiveSwitch>(
+        find.byKey(const Key('scheduled-task-active-switch')),
+      );
+      UtilityRow runRow() => tester.widget<UtilityRow>(
+        find.byKey(const Key('scheduled-task-run')),
+      );
+      expect(toggle().onChanged, isNull);
+
+      runHold.release();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 100));
+      // Accepted, and History is watched: the switch is free again.
+      expect(find.text('Running…'), findsOneWidget);
+      expect(toggle().onChanged, isNotNull);
+
+      // Once History shows the run, Run now is free again.
+      session.wire.runs['a'] = [runJson('r1')];
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pumpAndSettle();
+      expect(runRow().onTap, isNotNull);
+
+      final toggleHold = session.wire.hold(
+        'POST',
+        '/api/v1/automations/a/toggle',
+      );
+      await tester.tap(find.byKey(const Key('scheduled-task-active-switch')));
+      await reach(tester, toggleHold);
+      expect(runRow().onTap, isNull);
+      expect(runRow().enabled, isFalse);
+
+      toggleHold.release();
+      await tester.pumpAndSettle();
+      expect(runRow().onTap, isNotNull);
+      expect(toggle().value, isFalse);
+      expect(session.wire.runRequests, hasLength(1));
     });
 
     testWidgets('the Last run row shows the run Run now found', (

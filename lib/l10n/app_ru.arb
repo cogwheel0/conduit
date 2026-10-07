@@ -981,9 +981,9 @@
   "chatSettingsApplied": "Настройки чата применены",
   "chatSettingsAppliedDescription": "У этого чата есть сохранённые настройки, и они используются в каждом ответе.",
   "chatSettingsTurnOnAdvanced": "Включите «Расширенные», чтобы изменить их",
-  "chatSettingsDescription": "Эти настройки действуют только в этом чате. Всё, что установлено на «Наследовать», использует ваши значения по умолчанию.",
+  "chatSettingsDescription": "Эти настройки действуют только в этом чате. Всё, что установлено на «Ваше по умолчанию», использует значения из ваших настроек.",
   "chatSettingsSystemPrompt": "Системный промпт",
-  "chatSettingsSystemPromptEmptyNote": "Пустой промпт не отправляет системный промпт вообще, даже если у вас есть промпт по умолчанию. Выберите «Наследовать», чтобы использовать его.",
+  "chatSettingsSystemPromptEmptyNote": "Пустой промпт не отправляет системный промпт вообще, даже если у вас есть промпт по умолчанию. Выберите «Ваше по умолчанию», чтобы использовать его.",
   "chatSettingsParameters": "Параметры",
   "chatSettingsInherit": "Ваше по умолчанию",
   "chatSettingsModelDefault": "По умолчанию модели",
@@ -1232,7 +1232,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "и создать новую ссылку для доступа.",
+  "shareChatDeleteAndCreate": "Удаляет текущую ссылку, чтобы можно было создать новую.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

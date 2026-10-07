@@ -470,9 +470,9 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
                 children: [
                   UtilityRow(
                     key: const Key('chat-share-delete'),
-                    title:
-                        '${l10n.shareChatDeleteLink} '
-                        '${l10n.shareChatDeleteAndCreate}',
+                    // Like the native sheet: the action, then what it means.
+                    title: l10n.shareChatDeleteLink,
+                    subtitle: l10n.shareChatDeleteAndCreate,
                     leading: Icon(
                       CupertinoIcons.trash,
                       color: theme.error,

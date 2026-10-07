@@ -736,6 +736,37 @@ void main() {
       expect(find.text(l10n.workspaceAccessCanEdit), findsNothing);
     });
 
+    testWidgets('the general access row is one button a screen reader can '
+        'activate', (tester) async {
+      final handle = tester.ensureSemantics();
+      final l10n = await _loadL10n(tester);
+      await _pumpSheet(tester, grants: [_user('u-bob')]);
+
+      final row = tester.getSemantics(
+        find.byKey(const Key('workspace-access-general')),
+      );
+      expect(
+        row,
+        isSemantics(
+          label:
+              '${l10n.libraryGeneralAccess}: '
+              '${l10n.libraryAccessOnlyPeopleAdded}',
+          isButton: true,
+          hasTapAction: true,
+        ),
+      );
+
+      tester.semantics.tap(
+        find.semantics.byLabel(
+          '${l10n.libraryGeneralAccess}: '
+          '${l10n.libraryAccessOnlyPeopleAdded}',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(PopupMenuItem<int>), findsWidgets);
+      handle.dispose();
+    });
+
     testWidgets('rows name the person in their accessibility labels', (
       tester,
     ) async {

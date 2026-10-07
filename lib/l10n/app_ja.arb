@@ -2194,9 +2194,9 @@
   "chatSettingsApplied": "チャット設定を適用中",
   "chatSettingsAppliedDescription": "このチャットには保存された設定があり、すべての返信で使用されます。",
   "chatSettingsTurnOnAdvanced": "変更するには「詳細設定」をオンにしてください",
-  "chatSettingsDescription": "これらの設定はこのチャットにのみ適用されます。「継承」の項目はデフォルト値を使用します。",
+  "chatSettingsDescription": "これらの設定はこのチャットにのみ適用されます。「あなたのデフォルト」の項目は、設定のデフォルト値を使用します。",
   "chatSettingsSystemPrompt": "システムプロンプト",
-  "chatSettingsSystemPromptEmptyNote": "空のプロンプトは、デフォルトのプロンプトがあってもシステムプロンプトを一切送信しません。デフォルトを使うには「継承」を選んでください。",
+  "chatSettingsSystemPromptEmptyNote": "空のプロンプトは、デフォルトのプロンプトがあってもシステムプロンプトを一切送信しません。デフォルトを使うには「あなたのデフォルト」を選んでください。",
   "chatSettingsParameters": "パラメータ",
   "chatSettingsInherit": "あなたのデフォルト",
   "chatSettingsModelDefault": "モデルのデフォルト",
@@ -2708,7 +2708,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "して、新しい共有リンクを作成します。",
+  "shareChatDeleteAndCreate": "現在のリンクを削除して、新しいリンクを作成できるようにします。",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

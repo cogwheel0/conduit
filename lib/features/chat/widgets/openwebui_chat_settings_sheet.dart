@@ -136,7 +136,9 @@ class _OpenWebUiChatSettingsSheetState
   /// Closes the sheet, first asking whether to throw edits away. Close, the
   /// barrier, back and a swipe down all come here.
   Future<void> _close() async {
-    if (_confirmingClose) return;
+    // A save on its way can't be called back, and it closes the sheet when it
+    // lands; a discard question asked meanwhile would be answered by it.
+    if (_confirmingClose || _saving) return;
     final navigator = Navigator.of(context);
     if (!_form.isDirty) {
       navigator.pop();
@@ -268,13 +270,15 @@ class _OpenWebUiChatSettingsSheetState
     // away. The route's own swipe pops without consulting PopScope, so while
     // there are edits the sheet stops it from closing at its smallest size
     // and claims drags outside the form (see [SheetDismissGuard]).
+    // While a save is on its way nothing closes the sheet and nothing asks.
+    final holding = dirty || _saving;
     return PopScope<Object?>(
-      canPop: !dirty,
+      canPop: !holding,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _close();
       },
       child: SheetDismissGuard(
-        guarded: dirty,
+        guarded: holding,
         onDismissRequest: _close,
         child: Stack(
           children: [
@@ -304,7 +308,7 @@ class _OpenWebUiChatSettingsSheetState
                   initialChildSize: _initialSheetSize,
                   minChildSize: 0.4,
                   maxChildSize: 0.95,
-                  shouldCloseOnMinExtent: !dirty,
+                  shouldCloseOnMinExtent: !holding,
                   builder: (context, scrollController) {
                     // The native iOS 26 sheet route supplies Flutter's own
                     // Material, which material_ui's text fields do not see.

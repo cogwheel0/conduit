@@ -753,9 +753,9 @@
   "chatSettingsApplied": "채팅 설정 적용됨",
   "chatSettingsAppliedDescription": "이 채팅에는 저장된 설정이 있으며 모든 답변에 사용됩니다.",
   "chatSettingsTurnOnAdvanced": "변경하려면 고급을 켜세요",
-  "chatSettingsDescription": "이 설정은 이 채팅에만 적용됩니다. 상속으로 둔 항목은 기본값을 사용합니다.",
+  "chatSettingsDescription": "이 설정은 이 채팅에만 적용됩니다. ‘내 기본값’으로 둔 항목은 설정의 기본값을 사용합니다.",
   "chatSettingsSystemPrompt": "시스템 프롬프트",
-  "chatSettingsSystemPromptEmptyNote": "비어 있는 프롬프트는 기본 프롬프트가 있어도 시스템 프롬프트를 전혀 보내지 않습니다. 기본값을 사용하려면 상속을 선택하세요.",
+  "chatSettingsSystemPromptEmptyNote": "비어 있는 프롬프트는 기본 프롬프트가 있어도 시스템 프롬프트를 전혀 보내지 않습니다. 기본값을 사용하려면 ‘내 기본값’을 선택하세요.",
   "chatSettingsParameters": "매개변수",
   "chatSettingsInherit": "내 기본값",
   "chatSettingsModelDefault": "모델 기본값",
@@ -996,7 +996,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "후 새 공유 링크 만들기.",
+  "shareChatDeleteAndCreate": "현재 링크를 삭제하여 새 링크를 만들 수 있게 합니다.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

@@ -167,8 +167,11 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
 
   /// Closes the editor, asking first when that would throw edits away.
   Future<void> _close() async {
+    // A save on its way can't be called back, and its result closes the
+    // editor; a discard question asked meanwhile would be answered by it.
+    if (_saving) return;
     if (_dirty && !await confirmDiscardChanges(context)) return;
-    if (mounted) Navigator.of(context).pop();
+    if (mounted && !_saving) Navigator.of(context).pop();
   }
 
   Future<void> _pickDate({required bool end}) async {
@@ -409,6 +412,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
 
     return DiscardChangesScope(
       dirty: dirty,
+      busy: _saving,
       child: CalendarSheetFrame(
         title: draft.isNew
             ? l10n.calendarNewEventTitle
@@ -416,7 +420,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
             ? l10n.calendarEditSeriesTitle
             : l10n.calendarEditEventTitle,
         onClose: _close,
-        holdDismiss: dirty,
+        holdDismiss: dirty || _saving,
         footer: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
@@ -426,6 +430,10 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
                 message,
                 key: const Key('calendar-editor-error'),
                 style: theme.bodySmall?.copyWith(color: theme.error),
+                // The footer stays pinned, so a long message must not crowd out
+                // the actions; the whole text is still read out.
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: Spacing.sm),
             ],

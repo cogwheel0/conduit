@@ -975,11 +975,11 @@
   "chatSettingsApplied": "Réglages du chat appliqués",
   "chatSettingsAppliedDescription": "Ce chat a des réglages enregistrés, utilisés pour chaque réponse.",
   "chatSettingsTurnOnAdvanced": "Activez Avancé pour les modifier",
-  "chatSettingsDescription": "Ces réglages s’appliquent uniquement à ce chat. Tout ce qui est sur Hériter utilise vos valeurs par défaut.",
+  "chatSettingsDescription": "Ces réglages s’appliquent uniquement à ce chat. Tout ce qui est sur « Votre valeur par défaut » utilise la valeur de vos réglages.",
   "chatSettingsSystemPrompt": "Prompt système",
-  "chatSettingsSystemPromptEmptyNote": "Un prompt vide n’envoie aucun prompt système, même si vous en avez un par défaut. Choisissez Hériter pour utiliser le vôtre.",
+  "chatSettingsSystemPromptEmptyNote": "Un prompt vide n’envoie aucun prompt système, même si vous en avez un par défaut. Choisissez « Votre valeur par défaut » pour utiliser le vôtre.",
   "chatSettingsParameters": "Paramètres",
-  "chatSettingsInherit": "Votre défaut",
+  "chatSettingsInherit": "Votre valeur par défaut",
   "chatSettingsModelDefault": "Défaut du modèle",
   "chatSettingsCustom": "Personnalisé",
   "chatSettingsResetAll": "Tout réinitialiser",
@@ -1218,7 +1218,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "et créer un nouveau lien partagé.",
+  "shareChatDeleteAndCreate": "Supprime le lien actuel pour que vous puissiez en créer un nouveau.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

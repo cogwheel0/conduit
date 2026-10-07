@@ -916,6 +916,70 @@ void main() {
       check(s.active!.drafts.map((d) => d.id).first).equals(first.id);
     });
 
+    test('drafts removed one after another go back between the neighbours '
+        'they were removed from, in whatever order they are put back',
+        () async {
+      for (final undo in const [
+        ['a', 'b'],
+        ['b', 'a'],
+      ]) {
+        final s = await _Session.start();
+        final drafts = {
+          for (final text in ['a', 'b', 'c']) text: s.queue.enqueue(text)!,
+        };
+        final seen = [for (final d in s.active!.drafts) d.id];
+        final froms = <String, ChatDraftQueue>{};
+        for (final text in ['a', 'b']) {
+          froms[text] = s.active!;
+          // The index each had when it left: both were first by then.
+          check(s.active!.drafts.first.id).equals(drafts[text]!.id);
+          check(s.queue.removeDraft(drafts[text]!.id)).isTrue();
+        }
+
+        for (final text in undo) {
+          check(
+            s.queue.restoreDraft(
+              froms[text]!,
+              drafts[text]!,
+              0,
+              seenOrder: seen,
+            ),
+          ).isTrue();
+        }
+        check(
+          s.active!.drafts.map((d) => d.text),
+        ).deepEquals(['a', 'b', 'c']);
+      }
+    });
+
+    test('the place to put a draft back follows its nearest neighbour still '
+        'queued', () {
+      int place(List<String> ids, String id, {int fallback = 0}) =>
+          chatDraftRestoreIndex(
+            ids,
+            seenOrder: const ['a', 'b', 'c', 'd'],
+            draftId: id,
+            fallback: fallback,
+          );
+      check(place(['c', 'd'], 'a')).equals(0);
+      check(place(['a', 'c', 'd'], 'b')).equals(1);
+      // b's preceding neighbour is gone, so it goes before c.
+      check(place(['c', 'd'], 'b')).equals(0);
+      check(place(['a', 'x', 'c'], 'b')).equals(1);
+      check(place(['x', 'a'], 'd')).equals(2);
+      // No neighbour left: the index it had.
+      check(place(['x', 'y'], 'b', fallback: 1)).equals(1);
+      check(place(['x'], 'b', fallback: 5)).equals(1);
+      check(
+        chatDraftRestoreIndex(
+          ['x', 'y'],
+          seenOrder: const [],
+          draftId: 'b',
+          fallback: 1,
+        ),
+      ).equals(1);
+    });
+
     test('the last removed draft comes back in a queue of its own', () async {
       final s = await _Session.start();
       final only = s.queue.enqueue('only')!;

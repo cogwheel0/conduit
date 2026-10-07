@@ -1168,11 +1168,13 @@ class _WorkspaceAccessGrantSheetState
         child: tile,
       );
     }
+    // The tile's own text is left out for the one label above, but the menu
+    // button's tap stays: excluding everything below would drop it too.
     return Semantics(
       key: const Key('workspace-access-general'),
+      container: true,
       button: true,
       label: semanticLabel,
-      excludeSemantics: true,
       child: AdaptivePopupMenuButton.widget<WorkspaceGeneralAccess>(
         items: [
           for (final (option, enabled) in _generalOptions())
@@ -1189,7 +1191,7 @@ class _WorkspaceAccessGrantSheetState
           final value = entry.value;
           if (value != null) _pickGeneralAccess(value);
         },
-        child: tile,
+        child: ExcludeSemantics(child: tile),
       ),
     );
   }

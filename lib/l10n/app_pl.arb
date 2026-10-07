@@ -2475,9 +2475,9 @@
   "chatSettingsApplied": "Zastosowano ustawienia czatu",
   "chatSettingsAppliedDescription": "Ten czat ma zapisane ustawienia, które są używane przy każdej odpowiedzi.",
   "chatSettingsTurnOnAdvanced": "Włącz Zaawansowane, aby je zmienić",
-  "chatSettingsDescription": "Te ustawienia dotyczą tylko tego czatu. Wszystko ustawione na Dziedzicz używa Twoich wartości domyślnych.",
+  "chatSettingsDescription": "Te ustawienia dotyczą tylko tego czatu. Wszystko ustawione na „Twoje domyślne” używa wartości domyślnych z Twoich ustawień.",
   "chatSettingsSystemPrompt": "Prompt systemowy",
-  "chatSettingsSystemPromptEmptyNote": "Pusty prompt nie wysyła żadnego promptu systemowego, nawet jeśli masz domyślny. Wybierz Dziedzicz, aby użyć domyślnego.",
+  "chatSettingsSystemPromptEmptyNote": "Pusty prompt nie wysyła żadnego promptu systemowego, nawet jeśli masz domyślny. Wybierz „Twoje domyślne”, aby użyć domyślnego.",
   "chatSettingsParameters": "Parametry",
   "chatSettingsInherit": "Twoje domyślne",
   "chatSettingsModelDefault": "Domyślne modelu",
@@ -3066,7 +3066,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "i utwórz nowy link do udostępniania.",
+  "shareChatDeleteAndCreate": "Usuwa obecny link, aby można było utworzyć nowy.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

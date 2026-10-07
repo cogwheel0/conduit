@@ -164,6 +164,7 @@ class _RemovedDraft {
     required this.queue,
     required this.draft,
     required this.index,
+    required this.seenOrder,
     required this.files,
     required this.expiry,
   });
@@ -172,6 +173,11 @@ class _RemovedDraft {
   final ChatDraftQueue queue;
   final QueuedChatDraft draft;
   final int index;
+
+  /// The ids the sheet showed when the draft left, the draft and drafts still
+  /// waiting to be put back included. The draft goes back between the same
+  /// neighbours, whatever else was removed or put back meanwhile.
+  final List<String> seenOrder;
   final List<QueuedDraftAttachment> files;
   final Timer expiry;
 }
@@ -232,6 +238,7 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
   /// notice on the screen below.
   void _removeDraft(ChatDraftQueue queue, QueuedChatDraft draft) {
     final index = queue.drafts.indexOf(draft);
+    final seenOrder = [for (final entry in _shownOrder(queue)) _idOf(entry)];
     final held = ref.read(queuedDraftAttachmentsProvider);
     final files = chatDraftFiles(queue, draft, held);
     final restorable = files.every(
@@ -250,6 +257,7 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
         queue: queue,
         draft: draft,
         index: index,
+        seenOrder: seenOrder,
         files: kept,
         expiry: Timer(_undoWindow, () {
           if (mounted) setState(() => _removed.remove(removed));
@@ -266,8 +274,13 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
       report,
       message: l10n.queuedDraftRemoved,
       action: l10n.queuedDraftUndo,
-      onActionPressed: () =>
-          controller.restoreDraft(queue, draft, index, attachments: kept),
+      onActionPressed: () => controller.restoreDraft(
+        queue,
+        draft,
+        index,
+        attachments: kept,
+        seenOrder: seenOrder,
+      ),
     );
   }
 
@@ -279,7 +292,32 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
       removed.draft,
       removed.index,
       attachments: removed.files,
+      seenOrder: removed.seenOrder,
     );
+  }
+
+  static String _idOf(Object entry) => switch (entry) {
+    QueuedChatDraft(:final id) => id,
+    _RemovedDraft(:final draft) => draft.id,
+    _ => throw ArgumentError.value(entry, 'entry'),
+  };
+
+  /// The queue's drafts with each removed draft that can still be put back in
+  /// the place it would go back to: the queued drafts in their order, and a
+  /// [_RemovedDraft] between the neighbours it was removed from.
+  List<Object> _shownOrder(ChatDraftQueue queue) {
+    final shown = <Object>[...queue.drafts];
+    for (final removed in _removed) {
+      if (queue.draftById(removed.draft.id) != null) continue;
+      final at = chatDraftRestoreIndex(
+        [for (final entry in shown) _idOf(entry)],
+        seenOrder: removed.seenOrder,
+        draftId: removed.draft.id,
+        fallback: removed.index,
+      );
+      shown.insert(at, removed);
+    }
+    return shown;
   }
 
   /// The drafts, with each draft the user can still put back shown where it
@@ -291,31 +329,20 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
     required List<QueuedDraftAttachment> attachments,
     required bool busy,
   }) {
-    final pending = [
-      for (final removed in _removed)
-        if (queue.draftById(removed.draft.id) == null) removed,
-    ]..sort((a, b) => a.index.compareTo(b.index));
-    final children = <Widget>[];
-    var next = 0;
-    for (final draft in queue.drafts) {
-      while (next < pending.length && pending[next].index <= children.length) {
-        children.add(_removedRow(context, l10n, pending[next++]));
-      }
-      children.add(
-        _draftCard(
-          context,
-          l10n: l10n,
-          queue: queue,
-          draft: draft,
-          attachments: attachments,
-          busy: busy,
-        ),
-      );
-    }
-    while (next < pending.length) {
-      children.add(_removedRow(context, l10n, pending[next++]));
-    }
-    return children;
+    return [
+      for (final entry in _shownOrder(queue))
+        if (entry is _RemovedDraft)
+          _removedRow(context, l10n, entry)
+        else if (entry is QueuedChatDraft)
+          _draftCard(
+            context,
+            l10n: l10n,
+            queue: queue,
+            draft: entry,
+            attachments: attachments,
+            busy: busy,
+          ),
+    ];
   }
 
   Widget _removedRow(

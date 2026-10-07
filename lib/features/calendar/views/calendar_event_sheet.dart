@@ -76,6 +76,7 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
 
   /// Which action [_busy] is for, so only its control shows progress.
   bool _responding = false;
+  bool _fetchingForEdit = false;
   bool _deleting = false;
   String? _error;
 
@@ -176,6 +177,7 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
     final l10n = AppLocalizations.of(context)!;
     setState(() {
       _busy = true;
+      _fetchingForEdit = true;
       _error = null;
     });
     CalendarEventModel stored;
@@ -187,6 +189,7 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
       if (mounted) {
         setState(() {
           _busy = false;
+          _fetchingForEdit = false;
           _error = calendarErrorText(
             l10n,
             error,
@@ -197,7 +200,10 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
       return;
     }
     if (!mounted) return;
-    setState(() => _busy = false);
+    setState(() {
+      _busy = false;
+      _fetchingForEdit = false;
+    });
     final saved = await showCalendarEventEditor(
       context,
       owner: widget.owner,
@@ -347,6 +353,10 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
           message,
           key: const Key('calendar-event-error'),
           style: theme.bodySmall?.copyWith(color: theme.error),
+          // The footer stays pinned, so a long message must not crowd out
+          // the actions; the whole text is still read out.
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
         ),
       if (loading)
         const Center(
@@ -360,7 +370,7 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
               ? l10n.calendarEventEditSeries
               : l10n.calendarEventEdit,
           isFullWidth: true,
-          isLoading: _busy && !_deleting,
+          isLoading: _fetchingForEdit,
           onPressed: _busy ? null : _edit,
         ),
         ConduitButton(

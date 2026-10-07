@@ -16,7 +16,12 @@ import '../../../shared/widgets/themed_sheets.dart';
 /// need.
 ///
 /// [child] scrolls; [footer], when given, stays pinned below it so a sheet's
-/// actions and errors are always in reach.
+/// actions and errors are always in reach. When the space is too short for a
+/// pinned footer and some of the form, as in landscape with the keyboard up,
+/// the title, [child] and [footer] scroll together instead, so nothing
+/// overflows and the actions are still reached by scrolling. [child] must
+/// shrink-wrap its height (a `ListView` with `shrinkWrap: true`), since it is
+/// laid out at its full height then.
 class CalendarSheetFrame extends StatefulWidget {
   const CalendarSheetFrame({
     super.key,
@@ -51,6 +56,11 @@ class CalendarSheetFrame extends StatefulWidget {
       Spacing.sm +
       Spacing.modalPadding;
 
+  /// Below this height the title, form and footer scroll as one: a pinned
+  /// footer of two buttons, or one with an error, would leave the form too
+  /// little room, or none at all.
+  static const _minimumPinnedHeight = 300.0;
+
   @override
   State<CalendarSheetFrame> createState() => _CalendarSheetFrameState();
 }
@@ -69,6 +79,10 @@ class _CalendarSheetFrameState extends State<CalendarSheetFrame>
 
   /// Where the surface was when a held swipe was let go.
   double _releasedAt = 0;
+
+  /// The column's bound when it scrolls as one: a [Flexible] needs a finite
+  /// one, and no form comes near it.
+  static const _unpinnedMaximumHeight = 100000.0;
 
   @override
   void dispose() {
@@ -144,11 +158,9 @@ class _CalendarSheetFrameState extends State<CalendarSheetFrame>
           ),
           child: Material(
             type: MaterialType.transparency,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final header = Row(
                   children: [
                     Expanded(
                       child: Semantics(
@@ -162,14 +174,55 @@ class _CalendarSheetFrameState extends State<CalendarSheetFrame>
                     ),
                     SheetCloseButton(tooltip: l10n.close, onPressed: _close),
                   ],
-                ),
-                const SizedBox(height: Spacing.sm),
-                Flexible(child: widget.child),
-                if (footer != null) ...[
-                  const SizedBox(height: Spacing.md),
-                  footer,
-                ],
-              ],
+                );
+                final pinned =
+                    constraints.maxHeight >=
+                    CalendarSheetFrame._minimumPinnedHeight;
+                final behavior = ScrollConfiguration.of(context);
+                // Both layouts are the same tree, so switching between them
+                // as the keyboard comes and goes keeps the form's state and
+                // its focused field. Pinned, the outer scroll view does not
+                // move and the column is held to the sheet, so the form
+                // scrolls above the footer. Otherwise the column takes its
+                // full height and scrolls as one; the form's own list then
+                // takes no drags, so they scroll the whole sheet.
+                return SingleChildScrollView(
+                  key: const Key('calendar-sheet-scroll'),
+                  primary: false,
+                  physics: pinned ? const NeverScrollableScrollPhysics() : null,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: pinned
+                          ? constraints.maxHeight
+                          : _unpinnedMaximumHeight,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        header,
+                        const SizedBox(height: Spacing.sm),
+                        Flexible(
+                          child: ScrollConfiguration(
+                            behavior: pinned
+                                ? behavior
+                                : behavior.copyWith(
+                                    scrollbars: false,
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
+                                  ),
+                            child: widget.child,
+                          ),
+                        ),
+                        if (footer != null) ...[
+                          const SizedBox(height: Spacing.md),
+                          footer,
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ),

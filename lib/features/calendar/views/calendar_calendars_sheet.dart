@@ -195,6 +195,10 @@ class _CalendarsSheetState extends ConsumerState<CalendarsSheet> {
               _error!,
               key: const Key('calendar-calendars-error'),
               style: theme.bodySmall?.copyWith(color: theme.error),
+              // The footer stays pinned, so a long message must not crowd out
+              // the actions; the whole text is still read out.
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
             ),
       child: ListView(
         shrinkWrap: true,

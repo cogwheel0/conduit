@@ -2187,23 +2187,28 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final label = l10n.chatBranchContinueFromResponse;
+    void onTap() {
+      ConduitHaptics.selectionClick();
+      unawaited(
+        continueFromChatBranch(
+          context,
+          displayedMessageId: _messageId,
+          alternativeId: alternativeId,
+        ),
+      );
+    }
+
+    // The node stands in for the gesture detector below, whose own tap
+    // action excludeSemantics drops, so it carries the tap itself.
     return Semantics(
       button: true,
       label: label,
       excludeSemantics: true,
+      onTap: onTap,
       child: GestureDetector(
         key: const ValueKey<String>('assistant-continue-from-here'),
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          ConduitHaptics.selectionClick();
-          unawaited(
-            continueFromChatBranch(
-              context,
-              displayedMessageId: _messageId,
-              alternativeId: alternativeId,
-            ),
-          );
-        },
+        onTap: onTap,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: TouchTarget.chip),
           child: Center(

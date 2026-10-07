@@ -2496,17 +2496,17 @@
   "@chatSettingsTurnOnAdvanced": {
     "description": "Button in the read-only chat settings sheet that turns on the Advanced preference so the settings can be edited."
   },
-  "chatSettingsDescription": "These settings apply to this chat only. Anything set to Inherit uses your defaults.",
+  "chatSettingsDescription": "These settings apply to this chat only. Anything set to Your default uses the default from your settings.",
   "@chatSettingsDescription": {
-    "description": "Explains in the chat settings sheet that settings apply to this chat only and that Inherit uses the user defaults."
+    "description": "Explains in the chat settings sheet that settings apply to this chat only and that anything left on the chatSettingsInherit choice ('Your default') uses the user's defaults. Name that choice exactly as chatSettingsInherit is translated."
   },
   "chatSettingsSystemPrompt": "System prompt",
   "@chatSettingsSystemPrompt": {
     "description": "Heading of the system prompt field in the chat settings sheet."
   },
-  "chatSettingsSystemPromptEmptyNote": "Empty sends no system prompt at all, even if you have a default one. Choose Inherit to use your default.",
+  "chatSettingsSystemPromptEmptyNote": "Empty sends no system prompt at all, even if you have a default one. Choose Your default to use it.",
   "@chatSettingsSystemPromptEmptyNote": {
-    "description": "Warns that an empty chat system prompt sends no system prompt at all, even when the user has a default one."
+    "description": "Warns that an empty chat system prompt sends no system prompt at all, even when the user has a default one, and points to the chatSettingsInherit choice ('Your default'). Name that choice exactly as chatSettingsInherit is translated."
   },
   "chatSettingsParameters": "Parameters",
   "@chatSettingsParameters": {
@@ -3188,9 +3188,9 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "and create a new shared link.",
+  "shareChatDeleteAndCreate": "Removes the current link so you can create a new one.",
   "@shareChatDeleteAndCreate": {
-    "description": "Continuation text after the delete shared link action."
+    "description": "Subtitle under the 'Delete this link' row of the chat share sheet, saying what deleting does. A full sentence on its own."
   },
   "copyLink": "Copy link",
   "@copyLink": {
