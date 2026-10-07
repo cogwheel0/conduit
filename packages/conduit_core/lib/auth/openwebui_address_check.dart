@@ -1,4 +1,5 @@
 import '../models/openwebui_registry.dart';
+import 'token_validator.dart';
 
 /// What checking a new address for a saved Open WebUI server found.
 enum OpenWebUiAddressCheck {
@@ -6,11 +7,13 @@ enum OpenWebUiAddressCheck {
   /// there: it is the same server.
   sameServer,
 
-  /// The token is refused there, or names someone else.
+  /// A token is accepted there for someone else's user, or every token was
+  /// expired or refused and no account keeps a sign-in to renew one with.
   differentServer,
 
-  /// The server's accounts keep a saved sign-in but no token to check with.
-  /// Their password would go to the address unchecked, so sign in first.
+  /// The server's accounts keep a saved sign-in but no token that proved
+  /// the address: none, or only expired or refused ones. Their password would
+  /// go to the address unchecked, so sign in first.
   needsSignIn,
 
   /// None of the server's accounts keeps anything the address could receive.
@@ -36,6 +39,9 @@ typedef OpenWebUiAddressCheckResult = ({
 /// so the address has to prove itself with one of their tokens: the active
 /// account's live one first, else one kept for another account. [userAt]
 /// asks the new address whose token it is, and throws when it refuses it.
+/// One stale token decides nothing: an expired one is not sent, and a
+/// refused one gives way to the next account's. Only a token that names its
+/// own user there proves the address.
 ///
 /// Answering a health check only shows that some Open WebUI server is there,
 /// and the token is a session. Before the first one goes to a host none of
@@ -63,6 +69,7 @@ Future<OpenWebUiAddressCheckResult> checkOpenWebUiAddress({
         a.id == activeAccountId ? 1 : 0,
       ),
     );
+  var keptToken = false;
   for (final account in accounts) {
     final userId = account.userId;
     if (userId == null) continue;
@@ -70,23 +77,32 @@ Future<OpenWebUiAddressCheckResult> checkOpenWebUiAddress({
         ? liveToken
         : await keptTokenFor(account.id);
     if (token == null || token.isEmpty) continue;
+    keptToken = true;
+    if (TokenValidator.validateTokenFormat(token).isExpired) continue;
     if (!mayReceiveSession) {
       if (candidate == null || !await confirmSendingSession(candidate)) {
         return _found(OpenWebUiAddressCheck.declined);
       }
       mayReceiveSession = true;
     }
+    final String user;
     try {
-      return await userAt(token) == userId
-          ? _found(OpenWebUiAddressCheck.sameServer, provedBy: account.id)
-          : _found(OpenWebUiAddressCheck.differentServer);
+      user = await userAt(token);
     } catch (_) {
-      return _found(OpenWebUiAddressCheck.differentServer);
+      // The server may have ended this session; another may still prove it.
+      continue;
     }
+    return user == userId
+        ? _found(OpenWebUiAddressCheck.sameServer, provedBy: account.id)
+        : _found(OpenWebUiAddressCheck.differentServer);
+  }
+  // No token proved the address, so it is not saved either way.
+  if (accounts.any((account) => accountsWithSession.contains(account.id))) {
+    return _found(OpenWebUiAddressCheck.needsSignIn);
   }
   return _found(
-    accounts.any((account) => accountsWithSession.contains(account.id))
-        ? OpenWebUiAddressCheck.needsSignIn
+    keptToken
+        ? OpenWebUiAddressCheck.differentServer
         : OpenWebUiAddressCheck.nothingToProtect,
   );
 }

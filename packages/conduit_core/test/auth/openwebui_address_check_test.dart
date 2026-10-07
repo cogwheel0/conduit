@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/openwebui_address_check.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
@@ -22,6 +24,14 @@ final _registry = OpenWebUiRegistry(
     OpenWebUiAccount(id: 'cy', serverId: 'work', userId: 'user-cy'),
   ],
 );
+
+/// A JWT whose `exp` is [expiresAt], unsigned: only its claims are read.
+String _jwt(DateTime expiresAt) {
+  String part(Map<String, Object> claims) =>
+      base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '');
+  final exp = expiresAt.millisecondsSinceEpoch ~/ 1000;
+  return '${part({'alg': 'HS256'})}.${part({'exp': exp})}.signature';
+}
 
 /// A new address of a saved server must reach that server before it is
 /// saved: every account on it may later send its session there.
@@ -101,6 +111,49 @@ void main() {
       kept: {'bob': 'kept-bob'},
     );
     check(refuses.result).equals(OpenWebUiAddressCheck.differentServer);
+  });
+
+  test('an expired token is not sent; another account\'s proves it', () async {
+    final asked = <String>[];
+
+    final found = await check0(
+      activeAccountId: 'ada',
+      liveToken: _jwt(DateTime.now().subtract(const Duration(days: 1))),
+      kept: {'bob': 'kept-bob'},
+      usersByToken: {'kept-bob': 'user-bob'},
+      asked: asked,
+    );
+
+    check(found.result).equals(OpenWebUiAddressCheck.sameServer);
+    check(found.provedBy).equals('bob');
+    check(asked).deepEquals(['kept-bob']);
+  });
+
+  test('a refused token gives way to the next account\'s', () async {
+    final asked = <String>[];
+
+    final found = await check0(
+      activeAccountId: 'ada',
+      liveToken: 'live-ada',
+      kept: {'bob': 'kept-bob'},
+      sessions: {'ada', 'bob'},
+      usersByToken: {'kept-bob': 'user-bob'},
+      asked: asked,
+    );
+
+    check(found.result).equals(OpenWebUiAddressCheck.sameServer);
+    check(asked).deepEquals(['live-ada', 'kept-bob']);
+  });
+
+  test('tokens that are all stale ask to sign in, never accept', () async {
+    final found = await check0(
+      activeAccountId: 'ada',
+      liveToken: _jwt(DateTime.now().subtract(const Duration(days: 1))),
+      kept: {'bob': 'kept-bob'},
+      sessions: {'ada', 'bob'},
+    );
+
+    check(found.result).equals(OpenWebUiAddressCheck.needsSignIn);
   });
 
   test(
