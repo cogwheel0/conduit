@@ -782,10 +782,14 @@ void main() {
         restored.complete();
         await check(saving).throws<StateError>();
 
-        // The old key with the new address would send it to another server.
-        if (opened.apiKey == 'beta-key') {
-          check(opened.baseUrl).not((it) => it.equals('https://gamma.example'));
-        }
+        // Either consistent pair, or no address while the secrets change:
+        // a key paired with the other address would go to the wrong server.
+        check((opened.baseUrl, opened.apiKey)).has((pair) => switch (pair) {
+          ('https://beta.example', 'beta-key') ||
+          ('https://gamma.example', 'gamma-key') ||
+          ('', _) => true,
+          _ => false,
+        }, 'consistent').isTrue();
         check(
           (await controller.savedConnectionConfig(_b)).baseUrl,
         ).equals('https://beta.example');
