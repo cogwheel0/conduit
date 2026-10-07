@@ -1621,6 +1621,27 @@ void main() {
       });
     });
 
+    test('a failed save leaves the route in use as it was', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await storage.selectEndpoint(server.id, 'lan');
+
+      secure.failNextRegistryWrite = true;
+      await check(
+        storage.saveServer(
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [server.endpoints.first],
+          ),
+        ),
+      ).throws<StateError>();
+
+      check(storage.endpointSelection).deepEquals({server.id: 'lan'});
+      check((await storage.getServerConfigs()).single.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
     test('removing the route in use falls back to the first', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');
@@ -1643,10 +1664,13 @@ void main() {
 
 /// Refuses writes to [refusedKey], and reads of [unreadableKey], once set,
 /// as a locked Keychain does; [refusedOnceKey] refuses its next write only.
+/// With [failNextRegistryWrite], fails the next write of the saved-server
+/// registry once, as a briefly unavailable one does.
 final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedKey;
   String? refusedOnceKey;
   String? unreadableKey;
+  var failNextRegistryWrite = false;
   bool refusesDeleteAll = false;
 
   /// Runs before each write, and refuses it by throwing.
@@ -1665,6 +1689,10 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
     if (key == refusedOnceKey) {
       refusedOnceKey = null;
       throw StateError('keychain refused $key');
+    }
+    if (failNextRegistryWrite && key == 'openwebui_registry_v1') {
+      failNextRegistryWrite = false;
+      throw StateError('Keychain unavailable');
     }
     return super.write(key: key, value: value);
   }

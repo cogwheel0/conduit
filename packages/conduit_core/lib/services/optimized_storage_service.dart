@@ -2504,11 +2504,17 @@ class OptimizedStorageService {
           ],
         );
         final selection = _endpointSelection();
-        if (selection[server.id] case final selected?
-            when !routes.contains(selected)) {
+        final previous = selection[server.id];
+        if (previous != null && !routes.contains(previous)) {
           selection.remove(server.id);
         }
-        await _saveRegistryUnlocked(next);
+        try {
+          await _saveRegistryUnlocked(next);
+        } catch (_) {
+          // The stored routes are unchanged; so is the one in use.
+          if (previous != null) selection[server.id] = previous;
+          rethrow;
+        }
         _stagedServerConfigCandidate = null;
       }),
     );
