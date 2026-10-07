@@ -10,6 +10,7 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -207,7 +208,7 @@ class _FakeApiService extends ApiService {
   int getTaskIdsCalls = 0;
 
   @override
-  Future<Conversation> getConversation(String id) async {
+  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) async {
     getConversationCalls++;
     return _conversation;
   }

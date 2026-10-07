@@ -42,20 +42,30 @@ void writeTransportMetadata({
   required dynamic ref,
   required ChatCompletionSession session,
   ChatMessagesNotifier? messageNotifier,
+
+  /// The one answer of a multi-model turn this session belongs to. Null writes
+  /// to the list tail, as a single-answer turn does.
+  String? slotMessageId,
 }) {
+  ChatMessage update(ChatMessage m) {
+    final meta = Map<String, dynamic>.from(m.metadata ?? const {});
+    meta['transport'] = session.transport.name;
+    if (session.taskId != null && session.taskId!.isNotEmpty) {
+      meta['taskId'] = session.taskId;
+    }
+    if (session.abort != null) {
+      meta['hasActiveAbortHandle'] = true;
+    }
+    return m.copyWith(metadata: meta);
+  }
+
   try {
-    (messageNotifier ?? ref.read(chatMessagesProvider.notifier))
-        .updateLastMessageWithFunction((ChatMessage m) {
-          final meta = Map<String, dynamic>.from(m.metadata ?? const {});
-          meta['transport'] = session.transport.name;
-          if (session.taskId != null && session.taskId!.isNotEmpty) {
-            meta['taskId'] = session.taskId;
-          }
-          if (session.abort != null) {
-            meta['hasActiveAbortHandle'] = true;
-          }
-          return m.copyWith(metadata: meta);
-        });
+    final notifier = messageNotifier ?? ref.read(chatMessagesProvider.notifier);
+    if (slotMessageId != null) {
+      notifier.updateMessageById(slotMessageId, update);
+    } else {
+      notifier.updateLastMessageWithFunction(update);
+    }
   } catch (_) {
     // Non-critical — metadata is advisory.
   }
@@ -69,15 +79,24 @@ void writeTransportMetadata({
 ///
 /// Used by the taskSocket transport while waiting for the WebSocket to
 /// deliver its first event for this task.
-void setAwaitingSocketBinding({required dynamic ref, required bool value}) {
+void setAwaitingSocketBinding({
+  required dynamic ref,
+  required bool value,
+  String? slotMessageId,
+}) {
+  ChatMessage update(ChatMessage m) {
+    final meta = Map<String, dynamic>.from(m.metadata ?? const {});
+    meta['awaitingSocketBinding'] = value;
+    return m.copyWith(metadata: meta);
+  }
+
   try {
-    ref.read(chatMessagesProvider.notifier).updateLastMessageWithFunction((
-      ChatMessage m,
-    ) {
-      final meta = Map<String, dynamic>.from(m.metadata ?? const {});
-      meta['awaitingSocketBinding'] = value;
-      return m.copyWith(metadata: meta);
-    });
+    final notifier = ref.read(chatMessagesProvider.notifier);
+    if (slotMessageId != null) {
+      notifier.updateMessageById(slotMessageId, update);
+    } else {
+      notifier.updateLastMessageWithFunction(update);
+    }
   } catch (_) {}
 }
 
@@ -93,6 +112,7 @@ Future<void> bindTaskSocketIfNeeded({
   Duration timeout = const Duration(seconds: 10),
   bool isResume = false,
   bool Function()? ownsActiveConversation,
+  String? slotMessageId,
 }) async {
   bool ownsConversation() => ownsActiveConversation?.call() ?? true;
   if (session.transport != ChatCompletionTransport.taskSocket) return;
@@ -103,7 +123,11 @@ Future<void> bindTaskSocketIfNeeded({
   // window to surface on the message (no fresh HTTP request was issued), so we
   // skip that metadata churn but still ensure the socket is connected.
   if (!isResume) {
-    setAwaitingSocketBinding(ref: ref, value: true);
+    setAwaitingSocketBinding(
+      ref: ref,
+      value: true,
+      slotMessageId: slotMessageId,
+    );
   }
 
   try {
@@ -119,7 +143,11 @@ Future<void> bindTaskSocketIfNeeded({
     }
   } finally {
     if (!isResume && ownsConversation()) {
-      setAwaitingSocketBinding(ref: ref, value: false);
+      setAwaitingSocketBinding(
+        ref: ref,
+        value: false,
+        slotMessageId: slotMessageId,
+      );
     }
   }
 }
@@ -131,18 +159,25 @@ void configureRemoteTaskMonitoring({
   required dynamic ref,
   required ChatCompletionSession session,
   ChatMessagesNotifier? messageNotifier,
+  String? slotMessageId,
 }) {
   if (session.taskId == null || session.taskId!.isEmpty) return;
+  ChatMessage update(ChatMessage m) {
+    final meta = Map<String, dynamic>.from(m.metadata ?? const {});
+    meta['taskId'] = session.taskId;
+    if (session.conversationId != null) {
+      meta['taskConversationId'] = session.conversationId;
+    }
+    return m.copyWith(metadata: meta);
+  }
+
   try {
-    (messageNotifier ?? ref.read(chatMessagesProvider.notifier))
-        .updateLastMessageWithFunction((ChatMessage m) {
-          final meta = Map<String, dynamic>.from(m.metadata ?? const {});
-          meta['taskId'] = session.taskId;
-          if (session.conversationId != null) {
-            meta['taskConversationId'] = session.conversationId;
-          }
-          return m.copyWith(metadata: meta);
-        });
+    final notifier = messageNotifier ?? ref.read(chatMessagesProvider.notifier);
+    if (slotMessageId != null) {
+      notifier.updateMessageById(slotMessageId, update);
+    } else {
+      notifier.updateLastMessageWithFunction(update);
+    }
   } catch (_) {}
 }
 
@@ -157,7 +192,11 @@ void configureRemoteTaskMonitoring({
 /// - **httpStream / abort handle** → `cancelStreamingMessage()`
 /// - **taskSocket / task ID** → `stopTask()`
 /// - Mixed (abort + task) → both paths are invoked.
-void stopActiveTransport(ChatMessage message, ApiService? api) {
+///
+/// Both are started before this returns. The result completes once the server
+/// has answered the task stop, and says whether it accepted it; a message with
+/// no task has nothing to refuse. Callers that only fire the stop may ignore it.
+Future<bool> stopActiveTransport(ChatMessage message, ApiService? api) async {
   final meta = message.metadata;
   final transport = meta?['transport']?.toString();
   final hasAbortHandle = meta?['hasActiveAbortHandle'] == true;
@@ -170,10 +209,23 @@ void stopActiveTransport(ChatMessage message, ApiService? api) {
   // Stop background task
   final taskId = meta?['taskId']?.toString();
   final taskConversationId = meta?['taskConversationId']?.toString();
+  Future<void>? taskStop;
   if (taskConversationId != null && taskConversationId.isNotEmpty) {
-    unawaited(api?.stopTasksByChat(taskConversationId));
+    taskStop = api?.stopTasksByChat(taskConversationId);
   } else if (taskId != null && taskId.isNotEmpty) {
-    unawaited(api?.stopTask(taskId));
+    taskStop = api?.stopTask(taskId);
+  }
+  if (taskStop == null) return true;
+  try {
+    await taskStop;
+    return true;
+  } catch (error) {
+    DebugLogger.log(
+      'task-stop-failed',
+      scope: 'transport/stop',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    return false;
   }
 }
 
@@ -246,12 +298,24 @@ Future<bool> dispatchChatTransport({
   /// after transport attachment: normal completion itself makes a placeholder
   /// non-streaming, while the registered transport then owns cancellation.
   bool Function()? ownsPendingPlaceholder,
+
+  /// Set when [session] carries ONE answer of a multi-model turn. Every update
+  /// then goes to this exact assistant message, never to the list tail, and the
+  /// stream refuses events for the turn's other answers. Null is an ordinary
+  /// single-answer dispatch.
+  String? slotMessageId,
+
+  /// The assistant message ids of the turn's other answers. The stream sees the
+  /// transcript as if only its own answer ended it.
+  List<String> slotSiblingIds = const <String>[],
 }) async {
   bool ownsConversation() => ownsActiveConversation?.call() ?? true;
   bool ownsPending() =>
       ownsConversation() && (ownsPendingPlaceholder?.call() ?? true);
   ChatMessagesNotifier messagesNotifier() =>
       messageNotifier ?? ref.read(chatMessagesProvider.notifier);
+  final slot = slotMessageId;
+  final siblings = slotSiblingIds.toSet();
   if (!ownsPending()) return false;
 
   // Freeze authorization before this dispatch first yields. The eventual
@@ -264,10 +328,11 @@ Future<bool> dispatchChatTransport({
     ref: ref,
     session: session,
     messageNotifier: messageNotifier,
+    slotMessageId: slot,
   );
 
   try {
-    messagesNotifier().updateLastMessageWithFunction((ChatMessage m) {
+    ChatMessage markFlow(ChatMessage m) {
       final mergedMeta = {
         if (m.metadata != null) ...m.metadata!,
         'backgroundFlow': isBackgroundFlow,
@@ -275,7 +340,13 @@ Future<bool> dispatchChatTransport({
         if (imageGenerationEnabled) 'imageGenerationFlow': true,
       };
       return m.copyWith(metadata: mergedMeta);
-    });
+    }
+
+    if (slot != null) {
+      messagesNotifier().updateMessageById(slot, markFlow);
+    } else {
+      messagesNotifier().updateLastMessageWithFunction(markFlow);
+    }
   } catch (_) {}
 
   // 2. Bind socket for taskSocket sessions
@@ -285,6 +356,7 @@ Future<bool> dispatchChatTransport({
     socketService: socketService,
     isResume: isResume,
     ownsActiveConversation: ownsPending,
+    slotMessageId: slot,
   );
   if (!ownsPending()) return false;
 
@@ -293,6 +365,7 @@ Future<bool> dispatchChatTransport({
     ref: ref,
     session: session,
     messageNotifier: messageNotifier,
+    slotMessageId: slot,
   );
 
   // 3b. Optimistic generation-START for the sidebar indicator.
@@ -342,28 +415,53 @@ Future<bool> dispatchChatTransport({
     socketService: socketService,
     workerManager: workerManager,
     filterIds: filterIds,
+    allowForeignMessageBinding: slot == null,
     appendToLastMessage: (c) {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        messagesNotifier().appendToSlotMessage(slot, c);
+        return;
+      }
       messagesNotifier().appendToLastMessage(c);
     },
     bufferLastMessageContent: (c) {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        messagesNotifier().appendToSlotMessage(slot, c);
+        return;
+      }
       messagesNotifier().bufferLastMessageContent(c);
     },
     bufferProgressiveLastMessageContent: (c) {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        messagesNotifier().appendToSlotMessage(slot, c);
+        return;
+      }
       messagesNotifier().bufferLastMessageContent(c, immediate: false);
     },
     bufferProgressiveLastMessageSnapshot: (snapshot) {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        messagesNotifier().replaceSlotMessageContent(slot, snapshot());
+        return;
+      }
       messagesNotifier().bufferLastMessageContentSnapshot(snapshot);
     },
     replaceLastMessageContent: (c) {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        messagesNotifier().replaceSlotMessageContent(slot, c);
+        return;
+      }
       messagesNotifier().replaceLastMessageContent(c);
     },
     updateLastMessageWith: (updater) {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        messagesNotifier().updateMessageById(slot, updater);
+        return;
+      }
       messagesNotifier().updateLastMessageWithFunction(updater);
     },
     appendStatusUpdate: (messageId, update) {
@@ -453,7 +551,7 @@ Future<bool> dispatchChatTransport({
           );
     },
     onRemoteMessageBound: (remoteMessageId) {
-      if (!ownsConversation()) return;
+      if (!ownsConversation() || slot != null) return;
       // Record the foreign server id bound to this assistant so the poll
       // fallback can still resolve server content if the socket later dies.
       messagesNotifier().recordResumeBoundRemoteMessageId(
@@ -492,23 +590,46 @@ Future<bool> dispatchChatTransport({
     },
     completeStreamingUi: () {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        // The answer is done; its transport goes when the stream releases it.
+        messagesNotifier().finishSlotMessage(slot);
+        return;
+      }
       messagesNotifier().completeStreamingUi();
     },
     finishStreaming: () {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        messagesNotifier().finishSlotMessage(slot);
+        return;
+      }
       messagesNotifier().finishStreaming();
     },
-    getMessages: () => ownsConversation()
-        ? (messageNotifier?.messagesSnapshot ?? ref.read(chatMessagesProvider))
-        : const <ChatMessage>[],
-    getVisibleStreamingContent: () =>
-        ownsConversation() ? ref.read(streamingContentProvider) : null,
+    getMessages: () {
+      if (!ownsConversation()) return const <ChatMessage>[];
+      final all =
+          messageNotifier?.messagesSnapshot ?? ref.read(chatMessagesProvider);
+      if (slot == null) return all;
+      // This stream sees the transcript as if its own answer ended it, so the
+      // helper's "which assistant is current" checks name this answer.
+      return [
+        for (final message in all)
+          if (message.id == slot || !siblings.contains(message.id)) message,
+      ];
+    },
+    getVisibleStreamingContent: () => slot != null || !ownsConversation()
+        ? null
+        : ref.read(streamingContentProvider),
     flushStreamingBuffer: () {
-      if (!ownsConversation()) return;
+      if (!ownsConversation() || slot != null) return;
       messagesNotifier().syncStreamingBuffer();
     },
     onObsoleteStreamRetired: () {
       if (!ownsConversation()) return;
+      if (slot != null) {
+        messagesNotifier().releaseSlotTransport(slot);
+        return;
+      }
       messagesNotifier().retireObsoleteStreamingTransport(assistantMessageId);
     },
     pullChatSnapshot: (chatId) async {
@@ -552,6 +673,16 @@ Future<bool> dispatchChatTransport({
   //    (those transports complete via their own stream, not a
   //    StreamingResponseController).
   final notifier = messagesNotifier();
+  if (slot != null) {
+    // One answer among several: register beside its siblings' transports
+    // rather than replacing the single transport the notifier tracks.
+    notifier.registerSlotTransport(
+      slot,
+      activeStream.socketSubscriptions,
+      onDispose: activeStream.disposeWatchdog,
+    );
+    return true;
+  }
   if (activeStream.controller != null) {
     notifier.setMessageStream(assistantMessageId, activeStream.controller!);
   }

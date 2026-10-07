@@ -219,5 +219,91 @@ void main() {
       check(config.sttProvider).equals('openai');
       check(config.ttsProvider).equals('openai');
     });
+
+    test('reads the user webhooks flag the server reports to a signed-in '
+        'account and keeps absence unknown', () {
+      final enabled = BackendConfig.fromJson({
+        'features': {'enable_user_webhooks': true},
+      });
+      final disabled = BackendConfig.fromJson({
+        'features': {'enable_user_webhooks': false},
+      });
+      // The signed-out config omits the flag, which is not the same as off.
+      final signedOut = BackendConfig.fromJson({
+        'features': {'enable_websocket': true},
+      });
+
+      check(enabled.enableUserWebhooks).equals(true);
+      check(disabled.enableUserWebhooks).equals(false);
+      check(signedOut.enableUserWebhooks).isNull();
+    });
+
+    test('keeps the user webhooks flag through the stored copy', () {
+      final stored = BackendConfig.fromJson(
+        BackendConfig.fromJson({
+          'features': {'enable_user_webhooks': true},
+        }).toJson(),
+      );
+
+      check(stored.enableUserWebhooks).equals(true);
+      check(stored.copyWith(serverId: 'server').enableUserWebhooks)
+          .equals(true);
+    });
+
+    test('reads the automations flag the server reports to a signed-in '
+        'account and keeps absence unknown', () {
+      final enabled = BackendConfig.fromJson({
+        'features': {'enable_automations': true},
+      });
+      final disabled = BackendConfig.fromJson({
+        'features': {'enable_automations': false},
+      });
+      final signedOut = BackendConfig.fromJson({
+        'features': {'enable_websocket': true},
+      });
+
+      check(enabled.enableAutomations).equals(true);
+      check(disabled.enableAutomations).equals(false);
+      check(signedOut.enableAutomations).isNull();
+    });
+
+    test('keeps the automations flag through the stored copy', () {
+      final stored = BackendConfig.fromJson(
+        BackendConfig.fromJson({
+          'features': {'enable_automations': true},
+        }).toJson(),
+      );
+
+      check(stored.enableAutomations).equals(true);
+      check(stored.copyWith(serverId: 'server').enableAutomations).equals(true);
+    });
+
+    test('reads the calendar flag the server reports to a signed-in account '
+        'and keeps absence unknown', () {
+      final enabled = BackendConfig.fromJson({
+        'features': {'enable_calendar': true},
+      });
+      final disabled = BackendConfig.fromJson({
+        'features': {'enable_calendar': false},
+      });
+      final signedOut = BackendConfig.fromJson({
+        'features': {'enable_websocket': true},
+      });
+
+      check(enabled.enableCalendar).equals(true);
+      check(disabled.enableCalendar).equals(false);
+      check(signedOut.enableCalendar).isNull();
+    });
+
+    test('keeps the calendar flag through the stored copy', () {
+      final stored = BackendConfig.fromJson(
+        BackendConfig.fromJson({
+          'features': {'enable_calendar': true},
+        }).toJson(),
+      );
+
+      check(stored.enableCalendar).equals(true);
+      check(stored.copyWith(serverId: 'server').enableCalendar).equals(true);
+    });
   });
 }

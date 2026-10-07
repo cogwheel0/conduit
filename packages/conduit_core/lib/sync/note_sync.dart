@@ -3,6 +3,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -42,16 +43,23 @@ class NotePullSync {
     required NoteLocks locks,
     IdRemapper? remapper,
     void Function(bool enabled)? onFeatureEnabled,
+    String? Function()? readerAccountId,
   }) : _client = client,
        _db = db,
        _locks = locks,
        // ignore: prefer_initializing_formals
        _remapper = remapper,
-       _onFeatureEnabled = onFeatureEnabled;
+       _onFeatureEnabled = onFeatureEnabled,
+       _readerAccountId = readerAccountId;
 
   final SyncApiClient _client;
   final AppDatabase _db;
   final NoteLocks _locks;
+
+  /// The account this pull was built for, or null once the session it belonged
+  /// to has ended. A response is read evidence only for the account that
+  /// received it.
+  final String? Function()? _readerAccountId;
 
   /// Used by pull-side note create crash-heal when a process crashed after the
   /// server minted a note but before the local `noteCreate` remap committed.
@@ -80,7 +88,10 @@ class NotePullSync {
       );
       if (healed) return false;
 
-      final write = await _db.notesDao.mergeServerNote(serverRaw: resp);
+      final write = await _db.notesDao.mergeServerNote(
+        serverRaw: resp,
+        readerId: _readerAccountId?.call(),
+      );
       return write.mustPush;
     });
   }
@@ -182,7 +193,26 @@ class NotePullSync {
     // with the same early-stop semantics as chat pull.
     final (items, featureEnabled) = await _client.getNoteListRaw(page: page);
     _onFeatureEnabled?.call(featureEnabled);
+    await _recordListedReadEvidence(items);
     return items;
+  }
+
+  /// The list is the server's answer to which notes this account may read, so
+  /// a listed note already cached (before read evidence was recorded, say, and
+  /// unchanged since) becomes visible to the account without a refetch.
+  Future<void> _recordListedReadEvidence(
+    List<Map<String, dynamic>> items,
+  ) async {
+    for (final item in items) {
+      final id = item['id'];
+      if (id is! String || id.isEmpty) continue;
+      await _locks.runExclusive(id, () async {
+        // The account is read inside the lock, immediately before the write.
+        final readerId = _readerAccountId?.call();
+        if (readerId == null || readerId.isEmpty) return;
+        await _db.notesDao.storeNoteAccessProjection(id, readerId: readerId);
+      });
+    }
   }
 }
 
@@ -195,15 +225,21 @@ class NotePushSync {
     required AppDatabase db,
     required NoteLocks noteLocks,
     required IdRemapper remapper,
+    String? Function()? currentAccountId,
   }) : _client = client,
        _db = db,
        _noteLocks = noteLocks,
-       _remapper = remapper;
+       _remapper = remapper,
+       _currentAccountId = currentAccountId;
 
   final SyncApiClient _client;
   final AppDatabase _db;
   final NoteLocks _noteLocks;
   final IdRemapper _remapper;
+
+  /// The signed-in account, read when an op replays rather than when the
+  /// handler was built, because the drainer outlives an account switch.
+  final String? Function()? _currentAccountId;
 
   // ---- noteCreate (§7.3 analog) ----
 
@@ -272,6 +308,14 @@ class NotePushSync {
         // A noteDelete op will handle a tombstoned/absent note.
         return;
       }
+      if (!await _mayReplayEdit(note)) {
+        // The draft stays in the row, dirty. Parking is the same outcome the
+        // server's own 403 produces, reached without sending the edit.
+        throw SyncTerminalException(
+          statusCode: 403,
+          message: 'updateNote $noteId is read-only for this account',
+        );
+      }
       // The op's payload was the coalesced patch, but §3.iii: rebuild from the
       // CURRENT row so the latest committed title/data wins even after
       // coalescing collapsed several edits. `data` is sent iff the row's data
@@ -296,6 +340,49 @@ class NotePushSync {
         serverUpdatedAt: serverUpdatedAt,
       );
     });
+  }
+
+  /// Whether a queued edit may still be sent. A note shared with the account
+  /// is read again first, because the grant that allowed the edit when it was
+  /// queued may be gone; an account's own note skips the extra request. Caller
+  /// holds the note lock. A 404 reads as "may send" so the update's own 404
+  /// handling stays the single place for it.
+  Future<bool> _mayReplayEdit(NoteRow note) async {
+    final accountId = _currentAccountId?.call();
+    if (noteRowIsOwnedBy(note, accountId: accountId)) {
+      return noteRowWriteAccess(note, accountId: accountId) !=
+          NoteWriteAccess.denied;
+    }
+    // A stored `false` is not final for a shared note: a grant restored since
+    // must be seen, so shared notes always ask.
+    final Map<String, dynamic>? detail;
+    try {
+      detail = await _client.getNoteRaw(note.id);
+    } on SyncTerminalException catch (error) {
+      if (error.statusCode == 403) {
+        await _db.notesDao.storeNoteAccessProjection(
+          note.id,
+          writeAccess: false,
+        );
+        // The server refused the read as well: the account no longer sees it.
+        if (accountId != null && accountId.isNotEmpty) {
+          await _db.notesDao.retireNoteReadEvidence(
+            note.id,
+            accountId: accountId,
+          );
+        }
+        return false;
+      }
+      rethrow;
+    }
+    if (detail == null) return true;
+    await _db.notesDao.storeNoteAccessProjection(
+      note.id,
+      writeAccess: detail['write_access'],
+      accessGrants: detail['access_grants'],
+      readerId: accountId,
+    );
+    return detail['write_access'] == true;
   }
 
   // ---- noteDelete (§7.5 analog) ----

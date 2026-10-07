@@ -150,6 +150,79 @@ void main() {
     }
   });
 
+  group('saved chat params', () {
+    Map<String, dynamic> blobWith(Object? params, {bool omit = false}) =>
+        <String, dynamic>{
+          'title': 'Params chat',
+          'models': <String>['m-1'],
+          if (!omit) 'params': params,
+          'tags': <String>['a'],
+          'future_envelope_key': <String, dynamic>{
+            'x': <int>[1, 2],
+          },
+          'history': <String, dynamic>{
+            'currentId': 'u1',
+            'messages': <String, dynamic>{
+              'u1': <String, dynamic>{
+                'id': 'u1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'hi',
+                'timestamp': 1,
+              },
+            },
+          },
+        };
+
+    void expectRoundTrip(Map<String, dynamic> blob) {
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: 'p1',
+        blob: blob,
+        title: 'Params chat',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      check(_deepEq.equals(ChatBlobMapper.rowsToBlob(rows), blob)).isTrue();
+    }
+
+    test('saved params and every opaque sibling survive a full round trip', () {
+      expectRoundTrip(
+        blobWith(<String, dynamic>{
+          'system': '',
+          'temperature': null,
+          'stop': <String>['\n'],
+          'custom_params': <String, dynamic>{'k': 'v'},
+          'a_future_param': <int>[1],
+        }),
+      );
+    });
+
+    test('params stay in the stored envelope, not re-derived from rows', () {
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: 'p1',
+        blob: blobWith(<String, dynamic>{'seed': 3}),
+        title: 'Params chat',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+      check(rows.chat.rawExtra['params'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'seed': 3});
+    });
+
+    test(
+      'absent, empty, null and malformed params are each reproduced as is',
+      () {
+        expectRoundTrip(blobWith(null, omit: true));
+        expectRoundTrip(blobWith(<String, dynamic>{}));
+        expectRoundTrip(blobWith(null));
+        expectRoundTrip(blobWith('not an object'));
+        expectRoundTrip(blobWith(<Object?>[1, 'x']));
+      },
+    );
+  });
+
   group('sentinels', () {
     test('blobHadTitle is true and title is emitted when blob has a title', () {
       final rows = ChatBlobMapper.blobToRows(

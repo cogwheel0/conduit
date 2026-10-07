@@ -969,6 +969,96 @@
   "saveChat": "Chat opslaan",
   "temporaryChatByDefault": "Standaard tijdelijke chat",
   "temporaryChatByDefaultDescription": "Nieuwe chats worden niet opgeslagen in de geschiedenis, tenzij je ervoor kiest ze op te slaan",
+  "advancedFeatures": "Geavanceerd",
+  "advancedFeaturesDescription": "Toon extra chatgereedschappen en instellingen.",
+  "chatSettingsTitle": "Chatinstellingen",
+  "chatSettingsApplied": "Chatinstellingen toegepast",
+  "chatSettingsAppliedDescription": "Deze chat heeft opgeslagen instellingen, die bij elk antwoord worden gebruikt.",
+  "chatSettingsTurnOnAdvanced": "Zet Geavanceerd aan om ze te wijzigen",
+  "chatSettingsDescription": "Deze instellingen gelden alleen voor deze chat. Alles wat op Overnemen staat, gebruikt je standaardwaarden.",
+  "chatSettingsSystemPrompt": "Systeemprompt",
+  "chatSettingsSystemPromptEmptyNote": "Een lege prompt stuurt helemaal geen systeemprompt mee, ook als je een standaardprompt hebt. Kies Overnemen om je standaard te gebruiken.",
+  "chatSettingsParameters": "Parameters",
+  "chatSettingsInherit": "Overnemen",
+  "chatSettingsModelDefault": "Modelstandaard",
+  "chatSettingsCustom": "Aangepast",
+  "chatSettingsResetAll": "Alles resetten",
+  "chatSettingsOtherKept": "Andere opgeslagen instellingen blijven ongewijzigd.",
+  "chatSettingsSystemPromptLocked": "Je account mag de systeemprompt niet wijzigen.",
+  "chatSettingsParametersLocked": "Je account mag parameters niet wijzigen.",
+  "chatSettingsOwnerChanged": "Het account of de chat is gewijzigd. Open de instellingen opnieuw en probeer het nog eens.",
+  "chatSettingTemperature": "Temperatuur",
+  "chatSettingTopP": "Top P",
+  "chatSettingTopK": "Top K",
+  "chatSettingMinP": "Min P",
+  "chatSettingFrequencyPenalty": "Frequentiestraf",
+  "chatSettingPresencePenalty": "Aanwezigheidsstraf",
+  "chatSettingMaxTokens": "Max. tokens",
+  "chatSettingSeed": "Seed",
+  "chatSettingStop": "Stopreeksen",
+  "chatSettingFunctionCalling": "Tool-aanroep",
+  "chatSettingFunctionCallingNative": "Native",
+  "chatSettingFunctionCallingLegacy": "Legacy",
+  "chatSettingResponseFormat": "Antwoordformaat",
+  "chatSettingErrorRequired": "Voer een waarde in.",
+  "chatSettingErrorNotANumber": "Voer een getal in.",
+  "chatSettingErrorNotAWholeNumber": "Voer een geheel getal in.",
+  "chatSettingErrorRange": "Voer een waarde van {min} tot {max} in.",
+  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "chatSettingErrorMinimum": "Voer {min} of meer in.",
+  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "chatSettingErrorNotJson": "Voer een woord zoals json of een geldig JSON-schema in.",
+  "chatSettingErrorNotAChoice": "Kies een ondersteunde waarde.",
+  "personalConnectionsTitle": "Persoonlijke verbindingen",
+  "personalConnectionsStoredOn": "Opgeslagen voor {account} op {server}",
+  "personalConnectionsKeyStorageNote": "Sleutels worden op de server bewaard bij de instellingen van je Open WebUI-account.",
+  "personalConnectionsTerminals": "Terminals",
+  "personalConnectionsEmptyToolServers": "Geen toolservers opgeslagen.",
+  "personalConnectionsEmptyTerminals": "Geen terminals opgeslagen.",
+  "personalConnectionsAddToolServer": "Toolserver toevoegen",
+  "personalConnectionsAddTerminal": "Terminal toevoegen",
+  "personalConnectionsEditToolServer": "Toolserver bewerken",
+  "personalConnectionsEditTerminal": "Terminal bewerken",
+  "personalConnectionsUnavailableServer": "Je Open WebUI-server heeft persoonlijke toolservers en terminals niet ingeschakeld.",
+  "personalConnectionsUnavailablePermission": "Je account mag geen persoonlijke toolservers en terminals beheren.",
+  "personalConnectionsLoadFailed": "Je persoonlijke verbindingen konden niet worden geladen.",
+  "personalConnectionsSaveFailed": "Opslaan mislukt. Je verbindingen zijn niet gewijzigd.",
+  "personalConnectionsSaveRejected": "De server heeft deze wijziging niet bewaard. Je account mag mogelijk geen persoonlijke verbindingen opslaan.",
+  "personalConnectionsOwnerChanged": "Je account of toegang is gewijzigd sinds je dit opende. Er is niets opgeslagen of verzonden en je invoer blijft hier bewaard. Open deze verbinding opnieuw om verder te gaan.",
+  "personalConnectionsSavedForPreviousAccount": "Opgeslagen in het account waarmee dit formulier is geopend. Het account dat nu is ingelogd, is niet gewijzigd.",
+  "personalConnectionsDuplicate": "Een andere verbinding gebruikt deze id al.",
+  "personalConnectionsNotFound": "Deze verbinding is elders gewijzigd of verwijderd. Laad opnieuw en probeer het nog eens.",
+  "personalConnectionsUrl": "URL",
+  "personalConnectionsPath": "Pad",
+  "personalConnectionsSpecSource": "OpenAPI-specificatie",
+  "personalConnectionsSpecFromUrl": "Ophalen via URL",
+  "personalConnectionsSpecInline": "JSON plakken",
+  "personalConnectionsSpecJson": "OpenAPI-JSON",
+  "personalConnectionsDescriptionField": "Beschrijving",
+  "personalConnectionsAuth": "Authenticatie",
+  "personalConnectionsKeyKept": "Opgeslagen sleutel blijft behouden. Typ om hem te vervangen.",
+  "personalConnectionsKeyRemove": "Opgeslagen sleutel verwijderen",
+  "personalConnectionsKeyWillRemove": "De opgeslagen sleutel wordt verwijderd.",
+  "personalConnectionsKeyKeep": "Opgeslagen sleutel behouden",
+  "personalConnectionsTestConnection": "Verbinding testen",
+  "personalConnectionsTestOk": "Verbinding werkt. {count} bewerkingen gevonden.",
+  "personalConnectionsTestOkTerminal": "De terminal reageerde.",
+  "personalConnectionsTestUnauthorized": "De host heeft de sleutel geweigerd.",
+  "personalConnectionsTestUnreachable": "De host is niet bereikbaar.",
+  "personalConnectionsTestInvalidSpec": "De host gaf geen geldig OpenAPI-document terug.",
+  "personalConnectionsTestInvalidTarget": "Voer eerst een geldige URL en een pad in.",
+  "personalConnectionsTestUnsupportedAuth": "Deze authenticatiemodus kan hier niet worden getest.",
+  "personalConnectionsUnsupported": "Deze verbinding gebruikt instellingen die de app niet kan bewerken. Je kunt haar nog wel in- of uitschakelen of verwijderen.",
+  "personalConnectionsDeleteTitle": "Verbinding verwijderen?",
+  "personalConnectionsDeleteMessage": "{name} wordt verwijderd uit je Open WebUI-account.",
+  "personalConnectionsUrlRequired": "Voer een URL in.",
+  "personalConnectionsUrlInvalid": "Voer een volledige http- of https-URL in.",
+  "personalConnectionsPathRequired": "Voer een pad in.",
+  "personalConnectionsSpecInvalid": "Voer een geldig OpenAPI-JSON-document in.",
+  "personalConnectionsSelectionCleared": "Uit deze chat verwijderd omdat de verbinding is gewijzigd: {names}",
+  "personalConnectionsTerminalOneActive": "Als je een terminal inschakelt, gaan de andere uit.",
+  "personalConnectionsNeedsAdvanced": "Zet Geavanceerd aan in de chatinstellingen om persoonlijke verbindingen te beheren.",
+  "personalConnectionsNoAccount": "Log in bij een Open WebUI-account om persoonlijke verbindingen te beheren.",
   "chatSaved": "Chat opgeslagen in geschiedenis",
   "chatSaveFailed": "Chat opslaan mislukt",
   "sidebarChatsTab": "Chats",
@@ -1203,6 +1293,11 @@
   "savedMemoriesCount": "{count} opgeslagen herinneringen",
   "memoryEditorDescription": "Houd herinneringen kort en specifiek zodat de server ze consistent kan toepassen.",
   "memoryHint": "Voorbeeld: ik geef de voorkeur aan beknopte antwoorden met codevoorbeelden.",
+  "memoryTypeLabel": "Type",
+  "memoryTypeUser": "Gebruiker",
+  "memoryTypeContext": "Context",
+  "memoryPathLabel": "Pad (optioneel)",
+  "memoryPathHint": "bijv. projects/conduit",
   "addMemory": "Herinnering toevoegen",
   "editMemory": "Herinnering bewerken",
   "deleteMemory": "Herinnering verwijderen",
@@ -1875,6 +1970,9 @@
   "workspaceAccessEmpty": "Not shared with anyone yet.",
   "workspaceAccessAddPeople": "Add people or groups",
   "workspaceAccessAddGroups": "Add groups",
+  "workspaceAccessAddUsers": "Mensen toevoegen",
+  "workspaceAccessGroupsDisabled": "Delen met groepen is uitgeschakeld; je kunt alleen met individuele mensen delen.",
+  "workspaceAccessGrantsDisabled": "Je hebt geen toestemming om met mensen of groepen te delen. Bestaande toegang blijft behouden.",
   "workspaceAccessVisibilityLabel": "Public",
   "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
@@ -3298,6 +3396,38 @@
   "@directContextLimit": {"description": "Provider-neutral model context limit label.", "placeholders": {"tokens": {"type": "String"}}},
   "notificationSystemSettingsDescription": "Wijzig toestemming, geluid en bannerinstellingen voor Conduit.",
   "notificationSystemSettingsOpenFailed": "Kan systeeminstellingen voor meldingen niet openen.",
+  "notificationTargetsTitle": "Webhookbestemmingen",
+  "notificationTargetsDescription": "Je Open WebUI-server stuurt gebeurtenissen naar deze URL's, ook als deze app gesloten is.",
+  "notificationTargetsAdd": "Bestemming toevoegen",
+  "notificationTargetsEmpty": "Nog geen webhookbestemmingen.",
+  "notificationTargetsLoadFailed": "Webhookbestemmingen konden niet worden geladen.",
+  "notificationTargetsStale": "Opgeslagen, maar de lijst kon niet worden vernieuwd.",
+  "notificationTargetsNativeDescription": "Webhookbestemmingen toevoegen en beheren",
+  "notificationTargetsUnavailable": "Webhookbestemmingen zijn niet beschikbaar voor dit account.",
+  "notificationTargetsAccountChanged": "Het account is gewijzigd. Sluit dit en open de bestemming opnieuw.",
+  "notificationTargetNewTitle": "Nieuwe bestemming",
+  "notificationTargetEditTitle": "Bestemming bewerken",
+  "notificationTargetNameLabel": "Naam (optioneel)",
+  "notificationTargetNameHint": "bijv. team-chat",
+  "notificationTargetUrlLabel": "Webhook-URL",
+  "notificationTargetUrlHint": "https://example.com/webhook",
+  "notificationTargetUrlKeepHint": "Laat leeg om de huidige URL te behouden",
+  "notificationTargetUrlRequired": "Voer de webhook-URL in.",
+  "notificationTargetEnabledTitle": "Ingeschakeld",
+  "notificationTargetDeliveryLabel": "Bezorging",
+  "notificationTargetDeliveryAway": "Wanneer afwezig",
+  "notificationTargetDeliveryAlways": "Altijd",
+  "notificationTargetEventsLabel": "Gebeurtenissen",
+  "notificationTargetEventsUnavailable": "De gebeurtenissenlijst van de server kon niet worden geladen.",
+  "notificationTargetUnknownEvent": "Niet in de gebeurtenissenlijst van deze server. Je blijft geabonneerd tot je het uitschakelt.",
+  "notificationTargetDefaultBadge": "Standaard",
+  "notificationTargetMakeDefault": "Als standaard instellen",
+  "notificationTargetTest": "Testmelding verzenden",
+  "notificationTargetTestSent": "Testmelding verzonden.",
+  "notificationTargetTestFailed": "De testmelding kon niet worden bezorgd.",
+  "notificationTargetDelete": "Bestemming verwijderen",
+  "notificationTargetDeleteConfirm": "{name} verwijderen? Je server stuurt er dan geen meldingen meer naartoe.",
+  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
   "notificationSystemSettingsTitle": "Systeeminstellingen voor meldingen",
   "proxyAuthSignInAgain": "Opnieuw aanmelden via proxy",
   "readOnly": "Alleen-lezen",
@@ -3362,5 +3492,556 @@
   "voiceCallNoSpeech": "Geen spraak gedetecteerd.",
   "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
   "voiceCallFailed": "Het spraakgesprek kon niet worden voortgezet.",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "personalToolSettings": "Gereedschapsinstellingen",
+  "personalToolSettingsDescription": "Je persoonlijke opties voor de geselecteerde gereedschappen en het model.",
+  "personalToolSettingsYours": "Jouw instellingen",
+  "personalToolSettingsUnavailable": "Jouw instellingen zijn niet beschikbaar voor dit item.",
+  "personalToolSettingsOwnerChanged": "Het ingelogde account is gewijzigd, dus er is niets opgeslagen. Open de instellingen opnieuw om door te gaan.",
+  "personalToolSettingsInvalid": "De server heeft deze waarden niet geaccepteerd.",
+  "noteReadOnlyNotice": "Deze notitie is alleen-lezen. Je kunt de notitie lezen, maar niet wijzigen.",
+  "noteAccessUnverifiedNotice": "Maak opnieuw verbinding om te bevestigen dat je deze notitie kunt bewerken.",
+  "noteAccessRevokedNotice": "Je kunt deze notitie niet meer bewerken. Je niet-opgeslagen wijzigingen blijven hier bewaard.",
+  "noteSaveAsOwnNote": "Opslaan als eigen notitie",
+  "noteDiscardChanges": "Wijzigingen negeren",
+  "noteSessionChangedNotice": "Het ingelogde account is gewijzigd, dus deze notitie is niet opgeslagen.",
+  "noteNoAccess": "Je hebt geen toegang meer tot deze notitie.",
+  "noteShare": "Notitie delen",
+  "folderShareSettings": "Deelinstellingen",
+  "chatShareAudience": "Doelgroep",
+  "chatShareAudienceDescription": "Kies wie de gedeelde chat kan openen",
+  "resourceSharingSaved": "Delen bijgewerkt",
+  "resourceSharingFiltered": "Opgeslagen. De server heeft slechts een deel van de gekozen toegang behouden.",
+  "resourceSharingSessionChanged": "Het ingelogde account is gewijzigd, dus er is niets opgeslagen. Sluit dit en open het opnieuw.",
+  "resourceSharingDenied": "Je kunt niet meer wijzigen wie hier toegang toe heeft.",
+  "resourceSharingMissing": "Dit item bestaat niet meer.",
+  "resourceSharingLoadFailed": "Kon niet laden wie toegang heeft.",
+  "resourceSharingSaveFailed": "Kon de toegang niet opslaan. Probeer het opnieuw.",
+  "resourceAudienceLabel": "Doelgroep",
+  "resourceAudiencePrivate": "Privé",
+  "resourceAudiencePublic": "Openbaar",
+  "resourceAudienceOpen": "Open",
+  "resourceAudiencePrivateHint": "Alleen de mensen en groepen hieronder kunnen het openen.",
+  "resourceAudiencePublicHint": "Elke gebruiker op deze server kan het openen.",
+  "resourceAudienceOpenHint": "Iedereen met de link kan het bekijken.",
+  "channelMembersSearchHint": "Leden zoeken",
+  "channelMembersEmpty": "Geen leden gevonden.",
+  "channelMembersLoadFailed": "Leden konden niet worden geladen.",
+  "channelMembersLoadMore": "Meer laden",
+  "channelMembersLoadMoreFailed": "Er konden niet meer leden worden geladen. Tik om het opnieuw te proberen.",
+  "channelMembersAdd": "Leden toevoegen",
+  "channelMembersAddConfirm": "Toevoegen",
+  "channelMembersRemoveMember": "{name} verwijderen",
+  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "channelMembersChangeFailed": "De leden konden niet worden bijgewerkt. Probeer het opnieuw.",
+  "channelMembersChangeDenied": "De server stond deze wijziging niet toe.",
+  "channelMembersChangeNotPermitted": "Je kunt de leden van dit kanaal niet beheren.",
+  "chatBranchContinueFromResponse": "Doorgaan vanaf dit antwoord",
+  "chatBranchForkChat": "Chat hier vertakken",
+  "chatBranchSwitcherSemantics": "Bewerkt bericht, versie {position} van {total}. Alle versies tonen.",
+  "@chatBranchSwitcherSemantics": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchSheetTitle": "Berichtversies",
+  "chatBranchSheetDescription": "Kies de versie waarvan je wilt doorgaan. Elke versie behoudt zijn eigen antwoorden.",
+  "chatBranchVersionTitle": "Versie {position}",
+  "@chatBranchVersionTitle": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchVersionCurrent": "Huidige tak",
+  "chatBranchSelectedNotice": "Doorgaan vanaf versie {position} van {total}",
+  "@chatBranchSelectedNotice": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchWaitForResponse": "Wacht tot dit antwoord klaar is",
+  "chatBranchUnavailable": "De takken van deze chat kunnen hier niet worden gewijzigd.",
+  "chatBranchOwnerChanged": "Het ingelogde account is gewijzigd, dus er is niets aangepast.",
+  "chatBranchMessageMissing": "Die versie is niet meer beschikbaar.",
+  "chatForkOffline": "Ga online om deze chat te vertakken.",
+  "chatForkForbidden": "Je account mag geen chats vertakken.",
+  "chatForkSourceMissing": "De server heeft deze chat niet meer.",
+  "chatForkUnsupported": "Deze server ondersteunt het vertakken van chats niet.",
+  "chatForkFailed": "Kon deze chat niet vertakken. Probeer het opnieuw.",
+  "codeInterpreter": "Code-interpreter",
+  "codeInterpreterDescription": "Voer code uit op de server om gegevens te analyseren en bestanden te maken.",
+  "codeInterpreterBrowserEngine": "Deze server voert code uit in de browser, wat Conduit niet kan.",
+  "codeInterpreterUnavailable": "De code-interpreter is niet beschikbaar voor deze server, dit account of dit model.",
+  "folderProjectSettings": "Projectinstellingen",
+  "folderProjectSettingsDescription": "Standaardwaarden voor nieuwe chats in deze map. De server past de kennis en het systeemprompt toe op elke chat erin.",
+  "folderProjectModels": "Standaardmodellen",
+  "folderProjectModelsHint": "Een nieuwe chat begint met de eerste beschikbare hiervan.",
+  "folderProjectNoKnowledge": "Geen kennis gekoppeld.",
+  "folderProjectNoModels": "Geen standaardmodel. Nieuwe chats gebruiken je standaardmodel.",
+  "folderProjectAddKnowledge": "Kennis toevoegen",
+  "folderProjectAddModel": "Model toevoegen",
+  "folderProjectAddSelected": "Toevoegen",
+  "folderProjectNothingToAdd": "Er is niets meer toe te voegen.",
+  "folderProjectNotAvailable": "Niet beschikbaar",
+  "folderProjectMoveUp": "{name} omhoog verplaatsen",
+  "folderProjectRemove": "{name} verwijderen",
+  "folderProjectKindCollection": "Kennisbank",
+  "folderProjectKindFile": "Bestand",
+  "folderProjectKindNote": "Notitie",
+  "folderProjectOwnerChanged": "Het ingelogde account is gewijzigd, dus er is niets opgeslagen. Open de projectinstellingen opnieuw om verder te gaan.",
+  "folderProjectReadOnly": "Deze gedeelde map is alleen-lezen, dus de projectinstellingen kunnen niet worden gewijzigd.",
+  "folderProjectGone": "Deze map is niet meer beschikbaar.",
+  "folderProjectModelFallbackNotice": "Het standaardmodel van deze map is niet beschikbaar, dus je standaardmodel wordt gebruikt.",
+  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTasksTitle": "Geplande taken",
+  "scheduledTasksDescription": "Je Open WebUI-server voert deze taken uit volgens een eigen schema, ook als deze telefoon offline is.",
+  "scheduledTasksNeedsAdvanced": "Schakel Geavanceerd in bij Instellingen om geplande taken te beheren. Taken die al op de server staan, blijven draaien.",
+  "scheduledTasksUnavailable": "Geplande taken zijn niet beschikbaar voor dit account op deze server.",
+  "scheduledTasksSearchHint": "Taken zoeken",
+  "scheduledTasksFilterAll": "Alle",
+  "scheduledTasksFilterActive": "Actief",
+  "scheduledTasksFilterPaused": "Gepauzeerd",
+  "scheduledTasksEmpty": "Nog geen geplande taken.",
+  "scheduledTasksEmptyFiltered": "Geen taken gevonden.",
+  "scheduledTasksLoadFailed": "Geplande taken konden niet worden geladen.",
+  "scheduledTasksStale": "Deze lijst is mogelijk verouderd. Tik om te vernieuwen.",
+  "scheduledTasksLoadMore": "Meer laden",
+  "scheduledTasksAdd": "Nieuwe geplande taak",
+  "scheduledTasksAccountChanged": "Het account is gewijzigd. Open de geplande taken opnieuw om verder te gaan.",
+  "scheduledTasksNotFound": "Deze taak bestaat niet meer.",
+  "scheduledTaskStatusActive": "Actief",
+  "scheduledTaskStatusPaused": "Gepauzeerd",
+  "scheduledTaskNextRun": "Volgende uitvoering {time}",
+  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNoNextRun": "Geen geplande uitvoering",
+  "scheduledTaskLastRun": "Laatste uitvoering {time}",
+  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNeverRun": "Nog nooit uitgevoerd",
+  "scheduledTaskScheduleOnce": "Eenmalig",
+  "scheduledTaskScheduleDaily": "Dagelijks",
+  "scheduledTaskScheduleWeekly": "Wekelijks",
+  "scheduledTaskScheduleOnceSummary": "Eenmalig, {date}",
+  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "scheduledTaskScheduleDailySummary": "Dagelijks om {time}",
+  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskScheduleWeeklySummary": "{days} om {time}",
+  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "scheduledTaskScheduleCustom": "Aangepast schema",
+  "scheduledTaskNewTitle": "Nieuwe geplande taak",
+  "scheduledTaskEditTitle": "Geplande taak bewerken",
+  "scheduledTaskNameLabel": "Naam",
+  "scheduledTaskPromptLabel": "Instructies",
+  "scheduledTaskPromptHint": "Wat moet het model elke keer doen?",
+  "scheduledTaskModelLabel": "Model",
+  "scheduledTaskModelChoose": "Kies een model",
+  "scheduledTaskModelUnavailable": "{id} (niet meer beschikbaar)",
+  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "scheduledTaskScheduleLabel": "Schema",
+  "scheduledTaskTimeLabel": "Tijd",
+  "scheduledTaskDateLabel": "Datum",
+  "scheduledTaskDaysLabel": "Dagen",
+  "scheduledTaskAdvancedSchedule": "Geavanceerd schema",
+  "scheduledTaskRruleLabel": "Herhalingsregel",
+  "scheduledTaskRruleKept": "Dit schema gebruikt een regel die met de bedieningselementen niet te bewerken is. Het blijft zoals het is, tenzij je het wijzigt.",
+  "scheduledTaskTimezoneNote": "Tijden volgen de tijdzone van je Open WebUI-account, die door de webapp wordt ingesteld en niet per se die van dit apparaat is. De server bepaalt wanneer elke uitvoering plaatsvindt.",
+  "scheduledTaskActiveLabel": "Actief",
+  "scheduledTaskDestinationLabel": "Resultaat gaat naar",
+  "scheduledTaskDestinationChat": "Nieuwe chat",
+  "scheduledTaskDestinationChannel": "Kanaal",
+  "scheduledTaskFolderLabel": "Map",
+  "scheduledTaskFolderNone": "Geen",
+  "scheduledTaskFolderUnavailable": "Opgeslagen map (niet meer beschikbaar)",
+  "scheduledTaskChannelChoose": "Kies een kanaal",
+  "scheduledTaskChannelUnavailable": "Opgeslagen kanaal (niet meer beschikbaar)",
+  "scheduledTaskChannelNoWrite": "Je kunt niet in dit kanaal posten.",
+  "scheduledTaskNameRequired": "Voer een naam in.",
+  "scheduledTaskPromptRequired": "Voer instructies in.",
+  "scheduledTaskModelRequired": "Kies een model.",
+  "scheduledTaskModelUnavailableIssue": "Kies een model dat nu beschikbaar is.",
+  "scheduledTaskChannelRequired": "Kies een kanaal.",
+  "scheduledTaskChannelUnavailableIssue": "Kies een kanaal dat nu beschikbaar is.",
+  "scheduledTaskFolderUnavailableIssue": "Kies een map die nu beschikbaar is, of geen.",
+  "scheduledTaskScheduleIncomplete": "Maak het schema compleet.",
+  "scheduledTaskSaveFailed": "Deze taak kon niet worden opgeslagen.",
+  "scheduledTaskRunNow": "Nu uitvoeren",
+  "scheduledTaskRunRequested": "Uitvoering aangevraagd. De server voert de taak op de achtergrond uit en het resultaat verschijnt in de Geschiedenis zodra die klaar is.",
+  "scheduledTaskRunRequestFailed": "Kon geen uitvoering aanvragen.",
+  "scheduledTaskNextRunsLabel": "Aankomende uitvoeringen, van de server",
+  "scheduledTaskHistoryTitle": "Geschiedenis",
+  "scheduledTaskHistoryEmpty": "Nog geen uitvoeringen.",
+  "scheduledTaskHistoryLoadFailed": "Geschiedenis kon niet worden geladen.",
+  "scheduledTaskRunSucceeded": "Geslaagd",
+  "scheduledTaskRunFailedStatus": "Mislukt",
+  "scheduledTaskViewChat": "Chat bekijken",
+  "scheduledTaskViewChannel": "Kanaal bekijken",
+  "scheduledTaskOpenResultFailed": "Dat resultaat kon niet worden geopend.",
+  "scheduledTaskDelete": "Taak verwijderen",
+  "scheduledTaskDeleteConfirm": "{name} verwijderen? De server stopt met het uitvoeren ervan en de geschiedenis wordt verwijderd.",
+  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTaskChangeFailed": "Deze taak kon niet worden gewijzigd.",
+  "scheduledTaskTerminalKept": "Aan deze taak is een terminal gekoppeld. Die blijft behouden als je de taak bewerkt.",
+  "scheduledTaskPromptSection": "Instructies",
+  "queueDraftAction": "In wachtrij",
+  "queuedDraftsTitle": "Berichten in de wachtrij",
+  "queuedDraftsCount": "{count, plural, one{{count} bericht in de wachtrij} other{{count} berichten in de wachtrij}}",
+  "queuedDraftsSessionNote": "Berichten in de wachtrij blijven alleen bewaard zolang Conduit open is. Zodra het antwoord klaar is, worden ze samen als één bericht verzonden.",
+  "queuedDraftSendNow": "Nu verzenden",
+  "queuedDraftUploading": "Wachten tot een bestand is geüpload",
+  "queuedDraftFileFailed": "Een bestand is niet geüpload. Verwijder het om dit bericht te verzenden.",
+  "queuedDraftsSendFailed": "De berichten in de wachtrij konden niet worden verzonden. Ze blijven in de wachtrij staan.",
+  "queuedDraftsSending": "Berichten uit de wachtrij verzenden…",
+  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarTitle": "Agenda",
+  "calendarDescription": "Je Open WebUI-agenda. Afspraken staan op de server en worden getoond in de tijdzone van dit apparaat.",
+  "calendarNeedsAdvanced": "Schakel Geavanceerd in bij Instellingen om de agenda te gebruiken. Afspraken die al op de server staan, blijven ongewijzigd.",
+  "calendarUnavailable": "De agenda is niet beschikbaar voor dit account op deze server.",
+  "calendarTimezoneNote": "Tijden worden getoond in de tijdzone van dit apparaat. Terugkerende afspraken worden door de server uitgewerkt in de tijdzone van je account.",
+  "calendarRangeLabel": "{start} – {end}",
+  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "calendarEarlier": "Eerder",
+  "calendarLater": "Later",
+  "calendarToday": "Vandaag",
+  "calendarAllCalendars": "Alle agenda's",
+  "calendarEmpty": "Geen afspraken in deze periode.",
+  "calendarLoadFailed": "De agenda kon niet worden geladen.",
+  "calendarStale": "De agenda is mogelijk verouderd.",
+  "calendarAddEvent": "Nieuwe afspraak",
+  "calendarManageCalendars": "Agenda's",
+  "calendarAllDay": "Hele dag",
+  "calendarRepeatsMarker": "Terugkerend",
+  "calendarUntitledEvent": "Naamloze afspraak",
+  "calendarScheduledUpcoming": "Geplande taak",
+  "calendarScheduledRunFinished": "Uitvoering van taak voltooid",
+  "calendarScheduledRunFailed": "Uitvoering van taak mislukt",
+  "calendarScheduledEntryReadOnly": "Geplande taken worden beheerd op de pagina Geplande taken, niet als afspraken.",
+  "calendarEventDetailTitle": "Afspraak",
+  "calendarEventCalendar": "Agenda: {name}",
+  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventOrganizer": "Georganiseerd door {name}",
+  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventSeriesNote": "Deze afspraak is terugkerend. Wijzigingen en verwijderen gelden voor de hele reeks.",
+  "calendarEventInvitedCount": "Uitgenodigd: {count}",
+  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarRsvpPrompt": "Je antwoord",
+  "calendarRsvpAccepted": "Ik kom",
+  "calendarRsvpTentative": "Misschien",
+  "calendarRsvpDeclined": "Ik kom niet",
+  "calendarRsvpPending": "Nog geen antwoord",
+  "calendarRsvpFailed": "Je antwoord kon niet worden verzonden.",
+  "calendarEventEdit": "Bewerken",
+  "calendarEventEditSeries": "Reeks bewerken",
+  "calendarEventDelete": "Verwijderen",
+  "calendarEventDeleteSeries": "Reeks verwijderen",
+  "calendarEventDeleteConfirm": "{title} verwijderen? Dit kan niet ongedaan worden gemaakt.",
+  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteSeriesConfirm": "{title} en alle herhalingen ervan verwijderen? Dit kan niet ongedaan worden gemaakt.",
+  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteFailed": "Deze afspraak kon niet worden verwijderd.",
+  "calendarEventLoadFailed": "Deze afspraak kon niet worden geopend om te bewerken.",
+  "calendarEventReadOnly": "Je kunt deze afspraak niet wijzigen. Je kunt nog wel op een uitnodiging antwoorden.",
+  "calendarEventGone": "Deze afspraak bestaat niet meer. De agenda wordt vernieuwd.",
+  "calendarNewEventTitle": "Nieuwe afspraak",
+  "calendarEditEventTitle": "Afspraak bewerken",
+  "calendarEditSeriesTitle": "Reeks bewerken",
+  "calendarFieldTitle": "Titel",
+  "calendarFieldDescription": "Beschrijving",
+  "calendarFieldLocation": "Locatie",
+  "calendarFieldAllDay": "Hele dag",
+  "calendarFieldStarts": "Begint",
+  "calendarFieldStartTime": "Begintijd",
+  "calendarFieldEnds": "Eindigt",
+  "calendarFieldEndTime": "Eindtijd",
+  "calendarAddEnd": "Einde toevoegen",
+  "calendarFieldRepeat": "Herhalen",
+  "calendarRepeatNone": "Herhaalt niet",
+  "calendarRepeatDaily": "Dagelijks",
+  "calendarRepeatWeekdays": "Werkdagen",
+  "calendarRepeatWeekly": "Wekelijks",
+  "calendarRepeatMonthly": "Maandelijks",
+  "calendarRepeatYearly": "Jaarlijks",
+  "calendarRepeatCustom": "Aangepaste herhaling",
+  "calendarRepeatKept": "Deze afspraak herhaalt volgens een regel die hier niet te bewerken is. Die blijft behouden, tenzij je een andere herhaling kiest.",
+  "calendarRecurrenceTimezoneNote": "Herhalingen volgen de tijdzone van je account, die kan afwijken van die van dit apparaat.",
+  "calendarFieldCalendar": "Agenda",
+  "calendarChooseCalendar": "Kies een agenda",
+  "calendarFieldAttendees": "Mensen",
+  "calendarAddPeople": "Mensen toevoegen",
+  "calendarInvitedPerson": "Uitgenodigde persoon",
+  "calendarRemovePerson": "{name} verwijderen",
+  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "calendarAttendeesNote": "Uitgenodigde mensen antwoorden voor zichzelf. Hun antwoorden blijven behouden als je de lijst wijzigt.",
+  "calendarNoWritableCalendar": "Je hebt geen agenda waaraan je afspraken kunt toevoegen. Maak een agenda aan om verder te gaan.",
+  "calendarTitleRequired": "Voer een titel in.",
+  "calendarCalendarRequired": "Kies een agenda.",
+  "calendarEndBeforeStart": "Het einde mag niet vóór het begin liggen.",
+  "calendarSaveFailed": "Deze afspraak kon niet worden opgeslagen.",
+  "calendarCalendarsTitle": "Agenda's",
+  "calendarPickTitle": "Kies een agenda",
+  "calendarEmptyCalendars": "Nog geen agenda's.",
+  "calendarDefaultBadge": "Standaard",
+  "calendarSharedBadge": "Gedeeld",
+  "calendarReadOnlyBadge": "Alleen-lezen",
+  "calendarMakeDefault": "Als standaard instellen",
+  "calendarMakeDefaultFailed": "De standaardagenda kon niet worden gewijzigd.",
+  "calendarNewCalendar": "Nieuwe agenda",
+  "calendarNewCalendarHint": "Naam van de agenda",
+  "calendarCreateCalendar": "Agenda aanmaken",
+  "calendarNameRequired": "Voer een naam voor de agenda in.",
+  "calendarCreateFailed": "De agenda kon niet worden aangemaakt.",
+  "calendarWriteDenied": "Je account kan dit niet wijzigen in die agenda.",
+  "calendarNotInvited": "Je bent niet uitgenodigd voor deze afspraak.",
+  "calendarNotFound": "Die agenda of afspraak is niet gevonden.",
+  "calendarAccountChanged": "Het account is gewijzigd terwijl dit geopend was. Sluit het en probeer het opnieuw.",
+  "chatDataControlsTitle": "Gegevensbeheer",
+  "chatDataControlsStoredOn": "Chats van {account} op {server}",
+  "@chatDataControlsStoredOn": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsUnavailable": "Voor gegevensbeheer moet Geavanceerd zijn ingeschakeld en moet je zijn ingelogd bij een Open WebUI-account.",
+  "chatDataControlsMediaNote": "Een back-up bevat de chatgeschiedenis, instellingen en verwijzingen naar bijlagen die op de server zijn opgeslagen. De bijgevoegde bestanden en afbeeldingen zelf zijn niet inbegrepen.",
+  "chatDataControlsLocalOnly": "Alleen op dit apparaat: {count}",
+  "@chatDataControlsLocalOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsent": "Met wijzigingen die de server niet heeft ontvangen: {count}",
+  "@chatDataControlsUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsyncedNote": "Een serverback-up laat deze weg totdat ze zijn verzonden.",
+  "chatDataControlsSyncNow": "Nu synchroniseren",
+  "chatDataControlsSyncing": "Synchroniseren…",
+  "chatDataControlsBackupSection": "Back-up en herstel",
+  "chatDataControlsManageSection": "Alle chats",
+  "chatDataControlsExportLibrary": "Alle chats exporteren",
+  "chatDataControlsImport": "Chats importeren",
+  "chatDataControlsArchiveAll": "Alle chats archiveren",
+  "chatDataControlsUnarchiveAll": "Alle chats uit archief halen",
+  "chatDataControlsUnshareAll": "Alle deellinks verwijderen",
+  "chatDataControlsDeleteAll": "Alle chats verwijderen",
+  "chatDataControlsExporting": "Exporteren… gelezen chats: {count}",
+  "@chatDataControlsExporting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportReady": "Back-up gereed. Opgeslagen chats: {count}",
+  "@chatDataControlsExportReady": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportEmpty": "De server heeft geen chats om een back-up van te maken.",
+  "chatDataControlsExportFailed": "De back-up is niet opgeslagen. De export is onderbroken of onvolledig.",
+  "chatDataControlsExportStopped": "Export gestopt. Er is niets opgeslagen.",
+  "chatDataControlsExportConfirmTitle": "Back-up maken van de kopie op de server?",
+  "chatDataControlsExportConfirmMessage": "Dit slaat de chats van {account} op die op {server} staan. Chats die alleen op dit apparaat bestaan en wijzigingen die de server niet heeft ontvangen, zijn niet inbegrepen.",
+  "@chatDataControlsExportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsExportAction": "Back-up maken",
+  "chatDataControlsImportConfirmTitle": "Deze chats importeren?",
+  "chatDataControlsImportConfirmMessage": "De chats uit het bestand toevoegen aan {account} op {server}? Chats: {chats}. Berichten: {messages}. Chats die er al zijn, worden niet vervangen; importeren voegt kopieën toe.",
+  "@chatDataControlsImportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      },
+      "chats": {
+        "type": "int"
+      },
+      "messages": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportAction": "Importeren",
+  "chatDataControlsImportInvalid": "Dat bestand is geen Open WebUI-chatexport.",
+  "chatDataControlsImportEmpty": "Dat bestand bevat geen chats.",
+  "chatDataControlsImportTooLarge": "Dat bestand is te groot om in één keer te importeren.",
+  "chatDataControlsImportBadEntry": "Chat nummer {position} in het bestand kan niet worden geïmporteerd.",
+  "@chatDataControlsImportBadEntry": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportChooseAnother": "Kies een ander bestand",
+  "chatDataControlsImportFile": "Bestand: {name}",
+  "@chatDataControlsImportFile": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsImported": "Import voltooid. Geïmporteerde chats: {count}",
+  "@chatDataControlsImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportedSyncNote": "Sommige verschijnen hier na de volgende synchronisatie.",
+  "chatDataControlsImportUnknown": "De server antwoordde niet, dus het is niet bekend of de chats zijn geïmporteerd. Controleer je chats voordat je opnieuw importeert; twee keer importeren voegt kopieën toe.",
+  "chatDataControlsForbidden": "Dit account mag dat niet doen.",
+  "chatDataControlsArchiveAllMessage": "Al je chats op de server archiveren? Je kunt ze later weer uit het archief halen.",
+  "chatDataControlsUnarchiveAllMessage": "Al je gearchiveerde chats op de server uit het archief halen?",
+  "chatDataControlsUnshareAllMessage": "Alle deellinks die je hebt gemaakt verwijderen? Mensen met een link verliezen toegang. De chats blijven bestaan.",
+  "chatDataControlsDeleteAllMessage": "Alle chats van {account} op {server} verwijderen? Dit kan niet ongedaan worden gemaakt. Chats die alleen op dit apparaat bestaan, blijven behouden.",
+  "@chatDataControlsDeleteAllMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsDeleteUnsentMessage": "Nog niet naar de server verzonden — chats met wijzigingen: {edits}; chats met reacties in de wachtrij: {replies}. Bij het verwijderen worden ze genegeerd.",
+  "@chatDataControlsDeleteUnsentMessage": {
+    "placeholders": {
+      "edits": {
+        "type": "int"
+      },
+      "replies": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsDiscardAndDelete": "Negeren en verwijderen",
+  "chatDataControlsResponseRunning": "Er loopt nog een reactie. Stop die en probeer het opnieuw.",
+  "chatDataControlsLocalChanged": "Een chat die alleen op dit apparaat stond, heeft tijdens het wachten de server bereikt. Er is niets gewijzigd. Controleer het en probeer het opnieuw.",
+  "chatDataControlsDone": "Klaar.",
+  "chatDataControlsRefused": "De server kon dat niet doen. Er is niets gewijzigd.",
+  "chatDataControlsUnknown": "De server antwoordde niet, dus het resultaat is onbekend. Controleer je chats; het opnieuw doen is veilig.",
+  "chatDataControlsOwnerChanged": "Het ingelogde account is gewijzigd. Er is niets uitgevoerd.",
+  "chatDataControlsAccountUnknown": "Dit account kon nog niet worden geïdentificeerd. Synchroniseer en probeer het opnieuw.",
+  "chatDataControlsWaiting": "Wachten tot de synchronisatie is voltooid…",
+  "chatExportAction": "Chat exporteren",
+  "chatExportJson": "Back-up (JSON)",
+  "chatExportJsonDescription": "De hele chat met elke vertakking en de bijbehorende instellingen. Open WebUI kan dit importeren.",
+  "chatExportMarkdown": "Transcript (Markdown)",
+  "chatExportMarkdownDescription": "Het gesprek waarin je zit, als leesbare tekst. Geen back-up.",
+  "chatExportUnsentNote": "Dit omvat wijzigingen die de server nog niet heeft ontvangen.",
+  "chatExportFailed": "De chat kon niet worden geëxporteerd.",
+  "chatDataControlsWorkChanged": "Er verschenen tijdens het wachten niet-verzonden wijzigingen op dit apparaat. Er is niets verwijderd. Controleer het en probeer het opnieuw.",
+  "chatComparisonTabsLabel": "Modelantwoorden",
+  "chatComparisonSlotLabel": "{model} · {number}",
+  "@chatComparisonSlotLabel": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      },
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "chatComparisonUnnamedModel": "Model",
+  "chatComparisonSlotResponding": "Antwoordt",
+  "chatComparisonSlotFailed": "Mislukt",
+  "chatMergedResponseTitle": "Samengevoegd antwoord",
+  "chatCompareModelsAction": "Modellen vergelijken",
+  "chatCompareModelsDescription": "Stuur dit bericht naar twee modellen en vergelijk hun antwoorden.",
+  "chatCompareNeedsMessage": "Typ eerst een bericht en vergelijk dan modellen.",
+  "chatCompareFirstModel": "Eerste model",
+  "chatCompareSecondModel": "Tweede model",
+  "chatCompareChooseModel": "Kies een model",
+  "chatCompareStart": "Vergelijken",
+  "chatCompareErrorUnavailable": "Modellen vergelijken is niet beschikbaar in deze chat.",
+  "chatCompareErrorModelUnavailable": "Niet beschikbaar op deze server: {models}.",
+  "@chatCompareErrorModelUnavailable": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorVision": "Geen ondersteuning voor afbeeldingen: {models}. Verwijder de afbeelding of kies andere modellen.",
+  "@chatCompareErrorVision": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorTerminal": "Geen ondersteuning voor de geselecteerde terminal: {models}. Schakel de terminal uit of kies andere modellen.",
+  "@chatCompareErrorTerminal": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorInterpreter": "Geen ondersteuning voor de code-interpreter: {models}. Schakel de interpreter uit of kies andere modellen.",
+  "@chatCompareErrorInterpreter": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortOverride": "Deze chat slaat een redeneerniveau op dat deze modellen niet kunnen gebruiken: {models}. Verwijder het in de chatinstellingen of kies andere modellen.",
+  "@chatCompareErrorEffortOverride": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortPicker": "De gekozen modellen hebben verschillende redeneerniveaus nodig. Stel voor beide hetzelfde niveau in of kies andere modellen.",
+  "chatMergeResponsesAction": "Antwoorden samenvoegen",
+  "chatMergeStopAction": "Samenvoegen stoppen",
+  "chatMergeErrorUnavailable": "Deze server kan antwoorden niet samenvoegen.",
+  "chatMergeErrorFailed": "Het samenvoegen van de antwoorden is mislukt. De oorspronkelijke antwoorden zijn ongewijzigd.",
+  "chatMergeErrorNotMergeable": "Elk antwoord moet met tekst eindigen voordat ze kunnen worden samengevoegd.",
+  "chatMergeErrorOwnerChanged": "Het account of de chat is gewijzigd, dus het samenvoegen is gestopt.",
+  "chatComparisonStopAnswerAction": "Deze reactie stoppen",
+  "chatMergeChooseDescription": "Kies de antwoorden die je wilt samenvoegen. Kies er minstens twee; de oorspronkelijke antwoorden blijven zoals ze zijn.",
+  "folderProjectComparisonFallbackNotice": "Niet alle opgeslagen modellen van dit project kunnen worden gebruikt, dus de chat begint met minder. Een vergelijking gebruikt er precies twee."
 }

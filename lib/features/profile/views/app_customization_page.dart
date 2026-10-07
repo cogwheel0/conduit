@@ -487,6 +487,26 @@ class AppCustomizationPage extends ConsumerWidget {
                 _showAndroidAssistantTriggerSheet(context, ref, settings),
           ),
         ],
+        const SizedBox(height: Spacing.sm),
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.tune_rounded,
+            color: theme.buttonPrimary,
+          ),
+          title: l10n.advancedFeatures,
+          subtitle: l10n.advancedFeaturesDescription,
+          trailing: AdaptiveSwitch(
+            value: settings.advancedFeaturesEnabled,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setAdvancedFeaturesEnabled(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setAdvancedFeaturesEnabled(!settings.advancedFeaturesEnabled),
+        ),
       ],
     );
   }

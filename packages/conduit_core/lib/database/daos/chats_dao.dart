@@ -5,6 +5,8 @@ import 'package:collection/collection.dart';
 import 'package:drift/drift.dart';
 import 'package:meta/meta.dart';
 
+import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../sync/chat_merger.dart';
@@ -118,6 +120,41 @@ class ServerChatReconcileEntry {
   final String id;
   final String title;
   final bool dirty;
+}
+
+/// What an account-wide server action reaches in the local copy, and which
+/// local work it would take with it. Counts are of chats, not of operations.
+@immutable
+class ServerChatBulkScope {
+  const ServerChatBulkScope({
+    required this.serverChats,
+    required this.unsyncedEdits,
+    required this.queuedResponses,
+    required this.runningResponses,
+    required this.pendingDeletes,
+    required this.localOnlyChatIds,
+  });
+
+  /// Stored chats the action reaches: server ids this account owns.
+  final int serverChats;
+
+  /// Reached chats holding an edit, or a create the server does not have yet.
+  final int unsyncedEdits;
+
+  /// Reached chats with a response queued, parked or running.
+  final int queuedResponses;
+
+  /// Of [queuedResponses], those whose request is in flight now.
+  final int runningResponses;
+
+  /// Reached chats the user already deleted that the server has yet to hear.
+  final int pendingDeletes;
+
+  /// Chats that exist only on this device. The action never reaches them.
+  final List<String> localOnlyChatIds;
+
+  /// Whether deleting the reached chats would discard work not on the server.
+  bool get hasWorkTheServerLacks => unsyncedEdits > 0 || queuedResponses > 0;
 }
 
 /// Chat row accessor (CDT-RFC-001 §6, §7.4, §10).
@@ -255,6 +292,16 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return (select(chats)..where((t) => t.id.equals(chatId))).getSingleOrNull();
   }
 
+  /// The chat's own stored `params` (empty when it has none), or null when the
+  /// chat is absent, tombstoned, or only an envelope stub: a stub's empty
+  /// `rawExtra` says nothing about the chat's params, so it must not shadow a
+  /// copy the caller already holds. Reads one row; never touches messages.
+  Future<Map<String, dynamic>?> getChatParams(String chatId) async {
+    final row = await getChat(chatId);
+    if (row == null || row.deleted || !row.bodySynced) return null;
+    return openWebUiChatParamsFromRawExtra(row.rawExtra);
+  }
+
   /// NARROW envelope projection (REQ §10.2) of every non-tombstoned chat that
   /// carries a SERVER id (`id NOT LIKE 'local:%'`). Used by the §7.5 full-ID
   /// reconcile to diff ids and recover titles missed by the watermark pull.
@@ -376,6 +423,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             base: serverChat.updatedAt - 1,
             chatEnvelopeDirty: true,
             dirtyMessageIds: dirtyMessageIds,
+            localParamsEdited: await _outboxDao.hasPendingParamsEdit(
+              serverChat.id,
+            ),
+            localBranchChosen: await _outboxDao.hasPendingBranchEdit(
+              serverChat.id,
+            ),
           );
           await _writeChatRows(
             rows: result.merged,
@@ -438,6 +491,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         base: base,
         chatEnvelopeDirty: existing.dirty,
         dirtyMessageIds: dirtyMessageIds,
+        localParamsEdited:
+            existing.dirty &&
+            await _outboxDao.hasPendingParamsEdit(serverChat.id),
+        localBranchChosen:
+            existing.dirty &&
+            await _outboxDao.hasPendingBranchEdit(serverChat.id),
       );
 
       if (refreshWhenClean &&
@@ -1062,6 +1121,206 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Patches only the chat's own `params` inside its stored blob envelope
+  /// ([ChatRow.rawExtra]): [set] keys are written (a null value is a real
+  /// "default" override), [remove] keys are dropped so the chat inherits again.
+  /// Every other `params` key, every other envelope key, the messages and the
+  /// folder/current-message columns are left exactly as stored.
+  ///
+  /// Marks the chat `dirty` and enqueues an `updateChat` op in the same
+  /// transaction, so a failed write leaves neither a partial edit nor an
+  /// orphan op. A patch that changes nothing writes nothing and enqueues
+  /// nothing. Returns the params now stored, or null when the chat is absent or
+  /// tombstoned (nothing is written). A stored `params` that is not an object
+  /// is replaced only when there is something to write. Caller holds the chat
+  /// lock.
+  Future<Map<String, dynamic>?> patchChatParamsWithOutbox(
+    String chatId, {
+    Map<String, dynamic> set = const <String, dynamic>{},
+    Iterable<String> remove = const <String>[],
+    required int updatedAt,
+  }) {
+    return transaction(() async {
+      final row = await getChat(chatId);
+      if (row == null || row.deleted) return null;
+
+      final decoded = _decodeRawExtraEnvelope(row.rawExtra);
+      final current = openWebUiChatParamsFrom(decoded['params']);
+      final next = <String, dynamic>{...current, ...set};
+      for (final key in remove) {
+        next.remove(key);
+      }
+      final storedAsObject = decoded['params'] is Map;
+      if (storedAsObject &&
+          const DeepCollectionEquality().equals(current, next)) {
+        return current;
+      }
+      if (!storedAsObject && next.isEmpty) return current;
+
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(
+          rawExtra: Value(
+            jsonEncode(<String, dynamic>{...decoded, 'params': next}),
+          ),
+          updatedAt: Value(updatedAt),
+          dirty: const Value(true),
+        ),
+      );
+      // The flag is what lets a later pull keep these params over a newer
+      // server copy; an unrelated dirty envelope would not carry it.
+      await _outboxDao.enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: chatId,
+        payload: const <String, dynamic>{kUpdateChatParamsEditKey: true},
+      );
+      return next;
+    });
+  }
+
+  /// Records the user's explicit choice of active branch: points the chat's
+  /// `currentId` at [messageId] (the leaf the caller resolved), marks the chat
+  /// `dirty` and enqueues an `updateChat` op flagged as a branch edit, in one
+  /// transaction. The flag is what lets a later pull keep this leaf over a newer
+  /// server one; an unrelated dirty envelope would not carry it.
+  ///
+  /// Only the envelope moves. No message row is written or marked dirty, every
+  /// `childrenIds` list stays as stored, and the blob bookkeeping is touched
+  /// only so `history.currentId` is emitted on the next push (a blob that never
+  /// had one, or kept a non-string one verbatim, would otherwise drop the
+  /// choice). Returns true when the choice was written, false when [messageId]
+  /// already is the stored `currentId` (nothing is written or enqueued), and
+  /// null when nothing can be written: the chat is absent, tombstoned, has no
+  /// materialized body or history, keeps a malformed `currentId` verbatim, or
+  /// has no message [messageId]. Caller holds the chat lock.
+  Future<bool?> patchChatCurrentMessageWithOutbox(
+    String chatId,
+    String messageId, {
+    required int updatedAt,
+  }) {
+    return transaction(() async {
+      final row = await getChat(chatId);
+      if (row == null || row.deleted || !row.bodySynced) return null;
+      final message =
+          await (select(
+                messages,
+              )..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId)))
+              .getSingleOrNull();
+      if (message == null) return null;
+
+      final blobMeta = _decodeJsonObject(row.blobMeta);
+      if (blobMeta['blobHadHistory'] != true) return null;
+      // A non-string `currentId` is kept verbatim in historyExtra and shadows
+      // the column on every push. Replacing it would destroy bytes this edit
+      // has no business touching, so such a chat cannot take the choice.
+      final historyExtra = blobMeta['historyExtra'];
+      if (historyExtra is Map && historyExtra.containsKey('currentId')) {
+        return null;
+      }
+      final emitsCurrentId = blobMeta['historyHadCurrentId'] == true;
+      if (row.currentMessageId == messageId && emitsCurrentId) return false;
+
+      blobMeta['historyHadCurrentId'] = true;
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(
+          currentMessageId: Value(messageId),
+          blobMeta: emitsCurrentId
+              ? const Value.absent()
+              : Value(jsonEncode(blobMeta)),
+          updatedAt: Value(updatedAt),
+          dirty: const Value(true),
+        ),
+      );
+      await _outboxDao.enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: chatId,
+        payload: const <String, dynamic>{kUpdateChatBranchEditKey: true},
+      );
+      return true;
+    });
+  }
+
+  /// Saves (or, with a null [merged], removes) the merged response of one
+  /// assistant message: its `merged` object, exactly as Open WebUI stores it.
+  ///
+  /// Only that one key of that one message row changes. The answer's own
+  /// content, every other answer of the turn and every unknown key stay as
+  /// stored. The message row is marked dirty and the chat's `updateChat` op is
+  /// queued in the same transaction, so a write that fails leaves neither a
+  /// half-saved merge nor an orphan op. Returns false, writing nothing, when the
+  /// chat is absent or tombstoned or the message is not an assistant message of
+  /// it. Caller holds the chat lock.
+  Future<bool> patchMessageMergedWithOutbox(
+    String chatId,
+    String messageId, {
+    required Map<String, dynamic>? merged,
+    required int updatedAt,
+  }) {
+    return transaction(() async {
+      final row = await getChat(chatId);
+      if (row == null || row.deleted) return false;
+      final message =
+          await (select(messages)
+                ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId)))
+              .getSingleOrNull();
+      if (message == null || message.role != 'assistant') return false;
+
+      final payload = _decodeJsonObject(message.payload);
+      if (merged == null) {
+        payload.remove('merged');
+      } else {
+        payload['merged'] = merged;
+      }
+      await (update(messages)
+            ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId)))
+          .write(
+        MessagesCompanion(
+          payload: Value(jsonEncode(payload)),
+          dirty: const Value(true),
+        ),
+      );
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(updatedAt: Value(updatedAt), dirty: const Value(true)),
+      );
+      await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+      return true;
+    });
+  }
+
+  static Map<String, dynamic> _decodeJsonObject(String raw) {
+    if (raw.isEmpty) return <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return <String, dynamic>{
+          for (final entry in decoded.entries)
+            entry.key.toString(): entry.value,
+        };
+      }
+    } on FormatException {
+      // Falls through: the same lenient reading chatRowsFromDb applies.
+    }
+    return <String, dynamic>{};
+  }
+
+  /// The stored envelope as a map. An unreadable (non-object) envelope is never
+  /// rewritten: replacing it would destroy bytes this edit has no business
+  /// touching, so the edit fails and the transaction rolls back.
+  Map<String, dynamic> _decodeRawExtraEnvelope(String raw) {
+    if (raw.isEmpty) return <String, dynamic>{};
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      throw StateError('The stored chat envelope is unreadable.');
+    }
+    if (decoded is! Map) {
+      throw StateError('The stored chat envelope is unreadable.');
+    }
+    return <String, dynamic>{
+      for (final entry in decoded.entries) entry.key.toString(): entry.value,
+    };
+  }
+
   /// Local delete: tombstones the chat (`deleted=true, dirty=true`) and
   /// enqueues a `deleteChat` op in one transaction. Rows are normally NOT
   /// hard-deleted here (tombstone discipline §7.5); the drainer's
@@ -1112,6 +1371,142 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       )..where((t) => t.chatId.equals(chatId))).go();
       await (delete(chats)..where((t) => t.id.equals(chatId))).go();
       await _deleteChatRemapMetadata(chatId);
+    });
+  }
+
+  // ---- Account-wide server actions ----
+  //
+  // The server's bulk routes (archive all, unarchive all, delete all shared
+  // links, delete all chats) act on every chat the signed-in account owns. They
+  // reach a stored row when it has a server id and is not another user's chat
+  // (one reached through a shared folder carries that user's `user_id`). A row
+  // without a `user_id` came from the account's own lists. A `local:` chat has
+  // never been sent, so no server action can touch it.
+  //
+  // The caller holds the account-wide barrier (`ChatLocks.runBarrier`), so no
+  // per-chat write is in flight while these read or change many rows.
+
+  static const String _serverWideReach =
+      "id NOT LIKE 'local:%' AND (user_id IS NULL OR user_id = ?)";
+
+  static const int _bulkBatchSize = 400;
+
+  /// Counts what an action for [accountId] would reach and what it would
+  /// discard. Reads one snapshot.
+  Future<ServerChatBulkScope> serverWideScope(String accountId) {
+    return transaction(() async {
+      final chatRows = await customSelect(
+        'SELECT id, dirty, deleted FROM chats WHERE $_serverWideReach',
+        variables: [Variable.withString(accountId)],
+        readsFrom: {chats},
+      ).get();
+      final opRows = await customSelect(
+        "SELECT chat_id, kind, status FROM outbox_ops "
+        "WHERE kind IN ('createChat', 'updateChat', 'requestCompletion') "
+        'AND chat_id IN (SELECT id FROM chats WHERE $_serverWideReach)',
+        variables: [Variable.withString(accountId)],
+        readsFrom: {_outboxDao.outboxOps, chats},
+      ).get();
+      final localRows = await customSelect(
+        "SELECT id FROM chats WHERE id LIKE 'local:%' AND deleted = 0 "
+        'ORDER BY id',
+        readsFrom: {chats},
+      ).get();
+
+      var serverChats = 0;
+      var pendingDeletes = 0;
+      final live = <String>{};
+      final unsynced = <String>{};
+      for (final row in chatRows) {
+        final id = row.read<String>('id');
+        if (row.read<bool>('deleted')) {
+          pendingDeletes++;
+          continue;
+        }
+        serverChats++;
+        live.add(id);
+        if (row.read<bool>('dirty')) unsynced.add(id);
+      }
+      final queued = <String>{};
+      final running = <String>{};
+      for (final row in opRows) {
+        final id = row.read<String>('chat_id');
+        if (!live.contains(id)) continue;
+        if (row.read<String>('kind') == OutboxKind.requestCompletion.name) {
+          queued.add(id);
+          if (row.read<String>('status') == OutboxStatus.inFlight) {
+            running.add(id);
+          }
+        } else {
+          unsynced.add(id);
+        }
+      }
+      return ServerChatBulkScope(
+        serverChats: serverChats,
+        unsyncedEdits: unsynced.length,
+        queuedResponses: queued.length,
+        runningResponses: running.length,
+        pendingDeletes: pendingDeletes,
+        localOnlyChatIds: [for (final row in localRows) row.read<String>('id')],
+      );
+    });
+  }
+
+  /// After the server archived (or unarchived) every chat of [accountId]: sets
+  /// the flag on each reached row. Dirty rows take it too, so a queued edit
+  /// pushed later does not toggle the chat back. Returns the rows changed.
+  Future<int> applyServerWideArchive(
+    String accountId, {
+    required bool archived,
+  }) {
+    return customUpdate(
+      'UPDATE chats SET archived = ? WHERE $_serverWideReach AND archived != ?',
+      variables: [
+        Variable.withBool(archived),
+        Variable.withString(accountId),
+        Variable.withBool(archived),
+      ],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// After the server removed every share link of [accountId]: clears the
+  /// stored `share_id` of each reached row. Returns the rows changed.
+  Future<int> clearServerWideShareLinks(String accountId) {
+    return customUpdate(
+      'UPDATE chats SET share_id = NULL '
+      'WHERE share_id IS NOT NULL AND $_serverWideReach',
+      variables: [Variable.withString(accountId)],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// After the server deleted every chat of [accountId]: hard-deletes each
+  /// reached row (FK cascades messages), every operation queued for it and its
+  /// remap bookkeeping, in one transaction. `local:` chats and other users'
+  /// chats stay. Returns the ids deleted.
+  Future<List<String>> purgeServerWideChats(String accountId) {
+    return transaction(() async {
+      final rows = await customSelect(
+        'SELECT id FROM chats WHERE $_serverWideReach',
+        variables: [Variable.withString(accountId)],
+        readsFrom: {chats},
+      ).get();
+      final ids = [for (final row in rows) row.read<String>('id')];
+      for (var start = 0; start < ids.length; start += _bulkBatchSize) {
+        final batch = ids.sublist(
+          start,
+          math.min(start + _bulkBatchSize, ids.length),
+        );
+        await (delete(
+          _outboxDao.outboxOps,
+        )..where((t) => t.chatId.isIn(batch))).go();
+        await (delete(chats)..where((t) => t.id.isIn(batch))).go();
+      }
+      await attachedDatabase.syncMetaDao.deleteChatRemapTargetsInvolving(ids);
+      return ids;
     });
   }
 
@@ -1183,6 +1578,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     bool enqueueUpdate = true,
     required bool enqueueCompletion,
     RequestCompletionPayload? completion,
+    List<String>? chatModels,
   }) async {
     // Append hot-path instrumentation (CDT-RFC-001 §10 Budget 2): the §10 hot
     // path must stay ≤10ms even with the chat_fts INSERT trigger live. Numeric-
@@ -1219,6 +1615,23 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         );
       }
 
+      // The envelope's `models` is the chat's selected model list, which the
+      // blob mapper keeps verbatim, so a turn that changes it writes it here,
+      // beside the rows that turn adds. Every other envelope key is kept as
+      // stored; an unreadable envelope throws and rolls the whole append back.
+      Value<String> rawExtra = const Value.absent();
+      if (chatModels != null) {
+        final row = await getChat(chatId);
+        if (row != null && !row.deleted && row.bodySynced) {
+          rawExtra = Value(
+            jsonEncode(<String, dynamic>{
+              ..._decodeRawExtraEnvelope(row.rawExtra),
+              'models': chatModels,
+            }),
+          );
+        }
+      }
+
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(
           currentMessageId: currentMessageId == null
@@ -1227,6 +1640,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           updatedAt: updatedAt == null
               ? const Value.absent()
               : Value(updatedAt),
+          rawExtra: rawExtra,
           dirty: Value(enqueueUpdate),
         ),
       );
@@ -1273,8 +1687,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
       final assistantIds = <String>{};
       for (final op in pending) {
-        final assistantId = _requestCompletionAssistantId(op.payload);
-        if (assistantId != null) assistantIds.add(assistantId);
+        assistantIds.addAll(_requestCompletionAssistantIds(op.payload));
       }
       final placeholders = assistantIds.isEmpty
           ? const <MessageRow>[]
@@ -1352,45 +1765,63 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
               .get();
       if (queued.isEmpty) return 0;
 
+      // A comparison is one turn: dismissing any of its answers dismisses the
+      // op that owns them all, and with it every sibling placeholder.
       final matchingOps = [
         for (final op in queued)
-          if (_requestCompletionAssistantId(op.payload) == assistantMessageId)
+          if (_requestCompletionAssistantIds(
+            op.payload,
+          ).contains(assistantMessageId))
             op,
       ];
       if (matchingOps.isEmpty) return 0;
       final matchingSeqs = [for (final op in matchingOps) op.seq];
+      final ownedIds = <String>{
+        assistantMessageId,
+        for (final op in matchingOps)
+          ..._requestCompletionAssistantIds(op.payload),
+      };
 
-      final placeholder =
+      final placeholders =
           await (select(messages)..where(
                 (t) =>
                     t.chatId.equals(chatId) &
-                    t.id.equals(assistantMessageId) &
+                    t.id.isIn(ownedIds.toList()) &
                     t.role.equals('assistant'),
               ))
-              .getSingleOrNull();
+              .get();
 
       final removedOps = await (delete(
         _outboxDao.outboxOps,
       )..where((t) => t.seq.isIn(matchingSeqs))).go();
 
-      if (placeholder != null) {
-        await _removeAssistantChildLink(
-          chatId: chatId,
-          parentId: placeholder.parentId,
-          assistantMessageId: assistantMessageId,
-        );
+      if (placeholders.isNotEmpty) {
+        for (final placeholder in placeholders) {
+          await _removeAssistantChildLink(
+            chatId: chatId,
+            parentId: placeholder.parentId,
+            assistantMessageId: placeholder.id,
+          );
+        }
 
         await (delete(messages)..where(
-              (t) => t.chatId.equals(chatId) & t.id.equals(assistantMessageId),
+              (t) =>
+                  t.chatId.equals(chatId) &
+                  t.id.isIn([for (final row in placeholders) row.id]),
             ))
             .go();
 
         final chat = await getChat(chatId);
+        final tip = chat == null
+            ? null
+            : placeholders
+                  .where((row) => row.id == chat.currentMessageId)
+                  .firstOrNull;
         await (update(chats)..where((t) => t.id.equals(chatId))).write(
           ChatsCompanion(
-            currentMessageId: chat?.currentMessageId == assistantMessageId
-                ? Value<String?>(placeholder.parentId)
-                : const Value.absent(),
+            currentMessageId: tip == null
+                ? const Value.absent()
+                : Value<String?>(tip.parentId),
             dirty: const Value(true),
           ),
         );
@@ -1446,15 +1877,27 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return math.max(local ?? 0, server ?? 0);
   }
 
-  static String? _requestCompletionAssistantId(String rawPayload) {
+  /// Every assistant placeholder a `requestCompletion` op owns: its primary
+  /// answer and, for a comparison, each sibling slot. A damaged comparison
+  /// snapshot still yields the slots that can be read, so cancelling it never
+  /// leaves those placeholders orphaned.
+  static Set<String> _requestCompletionAssistantIds(String rawPayload) {
+    final ids = <String>{};
     try {
       final decoded = jsonDecode(rawPayload);
-      if (decoded is Map && decoded['assistantMessageId'] is String) {
-        final id = decoded['assistantMessageId'] as String;
-        return id.isEmpty ? null : id;
+      if (decoded is! Map) return ids;
+      final primary = decoded['assistantMessageId'];
+      if (primary is String && primary.isNotEmpty) ids.add(primary);
+      final comparison = decoded.containsKey('comparison')
+          ? ComparisonGroupSnapshot.fromJson(decoded['comparison'])
+          : null;
+      if (comparison != null) {
+        for (final slot in comparison.slots) {
+          ids.add(slot.assistantMessageId);
+        }
       }
     } catch (_) {}
-    return null;
+    return ids;
   }
 
   Future<void> _removeAssistantChildLink({

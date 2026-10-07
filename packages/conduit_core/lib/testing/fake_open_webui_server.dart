@@ -449,8 +449,10 @@ class FakeOpenWebUiServer {
     return _deepCopy(folder);
   }
 
-  /// Mirrors `POST /api/v1/folders/{id}/update` (`update_folder_by_id`):
-  /// shallow-updates name/data/meta. No-op on a missing id.
+  /// Mirrors `POST /api/v1/folders/{id}/update` (`update_folder_by_id`): sets
+  /// the name and merges `data` and `meta` into the stored maps key by key
+  /// (`{**folder.data, **form.data}`), so a key not in the request keeps its
+  /// stored value. No-op on a missing id.
   void updateFolder(
     String id, {
     String? name,
@@ -460,8 +462,20 @@ class FakeOpenWebUiServer {
     final folder = _folders[id];
     if (folder == null) return;
     if (name != null) folder['name'] = name;
-    if (data != null) folder['data'] = _deepCopy(data);
-    if (meta != null) folder['meta'] = _deepCopy(meta);
+    if (data != null) {
+      folder['data'] = <String, dynamic>{
+        if (folder['data'] is Map)
+          ...(folder['data'] as Map).cast<String, dynamic>(),
+        ..._deepCopy(data),
+      };
+    }
+    if (meta != null) {
+      folder['meta'] = <String, dynamic>{
+        if (folder['meta'] is Map)
+          ...(folder['meta'] as Map).cast<String, dynamic>(),
+        ..._deepCopy(meta),
+      };
+    }
     folder['updated_at'] = _now();
   }
 
@@ -647,7 +661,8 @@ class FakeOpenWebUiServer {
   Map<String, dynamic> _toNoteResponse(_NoteRecord record) => <String, dynamic>{
     ..._deepCopy(record.extra),
     'id': record.id,
-    'user_id': userId,
+    // A shared note names its creator, not the signed-in user.
+    'user_id': record.extra['user_id'] ?? userId,
     'title': record.title,
     'data': _deepCopy(record.data),
     'meta': _deepCopy(record.meta),

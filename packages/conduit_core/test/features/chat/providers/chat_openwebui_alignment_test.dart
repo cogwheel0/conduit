@@ -10,6 +10,7 @@ import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -27,33 +28,36 @@ void main() {
     });
 
     test(
-      'filterSelectedConfiguredToolServersForTest matches by index or id',
+      'filterSelectedConfiguredToolServersForTest matches by id or fingerprint',
       () {
+        const rawServers = [
+          {
+            'name': 'Indexed server',
+            'url': 'https://indexed.example',
+            'path': '/openapi.json',
+            'config': {'enable': true},
+          },
+          {
+            'id': 'server-2',
+            'name': 'Id server',
+            'url': 'https://id.example',
+            'path': '/openapi.json',
+            'config': {'enable': true},
+          },
+          {
+            'id': 'disabled',
+            'name': 'Disabled server',
+            'url': 'https://disabled.example',
+            'path': '/openapi.json',
+            'config': {'enable': false},
+          },
+        ];
         final filtered = filterSelectedConfiguredToolServersForTest(
-          rawServers: const [
-            {
-              'name': 'Indexed server',
-              'url': 'https://indexed.example',
-              'path': '/openapi.json',
-              'config': {'enable': true},
-            },
-            {
-              'id': 'server-2',
-              'name': 'Id server',
-              'url': 'https://id.example',
-              'path': '/openapi.json',
-              'config': {'enable': true},
-            },
-            {
-              'id': 'disabled',
-              'name': 'Disabled server',
-              'url': 'https://disabled.example',
-              'path': '/openapi.json',
-              'config': {'enable': false},
-            },
-          ],
-          selectedToolIds: const [
-            'direct_server:0',
+          rawServers: rawServers,
+          selectedToolIds: [
+            // A keyless server is named by position plus fingerprint; the
+            // bare `direct_server:0` older builds wrote names no one.
+            personalToolServerSelectionId(rawServers, 0),
             'direct_server:server-2',
             'direct_server:disabled',
           ],

@@ -2182,6 +2182,275 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "advancedFeatures": "詳細設定",
+  "@advancedFeatures": {
+    "description": "Label for the setting that reveals additional chat tools and settings."
+  },
+  "advancedFeaturesDescription": "追加のチャットツールと設定を表示します。",
+  "@advancedFeaturesDescription": {
+    "description": "Description for the Advanced setting that reveals additional chat tools and settings."
+  },
+  "chatSettingsTitle": "チャット設定",
+  "chatSettingsApplied": "チャット設定を適用中",
+  "chatSettingsAppliedDescription": "このチャットには保存された設定があり、すべての返信で使用されます。",
+  "chatSettingsTurnOnAdvanced": "変更するには「詳細設定」をオンにしてください",
+  "chatSettingsDescription": "これらの設定はこのチャットにのみ適用されます。「継承」の項目はデフォルト値を使用します。",
+  "chatSettingsSystemPrompt": "システムプロンプト",
+  "chatSettingsSystemPromptEmptyNote": "空のプロンプトは、デフォルトのプロンプトがあってもシステムプロンプトを一切送信しません。デフォルトを使うには「継承」を選んでください。",
+  "chatSettingsParameters": "パラメータ",
+  "chatSettingsInherit": "継承",
+  "chatSettingsModelDefault": "モデルのデフォルト",
+  "chatSettingsCustom": "カスタム",
+  "chatSettingsResetAll": "すべてリセット",
+  "chatSettingsOtherKept": "その他の保存済み設定はそのまま保持されます。",
+  "chatSettingsSystemPromptLocked": "このアカウントではシステムプロンプトを変更できません。",
+  "chatSettingsParametersLocked": "このアカウントではパラメータを変更できません。",
+  "chatSettingsOwnerChanged": "アカウントまたはチャットが変更されました。設定を開き直してもう一度お試しください。",
+  "chatSettingTemperature": "温度",
+  "chatSettingTopP": "Top P",
+  "chatSettingTopK": "Top K",
+  "chatSettingMinP": "Min P",
+  "chatSettingFrequencyPenalty": "頻度ペナルティ",
+  "chatSettingPresencePenalty": "存在ペナルティ",
+  "chatSettingMaxTokens": "最大トークン数",
+  "chatSettingSeed": "シード",
+  "chatSettingStop": "停止シーケンス",
+  "chatSettingFunctionCalling": "ツール呼び出し",
+  "chatSettingFunctionCallingNative": "ネイティブ",
+  "chatSettingFunctionCallingLegacy": "レガシー",
+  "chatSettingResponseFormat": "応答形式",
+  "chatSettingErrorRequired": "値を入力してください。",
+  "chatSettingErrorNotANumber": "数値を入力してください。",
+  "chatSettingErrorNotAWholeNumber": "整数を入力してください。",
+  "chatSettingErrorRange": "{min}から{max}の値を入力してください。",
+  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "chatSettingErrorMinimum": "{min}以上の値を入力してください。",
+  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "chatSettingErrorNotJson": "jsonなどの単語、または有効なJSONスキーマを入力してください。",
+  "chatSettingErrorNotAChoice": "サポートされている値を選択してください。",
+  "personalConnectionsTitle": "個人用接続",
+  "@personalConnectionsTitle": {
+    "description": "Title of the screen and Profile entry for managing personal tool servers and terminals stored in the Open WebUI account."
+  },
+  "personalConnectionsStoredOn": "{server} の {account} に保存",
+  "@personalConnectionsStoredOn": {
+    "description": "Line naming the Open WebUI account {account} on the server {server} that stores the personal connections.",
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsKeyStorageNote": "キーはサーバー上の Open WebUI アカウント設定とともに保存されます。",
+  "@personalConnectionsKeyStorageNote": {
+    "description": "Note that connection keys are saved in the Open WebUI account settings on the server."
+  },
+  "personalConnectionsTerminals": "ターミナル",
+  "@personalConnectionsTerminals": {
+    "description": "Section heading for personal terminal connections."
+  },
+  "personalConnectionsEmptyToolServers": "保存済みのツールサーバーはありません。",
+  "@personalConnectionsEmptyToolServers": {
+    "description": "Empty state when the account has no personal tool servers."
+  },
+  "personalConnectionsEmptyTerminals": "保存済みのターミナルはありません。",
+  "@personalConnectionsEmptyTerminals": {
+    "description": "Empty state when the account has no personal terminals."
+  },
+  "personalConnectionsAddToolServer": "ツールサーバーを追加",
+  "@personalConnectionsAddToolServer": {
+    "description": "Button that opens the form for a new personal tool server."
+  },
+  "personalConnectionsAddTerminal": "ターミナルを追加",
+  "@personalConnectionsAddTerminal": {
+    "description": "Button that opens the form for a new personal terminal."
+  },
+  "personalConnectionsEditToolServer": "ツールサーバーを編集",
+  "@personalConnectionsEditToolServer": {
+    "description": "Title of the form for changing a personal tool server."
+  },
+  "personalConnectionsEditTerminal": "ターミナルを編集",
+  "@personalConnectionsEditTerminal": {
+    "description": "Title of the form for changing a personal terminal."
+  },
+  "personalConnectionsUnavailableServer": "この Open WebUI サーバーでは、個人用のツールサーバーとターミナルが有効になっていません。",
+  "@personalConnectionsUnavailableServer": {
+    "description": "Message shown when the Open WebUI server has not enabled personal tool servers and terminals."
+  },
+  "personalConnectionsUnavailablePermission": "このアカウントには、個人用のツールサーバーとターミナルを管理する権限がありません。",
+  "@personalConnectionsUnavailablePermission": {
+    "description": "Message shown when the account is not allowed to manage personal tool servers and terminals."
+  },
+  "personalConnectionsLoadFailed": "個人用接続を読み込めませんでした。",
+  "@personalConnectionsLoadFailed": {
+    "description": "Error shown when the personal connections could not be loaded."
+  },
+  "personalConnectionsSaveFailed": "保存できませんでした。接続は変更されていません。",
+  "@personalConnectionsSaveFailed": {
+    "description": "Error shown when saving a personal connection failed and nothing changed."
+  },
+  "personalConnectionsSaveRejected": "サーバーがこの変更を保持しませんでした。このアカウントには個人用接続を保存する権限がない可能性があります。",
+  "@personalConnectionsSaveRejected": {
+    "description": "Error shown when the server accepted the request but did not keep the personal connection change."
+  },
+  "personalConnectionsOwnerChanged": "開いてからアカウントまたはアクセス権が変わりました。何も保存・送信されておらず、入力内容はここに残っています。続けるにはこの接続を開き直してください。",
+  "@personalConnectionsOwnerChanged": {
+    "description": "Shown on a personal connection form when the signed-in account or its access changed after the form opened; the form's actions are refused and its entries are kept."
+  },
+  "personalConnectionsSavedForPreviousAccount": "このフォームを開いたアカウントに保存しました。現在ログイン中のアカウントは変更されていません。",
+  "@personalConnectionsSavedForPreviousAccount": {
+    "description": "Shown on a personal connection form after a save finished for the account the form was opened under, while another account is now signed in."
+  },
+  "personalConnectionsDuplicate": "別の接続がすでにこの識別子を使っています。",
+  "@personalConnectionsDuplicate": {
+    "description": "Error shown when another personal connection already has the same identity."
+  },
+  "personalConnectionsNotFound": "この接続は別の場所で変更または削除されました。再読み込みしてからやり直してください。",
+  "@personalConnectionsNotFound": {
+    "description": "Error shown when the connection being edited was changed or removed elsewhere."
+  },
+  "personalConnectionsUrl": "URL",
+  "@personalConnectionsUrl": {
+    "description": "Label of the server address field."
+  },
+  "personalConnectionsPath": "パス",
+  "@personalConnectionsPath": {
+    "description": "Label of the field holding the path of the OpenAPI document or terminal specification."
+  },
+  "personalConnectionsSpecSource": "OpenAPI 仕様",
+  "@personalConnectionsSpecSource": {
+    "description": "Label of the choice between fetching the OpenAPI document and pasting it."
+  },
+  "personalConnectionsSpecFromUrl": "URL から取得",
+  "@personalConnectionsSpecFromUrl": {
+    "description": "Option that fetches the OpenAPI document from a URL."
+  },
+  "personalConnectionsSpecInline": "JSON を貼り付け",
+  "@personalConnectionsSpecInline": {
+    "description": "Option that stores a pasted OpenAPI JSON document."
+  },
+  "personalConnectionsSpecJson": "OpenAPI JSON",
+  "@personalConnectionsSpecJson": {
+    "description": "Label of the field holding a pasted OpenAPI JSON document."
+  },
+  "personalConnectionsDescriptionField": "説明",
+  "@personalConnectionsDescriptionField": {
+    "description": "Label of the optional description field."
+  },
+  "personalConnectionsAuth": "認証",
+  "@personalConnectionsAuth": {
+    "description": "Label of the authentication mode choice."
+  },
+  "personalConnectionsKeyKept": "保存済みのキーを保持します。入力すると置き換わります。",
+  "@personalConnectionsKeyKept": {
+    "description": "Hint shown instead of a stored key: the saved key is kept unless the user types a new one."
+  },
+  "personalConnectionsKeyRemove": "保存済みのキーを削除",
+  "@personalConnectionsKeyRemove": {
+    "description": "Button that removes the saved key when the connection is saved."
+  },
+  "personalConnectionsKeyWillRemove": "保存済みのキーが削除されます。",
+  "@personalConnectionsKeyWillRemove": {
+    "description": "Notice that the saved key will be removed when the connection is saved."
+  },
+  "personalConnectionsKeyKeep": "保存済みのキーを保持",
+  "@personalConnectionsKeyKeep": {
+    "description": "Button that cancels removing the saved key."
+  },
+  "personalConnectionsTestConnection": "接続をテスト",
+  "@personalConnectionsTestConnection": {
+    "description": "Button that checks that a personal connection answers, without saving it."
+  },
+  "personalConnectionsTestOk": "接続できました。{count} 件の操作が見つかりました。",
+  "@personalConnectionsTestOk": {
+    "description": "Result of a successful tool server check with the number {count} of operations it exposes.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "personalConnectionsTestOkTerminal": "ターミナルが応答しました。",
+  "@personalConnectionsTestOkTerminal": {
+    "description": "Result of a successful terminal check."
+  },
+  "personalConnectionsTestUnauthorized": "ホストがキーを拒否しました。",
+  "@personalConnectionsTestUnauthorized": {
+    "description": "Result when the host rejected the key."
+  },
+  "personalConnectionsTestUnreachable": "ホストに接続できませんでした。",
+  "@personalConnectionsTestUnreachable": {
+    "description": "Result when the host could not be reached."
+  },
+  "personalConnectionsTestInvalidSpec": "ホストが有効な OpenAPI ドキュメントを返しませんでした。",
+  "@personalConnectionsTestInvalidSpec": {
+    "description": "Result when the host did not return a valid OpenAPI document."
+  },
+  "personalConnectionsTestInvalidTarget": "先に有効な URL とパスを入力してください。",
+  "@personalConnectionsTestInvalidTarget": {
+    "description": "Result when the URL or path is missing or invalid."
+  },
+  "personalConnectionsTestUnsupportedAuth": "この認証方式はここではテストできません。",
+  "@personalConnectionsTestUnsupportedAuth": {
+    "description": "Result when the connection uses an authentication mode that cannot be tested here."
+  },
+  "personalConnectionsUnsupported": "この接続にはアプリで編集できない設定が含まれています。オン・オフの切り替えと削除は行えます。",
+  "@personalConnectionsUnsupported": {
+    "description": "Explains that a connection uses settings the app cannot edit, so it can only be switched or deleted."
+  },
+  "personalConnectionsDeleteTitle": "接続を削除しますか？",
+  "@personalConnectionsDeleteTitle": {
+    "description": "Title of the confirmation for deleting a personal connection."
+  },
+  "personalConnectionsDeleteMessage": "{name} は Open WebUI アカウントから削除されます。",
+  "@personalConnectionsDeleteMessage": {
+    "description": "Confirmation text naming the personal connection {name} that will be deleted.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsUrlRequired": "URL を入力してください。",
+  "@personalConnectionsUrlRequired": {
+    "description": "Validation error for an empty URL."
+  },
+  "personalConnectionsUrlInvalid": "http または https で始まる完全な URL を入力してください。",
+  "@personalConnectionsUrlInvalid": {
+    "description": "Validation error for a URL that is not a full http or https address."
+  },
+  "personalConnectionsPathRequired": "パスを入力してください。",
+  "@personalConnectionsPathRequired": {
+    "description": "Validation error for an empty path."
+  },
+  "personalConnectionsSpecInvalid": "有効な OpenAPI JSON ドキュメントを入力してください。",
+  "@personalConnectionsSpecInvalid": {
+    "description": "Validation error for pasted text that is not a valid OpenAPI JSON document."
+  },
+  "personalConnectionsSelectionCleared": "接続が変更されたため、このチャットから削除しました: {names}",
+  "@personalConnectionsSelectionCleared": {
+    "description": "Notice that chat selections were removed because the connections named in {names} changed.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsTerminalOneActive": "ターミナルを 1 つオンにすると、ほかはオフになります。",
+  "@personalConnectionsTerminalOneActive": {
+    "description": "Hint that switching one terminal on switches the others off."
+  },
+  "personalConnectionsNeedsAdvanced": "個人用接続を管理するには、チャット設定で「詳細設定」をオンにしてください。",
+  "@personalConnectionsNeedsAdvanced": {
+    "description": "Message shown when Advanced is off, with the steps to turn it on before managing personal connections."
+  },
+  "personalConnectionsNoAccount": "個人用接続を管理するには、Open WebUI アカウントにログインしてください。",
+  "@personalConnectionsNoAccount": {
+    "description": "Message shown when no Open WebUI account is signed in, so personal connections cannot be managed."
+  },
   "chatSaved": "チャットを履歴に保存しました",
   "@chatSaved": {
     "description": "Snackbar message shown after saving a temporary chat."
@@ -2622,6 +2891,11 @@
   "savedMemoriesCount": "{count} 件の保存済みメモリ",
   "memoryEditorDescription": "サーバーが一貫して適用できるよう、メモリは短く具体的にしてください。",
   "memoryHint": "例: コード例付きの簡潔な回答を好みます。",
+  "memoryTypeLabel": "種類",
+  "memoryTypeUser": "ユーザー",
+  "memoryTypeContext": "コンテキスト",
+  "memoryPathLabel": "パス（任意）",
+  "memoryPathHint": "例: projects/conduit",
   "addMemory": "メモリを追加",
   "editMemory": "メモリを編集",
   "deleteMemory": "メモリを削除",
@@ -3215,6 +3489,9 @@
   "workspaceAccessEmpty": "Not shared with anyone yet.",
   "workspaceAccessAddPeople": "Add people or groups",
   "workspaceAccessAddGroups": "Add groups",
+  "workspaceAccessAddUsers": "ユーザーを追加",
+  "workspaceAccessGroupsDisabled": "グループとの共有は無効です。個人とのみ共有できます。",
+  "workspaceAccessGrantsDisabled": "ユーザーやグループと共有する権限がありません。既存のアクセス権は維持されます。",
   "workspaceAccessVisibilityLabel": "Public",
   "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
@@ -4638,6 +4915,38 @@
   "@directContextLimit": {"description": "Provider-neutral model context limit label.", "placeholders": {"tokens": {"type": "String"}}},
   "notificationSystemSettingsDescription": "Conduit の許可、サウンド、バナーの設定を変更します。",
   "notificationSystemSettingsOpenFailed": "システムの通知設定を開けませんでした。",
+  "notificationTargetsTitle": "Webhook の送信先",
+  "notificationTargetsDescription": "このアプリを閉じている間も、Open WebUI サーバーがこれらの URL にイベントを送信します。",
+  "notificationTargetsAdd": "送信先を追加",
+  "notificationTargetsEmpty": "Webhook の送信先はまだありません。",
+  "notificationTargetsLoadFailed": "Webhook の送信先を読み込めませんでした。",
+  "notificationTargetsStale": "保存しましたが、一覧を更新できませんでした。",
+  "notificationTargetsNativeDescription": "Webhook の送信先を追加・管理します",
+  "notificationTargetsUnavailable": "このアカウントでは Webhook の送信先を利用できません。",
+  "notificationTargetsAccountChanged": "アカウントが変更されました。この画面を閉じて、もう一度送信先を開いてください。",
+  "notificationTargetNewTitle": "新しい送信先",
+  "notificationTargetEditTitle": "送信先を編集",
+  "notificationTargetNameLabel": "名前（任意）",
+  "notificationTargetNameHint": "例: team-chat",
+  "notificationTargetUrlLabel": "Webhook URL",
+  "notificationTargetUrlHint": "https://example.com/webhook",
+  "notificationTargetUrlKeepHint": "現在の URL を維持する場合は空欄のままにしてください",
+  "notificationTargetUrlRequired": "Webhook URL を入力してください。",
+  "notificationTargetEnabledTitle": "有効",
+  "notificationTargetDeliveryLabel": "送信タイミング",
+  "notificationTargetDeliveryAway": "離席中のみ",
+  "notificationTargetDeliveryAlways": "常に",
+  "notificationTargetEventsLabel": "イベント",
+  "notificationTargetEventsUnavailable": "サーバーのイベント一覧を読み込めませんでした。",
+  "notificationTargetUnknownEvent": "このサーバーのイベント一覧にありません。オフにするまで購読は維持されます。",
+  "notificationTargetDefaultBadge": "既定",
+  "notificationTargetMakeDefault": "既定にする",
+  "notificationTargetTest": "テスト通知を送信",
+  "notificationTargetTestSent": "テスト通知を送信しました。",
+  "notificationTargetTestFailed": "テスト通知を配信できませんでした。",
+  "notificationTargetDelete": "送信先を削除",
+  "notificationTargetDeleteConfirm": "{name} を削除しますか？サーバーはこの送信先への通知を停止します。",
+  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
   "notificationSystemSettingsTitle": "システムの通知設定",
   "proxyAuthSignInAgain": "プロキシ経由で再度サインイン",
   "readOnly": "読み取り専用",
@@ -4702,5 +5011,556 @@
   "voiceCallNoSpeech": "音声が検出されませんでした。",
   "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
   "voiceCallFailed": "音声通話を続行できませんでした。",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "personalToolSettings": "ツール設定",
+  "personalToolSettingsDescription": "選択したツールとモデルに対する個人用のオプションです。",
+  "personalToolSettingsYours": "あなたの設定",
+  "personalToolSettingsUnavailable": "この項目ではあなたの設定は利用できません。",
+  "personalToolSettingsOwnerChanged": "ログイン中のアカウントが変更されたため、何も保存されませんでした。設定を開き直して続行してください。",
+  "personalToolSettingsInvalid": "サーバーがこれらの値を受け付けませんでした。",
+  "noteReadOnlyNotice": "このノートは読み取り専用です。閲覧のみ可能で、変更はできません。",
+  "noteAccessUnverifiedNotice": "このノートを編集できるか確認するため、再接続してください。",
+  "noteAccessRevokedNotice": "このノートを編集できなくなりました。未保存の変更はここに保持されています。",
+  "noteSaveAsOwnNote": "自分のノートとして保存",
+  "noteDiscardChanges": "変更を破棄",
+  "noteSessionChangedNotice": "サインイン中のアカウントが変更されたため、このノートは保存されませんでした。",
+  "noteNoAccess": "このノートにアクセスできなくなりました。",
+  "noteShare": "ノートを共有",
+  "folderShareSettings": "共有設定",
+  "chatShareAudience": "公開範囲",
+  "chatShareAudienceDescription": "共有チャットを開ける人を選択します",
+  "resourceSharingSaved": "共有設定を更新しました",
+  "resourceSharingFiltered": "保存しました。サーバーは、選択したアクセス権の一部のみを保持しました。",
+  "resourceSharingSessionChanged": "サインイン中のアカウントが変更されたため、何も保存されませんでした。この画面を閉じて、もう一度開いてください。",
+  "resourceSharingDenied": "このアイテムのアクセス権を変更する権限がなくなりました。",
+  "resourceSharingMissing": "このアイテムは存在しなくなりました。",
+  "resourceSharingLoadFailed": "アクセス権を持つユーザーを読み込めませんでした。",
+  "resourceSharingSaveFailed": "アクセス権を保存できませんでした。もう一度お試しください。",
+  "resourceAudienceLabel": "公開範囲",
+  "resourceAudiencePrivate": "非公開",
+  "resourceAudiencePublic": "公開",
+  "resourceAudienceOpen": "リンクを知っている全員",
+  "resourceAudiencePrivateHint": "下に表示されたユーザーとグループのみが開けます。",
+  "resourceAudiencePublicHint": "このサーバーのすべてのユーザーが開けます。",
+  "resourceAudienceOpenHint": "リンクを知っている人なら誰でも閲覧できます。",
+  "channelMembersSearchHint": "メンバーを検索",
+  "channelMembersEmpty": "メンバーが見つかりません。",
+  "channelMembersLoadFailed": "メンバーを読み込めませんでした。",
+  "channelMembersLoadMore": "さらに読み込む",
+  "channelMembersLoadMoreFailed": "メンバーをこれ以上読み込めませんでした。タップして再試行してください。",
+  "channelMembersAdd": "メンバーを追加",
+  "channelMembersAddConfirm": "追加",
+  "channelMembersRemoveMember": "{name} を削除",
+  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "channelMembersChangeFailed": "メンバーを更新できませんでした。もう一度お試しください。",
+  "channelMembersChangeDenied": "サーバーがこの変更を許可しませんでした。",
+  "channelMembersChangeNotPermitted": "このチャンネルのメンバーを管理する権限がありません。",
+  "chatBranchContinueFromResponse": "この回答から続ける",
+  "chatBranchForkChat": "ここからチャットを分岐",
+  "chatBranchSwitcherSemantics": "編集済みメッセージ、バージョン {position}/{total}。すべてのバージョンを表示します。",
+  "@chatBranchSwitcherSemantics": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchSheetTitle": "メッセージのバージョン",
+  "chatBranchSheetDescription": "続けるバージョンを選択してください。各バージョンはそれぞれの返信を保持します。",
+  "chatBranchVersionTitle": "バージョン {position}",
+  "@chatBranchVersionTitle": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchVersionCurrent": "現在のブランチ",
+  "chatBranchSelectedNotice": "バージョン {position}/{total} から続けています",
+  "@chatBranchSelectedNotice": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchWaitForResponse": "この回答が完了するまでお待ちください",
+  "chatBranchUnavailable": "このチャットのブランチはここでは変更できません。",
+  "chatBranchOwnerChanged": "ログイン中のアカウントが変更されたため、何も変更されませんでした。",
+  "chatBranchMessageMissing": "そのバージョンは利用できなくなりました。",
+  "chatForkOffline": "このチャットを分岐するにはオンラインにしてください。",
+  "chatForkForbidden": "このアカウントではチャットを分岐できません。",
+  "chatForkSourceMissing": "サーバーにこのチャットがなくなりました。",
+  "chatForkUnsupported": "このサーバーはチャットの分岐に対応していません。",
+  "chatForkFailed": "このチャットを分岐できませんでした。もう一度お試しください。",
+  "codeInterpreter": "コードインタープリター",
+  "codeInterpreterDescription": "サーバー上でコードを実行して、データの分析やファイルの作成ができます。",
+  "codeInterpreterBrowserEngine": "このサーバーはコードをブラウザで実行しますが、Conduit では対応していません。",
+  "codeInterpreterUnavailable": "このサーバー、アカウント、またはモデルではコードインタープリターを使用できません。",
+  "folderProjectSettings": "プロジェクト設定",
+  "folderProjectSettingsDescription": "このフォルダ内の新しいチャットの既定値です。サーバーは、フォルダ内のすべてのチャットにナレッジとシステムプロンプトを適用します。",
+  "folderProjectModels": "既定のモデル",
+  "folderProjectModelsHint": "新しいチャットは、この中で最初に利用できるモデルで始まります。",
+  "folderProjectNoKnowledge": "ナレッジは添付されていません。",
+  "folderProjectNoModels": "既定のモデルはありません。新しいチャットでは自分の既定のモデルを使います。",
+  "folderProjectAddKnowledge": "ナレッジを追加",
+  "folderProjectAddModel": "モデルを追加",
+  "folderProjectAddSelected": "追加",
+  "folderProjectNothingToAdd": "追加できる項目はもうありません。",
+  "folderProjectNotAvailable": "利用できません",
+  "folderProjectMoveUp": "{name} を上へ移動",
+  "folderProjectRemove": "{name} を削除",
+  "folderProjectKindCollection": "ナレッジベース",
+  "folderProjectKindFile": "ファイル",
+  "folderProjectKindNote": "ノート",
+  "folderProjectOwnerChanged": "サインイン中のアカウントが変わったため、何も保存されませんでした。プロジェクト設定を開き直して続けてください。",
+  "folderProjectReadOnly": "この共有フォルダは読み取り専用のため、プロジェクト設定を変更できません。",
+  "folderProjectGone": "このフォルダは利用できなくなりました。",
+  "folderProjectModelFallbackNotice": "このフォルダの既定のモデルが利用できないため、自分の既定のモデルを使います。",
+  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTasksTitle": "スケジュールされたタスク",
+  "scheduledTasksDescription": "このスマートフォンがオフラインの間も、Open WebUI サーバーが独自のスケジュールでこれらのタスクを実行します。",
+  "scheduledTasksNeedsAdvanced": "スケジュールされたタスクを管理するには、設定で「詳細設定」をオンにしてください。サーバー上のタスクは引き続き実行されます。",
+  "scheduledTasksUnavailable": "このサーバーでは、このアカウントでスケジュールされたタスクを利用できません。",
+  "scheduledTasksSearchHint": "タスクを検索",
+  "scheduledTasksFilterAll": "すべて",
+  "scheduledTasksFilterActive": "有効",
+  "scheduledTasksFilterPaused": "一時停止中",
+  "scheduledTasksEmpty": "スケジュールされたタスクはまだありません。",
+  "scheduledTasksEmptyFiltered": "一致するタスクはありません。",
+  "scheduledTasksLoadFailed": "スケジュールされたタスクを読み込めませんでした。",
+  "scheduledTasksStale": "この一覧は最新ではない可能性があります。タップして更新してください。",
+  "scheduledTasksLoadMore": "さらに読み込む",
+  "scheduledTasksAdd": "新しいスケジュールタスク",
+  "scheduledTasksAccountChanged": "アカウントが変更されました。続行するには、スケジュールされたタスクを開き直してください。",
+  "scheduledTasksNotFound": "このタスクは存在しなくなりました。",
+  "scheduledTaskStatusActive": "有効",
+  "scheduledTaskStatusPaused": "一時停止中",
+  "scheduledTaskNextRun": "次回の実行 {time}",
+  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNoNextRun": "予定されている実行はありません",
+  "scheduledTaskLastRun": "前回の実行 {time}",
+  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNeverRun": "未実行",
+  "scheduledTaskScheduleOnce": "1 回のみ",
+  "scheduledTaskScheduleDaily": "毎日",
+  "scheduledTaskScheduleWeekly": "毎週",
+  "scheduledTaskScheduleOnceSummary": "1 回のみ、{date}",
+  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "scheduledTaskScheduleDailySummary": "毎日 {time}",
+  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskScheduleWeeklySummary": "{days} {time}",
+  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "scheduledTaskScheduleCustom": "カスタムスケジュール",
+  "scheduledTaskNewTitle": "新しいスケジュールタスク",
+  "scheduledTaskEditTitle": "スケジュールタスクを編集",
+  "scheduledTaskNameLabel": "名前",
+  "scheduledTaskPromptLabel": "指示",
+  "scheduledTaskPromptHint": "実行のたびに、モデルに何をさせますか？",
+  "scheduledTaskModelLabel": "モデル",
+  "scheduledTaskModelChoose": "モデルを選択",
+  "scheduledTaskModelUnavailable": "{id}（利用できなくなりました）",
+  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "scheduledTaskScheduleLabel": "スケジュール",
+  "scheduledTaskTimeLabel": "時刻",
+  "scheduledTaskDateLabel": "日付",
+  "scheduledTaskDaysLabel": "曜日",
+  "scheduledTaskAdvancedSchedule": "詳細なスケジュール",
+  "scheduledTaskRruleLabel": "繰り返しルール",
+  "scheduledTaskRruleKept": "このスケジュールは、コントロールでは編集できないルールを使用しています。変更しない限り、そのまま維持されます。",
+  "scheduledTaskTimezoneNote": "時刻は、このデバイスではなく、Web アプリで設定された Open WebUI アカウントのタイムゾーンに従います。各実行のタイミングはサーバーが決定します。",
+  "scheduledTaskActiveLabel": "有効",
+  "scheduledTaskDestinationLabel": "結果の送信先",
+  "scheduledTaskDestinationChat": "新しいチャット",
+  "scheduledTaskDestinationChannel": "チャンネル",
+  "scheduledTaskFolderLabel": "フォルダー",
+  "scheduledTaskFolderNone": "なし",
+  "scheduledTaskFolderUnavailable": "保存済みのフォルダー（利用できなくなりました）",
+  "scheduledTaskChannelChoose": "チャンネルを選択",
+  "scheduledTaskChannelUnavailable": "保存済みのチャンネル（利用できなくなりました）",
+  "scheduledTaskChannelNoWrite": "このチャンネルには投稿できません。",
+  "scheduledTaskNameRequired": "名前を入力してください。",
+  "scheduledTaskPromptRequired": "指示を入力してください。",
+  "scheduledTaskModelRequired": "モデルを選択してください。",
+  "scheduledTaskModelUnavailableIssue": "現在利用できるモデルを選択してください。",
+  "scheduledTaskChannelRequired": "チャンネルを選択してください。",
+  "scheduledTaskChannelUnavailableIssue": "現在利用できるチャンネルを選択してください。",
+  "scheduledTaskFolderUnavailableIssue": "現在利用できるフォルダーを選択するか、なしにしてください。",
+  "scheduledTaskScheduleIncomplete": "スケジュールを完成させてください。",
+  "scheduledTaskSaveFailed": "このタスクを保存できませんでした。",
+  "scheduledTaskRunNow": "今すぐ実行",
+  "scheduledTaskRunRequested": "実行をリクエストしました。サーバーがバックグラウンドで実行し、完了すると結果が履歴に表示されます。",
+  "scheduledTaskRunRequestFailed": "実行をリクエストできませんでした。",
+  "scheduledTaskNextRunsLabel": "今後の実行予定（サーバーより）",
+  "scheduledTaskHistoryTitle": "履歴",
+  "scheduledTaskHistoryEmpty": "実行履歴はまだありません。",
+  "scheduledTaskHistoryLoadFailed": "履歴を読み込めませんでした。",
+  "scheduledTaskRunSucceeded": "成功",
+  "scheduledTaskRunFailedStatus": "失敗",
+  "scheduledTaskViewChat": "チャットを表示",
+  "scheduledTaskViewChannel": "チャンネルを表示",
+  "scheduledTaskOpenResultFailed": "その結果を開けませんでした。",
+  "scheduledTaskDelete": "タスクを削除",
+  "scheduledTaskDeleteConfirm": "{name} を削除しますか？サーバーはこのタスクの実行を停止し、履歴も削除されます。",
+  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTaskChangeFailed": "このタスクを変更できませんでした。",
+  "scheduledTaskTerminalKept": "このタスクにはターミナルが接続されています。編集しても維持されます。",
+  "scheduledTaskPromptSection": "指示",
+  "queueDraftAction": "キューに追加",
+  "queuedDraftsTitle": "キューのメッセージ",
+  "queuedDraftsCount": "キューに入っているメッセージ: {count} 件",
+  "queuedDraftsSessionNote": "キューに入れたメッセージは、Conduit を開いている間だけ保持されます。応答が完了すると、1 件のメッセージとしてまとめて送信されます。",
+  "queuedDraftSendNow": "今すぐ送信",
+  "queuedDraftUploading": "ファイルのアップロード完了を待っています",
+  "queuedDraftFileFailed": "アップロードできなかったファイルがあります。このメッセージを送信するには削除してください。",
+  "queuedDraftsSendFailed": "キューのメッセージを送信できませんでした。キューには残っています。",
+  "queuedDraftsSending": "キューのメッセージを送信中…",
+  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarTitle": "カレンダー",
+  "calendarDescription": "Open WebUI のカレンダーです。予定はサーバー上にあり、このデバイスのタイムゾーンで表示されます。",
+  "calendarNeedsAdvanced": "カレンダーを使用するには、設定で「詳細設定」をオンにしてください。サーバー上の予定には影響しません。",
+  "calendarUnavailable": "このサーバーでは、このアカウントでカレンダーを利用できません。",
+  "calendarTimezoneNote": "時刻はこのデバイスのタイムゾーンで表示されます。繰り返しの予定は、サーバーがアカウントのタイムゾーンで展開します。",
+  "calendarRangeLabel": "{start} – {end}",
+  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "calendarEarlier": "前へ",
+  "calendarLater": "次へ",
+  "calendarToday": "今日",
+  "calendarAllCalendars": "すべてのカレンダー",
+  "calendarEmpty": "この期間に予定はありません。",
+  "calendarLoadFailed": "カレンダーを読み込めませんでした。",
+  "calendarStale": "カレンダーが最新ではない可能性があります。",
+  "calendarAddEvent": "新しい予定",
+  "calendarManageCalendars": "カレンダー",
+  "calendarAllDay": "終日",
+  "calendarRepeatsMarker": "繰り返し",
+  "calendarUntitledEvent": "無題の予定",
+  "calendarScheduledUpcoming": "スケジュールされたタスク",
+  "calendarScheduledRunFinished": "タスクの実行が完了しました",
+  "calendarScheduledRunFailed": "タスクの実行に失敗しました",
+  "calendarScheduledEntryReadOnly": "スケジュールされたタスクは、予定ではなく「スケジュールされたタスク」ページで管理します。",
+  "calendarEventDetailTitle": "予定",
+  "calendarEventCalendar": "カレンダー: {name}",
+  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventOrganizer": "主催者: {name}",
+  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventSeriesNote": "この予定は繰り返されます。変更や削除はシリーズ全体に適用されます。",
+  "calendarEventInvitedCount": "招待: {count}",
+  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarRsvpPrompt": "あなたの返答",
+  "calendarRsvpAccepted": "参加",
+  "calendarRsvpTentative": "未定",
+  "calendarRsvpDeclined": "不参加",
+  "calendarRsvpPending": "未回答",
+  "calendarRsvpFailed": "返答を送信できませんでした。",
+  "calendarEventEdit": "編集",
+  "calendarEventEditSeries": "シリーズを編集",
+  "calendarEventDelete": "削除",
+  "calendarEventDeleteSeries": "シリーズを削除",
+  "calendarEventDeleteConfirm": "{title} を削除しますか？この操作は元に戻せません。",
+  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteSeriesConfirm": "{title} と、その繰り返しすべてを削除しますか？この操作は元に戻せません。",
+  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteFailed": "この予定を削除できませんでした。",
+  "calendarEventLoadFailed": "この予定を編集用に開けませんでした。",
+  "calendarEventReadOnly": "この予定は変更できません。招待への返答は引き続き可能です。",
+  "calendarEventGone": "この予定は存在しなくなりました。予定表を更新しています。",
+  "calendarNewEventTitle": "新しい予定",
+  "calendarEditEventTitle": "予定を編集",
+  "calendarEditSeriesTitle": "シリーズを編集",
+  "calendarFieldTitle": "タイトル",
+  "calendarFieldDescription": "説明",
+  "calendarFieldLocation": "場所",
+  "calendarFieldAllDay": "終日",
+  "calendarFieldStarts": "開始",
+  "calendarFieldStartTime": "開始時刻",
+  "calendarFieldEnds": "終了",
+  "calendarFieldEndTime": "終了時刻",
+  "calendarAddEnd": "終了を追加",
+  "calendarFieldRepeat": "繰り返し",
+  "calendarRepeatNone": "繰り返さない",
+  "calendarRepeatDaily": "毎日",
+  "calendarRepeatWeekdays": "平日",
+  "calendarRepeatWeekly": "毎週",
+  "calendarRepeatMonthly": "毎月",
+  "calendarRepeatYearly": "毎年",
+  "calendarRepeatCustom": "カスタムの繰り返し",
+  "calendarRepeatKept": "この予定は、ここでは編集できないルールで繰り返されます。別の繰り返しを選択しない限り、そのまま維持されます。",
+  "calendarRecurrenceTimezoneNote": "繰り返しはアカウントのタイムゾーンに従います。このデバイスのタイムゾーンと異なる場合があります。",
+  "calendarFieldCalendar": "カレンダー",
+  "calendarChooseCalendar": "カレンダーを選択",
+  "calendarFieldAttendees": "参加者",
+  "calendarAddPeople": "ユーザーを追加",
+  "calendarInvitedPerson": "招待されたユーザー",
+  "calendarRemovePerson": "{name} を削除",
+  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "calendarAttendeesNote": "招待されたユーザーは、各自で返答します。一覧を変更しても、その返答は維持されます。",
+  "calendarNoWritableCalendar": "予定を追加できるカレンダーがありません。続行するには、カレンダーを作成してください。",
+  "calendarTitleRequired": "タイトルを入力してください。",
+  "calendarCalendarRequired": "カレンダーを選択してください。",
+  "calendarEndBeforeStart": "終了を開始より前にすることはできません。",
+  "calendarSaveFailed": "この予定を保存できませんでした。",
+  "calendarCalendarsTitle": "カレンダー",
+  "calendarPickTitle": "カレンダーを選択",
+  "calendarEmptyCalendars": "カレンダーはまだありません。",
+  "calendarDefaultBadge": "既定",
+  "calendarSharedBadge": "共有中",
+  "calendarReadOnlyBadge": "読み取り専用",
+  "calendarMakeDefault": "既定にする",
+  "calendarMakeDefaultFailed": "既定のカレンダーを変更できませんでした。",
+  "calendarNewCalendar": "新しいカレンダー",
+  "calendarNewCalendarHint": "カレンダー名",
+  "calendarCreateCalendar": "カレンダーを作成",
+  "calendarNameRequired": "カレンダーの名前を入力してください。",
+  "calendarCreateFailed": "カレンダーを作成できませんでした。",
+  "calendarWriteDenied": "このアカウントには、そのカレンダーでこの操作を行う権限がありません。",
+  "calendarNotInvited": "この予定には招待されていません。",
+  "calendarNotFound": "そのカレンダーまたは予定が見つかりませんでした。",
+  "calendarAccountChanged": "この画面を開いている間にアカウントが変更されました。閉じて、もう一度お試しください。",
+  "chatDataControlsTitle": "データ管理",
+  "chatDataControlsStoredOn": "{server} 上の {account} のチャット",
+  "@chatDataControlsStoredOn": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsUnavailable": "データ管理を使用するには、「詳細設定」をオンにし、Open WebUI アカウントにサインインしている必要があります。",
+  "chatDataControlsMediaNote": "バックアップには、サーバーに保存されているチャット履歴、設定、添付ファイルの参照情報が含まれます。添付されたファイルや画像そのものは含まれません。",
+  "chatDataControlsLocalOnly": "このデバイスのみ: {count}",
+  "@chatDataControlsLocalOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsent": "サーバーに未送信の変更あり: {count}",
+  "@chatDataControlsUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsyncedNote": "サーバーのバックアップには、送信されるまでこれらは含まれません。",
+  "chatDataControlsSyncNow": "今すぐ同期",
+  "chatDataControlsSyncing": "同期中…",
+  "chatDataControlsBackupSection": "バックアップと復元",
+  "chatDataControlsManageSection": "すべてのチャット",
+  "chatDataControlsExportLibrary": "すべてのチャットをエクスポート",
+  "chatDataControlsImport": "チャットをインポート",
+  "chatDataControlsArchiveAll": "すべてのチャットをアーカイブ",
+  "chatDataControlsUnarchiveAll": "すべてのチャットのアーカイブを解除",
+  "chatDataControlsUnshareAll": "すべての共有リンクを削除",
+  "chatDataControlsDeleteAll": "すべてのチャットを削除",
+  "chatDataControlsExporting": "エクスポート中… 読み取ったチャット: {count}",
+  "@chatDataControlsExporting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportReady": "バックアップの準備ができました。保存したチャット: {count}",
+  "@chatDataControlsExportReady": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportEmpty": "サーバーにバックアップするチャットがありません。",
+  "chatDataControlsExportFailed": "バックアップは保存されませんでした。エクスポートが中断されたか、不完全でした。",
+  "chatDataControlsExportStopped": "エクスポートを停止しました。何も保存されていません。",
+  "chatDataControlsExportConfirmTitle": "サーバー上のデータをバックアップしますか？",
+  "chatDataControlsExportConfirmMessage": "{server} に保存されている {account} のチャットを保存します。このデバイスにのみ存在するチャットや、サーバーが受信していない変更は含まれません。",
+  "@chatDataControlsExportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsExportAction": "バックアップ",
+  "chatDataControlsImportConfirmTitle": "これらのチャットをインポートしますか？",
+  "chatDataControlsImportConfirmMessage": "ファイル内のチャットを {server} の {account} に追加しますか？チャット: {chats}。メッセージ: {messages}。すでにあるチャットは置き換えられず、インポートするとコピーが追加されます。",
+  "@chatDataControlsImportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      },
+      "chats": {
+        "type": "int"
+      },
+      "messages": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportAction": "インポート",
+  "chatDataControlsImportInvalid": "そのファイルは Open WebUI のチャットエクスポートではありません。",
+  "chatDataControlsImportEmpty": "そのファイルにはチャットがありません。",
+  "chatDataControlsImportTooLarge": "そのファイルは大きすぎて、一度にインポートできません。",
+  "chatDataControlsImportBadEntry": "ファイル内の {position} 番目のチャットはインポートできません。",
+  "@chatDataControlsImportBadEntry": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportChooseAnother": "別のファイルを選択",
+  "chatDataControlsImportFile": "ファイル: {name}",
+  "@chatDataControlsImportFile": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsImported": "インポートが完了しました。インポートしたチャット: {count}",
+  "@chatDataControlsImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportedSyncNote": "一部は、次回の同期後に表示されます。",
+  "chatDataControlsImportUnknown": "サーバーから応答がなかったため、チャットがインポートされたかどうかは不明です。もう一度インポートする前に、チャットを確認してください。2 回インポートするとコピーが追加されます。",
+  "chatDataControlsForbidden": "このアカウントには、その操作を行う権限がありません。",
+  "chatDataControlsArchiveAllMessage": "サーバー上のすべてのチャットをアーカイブしますか？後でアーカイブを解除できます。",
+  "chatDataControlsUnarchiveAllMessage": "サーバー上のアーカイブ済みのチャットすべてのアーカイブを解除しますか？",
+  "chatDataControlsUnshareAllMessage": "作成したすべての共有リンクを削除しますか？リンクを知っているユーザーはアクセスできなくなります。チャット自体は残ります。",
+  "chatDataControlsDeleteAllMessage": "{server} 上の {account} のすべてのチャットを削除しますか？この操作は元に戻せません。このデバイスにのみ存在するチャットは残ります。",
+  "@chatDataControlsDeleteAllMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsDeleteUnsentMessage": "サーバーにまだ送信されていません — 変更のあるチャット: {edits}、返信がキューに入っているチャット: {replies}。削除すると、これらは破棄されます。",
+  "@chatDataControlsDeleteUnsentMessage": {
+    "placeholders": {
+      "edits": {
+        "type": "int"
+      },
+      "replies": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsDiscardAndDelete": "破棄して削除",
+  "chatDataControlsResponseRunning": "返信がまだ実行中です。停止してから、もう一度お試しください。",
+  "chatDataControlsLocalChanged": "待機している間に、このデバイスにのみあったチャットがサーバーに届きました。何も変更されていません。内容を確認して、もう一度お試しください。",
+  "chatDataControlsDone": "完了しました。",
+  "chatDataControlsRefused": "サーバーはその操作を実行できませんでした。何も変更されていません。",
+  "chatDataControlsUnknown": "サーバーから応答がなかったため、結果は不明です。チャットを確認してください。もう一度実行しても問題ありません。",
+  "chatDataControlsOwnerChanged": "サインイン中のアカウントが変更されました。何も実行されていません。",
+  "chatDataControlsAccountUnknown": "このアカウントをまだ識別できていません。同期してから、もう一度お試しください。",
+  "chatDataControlsWaiting": "同期が落ち着くのを待っています…",
+  "chatExportAction": "チャットをエクスポート",
+  "chatExportJson": "バックアップ（JSON）",
+  "chatExportJsonDescription": "すべての分岐と設定を含む、チャット全体です。Open WebUI でインポートできます。",
+  "chatExportMarkdown": "トランスクリプト（Markdown）",
+  "chatExportMarkdownDescription": "表示中の会話を、読みやすいテキストにしたものです。バックアップではありません。",
+  "chatExportUnsentNote": "サーバーがまだ受信していない変更も含まれます。",
+  "chatExportFailed": "チャットをエクスポートできませんでした。",
+  "chatDataControlsWorkChanged": "待機している間に、未送信の変更がこのデバイスに追加されました。何も削除されていません。内容を確認して、もう一度お試しください。",
+  "chatComparisonTabsLabel": "モデルの回答",
+  "chatComparisonSlotLabel": "{model} · {number}",
+  "@chatComparisonSlotLabel": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      },
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "chatComparisonUnnamedModel": "モデル",
+  "chatComparisonSlotResponding": "回答中",
+  "chatComparisonSlotFailed": "失敗",
+  "chatMergedResponseTitle": "統合された回答",
+  "chatCompareModelsAction": "モデルを比較",
+  "chatCompareModelsDescription": "このメッセージを2つのモデルに送り、回答を比べます。",
+  "chatCompareNeedsMessage": "先にメッセージを入力してから、モデルを比較してください。",
+  "chatCompareFirstModel": "1つ目のモデル",
+  "chatCompareSecondModel": "2つ目のモデル",
+  "chatCompareChooseModel": "モデルを選択",
+  "chatCompareStart": "比較する",
+  "chatCompareErrorUnavailable": "このチャットではモデルの比較を利用できません。",
+  "chatCompareErrorModelUnavailable": "{models} はこのサーバーで利用できません。",
+  "@chatCompareErrorModelUnavailable": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorVision": "{models} は画像を読み取れません。画像を削除するか、別のモデルを選択してください。",
+  "@chatCompareErrorVision": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorTerminal": "{models} は選択したターミナルを使用できません。ターミナルをオフにするか、別のモデルを選択してください。",
+  "@chatCompareErrorTerminal": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorInterpreter": "{models} はコードインタープリターを実行できません。オフにするか、別のモデルを選択してください。",
+  "@chatCompareErrorInterpreter": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortOverride": "このチャットには、{models} が使用できない推論の強度が保存されています。チャット設定で削除するか、別のモデルを選択してください。",
+  "@chatCompareErrorEffortOverride": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortPicker": "選択したモデルには、それぞれ異なる推論の強度が必要です。両方に同じ強度を設定するか、別のモデルを選択してください。",
+  "chatMergeResponsesAction": "回答を統合",
+  "chatMergeStopAction": "統合を停止",
+  "chatMergeErrorUnavailable": "このサーバーでは応答を統合できません。",
+  "chatMergeErrorFailed": "応答の統合に失敗しました。元の回答は変更されていません。",
+  "chatMergeErrorNotMergeable": "統合するには、すべての回答がテキストで終わっている必要があります。",
+  "chatMergeErrorOwnerChanged": "アカウントまたはチャットが変更されたため、統合を中止しました。",
+  "chatComparisonStopAnswerAction": "この回答を停止",
+  "chatMergeChooseDescription": "統合する回答を選択してください。2 つ以上選択する必要があります。元の回答はそのまま残ります。",
+  "folderProjectComparisonFallbackNotice": "このプロジェクトに保存されているモデルをすべて使用することはできないため、チャットはそれより少ないモデルで開始されます。比較で使用するモデルは、ちょうど 2 つです。"
 }

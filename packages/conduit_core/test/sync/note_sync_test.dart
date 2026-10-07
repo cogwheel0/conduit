@@ -100,13 +100,14 @@ void main() {
 
   /// Drives the LIVE production note-pull path: the generic [runPullFor] driver
   /// over a [NoteAdapter] — exactly what the sync engine wires (D-11, R-09).
-  Future<AdapterPullResult> pull() {
+  Future<AdapterPullResult> pull({String? readerId}) {
     final adapter = NoteAdapter(
       pull: NotePullSync(
         client: client,
         db: db,
         locks: locks,
         remapper: syncRemapper,
+        readerAccountId: readerId == null ? null : () => readerId,
       ),
       push: NotePushSync(
         client: client,
@@ -1210,6 +1211,211 @@ void main() {
       check(payload['title']).equals('Renamed');
     },
   );
+
+  group('shared note write access', () {
+    const accountId = 'user-1';
+    const sharedId = 'shared-1';
+
+    void seedShared({required bool writeAccess, int updatedAt = kT1}) {
+      server.seedNote(
+        id: sharedId,
+        title: 'Shared',
+        data: {
+          'content': {'md': 'original'},
+        },
+        createdAt: kT1,
+        updatedAt: updatedAt,
+        extra: {'user_id': 'owner-1', 'write_access': writeAccess},
+      );
+    }
+
+    NotePushSync accountPush() => NotePushSync(
+      client: client,
+      db: db,
+      noteLocks: locks,
+      remapper: syncRemapper,
+      currentAccountId: () => accountId,
+    );
+
+    /// Pulls the shared note, then queues an edit exactly as the editor does.
+    Future<void> pullAndEditShared() async {
+      await pull();
+      await locks.runExclusive(sharedId, () {
+        return db.notesDao.updateNoteWithOutbox(
+          sharedId,
+          data: Value(
+            jsonEncode({
+              'content': {'md': 'my draft'},
+            }),
+          ),
+          localUpdatedAtNs: kT2,
+          enqueue: true,
+        );
+      });
+    }
+
+    Future<Map<String, dynamic>> storedExtra() async =>
+        decodeJsonMap((await db.notesDao.getNote(sharedId))!.rawExtra);
+
+    test(
+      'a write recipient replays a queued edit although the creator owns it',
+      () async {
+        seedShared(writeAccess: true);
+        await pullAndEditShared();
+
+        await accountPush().pushNoteUpdate(sharedId, const {});
+
+        check(client.updateNoteCalls).equals(1);
+        check(server.getNoteById(sharedId)!['data']).isA<Map>().deepEquals({
+          'content': {'md': 'my draft'},
+        });
+      },
+    );
+
+    test(
+      'replay refuses an edit queued while writable once detail denies it',
+      () async {
+        seedShared(writeAccess: true);
+        await pullAndEditShared();
+        seedShared(writeAccess: false);
+
+        await check(accountPush().pushNoteUpdate(sharedId, const {}))
+            .throws<SyncTerminalException>();
+
+        check(client.updateNoteCalls).equals(0);
+        final row = (await db.notesDao.getNote(sharedId))!;
+        check(row.dirtyData).isTrue();
+        check(decodeNoteData(row.data)['content'])
+            .isA<Map>()
+            .deepEquals({'md': 'my draft'});
+        check(await storedExtra()).containsKey('write_access');
+        check(await storedExtra())
+            .deepEquals({...await storedExtra(), 'write_access': false});
+      },
+    );
+
+    test(
+      'a revoked read grant parks the edit as forbidden, not missing',
+      () async {
+        seedShared(writeAccess: true);
+        await pullAndEditShared();
+        client.forbiddenNoteReadIds.add(sharedId);
+
+        await check(accountPush().pushNoteUpdate(sharedId, const {}))
+            .throws<SyncTerminalException>(
+              (e) => e.has((x) => x.statusCode, 'status').equals(403),
+            );
+
+        check(client.updateNoteCalls).equals(0);
+        check(await db.notesDao.getNote(sharedId)).isNotNull();
+        check((await storedExtra())['write_access']).equals(false);
+      },
+    );
+
+    test(
+      'an account replays its own note without an extra detail read',
+      () async {
+        server.seedNote(
+          id: 'own-1',
+          title: 'Own',
+          data: {
+            'content': {'md': 'original'},
+          },
+          createdAt: kT1,
+          updatedAt: kT1,
+          extra: {'user_id': accountId},
+        );
+        await pull();
+        await locks.runExclusive('own-1', () {
+          return db.notesDao.updateNoteWithOutbox(
+            'own-1',
+            data: Value(
+              jsonEncode({
+                'content': {'md': 'edited'},
+              }),
+            ),
+            localUpdatedAtNs: kT2,
+            enqueue: true,
+          );
+        });
+        final fetchesBefore = client.noteFetchStarts.length;
+
+        await accountPush().pushNoteUpdate('own-1', const {});
+
+        check(client.updateNoteCalls).equals(1);
+        check(client.noteFetchStarts.length).equals(fetchesBefore);
+      },
+    );
+
+    test('a pull records the account the server answered as a reader, for new '
+        'and for unchanged cached notes', () async {
+      seedShared(writeAccess: false);
+      Future<List<String>> visibleTo(String id) async => [
+        for (final n in await db.notesDao.watchNotes(userId: id).first) n.id,
+      ];
+
+      await pull(readerId: accountId);
+      check(await visibleTo(accountId)).deepEquals([sharedId]);
+      check(await visibleTo('user-2')).isEmpty();
+      // The creator's id is untouched.
+      check((await storedExtra())['user_id']).equals('owner-1');
+
+      // A row cached before the evidence existed, unchanged on the server:
+      // the listing alone makes it visible, without fetching it again.
+      await db.notesDao.retireNoteReadEvidence(sharedId, accountId: accountId);
+      check(await visibleTo(accountId)).isEmpty();
+      await db.syncMetaDao.setNotesPullWatermark(kT2 * 2);
+      final fetchesBefore = client.noteFetchStarts.length;
+      await pull(readerId: accountId);
+      check(await visibleTo(accountId)).deepEquals([sharedId]);
+      check(client.noteFetchStarts.length).equals(fetchesBefore);
+
+      // A pull for no account records nothing.
+      await db.notesDao.retireNoteReadEvidence(sharedId, accountId: accountId);
+      await pull();
+      check(await visibleTo(accountId)).isEmpty();
+    });
+
+    test('a pull that finds the grant revoked keeps the draft and does not requeue it', () async {
+      seedShared(writeAccess: true);
+      await pullAndEditShared();
+      // The first pull queued nothing for this edit; park the op the editor
+      // queued, as the drainer does after a refusal.
+      final pending = await db.outboxDao.pendingForChat(sharedId);
+      for (final op in pending) {
+        await db.outboxDao.markParked(op.seq, error: 'read-only');
+      }
+      seedShared(writeAccess: false);
+
+      await pull();
+
+      final row = (await db.notesDao.getNote(sharedId))!;
+      check(row.dirtyData).isTrue();
+      check(decodeNoteData(row.data)['content'])
+          .isA<Map>()
+          .deepEquals({'md': 'my draft'});
+      check(await db.outboxDao.pendingForChat(sharedId)).isEmpty();
+
+      // The grant returns: the next pull queues the kept draft again.
+      seedShared(writeAccess: true);
+      await pull();
+      check(await db.outboxDao.pendingForChat(sharedId)).length.equals(1);
+    });
+
+    test(
+      'a pull of an unchanged note still refreshes a revoked write grant',
+      () async {
+        seedShared(writeAccess: true);
+        await pull();
+        check((await storedExtra())['write_access']).equals(true);
+
+        seedShared(writeAccess: false);
+        await pull();
+
+        check((await storedExtra())['write_access']).equals(false);
+      },
+    );
+  });
 }
 
 class _RecordingNoteLocks extends NoteLocks {

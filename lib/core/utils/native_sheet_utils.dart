@@ -457,6 +457,50 @@ NativeSheetDetailConfig buildNativeSystemPromptDetail(
   );
 }
 
+/// Control id the native Webhook destinations row sends to open the Flutter
+/// Notifications page, where the destinations are managed.
+const nativeNotificationTargetsActionId = 'notification-targets';
+
+/// The Webhook destinations row of the native Notifications sheet. The native
+/// sheet has no editor for them, so the row closes it and opens the Flutter
+/// page, which holds the list and editor.
+NativeSheetItemConfig buildNativeNotificationTargetsItem(
+  AppLocalizations l10n,
+) {
+  return NativeSheetItemConfig(
+    id: 'notification-targets',
+    title: l10n.notificationTargetsTitle,
+    subtitle: l10n.notificationTargetsNativeDescription,
+    sfSymbol: 'link',
+    dismissOnSelect: true,
+    actionId: nativeNotificationTargetsActionId,
+  );
+}
+
+/// Control id the native Add memory row sends to open the Flutter editor.
+const nativeMemoryEditorNewActionId = 'memory-editor-new';
+
+/// Prefix of the control id a native memory row sends to open the Flutter
+/// editor for one memory; the memory id follows, URI-encoded.
+const nativeMemoryEditorActionPrefix = 'memory-editor:';
+
+/// The Add memory row. The native sheet holds a content box and nothing else,
+/// so with [advanced] the row closes it and opens the Flutter editor, which
+/// also has the type and path.
+NativeSheetItemConfig buildNativeMemoryAddItem(
+  AppLocalizations l10n, {
+  required bool advanced,
+}) {
+  return NativeSheetItemConfig(
+    id: 'memory-add',
+    title: l10n.addMemory,
+    subtitle: l10n.manageMemoriesDescription,
+    sfSymbol: 'plus.circle',
+    dismissOnSelect: advanced,
+    actionId: advanced ? nativeMemoryEditorNewActionId : null,
+  );
+}
+
 NativeSheetDetailConfig buildNativeMemoryAddDetail(AppLocalizations l10n) {
   return NativeSheetDetailConfig(
     id: 'memory-add',
@@ -475,10 +519,28 @@ NativeSheetDetailConfig buildNativeMemoryAddDetail(AppLocalizations l10n) {
   );
 }
 
+/// What the Advanced row of a memory shows: its type and path.
+String nativeSheetMemoryClassification(
+  AppLocalizations l10n,
+  ServerMemory memory,
+) {
+  final type = switch (memory.type) {
+    ServerMemory.userType => l10n.memoryTypeUser,
+    ServerMemory.contextType => l10n.memoryTypeContext,
+    final other? => other,
+    null => l10n.notSet,
+  };
+  final path = memory.path;
+  return path == null || path.isEmpty ? type : '$type · $path';
+}
+
+/// The detail for each memory: its text and Delete, plus with [advanced] a row
+/// that opens the Flutter editor for the type and path.
 List<NativeSheetDetailConfig> buildNativeMemoryEditDetails(
   AppLocalizations l10n,
-  List<ServerMemory> memories,
-) {
+  List<ServerMemory> memories, {
+  bool advanced = false,
+}) {
   return [
     for (final memory in memories)
       NativeSheetDetailConfig(
@@ -494,6 +556,16 @@ List<NativeSheetDetailConfig> buildNativeMemoryEditDetails(
             value: memory.content,
             placeholder: l10n.memoryHint,
           ),
+          if (advanced)
+            NativeSheetItemConfig(
+              id: 'memory-classification:${Uri.encodeComponent(memory.id)}',
+              title: l10n.memoryTypeLabel,
+              subtitle: nativeSheetMemoryClassification(l10n, memory),
+              sfSymbol: 'tag',
+              dismissOnSelect: true,
+              actionId:
+                  '$nativeMemoryEditorActionPrefix${Uri.encodeComponent(memory.id)}',
+            ),
           NativeSheetItemConfig(
             id: 'memory-delete:${Uri.encodeComponent(memory.id)}',
             title: l10n.deleteMemory,

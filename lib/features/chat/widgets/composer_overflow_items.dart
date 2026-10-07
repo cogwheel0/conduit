@@ -2,10 +2,16 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
+import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -23,12 +29,31 @@ class ComposerOverflowActionIds {
   static const mcpContent = 'mcpContent';
   static const webSearch = 'webSearch';
   static const imageGeneration = 'imageGeneration';
+  static const codeInterpreter = 'codeInterpreter';
+  static const toolSettings = 'toolSettings';
+  static const compareModels = 'compareModels';
   static const _filterPrefix = 'filter:';
   static const _toolPrefix = 'tool:';
+  static const _terminalPrefix = 'terminal:';
 
   static String filter(String filterId) => '$_filterPrefix$filterId';
 
   static String tool(String toolId) => '$_toolPrefix$toolId';
+
+  /// A terminal row. The id carries a digest of the terminal's selection id,
+  /// never the id itself: a direct terminal is selected by its URL, which can
+  /// hold credentials.
+  static String terminal(TerminalServerInfo server) =>
+      '$_terminalPrefix${composerTerminalToken(server)}';
+
+  static String? terminalTokenFrom(String actionId) {
+    if (!actionId.startsWith(_terminalPrefix)) {
+      return null;
+    }
+
+    final token = actionId.substring(_terminalPrefix.length);
+    return token.isEmpty ? null : token;
+  }
 
   static String? filterIdFrom(String actionId) {
     if (!actionId.startsWith(_filterPrefix)) {
@@ -49,7 +74,9 @@ class ComposerOverflowActionIds {
   }
 }
 
-enum ComposerOverflowItemKind { attachment, toggle }
+/// [action] rows run a command (such as opening a sheet) and never carry a
+/// selected state.
+enum ComposerOverflowItemKind { attachment, toggle, action }
 
 enum ComposerOverflowSection {
   attachments('attachments'),
@@ -123,6 +150,10 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
   required List<String> selectedToolIds,
   required List<ToggleFilter> availableFilters,
   required List<String> selectedFilterIds,
+  ComposerPersonalConnections connections = ComposerPersonalConnections.none,
+  bool toolSettingsAvailable = false,
+  bool compareModelsAvailable = false,
+  CodeInterpreterOffer? codeInterpreter,
 }) {
   return <ComposerOverflowItem>[
     ...buildComposerOverflowAttachmentItems(
@@ -135,10 +166,24 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
       webSearchEnabled: webSearchEnabled,
       imageGenerationAvailable: imageGenerationAvailable,
       imageGenerationEnabled: imageGenerationEnabled,
+      codeInterpreter: codeInterpreter,
+    ),
+    ...buildComposerOverflowComparisonItems(
+      l10n: l10n,
+      available: compareModelsAvailable,
     ),
     ...buildComposerOverflowToolItems(
       availableTools: availableTools,
       selectedToolIds: selectedToolIds,
+    ),
+    ...buildComposerOverflowConnectionItems(
+      l10n: l10n,
+      connections: connections,
+      selectedToolIds: selectedToolIds,
+    ),
+    ...buildComposerOverflowToolSettingsItems(
+      l10n: l10n,
+      available: toolSettingsAvailable,
     ),
     ...buildComposerOverflowFilterItems(
       availableFilters: availableFilters,
@@ -221,6 +266,7 @@ List<ComposerOverflowItem> buildComposerOverflowFeatureItems({
   required bool webSearchEnabled,
   required bool imageGenerationAvailable,
   required bool imageGenerationEnabled,
+  CodeInterpreterOffer? codeInterpreter,
 }) {
   final items = <ComposerOverflowItem>[];
 
@@ -258,6 +304,32 @@ List<ComposerOverflowItem> buildComposerOverflowFeatureItems({
     );
   }
 
+  if (codeInterpreter != null) {
+    final block = codeInterpreter.block;
+    items.add(
+      ComposerOverflowItem(
+        id: ComposerOverflowActionIds.codeInterpreter,
+        kind: ComposerOverflowItemKind.toggle,
+        section: ComposerOverflowSection.features,
+        label: l10n.codeInterpreter,
+        subtitle: switch (block) {
+          null => l10n.codeInterpreterDescription,
+          CodeInterpreterBlock.unsupportedEngine =>
+            l10n.codeInterpreterBrowserEngine,
+          _ => l10n.codeInterpreterUnavailable,
+        },
+        cupertinoIcon: CupertinoIcons.chevron_left_slash_chevron_right,
+        materialIcon: Icons.code,
+        sfSymbol: 'chevron.left.forwardslash.chevron.right',
+        // An explanation row is not tappable, but a choice already made can
+        // always be turned off.
+        enabled: block == null || codeInterpreter.selected,
+        selected: codeInterpreter.selected,
+        dismissesKeyboard: false,
+      ),
+    );
+  }
+
   return items;
 }
 
@@ -281,6 +353,278 @@ List<ComposerOverflowItem> buildComposerOverflowToolItems({
         selected: selectedToolIdSet.contains(tool.id),
         dismissesKeyboard: false,
       ),
+  ];
+}
+
+/// Reads a provider; both `ref.watch` and `ref.read` fit, so the build-time
+/// and the post-frame callers share one reader of the connections.
+typedef ComposerRead = T Function<T>(ProviderListenable<T> provider);
+
+/// The account a set of connection rows was built for.
+///
+/// Native panel taps arrive after the row was drawn, so one can land once
+/// another account is signed in. The personal session and the terminal service
+/// are each rebuilt when the account, server or token changes, so holding the
+/// two tells the accounts apart even when both own a connection with the same
+/// name or key.
+@immutable
+class ComposerConnectionsOwner {
+  const ComposerConnectionsOwner({this.session, this.terminalService});
+
+  final PersonalConnectionsSession? session;
+  final TerminalService? terminalService;
+
+  bool isCurrent(ComposerRead read) =>
+      identical(read(personalConnectionsSessionProvider), session) &&
+      identical(read(terminalServiceProvider), terminalService) &&
+      (session?.isCurrent() ?? true);
+}
+
+/// The personal tool servers and terminals the signed-in account can choose
+/// in the composer, with the owner they were read for.
+@immutable
+class ComposerPersonalConnections {
+  const ComposerPersonalConnections({
+    required this.owner,
+    this.toolServers = const <PersonalConnectionEntry>[],
+    this.terminals = const <TerminalServerInfo>[],
+    this.selectedTerminalId,
+  });
+
+  static const none = ComposerPersonalConnections(
+    owner: ComposerConnectionsOwner(),
+  );
+
+  final ComposerConnectionsOwner owner;
+
+  /// Enabled tool servers only.
+  final List<PersonalConnectionEntry> toolServers;
+  final List<TerminalServerInfo> terminals;
+  final String? selectedTerminalId;
+}
+
+/// Reads the connections of the account that is signed in now.
+///
+/// Settings and terminals count only once they have resolved for this account.
+/// `asData` is null while a provider reloads after an account change, so the
+/// value it kept from the previous account is never offered.
+ComposerPersonalConnections readComposerPersonalConnections(ComposerRead read) {
+  final session = read(personalConnectionsSessionProvider);
+  final snapshot = session == null
+      ? null
+      : read(personalConnectionsProvider).asData?.value;
+  return ComposerPersonalConnections(
+    owner: ComposerConnectionsOwner(
+      session: session,
+      terminalService: read(terminalServiceProvider),
+    ),
+    toolServers: snapshot != null && identical(snapshot.session, session)
+        ? <PersonalConnectionEntry>[
+            for (final entry in snapshot.toolServers)
+              if (entry.enabled) entry,
+          ]
+        : const <PersonalConnectionEntry>[],
+    terminals:
+        read(terminalAvailableServersProvider).asData?.value ??
+        const <TerminalServerInfo>[],
+    selectedTerminalId: read(selectedTerminalIdProvider),
+  );
+}
+
+/// Digest that stands for [server] in a native action id. It only has to tell
+/// the account's terminals apart, and keeps the URL out of the id.
+String composerTerminalToken(TerminalServerInfo server) =>
+    personalToolServerFingerprint(<String, dynamic>{'url': server.selectionId});
+
+/// Indices, in the list the tool servers were read from, of the servers that
+/// [selectedToolIds] name.
+Set<int> _selectedToolServerIndices(
+  List<PersonalConnectionEntry> servers,
+  List<String> selectedToolIds,
+) {
+  if (servers.isEmpty) return const <int>{};
+  return resolvePersonalToolSelections(
+    servers.first.list,
+    selectedToolIds,
+  ).matchedIndices.toSet();
+}
+
+/// Personal tool servers and terminals, in the tools section like the ordinary
+/// tools, so the native panel renders them without a new section.
+List<ComposerOverflowItem> buildComposerOverflowConnectionItems({
+  required AppLocalizations l10n,
+  required ComposerPersonalConnections connections,
+  required List<String> selectedToolIds,
+}) {
+  final selectedServers = _selectedToolServerIndices(
+    connections.toolServers,
+    selectedToolIds,
+  );
+
+  return <ComposerOverflowItem>[
+    for (final entry in connections.toolServers)
+      ComposerOverflowItem(
+        id: ComposerOverflowActionIds.tool(
+          personalToolServerSelectionId(entry.list, entry.index),
+        ),
+        kind: ComposerOverflowItemKind.toggle,
+        section: ComposerOverflowSection.tools,
+        label: entry.displayName.isEmpty ? l10n.toolServer : entry.displayName,
+        subtitle: _toolServerSubtitle(entry),
+        cupertinoIcon: CupertinoIcons.square_stack_3d_down_right,
+        materialIcon: Icons.hub_outlined,
+        sfSymbol: 'square.stack.3d.down.right',
+        selected: selectedServers.contains(entry.index),
+        dismissesKeyboard: false,
+      ),
+    for (final server in connections.terminals)
+      ComposerOverflowItem(
+        id: ComposerOverflowActionIds.terminal(server),
+        kind: ComposerOverflowItemKind.toggle,
+        section: ComposerOverflowSection.tools,
+        label: server.displayName,
+        subtitle: server.subtitle,
+        cupertinoIcon: CupertinoIcons.chevron_left_slash_chevron_right,
+        materialIcon: Icons.terminal_rounded,
+        sfSymbol: 'chevron.left.forwardslash.chevron.right',
+        selected: connections.selectedTerminalId == server.selectionId,
+        dismissesKeyboard: false,
+      ),
+  ];
+}
+
+/// The entry's description, else its host. The full URL can carry a token.
+String? _toolServerSubtitle(PersonalConnectionEntry entry) {
+  final info = personalConnectionMap(entry.raw['info']);
+  for (final candidate in <Object?>[
+    entry.raw['description'],
+    info?['description'],
+  ]) {
+    final text = candidate?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
+  }
+  final host = Uri.tryParse(entry.url)?.host.trim() ?? '';
+  return host.isEmpty ? null : host;
+}
+
+/// Whether [actionId] names a personal tool server or a terminal, whose
+/// selection is validated against the signed-in account before it applies.
+bool isComposerConnectionAction(String actionId) {
+  final toolId = ComposerOverflowActionIds.toolIdFrom(actionId);
+  return (toolId?.startsWith(kDirectServerSelectionPrefix) ?? false) ||
+      ComposerOverflowActionIds.terminalTokenFrom(actionId) != null;
+}
+
+/// Applies a personal connection choice made in the native panel.
+///
+/// A tap is dropped unless the panel was built for the account that is signed
+/// in now ([opened]) and the connection it names is still one of that
+/// account's enabled, usable connections. The tool server is looked up by the
+/// stored identity, so a keyless entry that was removed, reordered into
+/// another's place or reconfigured never selects a different server.
+Future<void> toggleComposerConnectionSelection(
+  WidgetRef ref,
+  String actionId, {
+  required ComposerConnectionsOwner? opened,
+}) async {
+  if (opened == null || !opened.isCurrent(ref.read)) return;
+  final connections = readComposerPersonalConnections(ref.read);
+
+  final toolId = ComposerOverflowActionIds.toolIdFrom(actionId);
+  if (toolId != null) {
+    _toggleToolServer(ref, connections.toolServers, toolId);
+    return;
+  }
+
+  final token = ComposerOverflowActionIds.terminalTokenFrom(actionId);
+  if (token == null) return;
+  final matches = connections.terminals
+      .where((server) => composerTerminalToken(server) == token)
+      .toList(growable: false);
+  // Two terminals sharing a digest cannot be told apart, so neither is chosen.
+  if (matches.length != 1) return;
+  await ref.read(terminalSelectionControllerProvider).toggle(matches.single);
+}
+
+void _toggleToolServer(
+  WidgetRef ref,
+  List<PersonalConnectionEntry> servers,
+  String toolId,
+) {
+  if (!toolId.startsWith(kDirectServerSelectionPrefix) || servers.isEmpty) {
+    return;
+  }
+  final list = servers.first.list;
+  final index = resolvePersonalToolServerToken(
+    list,
+    toolId.substring(kDirectServerSelectionPrefix.length),
+  );
+  if (index == null || !servers.any((entry) => entry.index == index)) return;
+
+  final current = ref.read(selectedToolIdsProvider);
+  final selected = <String>[];
+  var wasSelected = false;
+  for (final id in current) {
+    final selectedIndex = id.startsWith(kDirectServerSelectionPrefix)
+        ? resolvePersonalToolServerToken(
+            list,
+            id.substring(kDirectServerSelectionPrefix.length),
+          )
+        : null;
+    if (selectedIndex == index) {
+      wasSelected = true;
+    } else {
+      selected.add(id);
+    }
+  }
+  if (!wasSelected) {
+    selected.add(personalToolServerSelectionId(list, index));
+  }
+  ref.read(selectedToolIdsProvider.notifier).set(selected);
+}
+
+/// The advanced "Compare models" command. It sits in the features section so
+/// the native iOS panel, which groups rows by section, renders it without a new
+/// native section; the id reaches Flutter through the same action callback as
+/// every other row, so setup is one code path on both.
+List<ComposerOverflowItem> buildComposerOverflowComparisonItems({
+  required AppLocalizations l10n,
+  required bool available,
+}) {
+  if (!available) return const <ComposerOverflowItem>[];
+  return <ComposerOverflowItem>[
+    ComposerOverflowItem(
+      id: ComposerOverflowActionIds.compareModels,
+      kind: ComposerOverflowItemKind.action,
+      section: ComposerOverflowSection.features,
+      label: l10n.chatCompareModelsAction,
+      subtitle: l10n.chatCompareModelsDescription,
+      cupertinoIcon: CupertinoIcons.square_split_2x1,
+      materialIcon: Icons.vertical_split_outlined,
+      sfSymbol: 'rectangle.split.2x1',
+    ),
+  ];
+}
+
+/// The advanced "Tool settings" command. It lives in the tools section so the
+/// native iOS panel, which groups rows by section, renders it without a new
+/// native section; the id reaches Flutter through the same action callback.
+List<ComposerOverflowItem> buildComposerOverflowToolSettingsItems({
+  required AppLocalizations l10n,
+  required bool available,
+}) {
+  if (!available) return const <ComposerOverflowItem>[];
+  return <ComposerOverflowItem>[
+    ComposerOverflowItem(
+      id: ComposerOverflowActionIds.toolSettings,
+      kind: ComposerOverflowItemKind.action,
+      section: ComposerOverflowSection.tools,
+      label: l10n.personalToolSettings,
+      subtitle: l10n.personalToolSettingsDescription,
+      cupertinoIcon: CupertinoIcons.slider_horizontal_3,
+      materialIcon: Icons.tune,
+      sfSymbol: 'slider.horizontal.3',
+    ),
   ];
 }
 
@@ -322,6 +666,11 @@ void setComposerOverflowSelection(
     case ComposerOverflowActionIds.imageGeneration:
       ref.read(imageGenerationEnabledProvider.notifier).set(selected);
       if (selected) _clearLocalMcpTools(ref);
+      return;
+    case ComposerOverflowActionIds.codeInterpreter:
+      // The notifier refuses a choice the server, account or model cannot
+      // honor, so a Python-in-the-browser server never gets browser execution.
+      ref.read(codeInterpreterEnabledProvider.notifier).set(selected);
       return;
   }
 
@@ -401,6 +750,8 @@ bool? composerOverflowSelectionState(WidgetRef ref, String actionId) {
       return ref.read(webSearchEnabledProvider);
     case ComposerOverflowActionIds.imageGeneration:
       return ref.read(imageGenerationEnabledProvider);
+    case ComposerOverflowActionIds.codeInterpreter:
+      return ref.read(codeInterpreterEnabledProvider);
   }
 
   final filterId = ComposerOverflowActionIds.filterIdFrom(actionId);

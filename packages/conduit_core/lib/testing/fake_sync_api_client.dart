@@ -322,6 +322,10 @@ class FakeSyncApiClient implements SyncApiClient {
   /// Note ids whose write throws a terminal [SyncTerminalException] (403).
   final Set<String> terminalNoteWriteIds = <String>{};
 
+  /// Note ids whose detail read throws a 403 [SyncTerminalException], as the
+  /// server answers once a recipient's read grant is revoked.
+  final Set<String> forbiddenNoteReadIds = <String>{};
+
   int noteListRequests = 0;
   final List<int?> noteListPages = <int?>[];
   int createNoteCalls = 0;
@@ -368,6 +372,9 @@ class FakeSyncApiClient implements SyncApiClient {
     await Future<void>.delayed(Duration.zero);
     if (failNoteIds.contains(id)) {
       throw StateError('injected note fetch failure ($id)');
+    }
+    if (forbiddenNoteReadIds.contains(id)) {
+      throw const SyncTerminalException(statusCode: 403, message: 'forbidden');
     }
     if (nullNoteIds.contains(id)) {
       return null;

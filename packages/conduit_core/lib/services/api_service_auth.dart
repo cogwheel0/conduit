@@ -216,10 +216,15 @@ mixin _AuthApi on _ApiServiceBase {
   }
 
   // Permissions & Features
-  Future<Map<String, dynamic>> getUserPermissions() async {
+  Future<Map<String, dynamic>> getUserPermissions({
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Fetching user permissions');
     try {
-      final response = await _dio.get('/api/v1/users/permissions');
+      final response = await _dio.get(
+        '/api/v1/users/permissions',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
       return response.data as Map<String, dynamic>;
     } catch (e) {
       _traceApi('Error fetching user permissions: $e');

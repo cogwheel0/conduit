@@ -140,9 +140,14 @@ final chatMessageByIdProvider = Provider.autoDispose
     });
 
 bool _messagesAreStreaming(List<ChatMessage> messages) {
-  if (messages.isEmpty) return false;
-  final last = messages.last;
-  return last.role == 'assistant' && last.isStreaming;
+  // The answers of one multi-model turn sit side by side at the end of the
+  // list, so the chat is streaming while ANY of them is, not just the last.
+  for (var index = messages.length - 1; index >= 0; index -= 1) {
+    final message = messages[index];
+    if (message.role != 'assistant') return false;
+    if (message.isStreaming) return true;
+  }
+  return false;
 }
 
 /// Whether chat is currently streaming a response.

@@ -189,6 +189,7 @@ class _WorkspaceKnowledgeFormState
       initialGrants: _grants,
       capabilities: capabilities.knowledge,
       allowUserGrants: capabilities.allowUserGrants,
+      allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: _isExternal || !_writeAccess,
     );
     if (grants == null || !mounted) return;

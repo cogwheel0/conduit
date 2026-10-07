@@ -15,6 +15,79 @@ class PendingFolderId extends _$PendingFolderId {
   void clear() => state = null;
 }
 
+/// The folder whose draft could not use its saved default models because none
+/// of them is available on this server any more. The folder page tells the user
+/// once, then clears it; the saved list itself is never edited by this.
+@Riverpod(keepAlive: true)
+class FolderDraftModelNotice extends _$FolderDraftModelNotice {
+  @override
+  String? build() => null;
+
+  void set(String? folderId) => state = folderId;
+
+  void clear() => state = null;
+}
+
+/// The models a project draft compares, as its folder saved them: exactly two,
+/// in slot order, each one a plain server model this server still offers.
+///
+/// It records who it was made for, so it is only ever read through
+/// `folderDraftComparisonModelsProvider`, which drops it as soon as the draft,
+/// the account or the selected model is no longer the one it was made for.
+@immutable
+final class FolderDraftComparisonSelection {
+  const FolderDraftComparisonSelection({
+    required this.folderId,
+    required this.owner,
+    required this.models,
+  });
+
+  final String folderId;
+  final OpenWebUiConversationSelectionOwner owner;
+  final List<Model> models;
+}
+
+@Riverpod(keepAlive: true)
+class FolderDraftComparison extends _$FolderDraftComparison {
+  @override
+  FolderDraftComparisonSelection? build() => null;
+
+  void set(FolderDraftComparisonSelection? selection) => state = selection;
+
+  void clear() => state = null;
+}
+
+/// The folder whose draft could not start the comparison its saved default
+/// models describe, so it starts on the first available model instead. The
+/// folder page tells the user once, then clears it; the saved list is never
+/// edited by this.
+@Riverpod(keepAlive: true)
+class FolderDraftComparisonNotice extends _$FolderDraftComparisonNotice {
+  @override
+  String? build() => null;
+
+  void set(String? folderId) => state = folderId;
+
+  void clear() => state = null;
+}
+
+/// Whether the draft a default-model restore was started for is still the one
+/// that should receive it.
+///
+/// [restoreDefaultModel] sets this just before it starts a fresh
+/// [defaultModelProvider] resolution, and the resolution reads it once as it
+/// begins. Every checkpoint after one of the resolution's own awaits then
+/// consults that captured guard, so a restore that started for one folder draft
+/// cannot apply the user's default to another draft, chat or account. It is
+/// null for restores with no draft owner, which behave as before.
+@Riverpod(keepAlive: true)
+class DefaultModelRestoreGuard extends _$DefaultModelRestoreGuard {
+  @override
+  bool Function()? build() => null;
+
+  void set(bool Function()? isCurrent) => state = isCurrent;
+}
+
 // Track if the current model selection is manual (user-selected) or automatic (default)
 @Riverpod(keepAlive: true)
 class IsManualModelSelection extends _$IsManualModelSelection {

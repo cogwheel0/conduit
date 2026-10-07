@@ -384,32 +384,125 @@ final canTogglePinnedModelsProvider = Provider<bool>((ref) {
       .canTogglePinnedModels;
 });
 
+/// Thrown when the signed-in account is not allowed to use server memories.
+final class MemoriesNotPermittedException implements Exception {
+  const MemoriesNotPermittedException();
+
+  @override
+  String toString() =>
+      'MemoriesNotPermittedException: memories are disabled '
+      'for this account';
+}
+
+/// Thrown when the account a memory form or sheet was opened for is no longer
+/// the signed-in one. Nothing was sent; the form can keep its input.
+final class MemoryOwnerChangedException extends StateError {
+  MemoryOwnerChangedException()
+    : super('The account changed since this memory form was opened');
+}
+
+/// The account a memory form or native sheet was opened for.
+///
+/// The notifier outlives account switches and rebuilds for the next account, so
+/// holding it says nothing about whose memories a later Save would change.
+/// Pass the owner back to a mutation and it is rejected, before any request,
+/// once the API, auth session or server no longer match.
+@immutable
+final class MemoryOwner {
+  const MemoryOwner._(this._api, this._auth, this._ownership);
+
+  final ApiService _api;
+  final ApiAuthSnapshot _auth;
+  final OpenWebUiCacheOwnershipSnapshot _ownership;
+}
+
+/// The API, auth and ownership state one memory operation was admitted under.
+typedef _MemoryOperation = ({
+  ApiService api,
+  ApiAuthSnapshot auth,
+  OpenWebUiCacheOwnershipSnapshot ownership,
+});
+
 @Riverpod(keepAlive: true)
 class UserMemories extends _$UserMemories {
   @override
   Future<List<ServerMemory>> build() async {
     ref.watch(activeServerProvider.select((s) => s.asData?.value?.id));
+    // A same-server account switch keeps the same ApiService, so the auth
+    // session is what retires one account's memories for the next.
+    ref.watch(openWebUiAuthSessionEpochProvider);
     final apiAlive = ref.watch(apiServiceProvider.select((a) => a != null));
     final api = ref.read(apiServiceProvider);
     if (!apiAlive || api == null) {
       return const <ServerMemory>[];
     }
-    return _sortedMemories(await api.getMemories());
+    final ownership = _captureOwnership(api);
+    if (ownership == null) {
+      return const <ServerMemory>[];
+    }
+    final memories = await _loadMemories(api, ownership);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
+      return const <ServerMemory>[];
+    }
+    return memories;
   }
 
   Future<void> refresh() async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(_loadMemories);
-  }
-
-  Future<ServerMemory> add(String content) async {
     final api = ref.read(apiServiceProvider);
     if (api == null) {
-      throw StateError('No API service available');
+      state = const AsyncData(<ServerMemory>[]);
+      return;
+    }
+    final ownership = _captureOwnership(api);
+    if (ownership == null) {
+      return;
     }
 
-    final memory = await api.createMemory(content: content);
-    if (!ref.mounted) {
+    state = const AsyncLoading();
+    final result = await AsyncValue.guard(() => _loadMemories(api, ownership));
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
+      return;
+    }
+    state = result;
+  }
+
+  /// The account that is signed in now, for a form or sheet to hold until it
+  /// saves. Null when no account can own memories at the moment.
+  MemoryOwner? captureOwner() {
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return null;
+    }
+    final ownership = _captureOwnership(api);
+    if (ownership == null) {
+      return null;
+    }
+    return MemoryOwner._(api, api.captureAuthSnapshot(), ownership);
+  }
+
+  /// Whether [owner] is still the signed-in account.
+  bool isCurrentOwner(MemoryOwner owner) =>
+      openWebUiCacheOwnershipIsCurrent(ref, owner._ownership);
+
+  /// Adds a memory. Entered memories are classified [type] (`user`, matching
+  /// the web client) because the server would otherwise store them as context.
+  ///
+  /// With an [owner], throws [MemoryOwnerChangedException] instead of sending
+  /// anything when that account is no longer the signed-in one.
+  Future<ServerMemory> add(
+    String content, {
+    String type = ServerMemory.userType,
+    String? path,
+    MemoryOwner? owner,
+  }) async {
+    final operation = await _beginOperation(owner);
+    final memory = await operation.api.createMemory(
+      content: content,
+      type: type,
+      path: path,
+      authSnapshot: operation.auth,
+    );
+    if (!openWebUiCacheOwnershipIsCurrent(ref, operation.ownership)) {
       return memory;
     }
 
@@ -417,17 +510,25 @@ class UserMemories extends _$UserMemories {
     return memory;
   }
 
-  Future<ServerMemory> updateItem(String memoryId, String content) async {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      throw StateError('No API service available');
-    }
-
-    final updated = await api.updateMemory(
+  /// Updates a memory's content. [type] and [path] are sent only when given, so
+  /// a content-only edit keeps whatever classification the server holds. An
+  /// [owner] fences the update as in [add].
+  Future<ServerMemory> updateItem(
+    String memoryId,
+    String content, {
+    String? type,
+    String? path,
+    MemoryOwner? owner,
+  }) async {
+    final operation = await _beginOperation(owner);
+    final updated = await operation.api.updateMemory(
       memoryId: memoryId,
       content: content,
+      type: type,
+      path: path,
+      authSnapshot: operation.auth,
     );
-    if (!ref.mounted) {
+    if (!openWebUiCacheOwnershipIsCurrent(ref, operation.ownership)) {
       return updated;
     }
 
@@ -442,14 +543,10 @@ class UserMemories extends _$UserMemories {
     return updated;
   }
 
-  Future<void> deleteItem(String memoryId) async {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      throw StateError('No API service available');
-    }
-
-    await api.deleteMemory(memoryId);
-    if (!ref.mounted) {
+  Future<void> deleteItem(String memoryId, {MemoryOwner? owner}) async {
+    final operation = await _beginOperation(owner);
+    await operation.api.deleteMemory(memoryId, authSnapshot: operation.auth);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, operation.ownership)) {
       return;
     }
 
@@ -462,26 +559,88 @@ class UserMemories extends _$UserMemories {
     );
   }
 
-  Future<void> clearAll() async {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      throw StateError('No API service available');
-    }
-
-    await api.clearAllMemories();
-    if (!ref.mounted) {
+  Future<void> clearAll({MemoryOwner? owner}) async {
+    final operation = await _beginOperation(owner);
+    await operation.api.clearAllMemories(authSnapshot: operation.auth);
+    if (!openWebUiCacheOwnershipIsCurrent(ref, operation.ownership)) {
       return;
     }
 
     state = const AsyncData(<ServerMemory>[]);
   }
 
-  Future<List<ServerMemory>> _loadMemories() async {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
+  OpenWebUiCacheOwnershipSnapshot? _captureOwnership(ApiService api) {
+    return captureOpenWebUiCacheOwnership(
+      ref,
+      api: api,
+      requireAuthenticated: false,
+    );
+  }
+
+  /// Admits a mutation for the account that asked for it, then confirms that
+  /// account may use memories. That is the form's [owner] when it has one,
+  /// otherwise whoever is signed in now. The returned auth snapshot keeps the
+  /// request itself bound to that account.
+  Future<_MemoryOperation> _beginOperation(MemoryOwner? owner) async {
+    final ApiService api;
+    final OpenWebUiCacheOwnershipSnapshot ownership;
+    final ApiAuthSnapshot auth;
+    if (owner != null) {
+      if (!openWebUiCacheOwnershipIsCurrent(ref, owner._ownership)) {
+        throw MemoryOwnerChangedException();
+      }
+      api = owner._api;
+      ownership = owner._ownership;
+      auth = owner._auth;
+    } else {
+      final current = ref.read(apiServiceProvider);
+      if (current == null) {
+        throw StateError('No API service available');
+      }
+      final captured = _captureOwnership(current);
+      if (captured == null) {
+        throw StateError('Memory ownership is unavailable');
+      }
+      api = current;
+      ownership = captured;
+      auth = current.captureAuthSnapshot();
+    }
+
+    // Asked directly rather than through memoriesPermittedProvider: awaiting
+    // that provider across an account switch can leave the caller waiting on
+    // a build that was already replaced.
+    final permitted = await _fetchMemoriesPermitted(
+      ref,
+      api,
+      ref.read(currentUserProvider2),
+      ownership,
+    );
+    if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
+      throw owner != null
+          ? MemoryOwnerChangedException()
+          : StateError('Memory ownership changed before the request');
+    }
+    if (!permitted) {
+      throw const MemoriesNotPermittedException();
+    }
+    return (api: api, auth: auth, ownership: ownership);
+  }
+
+  Future<List<ServerMemory>> _loadMemories(
+    ApiService api,
+    OpenWebUiCacheOwnershipSnapshot ownership,
+  ) async {
+    final auth = api.captureAuthSnapshot();
+    final permitted = await _fetchMemoriesPermitted(
+      ref,
+      api,
+      ref.read(currentUserProvider2),
+      ownership,
+    );
+    if (!permitted || !openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
       return const <ServerMemory>[];
     }
-    return _sortedMemories(await api.getMemories());
+    return _sortedMemories(await api.getMemories(authSnapshot: auth));
   }
 
   List<ServerMemory> _currentMemories() =>

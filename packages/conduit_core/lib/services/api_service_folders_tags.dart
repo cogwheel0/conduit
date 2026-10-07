@@ -127,9 +127,18 @@ mixin _FoldersTagsApi on _ApiServiceBase {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>?> getFolderById(String id) async {
+  /// GET `/api/v1/folders/{id}`. An editor that outlives a sign-in passes the
+  /// [authSnapshot] it captured when it opened, so the read goes out as that
+  /// account even if another one is signed in by the time it is sent.
+  Future<Map<String, dynamic>?> getFolderById(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Fetching folder: $id');
-    final response = await _dio.get('/api/v1/folders/$id');
+    final response = await _dio.get(
+      '/api/v1/folders/$id',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
     final data = response.data;
     return data is Map<String, dynamic> ? data : null;
   }

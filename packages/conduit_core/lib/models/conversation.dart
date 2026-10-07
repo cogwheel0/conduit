@@ -30,6 +30,12 @@ sealed class Conversation with _$Conversation {
     /// rows that predate the field. A non-null value that differs from the
     /// signed-in user marks a chat reached through a shared folder.
     String? userId,
+
+    /// The chat's own Open WebUI `chat.params` (generation parameters and a
+    /// `system` prompt), verbatim. Empty when the chat has none. Only Open WebUI
+    /// requests read it; the raw blob in the database stays the source of truth
+    /// for round trips, so unknown keys survive an edit of one.
+    @Default({}) @_MetadataConverter() Map<String, dynamic> chatParams,
   }) = _Conversation;
 
   factory Conversation.fromJson(Map<String, dynamic> json) =>

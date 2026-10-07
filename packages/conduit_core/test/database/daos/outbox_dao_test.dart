@@ -4,6 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
@@ -106,6 +107,129 @@ void main() {
 
       check(payload.isVoiceMode).isFalse();
     });
+
+    test('an op queued before chat settings existed has no snapshot', () {
+      final legacy = RequestCompletionPayload.fromJson({
+        'assistantMessageId': 'a-old',
+        'model': 'm',
+        'toolIds': <String>[],
+      });
+
+      check(legacy.chatSettings).isNull();
+      check(legacy.toJson().containsKey('chatSettings')).isFalse();
+    });
+
+    test(
+      'a snapshot survives the persisted JSON round trip, params and all',
+      () {
+        final json = jsonDecode(
+          jsonEncode(
+            RequestCompletionPayload(
+              assistantMessageId: 'a-new',
+              model: 'm',
+              chatSettings: OpenWebUiChatSettingsSnapshot(
+                params: {
+                  'system': '',
+                  'temperature': 0.4,
+                  'custom_params': {'k': 'v'},
+                },
+                reasoningEffort: 'high',
+              ),
+            ).toJson(),
+          ),
+        ) as Map<String, dynamic>;
+
+        final restored = RequestCompletionPayload.fromJson(json).chatSettings;
+        check(restored).isNotNull();
+        check(restored!.params).deepEquals({
+          'system': '',
+          'temperature': 0.4,
+          'custom_params': {'k': 'v'},
+        });
+        check(restored.reasoningEffort).equals('high');
+      },
+    );
+
+    test('an intentionally empty snapshot stays distinct from no snapshot', () {
+      final json = RequestCompletionPayload(
+        assistantMessageId: 'a-empty',
+        model: 'm',
+        chatSettings: OpenWebUiChatSettingsSnapshot(),
+      ).toJson();
+
+      final restored = RequestCompletionPayload.fromJson(json).chatSettings;
+      check(restored).isNotNull();
+      check(restored!.params).isEmpty();
+    });
+
+    test('a snapshot from a newer build reads as no snapshot, not a crash', () {
+      final payload = RequestCompletionPayload.fromJson({
+        'assistantMessageId': 'a-future',
+        'model': 'm',
+        'chatSettings': {
+          'v': 3,
+          'params': {'x': 1},
+        },
+      });
+
+      check(payload.chatSettings).isNull();
+      check(payload.assistantMessageId).equals('a-future');
+    });
+
+    test('a version 1 snapshot queued by an earlier build still replays', () {
+      final payload = RequestCompletionPayload.fromJson({
+        'assistantMessageId': 'a-v1',
+        'model': 'm',
+        'chatSettings': {
+          'v': 1,
+          'params': {'seed': 4},
+        },
+      });
+
+      check(payload.chatSettings).isNotNull();
+      check(payload.chatSettings!.params).deepEquals({'seed': 4});
+      check(payload.chatSettings!.baseline).isNull();
+    });
+
+    test('the admitted baseline survives the persisted payload', () {
+      final json = jsonDecode(
+        jsonEncode(
+          RequestCompletionPayload(
+            assistantMessageId: 'a-base',
+            model: 'm',
+            chatSettings: OpenWebUiChatSettingsSnapshot(
+              baseline: OpenWebUiAdmittedBaseline(
+                globalParams: {'temperature': 0.2},
+                systemMessage: '',
+              ),
+            ),
+          ).toJson(),
+        ),
+      ) as Map<String, dynamic>;
+
+      final baseline = RequestCompletionPayload.fromJson(
+        json,
+      ).chatSettings!.baseline;
+      check(baseline!.globalParams).deepEquals({'temperature': 0.2});
+      check(baseline.systemMessage).equals('');
+    });
+
+    test(
+      'the enqueue validator still accepts a payload carrying a snapshot',
+      () async {
+        await check(
+          enqueue(
+            kind: OutboxKind.requestCompletion,
+            chatId: 'c1',
+            payload: RequestCompletionPayload(
+              assistantMessageId: 'a1',
+              model: 'm',
+              chatSettings: OpenWebUiChatSettingsSnapshot(params: {'seed': 1}),
+            ).toJson(),
+          ),
+        ).completes();
+      },
+    );
   });
 
   group('enqueue payload validation (A1)', () {
@@ -137,6 +261,78 @@ void main() {
       ).throws<ArgumentError>();
       await check(
         enqueue(kind: OutboxKind.deleteChat, chatId: 'c1', payload: {'x': 1}),
+      ).throws<ArgumentError>();
+    });
+
+    test('updateChat may only add the params-edit flag', () async {
+      await check(
+        enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c1',
+          payload: {kUpdateChatParamsEditKey: true},
+        ),
+      ).completes();
+      await check(
+        enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c2',
+          payload: {kUpdateChatParamsEditKey: false},
+        ),
+      ).throws<ArgumentError>();
+      await check(
+        enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c3',
+          payload: {kUpdateChatParamsEditKey: true, 'x': 1},
+        ),
+      ).throws<ArgumentError>();
+      await check(
+        enqueue(
+          kind: OutboxKind.deleteChat,
+          chatId: 'c4',
+          payload: {kUpdateChatParamsEditKey: true},
+        ),
+      ).throws<ArgumentError>();
+    });
+
+    test('updateChat may add the branch-edit flag, alone or with params', () async {
+      await check(
+        enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c1',
+          payload: {kUpdateChatBranchEditKey: true},
+        ),
+      ).completes();
+      await check(
+        enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c2',
+          payload: {
+            kUpdateChatParamsEditKey: true,
+            kUpdateChatBranchEditKey: true,
+          },
+        ),
+      ).completes();
+      await check(
+        enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c3',
+          payload: {kUpdateChatBranchEditKey: false},
+        ),
+      ).throws<ArgumentError>();
+      await check(
+        enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c4',
+          payload: {kUpdateChatBranchEditKey: true, 'x': 1},
+        ),
+      ).throws<ArgumentError>();
+      await check(
+        enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'c5',
+          payload: {kUpdateChatBranchEditKey: true},
+        ),
       ).throws<ArgumentError>();
     });
 
@@ -314,6 +510,100 @@ void main() {
         check(pending.single.seq).equals(first);
       },
     );
+
+    test(
+      'a title-only update after a params edit keeps the params-edit evidence',
+      () async {
+        final first = await enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c1',
+          payload: {kUpdateChatParamsEditKey: true},
+        );
+        final second = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+
+        check(second).equals(first);
+        check(await dao.hasPendingParamsEdit('c1')).isTrue();
+      },
+    );
+
+    test('a params edit after a title-only update adds the evidence', () async {
+      final first = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+      check(await dao.hasPendingParamsEdit('c1')).isFalse();
+
+      final second = await enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: 'c1',
+        payload: {kUpdateChatParamsEditKey: true},
+      );
+
+      check(second).equals(first);
+      check(await dao.hasPendingParamsEdit('c1')).isTrue();
+    });
+
+    test(
+      'params-edit evidence is per chat and outlives a parked failure',
+      () async {
+        final seq = await enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c1',
+          payload: {kUpdateChatParamsEditKey: true},
+        );
+        await enqueue(kind: OutboxKind.updateChat, chatId: 'c2');
+        await dao.markParked(seq, error: 'boom');
+
+        check(await dao.hasPendingParamsEdit('c1')).isTrue();
+        check(await dao.hasPendingParamsEdit('c2')).isFalse();
+        check(await dao.hasPendingParamsEdit('absent')).isFalse();
+      },
+    );
+
+    test('branch-edit evidence survives a later title-only update', () async {
+      final first = await enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: 'c1',
+        payload: {kUpdateChatBranchEditKey: true},
+      );
+      final second = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+
+      check(second).equals(first);
+      check(await dao.hasPendingBranchEdit('c1')).isTrue();
+      check(await dao.hasPendingParamsEdit('c1')).isFalse();
+    });
+
+    test('branch and params evidence are independent and merge', () async {
+      final first = await enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: 'c1',
+        payload: {kUpdateChatParamsEditKey: true},
+      );
+      check(await dao.hasPendingBranchEdit('c1')).isFalse();
+
+      final second = await enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: 'c1',
+        payload: {kUpdateChatBranchEditKey: true},
+      );
+
+      check(second).equals(first);
+      check(await dao.hasPendingBranchEdit('c1')).isTrue();
+      check(await dao.hasPendingParamsEdit('c1')).isTrue();
+    });
+
+    test('branch-edit evidence is per chat and outlives a parked failure', () async {
+      final seq = await enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: 'c1',
+        payload: {kUpdateChatBranchEditKey: true},
+      );
+      await enqueue(kind: OutboxKind.updateChat, chatId: 'c2');
+      await dao.markParked(seq, error: 'boom');
+
+      check(await dao.hasPendingBranchEdit('c1')).isTrue();
+      check(await dao.hasPendingBranchEdit('c2')).isFalse();
+      check(await dao.hasPendingBranchEdit('absent')).isFalse();
+      await dao.markDone(seq);
+      check(await dao.hasPendingBranchEdit('c1')).isFalse();
+    });
 
     test('deleteChat over a pending create is a pure local drop', () async {
       await enqueue(

@@ -676,12 +676,15 @@ class Conversations extends _$Conversations {
     // through the per-chat mutex so a stale optimistic stub can never be
     // ordered after (and overwrite) a concurrent locked pull merge.
     final locks = ref.read(chatLocksProvider);
+    // An account-wide delete that ends before this runs may have removed the
+    // chat; a stub written from this older copy would bring it back.
+    final queuedGeneration = locks.generation;
     final folderConversationRefresh = ref.read(
       _folderConversationRefreshTickProvider.notifier,
     );
     unawaited(
       locks
-          .runExclusive(conversation.id, () {
+          .runExclusive(conversation.id, () async {
             if (directLocal) {
               return db.chatsDao.updateLocalOnlyEnvelope(
                 conversation.id,
@@ -691,6 +694,10 @@ class Conversations extends _$Conversations {
                 archived: Value(conversation.archived),
                 updatedAt: Value(_epochSecondsOf(conversation.updatedAt)),
               );
+            }
+            if (locks.generation != queuedGeneration &&
+                await db.chatsDao.getChat(conversation.id) == null) {
+              return;
             }
             return db.chatsDao.upsertEnvelopeStub(
               id: conversation.id,

@@ -38,6 +38,16 @@ ChatMessageVersion _buildAssistantVersionSnapshot(ChatMessage message) {
         ? null
         : Map<String, dynamic>.from(message.usage!),
     error: message.error,
+    // The earlier answer keeps its column and merge, so stepping back to it
+    // after a regeneration still lands in the right slot.
+    modelIdx: message.metadata?[kMessageModelIdxMetadataKey] is int
+        ? message.metadata![kMessageModelIdxMetadataKey] as int
+        : null,
+    merged: message.metadata?[kMessageMergedMetadataKey] is Map
+        ? Map<String, dynamic>.from(
+            message.metadata![kMessageMergedMetadataKey] as Map,
+          )
+        : null,
   );
 }
 
@@ -405,30 +415,18 @@ List<String> _extractToolIdsForApi(Iterable<String> selectedToolIds) {
       .toList(growable: false);
 }
 
-List _extractConfiguredServerList(Map<String, dynamic>? settings, String key) {
-  if (settings == null) {
-    return const [];
-  }
-
-  final rootValue = settings[key];
-  if (rootValue is List) {
-    return rootValue;
-  }
-
-  final uiValue = settings['ui'];
-  if (uiValue is Map && uiValue[key] is List) {
-    return uiValue[key] as List;
-  }
-
-  return const [];
-}
-
 List _extractConfiguredToolServers(Map<String, dynamic>? settings) {
-  return _extractConfiguredServerList(settings, 'toolServers');
+  return effectivePersonalServerList(
+    settings,
+    PersonalConnectionKind.toolServer.settingsKey,
+  );
 }
 
 List _extractConfiguredTerminalServers(Map<String, dynamic>? settings) {
-  return _extractConfiguredServerList(settings, 'terminalServers');
+  return effectivePersonalServerList(
+    settings,
+    PersonalConnectionKind.terminal.settingsKey,
+  );
 }
 
 bool _isConfiguredServerEnabled(dynamic server) {
@@ -453,33 +451,17 @@ List _filterSelectedConfiguredToolServers(
   List rawServers,
   Iterable<String> selectedToolIds,
 ) {
-  final selectedServerIds = selectedToolIds
-      .where((id) => id.startsWith('direct_server:'))
-      .map((id) => id.substring('direct_server:'.length).trim())
-      .where((id) => id.isNotEmpty)
-      .toSet();
-  if (selectedServerIds.isEmpty) {
-    return const [];
-  }
-
+  // Selections name an entry by key or by position plus fingerprint. Resolve
+  // them against the list being sent, so a selection made before the list was
+  // reordered or pruned never lands on a different server.
+  final selection = resolvePersonalToolSelections(rawServers, selectedToolIds);
   final filtered = <dynamic>[];
-  for (var index = 0; index < rawServers.length; index++) {
+  for (final index in selection.matchedIndices) {
     final server = rawServers[index];
-    if (server is! Map || !_isConfiguredServerEnabled(server)) {
-      continue;
-    }
-
-    final serverId = server['id']?.toString().trim();
-    final matchesSelection =
-        selectedServerIds.contains(index.toString()) ||
-        (serverId != null &&
-            serverId.isNotEmpty &&
-            selectedServerIds.contains(serverId));
-    if (matchesSelection) {
+    if (server is Map && _isConfiguredServerEnabled(server)) {
       filtered.add(server);
     }
   }
-
   return filtered;
 }
 
@@ -500,13 +482,41 @@ List _filterEnabledDirectTerminalServers(List rawServers) {
   return filtered;
 }
 
+/// Drops `direct_server:` selections that name no current connection and tells
+/// the personal connections screen which ones went, instead of letting a
+/// stale position pick up whichever server now sits there.
+void _clearUnresolvedPersonalToolSelections(
+  dynamic ref,
+  List<String> unresolvedIds,
+) {
+  final current = List<String>.from(ref.read(selectedToolIdsProvider) as List);
+  final remaining = current
+      .where((id) => !unresolvedIds.contains(id))
+      .toList(growable: false);
+  if (remaining.length == current.length) return;
+  ref.read(selectedToolIdsProvider.notifier).set(remaining);
+  ref
+      .read(personalSelectionNoticeProvider.notifier)
+      .add(unresolvedIds.map(personalToolSelectionLabel));
+}
+
 Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({
   required dynamic api,
   required Map<String, dynamic>? userSettings,
   required List<String> selectedToolIds,
+  void Function(List<String> unresolvedIds)? onUnresolvedSelections,
+  List<PersonalToolAdmission>? admitted,
 }) async {
+  final configuredToolServers = _extractConfiguredToolServers(userSettings);
+  final unresolved = resolvePersonalToolSelections(
+    configuredToolServers,
+    selectedToolIds,
+  ).unresolvedIds;
+  if (unresolved.isNotEmpty) {
+    onUnresolvedSelections?.call(unresolved);
+  }
   final selectedRawToolServers = _filterSelectedConfiguredToolServers(
-    _extractConfiguredToolServers(userSettings),
+    configuredToolServers,
     selectedToolIds,
   );
   final directTerminalServers = _filterEnabledDirectTerminalServers(
@@ -519,10 +529,23 @@ Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({
 
   final resolved = <Map<String, dynamic>>[];
   if (selectedRawToolServers.isNotEmpty) {
-    resolved.addAll(await _resolveToolServers(selectedRawToolServers, api));
+    resolved.addAll(
+      await _resolveToolServers(
+        selectedRawToolServers,
+        api,
+        admitted: admitted,
+      ),
+    );
   }
   if (directTerminalServers.isNotEmpty) {
-    resolved.addAll(await _resolveToolServers(directTerminalServers, api));
+    resolved.addAll(
+      await _resolveToolServers(
+        directTerminalServers,
+        api,
+        terminal: true,
+        admitted: admitted,
+      ),
+    );
   }
 
   return resolved.isEmpty ? null : resolved;
@@ -532,14 +555,17 @@ Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({
 /// ([runQueuedCompletion]) and headless ([runHeadlessCompletion]) paths:
 /// rebuild the live conversation history (skip archived/non-history rows,
 /// sanitize content, merge attachment/file/output payloads), prepend the
-/// effective system message (conversation prompt, falling back to the user
-/// prompt) when one is absent, then apply [_buildChatCompletionMessages].
+/// effective system message (chat `params.system`, then the legacy
+/// conversation prompt, then the user prompt) when one is absent, then apply
+/// [_buildChatCompletionMessages].
 Future<List<Map<String, dynamic>>> _buildCompletionRequestMessages({
   required dynamic api,
   required List<ChatMessage> messages,
+  required Map<String, dynamic> chatParams,
   required String? conversationSystemPrompt,
   required String? userSystemPrompt,
   required bool isTemporary,
+  OpenWebUiAdmittedBaseline? baseline,
 }) async {
   final conversationMessages = <Map<String, dynamic>>[];
   for (final msg in messages) {
@@ -575,22 +601,13 @@ Future<List<Map<String, dynamic>>> _buildCompletionRequestMessages({
     }
   }
 
-  final convSystemPrompt = conversationSystemPrompt?.trim();
-  final effectiveSystemPrompt =
-      (convSystemPrompt != null && convSystemPrompt.isNotEmpty)
-      ? convSystemPrompt
-      : userSystemPrompt;
-  if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
-    final hasSystem = conversationMessages.any(
-      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
-    );
-    if (!hasSystem) {
-      conversationMessages.insert(0, {
-        'role': 'system',
-        'content': effectiveSystemPrompt,
-      });
-    }
-  }
+  _insertOpenWebUiSystemMessage(
+    conversationMessages,
+    chatParams: chatParams,
+    legacyChatSystem: conversationSystemPrompt,
+    globalSystem: userSystemPrompt,
+    baseline: baseline,
+  );
 
   return _buildChatCompletionMessages(
     conversationMessages: conversationMessages,
@@ -605,6 +622,7 @@ buildOpenWebUiCompletionRequestMessagesForTest({
 }) => _buildCompletionRequestMessages(
   api: null,
   messages: messages,
+  chatParams: const <String, dynamic>{},
   conversationSystemPrompt: null,
   userSystemPrompt: null,
   isTemporary: true,

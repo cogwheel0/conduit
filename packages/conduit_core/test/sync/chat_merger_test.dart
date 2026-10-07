@@ -722,6 +722,214 @@ void main() {
       check(result.merged.blobHadHistory).equals(server.blobHadHistory);
       check(result.merged.blobHadTitle).equals(server.blobHadTitle);
     });
+
+    // A settings edit marks the envelope dirty. A completion that lands on the
+    // server first bumps its clock, so the next pull is a three-way merge: the
+    // edit must not be replaced by the params the edit was made over.
+    ChatMergeResult mergeAfterLocalSettingsEdit({
+      required bool envelopeDirty,
+      required Map<String, dynamic> localExtra,
+      bool paramsEdited = false,
+    }) {
+      final server = rowsFor(
+        chatId: 'c',
+        messages: {
+          'm1': {'role': 'user'},
+          'mAnswer': {'parentId': 'm1', 'role': 'assistant'},
+        },
+        currentId: 'mAnswer',
+        updatedAt: 300,
+        extra: {
+          'params': {'temperature': 0.9, 'seed': 1},
+          'unknownFutureKey': 'from-server',
+        },
+      );
+      final local = rowsFor(
+        chatId: 'c',
+        messages: {
+          'm1': {'role': 'user'},
+          'mDirty': {'parentId': 'm1', 'role': 'user'},
+        },
+        currentId: 'mDirty',
+        updatedAt: 250,
+        extra: localExtra,
+      );
+      return mergeChat(
+        server: server,
+        local: local,
+        base: 200,
+        chatEnvelopeDirty: envelopeDirty,
+        dirtyMessageIds: const {'mDirty'},
+        localParamsEdited: paramsEdited,
+      );
+    }
+
+    test(
+      'a pending params edit keeps its locally edited params through a three-way',
+      () {
+        final result = mergeAfterLocalSettingsEdit(
+          envelopeDirty: true,
+          paramsEdited: true,
+          localExtra: {
+            'params': {'temperature': 0.1, 'system': ''},
+          },
+        );
+
+        check(result.merged.chat.rawExtra['params'] as Map)
+            .deepEquals({'temperature': 0.1, 'system': ''});
+        // Everything else in the envelope is still the server's.
+        check(result.merged.chat.rawExtra['unknownFutureKey'])
+            .equals('from-server');
+      },
+    );
+
+    test(
+      'a dirty envelope with no params-edit evidence takes the server\'s params',
+      () {
+        // The envelope is dirty for another reason (a title, a folder): the
+        // local params are only the copy this client last pulled.
+        final result = mergeAfterLocalSettingsEdit(
+          envelopeDirty: true,
+          localExtra: {
+            'params': {'temperature': 0.1},
+          },
+        );
+
+        check(result.merged.chat.rawExtra['params'] as Map)
+            .deepEquals({'temperature': 0.9, 'seed': 1});
+      },
+    );
+
+    test(
+      'a dirty envelope that never had params leaves the server\'s alone',
+      () {
+        final result = mergeAfterLocalSettingsEdit(
+          envelopeDirty: true,
+          paramsEdited: true,
+          localExtra: const {},
+        );
+
+        check(result.merged.chat.rawExtra['params'] as Map)
+            .deepEquals({'temperature': 0.9, 'seed': 1});
+      },
+    );
+
+    test('a clean envelope still takes the server\'s params', () {
+      final result = mergeAfterLocalSettingsEdit(
+        envelopeDirty: false,
+        paramsEdited: true,
+        localExtra: {
+          'params': {'temperature': 0.1},
+        },
+      );
+
+      check(result.merged.chat.rawExtra['params'] as Map)
+          .deepEquals({'temperature': 0.9, 'seed': 1});
+    });
+  });
+
+  group('explicit branch choice', () {
+    // Another client answered again under the same question, so the server's
+    // active leaf is its new answer. This client picked the earlier answer and
+    // has not pushed yet. Nothing in either message set is dirty: the choice is
+    // only the envelope's currentId.
+    ChatMergeResult mergeAfterLocalBranchChoice({
+      required bool envelopeDirty,
+      required bool branchChosen,
+      Set<String> dirtyMessageIds = const {},
+      String localCurrentId = 'a1',
+      String? title,
+    }) {
+      final server = rowsFor(
+        chatId: 'c',
+        messages: {
+          'u1': {'role': 'user'},
+          'a1': {'parentId': 'u1', 'role': 'assistant', 'content': 'old'},
+          'a2': {'parentId': 'u1', 'role': 'assistant', 'content': 'new'},
+        },
+        currentId: 'a2',
+        title: 'Server title',
+        updatedAt: 300,
+      );
+      final local = rowsFor(
+        chatId: 'c',
+        messages: {
+          'u1': {'role': 'user'},
+          'a1': {'parentId': 'u1', 'role': 'assistant', 'content': 'old'},
+        },
+        currentId: localCurrentId,
+        title: title ?? 'Server title',
+        updatedAt: 250,
+      );
+      return mergeChat(
+        server: server,
+        local: local,
+        base: 200,
+        chatEnvelopeDirty: envelopeDirty,
+        dirtyMessageIds: dirtyMessageIds,
+        localBranchChosen: branchChosen,
+      );
+    }
+
+    test('a pending branch choice keeps its leaf through a three-way', () {
+      final result = mergeAfterLocalBranchChoice(
+        envelopeDirty: true,
+        branchChosen: true,
+      );
+
+      check(result.outcome).equals(MergeOutcome.threeWay);
+      check(result.merged.chat.currentMessageId).equals('a1');
+      check(result.mustPush).isTrue();
+      // The server's other answer is not lost, and no message became dirty.
+      check(idsOf(result.merged)).unorderedEquals(['u1', 'a1', 'a2']);
+      check(result.dirtyMessageIds).isEmpty();
+      check(childrenOf(result.merged, 'u1')).unorderedEquals(['a1', 'a2']);
+    });
+
+    test('a dirty envelope with no branch evidence takes the server\'s leaf', () {
+      // The envelope is dirty for another reason, here a title: the local
+      // currentId is only the leaf this client last pulled.
+      final result = mergeAfterLocalBranchChoice(
+        envelopeDirty: true,
+        branchChosen: false,
+        title: 'Renamed offline',
+      );
+
+      check(result.merged.chat.title).equals('Renamed offline');
+      check(result.merged.chat.currentMessageId).equals('a2');
+      check(result.dirtyMessageIds).isEmpty();
+    });
+
+    test('a clean envelope fast-forwards even with stale evidence', () {
+      final result = mergeAfterLocalBranchChoice(
+        envelopeDirty: false,
+        branchChosen: true,
+      );
+
+      check(result.outcome).equals(MergeOutcome.fastForward);
+      check(result.merged.chat.currentMessageId).equals('a2');
+    });
+
+    test('a chosen leaf the server deleted falls back to the server\'s', () {
+      final result = mergeAfterLocalBranchChoice(
+        envelopeDirty: true,
+        branchChosen: true,
+        localCurrentId: 'gone',
+      );
+
+      check(result.merged.chat.currentMessageId).equals('a2');
+    });
+
+    test('a dirty message still wins the leaf with no branch evidence', () {
+      final result = mergeAfterLocalBranchChoice(
+        envelopeDirty: true,
+        branchChosen: false,
+        dirtyMessageIds: const {'a1'},
+      );
+
+      check(result.merged.chat.currentMessageId).equals('a1');
+      check(result.dirtyMessageIds).unorderedEquals(['a1']);
+    });
   });
 
   group('idempotence and "never drops a dirty message"', () {

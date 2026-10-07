@@ -8,6 +8,8 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
+import 'package:conduit_core/services/moa_completion.dart';
+import 'package:conduit_core/services/openwebui_stream_parser.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
@@ -104,6 +106,28 @@ class _QueuedFakeAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+/// Runs [beforeEach] as each request reaches the server, before it answers, so
+/// a test can change the session while a request is in flight.
+class _HookedAdapter implements HttpClientAdapter {
+  _HookedAdapter(this.inner, this.beforeEach);
+
+  final _QueuedFakeAdapter inner;
+  final void Function(RequestOptions options) beforeEach;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) {
+    beforeEach(options);
+    return inner.fetch(options, requestStream, cancelOnError);
+  }
+
+  @override
+  void close({bool force = false}) => inner.close(force: force);
 }
 
 /// Builds an [ApiService] for testing whose Dio adapter is [adapter].
@@ -225,8 +249,387 @@ void main() {
   );
 
   // -----------------------------------------------------------------------
+  // Chat-level params: what actually goes over the wire
+  // -----------------------------------------------------------------------
+  group('sendMessageSession chat params', () {
+    // The captured request body of one real sendMessageSession call.
+    Future<Map<String, dynamic>> sentBody({
+      Map<String, dynamic>? userSettings,
+      Map<String, dynamic>? chatParams,
+      String? reasoningEffort,
+      List<String>? toolIds,
+      String model = 'gpt-5',
+    }) async {
+      final adapter = _FakeAdapter.json({'task_id': 'task-1', 'status': true});
+      final api = _buildApiServiceForTest(adapter);
+      await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: model,
+        modelItem: {'id': model, 'name': model},
+        userSettings: userSettings,
+        chatParams: chatParams,
+        reasoningEffort: reasoningEffort,
+        toolIds: toolIds,
+      );
+      expect(adapter.lastRequest?.path, '/api/chat/completions');
+      return adapter.lastRequest!.data as Map<String, dynamic>;
+    }
+
+    Map<String, dynamic> paramsOf(Map<String, dynamic> body) =>
+        body['params'] as Map<String, dynamic>;
+
+    // The browser saves the user's generation defaults under `ui.params`
+    // (`SettingsModal.svelte` saves the whole `ui` object). A root-level
+    // `params` is the older shape and only applies when `ui.params` is absent.
+    test('global params set in the browser come from ui.params', () async {
+      final body = await sentBody(
+        userSettings: {
+          'ui': {
+            'params': {'temperature': 0.7, 'stop': 'END, STOP'},
+          },
+          'params': {'temperature': 0.1, 'seed': 99},
+        },
+      );
+
+      check(paramsOf(body)).deepEquals({
+        'temperature': 0.7,
+        'stop': ['END', 'STOP'],
+      });
+    });
+
+    test('a chat param still beats a ui.params global', () async {
+      final body = await sentBody(
+        userSettings: {
+          'ui': {
+            'params': {'temperature': 0.7, 'top_p': 0.9},
+          },
+        },
+        chatParams: {'temperature': 0.2},
+      );
+
+      check(paramsOf(body)).deepEquals({'temperature': 0.2, 'top_p': 0.9});
+    });
+
+    test(
+      'an emptied ui.params sends no globals, however old the root params',
+      () async {
+        final body = await sentBody(
+          userSettings: {
+            'ui': {'params': <String, dynamic>{}},
+            'params': {'temperature': 0.1},
+          },
+        );
+
+        check(paramsOf(body)).isEmpty();
+      },
+    );
+
+    test('root params apply when the document has no ui.params', () async {
+      for (final ui in <Object?>[
+        null,
+        <String, dynamic>{'system': 'x'},
+      ]) {
+        final body = await sentBody(
+          userSettings: {
+            'ui': ui,
+            'params': {'temperature': 0.1},
+          },
+        );
+
+        check(paramsOf(body)).deepEquals({'temperature': 0.1});
+      }
+    });
+
+    test('the tool function_calling global is read from ui.params too', () async {
+      final body = await sentBody(
+        userSettings: {
+          'ui': {
+            'params': {'function_calling': 'native'},
+          },
+        },
+        toolIds: const ['tool-1'],
+      );
+
+      check(paramsOf(body)['function_calling']).equals('native');
+    });
+
+    test('chat params override global params key by key', () async {
+      final body = await sentBody(
+        userSettings: {
+          'params': {'temperature': 0.2, 'top_p': 0.9, 'seed': 1},
+        },
+        chatParams: {
+          'temperature': 0.7,
+          'max_tokens': 64,
+          'custom_params': {'a': 1},
+        },
+      );
+
+      check(paramsOf(body)).deepEquals({
+        'temperature': 0.7,
+        'top_p': 0.9,
+        'seed': 1,
+        'max_tokens': 64,
+        'custom_params': {'a': 1},
+      });
+    });
+
+    test(
+      'a chat with no params sends exactly what the global ones say',
+      () async {
+        final body = await sentBody(
+          userSettings: {
+            'params': {'temperature': 0.2, 'stop': 'a, b'},
+          },
+          chatParams: const {},
+        );
+
+        check(paramsOf(body)).deepEquals({
+          'temperature': 0.2,
+          'stop': ['a', 'b'],
+        });
+      },
+    );
+
+    test(
+      'stop is split once and the chat value replaces the global one',
+      () async {
+        final body = await sentBody(
+          userSettings: {
+            'params': {'stop': 'global'},
+          },
+          chatParams: {'stop': r'one, two\n'},
+        );
+
+        check(paramsOf(body)['stop'])
+            .isA<List<String>>()
+            .deepEquals(['one', 'two\n']);
+      },
+    );
+
+    test(
+      'the chat function_calling beats the global one when tools are sent',
+      () async {
+        final body = await sentBody(
+          userSettings: {
+            'params': {'function_calling': 'native'},
+          },
+          chatParams: {'function_calling': 'default'},
+          toolIds: const ['tool-1'],
+        );
+
+        check(body['tool_ids']).isA<List>().deepEquals(['tool-1']);
+        check(paramsOf(body)['function_calling']).equals('default');
+      },
+    );
+
+    test(
+      'the global function_calling still applies to a chat without one',
+      () async {
+        final body = await sentBody(
+          userSettings: {
+            'params': {'function_calling': 'native'},
+          },
+          chatParams: {'temperature': 0.5},
+          toolIds: const ['tool-1'],
+        );
+
+        check(paramsOf(body)['function_calling']).equals('native');
+      },
+    );
+
+    test('a saved reasoning effort is not replaced by the picker', () async {
+      final saved = await sentBody(
+        chatParams: {'reasoning_effort': 'low'},
+        reasoningEffort: 'high',
+      );
+      check(paramsOf(saved)['reasoning_effort']).equals('low');
+
+      final unsaved = await sentBody(
+        chatParams: {'temperature': 0.5},
+        reasoningEffort: 'high',
+      );
+      check(paramsOf(unsaved)['reasoning_effort']).equals('high');
+    });
+
+    test(
+      'a saved reasoning effort keeps the unsupported-model translation',
+      () async {
+        // A model that cannot take an effort never receives one, saved or not.
+        final body = await sentBody(
+          model: 'plain-chat-model',
+          chatParams: {'reasoning_effort': 'low'},
+        );
+
+        check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+      },
+    );
+
+    test(
+      'a saved "automatic" effort is dropped, as the picker value is',
+      () async {
+        final body = await sentBody(
+          chatParams: {'reasoning_effort': 'automatic', 'temperature': 0.5},
+        );
+
+        check(paramsOf(body)).deepEquals({'temperature': 0.5});
+      },
+    );
+
+    test('the system key rides in params for the server to read', () async {
+      final body = await sentBody(chatParams: {'system': ''});
+
+      check(paramsOf(body)).deepEquals({'system': ''});
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // 1. taskSocket classification from JSON with task_id
   // -----------------------------------------------------------------------
+  group('stopTask', () {
+    test('posts to the task route and resolves only when the server reports '
+        'the task stopped', () async {
+      final adapter = _FakeAdapter.json({
+        'status': true,
+        'message': 'Task task-1 stopped.',
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      await api.stopTask('task-1');
+
+      check(adapter.lastRequest!.method).equals('POST');
+      check(adapter.lastRequest!.path).equals('/api/tasks/stop/task-1');
+    });
+
+    test('an HTTP 200 that says the task was not found is a refusal, not a '
+        'stop', () async {
+      final api = _buildApiServiceForTest(
+        _FakeAdapter.json({
+          'status': false,
+          'message': 'Task with ID task-1 not found.',
+        }),
+      );
+
+      await check(api.stopTask('task-1')).throws<TaskStopNotAcknowledged>(
+        (it) => it.has((e) => e.message, 'message').contains('not found'),
+      );
+    });
+
+    test('the admin-only route refusing a regular user stays an HTTP error',
+        () async {
+      final api = _buildApiServiceForTest(
+        _FakeAdapter.json({'detail': 'Unauthorized'}, statusCode: 401),
+      );
+
+      await check(api.stopTask('task-1')).throws<DioException>(
+        (it) => it.has((e) => e.response?.statusCode, 'status').equals(401),
+      );
+    });
+  });
+
+  group('generateMoaCompletion', () {
+    List<int> sse(List<Object> frames) =>
+        utf8.encode([for (final frame in frames) 'data: $frame\n\n'].join());
+
+    test('posts exactly the merge body to the MoA route and reads the SSE '
+        'text', () async {
+      final adapter = _FakeAdapter.raw(
+        bytes: sse([
+          jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'Both '},
+              },
+            ],
+          }),
+          jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'agree.'},
+              },
+            ],
+          }),
+          '[DONE]',
+        ]),
+        headers: {
+          'content-type': ['text/event-stream'],
+        },
+      );
+      final api = _buildApiServiceForTest(adapter);
+
+      final completion = await api.generateMoaCompletion(
+        model: 'gpt-4o',
+        prompt: 'Name a prime.',
+        responses: const ['13 is prime.', '17 is prime.'],
+      );
+
+      check(adapter.lastRequest!.method).equals('POST');
+      check(adapter.lastRequest!.path).equals('/api/v1/tasks/moa/completions');
+      check(adapter.lastRequest!.data as Map<String, dynamic>).deepEquals({
+        'model': 'gpt-4o',
+        'prompt': 'Name a prime.',
+        'responses': ['13 is prime.', '17 is prime.'],
+        'stream': true,
+      });
+      final text = StringBuffer();
+      var done = false;
+      await for (final update in completion.updates) {
+        if (update is OpenWebUIContentDelta) text.write(update.content);
+        if (update is OpenWebUIStreamDone) done = true;
+      }
+      check(text.toString()).equals('Both agree.');
+      check(done).isTrue();
+    });
+
+    test('a missing route is reported as unavailable, not retried as a chat '
+        'request', () async {
+      final adapter = _QueuedFakeAdapter([
+        _FakeAdapter.json({'detail': 'Not Found'}, statusCode: 404),
+        _FakeAdapter.json({'choices': []}),
+      ]);
+      final api = _buildApiServiceForTest(adapter);
+
+      await check(
+        api.generateMoaCompletion(
+          model: 'gpt-4o',
+          prompt: 'p',
+          responses: const ['a', 'b'],
+        ),
+      ).throws<MoaCompletionUnavailable>();
+      check(adapter.requests.map((request) => request.path)).deepEquals([
+        '/api/v1/tasks/moa/completions',
+      ]);
+    });
+
+    test('a refused or failed merge keeps its reason', () async {
+      final unknownModel = _buildApiServiceForTest(
+        _FakeAdapter.json({'detail': 'Model not found'}, statusCode: 404),
+      );
+      await check(
+        unknownModel.generateMoaCompletion(
+          model: 'ghost',
+          prompt: 'p',
+          responses: const ['a', 'b'],
+        ),
+      ).throws<MoaCompletionFailed>(
+        (it) => it.has((e) => e.message, 'message').contains('Model not found'),
+      );
+
+      final broken = _buildApiServiceForTest(
+        _FakeAdapter.json({'detail': 'boom'}, statusCode: 500),
+      );
+      await check(
+        broken.generateMoaCompletion(
+          model: 'gpt-4o',
+          prompt: 'p',
+          responses: const ['a', 'b'],
+        ),
+      ).throws<MoaCompletionFailed>(
+        (it) => it.has((e) => e.statusCode, 'status').equals(500),
+      );
+    });
+  });
+
   group('sendMessageSession classification', () {
     test('taskSocket classification from JSON response with task_id', () async {
       final adapter = _FakeAdapter.json({'task_id': 'task-42', 'status': true});
@@ -263,6 +666,116 @@ void main() {
         check(session.taskId).equals('task-42');
         check(session.jsonPayload).isNull();
         check(session.abort).isNotNull();
+      },
+    );
+
+    test('a multi-model request is ONE POST that lists every answer in order '
+        'and keeps every task the server returns', () async {
+      final adapter = _FakeAdapter.json({
+        'status': true,
+        'task_ids': ['task-a', 'task-b'],
+        'chat_id': 'chat-1',
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        sessionIdOverride: 'socket-1',
+        responseMessageId: 'asst-0',
+        parentId: 'prev-assistant',
+        userMessage: const <String, dynamic>{
+          'id': 'user-1',
+          'parentId': 'prev-assistant',
+          'childrenIds': ['asst-0', 'asst-1'],
+          'role': 'user',
+          'content': 'hi',
+          'models': [_model, _model],
+        },
+        messageIds: const [
+          ChatCompletionTarget(
+            modelId: _model,
+            messageId: 'asst-0',
+            modelIdx: 0,
+          ),
+          // The same model again: only its column tells the answers apart.
+          ChatCompletionTarget(
+            modelId: _model,
+            messageId: 'asst-1',
+            modelIdx: 1,
+          ),
+        ],
+      );
+
+      final body = adapter.lastRequest!.data as Map<String, dynamic>;
+      check(body['message_ids']).isA<List<Object?>>().deepEquals([
+        {'model_id': _model, 'message_id': 'asst-0', 'modelIdx': 0},
+        {'model_id': _model, 'message_id': 'asst-1', 'modelIdx': 1},
+      ]);
+      // The complete parent travels with the request, with every child.
+      final userMessage = body['user_message'] as Map<String, dynamic>;
+      check(userMessage['childrenIds'])
+          .isA<List<Object?>>()
+          .deepEquals(['asst-0', 'asst-1']);
+      check(userMessage['models'])
+          .isA<List<Object?>>()
+          .deepEquals([_model, _model]);
+      check(body['parent_id']).equals('prev-assistant');
+      check(body['model']).equals(_model);
+
+      check(session.transport).equals(ChatCompletionTransport.taskSocket);
+      check(session.taskIds).deepEquals(['task-a', 'task-b']);
+      check(session.taskId).equals('task-a');
+    });
+
+    test('an ordinary request carries no message_ids and one task', () async {
+      final adapter = _FakeAdapter.json({'task_id': 'task-1', 'status': true});
+      final api = _buildApiServiceForTest(adapter);
+
+      final session = await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        sessionIdOverride: 'socket-1',
+      );
+
+      check(
+        (adapter.lastRequest!.data as Map<String, dynamic>).containsKey(
+          'message_ids',
+        ),
+      ).isFalse();
+      check(session.taskIds).deepEquals(['task-1']);
+    });
+
+    test(
+      'regenerating one answer sends only that answer, in its column',
+      () async {
+        final adapter = _FakeAdapter.json({
+          'task_ids': ['task-r'],
+          'status': true,
+        });
+        final api = _buildApiServiceForTest(adapter);
+
+        await api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'chat-1',
+          sessionIdOverride: 'socket-1',
+          responseMessageId: 'asst-regen',
+          messageIds: const [
+            ChatCompletionTarget(
+              modelId: _model,
+              messageId: 'asst-regen',
+              modelIdx: 1,
+            ),
+          ],
+        );
+
+        final body = adapter.lastRequest!.data as Map<String, dynamic>;
+        check(body['message_ids']).isA<List<Object?>>().deepEquals([
+          {'model_id': _model, 'message_id': 'asst-regen', 'modelIdx': 1},
+        ]);
       },
     );
 
@@ -1916,6 +2429,60 @@ void main() {
 
         check(result).isNull();
         check(adapter.lastRequest).isNull();
+      },
+    );
+
+    test(
+      'config and model reads stay bound to the account that captured the '
+      'snapshot',
+      () async {
+        final inner = _QueuedFakeAdapter([
+          _FakeAdapter.json({'features': {}}),
+          _FakeAdapter.json({'data': <Object>[]}),
+        ]);
+        final api = ApiService(
+          serverConfig: const ServerConfig(
+            id: 'test',
+            name: 'Test Server',
+            url: 'http://localhost:9999',
+          ),
+          workerManager: WorkerManager(),
+          authToken: 'account-a',
+        );
+        // Another account signs in while the config is being answered.
+        api.dio.httpClientAdapter = _HookedAdapter(inner, (options) {
+          if (options.path == '/api/config') api.updateAuthToken('account-b');
+        });
+        final snapshot = api.captureAuthSnapshot();
+
+        final config = await api.getBackendConfig(authSnapshot: snapshot);
+
+        // The answer it was already given stands, but none of the audio
+        // defaults the config is enriched with are read as account B.
+        check(config).isNotNull();
+        check(
+          inner.requests.map((request) => request.path),
+        ).deepEquals(['/api/config']);
+        await expectLater(
+          api.getModels(authSnapshot: snapshot),
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.type,
+              'type',
+              DioExceptionType.cancel,
+            ),
+          ),
+        );
+        check(
+          inner.requests.map((request) => request.path),
+        ).deepEquals(['/api/config']);
+
+        // A snapshot of the account now signed in is sent with its token.
+        await api.getModels(authSnapshot: api.captureAuthSnapshot());
+        check(inner.requests.last.path).equals('/api/models');
+        check(
+          inner.requests.last.headers['Authorization'],
+        ).equals('Bearer account-b');
       },
     );
 

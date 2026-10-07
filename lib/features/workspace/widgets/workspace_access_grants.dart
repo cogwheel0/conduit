@@ -1,20 +1,24 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/providers/workspace_session.dart';
+import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit/features/workspace/widgets/workspace_tiles.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
 import 'package:conduit/shared/widgets/middle_ellipsis_text.dart';
+import 'package:conduit/shared/widgets/sheet_handle.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 
 // ---------------------------------------------------------------------------
@@ -228,38 +232,96 @@ final workspacePrincipalDirectoryProvider =
 // Access grant editor sheet.
 // ---------------------------------------------------------------------------
 
+/// The Private / Public / Open choice a chat offers in place of the single
+/// public switch.
+///
+/// [initial] is what the loaded grants say, shown even when the account may
+/// not choose it. [canChooseOpen] is `sharing.open_chats`; Public follows the
+/// sheet's [WorkspaceSectionCapabilities.sharePublicly].
+class WorkspaceAudienceChoice {
+  const WorkspaceAudienceChoice({
+    required this.initial,
+    required this.canChooseOpen,
+  });
+
+  final ResourceAudience initial;
+  final bool canChooseOpen;
+}
+
 /// Bottom sheet that edits the access grants for a workspace resource.
 ///
 /// Capability gating:
 /// * [WorkspaceSectionCapabilities.share] — when false the sheet is read-only.
 /// * [WorkspaceSectionCapabilities.sharePublicly] — gates the public toggle.
-/// * [allowUserGrants] — gates sharing with individual users (vs groups only).
+/// * [allowUserGrants] / [allowGroupGrants] — independently gate adding
+///   individual users and groups. Grants the resource already has are kept and
+///   stay editable whichever kinds may be added.
+/// * [allowWriteGrants] — whether a recipient row offers Can edit. Without it
+///   a person is added with read access only, and a write grant the resource
+///   already has is sent back unchanged.
 ///
 /// Returns the normalized grants on save, or null if dismissed.
+///
+/// With [onSave] the sheet saves before it closes: Save waits for the callback
+/// and closes only when it returns null. A returned message keeps the sheet
+/// open with the edited grants and shows the message, so a refused save does
+/// not cost the user their changes.
+///
+/// With [audience] the public switch becomes the Private / Public / Open
+/// control. [onSave] then also receives the audience, but only if the user
+/// picked one: an untouched audience is null, so wildcard grants the account
+/// may not author are never rewritten by an unrelated edit.
 class WorkspaceAccessGrantSheet extends ConsumerStatefulWidget {
   const WorkspaceAccessGrantSheet({
     super.key,
     required this.initialGrants,
     required this.capabilities,
     required this.allowUserGrants,
+    required this.allowGroupGrants,
+    this.allowWriteGrants = true,
     this.readOnly = false,
     this.principalNames = const {},
+    this.audience,
+    this.showVisibility = true,
+    this.onSave,
   });
 
   final List<WorkspaceAccessGrantInput> initialGrants;
   final WorkspaceSectionCapabilities capabilities;
   final bool allowUserGrants;
+  final bool allowGroupGrants;
+
+  /// Whether a recipient can be given edit access. A shared chat's audience is
+  /// read-only in Open WebUI, so its sheet turns this off.
+  final bool allowWriteGrants;
   final bool readOnly;
 
   /// Optional pre-resolved display names keyed by `type:id` so existing grants
   /// render friendly labels without an extra round-trip.
   final Map<String, String> principalNames;
 
+  /// Replaces the public switch with Private / Public / Open when set.
+  final WorkspaceAudienceChoice? audience;
+
+  /// Whether to offer any public audience at all. A folder does not: the web
+  /// folder modal has no such choice.
+  final bool showVisibility;
+
+  /// Saves the edited grants, returning a user-facing message when the save
+  /// was refused or failed and null when it succeeded. The audience is the
+  /// one the user picked, or null when [audience] is unset or untouched.
+  final Future<String?> Function(
+    List<WorkspaceAccessGrantInput> grants,
+    ResourceAudience? audience,
+  )?
+  onSave;
+
   static Future<List<WorkspaceAccessGrantInput>?> show(
     BuildContext context, {
     required List<WorkspaceAccessGrantInput> initialGrants,
     required WorkspaceSectionCapabilities capabilities,
     required bool allowUserGrants,
+    required bool allowGroupGrants,
     bool readOnly = false,
     Map<String, String> principalNames = const {},
   }) {
@@ -269,6 +331,7 @@ class WorkspaceAccessGrantSheet extends ConsumerStatefulWidget {
         initialGrants: initialGrants,
         capabilities: capabilities,
         allowUserGrants: allowUserGrants,
+        allowGroupGrants: allowGroupGrants,
         readOnly: readOnly,
         principalNames: principalNames,
       ),
@@ -284,8 +347,12 @@ class _WorkspaceAccessGrantSheetState
     extends ConsumerState<WorkspaceAccessGrantSheet> {
   late List<WorkspaceAccessGrantInput> _grants;
   late final Map<String, String> _names;
+  bool _saving = false;
+  String? _saveError;
+  ResourceAudience? _pickedAudience;
 
   bool get _isReadOnly => widget.readOnly || !widget.capabilities.share;
+  bool get _canGrantAny => widget.allowUserGrants || widget.allowGroupGrants;
 
   @override
   void initState() {
@@ -294,8 +361,56 @@ class _WorkspaceAccessGrantSheetState
     _names = {...widget.principalNames};
   }
 
+  /// The audience on screen: the user's pick, else what was loaded.
+  ResourceAudience get _audience => _pickedAudience ?? widget.audience!.initial;
+
+  /// Mirrors the web editor's `setVisibility`: an explicit pick drops every
+  /// wildcard row first, then Public adds its read row. The `anyone` rows
+  /// live outside these grants and are replaced when the audience is saved.
+  void _pickAudience(ResourceAudience next) {
+    final grants = setWorkspacePublicGrant(
+      _grants,
+      next == ResourceAudience.public,
+    );
+    setState(() {
+      _pickedAudience = next;
+      _grants = grants;
+      _saveError = null;
+    });
+  }
+
   void _update(List<WorkspaceAccessGrantInput> next) {
-    setState(() => _grants = next);
+    setState(() {
+      _grants = next;
+      _saveError = null;
+    });
+  }
+
+  Future<void> _save() async {
+    final onSave = widget.onSave;
+    if (onSave == null) {
+      Navigator.of(context).pop(_grants);
+      return;
+    }
+    if (_saving) return;
+    // What is submitted is what closes the sheet, whatever the form shows by
+    // the time the owner answers.
+    final submitted = _grants;
+    final audience = _pickedAudience;
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
+    final failure = await onSave(submitted, audience);
+    if (!mounted) return;
+    if (failure == null) {
+      Navigator.of(context).pop(submitted);
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _saveError = failure;
+    });
   }
 
   String _principalName(WorkspaceSharedPrincipal principal) {
@@ -309,8 +424,11 @@ class _WorkspaceAccessGrantSheetState
       context,
       directory: directory,
       allowUsers: widget.allowUserGrants,
+      allowGroups: widget.allowGroupGrants,
     );
-    if (picked == null || !mounted) return;
+    // A picker opened before Save can still answer while the save is in
+    // flight, when the form no longer takes changes.
+    if (picked == null || !mounted || _saving) return;
     _names['${picked.type.name}:${picked.id}'] = picked.name;
     _update(upsertWorkspacePrincipalGrant(_grants, picked.type, picked.id));
     DebugLogger.log(
@@ -326,8 +444,9 @@ class _WorkspaceAccessGrantSheetState
     final theme = context.conduitTheme;
     final isPublic = workspaceGrantsArePublic(_grants);
     final principals = workspaceSharedPrincipals(_grants);
-    final canAdd = !_isReadOnly;
+    final canAdd = !_isReadOnly && _canGrantAny;
     final canTogglePublic = !_isReadOnly && widget.capabilities.sharePublicly;
+    final grantKindsNotice = _isReadOnly ? null : _grantKindsNotice(l10n);
 
     return ConduitModalSheetSurface(
       child: Column(
@@ -346,8 +465,17 @@ class _WorkspaceAccessGrantSheetState
               shrinkWrap: true,
               padding: const EdgeInsets.only(bottom: Spacing.sm),
               children: [
-                _publicTile(context, l10n, isPublic, canTogglePublic),
-                if (!canTogglePublic && !_isReadOnly)
+                if (!widget.showVisibility)
+                  const SizedBox.shrink()
+                else if (widget.audience == null)
+                  _publicTile(context, l10n, isPublic, canTogglePublic)
+                else
+                  _audienceTile(context, l10n, canTogglePublic),
+                if (widget.showVisibility &&
+                    !_isReadOnly &&
+                    (!canTogglePublic ||
+                        (widget.audience != null &&
+                            !widget.audience!.canChooseOpen)))
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
                     child: _notice(context, l10n.workspaceAccessPublicDisabled),
@@ -360,10 +488,10 @@ class _WorkspaceAccessGrantSheetState
                     style: theme.label?.copyWith(color: theme.textSecondary),
                   ),
                 ),
-                if (!widget.allowUserGrants && !_isReadOnly)
+                if (grantKindsNotice != null)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-                    child: _notice(context, l10n.workspaceAccessUsersDisabled),
+                    child: _notice(context, grantKindsNotice),
                   ),
                 if (principals.isEmpty)
                   Padding(
@@ -387,26 +515,58 @@ class _WorkspaceAccessGrantSheetState
               padding: const EdgeInsets.only(top: Spacing.xs),
               child: ConduitButton(
                 key: const Key('workspace-access-add'),
-                text: widget.allowUserGrants
-                    ? l10n.workspaceAccessAddPeople
-                    : l10n.workspaceAccessAddGroups,
+                text: switch ((
+                  widget.allowUserGrants,
+                  widget.allowGroupGrants,
+                )) {
+                  (true, true) => l10n.workspaceAccessAddPeople,
+                  (true, false) => l10n.workspaceAccessAddUsers,
+                  _ => l10n.workspaceAccessAddGroups,
+                },
                 icon: Icons.person_add_alt_1_outlined,
                 isSecondary: true,
                 isFullWidth: true,
-                onPressed: _addPrincipal,
+                onPressed: _saving ? null : _addPrincipal,
               ),
             ),
           const SizedBox(height: Spacing.sm),
+          if (_saveError case final error?)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Spacing.sm),
+              child: Container(
+                key: const Key('workspace-access-save-error'),
+                padding: const EdgeInsets.all(Spacing.sm),
+                decoration: BoxDecoration(
+                  color: theme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
+                ),
+                child: Text(
+                  error,
+                  style: theme.bodySmall?.copyWith(color: theme.error),
+                ),
+              ),
+            ),
           if (!_isReadOnly)
             ConduitButton(
               key: const Key('workspace-access-save'),
               text: l10n.save,
               isFullWidth: true,
-              onPressed: () => Navigator.of(context).pop(_grants),
+              isLoading: _saving,
+              onPressed: _saving ? null : _save,
             ),
         ],
       ),
     );
+  }
+
+  /// Why some principal kinds cannot be added, or null when both can.
+  String? _grantKindsNotice(AppLocalizations l10n) {
+    return switch ((widget.allowUserGrants, widget.allowGroupGrants)) {
+      (true, true) => null,
+      (true, false) => l10n.workspaceAccessGroupsDisabled,
+      (false, true) => l10n.workspaceAccessUsersDisabled,
+      (false, false) => l10n.workspaceAccessGrantsDisabled,
+    };
   }
 
   Widget _header(BuildContext context, AppLocalizations l10n) {
@@ -463,6 +623,87 @@ class _WorkspaceAccessGrantSheetState
     );
   }
 
+  Widget _audienceTile(
+    BuildContext context,
+    AppLocalizations l10n,
+    bool canChoosePublic,
+  ) {
+    final theme = context.conduitTheme;
+    final current = _audience;
+    final canChooseOpen = widget.audience!.canChooseOpen;
+    // An audience the chat already has stays selectable, as in the web editor,
+    // so a read-only or restricted account still sees where the chat stands.
+    // While a save is in flight only that choice stays, so it stays shown as
+    // selected and nothing else can be picked.
+    bool enabled(ResourceAudience option) =>
+        !_isReadOnly &&
+        (!_saving || option == current) &&
+        switch (option) {
+          ResourceAudience.private => true,
+          ResourceAudience.public =>
+            canChoosePublic || current == ResourceAudience.public,
+          ResourceAudience.open =>
+            canChooseOpen || current == ResourceAudience.open,
+        };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.sm),
+      child: Column(
+        key: const Key('workspace-access-audience'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+            child: Text(
+              l10n.resourceAudienceLabel,
+              style: theme.label?.copyWith(color: theme.textSecondary),
+            ),
+          ),
+          const SizedBox(height: Spacing.xs),
+          AdaptiveSegmentedSelector<ResourceAudience>(
+            value: current,
+            onChanged: _pickAudience,
+            showIcons: false,
+            options: [
+              (
+                value: ResourceAudience.private,
+                label: l10n.resourceAudiencePrivate,
+                cupertinoIcon: Icons.lock_outline,
+                materialIcon: Icons.lock_outline,
+                enabled: enabled(ResourceAudience.private),
+              ),
+              (
+                value: ResourceAudience.public,
+                label: l10n.resourceAudiencePublic,
+                cupertinoIcon: Icons.public,
+                materialIcon: Icons.public,
+                enabled: enabled(ResourceAudience.public),
+              ),
+              (
+                value: ResourceAudience.open,
+                label: l10n.resourceAudienceOpen,
+                cupertinoIcon: Icons.link,
+                materialIcon: Icons.link,
+                enabled: enabled(ResourceAudience.open),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: Spacing.xs),
+            child: Text(
+              switch (current) {
+                ResourceAudience.private => l10n.resourceAudiencePrivateHint,
+                ResourceAudience.public => l10n.resourceAudiencePublicHint,
+                ResourceAudience.open => l10n.resourceAudienceOpenHint,
+              },
+              key: const Key('workspace-access-audience-hint'),
+              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _publicTile(
     BuildContext context,
     AppLocalizations l10n,
@@ -478,7 +719,7 @@ class _WorkspaceAccessGrantSheetState
       subtitle: l10n.workspaceAccessVisibilityDescription,
       trailing: AdaptiveSwitch(
         value: isPublic,
-        onChanged: canToggle
+        onChanged: canToggle && !_saving
             ? (value) => _update(setWorkspacePublicGrant(_grants, value))
             : null,
       ),
@@ -508,36 +749,37 @@ class _WorkspaceAccessGrantSheetState
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AdaptiveTooltip(
-              message: l10n.workspaceAccessCanEdit,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    l10n.workspaceAccessCanEdit,
-                    style: theme.bodySmall?.copyWith(
-                      color: theme.textSecondary,
+            if (widget.allowWriteGrants)
+              AdaptiveTooltip(
+                message: l10n.workspaceAccessCanEdit,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      l10n.workspaceAccessCanEdit,
+                      style: theme.bodySmall?.copyWith(
+                        color: theme.textSecondary,
+                      ),
                     ),
-                  ),
-                  AdaptiveSwitch(
-                    key: Key(
-                      'workspace-access-write-${principal.type.name}-${principal.id}',
+                    AdaptiveSwitch(
+                      key: Key(
+                        'workspace-access-write-${principal.type.name}-${principal.id}',
+                      ),
+                      value: principal.canWrite,
+                      onChanged: canEdit && !_saving
+                          ? (value) => _update(
+                              setWorkspacePrincipalWrite(
+                                _grants,
+                                principal.type,
+                                principal.id,
+                                value,
+                              ),
+                            )
+                          : null,
                     ),
-                    value: principal.canWrite,
-                    onChanged: canEdit
-                        ? (value) => _update(
-                            setWorkspacePrincipalWrite(
-                              _grants,
-                              principal.type,
-                              principal.id,
-                              value,
-                            ),
-                          )
-                        : null,
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
             if (canEdit)
               ConduitIconButton(
                 key: Key(
@@ -545,13 +787,15 @@ class _WorkspaceAccessGrantSheetState
                 ),
                 tooltip: l10n.workspaceAccessRemoveGrant,
                 icon: Icons.close,
-                onPressed: () => _update(
-                  removeWorkspacePrincipal(
-                    _grants,
-                    principal.type,
-                    principal.id,
-                  ),
-                ),
+                onPressed: _saving
+                    ? null
+                    : () => _update(
+                        removeWorkspacePrincipal(
+                          _grants,
+                          principal.type,
+                          principal.id,
+                        ),
+                      ),
                 isCompact: true,
               ),
           ],
@@ -566,26 +810,33 @@ class _WorkspaceAccessGrantSheetState
 // ---------------------------------------------------------------------------
 
 /// Sheet that searches users and lists groups, returning the chosen principal.
+///
+/// Only the kinds the account may grant are offered, and only those are
+/// requested: with neither allowed, nothing is fetched.
 class WorkspacePrincipalPicker extends StatefulWidget {
   const WorkspacePrincipalPicker({
     super.key,
     required this.directory,
     required this.allowUsers,
+    required this.allowGroups,
   });
 
   final WorkspacePrincipalDirectory directory;
   final bool allowUsers;
+  final bool allowGroups;
 
   static Future<WorkspacePrincipalPreview?> show(
     BuildContext context, {
     required WorkspacePrincipalDirectory directory,
     required bool allowUsers,
+    required bool allowGroups,
   }) {
     return ThemedSheets.showCustom<WorkspacePrincipalPreview>(
       context: context,
       builder: (_) => WorkspacePrincipalPicker(
         directory: directory,
         allowUsers: allowUsers,
+        allowGroups: allowGroups,
       ),
     );
   }
@@ -607,8 +858,8 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
   @override
   void initState() {
     super.initState();
-    // Default to the only permitted tab when user grants are disallowed.
-    _showingGroups = !widget.allowUsers;
+    // Default to the only permitted kind when user grants are disallowed.
+    _showingGroups = !widget.allowUsers && widget.allowGroups;
     if (_showingGroups) {
       _loadGroups(++_requestGeneration);
     }
@@ -728,19 +979,52 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
+    final media = MediaQuery.of(context);
+    final keyboardInset = media.viewInsets.bottom;
+    // The sheet route strips the top padding from its MediaQuery, so the status
+    // bar height comes from the view itself.
+    final view = View.of(context);
+    final statusBar = view.padding.top / view.devicePixelRatio;
+    // The route does not move the sheet above the keyboard, so the picker lifts
+    // itself by the inset and caps its surface between the status bar and the
+    // keyboard. The handle sits in this column rather than in the surface's own
+    // handle column, which would hand the content unbounded height.
+    final availableHeight = math.max(
+      0.0,
+      media.size.height - keyboardInset - statusBar - Spacing.sm,
+    );
 
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: keyboardInset),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: availableHeight),
+        child: _surface(context, l10n, theme),
+      ),
+    );
+  }
+
+  Widget _surface(
+    BuildContext context,
+    AppLocalizations l10n,
+    ConduitThemeExtension theme,
+  ) {
     return ConduitModalSheetSurface(
+      showHandle: false,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const SheetHandle(),
           Row(
             children: [
               Expanded(
-                child: Text(
-                  l10n.workspacePrincipalTitle,
-                  style: theme.headingSmall,
-                ),
+                child: Text(switch ((widget.allowUsers, widget.allowGroups)) {
+                  (true, false) => l10n.workspaceAccessAddUsers,
+                  (false, true) => l10n.workspaceAccessAddGroups,
+                  _ => l10n.workspacePrincipalTitle,
+                }, style: theme.headingSmall),
               ),
               SheetCloseButton(
                 tooltip: l10n.close,
@@ -749,7 +1033,7 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
             ],
           ),
           const SizedBox(height: Spacing.sm),
-          if (widget.allowUsers)
+          if (widget.allowUsers && widget.allowGroups)
             Row(
               children: [
                 Expanded(
@@ -772,7 +1056,7 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
               ],
             ),
           const SizedBox(height: Spacing.sm),
-          if (!_showingGroups)
+          if (widget.allowUsers && !_showingGroups)
             ConduitGlassSearchField(
               controller: _controller,
               hintText: l10n.workspacePrincipalSearchHint,
@@ -792,6 +1076,14 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
 
   Widget _body(BuildContext context, AppLocalizations l10n) {
     final theme = context.conduitTheme;
+    if (!widget.allowUsers && !widget.allowGroups) {
+      return _emptyMessage(
+        context,
+        key: const Key('workspace-principal-none-allowed'),
+        icon: Icons.lock_outline,
+        message: l10n.workspaceAccessGrantsDisabled,
+      );
+    }
     if (_loading) {
       return Center(
         child: Padding(
@@ -826,6 +1118,7 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
     return ListView.builder(
       key: const Key('workspace-principal-results'),
       shrinkWrap: true,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       itemCount: _results.length,
       itemBuilder: (context, index) {
         final principal = _results[index];

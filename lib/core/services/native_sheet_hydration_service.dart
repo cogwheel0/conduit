@@ -10,6 +10,8 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import '../../features/chat/providers/text_to_speech_provider.dart';
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show captureOpenWebUiReasoningPickTarget, selectReasoningEffortForModel;
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -24,6 +26,8 @@ import '../network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart'
+    show notificationTargetsAvailableProvider;
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -123,10 +127,16 @@ class NativeSheetHydrationService {
 
   final Ref _ref;
   bool _appearanceDetailPresented = false;
+  MemoryOwner? _memoryOwner;
   final NativeSheetHydrationGeneration _modelSelectorHydration =
       NativeSheetHydrationGeneration();
   final NativeSheetPresentationAdmission _modelSelectorPresentation =
       NativeSheetPresentationAdmission();
+
+  /// The account the native memory list on screen was built for. Actions taken
+  /// in that list are sent for this account, so a list left open across an
+  /// account switch cannot change the new account's memories.
+  MemoryOwner? get memoryOwner => _memoryOwner;
 
   Future<List<Model>> loadModels({bool refreshOnError = true}) async {
     final modelsAsync = _ref.read(modelsProvider);
@@ -299,6 +309,9 @@ class NativeSheetHydrationService {
       final activeHydrationGeneration = _modelSelectorHydration.begin();
       hydrationGeneration = activeHydrationGeneration;
       final presentationId = const Uuid().v4();
+      // The chat and account a pick made in this sheet is for, fixed as the
+      // sheet opens: the native sheet outlives a chat or account switch.
+      final reasoningPickTarget = captureOpenWebUiReasoningPickTarget(_ref);
       final result = bridge.presentModelSelector(
         presentationId: presentationId,
         title: title,
@@ -343,8 +356,12 @@ class NativeSheetHydrationService {
             : null,
         onReasoningEffortChanged: effortModel == null || !effortPolicy.visible
             ? null
-            : (value) =>
-                  setReasoningEffortForModel(_ref.read, effortModel, value),
+            : (value) => selectReasoningEffortForModel(
+                _ref,
+                effortModel,
+                value,
+                target: reasoningPickTarget,
+              ),
         models: nativePresentationOptions,
         rethrowErrors: rethrowErrors,
       );
@@ -381,10 +398,11 @@ class NativeSheetHydrationService {
                   options: hydrated.policy.options,
                   allowsCustom: hydrated.policy.allowsCustom,
                   onReasoningEffortChanged: hydrated.policy.visible
-                      ? (value) => setReasoningEffortForModel(
-                          _ref.read,
+                      ? (value) => selectReasoningEffortForModel(
+                          _ref,
                           lateEffortModel,
                           value,
+                          target: reasoningPickTarget,
                         )
                       : null,
                 );
@@ -649,6 +667,9 @@ class NativeSheetHydrationService {
       final modelsFuture = _ref.read(modelsProvider.future);
       final settings = await settingsFuture;
       final models = await modelsFuture;
+      final memoriesPermitted = await _ref.read(
+        memoriesPermittedProvider.future,
+      );
       if (!context.mounted) return;
 
       final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
@@ -681,14 +702,15 @@ class NativeSheetHydrationService {
               subtitle: nativeSheetPreviewText(l10n, settings.systemPrompt),
               sfSymbol: 'person.crop.circle.badge.checkmark',
             ),
-            NativeSheetItemConfig(
-              id: 'personalization-memory',
-              title: l10n.memoryTitle,
-              subtitle: settings.memoryEnabled
-                  ? l10n.memoryEnabledDescription
-                  : l10n.memoryDisabledDescription,
-              sfSymbol: 'bookmark',
-            ),
+            if (memoriesPermitted)
+              NativeSheetItemConfig(
+                id: 'personalization-memory',
+                title: l10n.memoryTitle,
+                subtitle: settings.memoryEnabled
+                    ? l10n.memoryEnabledDescription
+                    : l10n.memoryDisabledDescription,
+                sfSymbol: 'bookmark',
+              ),
             if (hasOpenWebUiAccount)
               NativeSheetItemConfig(
                 id: 'advanced-prompt-overrides',
@@ -720,14 +742,15 @@ class NativeSheetHydrationService {
             title: l10n.yourSystemPrompt,
             subtitle: l10n.yourSystemPromptDescription,
           ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: 'personalization-memory',
-            title: l10n.memoryTitle,
-            subtitle: settings.memoryEnabled
-                ? l10n.memoryEnabledDescription
-                : l10n.memoryDisabledDescription,
-          ),
+          if (memoriesPermitted)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'personalization-memory',
+              title: l10n.memoryTitle,
+              subtitle: settings.memoryEnabled
+                  ? l10n.memoryEnabledDescription
+                  : l10n.memoryDisabledDescription,
+            ),
           if (hasOpenWebUiAccount)
             buildNativeLoadingDetail(
               l10n: l10n,
@@ -758,6 +781,9 @@ class NativeSheetHydrationService {
     try {
       final settingsFuture = _ref.read(personalizationSettingsProvider.future);
       final settings = await settingsFuture;
+      final memoriesPermitted = await _ref.read(
+        memoriesPermittedProvider.future,
+      );
       if (!context.mounted) return;
 
       await _applyNativeDetail(
@@ -773,14 +799,15 @@ class NativeSheetHydrationService {
                   subtitle: nativeSheetPreviewText(l10n, settings.systemPrompt),
                   sfSymbol: 'text.bubble',
                 ),
-                NativeSheetItemConfig(
-                  id: 'personalization-memory',
-                  title: l10n.memoryTitle,
-                  subtitle: settings.memoryEnabled
-                      ? l10n.enabled
-                      : l10n.disabled,
-                  sfSymbol: 'bookmark',
-                ),
+                if (memoriesPermitted)
+                  NativeSheetItemConfig(
+                    id: 'personalization-memory',
+                    title: l10n.memoryTitle,
+                    subtitle: settings.memoryEnabled
+                        ? l10n.enabled
+                        : l10n.disabled,
+                    sfSymbol: 'bookmark',
+                  ),
               ],
             ),
           ],
@@ -792,14 +819,15 @@ class NativeSheetHydrationService {
             title: l10n.yourSystemPrompt,
             subtitle: l10n.yourSystemPromptDescription,
           ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: 'personalization-memory',
-            title: l10n.memoryTitle,
-            subtitle: settings.memoryEnabled
-                ? l10n.memoryEnabledDescription
-                : l10n.memoryDisabledDescription,
-          ),
+          if (memoriesPermitted)
+            buildNativeLoadingDetail(
+              l10n: l10n,
+              id: 'personalization-memory',
+              title: l10n.memoryTitle,
+              subtitle: settings.memoryEnabled
+                  ? l10n.memoryEnabledDescription
+                  : l10n.memoryDisabledDescription,
+            ),
         ],
       );
     } catch (error, stackTrace) {
@@ -816,8 +844,26 @@ class NativeSheetHydrationService {
     }
   }
 
+  /// Whether the Webhook destinations row belongs in the native Notifications
+  /// sheet: Advanced is on and the account may use them. The row is the only
+  /// thing waiting on the permission lookup, which is bounded so the local
+  /// toggles are never held up by a slow server.
+  Future<bool> _showNativeNotificationTargets() async {
+    if (!_ref.read(appSettingsProvider).advancedFeaturesEnabled) return false;
+    try {
+      await Future.wait<Object?>([
+        _ref.read(userPermissionsProvider.future),
+        _ref.read(backendConfigProvider.future),
+      ]).timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // An unread permission leaves the row out; the toggles still show.
+    }
+    return _ref.read(notificationTargetsAvailableProvider);
+  }
+
   Future<void> _hydrateNativeNotificationsDetail(AppLocalizations l10n) async {
     try {
+      final showTargets = await _showNativeNotificationTargets();
       final s = _ref.read(appSettingsProvider);
       final masterItem = NativeSheetItemConfig(
         id: 'notifications-enabled',
@@ -906,6 +952,10 @@ class NativeSheetHydrationService {
             NativeSheetSectionConfig(items: deliveryItems),
             NativeSheetSectionConfig(items: soundItems),
             NativeSheetSectionConfig(items: contentItems),
+            if (showTargets)
+              NativeSheetSectionConfig(
+                items: [buildNativeNotificationTargetsItem(l10n)],
+              ),
           ],
         ),
       );
@@ -1086,24 +1136,7 @@ class NativeSheetHydrationService {
             sfSymbol: 'bolt',
           ),
       ];
-      final behaviorItems = <NativeSheetItemConfig>[
-        NativeSheetItemConfig(
-          id: 'send-on-enter',
-          title: l10n.sendOnEnter,
-          subtitle: l10n.sendOnEnterDescription,
-          sfSymbol: 'paperplane',
-          kind: NativeSheetItemKind.toggle,
-          value: appSettings.sendOnEnter,
-        ),
-        NativeSheetItemConfig(
-          id: 'temporary-chat-default',
-          title: l10n.temporaryChatByDefault,
-          subtitle: l10n.temporaryChatByDefaultDescription,
-          sfSymbol: 'clock.arrow.circlepath',
-          kind: NativeSheetItemKind.toggle,
-          value: appSettings.temporaryChatByDefault,
-        ),
-      ];
+      final behaviorItems = _nativeChatBehaviorItems(l10n, appSettings);
       final advancedItem = hasOpenWebUiAccount
           ? NativeSheetItemConfig(
               id: 'advanced-prompt-overrides',
@@ -1227,15 +1260,69 @@ class NativeSheetHydrationService {
         error: error,
         stackTrace: stackTrace,
       );
-      await _patchNativeDetailError(
-        NativeSheetRoutes.chats,
-        l10n.unableToLoadOpenWebuiSettings,
+      // The behavior rows read only local settings, so they stay next to the
+      // error instead of being replaced by it.
+      await _applyNativeDetail(
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.chats,
+          title: nativeChatsTitle(l10n),
+          sections: [
+            NativeSheetSectionConfig(
+              items: _nativeChatBehaviorItems(
+                l10n,
+                _ref.read(appSettingsProvider),
+              ),
+            ),
+            NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: '${NativeSheetRoutes.chats}-error',
+                  title: l10n.unableToLoadOpenWebuiSettings,
+                  sfSymbol: 'exclamationmark.triangle',
+                  kind: NativeSheetItemKind.info,
+                ),
+              ],
+            ),
+          ],
+        ),
       );
       await _patchNativeDetailError(
         NativeSheetRoutes.dataConnection,
         l10n.unableToLoadOpenWebuiSettings,
       );
     }
+  }
+
+  List<NativeSheetItemConfig> _nativeChatBehaviorItems(
+    AppLocalizations l10n,
+    AppSettings appSettings,
+  ) {
+    return [
+      NativeSheetItemConfig(
+        id: 'send-on-enter',
+        title: l10n.sendOnEnter,
+        subtitle: l10n.sendOnEnterDescription,
+        sfSymbol: 'paperplane',
+        kind: NativeSheetItemKind.toggle,
+        value: appSettings.sendOnEnter,
+      ),
+      NativeSheetItemConfig(
+        id: 'temporary-chat-default',
+        title: l10n.temporaryChatByDefault,
+        subtitle: l10n.temporaryChatByDefaultDescription,
+        sfSymbol: 'clock.arrow.circlepath',
+        kind: NativeSheetItemKind.toggle,
+        value: appSettings.temporaryChatByDefault,
+      ),
+      NativeSheetItemConfig(
+        id: 'advanced-features',
+        title: l10n.advancedFeatures,
+        subtitle: l10n.advancedFeaturesDescription,
+        sfSymbol: 'slider.horizontal.3',
+        kind: NativeSheetItemKind.toggle,
+        value: appSettings.advancedFeaturesEnabled,
+      ),
+    ];
   }
 
   Future<void> _hydrateNativeAppCustomizationDetail(
@@ -1456,6 +1543,14 @@ class NativeSheetHydrationService {
                 value: appSettings.temporaryChatByDefault,
               ),
               NativeSheetItemConfig(
+                id: 'advanced-features',
+                title: l10n.advancedFeatures,
+                subtitle: l10n.advancedFeaturesDescription,
+                sfSymbol: 'slider.horizontal.3',
+                kind: NativeSheetItemKind.toggle,
+                value: appSettings.advancedFeaturesEnabled,
+              ),
+              NativeSheetItemConfig(
                 id: 'disable-haptics-streaming',
                 title: l10n.disableHapticsWhileStreaming,
                 subtitle: l10n.disableHapticsWhileStreamingDescription,
@@ -1614,6 +1709,13 @@ class NativeSheetHydrationService {
       final settings = await settingsFuture;
       final memories = await memoriesFuture;
       if (!context.mounted) return;
+      if (!await _ref.read(memoriesPermittedProvider.future)) {
+        await _patchNativeDetailError(
+          'personalization-memory',
+          l10n.unableToLoadOpenWebuiSettings,
+        );
+        return;
+      }
 
       await _applyNativeDetail(
         NativeSheetDetailConfig(
@@ -1669,8 +1771,24 @@ class NativeSheetHydrationService {
     AppLocalizations l10n,
   ) async {
     try {
+      final notifier = _ref.read(userMemoriesProvider.notifier);
+      // The list is built for the account that is signed in as it loads. If
+      // another one has taken over by the time it arrives, the list is not
+      // shown.
+      final owner = notifier.captureOwner();
       final memories = await _ref.read(userMemoriesProvider.future);
+      final permitted = await _ref.read(memoriesPermittedProvider.future);
       if (!context.mounted) return;
+      if (owner == null || !notifier.isCurrentOwner(owner) || !permitted) {
+        _memoryOwner = null;
+        await _patchNativeDetailError(
+          'memory-manage',
+          l10n.unableToLoadOpenWebuiSettings,
+        );
+        return;
+      }
+      _memoryOwner = owner;
+      final advanced = _ref.read(appSettingsProvider).advancedFeaturesEnabled;
 
       await _applyNativeDetail(
         NativeSheetDetailConfig(
@@ -1678,12 +1796,7 @@ class NativeSheetHydrationService {
           title: l10n.manageMemories,
           subtitle: l10n.savedMemoriesCount(memories.length),
           items: [
-            NativeSheetItemConfig(
-              id: 'memory-add',
-              title: l10n.addMemory,
-              subtitle: l10n.manageMemoriesDescription,
-              sfSymbol: 'plus.circle',
-            ),
+            buildNativeMemoryAddItem(l10n, advanced: advanced),
             if (memories.isEmpty)
               NativeSheetItemConfig(
                 id: 'memory-empty-info',
@@ -1710,8 +1823,8 @@ class NativeSheetHydrationService {
           ],
         ),
         detailSheets: [
-          buildNativeMemoryAddDetail(l10n),
-          ...buildNativeMemoryEditDetails(l10n, memories),
+          if (!advanced) buildNativeMemoryAddDetail(l10n),
+          ...buildNativeMemoryEditDetails(l10n, memories, advanced: advanced),
         ],
       );
     } catch (error, stackTrace) {

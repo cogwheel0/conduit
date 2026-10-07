@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
+import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -47,6 +50,343 @@ void main() {
     expect(replies[1]['stderr'], contains('does not support'));
     expect(replies[1]['stdout'], isEmpty);
     expect(replies[1]['result'], isNull);
+  });
+
+  group('a direct tool call is always answered once', () {
+    const admission = PersonalToolAdmission(
+      kind: PersonalConnectionKind.toolServer,
+      identity: 'tools',
+      url: 'https://tools.example',
+      operations: <String>{'search'},
+    );
+
+    Future<
+      ({
+        SocketService service,
+        List<dynamic> replies,
+        int Function({String chatId, String callId}) send,
+        void Function() admit,
+        void Function(String) setSession,
+      })
+    >
+    connected() async {
+      final factory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        socketFactory: factory.create,
+      );
+      addTearDown(service.dispose);
+      await service.connect();
+      factory.sockets.single.id = 'local-session';
+      final replies = <dynamic>[];
+      var calls = 0;
+      int send({String chatId = 'background-chat', String? callId}) {
+        service.debugHandleChatEvent({
+          'chat_id': chatId,
+          'message_id': 'assistant',
+          'data': {
+            'type': 'execute:tool',
+            'data': {
+              'id': callId ?? 'call-${calls++}',
+              'session_id': 'local-session',
+              'name': 'search',
+              'server': {'url': 'https://tools.example'},
+            },
+          },
+        }, (dynamic reply) => replies.add(reply));
+        return calls;
+      }
+
+      void admit() => service.admitPersonalToolServers(
+        chatId: 'background-chat',
+        messageId: 'assistant',
+        sessionId: 'local-session',
+        connections: const [admission],
+      );
+
+      return (
+        service: service,
+        replies: replies,
+        send: ({chatId = 'background-chat', callId = ''}) =>
+            send(chatId: chatId, callId: callId.isEmpty ? null : callId),
+        admit: admit,
+        setSession: (id) => factory.sockets.single.id = id,
+      );
+    }
+
+    test('with no executor, or one that throws', () async {
+      final c = await connected();
+      c.admit();
+
+      c.send();
+      await _flushMicrotasks(2);
+      expect(c.replies, hasLength(1));
+      expect(c.replies.single['error'], isNotEmpty);
+
+      c.service.toolExecutionHandler = (
+        call, {
+        required admitted,
+        required isActive,
+      }) async => throw StateError('boom');
+      c.send();
+      await _flushMicrotasks(2);
+      expect(c.replies, hasLength(2));
+      expect(c.replies.last['error'], isNotEmpty);
+    });
+
+    test('with an executor that never finishes', () async {
+      final c = await connected();
+      c.admit();
+      c.service.toolExecutionHandler = (
+        call, {
+        required admitted,
+        required isActive,
+      }) => Completer<Object?>().future;
+
+      fakeAsync((async) {
+        c.send();
+        async.elapse(
+          SocketService.toolExecutionTimeout - const Duration(seconds: 1),
+        );
+        expect(c.replies, isEmpty);
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(c.replies, hasLength(1));
+        expect(c.replies.single['error'], isNotEmpty);
+      });
+    });
+
+    test(
+      'a call that timed out is no longer active for its executor',
+      () async {
+        final c = await connected();
+        c.admit();
+        late bool Function() active;
+        final started = Completer<void>();
+        c.service.toolExecutionHandler =
+            (call, {required admitted, required isActive}) {
+              active = isActive;
+              started.complete();
+              return Completer<Object?>().future;
+            };
+
+        fakeAsync((async) {
+          c.send();
+          async.flushMicrotasks();
+          expect(started.isCompleted, isTrue);
+          expect(active(), isTrue);
+          async.elapse(
+            SocketService.toolExecutionTimeout + const Duration(seconds: 1),
+          );
+          async.flushMicrotasks();
+          // The executor is still running, but must not start anything now.
+          expect(active(), isFalse);
+        });
+      },
+    );
+
+    test('a call whose connection ended is no longer active', () async {
+      final c = await connected();
+      c.admit();
+      late bool Function() active;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) {
+            active = isActive;
+            return Completer<Object?>().future;
+          };
+
+      c.send();
+      await _flushMicrotasks();
+      expect(active(), isTrue);
+      c.service.dispose();
+
+      expect(active(), isFalse);
+    });
+
+    test(
+      'is given exactly what the chat request admitted, and only for it',
+      () async {
+        final c = await connected();
+        Map<String, dynamic>? seen;
+        List<PersonalToolAdmission>? seenAdmitted;
+        c.service.toolExecutionHandler =
+            (call, {required admitted, required isActive}) async {
+              seen = call;
+              seenAdmitted = admitted;
+              return 'ok';
+            };
+
+        // Nothing was sent for this chat yet: refused, and the executor never ran.
+        c.send();
+        await _flushMicrotasks(2);
+        expect(c.replies.single['error'], 'Tool Server Not Found');
+        expect(seen, isNull);
+
+        c.admit();
+        c.send();
+        await _flushMicrotasks(2);
+        expect(seen?['chat_id'], 'background-chat');
+        expect(seen?['message_id'], 'assistant');
+        expect(seenAdmitted, [admission]);
+        expect(c.replies.last, 'ok');
+
+        // Another chat is not covered by it.
+        seen = null;
+        c.send(chatId: 'another-chat');
+        await _flushMicrotasks(2);
+        expect(seen, isNull);
+        expect(c.replies.last['error'], 'Tool Server Not Found');
+      },
+    );
+
+    test('a request for another session admits nothing here', () async {
+      final c = await connected();
+      var ran = false;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            ran = true;
+            return 'ok';
+          };
+      c.service.admitPersonalToolServers(
+        chatId: 'background-chat',
+        messageId: 'assistant',
+        sessionId: 'previous-session',
+        connections: const [admission],
+      );
+
+      c.send();
+      await _flushMicrotasks(2);
+
+      expect(ran, isFalse);
+      expect(c.replies.single['error'], 'Tool Server Not Found');
+    });
+
+    test('a finished completion stops admitting its callbacks', () async {
+      final c = await connected();
+      var runs = 0;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            runs++;
+            return 'ok';
+          };
+      c.admit();
+      c.send();
+      await _flushMicrotasks(2);
+      expect(runs, 1);
+
+      c.service.debugHandleChatEvent({
+        'chat_id': 'background-chat',
+        'message_id': 'assistant',
+        'data': {
+          'type': 'chat:completion',
+          'data': {'done': true},
+        },
+      });
+      c.send();
+      await _flushMicrotasks(2);
+
+      expect(runs, 1);
+      expect(c.replies.last['error'], 'Tool Server Not Found');
+    });
+
+    test('only a bounded number of requests stay admitted', () async {
+      final c = await connected();
+      var runs = 0;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            runs++;
+            return 'ok';
+          };
+      // One more request than fits: the first, oldest one is dropped.
+      for (var i = 0; i <= 32; i++) {
+        c.service.admitPersonalToolServers(
+          chatId: i == 0 ? 'background-chat' : 'chat-$i',
+          messageId: 'assistant',
+          sessionId: 'local-session',
+          connections: const [admission],
+        );
+      }
+
+      c.send();
+      await _flushMicrotasks(2);
+
+      expect(runs, 0);
+      expect(c.replies.single['error'], 'Tool Server Not Found');
+    });
+
+    test('a completed call is answered again without running again', () async {
+      final c = await connected();
+      c.admit();
+      var runs = 0;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            runs++;
+            return <Object?>[
+              {'created': runs},
+              <String, String>{},
+            ];
+          };
+
+      c.send(callId: 'same-call');
+      await _flushMicrotasks(2);
+      c.send(callId: 'same-call');
+      await _flushMicrotasks(2);
+
+      expect(runs, 1);
+      expect(c.replies, hasLength(2));
+      expect(c.replies.last, c.replies.first);
+    });
+
+    test(
+      'a completed call too large to keep is answered with an error',
+      () async {
+        final c = await connected();
+        c.admit();
+        var runs = 0;
+        c.service.toolExecutionHandler =
+            (call, {required admitted, required isActive}) async {
+              runs++;
+              return 'x' * (SocketService.maxCompletedToolReplyChars + 1);
+            };
+
+        c.send(callId: 'big-call');
+        await _flushMicrotasks(2);
+        c.send(callId: 'big-call');
+        await _flushMicrotasks(2);
+
+        expect(runs, 1);
+        expect(c.replies, hasLength(2));
+        expect(
+          c.replies.first,
+          hasLength(SocketService.maxCompletedToolReplyChars + 1),
+        );
+        expect(c.replies.last['error'], contains('already ran'));
+      },
+    );
+
+    test('only a bounded number of completed calls are remembered', () async {
+      final c = await connected();
+      c.admit();
+      var runs = 0;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            runs++;
+            return 'ok';
+          };
+
+      for (var i = 0; i <= SocketService.maxCompletedToolCalls; i++) {
+        c.send(callId: 'call-id-$i');
+        await _flushMicrotasks(2);
+      }
+      final before = runs;
+      // The first call has been forgotten, the last is still remembered.
+      c.send(callId: 'call-id-${SocketService.maxCompletedToolCalls}');
+      await _flushMicrotasks(2);
+      expect(runs, before);
+      c.send(callId: 'call-id-0');
+      await _flushMicrotasks(2);
+      expect(runs, before + 1);
+    });
   });
 
   test('inactive remains foreground and does not force reconnect', () async {

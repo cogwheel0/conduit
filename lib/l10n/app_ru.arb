@@ -975,6 +975,96 @@
   "saveChat": "Сохранить чат",
   "temporaryChatByDefault": "Временный чат по умолчанию",
   "temporaryChatByDefaultDescription": "Новые чаты не будут сохраняться в историю, если вы не сохраните их вручную",
+  "advancedFeatures": "Расширенные",
+  "advancedFeaturesDescription": "Показывать дополнительные инструменты и настройки чата.",
+  "chatSettingsTitle": "Настройки чата",
+  "chatSettingsApplied": "Настройки чата применены",
+  "chatSettingsAppliedDescription": "У этого чата есть сохранённые настройки, и они используются в каждом ответе.",
+  "chatSettingsTurnOnAdvanced": "Включите «Расширенные», чтобы изменить их",
+  "chatSettingsDescription": "Эти настройки действуют только в этом чате. Всё, что установлено на «Наследовать», использует ваши значения по умолчанию.",
+  "chatSettingsSystemPrompt": "Системный промпт",
+  "chatSettingsSystemPromptEmptyNote": "Пустой промпт не отправляет системный промпт вообще, даже если у вас есть промпт по умолчанию. Выберите «Наследовать», чтобы использовать его.",
+  "chatSettingsParameters": "Параметры",
+  "chatSettingsInherit": "Наследовать",
+  "chatSettingsModelDefault": "По умолчанию модели",
+  "chatSettingsCustom": "Свой",
+  "chatSettingsResetAll": "Сбросить всё",
+  "chatSettingsOtherKept": "Остальные сохранённые настройки остаются без изменений.",
+  "chatSettingsSystemPromptLocked": "Ваша учётная запись не может менять системный промпт.",
+  "chatSettingsParametersLocked": "Ваша учётная запись не может менять параметры.",
+  "chatSettingsOwnerChanged": "Учётная запись или чат изменились. Откройте настройки снова и повторите попытку.",
+  "chatSettingTemperature": "Температура",
+  "chatSettingTopP": "Top P",
+  "chatSettingTopK": "Top K",
+  "chatSettingMinP": "Min P",
+  "chatSettingFrequencyPenalty": "Штраф за частоту",
+  "chatSettingPresencePenalty": "Штраф за присутствие",
+  "chatSettingMaxTokens": "Макс. токенов",
+  "chatSettingSeed": "Seed",
+  "chatSettingStop": "Стоп-последовательности",
+  "chatSettingFunctionCalling": "Вызов инструментов",
+  "chatSettingFunctionCallingNative": "Нативный",
+  "chatSettingFunctionCallingLegacy": "Устаревший",
+  "chatSettingResponseFormat": "Формат ответа",
+  "chatSettingErrorRequired": "Введите значение.",
+  "chatSettingErrorNotANumber": "Введите число.",
+  "chatSettingErrorNotAWholeNumber": "Введите целое число.",
+  "chatSettingErrorRange": "Введите значение от {min} до {max}.",
+  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "chatSettingErrorMinimum": "Введите {min} или больше.",
+  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "chatSettingErrorNotJson": "Введите слово, например json, или корректную схему JSON.",
+  "chatSettingErrorNotAChoice": "Выберите поддерживаемое значение.",
+  "personalConnectionsTitle": "Личные подключения",
+  "personalConnectionsStoredOn": "Сохранено для {account} на {server}",
+  "personalConnectionsKeyStorageNote": "Ключи хранятся на сервере вместе с настройками вашей учётной записи Open WebUI.",
+  "personalConnectionsTerminals": "Терминалы",
+  "personalConnectionsEmptyToolServers": "Серверы инструментов не сохранены.",
+  "personalConnectionsEmptyTerminals": "Терминалы не сохранены.",
+  "personalConnectionsAddToolServer": "Добавить сервер инструментов",
+  "personalConnectionsAddTerminal": "Добавить терминал",
+  "personalConnectionsEditToolServer": "Изменить сервер инструментов",
+  "personalConnectionsEditTerminal": "Изменить терминал",
+  "personalConnectionsUnavailableServer": "На вашем сервере Open WebUI не включены личные серверы инструментов и терминалы.",
+  "personalConnectionsUnavailablePermission": "Вашей учётной записи не разрешено управлять личными серверами инструментов и терминалами.",
+  "personalConnectionsLoadFailed": "Не удалось загрузить ваши личные подключения.",
+  "personalConnectionsSaveFailed": "Не удалось сохранить. Ваши подключения не изменены.",
+  "personalConnectionsSaveRejected": "Сервер не сохранил это изменение. Возможно, вашей учётной записи не разрешено сохранять личные подключения.",
+  "personalConnectionsOwnerChanged": "Ваш аккаунт или доступ изменился с момента открытия. Ничего не сохранено и не отправлено, введённые данные остались здесь. Откройте это подключение снова, чтобы продолжить.",
+  "personalConnectionsSavedForPreviousAccount": "Сохранено в аккаунте, из которого открыта эта форма. Аккаунт, в который вы вошли сейчас, не изменён.",
+  "personalConnectionsDuplicate": "Другое подключение уже использует этот идентификатор.",
+  "personalConnectionsNotFound": "Это подключение изменено или удалено в другом месте. Обновите и повторите попытку.",
+  "personalConnectionsUrl": "URL",
+  "personalConnectionsPath": "Путь",
+  "personalConnectionsSpecSource": "Спецификация OpenAPI",
+  "personalConnectionsSpecFromUrl": "Получить по URL",
+  "personalConnectionsSpecInline": "Вставить JSON",
+  "personalConnectionsSpecJson": "JSON OpenAPI",
+  "personalConnectionsDescriptionField": "Описание",
+  "personalConnectionsAuth": "Аутентификация",
+  "personalConnectionsKeyKept": "Сохранённый ключ сохранён. Введите новый, чтобы заменить его.",
+  "personalConnectionsKeyRemove": "Удалить сохранённый ключ",
+  "personalConnectionsKeyWillRemove": "Сохранённый ключ будет удалён.",
+  "personalConnectionsKeyKeep": "Оставить сохранённый ключ",
+  "personalConnectionsTestConnection": "Проверить подключение",
+  "personalConnectionsTestOk": "Подключение работает. Найдено операций: {count}.",
+  "personalConnectionsTestOkTerminal": "Терминал ответил.",
+  "personalConnectionsTestUnauthorized": "Хост отклонил ключ.",
+  "personalConnectionsTestUnreachable": "Не удалось связаться с хостом.",
+  "personalConnectionsTestInvalidSpec": "Хост не вернул корректный документ OpenAPI.",
+  "personalConnectionsTestInvalidTarget": "Сначала введите корректные URL и путь.",
+  "personalConnectionsTestUnsupportedAuth": "Этот способ аутентификации нельзя проверить здесь.",
+  "personalConnectionsUnsupported": "Это подключение использует настройки, которые приложение не может изменить. Его всё равно можно включить, выключить или удалить.",
+  "personalConnectionsDeleteTitle": "Удалить подключение?",
+  "personalConnectionsDeleteMessage": "{name} будет удалено из вашей учётной записи Open WebUI.",
+  "personalConnectionsUrlRequired": "Введите URL.",
+  "personalConnectionsUrlInvalid": "Введите полный URL с http или https.",
+  "personalConnectionsPathRequired": "Введите путь.",
+  "personalConnectionsSpecInvalid": "Введите корректный документ JSON OpenAPI.",
+  "personalConnectionsSelectionCleared": "Удалено из этого чата, потому что подключение изменилось: {names}",
+  "personalConnectionsTerminalOneActive": "Включение одного терминала выключает остальные.",
+  "personalConnectionsNeedsAdvanced": "Включите «Расширенные» в настройках чата, чтобы управлять личными подключениями.",
+  "personalConnectionsNoAccount": "Войдите в учётную запись Open WebUI, чтобы управлять личными подключениями.",
   "chatSaved": "Чат сохранён в истории",
   "chatSaveFailed": "Не удалось сохранить чат",
   "sidebarChatsTab": "Чаты",
@@ -1217,6 +1307,11 @@
   "savedMemoriesCount": "Сохраненных воспоминаний: {count}",
   "memoryEditorDescription": "Делайте воспоминания короткими и конкретными, чтобы сервер применял их стабильно.",
   "memoryHint": "Пример: я предпочитаю краткие ответы с примерами кода.",
+  "memoryTypeLabel": "Тип",
+  "memoryTypeUser": "Пользователь",
+  "memoryTypeContext": "Контекст",
+  "memoryPathLabel": "Путь (необязательно)",
+  "memoryPathHint": "например, projects/conduit",
   "addMemory": "Добавить воспоминание",
   "editMemory": "Редактировать воспоминание",
   "deleteMemory": "Удалить воспоминание",
@@ -1889,6 +1984,9 @@
   "workspaceAccessEmpty": "Совместный доступ пока никому не предоставлен.",
   "workspaceAccessAddPeople": "Добавить пользователей или группы",
   "workspaceAccessAddGroups": "Добавить группы",
+  "workspaceAccessAddUsers": "Добавить пользователей",
+  "workspaceAccessGroupsDisabled": "Предоставление доступа группам отключено; можно делиться только с отдельными пользователями.",
+  "workspaceAccessGrantsDisabled": "У вас нет прав предоставлять доступ пользователям или группам. Существующий доступ сохраняется.",
   "workspaceAccessVisibilityLabel": "Общий доступ",
   "workspaceAccessVisibilityDescription": "Любой пользователь на этом сервере может просматривать этот ресурс.",
   "workspaceAccessGroupBadge": "Группа",
@@ -3339,6 +3437,38 @@
   "citationShowTitlesDescription": "Использовать заголовки страниц вместо доменов сайтов в значках источников",
   "notificationSystemSettingsDescription": "Измените разрешения, звук и параметры баннеров для Conduit.",
   "notificationSystemSettingsOpenFailed": "Не удалось открыть системные настройки уведомлений.",
+  "notificationTargetsTitle": "Адреса webhook",
+  "notificationTargetsDescription": "Ваш сервер Open WebUI отправляет события на эти URL, даже когда приложение закрыто.",
+  "notificationTargetsAdd": "Добавить адрес",
+  "notificationTargetsEmpty": "Адресов webhook пока нет.",
+  "notificationTargetsLoadFailed": "Не удалось загрузить адреса webhook.",
+  "notificationTargetsStale": "Сохранено, но не удалось обновить список.",
+  "notificationTargetsNativeDescription": "Добавление и управление адресами webhook",
+  "notificationTargetsUnavailable": "Адреса webhook недоступны для этого аккаунта.",
+  "notificationTargetsAccountChanged": "Аккаунт изменился. Закройте это окно и снова откройте адрес.",
+  "notificationTargetNewTitle": "Новый адрес",
+  "notificationTargetEditTitle": "Изменить адрес",
+  "notificationTargetNameLabel": "Название (необязательно)",
+  "notificationTargetNameHint": "например, team-chat",
+  "notificationTargetUrlLabel": "Webhook URL",
+  "notificationTargetUrlHint": "https://example.com/webhook",
+  "notificationTargetUrlKeepHint": "Оставьте пустым, чтобы сохранить текущий URL",
+  "notificationTargetUrlRequired": "Введите URL webhook.",
+  "notificationTargetEnabledTitle": "Включено",
+  "notificationTargetDeliveryLabel": "Доставка",
+  "notificationTargetDeliveryAway": "Когда меня нет",
+  "notificationTargetDeliveryAlways": "Всегда",
+  "notificationTargetEventsLabel": "События",
+  "notificationTargetEventsUnavailable": "Не удалось загрузить список событий сервера.",
+  "notificationTargetUnknownEvent": "Этого события нет в списке событий этого сервера. Подписка сохраняется, пока вы её не отключите.",
+  "notificationTargetDefaultBadge": "По умолчанию",
+  "notificationTargetMakeDefault": "Сделать основным",
+  "notificationTargetTest": "Отправить тестовое уведомление",
+  "notificationTargetTestSent": "Тестовое уведомление отправлено.",
+  "notificationTargetTestFailed": "Не удалось доставить тестовое уведомление.",
+  "notificationTargetDelete": "Удалить адрес",
+  "notificationTargetDeleteConfirm": "Удалить «{name}»? Сервер перестанет отправлять на него уведомления.",
+  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
   "notificationSystemSettingsTitle": "Системные настройки уведомлений",
   "proxyAuthSignInAgain": "Войти через прокси ещё раз",
   "readOnly": "Только чтение",
@@ -3400,5 +3530,556 @@
   "voiceCallNoSpeech": "Речь не обнаружена.",
   "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
   "voiceCallFailed": "Не удалось продолжить голосовой вызов.",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."}
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "personalToolSettings": "Настройки инструментов",
+  "personalToolSettingsDescription": "Ваши личные параметры для выбранных инструментов и модели.",
+  "personalToolSettingsYours": "Ваши настройки",
+  "personalToolSettingsUnavailable": "Ваши настройки недоступны для этого элемента.",
+  "personalToolSettingsOwnerChanged": "Учётная запись изменилась, поэтому ничего не сохранено. Откройте настройки снова, чтобы продолжить.",
+  "personalToolSettingsInvalid": "Сервер не принял эти значения.",
+  "noteReadOnlyNotice": "Эта заметка доступна только для чтения. Вы можете читать её, но не изменять.",
+  "noteAccessUnverifiedNotice": "Подключитесь снова, чтобы подтвердить, что вы можете редактировать эту заметку.",
+  "noteAccessRevokedNotice": "Вы больше не можете редактировать эту заметку. Несохранённые изменения сохранены здесь.",
+  "noteSaveAsOwnNote": "Сохранить как мою заметку",
+  "noteDiscardChanges": "Отменить изменения",
+  "noteSessionChangedNotice": "Аккаунт, в который выполнен вход, изменился, поэтому заметка не была сохранена.",
+  "noteNoAccess": "У вас больше нет доступа к этой заметке.",
+  "noteShare": "Поделиться заметкой",
+  "folderShareSettings": "Настройки доступа",
+  "chatShareAudience": "Аудитория",
+  "chatShareAudienceDescription": "Выберите, кто может открыть общий чат",
+  "resourceSharingSaved": "Параметры доступа обновлены",
+  "resourceSharingFiltered": "Сохранено. Сервер оставил только часть выбранного доступа.",
+  "resourceSharingSessionChanged": "Аккаунт, в который выполнен вход, изменился, поэтому ничего не сохранено. Закройте это окно и откройте его снова.",
+  "resourceSharingDenied": "Вы больше не можете менять, у кого есть доступ к этому элементу.",
+  "resourceSharingMissing": "Этот элемент больше не существует.",
+  "resourceSharingLoadFailed": "Не удалось загрузить список тех, у кого есть доступ.",
+  "resourceSharingSaveFailed": "Не удалось сохранить доступ. Повторите попытку.",
+  "resourceAudienceLabel": "Аудитория",
+  "resourceAudiencePrivate": "Приватно",
+  "resourceAudiencePublic": "Для всех на сервере",
+  "resourceAudienceOpen": "По ссылке",
+  "resourceAudiencePrivateHint": "Открыть могут только перечисленные ниже пользователи и группы.",
+  "resourceAudiencePublicHint": "Открыть может любой пользователь этого сервера.",
+  "resourceAudienceOpenHint": "Просмотреть может любой, у кого есть ссылка.",
+  "channelMembersSearchHint": "Поиск участников",
+  "channelMembersEmpty": "Участники не найдены.",
+  "channelMembersLoadFailed": "Не удалось загрузить участников.",
+  "channelMembersLoadMore": "Загрузить еще",
+  "channelMembersLoadMoreFailed": "Не удалось загрузить больше участников. Нажмите, чтобы повторить попытку.",
+  "channelMembersAdd": "Добавить участников",
+  "channelMembersAddConfirm": "Добавить",
+  "channelMembersRemoveMember": "Удалить: {name}",
+  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "channelMembersChangeFailed": "Не удалось обновить список участников. Повторите попытку.",
+  "channelMembersChangeDenied": "Сервер не разрешил это изменение.",
+  "channelMembersChangeNotPermitted": "У вас нет прав управлять участниками этого канала.",
+  "chatBranchContinueFromResponse": "Продолжить с этого ответа",
+  "chatBranchForkChat": "Создать ветку чата отсюда",
+  "chatBranchSwitcherSemantics": "Изменённое сообщение, версия {position} из {total}. Показать все версии.",
+  "@chatBranchSwitcherSemantics": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchSheetTitle": "Версии сообщения",
+  "chatBranchSheetDescription": "Выберите версию, с которой продолжить. Каждая версия сохраняет свои ответы.",
+  "chatBranchVersionTitle": "Версия {position}",
+  "@chatBranchVersionTitle": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchVersionCurrent": "Текущая ветка",
+  "chatBranchSelectedNotice": "Продолжение с версии {position} из {total}",
+  "@chatBranchSelectedNotice": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchWaitForResponse": "Дождитесь завершения этого ответа",
+  "chatBranchUnavailable": "Ветки этого чата нельзя изменить здесь.",
+  "chatBranchOwnerChanged": "Вошедший аккаунт изменился, поэтому ничего не было изменено.",
+  "chatBranchMessageMissing": "Эта версия больше недоступна.",
+  "chatForkOffline": "Подключитесь к интернету, чтобы создать ветку этого чата.",
+  "chatForkForbidden": "Вашему аккаунту нельзя создавать ветки чатов.",
+  "chatForkSourceMissing": "На сервере больше нет этого чата.",
+  "chatForkUnsupported": "Этот сервер не поддерживает создание веток чатов.",
+  "chatForkFailed": "Не удалось создать ветку этого чата. Попробуйте ещё раз.",
+  "codeInterpreter": "Интерпретатор кода",
+  "codeInterpreterDescription": "Запускайте код на сервере, чтобы анализировать данные и создавать файлы.",
+  "codeInterpreterBrowserEngine": "Этот сервер выполняет код в браузере, а Conduit этого не умеет.",
+  "codeInterpreterUnavailable": "Интерпретатор кода недоступен для этого сервера, учётной записи или модели.",
+  "folderProjectSettings": "Настройки проекта",
+  "folderProjectSettingsDescription": "Параметры по умолчанию для новых чатов в этой папке. Сервер применяет её знания и системный промпт к каждому чату в ней.",
+  "folderProjectModels": "Модели по умолчанию",
+  "folderProjectModelsHint": "Новый чат начинается с первой доступной из этих моделей.",
+  "folderProjectNoKnowledge": "Знания не подключены.",
+  "folderProjectNoModels": "Модели по умолчанию нет. Новые чаты используют вашу модель по умолчанию.",
+  "folderProjectAddKnowledge": "Добавить знания",
+  "folderProjectAddModel": "Добавить модель",
+  "folderProjectAddSelected": "Добавить",
+  "folderProjectNothingToAdd": "Добавлять больше нечего.",
+  "folderProjectNotAvailable": "Недоступно",
+  "folderProjectMoveUp": "Переместить {name} вверх",
+  "folderProjectRemove": "Удалить {name}",
+  "folderProjectKindCollection": "База знаний",
+  "folderProjectKindFile": "Файл",
+  "folderProjectKindNote": "Заметка",
+  "folderProjectOwnerChanged": "Аккаунт, в который выполнен вход, изменился, поэтому ничего не сохранено. Откройте настройки проекта снова, чтобы продолжить.",
+  "folderProjectReadOnly": "Эта общая папка доступна только для чтения, поэтому её настройки проекта нельзя изменить.",
+  "folderProjectGone": "Эта папка больше недоступна.",
+  "folderProjectModelFallbackNotice": "Модель этой папки по умолчанию недоступна, поэтому используется ваша модель по умолчанию.",
+  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTasksTitle": "Запланированные задачи",
+  "scheduledTasksDescription": "Ваш сервер Open WebUI выполняет эти задачи по собственному расписанию, даже когда этот телефон не в сети.",
+  "scheduledTasksNeedsAdvanced": "Включите «Расширенные» в настройках, чтобы управлять запланированными задачами. Задачи, уже находящиеся на сервере, продолжают выполняться.",
+  "scheduledTasksUnavailable": "Запланированные задачи недоступны для этого аккаунта на этом сервере.",
+  "scheduledTasksSearchHint": "Поиск задач",
+  "scheduledTasksFilterAll": "Все",
+  "scheduledTasksFilterActive": "Активные",
+  "scheduledTasksFilterPaused": "Приостановленные",
+  "scheduledTasksEmpty": "Запланированных задач пока нет.",
+  "scheduledTasksEmptyFiltered": "Подходящих задач нет.",
+  "scheduledTasksLoadFailed": "Не удалось загрузить запланированные задачи.",
+  "scheduledTasksStale": "Список может быть устаревшим. Нажмите, чтобы обновить.",
+  "scheduledTasksLoadMore": "Загрузить еще",
+  "scheduledTasksAdd": "Новая запланированная задача",
+  "scheduledTasksAccountChanged": "Аккаунт изменился. Чтобы продолжить, снова откройте запланированные задачи.",
+  "scheduledTasksNotFound": "Этой задачи больше не существует.",
+  "scheduledTaskStatusActive": "Активна",
+  "scheduledTaskStatusPaused": "Приостановлена",
+  "scheduledTaskNextRun": "Следующий запуск: {time}",
+  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNoNextRun": "Предстоящих запусков нет",
+  "scheduledTaskLastRun": "Последний запуск: {time}",
+  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNeverRun": "Ещё не запускалась",
+  "scheduledTaskScheduleOnce": "Один раз",
+  "scheduledTaskScheduleDaily": "Ежедневно",
+  "scheduledTaskScheduleWeekly": "Еженедельно",
+  "scheduledTaskScheduleOnceSummary": "Один раз, {date}",
+  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "scheduledTaskScheduleDailySummary": "Ежедневно в {time}",
+  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskScheduleWeeklySummary": "{days} в {time}",
+  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "scheduledTaskScheduleCustom": "Своё расписание",
+  "scheduledTaskNewTitle": "Новая запланированная задача",
+  "scheduledTaskEditTitle": "Изменить запланированную задачу",
+  "scheduledTaskNameLabel": "Название",
+  "scheduledTaskPromptLabel": "Инструкции",
+  "scheduledTaskPromptHint": "Что модель должна делать при каждом запуске?",
+  "scheduledTaskModelLabel": "Модель",
+  "scheduledTaskModelChoose": "Выберите модель",
+  "scheduledTaskModelUnavailable": "{id} (больше недоступна)",
+  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "scheduledTaskScheduleLabel": "Расписание",
+  "scheduledTaskTimeLabel": "Время",
+  "scheduledTaskDateLabel": "Дата",
+  "scheduledTaskDaysLabel": "Дни",
+  "scheduledTaskAdvancedSchedule": "Расширенное расписание",
+  "scheduledTaskRruleLabel": "Правило повторения",
+  "scheduledTaskRruleKept": "Это расписание использует правило, которое нельзя изменить с помощью этих элементов управления. Оно останется прежним, пока вы его не измените.",
+  "scheduledTaskTimezoneNote": "Время определяется часовым поясом вашего аккаунта Open WebUI, который задаётся в веб-приложении, а не обязательно этим устройством. Когда именно произойдёт каждый запуск, решает сервер.",
+  "scheduledTaskActiveLabel": "Активна",
+  "scheduledTaskDestinationLabel": "Результат отправляется в",
+  "scheduledTaskDestinationChat": "Новый чат",
+  "scheduledTaskDestinationChannel": "Канал",
+  "scheduledTaskFolderLabel": "Папка",
+  "scheduledTaskFolderNone": "Нет",
+  "scheduledTaskFolderUnavailable": "Сохранённая папка (больше недоступна)",
+  "scheduledTaskChannelChoose": "Выберите канал",
+  "scheduledTaskChannelUnavailable": "Сохранённый канал (больше недоступен)",
+  "scheduledTaskChannelNoWrite": "Вы не можете писать в этот канал.",
+  "scheduledTaskNameRequired": "Введите название.",
+  "scheduledTaskPromptRequired": "Введите инструкции.",
+  "scheduledTaskModelRequired": "Выберите модель.",
+  "scheduledTaskModelUnavailableIssue": "Выберите модель, доступную сейчас.",
+  "scheduledTaskChannelRequired": "Выберите канал.",
+  "scheduledTaskChannelUnavailableIssue": "Выберите канал, доступный сейчас.",
+  "scheduledTaskFolderUnavailableIssue": "Выберите папку, доступную сейчас, или не выбирайте папку.",
+  "scheduledTaskScheduleIncomplete": "Заполните расписание.",
+  "scheduledTaskSaveFailed": "Не удалось сохранить эту задачу.",
+  "scheduledTaskRunNow": "Запустить сейчас",
+  "scheduledTaskRunRequested": "Запуск запрошен. Сервер выполняет его в фоновом режиме, а результат появится в истории по завершении.",
+  "scheduledTaskRunRequestFailed": "Не удалось запросить запуск.",
+  "scheduledTaskNextRunsLabel": "Предстоящие запуски (по данным сервера)",
+  "scheduledTaskHistoryTitle": "История",
+  "scheduledTaskHistoryEmpty": "Запусков пока нет.",
+  "scheduledTaskHistoryLoadFailed": "Не удалось загрузить историю.",
+  "scheduledTaskRunSucceeded": "Выполнено",
+  "scheduledTaskRunFailedStatus": "Ошибка",
+  "scheduledTaskViewChat": "Открыть чат",
+  "scheduledTaskViewChannel": "Открыть канал",
+  "scheduledTaskOpenResultFailed": "Не удалось открыть этот результат.",
+  "scheduledTaskDelete": "Удалить задачу",
+  "scheduledTaskDeleteConfirm": "Удалить «{name}»? Сервер перестанет её выполнять, а её история будет удалена.",
+  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTaskChangeFailed": "Не удалось изменить эту задачу.",
+  "scheduledTaskTerminalKept": "К этой задаче подключён терминал. При редактировании он сохраняется.",
+  "scheduledTaskPromptSection": "Инструкции",
+  "queueDraftAction": "В очередь",
+  "queuedDraftsTitle": "Сообщения в очереди",
+  "queuedDraftsCount": "{count, plural, one{{count} сообщение в очереди} few{{count} сообщения в очереди} many{{count} сообщений в очереди} other{{count} сообщения в очереди}}",
+  "queuedDraftsSessionNote": "Сообщения в очереди хранятся, только пока Conduit открыт. Когда ответ завершится, они будут отправлены вместе как одно сообщение.",
+  "queuedDraftSendNow": "Отправить сейчас",
+  "queuedDraftUploading": "Ожидание загрузки файла",
+  "queuedDraftFileFailed": "Файл не загрузился. Удалите его, чтобы отправить это сообщение.",
+  "queuedDraftsSendFailed": "Не удалось отправить сообщения из очереди. Они остаются в очереди.",
+  "queuedDraftsSending": "Отправка сообщений из очереди…",
+  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarTitle": "Календарь",
+  "calendarDescription": "Ваш календарь Open WebUI. События хранятся на сервере и показываются в часовом поясе этого устройства.",
+  "calendarNeedsAdvanced": "Включите «Расширенные» в настройках, чтобы пользоваться календарём. События, уже находящиеся на сервере, это не затрагивает.",
+  "calendarUnavailable": "Календарь недоступен для этого аккаунта на этом сервере.",
+  "calendarTimezoneNote": "Время показывается в часовом поясе этого устройства. Повторяющиеся события разворачиваются сервером в часовом поясе вашего аккаунта.",
+  "calendarRangeLabel": "{start} – {end}",
+  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "calendarEarlier": "Раньше",
+  "calendarLater": "Позже",
+  "calendarToday": "Сегодня",
+  "calendarAllCalendars": "Все календари",
+  "calendarEmpty": "В этом периоде нет событий.",
+  "calendarLoadFailed": "Не удалось загрузить календарь.",
+  "calendarStale": "Календарь может быть устаревшим.",
+  "calendarAddEvent": "Новое событие",
+  "calendarManageCalendars": "Календари",
+  "calendarAllDay": "Весь день",
+  "calendarRepeatsMarker": "Повторяется",
+  "calendarUntitledEvent": "Событие без названия",
+  "calendarScheduledUpcoming": "Запланированная задача",
+  "calendarScheduledRunFinished": "Запуск задачи завершён",
+  "calendarScheduledRunFailed": "Запуск задачи завершился ошибкой",
+  "calendarScheduledEntryReadOnly": "Запланированными задачами управляют на странице «Запланированные задачи», а не как событиями.",
+  "calendarEventDetailTitle": "Событие",
+  "calendarEventCalendar": "Календарь: {name}",
+  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventOrganizer": "Организатор: {name}",
+  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
+  "calendarEventSeriesNote": "Это событие повторяется. Изменения и удаление применяются ко всей серии.",
+  "calendarEventInvitedCount": "Приглашено: {count}",
+  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarRsvpPrompt": "Ваш ответ",
+  "calendarRsvpAccepted": "Пойду",
+  "calendarRsvpTentative": "Возможно",
+  "calendarRsvpDeclined": "Не пойду",
+  "calendarRsvpPending": "Ответа пока нет",
+  "calendarRsvpFailed": "Не удалось отправить ответ.",
+  "calendarEventEdit": "Изменить",
+  "calendarEventEditSeries": "Изменить серию",
+  "calendarEventDelete": "Удалить",
+  "calendarEventDeleteSeries": "Удалить серию",
+  "calendarEventDeleteConfirm": "Удалить «{title}»? Это действие нельзя отменить.",
+  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteSeriesConfirm": "Удалить «{title}» и все его повторения? Это действие нельзя отменить.",
+  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteFailed": "Не удалось удалить это событие.",
+  "calendarEventLoadFailed": "Не удалось открыть это событие для редактирования.",
+  "calendarEventReadOnly": "Вы не можете изменить это событие. Ответить на приглашение по-прежнему можно.",
+  "calendarEventGone": "Этого события больше не существует. Расписание обновляется.",
+  "calendarNewEventTitle": "Новое событие",
+  "calendarEditEventTitle": "Изменить событие",
+  "calendarEditSeriesTitle": "Изменить серию",
+  "calendarFieldTitle": "Название",
+  "calendarFieldDescription": "Описание",
+  "calendarFieldLocation": "Место",
+  "calendarFieldAllDay": "Весь день",
+  "calendarFieldStarts": "Начало",
+  "calendarFieldStartTime": "Время начала",
+  "calendarFieldEnds": "Окончание",
+  "calendarFieldEndTime": "Время окончания",
+  "calendarAddEnd": "Добавить окончание",
+  "calendarFieldRepeat": "Повтор",
+  "calendarRepeatNone": "Не повторяется",
+  "calendarRepeatDaily": "Ежедневно",
+  "calendarRepeatWeekdays": "По будням",
+  "calendarRepeatWeekly": "Еженедельно",
+  "calendarRepeatMonthly": "Ежемесячно",
+  "calendarRepeatYearly": "Ежегодно",
+  "calendarRepeatCustom": "Свой повтор",
+  "calendarRepeatKept": "Это событие повторяется по правилу, которое нельзя изменить здесь. Оно сохранится, пока вы не выберете другой повтор.",
+  "calendarRecurrenceTimezoneNote": "Повторы следуют часовому поясу вашего аккаунта, который может отличаться от часового пояса этого устройства.",
+  "calendarFieldCalendar": "Календарь",
+  "calendarChooseCalendar": "Выберите календарь",
+  "calendarFieldAttendees": "Участники",
+  "calendarAddPeople": "Добавить участников",
+  "calendarInvitedPerson": "Приглашённый участник",
+  "calendarRemovePerson": "Удалить: {name}",
+  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "calendarAttendeesNote": "Приглашённые отвечают сами за себя. Их ответы сохраняются при изменении списка.",
+  "calendarNoWritableCalendar": "У вас нет календаря, в который можно добавлять события. Создайте календарь, чтобы продолжить.",
+  "calendarTitleRequired": "Введите название.",
+  "calendarCalendarRequired": "Выберите календарь.",
+  "calendarEndBeforeStart": "Окончание не может быть раньше начала.",
+  "calendarSaveFailed": "Не удалось сохранить это событие.",
+  "calendarCalendarsTitle": "Календари",
+  "calendarPickTitle": "Выберите календарь",
+  "calendarEmptyCalendars": "Календарей пока нет.",
+  "calendarDefaultBadge": "По умолчанию",
+  "calendarSharedBadge": "Общий",
+  "calendarReadOnlyBadge": "Только чтение",
+  "calendarMakeDefault": "Сделать основным",
+  "calendarMakeDefaultFailed": "Не удалось изменить календарь по умолчанию.",
+  "calendarNewCalendar": "Новый календарь",
+  "calendarNewCalendarHint": "Название календаря",
+  "calendarCreateCalendar": "Создать календарь",
+  "calendarNameRequired": "Введите название календаря.",
+  "calendarCreateFailed": "Не удалось создать календарь.",
+  "calendarWriteDenied": "Ваш аккаунт не может внести это изменение в данном календаре.",
+  "calendarNotInvited": "Вас не приглашали на это событие.",
+  "calendarNotFound": "Этот календарь или событие не найдены.",
+  "calendarAccountChanged": "Аккаунт изменился, пока это окно было открыто. Закройте его и повторите попытку.",
+  "chatDataControlsTitle": "Управление данными",
+  "chatDataControlsStoredOn": "Чаты аккаунта {account} на сервере {server}",
+  "@chatDataControlsStoredOn": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsUnavailable": "Для управления данными нужно включить «Расширенные» и войти в аккаунт Open WebUI.",
+  "chatDataControlsMediaNote": "Резервная копия содержит историю чатов, настройки и ссылки на вложения, сохранённые на сервере. Сами прикреплённые файлы и изображения в неё не входят.",
+  "chatDataControlsLocalOnly": "Только на этом устройстве: {count}",
+  "@chatDataControlsLocalOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsent": "С изменениями, которые сервер не получил: {count}",
+  "@chatDataControlsUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsyncedNote": "Резервная копия сервера не включает их, пока они не отправлены.",
+  "chatDataControlsSyncNow": "Синхронизировать сейчас",
+  "chatDataControlsSyncing": "Синхронизация…",
+  "chatDataControlsBackupSection": "Резервное копирование и восстановление",
+  "chatDataControlsManageSection": "Все чаты",
+  "chatDataControlsExportLibrary": "Экспортировать все чаты",
+  "chatDataControlsImport": "Импортировать чаты",
+  "chatDataControlsArchiveAll": "Архивировать все чаты",
+  "chatDataControlsUnarchiveAll": "Вернуть все чаты из архива",
+  "chatDataControlsUnshareAll": "Удалить все ссылки для доступа",
+  "chatDataControlsDeleteAll": "Удалить все чаты",
+  "chatDataControlsExporting": "Экспорт… прочитано чатов: {count}",
+  "@chatDataControlsExporting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportReady": "Резервная копия готова. Сохранено чатов: {count}",
+  "@chatDataControlsExportReady": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportEmpty": "На сервере нет чатов для резервного копирования.",
+  "chatDataControlsExportFailed": "Резервная копия не сохранена. Экспорт был прерван или неполон.",
+  "chatDataControlsExportStopped": "Экспорт остановлен. Ничего не сохранено.",
+  "chatDataControlsExportConfirmTitle": "Создать резервную копию данных с сервера?",
+  "chatDataControlsExportConfirmMessage": "Будут сохранены чаты аккаунта {account}, хранящиеся на сервере {server}. Чаты, существующие только на этом устройстве, и изменения, которые сервер не получил, не включаются.",
+  "@chatDataControlsExportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsExportAction": "Создать копию",
+  "chatDataControlsImportConfirmTitle": "Импортировать эти чаты?",
+  "chatDataControlsImportConfirmMessage": "Добавить чаты из файла в аккаунт {account} на сервере {server}? Чатов: {chats}. Сообщений: {messages}. Уже существующие чаты не заменяются; при импорте добавляются копии.",
+  "@chatDataControlsImportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      },
+      "chats": {
+        "type": "int"
+      },
+      "messages": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportAction": "Импортировать",
+  "chatDataControlsImportInvalid": "Этот файл не является экспортом чатов Open WebUI.",
+  "chatDataControlsImportEmpty": "В этом файле нет чатов.",
+  "chatDataControlsImportTooLarge": "Этот файл слишком велик, чтобы импортировать его за один шаг.",
+  "chatDataControlsImportBadEntry": "Чат номер {position} в файле не удаётся импортировать.",
+  "@chatDataControlsImportBadEntry": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportChooseAnother": "Выбрать другой файл",
+  "chatDataControlsImportFile": "Файл: {name}",
+  "@chatDataControlsImportFile": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsImported": "Импорт завершён. Импортировано чатов: {count}",
+  "@chatDataControlsImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportedSyncNote": "Часть чатов появится здесь после следующей синхронизации.",
+  "chatDataControlsImportUnknown": "Сервер не ответил, поэтому неизвестно, были ли чаты импортированы. Прежде чем импортировать снова, проверьте свои чаты; повторный импорт добавляет копии.",
+  "chatDataControlsForbidden": "Этому аккаунту это действие не разрешено.",
+  "chatDataControlsArchiveAllMessage": "Архивировать все ваши чаты на сервере? Позже их можно вернуть из архива.",
+  "chatDataControlsUnarchiveAllMessage": "Вернуть из архива все ваши архивные чаты на сервере?",
+  "chatDataControlsUnshareAllMessage": "Удалить все созданные вами ссылки для доступа? Те, у кого есть ссылка, потеряют доступ. Сами чаты останутся.",
+  "chatDataControlsDeleteAllMessage": "Удалить все чаты аккаунта {account} на сервере {server}? Это действие нельзя отменить. Чаты, существующие только на этом устройстве, будут сохранены.",
+  "@chatDataControlsDeleteAllMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsDeleteUnsentMessage": "Ещё не отправлено на сервер — чатов с изменениями: {edits}; чатов с ответами в очереди: {replies}. При удалении они будут потеряны.",
+  "@chatDataControlsDeleteUnsentMessage": {
+    "placeholders": {
+      "edits": {
+        "type": "int"
+      },
+      "replies": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsDiscardAndDelete": "Отбросить и удалить",
+  "chatDataControlsResponseRunning": "Ответ ещё формируется. Остановите его и повторите попытку.",
+  "chatDataControlsLocalChanged": "Пока шло ожидание, чат, существовавший только на этом устройстве, попал на сервер. Ничего не изменено. Проверьте и повторите попытку.",
+  "chatDataControlsDone": "Готово.",
+  "chatDataControlsRefused": "Сервер не смог это выполнить. Ничего не изменено.",
+  "chatDataControlsUnknown": "Сервер не ответил, поэтому результат неизвестен. Проверьте свои чаты; повторное выполнение безопасно.",
+  "chatDataControlsOwnerChanged": "Аккаунт, в который выполнен вход, изменился. Ничего не выполнено.",
+  "chatDataControlsAccountUnknown": "Этот аккаунт пока не удалось определить. Выполните синхронизацию и повторите попытку.",
+  "chatDataControlsWaiting": "Ожидание завершения синхронизации…",
+  "chatExportAction": "Экспортировать чат",
+  "chatExportJson": "Резервная копия (JSON)",
+  "chatExportJsonDescription": "Весь чат со всеми ветками и их настройками. Open WebUI может его импортировать.",
+  "chatExportMarkdown": "Расшифровка (Markdown)",
+  "chatExportMarkdownDescription": "Текущая беседа в виде читаемого текста. Это не резервная копия.",
+  "chatExportUnsentNote": "Включает изменения, которые сервер ещё не получил.",
+  "chatExportFailed": "Не удалось экспортировать чат.",
+  "chatDataControlsWorkChanged": "Пока шло ожидание, на этом устройстве появились неотправленные изменения. Ничего не удалено. Проверьте и повторите попытку.",
+  "chatComparisonTabsLabel": "Ответы моделей",
+  "chatComparisonSlotLabel": "{model} · {number}",
+  "@chatComparisonSlotLabel": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      },
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "chatComparisonUnnamedModel": "Модель",
+  "chatComparisonSlotResponding": "Отвечает",
+  "chatComparisonSlotFailed": "Ошибка",
+  "chatMergedResponseTitle": "Объединённый ответ",
+  "chatCompareModelsAction": "Сравнить модели",
+  "chatCompareModelsDescription": "Отправить это сообщение двум моделям и сравнить их ответы.",
+  "chatCompareNeedsMessage": "Сначала введите сообщение, затем сравните модели.",
+  "chatCompareFirstModel": "Первая модель",
+  "chatCompareSecondModel": "Вторая модель",
+  "chatCompareChooseModel": "Выберите модель",
+  "chatCompareStart": "Сравнить",
+  "chatCompareErrorUnavailable": "Сравнение моделей недоступно в этом чате.",
+  "chatCompareErrorModelUnavailable": "Недоступно на этом сервере: {models}.",
+  "@chatCompareErrorModelUnavailable": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorVision": "Не умеют читать изображения: {models}. Удалите изображение или выберите другие модели.",
+  "@chatCompareErrorVision": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorTerminal": "Не могут использовать выбранный терминал: {models}. Отключите терминал или выберите другие модели.",
+  "@chatCompareErrorTerminal": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorInterpreter": "Не могут запускать интерпретатор кода: {models}. Отключите его или выберите другие модели.",
+  "@chatCompareErrorInterpreter": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortOverride": "В этом чате сохранён уровень рассуждений, который не могут использовать: {models}. Удалите его в настройках чата или выберите другие модели.",
+  "@chatCompareErrorEffortOverride": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortPicker": "Выбранным моделям нужны разные уровни рассуждений. Задайте одинаковый уровень для обеих или выберите другие модели.",
+  "chatMergeResponsesAction": "Объединить ответы",
+  "chatMergeStopAction": "Остановить объединение",
+  "chatMergeErrorUnavailable": "Этот сервер не может объединять ответы.",
+  "chatMergeErrorFailed": "Не удалось объединить ответы. Исходные ответы не изменены.",
+  "chatMergeErrorNotMergeable": "Чтобы объединить ответы, каждый из них должен завершаться текстом.",
+  "chatMergeErrorOwnerChanged": "Аккаунт или чат изменился, поэтому объединение остановлено.",
+  "chatComparisonStopAnswerAction": "Остановить этот ответ",
+  "chatMergeChooseDescription": "Выберите ответы для объединения. Выберите не меньше двух; исходные ответы остаются без изменений.",
+  "folderProjectComparisonFallbackNotice": "Не все сохранённые в этом проекте модели можно использовать, поэтому чат начинается с меньшим их числом. Для сравнения используются ровно две."
 }

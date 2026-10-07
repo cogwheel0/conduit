@@ -560,6 +560,9 @@ class NoteAttachmentsController {
     required Map<String, dynamic> attachment,
     required bool Function() canCommit,
   }) async {
+    // The account the recording was attached under, taken before the first
+    // await; `canCommit` below fences the epoch it belongs to.
+    final String? accountId = _container.read(currentUserProvider2)?.id;
     final String resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
     if (!canCommit()) return null;
 
@@ -569,6 +572,13 @@ class NoteAttachmentsController {
       if (!canCommit()) return;
       final NoteRow? existingRow = await db.notesDao.getNote(resolvedId);
       if (existingRow == null || existingRow.deleted || !canCommit()) return;
+      // Attaching changes the note's data like any edit, so a read-only note
+      // refuses it here rather than queueing an update the server rejects.
+      requireNoteWriteAccess(
+        existingRow,
+        noteId: resolvedId,
+        accountId: accountId,
+      );
       noteAvailable = true;
 
       final Map<String, dynamic> existingData = decodeNoteData(

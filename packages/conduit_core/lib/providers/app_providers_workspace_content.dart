@@ -1,5 +1,27 @@
 part of 'app_providers.dart';
 
+/// The account, server and database a project editor opened under.
+///
+/// The [Folders] notifier outlives an account switch and rebuilds for the next
+/// account, so reaching it says nothing about whose folder a later Save would
+/// change. The editor captures this before its first await and hands it back
+/// for every read and write; once the API, sign-in session or database no
+/// longer match, both refuse before sending or writing anything.
+@immutable
+final class FolderProjectOwner {
+  const FolderProjectOwner._(
+    this._api,
+    this._auth,
+    this._ownership,
+    this._database,
+  );
+
+  final ApiService _api;
+  final ApiAuthSnapshot _auth;
+  final OpenWebUiCacheOwnershipSnapshot _ownership;
+  final AppDatabase _database;
+}
+
 // Folders provider — Drift-backed read path (CDT-RFC-001 Phase 1). Renders
 // from `FoldersDao.watchFolders()`; server-confirmed mutations land in memory
 // and in the database in the same call so the next emission agrees.
@@ -106,6 +128,192 @@ class Folders extends _$Folders {
     Folder Function(Folder folder) transform,
   ) {
     updateFolder(id, transform);
+  }
+
+  /// The signed-in account for a project editor to hold until it saves. Null
+  /// when no account with a local database is signed in.
+  FolderProjectOwner? captureProjectOwner() {
+    final api = ref.read(apiServiceProvider);
+    final database = ref.read(appDatabaseProvider);
+    if (api == null || database == null) return null;
+    final ownership = captureOpenWebUiCacheOwnership(ref, api: api);
+    if (ownership == null) return null;
+    return FolderProjectOwner._(
+      api,
+      api.captureAuthSnapshot(),
+      ownership,
+      database,
+    );
+  }
+
+  /// Whether [owner] is still the signed-in account on the same database.
+  bool isCurrentProjectOwner(FolderProjectOwner owner) =>
+      openWebUiCacheOwnershipIsCurrent(ref, owner._ownership) &&
+      identical(ref.read(appDatabaseProvider), owner._database);
+
+  void _requireProjectOwner(FolderProjectOwner owner) {
+    if (!isCurrentProjectOwner(owner)) {
+      throw const FolderProjectWriteException(
+        FolderProjectWriteFailure.ownerChanged,
+      );
+    }
+  }
+
+  /// The server's current copy of a folder, read as the account that opened
+  /// the editor, for the form to refresh from. Null when the server no longer
+  /// has the folder, or when this device has edits to it that are not sent yet:
+  /// those win until they are pushed, as in a pull, and an older server copy
+  /// must not replace them in the form. Throws [FolderProjectWriteException]
+  /// when that account is not signed in any more, before the request or when
+  /// the answer arrives.
+  ///
+  /// The server's verdict on this account's write access rides on the same
+  /// answer. It is recorded on the local row either way, without touching its
+  /// data, so a save that follows is judged by it and not by an older cached
+  /// grant. An answer without a verdict leaves what the row says.
+  ///
+  /// The answer's project `data` is also kept on the row, as [refreshProjectData]
+  /// does, so the cache agrees with what the form shows.
+  Future<Folder?> loadProjectDetail(
+    FolderProjectOwner owner,
+    String folderId,
+  ) => _readServerDetail(owner, folderId);
+
+  /// A folder as this device holds it after reading the project `data` the
+  /// server has for it now, for a new draft in that folder to start from.
+  ///
+  /// The folder list the server sends is lean and carries no `data`, so the
+  /// cached copy can predate a change made in another client, or be missing
+  /// altogether for a folder only just listed. The folder itself is asked, as
+  /// [owner], and its `data` kept on the row (see
+  /// [FoldersDao.recordServerFolderData]). A failed read, offline included,
+  /// proves nothing about the defaults and leaves the cache as it is; so does a
+  /// row with unsent edits, which are not overridden and need no request.
+  ///
+  /// Null when the folder is gone. Throws [FolderProjectWriteException] when
+  /// [owner] is not the signed-in account any more, so a draft of the next
+  /// account never learns this one's defaults.
+  Future<Folder?> refreshProjectData(
+    FolderProjectOwner owner,
+    String folderId,
+  ) async {
+    final dao = owner._database.foldersDao;
+    _requireProjectOwner(owner);
+    final row = await dao.getFolder(folderId);
+    if (row == null || row.deleted) return null;
+    if (!row.dirty) {
+      try {
+        await _readServerDetail(owner, folderId);
+      } on FolderProjectWriteException {
+        rethrow;
+      } catch (_) {
+        // Offline or refused: the cached defaults stay the answer.
+      }
+    }
+    _requireProjectOwner(owner);
+    final current = await dao.getFolder(folderId);
+    return current == null || current.deleted ? null : folderFromRow(current);
+  }
+
+  Future<Folder?> _readServerDetail(
+    FolderProjectOwner owner,
+    String folderId,
+  ) async {
+    _requireProjectOwner(owner);
+    final database = owner._database;
+    final row = await database.foldersDao.getFolder(folderId);
+    if (row == null || row.deleted) return null;
+    _requireProjectOwner(owner);
+    final raw = await owner._api.getFolderById(
+      folderId,
+      authSnapshot: owner._auth,
+    );
+    _requireProjectOwner(owner);
+    if (raw == null) return null;
+    final detail = Folder.fromJson(raw);
+    final writeAccess = detail.writeAccess;
+    final updatedAt = raw['updated_at'];
+    return ref.read(folderLocksProvider).runExclusive(folderId, () async {
+      _requireProjectOwner(owner);
+      final current = await database.foldersDao.getFolder(folderId);
+      if (current == null || current.deleted) return null;
+      if (writeAccess != null) {
+        await database.foldersDao.recordWriteAccess(
+          id: folderId,
+          writeAccess: writeAccess,
+        );
+      }
+      await database.foldersDao.recordServerFolderData(
+        requestedFor: row,
+        data: raw.containsKey('data')
+            ? Value(detail.data)
+            : const Value.absent(),
+        serverUpdatedAt: updatedAt is int ? updatedAt : null,
+      );
+      return current.dirty ? null : detail;
+    });
+  }
+
+  /// Whether a file the folder's project lists still exists, asked of the
+  /// server as the account that opened the editor. True and false are the
+  /// server's own answers (a file it reports as not found is gone, or not
+  /// readable by this account). Null when nothing can be said: offline, a
+  /// timeout or any other failure is not proof of deletion, and neither is an
+  /// answer that arrives after that account has been replaced.
+  Future<bool?> projectFileExists(
+    FolderProjectOwner owner,
+    String fileId,
+  ) async {
+    if (!isCurrentProjectOwner(owner)) return null;
+    bool? exists;
+    try {
+      await owner._api.getFileInfo(fileId, authSnapshot: owner._auth);
+      exists = true;
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) exists = false;
+    } catch (_) {}
+    return isCurrentProjectOwner(owner) ? exists : null;
+  }
+
+  /// Saves edited project defaults. Each argument that is not null replaces
+  /// that one key of the folder's `data`; every other key is left as stored
+  /// and the queued request carries only the edited keys. An empty [modelIds]
+  /// clears the saved models (`null`, which the web client also treats as
+  /// "no default" where an empty list would select no model).
+  ///
+  /// The write is local and durable first, so it also works offline; the
+  /// outbox sends it. Under the folder lock the owner is checked again and the
+  /// folder's access is judged on its current row, so a grant downgraded or a
+  /// folder removed since the editor opened is refused rather than written.
+  Future<void> saveProjectDefaults(
+    FolderProjectOwner owner,
+    String folderId, {
+    List<Object?>? files,
+    List<Object?>? modelIds,
+    String? systemPrompt,
+  }) async {
+    final patch = <String, dynamic>{
+      'files': ?files,
+      if (modelIds != null) 'model_ids': modelIds.isEmpty ? null : modelIds,
+      'system_prompt': ?systemPrompt,
+    };
+    if (patch.isEmpty) return;
+    _requireProjectOwner(owner);
+    final database = owner._database;
+    await ref.read(folderLocksProvider).runExclusive(folderId, () async {
+      _requireProjectOwner(owner);
+      await database.foldersDao.patchFolderDataWithOutbox(
+        id: folderId,
+        dataPatch: patch,
+      );
+    });
+    if (!isCurrentProjectOwner(owner)) return;
+    unawaited(
+      ref
+          .read(syncEngineProvider.notifier)
+          .drainNowForDatabase(database)
+          .catchError((Object _) {}),
+    );
   }
 
   void removeFolder(String id) {

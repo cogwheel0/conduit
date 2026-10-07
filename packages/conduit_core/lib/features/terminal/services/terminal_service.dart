@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import 'package:conduit_core/utils/json_normalization.dart';
@@ -96,48 +97,6 @@ DateTime? _parseModifiedAt(dynamic value) {
     return _parseModifiedAt(value.toInt());
   }
   return null;
-}
-
-List<dynamic> _extractConfiguredServerList(
-  Map<String, dynamic>? settings,
-  String key,
-) {
-  if (settings == null || settings.isEmpty) {
-    return const <dynamic>[];
-  }
-
-  final rootValue = settings[key];
-  if (rootValue is List) {
-    return rootValue;
-  }
-
-  final uiValue = settings['ui'];
-  if (uiValue is Map && uiValue[key] is List) {
-    return uiValue[key] as List<dynamic>;
-  }
-
-  return const <dynamic>[];
-}
-
-void _writeConfiguredServerList(
-  Map<String, dynamic> settings,
-  String key,
-  List<dynamic> value,
-) {
-  if (settings[key] is List) {
-    settings[key] = value;
-    return;
-  }
-
-  final rawUi = settings['ui'];
-  final ui = _coerceStringKeyedMap(rawUi);
-  if (rawUi is Map && rawUi[key] is List) {
-    ui[key] = value;
-    settings['ui'] = ui;
-    return;
-  }
-
-  settings[key] = value;
 }
 
 Map<String, dynamic> _cloneSettings(Map<String, dynamic> settings) {
@@ -258,9 +217,9 @@ Map<String, dynamic> _applyDirectTerminalSelection(
   String? selectedSelectionId,
 ) {
   final updatedSettings = _cloneSettings(settings);
-  final rawServers = _extractConfiguredServerList(
+  final rawServers = effectivePersonalServerList(
     updatedSettings,
-    'terminalServers',
+    PersonalConnectionKind.terminal.settingsKey,
   );
   final updatedServers = <dynamic>[];
   for (final rawServer in rawServers) {
@@ -281,9 +240,9 @@ Map<String, dynamic> _applyDirectTerminalSelection(
     updatedServers.add(server);
   }
 
-  _writeConfiguredServerList(
+  writeEffectivePersonalServerList(
     updatedSettings,
-    'terminalServers',
+    PersonalConnectionKind.terminal.settingsKey,
     updatedServers,
   );
   return updatedSettings;
@@ -335,9 +294,9 @@ class TerminalService {
   List<TerminalServerInfo> parseDirectTerminalServers(
     Map<String, dynamic> settings,
   ) {
-    final rawServers = _extractConfiguredServerList(
+    final rawServers = effectivePersonalServerList(
       settings,
-      'terminalServers',
+      PersonalConnectionKind.terminal.settingsKey,
     );
     final parsed = <TerminalServerInfo>[];
     for (final rawServer in rawServers) {

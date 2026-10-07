@@ -22,6 +22,9 @@ import '../../../shared/services/navigation_service.dart';
 import '../../../shared/services/user_friendly_error_handler.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit/features/workspace/widgets/resource_sharing_sheet.dart';
+import 'package:conduit_core/features/sharing/models/resource_access.dart';
 
 import '../../../l10n/app_localizations.dart';
 
@@ -55,6 +58,8 @@ import 'package:conduit_core/features/chat/providers/context_attachments_provide
 
 import '../../chat/services/clipboard_attachment_service.dart';
 import '../../chat/services/file_attachment_service.dart';
+import '../../chat/widgets/chat_comparison_widgets.dart'
+    show comparisonAdmissionMessage;
 import '../../chat/widgets/model_selector_sheet.dart';
 import '../../chat/widgets/context_attachment_widget.dart';
 import '../../chat/widgets/file_attachment_widget.dart';
@@ -70,6 +75,7 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import '../providers/conversation_selection_provider.dart';
 import '../widgets/conversation_tile.dart';
 import '../widgets/folder_icon.dart';
+import '../widgets/folder_project_settings_sheet.dart';
 
 typedef FolderPastedAttachmentUploader = Future<void> Function(
   LocalAttachment attachment,
@@ -151,7 +157,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       setState(() => _composerResetNonce++);
     }
 
-    unawaited(chat.restoreDefaultModel(ref));
+    // The draft's one model resolution: the folder's saved default when the
+    // server still offers one, otherwise the user's own default.
+    ref.read(folderDraftModelNoticeProvider.notifier).clear();
+    ref.read(folderDraftComparisonNoticeProvider.notifier).clear();
+    ref.read(folderDraftComparisonProvider.notifier).clear();
+    unawaited(chat.restoreFolderDraftModel(ref, widget.folderId));
   }
 
   String _formatModelDisplayName(String name) => name.trim();
@@ -162,7 +173,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     Folder? folder,
   ) {
     final tintColor = context.conduitTheme.textPrimary;
-    final hasOverflowMenu = folder != null;
+    final advanced = ref.watch(
+      appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
+    );
+    final menuItems = folder == null
+        ? const <AdaptivePopupMenuEntry>[]
+        : _buildFolderToolbarMenuItems(folder, l10n, advanced: advanced);
+    final hasOverflowMenu = menuItems.isNotEmpty;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: hasOverflowMenu ? 3 : 2,
@@ -174,9 +191,6 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       maxModelWidth: maxModelWidth,
     );
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
-    final menuItems = folder == null
-        ? const <AdaptivePopupMenuEntry>[]
-        : _buildFolderToolbarMenuItems(l10n);
     void onMenuSelected(String action) {
       if (folder != null) {
         _handleFolderToolbarSelection(folder, action);
@@ -190,9 +204,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       menuItems: menuItems,
       onMenuSelected: onMenuSelected,
     );
-    // Edit Folder / System Prompt are owner operations (mirrors the Flutter
-    // toolbar guard above).
-    final nativeMenuAction = folder == null || folder.shared
+    // The menu holds only what this account may do: Edit Folder / System
+    // Prompt for the owner, Share settings for anyone who may edit access,
+    // and Project settings for anyone who can write (an owner or a write
+    // grant) once Advanced is on.
+    final nativeMenuAction = folder == null || menuItems.isEmpty
         ? null
         : buildConduitNativeToolbarMenuAction<String>(
             iosSymbol: 'ellipsis',
@@ -247,9 +263,15 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     required AppLocalizations l10n,
     required double maxModelWidth,
   }) {
-    final label = _formatModelDisplayName(
-      ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
-    );
+    // A draft that starts comparing its project's two saved models names both.
+    final comparing = ref.watch(chat.folderDraftComparisonModelsProvider);
+    final label = comparing != null
+        ? comparing
+              .map((model) => _formatModelDisplayName(model.name))
+              .join(' + ')
+        : _formatModelDisplayName(
+            ref.watch(selectedModelProvider)?.name ?? l10n.chooseModel,
+          );
 
     return ConduitAdaptiveAppBarModelSelector(
       key: const ValueKey<String>('folder-page-model-selector'),
@@ -285,8 +307,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           iconColor: context.conduitTheme.textPrimary,
           onPressed: _handleNewChat,
         ),
-      // Edit Folder / System Prompt are owner operations.
-      if (folder != null && !folder.shared)
+      if (folder != null && menuItems.isNotEmpty)
         _FolderToolbarPopupButton(
           tintColor: context.conduitTheme.textPrimary,
           items: menuItems,
@@ -303,25 +324,67 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     ref.read(temporaryChatEnabledProvider.notifier).set(!current);
   }
 
+  /// Share settings is an Advanced control for a folder whose access the
+  /// account may edit: its own, or one shared with a write grant, when the
+  /// server lets it share folders. Reading a shared folder never needs it.
+  bool _canShareFolder(Folder folder) {
+    if (!ref.watch(
+      appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
+    )) {
+      return false;
+    }
+    if (folder.shared && !folder.canWrite) return false;
+    return ref
+            .watch(workspaceCapabilitiesProvider)
+            .value
+            ?.folders
+            .section
+            .share ==
+        true;
+  }
+
   List<AdaptivePopupMenuEntry> _buildFolderToolbarMenuItems(
-    AppLocalizations l10n,
-  ) => [
-    AdaptivePopupMenuItem<String>(
-      value: 'edit-folder',
-      label: l10n.editFolder,
-      icon: conduitAdaptivePopupMenuIcon(
-        iosSymbol: 'pencil',
-        materialIcon: Icons.edit_outlined,
+    Folder folder,
+    AppLocalizations l10n, {
+    required bool advanced,
+  }) => [
+    // Edit Folder / System Prompt are owner operations.
+    if (!folder.shared) ...[
+      AdaptivePopupMenuItem<String>(
+        value: 'edit-folder',
+        label: l10n.editFolder,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'pencil',
+          materialIcon: Icons.edit_outlined,
+        ),
       ),
-    ),
-    AdaptivePopupMenuItem<String>(
-      value: 'system-prompt',
-      label: l10n.systemPrompt,
-      icon: conduitAdaptivePopupMenuIcon(
-        iosSymbol: 'text.bubble',
-        materialIcon: Icons.notes_outlined,
+      AdaptivePopupMenuItem<String>(
+        value: 'system-prompt',
+        label: l10n.systemPrompt,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'text.bubble',
+          materialIcon: Icons.notes_outlined,
+        ),
       ),
-    ),
+    ],
+    if (_canShareFolder(folder))
+      AdaptivePopupMenuItem<String>(
+        value: 'share-folder',
+        label: l10n.folderShareSettings,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'person.2',
+          materialIcon: Icons.group_outlined,
+        ),
+      ),
+    if (advanced && folder.canWrite)
+      AdaptivePopupMenuItem<String>(
+        value: 'project-settings',
+        label: l10n.folderProjectSettings,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'slider.horizontal.3',
+          materialIcon: Icons.tune,
+        ),
+      ),
   ];
 
   void _handleFolderToolbarSelection(Folder folder, String action) {
@@ -335,7 +398,28 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       case 'system-prompt':
         _showSystemPromptSheet(folder);
         return;
+      case 'share-folder':
+        // The sheet captures the session and this folder's id now.
+        unawaited(
+          ResourceSharingSheet.show(
+            context,
+            ref,
+            kind: ResourceKind.folder,
+            resourceId: folder.id,
+          ),
+        );
+        return;
+      case 'project-settings':
+        unawaited(showFolderProjectSettings(context, ref, folder));
+        return;
     }
+  }
+
+  /// A model chosen in the picker is one model: it ends a comparison the draft
+  /// started with, even when it is the first of the two.
+  void _pickSingleModel(Model? model) {
+    ref.read(folderDraftComparisonProvider.notifier).clear();
+    ref.read(selectedModelProvider.notifier).set(model);
   }
 
   Future<void> _showModelSelector() async {
@@ -371,7 +455,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                 break;
               }
             }
-            ref.read(selectedModelProvider.notifier).set(selected);
+            _pickSingleModel(selected);
           }
           return;
         } catch (_) {
@@ -384,7 +468,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       await ThemedSheets.showCustom<void>(
         context: context,
         isScrollControlled: true,
-        builder: (sheetContext) => ModelSelectorSheet(models: models),
+        builder: (sheetContext) =>
+            ModelSelectorSheet(models: models, onPick: _pickSingleModel),
       );
     } catch (_) {
       return;
@@ -504,6 +589,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       return true;
     }
 
+    // A send that outruns the draft's own model resolution takes the same
+    // answer: the folder's saved model first, then the user's default.
+    await chat.restoreFolderDraftModel(container, widget.folderId);
+    if (container.read(selectedModelProvider) != null) {
+      return true;
+    }
+
     try {
       List<Model> models;
       final modelsAsync = container.read(modelsProvider);
@@ -604,6 +696,96 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         stackTrace: stackTrace,
       );
       chat.recoverFailedChatSend(container, e, pendingSend);
+    } finally {
+      if (mounted) {
+        setState(() => _isSendingComposerMessage = false);
+      }
+    }
+  }
+
+  /// Sends the composer's message to [models] as one comparison turn that
+  /// starts a chat in this folder. The result names the committed turn, or is
+  /// null when it was refused or not written, so the composer keeps the draft.
+  Future<chat.ChatSendPlaceholderHandle?> _handleCompareSend(
+    String text,
+    List<Model> models,
+  ) async {
+    if (_isSendingComposerMessage ||
+        ref.read(conversationSelectionProvider).isLoading) {
+      return null;
+    }
+
+    setState(() => _isSendingComposerMessage = true);
+    final container = ProviderScope.containerOf(context, listen: false);
+
+    try {
+      final attachedFiles = container.read(attachedFilesProvider);
+      final mediaUploadController = container.read(
+        mediaUploadControllerProvider,
+      );
+      final sentAttachmentOwnership = mediaUploadController
+          .captureAttachmentOwnership();
+      final uploadedFileIds = attachedFiles
+          .where(
+            (file) =>
+                file.status == FileUploadStatus.completed &&
+                file.fileId != null,
+          )
+          .map((file) => file.fileId!)
+          .toList(growable: false);
+      final toolIds = container.read(selectedToolIdsProvider);
+
+      container.read(pendingFolderIdProvider.notifier).set(widget.folderId);
+      container.read(activeConversationProvider.notifier).clear();
+      container.read(chat.chatMessagesProvider.notifier).clearMessages();
+
+      // A comparison refused for its models or settings throws before anything
+      // is written, so the page stays and the draft is kept. Once the turn is
+      // committed the chat takes over, as it does for an ordinary send. The
+      // send can outlast this page, and a page kept behind another route is
+      // still mounted, so only the route on top takes the user to the chat.
+      final handles = await chat.durableCompareSend(
+        container,
+        text,
+        uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+        models: models,
+        toolIds: toolIds.isNotEmpty ? toolIds : null,
+        onCommitted: () {
+          if (!mounted || !(ModalRoute.isCurrentOf(context) ?? true)) return;
+          ConduitHaptics.selectionClick();
+          NavigationService.router.go(Routes.chat);
+        },
+      );
+
+      unawaited(
+        mediaUploadController
+            .retireAttachmentOwnership(sentAttachmentOwnership)
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'sent-attachment-cleanup-failed',
+                scope: 'navigation/folder',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
+      return handles.first;
+    } on chat.ComparisonAdmissionException catch (error) {
+      if (mounted) {
+        UiUtils.showMessage(
+          context,
+          comparisonAdmissionMessage(AppLocalizations.of(context)!, error),
+        );
+      }
+      return null;
+    } catch (e, stackTrace) {
+      DebugLogger.error(
+        'durable-compare-send-failed',
+        scope: 'navigation/folder',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return null;
     } finally {
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
@@ -1293,6 +1475,17 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       data: (folders) => _folderById(folders, widget.folderId),
       orElse: () => null,
     );
+    // A draft that could not use the folder's saved model says so once.
+    ref.listen<String?>(folderDraftModelNoticeProvider, (previous, next) {
+      if (next != widget.folderId) return;
+      ref.read(folderDraftModelNoticeProvider.notifier).clear();
+      UiUtils.showMessage(context, l10n.folderProjectModelFallbackNotice);
+    });
+    ref.listen<String?>(folderDraftComparisonNoticeProvider, (previous, next) {
+      if (next != widget.folderId) return;
+      ref.read(folderDraftComparisonNoticeProvider.notifier).clear();
+      UiUtils.showMessage(context, l10n.folderProjectComparisonFallbackNotice);
+    });
 
     return AdaptiveRouteShell(
       backgroundColor: context.conduitTheme.surfaceBackground,
@@ -1351,6 +1544,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                     'folder-page-composer-${widget.folderId}-$_composerResetNonce',
                   ),
                   onSendMessage: _handleComposerSend,
+                  onCompareSend: _handleCompareSend,
                   enabled:
                       !ref.watch(conversationSelectionProvider).isLoading &&
                       !_isSendingComposerMessage,

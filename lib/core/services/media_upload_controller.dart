@@ -144,6 +144,9 @@ final uploadImagePrecacheReaderProvider = Provider<UploadImagePrecacheReader>(
 
 enum OwnedStagingConversionReplacementResult { notOwned, replaced, failed }
 
+const _joinedUploadError =
+    'This file was uploading for another draft. Retry it to upload it again.';
+
 typedef _UploadFileIdentity = ({int fileSize, String checksum});
 
 Future<_UploadFileIdentity> _streamUploadFileIdentity(File file) async {
@@ -348,7 +351,12 @@ typedef _MediaAttachmentOwnership = ({
 });
 
 class MediaUploadController {
-  MediaUploadController(this._ref);
+  MediaUploadController(this._ref) {
+    _ref.listen<List<QueuedDraftAttachment>>(
+      queuedDraftAttachmentsProvider,
+      _retireReleasedQueuedAttachments,
+    );
+  }
 
   final Ref _ref;
   final Lock _localAttachmentPreparationLock = Lock();
@@ -724,9 +732,11 @@ class MediaUploadController {
     NativeShareUploadIdentity? nativeShareIdentity,
     void Function(_InflightUpload)? onLocalOwnershipAcquired,
     void Function(_InflightUpload)? onQueueOwnershipAcquired,
+    FileUploadState? attachment,
   }) {
     final existing = _inflight[filePath];
     if (existing != null && existing.isJoinable) {
+      _failJoinedAttachmentWhenSettled(filePath, existing);
       return (inflight: existing, started: false);
     }
 
@@ -734,7 +744,11 @@ class MediaUploadController {
     _pathGenerations[filePath] = generation;
     final inflight = _InflightUpload(generation: generation);
     _inflight[filePath] = inflight;
-    _captureCurrentAttachment(filePath, inflight);
+    if (attachment != null) {
+      inflight.captureAttachment(attachment);
+    } else {
+      _captureCurrentAttachment(filePath, inflight);
+    }
     final terminal = _runUploadOwned(
       filePath: filePath,
       fileName: fileName,
@@ -924,20 +938,190 @@ class MediaUploadController {
     }
   }
 
-  FileUploadState? _currentAttachment(String filePath) => _ref
+  /// The composer's attachment at [filePath].
+  FileUploadState? _trayAttachment(String filePath) => _ref
       .read(attachedFilesProvider)
       .where((attachment) => attachment.file.path == filePath)
       .firstOrNull;
 
+  /// Whether a draft queued behind a response holds exactly [attachment]. Its
+  /// file left the composer but keeps uploading, and keeps reporting into the
+  /// state object it captured wherever that now lives.
+  bool _heldByQueuedDraft(FileUploadState attachment) => _ref
+      .read(queuedDraftAttachmentsProvider)
+      .any((held) => identical(held.upload, attachment));
+
+  /// Whatever holds [filePath], in the tray or a queued draft. Only for asking
+  /// whether the pathname is still referenced; an upload resolves its own
+  /// attachment by the state it captured, never by this.
+  FileUploadState? _currentAttachment(String filePath) =>
+      _trayAttachment(filePath) ??
+      _ref
+          .read(queuedDraftAttachmentsProvider)
+          .where((held) => held.upload.file.path == filePath)
+          .map((held) => held.upload)
+          .firstOrNull;
+
+  /// Cancels uploads whose queued attachment was removed from its draft, or
+  /// sent with it. Anything that keeps the pathname (a progress update replaces
+  /// the state of the same attachment) is left running.
+  void _retireReleasedQueuedAttachments(
+    List<QueuedDraftAttachment>? previous,
+    List<QueuedDraftAttachment> next,
+  ) {
+    for (final held in previous ?? const <QueuedDraftAttachment>[]) {
+      final released = held.upload;
+      final path = released.file.path;
+      if (released.isRemote ||
+          path.startsWith('remote://') ||
+          next.any((entry) => entry.upload.file.path == path) ||
+          _currentAttachment(path) != null) {
+        continue;
+      }
+      unawaited(
+        cancelUploadsForFile(path).catchError((
+          Object error,
+          StackTrace stackTrace,
+        ) {
+          DebugLogger.error(
+            'queued-attachment-release-failed',
+            scope: 'media/upload',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'fileName': released.fileName},
+          );
+        }),
+      );
+    }
+  }
+
+  /// An upload captures the composer's state when it starts. A file held by a
+  /// queued draft is never captured by pathname: another queue, or another
+  /// account, may hold a different file at the same path.
   void _captureCurrentAttachment(String filePath, _InflightUpload inflight) {
-    final attachment = _currentAttachment(filePath);
+    // Once the captured file left the tray for a draft, a tray file at the same
+    // pathname is another holder's and must not take over the upload.
+    final owner = inflight.attachmentOwner;
+    if (owner != null && _heldByQueuedDraft(owner)) return;
+    final attachment = _trayAttachment(filePath);
     if (attachment != null) inflight.captureAttachment(attachment);
+  }
+
+  /// A file that joins an upload another holder captured shares its execution
+  /// but not its result: progress and the server file id belong to the state
+  /// that upload captured. When that upload settles, a joined file that is
+  /// still unfinished fails instead of waiting forever, so it can be retried as
+  /// an upload of its own once the pathname is free.
+  void _failJoinedAttachmentWhenSettled(
+    String filePath,
+    _InflightUpload inflight,
+  ) {
+    final joined = _trayAttachment(filePath);
+    final owner = inflight.attachmentOwner;
+    if (joined == null ||
+        owner == null ||
+        identical(joined, owner) ||
+        joined.isRemote ||
+        (joined.status != FileUploadStatus.pending &&
+            joined.status != FileUploadStatus.uploading)) {
+      return;
+    }
+
+    void fail() {
+      try {
+        final failed = FileUploadState(
+          file: joined.file,
+          fileName: joined.fileName,
+          fileSize: joined.fileSize,
+          progress: joined.progress,
+          status: FileUploadStatus.failed,
+          fileId: joined.fileId,
+          error: _joinedUploadError,
+          isImage: joined.isImage,
+          base64DataUrl: joined.base64DataUrl,
+        );
+        if (_heldByQueuedDraft(joined)) {
+          _ref
+              .read(queuedDraftAttachmentsProvider.notifier)
+              .replaceUpload(joined, failed);
+        } else if (_ref
+            .read(attachedFilesProvider)
+            .any((entry) => identical(entry, joined))) {
+          _ref
+              .read(attachedFilesProvider.notifier)
+              .updateFileState(filePath, failed);
+        }
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'joined-upload-failure-update-failed',
+          scope: 'media/upload',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'fileName': joined.fileName},
+        );
+      }
+    }
+
+    unawaited(
+      inflight.terminalFuture.then<void>(
+        (_) => fail(),
+        onError: (Object _) => fail(),
+      ),
+    );
+  }
+
+  /// Retries the failed upload of a file held by a queued draft as an upload of
+  /// its own, reporting into that draft's file. Does nothing while another
+  /// upload still runs at the same pathname; the file stays failed and can be
+  /// retried once that upload settles.
+  Future<void> retryQueuedAttachment({
+    required String queueId,
+    required String id,
+  }) {
+    final held = _ref
+        .read(queuedDraftAttachmentsProvider)
+        .where((entry) => entry.queueId == queueId && entry.id == id)
+        .firstOrNull;
+    final failed = held?.upload;
+    if (failed == null ||
+        failed.status != FileUploadStatus.failed ||
+        failed.isRemote ||
+        failed.file.path.startsWith('remote://')) {
+      return Future<void>.value();
+    }
+    final filePath = failed.file.path;
+    final running = _inflight[filePath];
+    if (running != null && running.isJoinable) return Future<void>.value();
+
+    final restarted = FileUploadState(
+      file: failed.file,
+      fileName: failed.fileName,
+      fileSize: failed.fileSize,
+      progress: 0.0,
+      status: FileUploadStatus.pending,
+      isImage: failed.isImage,
+      base64DataUrl: failed.base64DataUrl,
+    );
+    if (!_ref
+        .read(queuedDraftAttachmentsProvider.notifier)
+        .replaceUpload(failed, restarted)) {
+      return Future<void>.value();
+    }
+    return _startUpload(
+      filePath: filePath,
+      fileName: failed.fileName,
+      fileSize: failed.fileSize,
+      mimeType: null,
+      checksum: null,
+      attachment: restarted,
+    ).inflight.terminalFuture;
   }
 
   FileUploadState? _ownedAttachment(String filePath, _InflightUpload inflight) {
     if (!_isOperationActive(filePath, inflight)) return null;
-    final current = _currentAttachment(filePath);
     final expected = inflight.attachmentOwner;
+    if (expected != null && _heldByQueuedDraft(expected)) return expected;
+    final current = _trayAttachment(filePath);
     if (current == null ||
         (expected != null && !identical(current, expected))) {
       return null;
@@ -951,15 +1135,22 @@ class MediaUploadController {
     _InflightUpload inflight,
     FileUploadState newState,
   ) {
-    if (_ownedAttachment(filePath, inflight) == null) return false;
+    final owned = _ownedAttachment(filePath, inflight);
+    if (owned == null) return false;
     _throwIfOperationNotActive(filePath, inflight);
     if (newState.status == FileUploadStatus.completed ||
         newState.status == FileUploadStatus.failed) {
       inflight.markNonJoinable();
     }
-    _ref
-        .read(attachedFilesProvider.notifier)
-        .updateFileState(filePath, newState);
+    if (_heldByQueuedDraft(owned)) {
+      _ref
+          .read(queuedDraftAttachmentsProvider.notifier)
+          .replaceUpload(owned, newState);
+    } else {
+      _ref
+          .read(attachedFilesProvider.notifier)
+          .updateFileState(filePath, newState);
+    }
     inflight.captureAttachment(newState);
     return true;
   }
@@ -969,11 +1160,14 @@ class MediaUploadController {
     if (active != null && !identical(active, inflight)) return;
     final generation = _pathGenerations[filePath];
     if (generation != null && generation != inflight.generation) return;
-    final current = _currentAttachment(filePath);
     final expected = inflight.attachmentOwner;
-    if (current == null || expected == null || !identical(current, expected)) {
+    if (expected == null) return;
+    if (_heldByQueuedDraft(expected)) {
+      _ref.read(queuedDraftAttachmentsProvider.notifier).removeUpload(expected);
       return;
     }
+    final current = _trayAttachment(filePath);
+    if (current == null || !identical(current, expected)) return;
     _ref.read(attachedFilesProvider.notifier).removeFile(filePath);
   }
 

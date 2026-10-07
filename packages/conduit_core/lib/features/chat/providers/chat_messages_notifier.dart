@@ -41,6 +41,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   VoidCallback? _socketTeardown;
   SocketEventSubscription? _passiveConversationSocketSubscription;
   StreamSubscription<List<MessageRow>>? _dbMessagesSubscription;
+
+  /// Stopped answers whose finished state is not stored yet, with the owner
+  /// that stopped them.
+  final List<_OwedStoppedAnswers> _owedStoppedAnswers = [];
+
+  /// Stops of an Open WebUI response whose server-side cancellation has not
+  /// been accepted yet, with the owner that asked for them.
+  final List<_OwedCancellation> _owedCancellations = [];
   String? _dbWatchedConversationKey;
   AppDatabase? _dbWatchedDatabase;
   Object? _dbWatchedApi;
@@ -102,6 +110,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   int _openWebUiContextRebindGeneration = 0;
   int _modelRebindGeneration = 0;
   String? _activeStreamingTransportMessageId;
+  // Live transports of the answers in one multi-model turn, by assistant id.
+  // The single transport fields above can hold only one answer, so each slot
+  // keeps its own teardown here instead of replacing its siblings'.
+  final Map<String, VoidCallback> _slotTransports = <String, VoidCallback>{};
   // Foreign server-assigned message id bound to the streaming tail (socket
   // resume). Lets the poll fallback resolve server messages by this id if the
   // socket dies after binding but before delivering `done`.
@@ -875,10 +887,79 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return Object.hash(value.runtimeType, value.toString());
   }
 
+  /// Keeps each answer of a comparison that is still running as its own message.
+  ///
+  /// A stored multi-model turn shows one answer and holds its siblings as
+  /// `versions`, which carry no task, stream or stop. A snapshot taken while the
+  /// turn is admitted but not yet bound (its chat being created, remapped and
+  /// watched) would fold the running answers into that form, and the request
+  /// would find only one of them on screen. The group keeps the messages the
+  /// transcript already holds for as long as an answer of it is still running
+  /// and the stored copy has nothing for it yet or the server still reports it
+  /// not done (partial text is not a finished answer); once it settles, the stored
+  /// form takes over as usual.
+  List<ChatMessage> _keepRunningComparisonAnswers(
+    List<ChatMessage> storedMessages,
+  ) {
+    final heldAnswers = <String, ChatMessage>{
+      for (final message in state)
+        if (message.role == 'assistant' &&
+            message.metadata?[kMessageModelIdxMetadataKey] is int)
+          message.id: message,
+    };
+    if (!heldAnswers.values.any((answer) => answer.isStreaming)) {
+      return storedMessages;
+    }
+    var changed = false;
+    final kept = <ChatMessage>[];
+    for (final message in storedMessages) {
+      final parentId = message.metadata?['parentId'];
+      final siblings = [
+        for (final version in message.versions)
+          if (heldAnswers[version.id] case final held?
+              when parentId != null && held.metadata?['parentId'] == parentId)
+            held,
+      ];
+      // Text on a stored copy is not completion: the server's own `done` is.
+      final unfinished = {
+        ...?(message.metadata?[kMessageUnfinishedAnswersMetadataKey] as List?)
+            ?.whereType<String>(),
+      };
+      final running =
+          (heldAnswers[message.id]?.isStreaming == true &&
+              (!_headlessAssistantLanded(message) ||
+                  unfinished.contains(message.id))) ||
+          message.versions.any(
+            (version) =>
+                heldAnswers[version.id]?.isStreaming == true &&
+                (!_comparisonVersionLanded(version) ||
+                    unfinished.contains(version.id)),
+          );
+      if (siblings.isEmpty || !running) {
+        kept.add(message);
+        continue;
+      }
+      changed = true;
+      final revived = {for (final sibling in siblings) sibling.id};
+      kept
+        ..add(
+          message.copyWith(
+            versions: [
+              for (final version in message.versions)
+                if (!revived.contains(version.id)) version,
+            ],
+          ),
+        )
+        ..addAll(siblings);
+    }
+    return changed ? List<ChatMessage>.unmodifiable(kept) : storedMessages;
+  }
+
   void _adoptServerMessages(
-    List<ChatMessage> serverMessages, {
+    List<ChatMessage> storedMessages, {
     required String source,
   }) {
+    final serverMessages = _keepRunningComparisonAnswers(storedMessages);
     if (!_shouldAdoptServerMessages(serverMessages)) {
       return;
     }
@@ -2307,6 +2388,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       unawaited(controller.cancel());
     }
     cancelSocketSubscriptions();
+    releaseAllSlotTransports();
     // Fold any un-flushed streamed content into state before dropping the
     // buffer — it is not periodically synced, so clearing it here would
     // silently discard the whole tail of an in-flight response (e.g. on
@@ -2394,9 +2476,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   bool get _hasStreamingAssistant {
     if (state.isEmpty) return false;
+    if (_hasStreamingSlotTransport) return true;
     final last = state.last;
     return last.role == 'assistant' && last.isStreaming;
   }
+
+  /// Whether a registered answer of a multi-model turn is still streaming.
+  bool get _hasStreamingSlotTransport =>
+      _slotTransports.isNotEmpty &&
+      state.any(
+        (message) =>
+            message.isStreaming && _slotTransports.containsKey(message.id),
+      );
 
   /// Whether the visible tail can be recovered through OpenWebUI's task API.
   ///
@@ -2440,6 +2531,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (!_hasStreamingAssistant || state.isEmpty) {
       return false;
     }
+    // A live multi-model turn owns its streaming answers wherever they sit in
+    // the list; a database echo must not roll any of them back.
+    if (_hasStreamingSlotTransport) return true;
 
     final lastMessageId = state.last.id;
     // Direct and Hermes reservations/runs do not use the notifier's HTTP/socket
@@ -3765,6 +3859,347 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _socketSubscriptions.clear();
     _socketTeardown?.call();
     _socketTeardown = null;
+  }
+
+  /// Registers the live transport of one answer of a multi-model turn.
+  ///
+  /// Unlike [setSocketSubscriptions] this never touches the transports of the
+  /// turn's other answers: each one is released on its own, when it finishes or
+  /// is stopped, and all of them when the stream is cancelled.
+  void registerSlotTransport(
+    String messageId,
+    List<VoidCallback> subscriptions, {
+    VoidCallback? onDispose,
+  }) {
+    releaseSlotTransport(messageId);
+    _slotTransports[messageId] = () {
+      for (final dispose in subscriptions) {
+        try {
+          dispose();
+        } catch (_) {}
+      }
+      try {
+        onDispose?.call();
+      } catch (_) {}
+    };
+  }
+
+  void releaseSlotTransport(String messageId) {
+    _slotTransports.remove(messageId)?.call();
+  }
+
+  void releaseAllSlotTransports() {
+    if (_slotTransports.isEmpty) return;
+    final transports = _slotTransports.values.toList(growable: false);
+    _slotTransports.clear();
+    for (final release in transports) {
+      release();
+    }
+  }
+
+  bool hasSlotTransport(String messageId) =>
+      _slotTransports.containsKey(messageId);
+
+  /// Appends a streamed chunk to exactly the answer [messageId], never to the
+  /// list tail. Slots write straight to state: the tail buffer belongs to the
+  /// single-answer path and would hold one answer's text for all of them.
+  void appendToSlotMessage(String messageId, String content) {
+    if (content.isEmpty) return;
+    updateMessageById(messageId, (current) {
+      if (current.role != 'assistant' || !current.isStreaming) return current;
+      return current.copyWith(
+        content: _stripStreamingPlaceholders('${current.content}$content'),
+      );
+    });
+  }
+
+  void replaceSlotMessageContent(String messageId, String content) {
+    updateMessageById(messageId, (current) {
+      if (current.role != 'assistant' || !current.isStreaming) return current;
+      return current.copyWith(content: _stripStreamingPlaceholders(content));
+    });
+  }
+
+  /// Ends the answer [messageId] alone: its UI settles and its transport is
+  /// released, while the turn's other answers keep streaming. The server has
+  /// persisted the answer, so no local echo is written (the echo would also
+  /// move the chat's active branch to whichever answer finished last).
+  void finishSlotMessage(String messageId) {
+    releaseSlotTransport(messageId);
+    updateMessageById(messageId, (current) {
+      if (current.role != 'assistant' || !current.isStreaming) return current;
+      return _buildCompletedAssistantMessage(current);
+    });
+    _syncConversationStateAfterStreamingUpdate();
+  }
+
+  /// Settles every answer still streaming in the turn that ends the list:
+  /// the explicit stop of a whole multi-model turn. Completes once their
+  /// settled state is stored (see [settleStoppedSlotMessages]).
+  Future<bool> settleTrailingStreamingAnswers() {
+    releaseAllSlotTransports();
+    final ids = <String>[];
+    for (var index = state.length - 1; index >= 0; index -= 1) {
+      final message = state[index];
+      if (message.role != 'assistant') break;
+      if (message.isStreaming) ids.add(message.id);
+    }
+    return settleStoppedSlotMessages(ids);
+  }
+
+  /// Ends the answers [messageIds] whose tasks the server was told to stop, and
+  /// stores them as finished.
+  ///
+  /// The server keeps a stopped answer as the live checkpoint it last had
+  /// (`isStreaming`, no `done`) and nothing else ever settles it: once the next
+  /// turn is admitted the transcript's tail is another message, and a pull or
+  /// reopen would read the old answer as still running. Only these rows are
+  /// written, and as local edits: a pull keeps a dirty row over the server's
+  /// checkpoint, and the update op carries the finished state to the server.
+  /// The echo of a whole turn would also move the chat's active branch to the
+  /// answer it names, and the answer that was shown must stay shown.
+  ///
+  /// The chat, store, lock and owner are captured before anything awaits, so a
+  /// sign-in or chat change while the write waits for the lock cannot redirect
+  /// it.
+  ///
+  /// The result is false only when storing the answers failed. A chat with no
+  /// store, or an answer with no stored row, has nothing to store and is not a
+  /// failure. A write that failed stays owed, with the answers as they were
+  /// stopped, until [settlePendingStoppedAnswers] stores it for that owner.
+  Future<bool> settleStoppedSlotMessages(Iterable<String> messageIds) {
+    final active = ref.read(activeConversationProvider);
+    final chatId = active?.id;
+    final db = _maybeDatabase();
+    ChatLocks? locks;
+    int? updatedAt;
+    try {
+      locks = ref.read(chatLocksProvider);
+      updatedAt = ref.read(syncClockProvider).nowEpochSeconds();
+    } catch (_) {}
+    final running = <String>{
+      for (final message in state)
+        if (message.role == 'assistant' && message.isStreaming) message.id,
+    };
+    final ids = messageIds.where(running.contains).toList(growable: false);
+    for (final id in ids) {
+      finishSlotMessage(id);
+    }
+    if (chatId == null ||
+        chatId.isEmpty ||
+        isTemporaryChat(chatId) ||
+        db == null ||
+        locks == null ||
+        updatedAt == null) {
+      return Future<bool>.value(true);
+    }
+    // Only the answers of a comparison carry a model slot.
+    final answers = <ChatMessage>[
+      for (final message in state)
+        if (ids.contains(message.id) &&
+            message.role == 'assistant' &&
+            !message.isStreaming &&
+            message.metadata?[kMessageModelIdxMetadataKey] is int)
+          message,
+    ];
+    if (answers.isEmpty) return Future<bool>.value(true);
+    final owed = _OwedStoppedAnswers(
+      owner: captureChatMutationOwner(ref, active),
+      db: db,
+      locks: locks,
+      chatId: chatId,
+      answers: answers,
+      updatedAt: updatedAt,
+    );
+    _owedStoppedAnswers.add(owed);
+    return _storeOwedStoppedAnswers(owed);
+  }
+
+  /// Stores the stopped answers still owed to [chatId] under the store, account
+  /// session and server they were stopped under, so a next turn is not
+  /// admitted over rows the server still holds as running. Null when nothing is
+  /// owed to that owner. The result is false when a write failed again.
+  ///
+  /// Only the owner that stopped the answers replays them, into the store it
+  /// captured and with the answers as they were stopped. A row the store
+  /// already holds as finished is left as it is.
+  Future<bool>? settlePendingStoppedAnswers({
+    required String chatId,
+    required Object? database,
+    required Object? api,
+    required Object? authSessionEpoch,
+  }) {
+    final owed = [
+      for (final entry in _owedStoppedAnswers)
+        if (entry.chatId == chatId &&
+            identical(entry.owner.openWebUiDatabase, database) &&
+            identical(entry.owner.openWebUiApi, api) &&
+            identical(entry.owner.openWebUiAuthSessionEpoch, authSessionEpoch))
+          entry,
+    ];
+    if (owed.isEmpty) return null;
+    return _settleOwedStoppedAnswers(owed);
+  }
+
+  /// Keeps a Stop's server-side [steps], already started, owed to [chatId]
+  /// under [owner] until the server has accepted every one. The visible answers
+  /// settle at once, so this is what says the cancellation itself is still
+  /// pending or was refused.
+  void _oweCancellation({
+    required ChatMutationOwnerToken owner,
+    required String chatId,
+    required List<_CancellationStep> steps,
+  }) {
+    if (steps.isEmpty) return;
+    final owed = _OwedCancellation(owner: owner, chatId: chatId, steps: steps);
+    _owedCancellations.add(owed);
+    unawaited(_settleCancellation(owed));
+  }
+
+  /// A local chat became its server chat. The cancellations owed to it under the
+  /// same store, account session and server follow it, so a retry asks for the
+  /// server's chat and the gate on its queue does not lapse with the old id.
+  void followChatRemap({
+    required String fromId,
+    required String toId,
+    required Object? database,
+    required Object? api,
+    required Object? authSessionEpoch,
+  }) {
+    for (final entry in _owedCancellations) {
+      if (entry.chatId == fromId &&
+          identical(entry.owner.openWebUiDatabase, database) &&
+          identical(entry.owner.openWebUiApi, api) &&
+          identical(entry.owner.openWebUiAuthSessionEpoch, authSessionEpoch)) {
+        entry.chatId = toId;
+      }
+    }
+  }
+
+  /// Waits for the cancellations still owed to [chatId] under the store, account
+  /// session and server that stopped it, asking the server again for each one it
+  /// has not accepted. Null when nothing is owed to that owner; false when the
+  /// server refused again.
+  Future<bool>? settlePendingCancellation({
+    required String chatId,
+    required Object? database,
+    required Object? api,
+    required Object? authSessionEpoch,
+  }) {
+    final owed = [
+      for (final entry in _owedCancellations)
+        if (entry.chatId == chatId &&
+            identical(entry.owner.openWebUiDatabase, database) &&
+            identical(entry.owner.openWebUiApi, api) &&
+            identical(entry.owner.openWebUiAuthSessionEpoch, authSessionEpoch))
+          entry,
+    ];
+    if (owed.isEmpty) return null;
+    return Future.wait([
+      for (final entry in owed) _settleCancellation(entry),
+    ]).then((accepted) => accepted.every((ok) => ok));
+  }
+
+  Future<bool> _settleCancellation(_OwedCancellation owed) async {
+    final accepted = await owed.settle();
+    if (accepted) _owedCancellations.remove(owed);
+    return accepted;
+  }
+
+  Future<bool> _settleOwedStoppedAnswers(List<_OwedStoppedAnswers> owed) async {
+    var stored = true;
+    for (final entry in owed) {
+      // A write that is still running is waited for rather than repeated.
+      final writing = entry.writing ?? _storeOwedStoppedAnswers(entry);
+      stored = await writing && stored;
+    }
+    return stored;
+  }
+
+  Future<bool> _storeOwedStoppedAnswers(_OwedStoppedAnswers owed) {
+    final writing = _writeStoppedAnswers(owed).then((stored) {
+      owed.writing = null;
+      if (stored) _owedStoppedAnswers.remove(owed);
+      return stored;
+    });
+    owed.writing = writing;
+    return writing;
+  }
+
+  Future<bool> _writeStoppedAnswers(_OwedStoppedAnswers owed) async {
+    final db = owed.db;
+    final chatId = owed.chatId;
+    var updatedAt = owed.updatedAt;
+    try {
+      updatedAt = ref.read(syncClockProvider).nowEpochSeconds();
+    } catch (_) {}
+    try {
+      await owed.locks.runExclusive(chatId, () async {
+        final rows = <MessageRowData>[];
+        for (final answer in owed.answers) {
+          final stored = await db.messagesDao.getMessage(chatId, answer.id);
+          // An answer with no stored row was never made durable; this does not
+          // create one.
+          if (stored == null) continue;
+          final decoded = jsonDecode(stored.payload);
+          final current = decoded is Map
+              ? Map<String, dynamic>.from(decoded)
+              : <String, dynamic>{};
+          // A result the store already has as finished is newer than this stop.
+          if (current['done'] == true) continue;
+          final settled = localEchoRowForMessage(chatId, answer).payload;
+          final metadata = <String, dynamic>{
+            if (current['metadata'] is Map)
+              ...Map<String, dynamic>.from(current['metadata'] as Map),
+            if (settled['metadata'] is Map)
+              ...Map<String, dynamic>.from(settled['metadata'] as Map),
+          };
+          rows.add(
+            MessageRowData(
+              id: stored.id,
+              chatId: chatId,
+              parentId: stored.parentId,
+              role: stored.role,
+              content: persistedMessageContent(answer),
+              model: answer.model ?? stored.model,
+              createdAt: stored.createdAt,
+              orderIndex: stored.orderIndex,
+              payload: <String, dynamic>{
+                // Fields this build does not model stay as the server has them.
+                ...current,
+                ...settled,
+                // Where the answer sits in the graph is the stored row's.
+                for (final key in const [
+                  'parentId',
+                  'childrenIds',
+                  'timestamp',
+                ])
+                  if (current.containsKey(key)) key: current[key],
+                if (metadata.isNotEmpty) 'metadata': metadata,
+              },
+            ),
+          );
+        }
+        if (rows.isEmpty) return;
+        // No current message is given, so the chat's active branch stays put.
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: chatId,
+          messages: rows,
+          updatedAt: updatedAt,
+          enqueueCompletion: false,
+        );
+      });
+      return true;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'stopped-answer-settle-failed',
+        scope: 'chat/providers',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'chatId': chatId},
+      );
+      return false;
+    }
   }
 
   void addMessage(ChatMessage message) {
@@ -5099,6 +5534,13 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
       .chatMessageChildrenIds(message)
       .toList(growable: false);
   final sanitizedFiles = sanitizeFilesForWebUi(message.files);
+  final rawUserModels = message.metadata?['models'];
+  final userModels = message.role == 'user' && rawUserModels is List
+      ? rawUserModels
+            .map((model) => model?.toString() ?? '')
+            .where((model) => model.isNotEmpty)
+            .toList(growable: false)
+      : const <String>[];
   return MessageRowData(
     id: message.id,
     chatId: chatId,
@@ -5119,6 +5561,18 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
       'isStreaming': message.isStreaming,
       if (message.role == 'assistant' && !message.isStreaming) 'done': true,
       if (message.model != null) 'model': message.model,
+      // Open WebUI reads these two from the message itself. They are projected
+      // into metadata when a chat is read, so an echo that left them out would
+      // drop an answer's column and its merged response from the stored row.
+      if (message.role == 'assistant' &&
+          message.metadata?[kMessageModelIdxMetadataKey] is int)
+        'modelIdx': message.metadata![kMessageModelIdxMetadataKey],
+      if (message.role == 'assistant' &&
+          message.metadata?[kMessageMergedMetadataKey] is Map)
+        'merged': message.metadata![kMessageMergedMetadataKey],
+      // A user turn's saved model list is what makes Open WebUI render its
+      // answers as a comparison; without it the saved merge is hidden.
+      if (userModels.isNotEmpty) 'models': userModels,
       if (message.metadata != null && message.metadata!.isNotEmpty)
         'metadata': message.metadata,
       if (message.output != null && message.output!.isNotEmpty)
@@ -5145,4 +5599,101 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
       if (message.error != null) 'error': message.error!.toJson(),
     },
   );
+}
+
+/// Answers of a comparison that were stopped, whose finished state is still to
+/// be stored: what they were when stopped, and the chat, store, account session
+/// and server they were stopped under. Only that owner stores them.
+final class _OwedStoppedAnswers {
+  _OwedStoppedAnswers({
+    required this.owner,
+    required this.db,
+    required this.locks,
+    required this.chatId,
+    required this.answers,
+    required this.updatedAt,
+  });
+
+  final ChatMutationOwnerToken owner;
+  final AppDatabase db;
+  final ChatLocks locks;
+  final String chatId;
+  final List<ChatMessage> answers;
+  final int updatedAt;
+
+  /// The write in flight, if any.
+  Future<bool>? writing;
+}
+
+/// One server-side effect of a Stop (aborting the transport, stopping the
+/// chat's tasks) that can be asked again. Attempts do not overlap: one that is
+/// still running is joined rather than repeated.
+///
+/// A [chatScoped] step is asked for the chat's id as it is now: an ask made
+/// under an id the chat has since been remapped from does not count as accepted.
+final class _CancellationStep {
+  _CancellationStep(this._run, {this.chatScoped = false});
+
+  final Future<bool> Function(String chatId) _run;
+  final bool chatScoped;
+  bool _accepted = false;
+  String? _askedChatId;
+  Future<bool>? _attempt;
+
+  /// Whether the server accepted the ask for [chatId].
+  bool acceptedFor(String chatId) =>
+      _accepted && (!chatScoped || _askedChatId == chatId);
+
+  /// Asks the server now. Any failure is a refusal.
+  Future<bool> attempt(String chatId) {
+    final running = _attempt;
+    if (running != null) {
+      if (!chatScoped || _askedChatId == chatId) return running;
+      // Asked for an id the chat no longer has: let that end, then ask again.
+      return running.then((_) => attempt(chatId));
+    }
+    _askedChatId = chatId;
+    return _attempt = Future<bool>.sync(() => _run(chatId))
+        .then((ok) => ok, onError: (Object _) => false)
+        .then((ok) {
+          _accepted = ok;
+          _attempt = null;
+          return ok;
+        });
+  }
+}
+
+/// The server-side cancellation of one stopped response, and the chat, store,
+/// account session and server it was asked under. Only that owner waits for it
+/// or asks again.
+final class _OwedCancellation {
+  _OwedCancellation({
+    required this.owner,
+    required this.chatId,
+    required this.steps,
+  });
+
+  final ChatMutationOwnerToken owner;
+
+  /// The chat's id, following a local-to-server remap.
+  String chatId;
+  final List<_CancellationStep> steps;
+
+  /// True once the server has accepted every step for the chat's current id;
+  /// asks again for each that it has not.
+  Future<bool> settle() async {
+    while (true) {
+      final asked = chatId;
+      final results = await Future.wait([
+        for (final step in steps)
+          if (step.acceptedFor(asked))
+            Future<bool>.value(true)
+          else
+            step.attempt(asked),
+      ]);
+      if (!results.every((ok) => ok)) return false;
+      // A remap that landed while the server answered asks again for the new id.
+      if (asked == chatId) return true;
+    }
+  }
 }

@@ -6,6 +6,7 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/fts/fts_ddl.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_providers.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
@@ -143,6 +144,24 @@ class _RecordingCompletionRunner implements RequestCompletionRunner {
     required Map<String, dynamic> payload,
   }) async {
     calls.add(chatId);
+  }
+}
+
+/// A client whose note probe is held open, then refused as the server refuses
+/// an account whose grant to a shared note has been revoked (403), or whose
+/// session has expired (401).
+class _HeldNoteRefusalClient extends FakeSyncApiClient {
+  _HeldNoteRefusalClient(super.server, {this.status = 403});
+
+  final int status;
+  final probeStarted = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(String id) async {
+    if (!probeStarted.isCompleted) probeStarted.complete();
+    await release.future;
+    throw SyncTerminalException(statusCode: status, message: 'refused');
   }
 }
 
@@ -1053,6 +1072,360 @@ void main() {
 
       check(await engine.pullChatNow('chat-1')).isNull();
       check(client.chatFetchStarts).isEmpty();
+    });
+  });
+
+  group('SyncEngine.reconcileNow note read refusal', () {
+    const userA = User(
+      id: 'user-a',
+      username: 'a',
+      email: 'a@example.test',
+      role: 'user',
+    );
+    const userB = User(
+      id: 'user-b',
+      username: 'b',
+      email: 'b@example.test',
+      role: 'user',
+    );
+    const sharedId = 'shared-1';
+
+    // The creator's note, cached for both accounts, with a draft behind it.
+    // The server list no longer carries it, so reconcile probes it.
+    Future<void> seedShared(AppDatabase target) async {
+      const ns = 1718000000000000000;
+      for (final reader in [userA.id, userB.id]) {
+        await target.notesDao.mergeServerNote(
+          serverRaw: {
+            'id': sharedId,
+            'user_id': 'owner-1',
+            'title': 'Shared',
+            'data': {
+              'content': {'md': 'original'},
+            },
+            'meta': <String, dynamic>{},
+            'is_pinned': false,
+            'created_at': ns,
+            'updated_at': ns,
+          },
+          readerId: reader,
+        );
+      }
+      await target.notesDao.updateNoteWithOutbox(
+        sharedId,
+        title: const Value('My draft title'),
+        localUpdatedAtNs: ns + 1,
+        enqueue: true,
+      );
+    }
+
+    Future<List<String>> listedFor(AppDatabase target, User user) async => [
+      for (final n in await target.notesDao.watchNotes(userId: user.id).first)
+        n.id,
+    ];
+
+    ProviderContainer makeAccountContainer(
+      SyncApiClient syncClient,
+      NotifierProvider<_MutableValue<User?>, User?> activeUser, {
+      NotifierProvider<_MutableValue<AppDatabase?>, AppDatabase?>? activeDb,
+      NotifierProvider<_MutableValue<String?>, String?>? activeToken,
+    }) {
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith(
+            (ref) => activeDb == null ? db : ref.watch(activeDb),
+          ),
+          syncApiClientProvider.overrideWith((ref) => syncClient),
+          isAuthenticatedProvider2.overrideWith((ref) => true),
+          currentUserProvider2.overrideWith((ref) => ref.watch(activeUser)),
+          if (activeToken != null)
+            authTokenProvider3.overrideWith((ref) => ref.watch(activeToken)),
+          isOnlineProvider.overrideWith((ref) => true),
+          legacyConversationCachePurgerProvider.overrideWith(
+            (ref) => () async {},
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    // The same account signing in again leaves the client, database and
+    // signed-in user as they were; only the authentication session moves.
+    void signInAgain(
+      ProviderContainer container,
+      NotifierProvider<_MutableValue<User?>, User?> activeUser,
+      NotifierProvider<_MutableValue<String?>, String?> activeToken,
+    ) {
+      final before = container.read(openWebUiAuthSessionEpochProvider);
+      container.read(activeUser.notifier).set(userB);
+      container.read(openWebUiAuthSessionEpochProvider);
+      container.read(activeUser.notifier).set(userA);
+      container.read(activeToken.notifier).set('second-session');
+      check(
+        identical(container.read(openWebUiAuthSessionEpochProvider), before),
+      ).isFalse();
+    }
+
+    test('retires only the signed-in account, keeping the note and its '
+        'draft', () async {
+      await seedShared(db);
+      final held = _HeldNoteRefusalClient(server)..release.complete();
+      final activeUser = NotifierProvider<_MutableValue<User?>, User?>(
+        () => _MutableValue<User?>(userA),
+      );
+      final container = makeAccountContainer(held, activeUser);
+
+      await container.read(syncEngineProvider.notifier).reconcileNow();
+
+      check(await listedFor(db, userA)).isEmpty();
+      check(await listedFor(db, userB)).deepEquals([sharedId]);
+      final row = (await db.notesDao.getNote(sharedId))!;
+      check(row.dirtyTitle).isTrue();
+      check(row.title).equals('My draft title');
+      check(await db.outboxDao.pendingForChat(sharedId)).length.equals(1);
+    });
+
+    test('a sign-in change while the probe is held retires no one', () async {
+      await seedShared(db);
+      final held = _HeldNoteRefusalClient(server);
+      final activeUser = NotifierProvider<_MutableValue<User?>, User?>(
+        () => _MutableValue<User?>(userA),
+      );
+      final container = makeAccountContainer(held, activeUser);
+
+      final reconcile = container
+          .read(syncEngineProvider.notifier)
+          .reconcileNow();
+      await held.probeStarted.future;
+      container.read(activeUser.notifier).set(userB);
+      held.release.complete();
+      await reconcile;
+
+      check(await listedFor(db, userA)).deepEquals([sharedId]);
+      check(await listedFor(db, userB)).deepEquals([sharedId]);
+    });
+
+    test('a refusal answered after the same account signed in again retires '
+        'no one', () async {
+      await seedShared(db);
+      final held = _HeldNoteRefusalClient(server);
+      final activeUser = NotifierProvider<_MutableValue<User?>, User?>(
+        () => _MutableValue<User?>(userA),
+      );
+      final activeToken = NotifierProvider<_MutableValue<String?>, String?>(
+        () => _MutableValue<String?>('first-session'),
+      );
+      final container = makeAccountContainer(
+        held,
+        activeUser,
+        activeToken: activeToken,
+      );
+
+      final reconcile = container
+          .read(syncEngineProvider.notifier)
+          .reconcileNow();
+      await held.probeStarted.future;
+      signInAgain(container, activeUser, activeToken);
+      held.release.complete();
+      await reconcile;
+
+      check(await listedFor(db, userA)).deepEquals([sharedId]);
+      check(await listedFor(db, userB)).deepEquals([sharedId]);
+      final row = (await db.notesDao.getNote(sharedId))!;
+      check(row.title).equals('My draft title');
+      check(await db.outboxDao.pendingForChat(sharedId)).length.equals(1);
+    });
+
+    test('an expired session retires no one', () async {
+      await seedShared(db);
+      final held = _HeldNoteRefusalClient(server, status: 401)
+        ..release.complete();
+      final activeUser = NotifierProvider<_MutableValue<User?>, User?>(
+        () => _MutableValue<User?>(userA),
+      );
+      final container = makeAccountContainer(held, activeUser);
+
+      await container.read(syncEngineProvider.notifier).reconcileNow();
+
+      check(await listedFor(db, userA)).deepEquals([sharedId]);
+      check(await listedFor(db, userB)).deepEquals([sharedId]);
+    });
+
+    test('a database change while the probe is held retires no one', () async {
+      final secondDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(secondDb.close);
+      await seedShared(db);
+      final held = _HeldNoteRefusalClient(server);
+      final activeUser = NotifierProvider<_MutableValue<User?>, User?>(
+        () => _MutableValue<User?>(userA),
+      );
+      final activeDb =
+          NotifierProvider<_MutableValue<AppDatabase?>, AppDatabase?>(
+            () => _MutableValue<AppDatabase?>(db),
+          );
+      final container = makeAccountContainer(
+        held,
+        activeUser,
+        activeDb: activeDb,
+      );
+
+      final reconcile = container
+          .read(syncEngineProvider.notifier)
+          .reconcileNow();
+      await held.probeStarted.future;
+      container.read(activeDb.notifier).set(secondDb);
+      container.read(syncEngineProvider);
+      held.release.complete();
+      await reconcile;
+
+      check(await listedFor(db, userA)).deepEquals([sharedId]);
+      check(await listedFor(db, userB)).deepEquals([sharedId]);
+    });
+  });
+
+  group('SyncEngine.requestPull note read evidence', () {
+    const userA = User(
+      id: 'user-a',
+      username: 'a',
+      email: 'a@example.test',
+      role: 'user',
+    );
+    const userB = User(
+      id: 'user-b',
+      username: 'b',
+      email: 'b@example.test',
+      role: 'user',
+    );
+    const sharedId = 'shared-1';
+    const ns = 1718000000000000000;
+    late Completer<void> listGate;
+
+    // A note another account created and shares with whoever is signed in,
+    // already cached for its creator, with the server's list held open.
+    Future<ProviderContainer> makeHeldPull(
+      NotifierProvider<_MutableValue<User?>, User?> activeUser,
+      NotifierProvider<_MutableValue<String?>, String?> activeToken,
+    ) async {
+      server.seedNote(
+        id: sharedId,
+        title: 'Shared body',
+        data: {
+          'content': {'md': 'Shared body'},
+        },
+        createdAt: ns,
+        updatedAt: ns,
+        extra: {'user_id': 'owner-1'},
+      );
+      await db.notesDao.mergeServerNote(
+        serverRaw: {
+          'id': sharedId,
+          'user_id': 'owner-1',
+          'title': 'Shared body',
+          'data': {
+            'content': {'md': 'Shared body'},
+          },
+          'meta': <String, dynamic>{},
+          'is_pinned': false,
+          'created_at': ns,
+          'updated_at': ns,
+        },
+        readerId: 'owner-1',
+      );
+      listGate = Completer<void>();
+      client.noteListGate = listGate.future;
+      final container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          syncApiClientProvider.overrideWith((ref) => client),
+          isAuthenticatedProvider2.overrideWith((ref) => true),
+          currentUserProvider2.overrideWith((ref) => ref.watch(activeUser)),
+          authTokenProvider3.overrideWith((ref) => ref.watch(activeToken)),
+          isOnlineProvider.overrideWith((ref) => true),
+          legacyConversationCachePurgerProvider.overrideWith(
+            (ref) => () async {},
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    Future<List<String>> listedFor(User user) async => [
+      for (final n in await db.notesDao.watchNotes(userId: user.id).first) n.id,
+    ];
+
+    Future<List<String>> searchedBy(User user) async => [
+      for (final n in await db.notesDao.searchNotesByQuery(
+        'Shared',
+        userId: user.id,
+      ))
+        n.id,
+    ];
+
+    test('a list answered in the steady session makes the note visible to '
+        'the signed-in account', () async {
+      final activeUser = NotifierProvider<_MutableValue<User?>, User?>(
+        () => _MutableValue<User?>(userA),
+      );
+      final activeToken = NotifierProvider<_MutableValue<String?>, String?>(
+        () => _MutableValue<String?>('first-session'),
+      );
+      final container = await makeHeldPull(activeUser, activeToken);
+
+      final pull = container
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'steady-session');
+      await waitFor(() => client.noteListRequests > 0);
+      listGate.complete();
+      await pull;
+
+      check(await listedFor(userA)).deepEquals([sharedId]);
+      check(await searchedBy(userA)).deepEquals([sharedId]);
+    });
+
+    test('a list answered after the same account signed in again grants no '
+        'read evidence and keeps the cached note', () async {
+      final activeUser = NotifierProvider<_MutableValue<User?>, User?>(
+        () => _MutableValue<User?>(userA),
+      );
+      final activeToken = NotifierProvider<_MutableValue<String?>, String?>(
+        () => _MutableValue<String?>('first-session'),
+      );
+      final container = await makeHeldPull(activeUser, activeToken);
+
+      final pull = container
+          .read(syncEngineProvider.notifier)
+          .requestPull(reason: 'held-note-list');
+      await waitFor(() => client.noteListRequests > 0);
+      // The client, database and signed-in user end up as they were; only
+      // the authentication session moves.
+      final before = container.read(openWebUiAuthSessionEpochProvider);
+      container.read(activeUser.notifier).set(userB);
+      container.read(openWebUiAuthSessionEpochProvider);
+      container.read(activeUser.notifier).set(userA);
+      container.read(activeToken.notifier).set('second-session');
+      check(
+        identical(container.read(openWebUiAuthSessionEpochProvider), before),
+      ).isFalse();
+      listGate.complete();
+      await pull;
+
+      check(await listedFor(userA)).isEmpty();
+      check(await searchedBy(userA)).isEmpty();
+      check(
+        await listedFor(
+          const User(
+            id: 'owner-1',
+            username: 'o',
+            email: 'o@example.test',
+            role: 'user',
+          ),
+        ),
+      ).deepEquals([sharedId]);
+      final row = (await db.notesDao.getNote(sharedId))!;
+      check(row.title).equals('Shared body');
+      check(row.deleted).isFalse();
     });
   });
 

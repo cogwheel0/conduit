@@ -7,6 +7,7 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/chat/views/chat_bottom_anchor_controller.dart';
@@ -1835,7 +1836,7 @@ final class _GatedConversationRefreshApi extends ApiService {
   int fetches = 0;
 
   @override
-  Future<Conversation> getConversation(String id) {
+  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) {
     fetches++;
     if (!started.isCompleted) started.complete();
     return response.future;

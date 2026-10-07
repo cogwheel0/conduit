@@ -9,8 +9,14 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:uuid/uuid.dart';
+import 'package:collection/collection.dart' show DeepCollectionEquality;
+
+import 'package:conduit_core/features/integrations/personal_connection_edits.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 
 import 'package:conduit_core/services/chat_completion_transport.dart';
+import 'package:conduit_core/services/moa_completion.dart';
+import 'package:conduit_core/services/openwebui_stream_parser.dart';
 
 import 'package:conduit_core/network/io/public_health_probe.dart';
 import 'package:conduit_core/models/account_metadata.dart';
@@ -22,12 +28,17 @@ import 'package:conduit_core/models/knowledge_base.dart';
 import 'package:conduit_core/models/knowledge_base_file.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/models/server_about_info.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_memory.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/models/user.dart';
+
+import 'package:conduit_core/features/automations/models/automation.dart';
+import 'package:conduit_core/features/calendar/models/calendar_models.dart';
+import 'package:conduit_core/features/notifications/models/notification_target.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/network/same_origin_redirect_interceptor.dart';
@@ -74,9 +85,12 @@ export 'package:conduit_core/network/io/public_health_probe.dart'
         isPublicHealthRedirectAddressWithNat64DiscoveryForTest,
         requestUsesServerConnectivityOrigin;
 part 'api_service_auth.dart';
+part 'api_service_automations.dart';
 part 'api_service_base.dart';
+part 'api_service_calendar.dart';
 part 'api_service_channels.dart';
 part 'api_service_chat_completions.dart';
+part 'api_service_chat_data_controls.dart';
 part 'api_service_chat_lists.dart';
 part 'api_service_chats.dart';
 part 'api_service_chats_raw.dart';
@@ -88,7 +102,9 @@ part 'api_service_knowledge_bases.dart';
 part 'api_service_media_retrieval.dart';
 part 'api_service_models.dart';
 part 'api_service_notes.dart';
+part 'api_service_notification_targets.dart';
 part 'api_service_prompts_skills.dart';
+part 'api_service_resource_grants.dart';
 part 'api_service_tools_functions.dart';
 part 'api_service_user_settings.dart';
 part 'api_service_workspace_knowledge.dart';
@@ -328,6 +344,11 @@ class ApiService extends _ApiServiceBase
         _ToolsFunctionsApi,
         _ChannelsApi,
         _NotesApi,
+        _NotificationTargetsApi,
+        _AutomationsApi,
+        _CalendarApi,
+        _ChatDataControlsApi,
+        _ResourceGrantsApi,
         _UserSettingsApi,
         _MediaRetrievalApi,
         _EvaluationsApi {
@@ -371,4 +392,23 @@ Map<String, dynamic>? decodeChatResponseEnvelopeWorker(Uint8List bytes) {
   if (decoded is Map<String, dynamic>) return decoded;
   if (decoded is Map) return Map<String, dynamic>.from(decoded);
   return null;
+}
+
+/// Top-level worker entrypoint: decodes a JSON array of raw `ChatResponse`
+/// maps (the import route's answer), keeping each blob exactly as sent. Null
+/// when the body is not an array of objects.
+List<Map<String, dynamic>>? decodeChatResponseListWorker(Uint8List bytes) {
+  final decoded = jsonDecode(utf8.decode(bytes));
+  if (decoded is! List) return null;
+  final rows = <Map<String, dynamic>>[];
+  for (final entry in decoded) {
+    if (entry is Map<String, dynamic>) {
+      rows.add(entry);
+    } else if (entry is Map) {
+      rows.add(Map<String, dynamic>.from(entry));
+    } else {
+      return null;
+    }
+  }
+  return rows;
 }

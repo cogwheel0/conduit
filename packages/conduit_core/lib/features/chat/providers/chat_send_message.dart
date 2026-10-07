@@ -16,6 +16,14 @@ Future<void> _sendMessageInternal(
     ref,
     conversationAtSendStart,
   );
+  // Settings chosen before this chat existed seed it; an existing chat reads
+  // its own stored params further down, under its captured owner.
+  final draftChatParamsAtSendStart = conversationAtSendStart == null
+      ? Map<String, dynamic>.of(
+          ref.read(pendingOpenWebUiChatSettingsProvider)
+              as Map<String, dynamic>,
+        )
+      : const <String, dynamic>{};
   final reviewerMode = ref.read(reviewerModeProvider);
   final api = ref.read(apiServiceProvider);
   final Object? directSourceApi = sendMutationOwner.usesOpenWebUiContext
@@ -37,6 +45,9 @@ Future<void> _sendMessageInternal(
   final imageGenerationAtSendStart =
       ref.read(imageGenerationEnabledProvider) &&
       ref.read(imageGenerationAvailableProvider);
+  // Admitted with the account and model this send started under. The request
+  // below drops it if a terminal turns out to be part of the same request.
+  final codeInterpreterAtSendStart = _admitCodeInterpreter(ref);
   final localMcpToolIdsAtSendStart = (toolIds ?? const <String>[])
       .where((id) => id.startsWith(kDirectMcpToolIdPrefix))
       .toList(growable: false);
@@ -907,6 +918,7 @@ Future<void> _sendMessageInternal(
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
         messages: [userMessage, assistantPlaceholder],
+        chatParams: draftChatParamsAtSendStart,
       );
 
       sendHandle._bindConversation(localConversation);
@@ -923,6 +935,7 @@ Future<void> _sendMessageInternal(
         updatedAt: DateTime.now(),
         messages: [userMessage, assistantPlaceholder],
         folderId: pendingFolderId,
+        chatParams: draftChatParamsAtSendStart,
       );
 
       // Set as active conversation locally
@@ -948,6 +961,9 @@ Future<void> _sendMessageInternal(
             messages: [lightweightMessage],
             model: serverModelId,
             folderId: pendingFolderId,
+            chatParams: draftChatParamsAtSendStart.isEmpty
+                ? null
+                : draftChatParamsAtSendStart,
           );
 
           // Clear the pending folder ID after successful creation
@@ -1094,32 +1110,12 @@ Future<void> _sendMessageInternal(
     }
   }
 
-  final conversationSystemPrompt = activeConversation?.systemPrompt?.trim();
-  final effectiveSystemPrompt =
-      (conversationSystemPrompt != null && conversationSystemPrompt.isNotEmpty)
-      ? conversationSystemPrompt
-      : userSystemPrompt;
-  if (effectiveSystemPrompt != null && effectiveSystemPrompt.isNotEmpty) {
-    final hasSystemMessage = conversationMessages.any(
-      (m) => (m['role']?.toString().toLowerCase() ?? '') == 'system',
-    );
-    if (!hasSystemMessage) {
-      conversationMessages.insert(0, {
-        'role': 'system',
-        'content': effectiveSystemPrompt,
-      });
-    }
-  }
   final selectedToolIds = toolIds ?? const <String>[];
   final toolIdsForApi = _extractToolIdsForApi(selectedToolIds);
   final selectedTerminalId = ref.read(selectedTerminalIdProvider);
   final isTemporary =
       (activeConversation != null && isTemporaryChat(activeConversation.id)) ||
       ref.read(temporaryChatEnabledProvider);
-  final requestMessages = _buildChatCompletionMessages(
-    conversationMessages: conversationMessages,
-    isTemporary: isTemporary,
-  );
 
   // Check feature toggles for API (gated by server availability)
   final webSearchEnabled =
@@ -1167,6 +1163,35 @@ Future<void> _sendMessageInternal(
       }
     }
 
+    // The chat's own settings, read through the owner captured above (a chat
+    // that does not exist yet carries the draft it was created with).
+    final pickerReasoningEffort = reasoningEffortForModel(
+      ref.read,
+      selectedModel,
+    );
+    final turnSettings = submittedOwner == null
+        ? _OpenWebUiTurnSettings(
+            chatParams:
+                activeConversation?.chatParams ?? const <String, dynamic>{},
+            reasoningEffort: pickerReasoningEffort,
+          )
+        : await _resolveOpenWebUiTurnSettings(
+            submittedOwner,
+            conversation: submittedConversation,
+            pickerReasoningEffort: pickerReasoningEffort,
+          );
+    requireOpenWebUiPreflightOwner();
+    _insertOpenWebUiSystemMessage(
+      conversationMessages,
+      chatParams: turnSettings.chatParams,
+      legacyChatSystem: activeConversation?.systemPrompt,
+      globalSystem: userSystemPrompt,
+    );
+    final requestMessages = _buildChatCompletionMessages(
+      conversationMessages: conversationMessages,
+      isTemporary: isTemporary,
+    );
+
     // Reconnect before choosing session_id so eligible sends stay on the
     // task/socket transport instead of falling back to fragile HTTP streaming.
     final socketService = _readOpenWebUiSocketForApi(ref, api);
@@ -1181,17 +1206,23 @@ Future<void> _sendMessageInternal(
     requireOpenWebUiPreflightOwner();
 
     List<Map<String, dynamic>>? toolServers;
+    final admittedToolServers = <PersonalToolAdmission>[];
     try {
       toolServers = await _resolveToolServersForRequest(
         api: api,
         userSettings: userSettingsData,
         selectedToolIds: selectedToolIds,
+        onUnresolvedSelections: (ids) =>
+            _clearUnresolvedPersonalToolSelections(ref, ids),
+        admitted: admittedToolServers,
       );
     } catch (_) {}
     requireOpenWebUiPreflightOwner();
     final terminalIdForApi = modelSupportsTerminal(selectedModel)
         ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
         : null;
+    final codeInterpreterEnabled =
+        codeInterpreterAtSendStart && terminalIdForApi == null;
 
     // Background tasks should follow backend-synced user settings instead of
     // forcing local defaults. Enable title/tags generation only on the first
@@ -1273,6 +1304,13 @@ Future<void> _sendMessageInternal(
 
     try {
       requireOpenWebUiPreflightOwner();
+      _admitPersonalToolServers(
+        socketService,
+        sessionId: socketSessionId,
+        chatId: submittedOwner?.chatId,
+        messageId: assistantMessageId,
+        admitted: admittedToolServers,
+      );
       final session = await api.sendMessageSession(
         messages: requestMessages,
         model: serverModelId,
@@ -1282,6 +1320,7 @@ Future<void> _sendMessageInternal(
         filterIds: filterIdsForApi,
         enableWebSearch: webSearchEnabled,
         enableImageGeneration: imageGenerationEnabled,
+        enableCodeInterpreter: codeInterpreterEnabled,
         isVoiceMode: isVoiceMode,
         modelItem: modelItem,
         sessionIdOverride: socketSessionId,
@@ -1289,7 +1328,8 @@ Future<void> _sendMessageInternal(
         backgroundTasks: bgTasks,
         responseMessageId: assistantMessageId,
         userSettings: userSettingsData,
-        reasoningEffort: reasoningEffortForModel(ref.read, selectedModel),
+        chatParams: turnSettings.chatParams,
+        reasoningEffort: turnSettings.reasoningEffort,
         parentId: userMessageMap?['parentId']?.toString(),
         userMessage: userMessageMap,
         variables: promptVariables,
@@ -1342,6 +1382,7 @@ Future<void> _sendMessageInternal(
             isBackgroundToolsFlowPre ||
             isBackgroundWebSearchPre ||
             imageGenerationEnabled ||
+            codeInterpreterEnabled ||
             bgTasks.isNotEmpty;
 
         final attached = await dispatchChatTransport(
@@ -1362,7 +1403,8 @@ Future<void> _sendMessageInternal(
               toolIdsForApi.isNotEmpty ||
               terminalIdForApi != null ||
               (toolServers != null && toolServers.isNotEmpty) ||
-              imageGenerationEnabled,
+              imageGenerationEnabled ||
+              codeInterpreterEnabled,
           isTemporary: isTemporary,
           filterIds: filterIdsForApi,
           ownsActiveConversation: () =>
@@ -1451,6 +1493,9 @@ String chatErrorContentForException(Object e) {
   if (e is HermesLocalDocumentException) return e.message;
   if (e is DirectChatInputException) return e.message;
   if (e is DirectProviderException) return e.message;
+  if (e is CodeInterpreterUnavailableException) {
+    return '${e.message} Send the message again without it.';
+  }
 
   final msg = e.toString();
   if (msg.contains('400')) {

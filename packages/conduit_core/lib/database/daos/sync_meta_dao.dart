@@ -69,6 +69,30 @@ class SyncMetaDao extends DatabaseAccessor<AppDatabase>
         .go();
   }
 
+  /// Drops every remap relation that starts at or ends at one of [chatIds], in
+  /// bounded batches. For a bulk purge, where one statement per chat would be
+  /// thousands of round trips.
+  Future<void> deleteChatRemapTargetsInvolving(Iterable<String> chatIds) async {
+    final ids = chatIds.toList(growable: false);
+    for (var start = 0; start < ids.length; start += _remapBatchSize) {
+      final batch = ids.sublist(
+        start,
+        start + _remapBatchSize > ids.length
+            ? ids.length
+            : start + _remapBatchSize,
+      );
+      await (delete(syncMeta)..where(
+            (t) =>
+                t.key.isIn([for (final id in batch) chatRemapKey(id)]) |
+                (t.key.like(r'chat\_remap:%', escapeChar: '\\') &
+                    t.value.isIn(batch)),
+          ))
+          .go();
+    }
+  }
+
+  static const int _remapBatchSize = 400;
+
   Future<bool> hasChatRemapTargetForServer(String serverId) async {
     final row =
         await (select(syncMeta)

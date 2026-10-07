@@ -63,16 +63,24 @@ Future<Note?> persistNoteUpdate(
   required Map<String, dynamic> data,
   Map<String, dynamic> Function(Map<String, dynamic> existing)? dataFrom,
   Object? authEpoch,
+  String? accountId,
   ApiAuthSnapshot? authSnapshot,
   CancelToken? cancelToken,
   bool Function()? isStillOpen,
 }) async {
-  if (!isCurrentNoteEditorSession(
-    ref,
-    api: api,
+  // The session the caller opened under, fixed before the first await. Every
+  // later step (remap lookup, permission read, note lock, API fallback) is
+  // judged against it and sends its requests with its auth snapshot.
+  final captured = NoteMutationOwner.capture(ref);
+  final owner = NoteMutationOwner(
+    api: api is ApiService ? api : null,
+    authSnapshot:
+        authSnapshot ?? (api is ApiService ? api.captureAuthSnapshot() : null),
     db: db,
-    authEpoch: authEpoch,
-  )) {
+    authEpoch: authEpoch ?? captured.authEpoch,
+    accountId: accountId ?? captured.accountId,
+  );
+  if (!(ref.read(isAuthenticatedProvider2) as bool) || !owner.isCurrent(ref)) {
     return null;
   }
   Note? note;
@@ -84,6 +92,7 @@ Future<Note?> persistNoteUpdate(
       title: title,
       data: data,
       dataFrom: dataFrom,
+      owner: owner,
     );
   } else {
     // Session confirmed current, so the live API equals the captured one.
@@ -94,17 +103,11 @@ Future<Note?> persistNoteUpdate(
         noteId,
         title: title,
         data: data,
-        authSnapshot: authSnapshot,
+        authSnapshot: owner.authSnapshot,
         cancelToken: cancelToken,
       ),
     );
-    if ((isStillOpen?.call() ?? true) &&
-        isCurrentNoteEditorSession(
-          ref,
-          api: api,
-          db: db,
-          authEpoch: authEpoch,
-        )) {
+    if ((isStillOpen?.call() ?? true) && owner.isCurrent(ref)) {
       ref.read(notesListProvider.notifier).updateNote(note, sourceDb: db);
     }
   }
@@ -113,8 +116,7 @@ Future<Note?> persistNoteUpdate(
   // and reopening the note in the same app session shows stale/empty content
   // until a full restart. Invalidate so the next open re-reads what we just
   // saved. Cover the remapped server id too, in case a `local:` id resolved.
-  if (note != null &&
-      isCurrentNoteEditorSession(ref, api: api, db: db, authEpoch: authEpoch)) {
+  if (note != null && owner.isCurrent(ref)) {
     ref.invalidate(noteByIdProvider(noteId));
     if (note.id != noteId) {
       ref.invalidate(noteByIdProvider(note.id));

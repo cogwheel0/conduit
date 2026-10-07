@@ -8,6 +8,7 @@ library;
 
 import 'dart:io';
 
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as path;
 import 'package:riverpod/riverpod.dart';
 
@@ -136,6 +137,16 @@ class AttachedFilesNotifier extends Notifier<List<FileUploadState>> {
     ];
   }
 
+  /// Removes the exact [states], leaving a newer state at the same path alone.
+  void releaseIdentical(Iterable<FileUploadState> states) {
+    final released = states.toList(growable: false);
+    if (released.isEmpty) return;
+    state = [
+      for (final entry in state)
+        if (!released.any((candidate) => identical(candidate, entry))) entry,
+    ];
+  }
+
   void updateFileState(String filePath, FileUploadState newState) {
     state = [
       for (final fileState in state)
@@ -168,3 +179,95 @@ final attachedFilesProvider =
     NotifierProvider<AttachedFilesNotifier, List<FileUploadState>>(
       AttachedFilesNotifier.new,
     );
+
+/// A file held by a draft queued behind a running response.
+///
+/// [id] names the capture and stays the same as the upload reports progress,
+/// which only replaces [upload]. [queueId] is the queue (one conversation of one
+/// account on one server) that captured it. A file is resolved, sent and
+/// released by that queue alone, even when another queue holds a file at the
+/// same pathname.
+@immutable
+final class QueuedDraftAttachment {
+  const QueuedDraftAttachment({
+    required this.id,
+    required this.queueId,
+    required this.upload,
+  });
+
+  final String id;
+  final String queueId;
+  final FileUploadState upload;
+
+  QueuedDraftAttachment _withUpload(FileUploadState next) =>
+      QueuedDraftAttachment(id: id, queueId: queueId, upload: next);
+}
+
+bool _isUnfinished(FileUploadState upload) =>
+    upload.status == FileUploadStatus.pending ||
+    upload.status == FileUploadStatus.uploading;
+
+/// Files of queued drafts. Their uploads keep running after they leave the
+/// composer tray, so the upload states are the same objects the upload
+/// controller reports into.
+class QueuedDraftAttachmentsNotifier
+    extends Notifier<List<QueuedDraftAttachment>> {
+  @override
+  List<QueuedDraftAttachment> build() => const <QueuedDraftAttachment>[];
+
+  /// Takes over the composer's files as they are. Their identity is preserved
+  /// so an upload that is still running keeps the state it reports into.
+  void adopt(List<QueuedDraftAttachment> held) {
+    if (held.isEmpty) return;
+    state = [...state, ...held];
+  }
+
+  /// Applies progress from the upload that captured [current]: that exact state
+  /// is replaced. Files of the same queue at the same pathname that are still
+  /// waiting joined this upload and follow it. A file held by any other queue
+  /// never does, whatever its pathname.
+  bool replaceUpload(FileUploadState current, FileUploadState next) {
+    final owner = state
+        .where((entry) => identical(entry.upload, current))
+        .firstOrNull;
+    if (owner == null) return false;
+    state = [
+      for (final entry in state)
+        if (identical(entry.upload, current) ||
+            (entry.queueId == owner.queueId &&
+                entry.upload.file.path == current.file.path &&
+                _isUnfinished(entry.upload)))
+          entry._withUpload(next)
+        else
+          entry,
+    ];
+    return true;
+  }
+
+  /// Drops the files that hold exactly [upload].
+  void removeUpload(FileUploadState upload) {
+    final kept = [
+      for (final entry in state)
+        if (!identical(entry.upload, upload)) entry,
+    ];
+    if (kept.length != state.length) state = kept;
+  }
+
+  /// Releases the files [ids] of [queueId]. Another queue's files, and a later
+  /// draft's file at the same pathname, are left alone.
+  void release(String queueId, Iterable<String> ids) {
+    final gone = ids.toSet();
+    if (gone.isEmpty) return;
+    final kept = [
+      for (final entry in state)
+        if (entry.queueId != queueId || !gone.contains(entry.id)) entry,
+    ];
+    if (kept.length != state.length) state = kept;
+  }
+}
+
+final queuedDraftAttachmentsProvider =
+    NotifierProvider<
+      QueuedDraftAttachmentsNotifier,
+      List<QueuedDraftAttachment>
+    >(QueuedDraftAttachmentsNotifier.new);

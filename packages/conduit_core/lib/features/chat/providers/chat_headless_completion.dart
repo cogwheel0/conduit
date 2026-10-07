@@ -22,9 +22,11 @@ Future<void> runQueuedCompletion(
   String? terminalId,
   bool enableWebSearch = false,
   bool enableImageGeneration = false,
+  bool enableCodeInterpreter = false,
   bool isVoiceMode = false,
   String? sessionIdOverride,
   OpenWebUiCompletionOwner? completionOwner,
+  OpenWebUiChatSettingsSnapshot? chatSettings,
 }) async {
   final api = ref.read(apiServiceProvider);
   if (api == null) {
@@ -66,6 +68,47 @@ Future<void> runQueuedCompletion(
     userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
   } catch (_) {}
   requireActiveOwner();
+  _rememberOpenWebUiUserSettings(
+    ref,
+    _openWebUiSettingsOwnerKey(ref, api),
+    userSettingsData,
+  );
+
+  // A turn admitted with the interpreter is sent only while the server still
+  // runs it for this account; otherwise it is settled with the reason.
+  if (enableCodeInterpreter) {
+    final unsupported = await _recheckCodeInterpreterForCompletion(
+      ref,
+      api: api,
+      requireCurrentOwner: requireActiveOwner,
+      modelId: effectiveModelId,
+      terminalId: terminalId,
+    );
+    if (unsupported != null) {
+      await _rejectUnsupportedCodeInterpreter(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        reason: unsupported,
+        live: true,
+      );
+    }
+  }
+
+  // The admission snapshot, when the op carries one, is the whole truth for
+  // the chat's own settings and, from version 2, for the global defaults and
+  // system message too; an older op reads the chat's stored params and the
+  // current globals.
+  final turnSettings = await _resolveOpenWebUiTurnSettings(
+    owner,
+    conversation: activeConversation,
+    snapshot: chatSettings,
+    pickerReasoningEffort:
+        selectedModel != null && selectedModel.id == effectiveModelId
+        ? reasoningEffortForModel(ref.read, selectedModel)
+        : null,
+  );
+  requireActiveOwner();
 
   final toolIdsForApi = _extractToolIdsForApi(toolIds);
   final selectedFilterIds = filterIds;
@@ -78,6 +121,8 @@ Future<void> runQueuedCompletion(
   final requestMessages = await _buildCompletionRequestMessages(
     api: api,
     messages: messages,
+    chatParams: turnSettings.chatParams,
+    baseline: turnSettings.baseline,
     conversationSystemPrompt: activeConversation.systemPrompt,
     userSystemPrompt: userSystemPrompt,
     isTemporary: isTemporary,
@@ -104,11 +149,13 @@ Future<void> runQueuedCompletion(
   requireActiveOwner();
 
   List<Map<String, dynamic>>? toolServers;
+  final admittedToolServers = <PersonalToolAdmission>[];
   try {
     toolServers = await _resolveToolServersForRequest(
       api: api,
       userSettings: userSettingsData,
       selectedToolIds: toolIds,
+      admitted: admittedToolServers,
     );
   } catch (_) {}
   requireActiveOwner();
@@ -158,6 +205,13 @@ Future<void> runQueuedCompletion(
   );
 
   try {
+    _admitPersonalToolServers(
+      socketService,
+      sessionId: socketSessionId,
+      chatId: owner.chatId,
+      messageId: assistantMessageId,
+      admitted: admittedToolServers,
+    );
     final session = await api.sendMessageSession(
       messages: requestMessages,
       model: effectiveModelId,
@@ -167,6 +221,7 @@ Future<void> runQueuedCompletion(
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       enableWebSearch: enableWebSearch,
       enableImageGeneration: enableImageGeneration,
+      enableCodeInterpreter: enableCodeInterpreter,
       isVoiceMode: isVoiceMode,
       modelItem: modelItem,
       sessionIdOverride: socketSessionId,
@@ -174,10 +229,9 @@ Future<void> runQueuedCompletion(
       backgroundTasks: bgTasks,
       responseMessageId: assistantMessageId,
       userSettings: userSettingsData,
-      reasoningEffort:
-          selectedModel != null && selectedModel.id == effectiveModelId
-          ? reasoningEffortForModel(ref.read, selectedModel)
-          : null,
+      globalParams: turnSettings.baseline?.globalParams,
+      chatParams: turnSettings.chatParams,
+      reasoningEffort: turnSettings.reasoningEffort,
       parentId: parentMsgMap?['parentId']?.toString(),
       userMessage: parentMsgMap,
       variables: promptVars2,
@@ -222,6 +276,7 @@ Future<void> runQueuedCompletion(
         isBackgroundToolsFlowPre ||
         enableWebSearch ||
         enableImageGeneration ||
+        enableCodeInterpreter ||
         bgTasks.isNotEmpty;
 
     final attached = await dispatchChatTransport(
@@ -242,7 +297,8 @@ Future<void> runQueuedCompletion(
           toolIdsForApi.isNotEmpty ||
           terminalId != null ||
           (toolServers != null && toolServers.isNotEmpty) ||
-          enableImageGeneration,
+          enableImageGeneration ||
+          enableCodeInterpreter,
       isTemporary: isTemporary,
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       ownsActiveConversation: () =>
@@ -295,9 +351,11 @@ Future<void> runHeadlessCompletion(
   String? terminalId,
   bool enableWebSearch = false,
   bool enableImageGeneration = false,
+  bool enableCodeInterpreter = false,
   bool isVoiceMode = false,
   String? sessionIdOverride,
   OpenWebUiCompletionOwner? completionOwner,
+  OpenWebUiChatSettingsSnapshot? chatSettings,
 }) async {
   final api = ref.read(apiServiceProvider);
   if (api == null) {
@@ -333,6 +391,42 @@ Future<void> runHeadlessCompletion(
     userSystemPrompt = _extractSystemPromptFromSettings(userSettingsData);
   } catch (_) {}
   requireCurrentOwner();
+  _rememberOpenWebUiUserSettings(
+    ref,
+    _openWebUiSettingsOwnerKey(ref, api),
+    userSettingsData,
+  );
+
+  if (enableCodeInterpreter) {
+    final unsupported = await _recheckCodeInterpreterForCompletion(
+      ref,
+      api: api,
+      requireCurrentOwner: requireCurrentOwner,
+      modelId: effectiveModelId,
+      terminalId: terminalId,
+    );
+    if (unsupported != null) {
+      await _rejectUnsupportedCodeInterpreter(
+        ref,
+        owner: owner,
+        assistantMessageId: assistantMessageId,
+        reason: unsupported,
+        live: false,
+      );
+    }
+  }
+
+  // Read through the captured owner, never the chat on screen.
+  final turnSettings = await _resolveOpenWebUiTurnSettings(
+    owner,
+    conversation: conversation,
+    snapshot: chatSettings,
+    pickerReasoningEffort:
+        selectedModel != null && selectedModel.id == effectiveModelId
+        ? reasoningEffortForModel(ref.read, selectedModel)
+        : null,
+  );
+  requireCurrentOwner();
 
   final toolIdsForApi = _extractToolIdsForApi(toolIds);
 
@@ -341,6 +435,8 @@ Future<void> runHeadlessCompletion(
   final requestMessages = await _buildCompletionRequestMessages(
     api: api,
     messages: messages,
+    chatParams: turnSettings.chatParams,
+    baseline: turnSettings.baseline,
     conversationSystemPrompt: conversation.systemPrompt,
     userSystemPrompt: userSystemPrompt,
     isTemporary: false,
@@ -358,11 +454,13 @@ Future<void> runHeadlessCompletion(
   requireCurrentOwner();
 
   List<Map<String, dynamic>>? toolServers;
+  final admittedToolServers = <PersonalToolAdmission>[];
   try {
     toolServers = await _resolveToolServersForRequest(
       api: api,
       userSettings: userSettingsData,
       selectedToolIds: toolIds,
+      admitted: admittedToolServers,
     );
   } catch (_) {}
   requireCurrentOwner();
@@ -398,6 +496,13 @@ Future<void> runHeadlessCompletion(
     );
   } catch (_) {}
 
+  _admitPersonalToolServers(
+    socketService,
+    sessionId: socketSessionId,
+    chatId: owner.chatId,
+    messageId: assistantMessageId,
+    admitted: admittedToolServers,
+  );
   final session = await api.sendMessageSession(
     messages: requestMessages,
     model: effectiveModelId,
@@ -407,6 +512,7 @@ Future<void> runHeadlessCompletion(
     filterIds: filterIds.isNotEmpty ? filterIds : null,
     enableWebSearch: enableWebSearch,
     enableImageGeneration: enableImageGeneration,
+    enableCodeInterpreter: enableCodeInterpreter,
     isVoiceMode: isVoiceMode,
     modelItem: modelItem,
     sessionIdOverride: socketSessionId,
@@ -414,10 +520,9 @@ Future<void> runHeadlessCompletion(
     backgroundTasks: bgTasks,
     responseMessageId: assistantMessageId,
     userSettings: userSettingsData,
-    reasoningEffort:
-        selectedModel != null && selectedModel.id == effectiveModelId
-        ? reasoningEffortForModel(ref.read, selectedModel)
-        : null,
+    globalParams: turnSettings.baseline?.globalParams,
+    chatParams: turnSettings.chatParams,
+    reasoningEffort: turnSettings.reasoningEffort,
     parentId: parentMsgMap?['parentId']?.toString(),
     userMessage: parentMsgMap,
     variables: promptVars,

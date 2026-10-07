@@ -1,3 +1,6 @@
+import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -100,6 +103,10 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
   @override
   Widget build(BuildContext context) {
+    // The Share action depends on both; watching rebuilds the menu when the
+    // Advanced setting or the account's permissions arrive or change.
+    ref.watch(appSettingsProvider.select((s) => s.advancedFeaturesEnabled));
+    ref.watch(workspaceCapabilitiesProvider);
     // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {

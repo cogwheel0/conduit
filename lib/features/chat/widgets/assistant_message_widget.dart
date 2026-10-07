@@ -10,6 +10,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
@@ -35,11 +36,23 @@ import '../../../shared/widgets/web_content_embed.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
+        ChatForkAvailability,
+        ComparisonAnswerStop,
+        ComparisonMergeException,
+        ComparisonMergeFailure,
+        chatBranchSiblingsProvider,
+        comparisonMergeCommandAvailableProvider,
+        comparisonMergeProvider,
+        stopComparisonAnswerProvider,
         chatComposerTextInsertionTargetId,
+        chatForkAvailabilityProvider,
+        comparisonAnswerStopPermittedProvider,
         isChatStreamingProvider,
         sendMessageWithContainer,
         streamingContentProvider,
         chatMessagesProvider;
+import 'package:conduit_core/providers/app_providers.dart'
+    show activeConversationProvider;
 
 import '../../../shared/utils/external_link_launcher.dart';
 
@@ -60,6 +73,8 @@ import 'streaming_status_widget.dart';
 
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
+import 'chat_branch_actions.dart';
+import 'chat_comparison_widgets.dart';
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
@@ -508,6 +523,66 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return nextRaw.trim().isNotEmpty;
   }
 
+  Object? _comparisonGroupMessage;
+  ChatComparisonGroup? _comparisonGroupCache;
+
+  /// The model slots this message's stored alternatives form, or null when the
+  /// message has no alternatives. A group of one slot is a plain regeneration
+  /// history and keeps the ordinary version pager.
+  ChatComparisonGroup? get _comparisonGroup {
+    if (widget.message.versions.isEmpty) return null;
+    if (!identical(_comparisonGroupMessage, widget.message)) {
+      _comparisonGroupMessage = widget.message;
+      _comparisonGroupCache = ChatComparisonGroup.fromMessage(
+        widget.message as ChatMessage,
+      );
+    }
+    return _comparisonGroupCache;
+  }
+
+  /// Whether this is an answer of a comparison that is still being written and
+  /// whose server task is known: the only state a per-answer stop can act on.
+  /// Before the task is bound only the whole-turn stop applies.
+  bool get _isStoppableComparisonAnswer {
+    if (widget.readOnly || _activeVersionIndex >= 0) return false;
+    if (!ref.watch(comparisonAnswerStopPermittedProvider)) return false;
+    final message = widget.message as ChatMessage;
+    if (!message.isStreaming) return false;
+    final metadata = message.metadata;
+    return metadata?[kMessageModelIdxMetadataKey] is int &&
+        (metadata?['taskId']?.toString().isNotEmpty ?? false);
+  }
+
+  String get _activeAnswerId =>
+      _activeVersionIndex >= 0 &&
+          _activeVersionIndex < widget.message.versions.length
+      ? widget.message.versions[_activeVersionIndex].id
+      : widget.message.id;
+
+  /// The answers the pager steps through, as indexes into `versions` with -1
+  /// for the displayed message, oldest first. In a comparison that is the
+  /// shown slot's own runs only: the other slots are reached by their tabs.
+  List<int> _pagerIndices() {
+    final group = _comparisonGroup;
+    if (group == null) return const <int>[];
+    if (group.isComparison) {
+      final activeId = _activeAnswerId;
+      final slot = group.slots.firstWhere(
+        (candidate) => candidate.answers.any((a) => a.messageId == activeId),
+      );
+      return [for (final answer in slot.answers) answer.versionIndex ?? -1];
+    }
+    return [for (var i = 0; i < widget.message.versions.length; i += 1) i, -1];
+  }
+
+  ChatMergedResponse? get _activeMergedResponse =>
+      _activeVersionIndex >= 0 &&
+          _activeVersionIndex < widget.message.versions.length
+      ? ChatMergedResponse.tryFrom(
+          widget.message.versions[_activeVersionIndex].merged,
+        )
+      : (widget.message as ChatMessage).mergedResponse;
+
   void _setActiveVersionIndex(int nextIndex) {
     final raw = _resolvedMessageContent(null, nextIndex);
     setState(() {
@@ -517,6 +592,82 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     _displayedContentListenable.value = raw;
     _resetTtsPlainTextState();
     _buildCachedAvatar();
+  }
+
+  /// The answer being shown, when it is one of this comparison's.
+  ChatComparisonAnswer? _shownAnswer(ChatComparisonGroup group) {
+    final activeId = _activeAnswerId;
+    return [for (final slot in group.slots) ...slot.answers]
+        .where((a) => a.messageId == activeId)
+        .firstOrNull;
+  }
+
+  /// The finished answers of this turn a merge may read, one per slot in slot
+  /// order: the shown answer for its own slot, otherwise the slot's current
+  /// one. An answer still being written, failed, or without text is left out,
+  /// so one unfinished slot never blocks merging the others.
+  List<ChatComparisonAnswer> _mergeableAnswers(ChatComparisonGroup group) {
+    final shown = _shownAnswer(group);
+    return [
+      for (final slot in group.slots)
+        if (_isMergeable(
+          shown != null && slot.index == shown.slot ? shown : slot.current,
+        ))
+          shown != null && slot.index == shown.slot ? shown : slot.current,
+    ];
+  }
+
+  static bool _isMergeable(ChatComparisonAnswer answer) =>
+      !answer.isStreaming &&
+      answer.error == null &&
+      answer.sourceText.trim().isNotEmpty;
+
+  /// Merges answers of this comparison into one response, saved on the answer
+  /// being shown. With two finished answers that is all there is to choose;
+  /// with more, the user picks at least two. Only the chosen answers' own
+  /// texts are sent, and every original stays as it is.
+  Future<void> _mergeResponses(ChatComparisonGroup group) async {
+    final parentId = group.parentId;
+    final target = _shownAnswer(group);
+    if (parentId == null || target == null) return;
+    var chosen = _mergeableAnswers(group);
+    if (chosen.length > 2) {
+      final picked = await showMergeSourcesSheet(
+        context,
+        group: group,
+        candidates: chosen,
+      );
+      if (picked == null || !mounted) return;
+      chosen = picked;
+    }
+    if (chosen.length < 2) return;
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      await ref
+          .read(comparisonMergeProvider.notifier)
+          .merge(
+            targetMessageId: target.messageId,
+            displayedMessageId: widget.message.id as String,
+            parentMessageId: parentId,
+            model: target.model ?? (widget.message.model as String?) ?? '',
+            responses: [for (final answer in chosen) answer.sourceText],
+          );
+    } on ComparisonMergeException catch (error) {
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: switch (error.reason) {
+          ComparisonMergeFailure.unavailable => l10n.chatMergeErrorUnavailable,
+          ComparisonMergeFailure.notMergeable =>
+            l10n.chatMergeErrorNotMergeable,
+          ComparisonMergeFailure.ownerChanged =>
+            l10n.chatMergeErrorOwnerChanged,
+          ComparisonMergeFailure.busy => l10n.chatMergeErrorNotMergeable,
+          ComparisonMergeFailure.failed => l10n.chatMergeErrorFailed,
+        },
+        type: AdaptiveSnackBarType.error,
+      );
+    }
   }
 
   /// Drives the action-row hysteresis. While the UI still treats the message as
@@ -1136,6 +1287,30 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           // Cached AI Name and Avatar to prevent flashing
           _cachedAvatar ?? const SizedBox.shrink(),
 
+          // Every saved answer of a multi-model turn stays reachable, whether
+          // or not Advanced is on: only comparison setup depends on it.
+          if (_comparisonGroup case final group? when group.isComparison) ...[
+            ChatComparisonTabs(
+              group: group,
+              activeMessageId: _activeAnswerId,
+              onSelected: (answer) =>
+                  _setActiveVersionIndex(answer.versionIndex ?? -1),
+            ),
+            const SizedBox(height: Spacing.sm),
+          ],
+
+          // One answer of a running comparison can be stopped on its own, with
+          // Advanced on or off: the siblings keep going.
+          if (_isStoppableComparisonAnswer) ...[
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: ChatComparisonAnswerStopButton(
+                onStop: _stopComparisonAnswer,
+              ),
+            ),
+            const SizedBox(height: Spacing.sm),
+          ],
+
           // Reasoning blocks are now rendered inline where they appear
 
           // Documentation-style content without heavy bubble; premium markdown
@@ -1185,6 +1360,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 if (showQueuedRecoveryBanner) ...[
                   const SizedBox(height: Spacing.sm),
                   _buildQueuedCompletionBanner(queuedCompletion),
+                ],
+
+                if (_activeMergedResponse case final merged?
+                    when merged.content.trim().isNotEmpty) ...[
+                  const SizedBox(height: Spacing.md),
+                  ChatMergedResponsePanel(
+                    child: _buildEnhancedMarkdownContent(
+                      merged.content,
+                      responseBuilder: null,
+                      activeSources: const <ChatSourceReference>[],
+                    ),
+                  ),
                 ],
 
                 // Display error banner if message or active version has an error
@@ -1401,6 +1588,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         _handleQueuedCompletionActionError(error, stackTrace);
       }
     }());
+  }
+
+  /// Stops this answer's task. The answer keeps running when the server refuses,
+  /// and the refusal is said once, on the screen that asked.
+  Future<void> _stopComparisonAnswer() async {
+    final outcome = await ref.read(stopComparisonAnswerProvider)(_messageId);
+    if (outcome != ComparisonAnswerStop.refused || !mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+    );
   }
 
   void _handleQueuedCompletionActionError(Object error, StackTrace stackTrace) {
@@ -1882,8 +2079,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           messageId: widget.message.id,
         ),
     ];
-    final versionPager = widget.message.versions.isNotEmpty
-        ? _buildVersionPager()
+    final pagerIndices = _pagerIndices();
+    final versionPager = pagerIndices.length > 1
+        ? _buildVersionPager(pagerIndices)
         : null;
 
     if (versionPager == null &&
@@ -1992,6 +2190,45 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         widget.onRegenerate != null &&
         (!isChatStreaming || currentStreamingMessageCompleted);
 
+    // Branch actions need a real message id. The providers below are what make
+    // them Advanced-only and exclusive to the user's own durable chat, so the
+    // widget adds no gate of its own. A version being previewed earns
+    // "continue" only when its id is a stored same-role alternative of this
+    // response, so a version without a reliable id stays preview-only (and
+    // offers no fork either: it is not a message to fork at).
+    final branchChatId = ref.watch(
+      activeConversationProvider.select((c) => c?.id),
+    );
+    final branchControls = messageId.isNotEmpty && branchChatId != null;
+    final previewingVersion = _activeVersionIndex >= 0;
+    final previewedVersionId =
+        previewingVersion &&
+            _activeVersionIndex < widget.message.versions.length
+        ? widget.message.versions[_activeVersionIndex].id as String?
+        : null;
+    // Read as soon as there is a version to preview, so the action is ready
+    // the moment one is shown.
+    final branchSiblings = branchControls && widget.message.versions.isNotEmpty
+        ? ref
+              .watch(
+                chatBranchSiblingsProvider((
+                  chatId: branchChatId,
+                  messageId: messageId,
+                )),
+              )
+              .asData
+              ?.value
+        : null;
+    final String? continueFromId =
+        previewedVersionId != null &&
+            (branchSiblings?.contains(previewedVersionId) ?? false)
+        ? previewedVersionId
+        : null;
+    final bool canFork =
+        branchControls &&
+        (!previewingVersion || continueFromId != null) &&
+        ref.watch(chatForkAvailabilityProvider) != ChatForkAvailability.hidden;
+
     VoidCallback? ttsOnTap;
     if (showStopState || canStartTts) {
       ttsOnTap = () {
@@ -2002,6 +2239,27 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       };
     }
 
+    // "Merge responses" is an Advanced addition: it needs two or more finished
+    // answers with text, and no other merge running. A merge already saved on an
+    // answer is shown whatever Advanced is; only starting one depends on it.
+    final comparisonGroup = _comparisonGroup;
+    final mergeIsRunningHere =
+        comparisonGroup != null &&
+        ref.watch(comparisonMergeProvider) == _activeAnswerId;
+    // The merge lands on the shown answer, so that one must be finished; a
+    // sibling that failed or is still responding is simply not a source.
+    final shownAnswer = comparisonGroup == null
+        ? null
+        : _shownAnswer(comparisonGroup);
+    final canMerge =
+        !widget.readOnly &&
+        comparisonGroup != null &&
+        comparisonGroup.isComparison &&
+        ref.watch(comparisonMergeCommandAvailableProvider) &&
+        shownAnswer != null &&
+        _isMergeable(shownAnswer) &&
+        _mergeableAnswers(comparisonGroup).length >= 2;
+
     final IconData listenIcon = Platform.isIOS
         ? CupertinoIcons.speaker_2
         : Icons.volume_up_outlined;
@@ -2010,6 +2268,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         : Icons.stop;
 
     final actions = <_AssistantFooterAction>[
+      // While an alternative is being previewed, continuing from it is the
+      // primary action, so it leads the inline buttons.
+      if (continueFromId != null)
+        _AssistantFooterAction(
+          id: 'continue-branch',
+          icon: Platform.isIOS
+              ? CupertinoIcons.arrow_turn_down_right
+              : Icons.subdirectory_arrow_right,
+          label: l10n.chatBranchContinueFromResponse,
+          onTap: () => unawaited(
+            continueFromChatBranch(
+              context,
+              displayedMessageId: messageId,
+              alternativeId: continueFromId,
+            ),
+          ),
+          sfSymbol: 'arrow.turn.down.right',
+        ),
       _AssistantFooterAction(
         id: 'copy',
         icon: Platform.isIOS
@@ -2041,6 +2317,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           onTap: canRegenerate ? widget.onRegenerate : null,
           sfSymbol: 'arrow.clockwise',
         ),
+      if (mergeIsRunningHere)
+        _AssistantFooterAction(
+          id: 'stop-merge',
+          icon: Platform.isIOS ? CupertinoIcons.stop_fill : Icons.stop,
+          label: l10n.chatMergeStopAction,
+          onTap: () =>
+              unawaited(ref.read(comparisonMergeProvider.notifier).cancel()),
+          sfSymbol: 'stop.fill',
+        )
+      else if (canMerge)
+        _AssistantFooterAction(
+          id: 'merge',
+          icon: Platform.isIOS ? CupertinoIcons.arrow_merge : Icons.merge_type,
+          label: l10n.chatMergeResponsesAction,
+          onTap: () => unawaited(_mergeResponses(comparisonGroup)),
+          sfSymbol: 'arrow.triangle.merge',
+        ),
       if (activeUsage != null && activeUsage.isNotEmpty)
         _AssistantFooterAction(
           id: 'usage',
@@ -2048,6 +2341,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           label: l10n.usageInfo,
           onTap: () => UsageStatsModal.show(context, activeUsage),
           sfSymbol: 'info.circle',
+        ),
+      if (canFork)
+        _AssistantFooterAction(
+          id: 'fork',
+          icon: Platform.isIOS ? CupertinoIcons.arrow_branch : Icons.call_split,
+          label: l10n.chatBranchForkChat,
+          onTap: () => unawaited(
+            forkChatFromMessage(
+              context,
+              messageId: continueFromId ?? messageId,
+            ),
+          ),
+          sfSymbol: 'arrow.triangle.branch',
         ),
       if (!widget.readOnly)
         _AssistantFooterAction(
@@ -2071,17 +2377,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   /// `‹ 2/3 ›`: steps through this response's regenerations in place.
-  /// The live response is the last version.
-  Widget _buildVersionPager() {
+  /// [indices] are the answers it covers, oldest first, as indexes into
+  /// `versions` with -1 for the live response, which is last.
+  Widget _buildVersionPager(List<int> indices) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final archived = widget.message.versions.length;
-    final totalVersions = archived + 1;
-    final currentVersion = _activeVersionIndex < 0
-        ? totalVersions
-        : _activeVersionIndex + 1;
-    final canGoBack = _activeVersionIndex != 0;
-    final canGoForward = _activeVersionIndex >= 0;
+    final position = indices.indexOf(_activeVersionIndex);
+    final current = position < 0 ? indices.length - 1 : position;
 
     return Row(
       key: const ValueKey<String>('assistant-version-pager'),
@@ -2092,16 +2394,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? CupertinoIcons.chevron_left
               : Icons.chevron_left,
           label: l10n.previousLabel,
-          onTap: canGoBack
-              ? () => _setActiveVersionIndex(
-                  _activeVersionIndex < 0
-                      ? archived - 1
-                      : _activeVersionIndex - 1,
-                )
+          onTap: current > 0
+              ? () => _setActiveVersionIndex(indices[current - 1])
               : null,
         ),
         Text(
-          '$currentVersion/$totalVersions',
+          '${current + 1}/${indices.length}',
           style: AppTypography.small.copyWith(
             color: theme.textPrimary.withValues(alpha: 0.8),
             fontFeatures: const [FontFeature.tabularFigures()],
@@ -2112,12 +2410,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? CupertinoIcons.chevron_right
               : Icons.chevron_right,
           label: l10n.nextLabel,
-          onTap: canGoForward
-              ? () => _setActiveVersionIndex(
-                  _activeVersionIndex < archived - 1
-                      ? _activeVersionIndex + 1
-                      : -1,
-                )
+          onTap: current < indices.length - 1
+              ? () => _setActiveVersionIndex(indices[current + 1])
               : null,
         ),
       ],

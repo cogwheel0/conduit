@@ -639,11 +639,26 @@ class SyncEngine extends _$SyncEngine {
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
     final boundSessionEpoch = sessionEpoch ?? _sessionEpoch;
+    // The server answers the account this pull was built for; once the session
+    // moves on, a late response is no evidence about the new account. The API
+    // client and database outlive a sign-in change on the same server, so the
+    // authentication session is fenced as well as the dependency epoch.
+    final readerId = ref.read(currentUserProvider2)?.id;
+    final authSession = ref.read(openWebUiAuthSessionEpochProvider);
     return NotePullSync(
       client: client,
       db: db,
       locks: noteLocks,
       remapper: remapper,
+      readerAccountId: () =>
+          ref.mounted &&
+              boundSessionEpoch == _sessionEpoch &&
+              identical(
+                ref.read(openWebUiAuthSessionEpochProvider),
+                authSession,
+              )
+          ? readerId
+          : null,
       onFeatureEnabled: (enabled) {
         if (!ref.mounted) return;
         if (boundSessionEpoch != _sessionEpoch) return;
@@ -666,6 +681,7 @@ class SyncEngine extends _$SyncEngine {
       db: db,
       noteLocks: noteLocks,
       remapper: remapper,
+      currentAccountId: () => ref.read(currentUserProvider2)?.id,
     );
   }
 
@@ -962,11 +978,28 @@ class SyncEngine extends _$SyncEngine {
     if (db == null || client == null || noteLocks == null || clock == null) {
       return null;
     }
+    // A refusal is evidence about the account signed in when the run is built.
+    // The API client and database outlive a sign-in change on the same server,
+    // so the epoch of the authentication session is fenced as well as the
+    // engine's own dependency epoch: a held probe or lock wait must not
+    // attribute its answer to whoever signed in meanwhile.
+    final boundSessionEpoch = _sessionEpoch;
+    final readerId = ref.read(currentUserProvider2)?.id;
+    final authSession = ref.read(openWebUiAuthSessionEpochProvider);
     return NoteDeletionReconcile(
       client: client,
       db: db,
       locks: noteLocks,
       clock: clock,
+      readerAccountId: () =>
+          ref.mounted &&
+              boundSessionEpoch == _sessionEpoch &&
+              identical(
+                ref.read(openWebUiAuthSessionEpochProvider),
+                authSession,
+              )
+          ? readerId
+          : null,
     );
   }
 

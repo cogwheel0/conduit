@@ -169,6 +169,14 @@ abstract class ChatMessageVersion with _$ChatMessageVersion {
       toJson: _chatMessageErrorToJson,
     )
     ChatMessageError? error,
+
+    /// Which model slot of a multi-model turn produced this alternative. Null
+    /// when the stored message carries no `modelIdx`.
+    @JsonKey(fromJson: _safeInt) int? modelIdx,
+
+    /// Open WebUI's merged-response object (`{status, content}`) stored on
+    /// this alternative, verbatim.
+    @JsonKey(fromJson: _safeJsonMap) Map<String, dynamic>? merged,
   }) = _ChatMessageVersion;
 
   factory ChatMessageVersion.fromJson(Map<String, dynamic> json) =>

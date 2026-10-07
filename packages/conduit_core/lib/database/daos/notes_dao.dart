@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
@@ -62,11 +64,23 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
 
   static const Uuid _uuid = Uuid();
   static const int _listPreviewMaxChars = 1000;
-  static const String _ownerPredicate = '''
+  // A note is visible to the account that created it and to an account the
+  // server has confirmed may read it ([kNoteReadAccountsKey]). Nothing else in
+  // the database is: a row cached for another account stays hidden.
+  static const String _ownerPredicate =
+      '''
 json_valid(raw_extra)
 AND (
   CAST(json_extract(raw_extra, '\$.user_id') AS TEXT) = ?
   OR CAST(json_extract(raw_extra, '\$.user.id') AS TEXT) = ?
+  OR (
+    json_type(raw_extra, '\$.$kNoteReadAccountsKey') = 'array'
+    AND EXISTS (
+      SELECT 1
+      FROM json_each(raw_extra, '\$.$kNoteReadAccountsKey')
+      WHERE CAST(value AS TEXT) = ?
+    )
+  )
 )
 ''';
 
@@ -203,13 +217,25 @@ LIMIT 1
   /// row writes the decision dictates and (on a concurrent data edit) spawns a
   /// conflict-copy note + its `noteCreate` op in the SAME tx — NEVER silently
   /// dropping the local data.
+  ///
+  /// [readerId] is the account the server answered when it returned
+  /// [serverRaw]. The answer is authoritative read evidence for that account,
+  /// so the note is recorded as readable by it ([kNoteReadAccountsKey]) and
+  /// then appears in its list, search and offline detail even though another
+  /// account created it. Evidence already stored for other accounts is kept.
   Future<NoteMergeWriteResult> mergeServerNote({
     required Map<String, dynamic> serverRaw,
+    String? readerId,
   }) {
     final serverId = serverRaw['id'] as String;
     final serverUpdatedAt = asNs(serverRaw['updated_at']) ?? 0;
     return transaction(() async {
       final existing = await getNote(serverId);
+      final readAccounts = <String>[
+        if (existing != null)
+          ...noteReadAccounts(decodeJsonMap(existing.rawExtra)),
+        if (readerId != null && readerId.isNotEmpty) readerId,
+      ];
       final decision = resolveNoteMerge(
         serverUpdatedAt: serverUpdatedAt,
         local: existing == null
@@ -227,14 +253,24 @@ LIMIT 1
       switch (decision.kind) {
         case NoteMergeKind.skipDirtyTombstone:
         case NoteMergeKind.noRemoteChange:
-          // Rows untouched; only re-assert push below when needed.
+          // Content rows untouched; only re-assert push below when needed. An
+          // access change does not bump `updated_at`, so the projection is
+          // refreshed here or a revoked write grant would stay cached.
+          if (existing != null && !existing.deleted) {
+            await storeNoteAccessProjection(
+              serverId,
+              writeAccess: serverRaw['write_access'],
+              accessGrants: serverRaw['access_grants'],
+              readerId: readerId,
+            );
+          }
           break;
 
         case NoteMergeKind.fastForward:
           // Plain server write; preserve the local pin mirror if present (pin
           // is reconciled out-of-band, never via this watermark merge).
           await into(notes).insertOnConflictUpdate(
-            serverToNoteRow(serverRaw).copyWith(
+            serverToNoteRow(serverRaw, readAccounts: readAccounts).copyWith(
               isPinned: existing == null
                   ? const Value.absent()
                   : Value(existing.isPinned),
@@ -257,11 +293,15 @@ LIMIT 1
             serverRaw: serverRaw,
             serverUpdatedAt: serverUpdatedAt,
             decision: decision,
+            readAccounts: readAccounts,
           );
           break;
       }
 
-      if (decision.mustPush) {
+      // A draft kept through a revoked write grant stays dirty in its row but
+      // is not queued again: replay would be refused. Pulling a restored grant
+      // re-asserts it.
+      if (decision.mustPush && serverRaw['write_access'] != false) {
         await _enqueueUpdateIfMissing(serverId);
       }
       return NoteMergeWriteResult(
@@ -303,6 +343,7 @@ LIMIT 1
     required Map<String, dynamic> serverRaw,
     required int serverUpdatedAt,
     required NoteMergeDecision decision,
+    required List<String> readAccounts,
   }) async {
     // Spawn the conflict copy BEFORE overwriting the canonical row's local
     // data, so the LOCAL data is captured intact.
@@ -338,7 +379,7 @@ LIMIT 1
 
     // Canonical row: title/data each follow the field-LWW decision. Conflict
     // copies with dirty data keep their local body instead of forking again.
-    final serverRow = serverToNoteRow(serverRaw);
+    final serverRow = serverToNoteRow(serverRaw, readAccounts: readAccounts);
     final mergedUpdatedAt = decision.advanceServerUpdatedAt
         ? serverUpdatedAt
         : existing.updatedAt;
@@ -462,6 +503,66 @@ LIMIT 1
     });
   }
 
+  /// Records what the server last said about who may edit the note, in
+  /// `rawExtra` only: no dirty flag, outbox op or content column changes, so a
+  /// draft waiting to sync is untouched. A null argument leaves that key as it
+  /// is, because update responses omit the detail-only `write_access`.
+  ///
+  /// [readerId] is the account the server just answered with this note, which
+  /// records it as readable by that account (see [mergeServerNote]).
+  Future<void> storeNoteAccessProjection(
+    String id, {
+    Object? writeAccess,
+    Object? accessGrants,
+    String? readerId,
+  }) async {
+    final hasWriteAccess = writeAccess is bool;
+    final hasGrants = accessGrants is List;
+    final hasReader = readerId != null && readerId.isNotEmpty;
+    if (!hasWriteAccess && !hasGrants && !hasReader) return;
+    final row = await getNote(id);
+    if (row == null) return;
+    final extra = decodeJsonMap(row.rawExtra);
+    if (hasWriteAccess) extra['write_access'] = writeAccess;
+    if (hasGrants) extra['access_grants'] = accessGrants;
+    if (hasReader) {
+      extra[kNoteReadAccountsKey] = <String>{
+        ...noteReadAccounts(extra),
+        readerId,
+      }.toList();
+    }
+    final encoded = jsonEncode(extra);
+    if (encoded == row.rawExtra) return;
+    await (update(notes)..where((t) => t.id.equals(id))).write(
+      NotesCompanion(rawExtra: Value(encoded)),
+    );
+  }
+
+  /// Retires [accountId]'s cached read eligibility after the server refused it
+  /// the note (403). Only the evidence changes: the row, a draft in it, and any
+  /// queued or refused operation stay, so nothing the user typed is lost and a
+  /// restored grant is picked up by the next authoritative read. The creator
+  /// keeps the note through the owner predicate.
+  Future<void> retireNoteReadEvidence(
+    String id, {
+    required String accountId,
+  }) async {
+    final row = await getNote(id);
+    if (row == null) return;
+    final extra = decodeJsonMap(row.rawExtra);
+    final accounts = noteReadAccounts(extra);
+    if (!accounts.contains(accountId)) return;
+    accounts.remove(accountId);
+    if (accounts.isEmpty) {
+      extra.remove(kNoteReadAccountsKey);
+    } else {
+      extra[kNoteReadAccountsKey] = accounts;
+    }
+    await (update(notes)..where((t) => t.id.equals(id))).write(
+      NotesCompanion(rawExtra: Value(jsonEncode(extra))),
+    );
+  }
+
   /// Server-confirmed pin mirror write: stores the current per-user pin state
   /// without enqueuing an outbox op or touching title/data watermarks.
   Future<void> storeNotePinMirror(String id, {required bool isPinned}) async {
@@ -561,7 +662,11 @@ LIMIT 1
   }
 
   List<Variable<String>> _ownerVariables(String userId) {
-    return [Variable.withString(userId), Variable.withString(userId)];
+    return [
+      Variable.withString(userId),
+      Variable.withString(userId),
+      Variable.withString(userId),
+    ];
   }
 }
 

@@ -18,6 +18,28 @@ abstract final class WorkspaceValveValues {
     return value is Map ? Map<String, dynamic>.from(value) : {};
   }
 
+  /// Whether the schema marks a property as a secret to be masked: Open WebUI's
+  /// `input.type: password` hint, or JSON Schema `format: password` (what
+  /// Pydantic emits for `SecretStr`, also inside an `Optional` `anyOf`). Only
+  /// the schema decides; field names are never guessed.
+  static bool isPasswordProperty(Map<String, dynamic> propertySpec) {
+    final input = propertySpec['input'];
+    if (propertySpec['type'] == 'string' &&
+        input is Map &&
+        input['type']?.toString() == 'password') {
+      return true;
+    }
+    if (propertySpec['format'] == 'password') return true;
+    for (final key in const ['anyOf', 'oneOf']) {
+      final branches = propertySpec[key];
+      if (branches is List &&
+          branches.any((b) => b is Map && b['format'] == 'password')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// The value a property takes when it is toggled from its server default
   /// to a custom value.
   static dynamic customValueFor(Map<String, dynamic> propertySpec) {

@@ -396,6 +396,7 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       initialGrants: _grants,
       capabilities: capabilities.tools,
       allowUserGrants: capabilities.allowUserGrants,
+      allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: !_writeAccess,
     );
     if (grants == null || !mounted) return;

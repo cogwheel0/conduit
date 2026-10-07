@@ -38,12 +38,20 @@ sealed class Folder with _$Folder {
 
     /// `read` or `write` (`permission`); shared folders only.
     String? permission,
+
+    /// The server's own verdict on this account's write access
+    /// (`write_access`), present only on a folder read by id. Null is unknown,
+    /// as for every folder listed.
+    bool? writeAccess,
   }) = _Folder;
 
   const Folder._();
 
   /// Owned folders are always writable; shared ones only with a write grant.
-  bool get canWrite => !shared || permission == 'write';
+  /// A server verdict that this account cannot write overrides what the listing
+  /// last said.
+  bool get canWrite =>
+      writeAccess != false && (!shared || permission == 'write');
 
   factory Folder.fromJson(Map<String, dynamic> json) {
     List<String> extractConversationIds(dynamic source) {
@@ -107,8 +115,113 @@ sealed class Folder with _$Folder {
       shared: _safeBool(json['shared']) ?? false,
       ownerName: json['owner_name']?.toString(),
       permission: json['permission']?.toString(),
+      writeAccess: _safeBool(json['write_access']),
     );
   }
+}
+
+/// One `data.files` entry of a folder project, as the web client's
+/// `FolderModal` writes it: `{type: file|collection|note, id, name, ...}`.
+///
+/// [raw] is the entry exactly as stored. The editor saves it back untouched,
+/// so keys this client does not know survive a round trip.
+class FolderProjectFile {
+  const FolderProjectFile._({
+    required this.id,
+    required this.type,
+    required this.name,
+    required this.raw,
+  });
+
+  /// Reads one stored entry; null when it has no usable id (it cannot be
+  /// listed, but the editor still keeps it in the list it saves).
+  static FolderProjectFile? tryParse(Object? entry) {
+    if (entry is! Map) return null;
+    final id = entry['id'];
+    if (id is! String || id.isEmpty) return null;
+    final name = entry['name'];
+    final type = entry['type'];
+    return FolderProjectFile._(
+      id: id,
+      type: type is String ? type : 'file',
+      name: name is String && name.isNotEmpty ? name : id,
+      raw: Map<String, dynamic>.from(entry),
+    );
+  }
+
+  /// A new reference to a knowledge collection or file picked in the editor.
+  factory FolderProjectFile.reference({
+    required String type,
+    required String id,
+    required String name,
+  }) => FolderProjectFile._(
+    id: id,
+    type: type,
+    name: name,
+    raw: <String, dynamic>{'type': type, 'id': id, 'name': name},
+  );
+
+  final String id;
+  final String type;
+  final String name;
+  final Map<String, dynamic> raw;
+}
+
+/// Project defaults live in a folder's `data` next to `system_prompt`: the
+/// knowledge `files` and the ordered `model_ids` a new chat starts with. The
+/// server applies `system_prompt` and `files` itself from the chat's
+/// `folder_id`; only `model_ids` is the client's to apply.
+extension FolderProjectDefaults on Folder {
+  /// Every stored `files` entry, including ones that cannot be listed.
+  List<Object?> get projectFileEntries {
+    final value = data?['files'];
+    return value is List ? List<Object?>.of(value) : const <Object?>[];
+  }
+
+  /// The listable `files` entries, in stored order.
+  List<FolderProjectFile> get projectFiles => <FolderProjectFile>[
+    for (final entry in projectFileEntries) ?FolderProjectFile.tryParse(entry),
+  ];
+
+  /// Every stored `model_ids` entry, in slot order.
+  List<Object?> get projectModelIdEntries {
+    final value = data?['model_ids'];
+    return value is List ? List<Object?>.of(value) : const <Object?>[];
+  }
+
+  /// The saved model slots as ids, in order. Blank and non-string entries are
+  /// not models, so they are skipped here and kept by [projectModelIdEntries].
+  List<String> get projectModelIds => <String>[
+    for (final entry in projectModelIdEntries)
+      if (entry is String && entry.trim().isNotEmpty) entry,
+  ];
+
+  String get projectSystemPrompt {
+    final value = data?['system_prompt'];
+    return value is String ? value : '';
+  }
+}
+
+/// Why a project edit was not written.
+enum FolderProjectWriteFailure {
+  /// The signed-in account, server or session is not the one that opened the
+  /// editor.
+  ownerChanged,
+
+  /// The folder is gone or being deleted.
+  unavailable,
+
+  /// The account has no write grant on this shared folder.
+  readOnly,
+}
+
+final class FolderProjectWriteException implements Exception {
+  const FolderProjectWriteException(this.reason);
+
+  final FolderProjectWriteFailure reason;
+
+  @override
+  String toString() => 'FolderProjectWriteException(${reason.name})';
 }
 
 extension FolderJsonExtension on Folder {
@@ -136,6 +249,7 @@ extension FolderJsonExtension on Folder {
       if (shared) 'shared': true,
       if (ownerName != null) 'owner_name': ownerName,
       if (permission != null) 'permission': permission,
+      if (writeAccess != null) 'write_access': writeAccess,
     };
   }
 }

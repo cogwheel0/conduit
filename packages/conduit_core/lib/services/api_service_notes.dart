@@ -172,9 +172,18 @@ mixin _NotesApi on _ApiServiceBase {
 
   /// GET `/api/v1/notes/{id}` — the FULL (untruncated) note map; null on 404;
   /// malformed 2xx bodies throw; 401/403 -> [SyncTerminalException].
-  Future<Map<String, dynamic>?> getNoteRaw(String id) async {
+  ///
+  /// [authSnapshot] pins the request to the account that captured it, so a
+  /// permission read for a mutation never goes out as a replacement account.
+  Future<Map<String, dynamic>?> getNoteRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     try {
-      final response = await _dio.get('/api/v1/notes/$id');
+      final response = await _dio.get(
+        '/api/v1/notes/$id',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
       return _requireResponseMap(response.data, 'getNoteRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;

@@ -25,6 +25,34 @@ directConnectionsNativeSheetNavigationRequest = (
   extra: NativeSheetNavigationOrigin(),
 );
 
+/// Personal connections open the same way: the native sheet dismisses, then
+/// the list page is pushed without a second transition over it.
+const NativeSheetNavigationRequest
+personalConnectionsNativeSheetNavigationRequest = (
+  routeName: RouteNames.personalConnections,
+  extra: NativeSheetNavigationOrigin(),
+);
+
+/// Scheduled tasks open the same way, from the native Settings sheet.
+const NativeSheetNavigationRequest scheduledTasksNativeSheetNavigationRequest =
+    (
+      routeName: RouteNames.scheduledTasks,
+      extra: NativeSheetNavigationOrigin(),
+    );
+
+/// The calendar opens the same way, from the native Settings sheet.
+const NativeSheetNavigationRequest calendarNativeSheetNavigationRequest = (
+  routeName: RouteNames.calendar,
+  extra: NativeSheetNavigationOrigin(),
+);
+
+/// Data controls open the same way, from the native Settings sheet.
+const NativeSheetNavigationRequest
+chatDataControlsNativeSheetNavigationRequest = (
+  routeName: RouteNames.chatDataControls,
+  extra: NativeSheetNavigationOrigin(),
+);
+
 /// Service for handling navigation throughout the app.
 ///
 /// With GoRouter in place, this class mostly provides convenient wrappers

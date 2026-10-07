@@ -28,6 +28,13 @@ import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/features/automations/providers/automation_providers.dart'
+    show scheduledTasksEntryVisibleProvider;
+import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
+    show calendarEntryVisibleProvider;
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatDataControlsEntryVisibleProvider;
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../core/utils/native_sheet_utils.dart';
@@ -448,6 +455,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             displayName: displayName,
             initials: initial,
             canManageWorkspace: canManageWorkspace,
+            // Read when the sheet opens, so a toggle made while it was closed
+            // is already reflected; the action re-checks on delivery.
+            showPersonalConnections: ref.read(
+              personalConnectionsEntryVisibleProvider,
+            ),
+            showScheduledTasks: ref.read(scheduledTasksEntryVisibleProvider),
+            showCalendar: ref.read(calendarEntryVisibleProvider),
+            showChatDataControls: ref.read(
+              chatDataControlsEntryVisibleProvider,
+            ),
             hermesAvatarBytes: hermesAvatarBytes,
           );
           final presented = await nativeProfilePresenter(config);
@@ -524,6 +541,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     required String displayName,
     required String initials,
     required bool canManageWorkspace,
+    required bool showPersonalConnections,
+    required bool showScheduledTasks,
+    required bool showCalendar,
+    required bool showChatDataControls,
     Uint8List? hermesAvatarBytes,
   }) {
     final l10n = AppLocalizations.of(context)!;
@@ -598,6 +619,42 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         actionValue: true,
       ),
       buildDirectConnectionsNativeSheetItem(title: l10n.directConnectionsTitle),
+      if (showPersonalConnections)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.personalConnections,
+          title: l10n.personalConnectionsTitle,
+          sfSymbol: 'slider.horizontal.3',
+          dismissOnSelect: true,
+          actionId: NativeSheetRoutes.personalConnections,
+          actionValue: true,
+        ),
+      if (showScheduledTasks)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.scheduledTasks,
+          title: l10n.scheduledTasksTitle,
+          sfSymbol: 'clock',
+          dismissOnSelect: true,
+          actionId: NativeSheetRoutes.scheduledTasks,
+          actionValue: true,
+        ),
+      if (showCalendar)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.calendar,
+          title: l10n.calendarTitle,
+          sfSymbol: 'calendar',
+          dismissOnSelect: true,
+          actionId: NativeSheetRoutes.calendar,
+          actionValue: true,
+        ),
+      if (showChatDataControls)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.chatDataControls,
+          title: l10n.chatDataControlsTitle,
+          sfSymbol: 'externaldrive',
+          dismissOnSelect: true,
+          actionId: NativeSheetRoutes.chatDataControls,
+          actionValue: true,
+        ),
       if (canManageWorkspace)
         NativeSheetItemConfig(
           id: NativeSheetRoutes.workspace,

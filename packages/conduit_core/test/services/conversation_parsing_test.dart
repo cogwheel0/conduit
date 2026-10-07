@@ -506,6 +506,73 @@ void main() {
             .isA<List<dynamic>>()
             .deepEquals([safeDescriptor]);
       });
+
+      test('derives a comparison\'s unfinished answers from this snapshot, '
+          'never from a copy the app saved earlier', () {
+        // The sync outbox writes the shown message's metadata back to the
+        // server, so a list derived on an earlier read can come back stale.
+        Map<String, dynamic> shownMetadata({
+          required bool withSibling,
+          Object? siblingDone,
+        }) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'history': {
+                'currentId': 'assistant-1',
+                'messages': {
+                  'user-1': {
+                    'role': 'user',
+                    'content': 'Compare',
+                    'childrenIds': ['assistant-1', 'assistant-2'],
+                    'timestamp': 1700000000,
+                  },
+                  'assistant-1': {
+                    'role': 'assistant',
+                    'content': 'First',
+                    'parentId': 'user-1',
+                    'done': true,
+                    'metadata': {
+                      'unfinishedAnswerIds': ['assistant-1', 'assistant-2'],
+                      'custom': 'kept',
+                    },
+                    'timestamp': 1700000001,
+                  },
+                  if (withSibling)
+                    'assistant-2': {
+                      'role': 'assistant',
+                      'content': 'Second',
+                      'parentId': 'user-1',
+                      'done': ?siblingDone,
+                      'timestamp': 1700000002,
+                    },
+                },
+              },
+            },
+          });
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          return messages.last['metadata'] as Map<String, dynamic>;
+        }
+
+        // Every answer is now done: nothing is left unfinished, and what the
+        // app does not own survives.
+        final finished = shownMetadata(withSibling: true, siblingDone: true);
+        check(finished).not((it) => it.containsKey('unfinishedAnswerIds'));
+        check(finished['custom']).equals('kept');
+
+        // A group that has lost its siblings has nothing to derive from.
+        final alone = shownMetadata(withSibling: false);
+        check(alone).not((it) => it.containsKey('unfinishedAnswerIds'));
+        check(alone['custom']).equals('kept');
+
+        // A sibling the server still reports unfinished is listed alone; the
+        // stale ids of the saved copy are not carried over.
+        final running = shownMetadata(withSibling: true, siblingDone: false);
+        check(running['unfinishedAnswerIds'])
+            .isA<List<dynamic>>()
+            .deepEquals(['assistant-2']);
+        check(running['custom']).equals('kept');
+      });
     });
 
     group('extracts messages from history', () {
@@ -1792,6 +1859,82 @@ void main() {
     final metadata = conversation.messages.single.metadata!;
     check(metadata[kMessageRatingMetadataKey]).equals(-1);
     check(metadata[kMessageFeedbackIdMetadataKey]).equals('fb-7');
+  });
+
+  group('chat params projection', () {
+    Map<String, dynamic> chatWith(Map<String, dynamic> extra) =>
+        <String, dynamic>{
+          'id': 'conv-p',
+          'chat': <String, dynamic>{'messages': <Object>[], ...extra},
+        };
+
+    test('saved params are projected verbatim, unknown keys included', () {
+      final conversation = parseFullConversationModel(
+        chatWith({
+          'params': {
+            'system': '',
+            'temperature': 0.3,
+            'custom_params': {
+              'nested': [1, 2],
+            },
+            'a_future_param': true,
+          },
+        }),
+      );
+
+      check(conversation.chatParams).deepEquals({
+        'system': '',
+        'temperature': 0.3,
+        'custom_params': {
+          'nested': [1, 2],
+        },
+        'a_future_param': true,
+      });
+    });
+
+    test('absent, null and malformed params read as no overrides', () {
+      for (final extra in <Map<String, dynamic>>[
+        {},
+        {'params': null},
+        {'params': 'oops'},
+        {
+          'params': [1],
+        },
+      ]) {
+        check(parseFullConversationModel(chatWith(extra)).chatParams).isEmpty();
+      }
+    });
+
+    test('the legacy chat.system field is unaffected by params', () {
+      final conversation = parseFullConversationModel(
+        chatWith({
+          'system': 'legacy prompt',
+          'params': {'system': ''},
+        }),
+      );
+
+      check(conversation.systemPrompt).equals('legacy prompt');
+      check(conversation.chatParams['system']).equals('');
+    });
+
+    test('a list summary without a chat object has no params', () {
+      final summary = parseConversationSummary({'id': 's1', 'title': 'T'});
+
+      check(summary['chatParams']).isA<Map<String, dynamic>>().isEmpty();
+    });
+
+    test('a summary that does carry the chat object projects its params', () {
+      final summary = parseConversationSummary({
+        'id': 's1',
+        'chat': {
+          'params': {'seed': 9},
+        },
+      });
+
+      check(summary['chatParams'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'seed': 9});
+    });
   });
 
   test('tags come from meta, where Open WebUI keeps them', () {

@@ -5,10 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
+import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 WorkspaceAccessGrantInput _user(
   String id, {
@@ -39,10 +42,16 @@ Future<void> _pumpSheet(
   required List<WorkspaceAccessGrantInput> grants,
   required WorkspaceSectionCapabilities capabilities,
   required bool allowUserGrants,
+  bool allowGroupGrants = true,
   bool readOnly = false,
+  WorkspacePrincipalDirectory? directory,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
+      overrides: [
+        if (directory != null)
+          workspacePrincipalDirectoryProvider.overrideWithValue(directory),
+      ],
       child: MaterialApp(
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -51,6 +60,7 @@ Future<void> _pumpSheet(
             initialGrants: grants,
             capabilities: capabilities,
             allowUserGrants: allowUserGrants,
+            allowGroupGrants: allowGroupGrants,
             readOnly: readOnly,
           ),
         ),
@@ -69,6 +79,8 @@ Switch _switchIn(WidgetTester tester, Key tileKey) {
 Future<void> _pumpPrincipalPicker(
   WidgetTester tester, {
   required WorkspacePrincipalDirectory directory,
+  bool allowUsers = true,
+  bool allowGroups = true,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -79,7 +91,8 @@ Future<void> _pumpPrincipalPicker(
           height: 600,
           child: WorkspacePrincipalPicker(
             directory: directory,
-            allowUsers: true,
+            allowUsers: allowUsers,
+            allowGroups: allowGroups,
           ),
         ),
       ),
@@ -253,6 +266,415 @@ void main() {
     });
   });
 
+  group('independent user and group grant permissions', () {
+    Future<void> openPicker(
+      WidgetTester tester,
+      _RecordingDirectory recording, {
+      required bool allowUsers,
+      required bool allowGroups,
+    }) async {
+      await _pumpSheet(
+        tester,
+        grants: const [],
+        capabilities: WorkspaceSectionCapabilities.all,
+        allowUserGrants: allowUsers,
+        allowGroupGrants: allowGroups,
+        directory: recording.directory,
+      );
+      await tester.tap(find.byKey(const Key('workspace-access-add')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('users only: searches people, never requests groups', (
+      tester,
+    ) async {
+      final l10n = await _loadL10n(tester);
+      final recording = _RecordingDirectory();
+      await openPicker(tester, recording, allowUsers: true, allowGroups: false);
+
+      expect(
+        find.byKey(const Key('workspace-principal-tab-users')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('workspace-principal-tab-groups')),
+        findsNothing,
+      );
+      await tester.enterText(find.byType(EditableText), 'ali');
+      await tester.pump(const Duration(milliseconds: 301));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('workspace-principal-user-u-alice')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(recording.searches, ['ali']);
+      expect(recording.groupLoads, 0);
+      expect(
+        find.byKey(const Key('workspace-access-principal-user-u-alice')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.workspaceAccessAddUsers), findsOneWidget);
+      expect(find.text(l10n.workspaceAccessGroupsDisabled), findsOneWidget);
+    });
+
+    testWidgets('groups only: lists groups, never searches people', (
+      tester,
+    ) async {
+      final l10n = await _loadL10n(tester);
+      final recording = _RecordingDirectory();
+      await openPicker(tester, recording, allowUsers: false, allowGroups: true);
+
+      expect(recording.groupLoads, 1);
+      expect(
+        find.byKey(const Key('workspace-principal-tab-users')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('workspace-principal-tab-groups')),
+        findsNothing,
+      );
+      expect(find.byType(EditableText), findsNothing);
+      await tester.tap(
+        find.byKey(const Key('workspace-principal-group-g-staff')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(recording.searches, isEmpty);
+      expect(
+        find.byKey(const Key('workspace-access-principal-group-g-staff')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.workspaceAccessAddGroups), findsOneWidget);
+      expect(find.text(l10n.workspaceAccessUsersDisabled), findsOneWidget);
+    });
+
+    testWidgets('both allowed: groups load only when their tab is chosen', (
+      tester,
+    ) async {
+      final l10n = await _loadL10n(tester);
+      final recording = _RecordingDirectory();
+      await openPicker(tester, recording, allowUsers: true, allowGroups: true);
+
+      expect(
+        find.byKey(const Key('workspace-principal-tab-users')),
+        findsOneWidget,
+      );
+      expect(recording.groupLoads, 0);
+      await tester.tap(find.byKey(const Key('workspace-principal-tab-groups')));
+      await tester.pumpAndSettle();
+
+      expect(recording.groupLoads, 1);
+      expect(find.text('Staff'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('workspace-access-add')),
+          matching: find.text(l10n.workspaceAccessAddPeople),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('neither allowed: no way to add and nothing is requested', (
+      tester,
+    ) async {
+      final l10n = await _loadL10n(tester);
+      final recording = _RecordingDirectory();
+      await _pumpSheet(
+        tester,
+        grants: const [],
+        capabilities: WorkspaceSectionCapabilities.all,
+        allowUserGrants: false,
+        allowGroupGrants: false,
+        directory: recording.directory,
+      );
+
+      expect(find.byKey(const Key('workspace-access-add')), findsNothing);
+      expect(find.text(l10n.workspaceAccessGrantsDisabled), findsOneWidget);
+      expect(recording.searches, isEmpty);
+      expect(recording.groupLoads, 0);
+    });
+
+    testWidgets('a picker shown with neither kind allowed requests nothing', (
+      tester,
+    ) async {
+      final recording = _RecordingDirectory();
+      await _pumpPrincipalPicker(
+        tester,
+        directory: recording.directory,
+        allowUsers: false,
+        allowGroups: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('workspace-principal-none-allowed')),
+        findsOneWidget,
+      );
+      expect(find.byType(EditableText), findsNothing);
+      expect(recording.searches, isEmpty);
+      expect(recording.groupLoads, 0);
+    });
+
+    testWidgets('grants of a kind that can no longer be added are kept on '
+        'save', (tester) async {
+      List<WorkspaceAccessGrantInput>? saved;
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () async {
+                    // The sheet pops its grants on save; a pushed page hosts it
+                    // without the modal's height cap.
+                    saved = await Navigator.of(context)
+                        .push<List<WorkspaceAccessGrantInput>>(
+                          MaterialPageRoute(
+                            builder: (_) => Scaffold(
+                              body: WorkspaceAccessGrantSheet(
+                                initialGrants: [
+                                  _group(
+                                    'g-legacy',
+                                    permission: WorkspaceGrantPermission.write,
+                                  ),
+                                  _user('u1'),
+                                ],
+                                capabilities: WorkspaceSectionCapabilities.all,
+                                allowUserGrants: true,
+                                allowGroupGrants: false,
+                              ),
+                            ),
+                          ),
+                        );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('workspace-access-principal-group-g-legacy')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('workspace-access-save')));
+      await tester.pumpAndSettle();
+
+      expect(
+        saved!.map(
+          (g) =>
+              '${g.principalType.name}:${g.principalId}:${g.permission.name}',
+        ),
+        unorderedEquals(['group:g-legacy:write', 'user:u1:read']),
+      );
+    });
+  });
+
+  // Save waits for the owner's answer, which can take a while. What the user
+  // sees and what the sheet returns must stay what was submitted until then.
+  group('while a save is in flight', () {
+    late Completer<String?> answer;
+    late AppLocalizations l10n;
+    List<WorkspaceAccessGrantInput>? submitted;
+    ResourceAudience? submittedAudience;
+    List<WorkspaceAccessGrantInput>? closedWith;
+
+    Future<void> frames(WidgetTester tester) async {
+      // A saving button spins for as long as it waits, so settling would not
+      // end.
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    Future<void> openSheet(
+      WidgetTester tester, {
+      WorkspaceAudienceChoice? audience,
+    }) async {
+      l10n = await _loadL10n(tester);
+      answer = Completer<String?>();
+      submitted = null;
+      submittedAudience = null;
+      closedWith = null;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            workspacePrincipalDirectoryProvider.overrideWithValue(
+              _RecordingDirectory().directory,
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => TextButton(
+                  onPressed: () async {
+                    closedWith = await Navigator.of(context)
+                        .push<List<WorkspaceAccessGrantInput>>(
+                          MaterialPageRoute(
+                            builder: (_) => Scaffold(
+                              body: WorkspaceAccessGrantSheet(
+                                initialGrants: [_user('u-bob')],
+                                capabilities: WorkspaceSectionCapabilities.all,
+                                allowUserGrants: true,
+                                allowGroupGrants: true,
+                                audience: audience,
+                                onSave: (grants, picked) {
+                                  submitted = grants;
+                                  submittedAudience = picked;
+                                  return answer.future;
+                                },
+                              ),
+                            ),
+                          ),
+                        );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> startSave(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('workspace-access-save')));
+      await frames(tester);
+      expect(submitted, isNotNull);
+    }
+
+    List<String> keys(Iterable<WorkspaceAccessGrantInput>? grants) => [
+      for (final g in grants ?? const <WorkspaceAccessGrantInput>[])
+        '${g.principalType.name}:${g.principalId}:${g.permission.name}',
+    ];
+
+    Finder bobWrite() =>
+        find.byKey(const Key('workspace-access-write-user-u-bob'));
+
+    testWidgets('the audience, a write switch, removing and adding are all '
+        'locked', (tester) async {
+      await openSheet(
+        tester,
+        audience: const WorkspaceAudienceChoice(
+          initial: ResourceAudience.private,
+          canChooseOpen: true,
+        ),
+      );
+      await startSave(tester);
+
+      await tester.tap(find.text(l10n.resourceAudiencePublic));
+      await tester.tap(find.text(l10n.resourceAudienceOpen));
+      await tester.tap(bobWrite());
+      await tester.tap(
+        find.byKey(const Key('workspace-access-remove-user-u-bob')),
+      );
+      await tester.tap(find.byKey(const Key('workspace-access-add')));
+      await frames(tester);
+
+      expect(
+        find.text(l10n.resourceAudiencePrivateHint),
+        findsOneWidget,
+        reason: 'the audience stayed private',
+      );
+      expect(tester.widget<AdaptiveSwitch>(bobWrite()).value, isFalse);
+      expect(
+        find.byKey(const Key('workspace-access-principal-user-u-bob')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('workspace-principal-tab-users')),
+        findsNothing,
+        reason: 'no picker opened',
+      );
+
+      answer.complete(null);
+      await tester.pumpAndSettle();
+      expect(keys(submitted), ['user:u-bob:read']);
+      // No pick was made, so none is sent.
+      expect(submittedAudience, isNull);
+      expect(keys(closedWith), keys(submitted));
+    });
+
+    testWidgets('the public switch is locked', (tester) async {
+      await openSheet(tester);
+      await startSave(tester);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('workspace-access-public')),
+          matching: find.byType(Switch),
+        ),
+      );
+      await frames(tester);
+      expect(
+        _switchIn(tester, const Key('workspace-access-public')).value,
+        isFalse,
+      );
+
+      answer.complete(null);
+      await tester.pumpAndSettle();
+      expect(keys(closedWith), ['user:u-bob:read']);
+    });
+
+    testWidgets('a person chosen in a picker that was already open is not '
+        'added, and the sheet closes with what was submitted', (tester) async {
+      await openSheet(
+        tester,
+        audience: const WorkspaceAudienceChoice(
+          initial: ResourceAudience.private,
+          canChooseOpen: true,
+        ),
+      );
+      await tester.tap(find.text(l10n.resourceAudiencePublic));
+      await tester.tap(bobWrite());
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('workspace-access-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(EditableText), 'ali');
+      await tester.pump(const Duration(milliseconds: 301));
+      await tester.pumpAndSettle();
+
+      // The picker covers Save, so a touch cannot reach it; the save is
+      // started the way a keyboard or an assistive tool still can.
+      tester
+          .widget<ConduitButton>(find.byKey(const Key('workspace-access-save')))
+          .onPressed!();
+      await tester.pump();
+      expect(submitted, isNotNull);
+      await tester.tap(
+        find.byKey(const Key('workspace-principal-user-u-alice')),
+      );
+      await frames(tester);
+
+      expect(
+        find.byKey(const Key('workspace-access-principal-user-u-alice')),
+        findsNothing,
+      );
+
+      answer.complete(null);
+      await tester.pumpAndSettle();
+      final expected = [
+        'user:u-bob:read',
+        'user:u-bob:write',
+        'user:*:read',
+      ];
+      expect(keys(submitted), unorderedEquals(expected));
+      expect(submittedAudience, ResourceAudience.public);
+      expect(keys(closedWith), unorderedEquals(expected));
+    });
+  });
+
   group('WorkspacePrincipalPicker request ordering', () {
     testWidgets('newer user search wins when responses finish out of order', (
       tester,
@@ -331,6 +753,34 @@ void main() {
       expect(find.text('Stale user'), findsNothing);
     });
   });
+}
+
+const _alice = WorkspacePrincipalPreview(
+  id: 'u-alice',
+  type: WorkspacePrincipalType.user,
+  name: 'Alice Example',
+);
+const _staff = WorkspacePrincipalPreview(
+  id: 'g-staff',
+  type: WorkspacePrincipalType.group,
+  name: 'Staff',
+);
+
+/// A principal directory that records which lookups the picker really makes.
+final class _RecordingDirectory {
+  final searches = <String>[];
+  int groupLoads = 0;
+
+  late final directory = WorkspacePrincipalDirectory(
+    searchUsers: (query) async {
+      searches.add(query);
+      return const [_alice];
+    },
+    loadGroups: () async {
+      groupLoads++;
+      return const [_staff];
+    },
+  );
 }
 
 Future<AppLocalizations> _loadL10n(WidgetTester tester) async {

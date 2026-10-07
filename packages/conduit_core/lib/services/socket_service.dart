@@ -2,12 +2,15 @@ import 'package:meta/meta.dart';
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:conduit_core/conduit_core.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+import 'package:conduit_core/features/integrations/personal_tool_admissions.dart';
+import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/socket_health.dart';
 
@@ -36,6 +39,19 @@ enum SocketReplayGapReason {
 }
 
 typedef SocketReplayGapCallback = void Function(SocketReplayGapReason reason);
+
+/// Performs one `execute:tool` call, given the event data plus the `chat_id`
+/// it arrived with, and returns the reply to acknowledge it with.
+///
+/// [admitted] is what the chat request this call belongs to handed to the
+/// server, and [isActive] turns false once the call timed out or its connection
+/// ended; the handler must not start a request for a call that is no longer
+/// active.
+typedef SocketToolExecutionHandler = Future<Object?> Function(
+  Map<String, dynamic> call, {
+  required List<PersonalToolAdmission> admitted,
+  required bool Function() isActive,
+});
 
 typedef SocketFactory = io.Socket Function(
   String base,
@@ -542,6 +558,61 @@ class SocketService {
   }
 
   String? get sessionId => _socket?.id;
+
+  /// How long the server's `execute:tool` call may wait for this client.
+  static const Duration toolExecutionTimeout = Duration(seconds: 120);
+
+  /// Performed calls remembered to answer a redelivery, oldest dropped first.
+  static const int maxCompletedToolCalls = 32;
+
+  /// Largest reply (as JSON characters) that is remembered; a call with a
+  /// larger one is remembered only as having run.
+  static const int maxCompletedToolReplyChars = 32 * 1024;
+
+  SocketToolExecutionHandler? _toolExecutionHandler;
+  final Map<String, _ToolCallScope> _toolCallsInFlight =
+      <String, _ToolCallScope>{};
+  // What the calls this connection already performed answered, small and
+  // bounded in both count and size, so a redelivery is answered, not rerun.
+  final LinkedHashMap<String, Object?> _completedToolCalls =
+      LinkedHashMap<String, Object?>();
+  final PersonalToolAdmissions _toolAdmissions = PersonalToolAdmissions();
+
+  /// Who performs direct tool calls for this service, or null for nobody; a
+  /// call then gets an error reply. Set by the owner that ties the service to
+  /// an account, and cleared with it.
+  set toolExecutionHandler(SocketToolExecutionHandler? handler) =>
+      _toolExecutionHandler = handler;
+
+  /// Records the personal connections the chat request for [messageId] in
+  /// [chatId] sent over [sessionId], which is what lets Open WebUI's
+  /// `execute:tool` callbacks for that completion reach them. Called where the
+  /// request leaves, so a callback never outruns its admission.
+  void admitPersonalToolServers({
+    required String? chatId,
+    required String messageId,
+    required String? sessionId,
+    required Iterable<PersonalToolAdmission> connections,
+  }) {
+    if (_disposed || sessionId == null || sessionId.isEmpty) return;
+    _toolAdmissions.admit(
+      chatId: chatId,
+      messageId: messageId,
+      sessionId: sessionId,
+      connections: connections,
+    );
+  }
+
+  /// Drops every admission and remembered call this connection holds. A call
+  /// still running is not touched here: it asks [_handleExecuteTool]'s
+  /// `isActive`, which is false as soon as the session it was received on has
+  /// gone, so it cannot start anything new.
+  void _retireToolCalls() {
+    _toolCallsInFlight.clear();
+    _completedToolCalls.clear();
+    _toolAdmissions.clear();
+  }
+
   io.Socket? get socket => _socket;
   String? get authToken => _authToken;
 
@@ -1074,6 +1145,7 @@ class SocketService {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _retireToolCalls();
     _stopHeartbeat();
     _clearPendingResumeReconnect();
     try {
@@ -1379,6 +1451,9 @@ class SocketService {
     // Reset latency info on disconnect
     _lastHeartbeatLatencyMs = -1;
 
+    // A call still running belongs to the connection that just ended.
+    _retireToolCalls();
+
     // Fail any pending connection waiters
     _connectionCompleter?.completeError(
       StateError('Socket disconnected: $reason'),
@@ -1471,6 +1546,28 @@ class SocketService {
       return;
     }
 
+    // A direct tool call is consumed here for the same reason: the server
+    // blocks until this session answers, whichever chat is open.
+    if (type == 'execute:tool') {
+      _handleExecuteTool(event as Map, chatId, messageId, ackFn);
+      return;
+    }
+
+    // A finished completion has no more tool calls to make.
+    final session = this.sessionId;
+    if (type == 'chat:completion' &&
+        event is Map &&
+        event['data'] is Map &&
+        (event['data'] as Map)['done'] == true &&
+        messageId != null &&
+        session != null) {
+      _toolAdmissions.retire(
+        chatId: chatId,
+        messageId: messageId,
+        sessionId: session,
+      );
+    }
+
     for (final registration in List<_ChatEventRegistration>.from(
       _chatEventHandlers.values,
     )) {
@@ -1502,6 +1599,132 @@ class SocketService {
     );
     if (bufferScope != null) {
       _bufferChatEvent(bufferScope, map, ackFn);
+    }
+  }
+
+  /// Answers an `execute:tool` call for a direct tool server.
+  ///
+  /// Only the session the server addressed may run it, as in the reference
+  /// client, and only for a chat completion this session sent with that server
+  /// in it: a call for any other chat, message or server is refused rather than
+  /// trusted because the connection happens to be configured. A call id that is
+  /// already running is ignored and one that already ran is answered again as
+  /// before, so a redelivery cannot run it twice. Every call this session does
+  /// take is
+  /// answered exactly once and in bounded time, on the connection that received
+  /// it: an executor that is missing, throws or hangs becomes an error reply
+  /// instead of a server left waiting, and a call that timed out can no longer
+  /// start work.
+  void _handleExecuteTool(
+    Map event,
+    String? chatId,
+    String? messageId,
+    void Function(dynamic response)? ack,
+  ) {
+    final data = event['data'];
+    if (data is! Map) return;
+    final call = Map<String, dynamic>.from(data);
+    final session = sessionId;
+    if (session == null || call['session_id']?.toString() != session) return;
+    if (ack == null) return;
+
+    // The reference client sends the `[data, headers]` pair as one wire
+    // argument. Both this wrapper and the socket's ack callback spread a list
+    // into separate arguments, so the pair needs two levels around it.
+    void answer(Object? reply) => ack(
+      reply is List
+          ? <Object?>[
+              <Object?>[reply],
+            ]
+          : reply,
+    );
+
+    final callId = call['id']?.toString();
+    final callKey = callId == null ? null : '$session\u0000$callId';
+    if (callKey != null) {
+      // A call that already ran is answered again, never run again: a
+      // redelivery with a fresh ack id is still one side effect.
+      if (_completedToolCalls.containsKey(callKey)) {
+        answer(_completedToolCalls[callKey]);
+        return;
+      }
+      if (_toolCallsInFlight.containsKey(callKey)) return;
+    }
+
+    final admitted = _toolAdmissions.admittedFor(
+      chatId: chatId,
+      messageId: messageId,
+      sessionId: session,
+    );
+    if (admitted.isEmpty) {
+      answer(const <String, dynamic>{'error': 'Tool Server Not Found'});
+      return;
+    }
+
+    // What the executor may still do for this call. Ended when the call is
+    // answered, times out or loses its connection: `Future.timeout` gives up
+    // on the executor without stopping it, so it has to ask before it starts
+    // anything that cannot be taken back.
+    final scope = _ToolCallScope();
+    bool isActive() => scope.active && !_disposed && sessionId == session;
+    if (callKey != null) _toolCallsInFlight[callKey] = scope;
+
+    final handler = _toolExecutionHandler;
+    Future<Object?> run() async {
+      if (handler == null) {
+        return const <String, dynamic>{
+          'error': 'Tool execution is not available in this session.',
+        };
+      }
+      try {
+        return await handler(
+          <String, dynamic>{
+            ...call,
+            'chat_id': chatId,
+            'message_id': messageId,
+          },
+          admitted: admitted,
+          isActive: isActive,
+        ).timeout(toolExecutionTimeout);
+      } catch (_) {
+        return const <String, dynamic>{'error': 'The tool call failed.'};
+      }
+    }
+
+    unawaited(
+      run().then((reply) {
+        scope.active = false;
+        if (callKey != null) {
+          _toolCallsInFlight.remove(callKey);
+          _rememberCompletedToolCall(callKey, reply);
+        }
+        // A reply for a connection that has since gone belongs to nobody: its
+        // ack id means something else on the new one.
+        if (_disposed || sessionId != session) return;
+        answer(reply);
+      }),
+    );
+  }
+
+  /// Keeps what a finished call answered, within a small bound, so the same
+  /// call arriving again is answered the same way without running again. A
+  /// reply too large to keep is answered with an error instead.
+  void _rememberCompletedToolCall(String callKey, Object? reply) {
+    Object? kept;
+    try {
+      kept = jsonEncode(reply).length <= maxCompletedToolReplyChars
+          ? reply
+          : const <String, dynamic>{
+              'error':
+                  'The tool call already ran; its result is too large to '
+                  'send again.',
+            };
+    } catch (_) {
+      kept = const <String, dynamic>{'error': 'The tool call already ran.'};
+    }
+    _completedToolCalls[callKey] = kept;
+    while (_completedToolCalls.length > maxCompletedToolCalls) {
+      _completedToolCalls.remove(_completedToolCalls.keys.first);
     }
   }
 
@@ -1974,4 +2197,10 @@ final class _BufferedChatReplay {
 
   final List<(Map<String, dynamic>, void Function(dynamic)?)> events;
   final SocketReplayGapReason? gapReason;
+}
+
+/// Whether one `execute:tool` call may still start work. Ended when the call is
+/// answered, times out or loses its connection.
+class _ToolCallScope {
+  bool active = true;
 }

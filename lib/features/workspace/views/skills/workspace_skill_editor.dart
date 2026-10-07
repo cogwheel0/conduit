@@ -402,6 +402,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       initialGrants: _grants,
       capabilities: capabilities.skills,
       allowUserGrants: capabilities.allowUserGrants,
+      allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: !_writeAccess,
     );
     if (grants == null || !mounted) return;

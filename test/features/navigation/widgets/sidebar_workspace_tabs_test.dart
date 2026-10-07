@@ -1,5 +1,12 @@
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/automations/providers/automation_providers.dart'
+    show scheduledTasksEntryVisibleProvider;
+import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
+    show calendarEntryVisibleProvider;
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatDataControlsEntryVisibleProvider;
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -428,6 +435,276 @@ void main() {
     expect(presented!.profile.gender, 'male');
     expect(presented!.profile.dateOfBirth, '1990-04-02');
   });
+
+  for (final visible in <bool>[true, false]) {
+    testWidgets(
+      visible
+          ? 'native settings list Personal connections as a dismissing action'
+          : 'native settings leave out Personal connections when hidden',
+      (tester) async {
+        NativeProfileSheetConfig? presented;
+        const user = User(
+          id: 'user-1',
+          username: 'ava',
+          email: 'ava@example.com',
+          name: 'Ava',
+          role: 'user',
+        );
+        final container = ProviderContainer(
+          overrides: [
+            currentUserProvider2.overrideWithValue(user),
+            currentUserProvider.overrideWith((ref) async => user),
+            apiServiceProvider.overrideWithValue(null),
+            hermesOnlyModeProvider.overrideWithValue(false),
+            accountProfileProvider.overrideWith(_ServerAccountProfile.new),
+            personalConnectionsEntryVisibleProvider.overrideWithValue(visible),
+            sidebarNativeProfilePresenterProvider.overrideWithValue((
+              config,
+            ) async {
+              presented = config;
+              return true;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: const Scaffold(body: SidebarProfileAppBarLeading()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('sidebar-profile-button')),
+        );
+        await tester.pumpAndSettle();
+
+        final items = [
+          for (final section in presented!.sections) ...section.items,
+          ...presented!.menuItems,
+        ].where((item) => item.id == NativeSheetRoutes.personalConnections);
+        if (!visible) {
+          expect(items, isEmpty);
+          return;
+        }
+        // Both the flat menu and the sections carry it, and selecting it
+        // dismisses the sheet and reports the id the app handles.
+        expect(items, hasLength(2));
+        for (final item in items) {
+          expect(item.title, 'Personal connections');
+          expect(item.dismissOnSelect, isTrue);
+          expect(item.actionId, NativeSheetRoutes.personalConnections);
+        }
+      },
+    );
+  }
+
+  for (final visible in <bool>[true, false]) {
+    testWidgets(
+      visible
+          ? 'native settings list Scheduled tasks as a dismissing action'
+          : 'native settings leave out Scheduled tasks when hidden',
+      (tester) async {
+        NativeProfileSheetConfig? presented;
+        const user = User(
+          id: 'user-1',
+          username: 'ava',
+          email: 'ava@example.com',
+          name: 'Ava',
+          role: 'user',
+        );
+        final container = ProviderContainer(
+          overrides: [
+            currentUserProvider2.overrideWithValue(user),
+            currentUserProvider.overrideWith((ref) async => user),
+            apiServiceProvider.overrideWithValue(null),
+            hermesOnlyModeProvider.overrideWithValue(false),
+            accountProfileProvider.overrideWith(_ServerAccountProfile.new),
+            scheduledTasksEntryVisibleProvider.overrideWithValue(visible),
+            sidebarNativeProfilePresenterProvider.overrideWithValue((
+              config,
+            ) async {
+              presented = config;
+              return true;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: const Scaffold(body: SidebarProfileAppBarLeading()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('sidebar-profile-button')),
+        );
+        await tester.pumpAndSettle();
+
+        final items = [
+          for (final section in presented!.sections) ...section.items,
+          ...presented!.menuItems,
+        ].where((item) => item.id == NativeSheetRoutes.scheduledTasks);
+        if (!visible) {
+          expect(items, isEmpty);
+          return;
+        }
+        // Both the flat menu and the sections carry it, and selecting it
+        // dismisses the sheet and reports the id the app handles.
+        expect(items, hasLength(2));
+        for (final item in items) {
+          expect(item.title, 'Scheduled tasks');
+          expect(item.dismissOnSelect, isTrue);
+          expect(item.actionId, NativeSheetRoutes.scheduledTasks);
+        }
+      },
+    );
+  }
+
+  for (final visible in <bool>[true, false]) {
+    testWidgets(
+      visible
+          ? 'native settings list Calendar as a dismissing action'
+          : 'native settings leave out Calendar when hidden',
+      (tester) async {
+        NativeProfileSheetConfig? presented;
+        const user = User(
+          id: 'user-1',
+          username: 'ava',
+          email: 'ava@example.com',
+          name: 'Ava',
+          role: 'user',
+        );
+        final container = ProviderContainer(
+          overrides: [
+            currentUserProvider2.overrideWithValue(user),
+            currentUserProvider.overrideWith((ref) async => user),
+            apiServiceProvider.overrideWithValue(null),
+            hermesOnlyModeProvider.overrideWithValue(false),
+            accountProfileProvider.overrideWith(_ServerAccountProfile.new),
+            calendarEntryVisibleProvider.overrideWithValue(visible),
+            sidebarNativeProfilePresenterProvider.overrideWithValue((
+              config,
+            ) async {
+              presented = config;
+              return true;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: const Scaffold(body: SidebarProfileAppBarLeading()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('sidebar-profile-button')),
+        );
+        await tester.pumpAndSettle();
+
+        final items = [
+          for (final section in presented!.sections) ...section.items,
+          ...presented!.menuItems,
+        ].where((item) => item.id == NativeSheetRoutes.calendar);
+        if (!visible) {
+          expect(items, isEmpty);
+          return;
+        }
+        // Both the flat menu and the sections carry it, and selecting it
+        // dismisses the sheet and reports the id the app handles.
+        expect(items, hasLength(2));
+        for (final item in items) {
+          expect(item.title, 'Calendar');
+          expect(item.dismissOnSelect, isTrue);
+          expect(item.actionId, NativeSheetRoutes.calendar);
+        }
+      },
+    );
+  }
+
+  for (final visible in <bool>[true, false]) {
+    testWidgets(
+      visible
+          ? 'native settings list Data controls as a dismissing action'
+          : 'native settings leave out Data controls when hidden',
+      (tester) async {
+        NativeProfileSheetConfig? presented;
+        const user = User(
+          id: 'user-1',
+          username: 'ava',
+          email: 'ava@example.com',
+          name: 'Ava',
+          role: 'user',
+        );
+        final container = ProviderContainer(
+          overrides: [
+            currentUserProvider2.overrideWithValue(user),
+            currentUserProvider.overrideWith((ref) async => user),
+            apiServiceProvider.overrideWithValue(null),
+            hermesOnlyModeProvider.overrideWithValue(false),
+            accountProfileProvider.overrideWith(_ServerAccountProfile.new),
+            chatDataControlsEntryVisibleProvider.overrideWithValue(visible),
+            sidebarNativeProfilePresenterProvider.overrideWithValue((
+              config,
+            ) async {
+              presented = config;
+              return true;
+            }),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: const Scaffold(body: SidebarProfileAppBarLeading()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('sidebar-profile-button')),
+        );
+        await tester.pumpAndSettle();
+
+        final items = [
+          for (final section in presented!.sections) ...section.items,
+          ...presented!.menuItems,
+        ].where((item) => item.id == NativeSheetRoutes.chatDataControls);
+        if (!visible) {
+          expect(items, isEmpty);
+          return;
+        }
+        expect(items, hasLength(2));
+        for (final item in items) {
+          expect(item.title, 'Data controls');
+          expect(item.dismissOnSelect, isTrue);
+          expect(item.actionId, NativeSheetRoutes.chatDataControls);
+        }
+      },
+    );
+  }
 
   testWidgets('profile sheet keeps the cached profile when the refresh fails', (
     tester,

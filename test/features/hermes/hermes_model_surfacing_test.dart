@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -142,7 +143,10 @@ class _ModelsApiService extends ApiService {
   bool fail = false;
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async {
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     getModelsCalls += 1;
     if (!getModelsStarted.isCompleted) getModelsStarted.complete();
     await responseGate?.future;
@@ -166,9 +170,10 @@ class _PendingDefaultModelApi extends ApiService {
   }
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async => const [
-    Model(id: 'owui/stale', name: 'Stale OpenWebUI model'),
-  ];
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async => const [Model(id: 'owui/stale', name: 'Stale OpenWebUI model')];
 }
 
 class _UnreachableDefaultApi extends ApiService {

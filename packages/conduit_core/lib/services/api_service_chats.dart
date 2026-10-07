@@ -2,11 +2,21 @@ part of 'api_service.dart';
 
 mixin _ChatsApi on _ApiServiceBase {
   // Parse OpenWebUI chat format to our Conversation format
-  Future<Conversation> getConversation(String id) async {
+  ///
+  /// A caller that already authorized this read for one account passes the
+  /// [authSnapshot] it captured, so a token change that lands before the
+  /// request is sent cannot read another account's chat with the new bearer.
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     DebugLogger.log('fetch', scope: 'api/chat', data: {'id': id});
     final response = await _dio.get(
       '/api/v1/chats/$id',
-      options: Options(responseType: ResponseType.bytes),
+      options: _withAuthSnapshot(
+        Options(responseType: ResponseType.bytes),
+        authSnapshot,
+      ),
     );
 
     DebugLogger.log('fetch-ok', scope: 'api/chat');
@@ -24,6 +34,7 @@ mixin _ChatsApi on _ApiServiceBase {
     String? model,
     String? systemPrompt,
     String? folderId,
+    Map<String, dynamic>? chatParams,
   }) async {
     _traceApi('Creating new conversation on OpenWebUI server');
     _traceApi('Title: $title, Messages: ${messages.length}');
@@ -137,7 +148,7 @@ mixin _ChatsApi on _ApiServiceBase {
         'models': model != null ? [model] : [],
         if (systemPrompt != null && systemPrompt.trim().isNotEmpty)
           'system': systemPrompt,
-        'params': {},
+        'params': chatParams ?? <String, dynamic>{},
         'history': {'messages': messagesMap, 'currentId': ?currentId},
         'messages': messagesArray,
         'tags': [],

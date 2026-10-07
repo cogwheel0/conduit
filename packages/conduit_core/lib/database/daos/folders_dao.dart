@@ -1,8 +1,12 @@
 import 'dart:convert';
 
+import 'package:collection/collection.dart';
 import 'package:drift/drift.dart';
 
+import 'package:conduit_core/models/folder.dart';
+
 import '../app_database.dart';
+import '../mappers/conversation_assembler.dart';
 import '../mappers/note_mapper.dart';
 import '../tables/folders.dart';
 import 'outbox_dao.dart';
@@ -76,7 +80,8 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
           // Local pending edit/create/tombstone wins; leave the row untouched.
           continue;
         }
-        await into(folders).insertOnConflictUpdate(_companionFromRaw(raw));
+        await into(folders)
+            .insertOnConflictUpdate(_companionFromRaw(raw, local));
       }
 
       // Purge server-absent rows EXCEPT local pending ones (dirty/deleted).
@@ -93,7 +98,9 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
     return transaction(() async {
       final id = rawFolder['id'];
       if (id is! String || id.isEmpty) return;
-      await into(folders).insertOnConflictUpdate(_companionFromRaw(rawFolder));
+      await into(folders).insertOnConflictUpdate(
+        _companionFromRaw(rawFolder, await getFolder(id)),
+      );
     });
   }
 
@@ -187,6 +194,133 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
     });
   }
 
+  /// Local edit of some keys of a folder's `data` (project defaults such as
+  /// `files` and `model_ids`): overlays [dataPatch] on the row's CURRENT `data`,
+  /// marks the row dirty and queues a `folderUpsert` in one transaction. Every
+  /// other `data` key, `meta`, `items` and unknown top-level key is left as
+  /// stored, so a form opened on an older copy of the folder cannot write its
+  /// stale values back.
+  ///
+  /// The queued body carries ONLY [dataPatch]. The server merges `data` key by
+  /// key, so sending the whole map would overwrite what another client changed
+  /// in the meantime; the outbox merges two pending patches the same way.
+  ///
+  /// Access is judged here, on the row as it is when the write commits: a
+  /// pull that arrived while the editor was open can have removed the folder or
+  /// downgraded a write grant to read. Caller holds the folder lock.
+  Future<void> patchFolderDataWithOutbox({
+    required String id,
+    required Map<String, dynamic> dataPatch,
+  }) {
+    return transaction(() async {
+      final existing = await getFolder(id);
+      if (existing == null || existing.deleted) {
+        throw const FolderProjectWriteException(
+          FolderProjectWriteFailure.unavailable,
+        );
+      }
+      if (!folderFromRow(existing).canWrite) {
+        throw const FolderProjectWriteException(
+          FolderProjectWriteFailure.readOnly,
+        );
+      }
+
+      final extra = decodeJsonMap(existing.rawExtra);
+      final stored = extra['data'];
+      extra['data'] = <String, dynamic>{
+        if (stored is Map) ...Map<String, dynamic>.from(stored),
+        ...dataPatch,
+      };
+      await (update(folders)..where((t) => t.id.equals(id))).write(
+        FoldersCompanion(
+          rawExtra: Value(jsonEncode(extra)),
+          dirty: const Value(true),
+        ),
+      );
+
+      await _outboxDao.enqueue(
+        kind: OutboxKind.folderUpsert,
+        chatId: id,
+        payload: <String, dynamic>{
+          'folderId': id,
+          'createIfAbsent': false,
+          'data': dataPatch,
+        },
+      );
+    });
+  }
+
+  /// Notes the server's verdict on this account's write access, read from the
+  /// folder's own detail, in the row's `rawExtra` so [patchFolderDataWithOutbox]
+  /// judges the next edit by it. A cached `write` grant that the server says no
+  /// longer holds therefore refuses the edit.
+  ///
+  /// Touches only that one key: unsent `data`, `dirty` and the outbox stay as
+  /// they are, and the next folder list pull, which carries the grant itself,
+  /// replaces it. Caller holds the folder lock.
+  Future<void> recordWriteAccess({
+    required String id,
+    required bool writeAccess,
+  }) {
+    return transaction(() async {
+      final existing = await getFolder(id);
+      if (existing == null || existing.deleted) return;
+      final extra = decodeJsonMap(existing.rawExtra);
+      if (writeAccess) {
+        if (extra['write_access'] != false) return;
+        extra.remove('write_access');
+      } else {
+        if (extra['write_access'] == false) return;
+        extra['write_access'] = false;
+      }
+      await (update(folders)..where((t) => t.id.equals(id))).write(
+        FoldersCompanion(rawExtra: Value(jsonEncode(extra))),
+      );
+    });
+  }
+
+  /// Keeps the project `data` the server's own copy of a folder holds, which
+  /// the folder list never carries (it is the lean listing), so a row filled by
+  /// a pull has none until a folder read by id supplies it. [data] is absent
+  /// when that answer had no `data` key, which says nothing and changes
+  /// nothing; a present null or empty map is the server saying the defaults are
+  /// cleared, and replaces what was cached.
+  ///
+  /// Only `data` of the row is written, server-origin: `dirty`, the outbox,
+  /// annotations and every other key stay as they are. [requestedFor] is the
+  /// row as it was when the read began, and [serverUpdatedAt] the answer's own
+  /// `updated_at`. A row that is gone, deleted, has unsent edits, has had its
+  /// `data` changed since [requestedFor], or already knows a newer server copy
+  /// than the answer, keeps what it has: a reply that was held up must not
+  /// replace a newer edit. Caller holds the folder lock.
+  Future<void> recordServerFolderData({
+    required FolderRow requestedFor,
+    required Value<Map<String, dynamic>?> data,
+    required int? serverUpdatedAt,
+  }) {
+    return transaction(() async {
+      if (!data.present) return;
+      final current = await getFolder(requestedFor.id);
+      if (current == null || current.deleted || current.dirty) return;
+      final extra = decodeJsonMap(current.rawExtra);
+      const equality = DeepCollectionEquality();
+      final atRequest = decodeJsonMap(requestedFor.rawExtra)['data'];
+      if (!equality.equals(extra['data'], atRequest)) return;
+      final known = current.serverUpdatedAt;
+      if (serverUpdatedAt != null && known != null && serverUpdatedAt < known) {
+        return;
+      }
+      if (extra.containsKey('data') &&
+          equality.equals(extra['data'], data.value)) {
+        return;
+      }
+      extra['data'] = data.value;
+      await (update(folders)..where((t) => t.id.equals(current.id))).write(
+        FoldersCompanion(rawExtra: Value(jsonEncode(extra))),
+      );
+    });
+  }
+
   /// Local folder delete: tombstones the row (`deleted=true, dirty=true`) and
   /// enqueues a `folderDelete` op in one transaction. The row is normally NOT
   /// hard-deleted here (tombstone discipline §7.6); the drainer's
@@ -228,7 +362,15 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
   /// Projects id/name/parent_id/created_at/updated_at (non-int timestamps ->
   /// 0); rawExtra carries all other keys verbatim (meta, is_expanded, data,
   /// items, unknown); serverUpdatedAt=updated_at; dirty=false, deleted=false.
-  FoldersCompanion _companionFromRaw(Map<String, dynamic> raw) {
+  ///
+  /// The server's folder list is lean: it has no `data` key at all. A raw
+  /// folder without one keeps the `data` already cached on [existing] (the
+  /// project defaults a read by id or a save put there); an explicit `data`,
+  /// null included, replaces it.
+  FoldersCompanion _companionFromRaw(
+    Map<String, dynamic> raw, [
+    FolderRow? existing,
+  ]) {
     final createdAt = raw['created_at'];
     final updatedAt = raw['updated_at'];
     final name = raw['name'];
@@ -237,6 +379,10 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
       for (final entry in raw.entries)
         if (!_typedFolderKeys.contains(entry.key)) entry.key: entry.value,
     };
+    if (existing != null && !raw.containsKey('data')) {
+      final cached = decodeJsonMap(existing.rawExtra);
+      if (cached.containsKey('data')) rawExtra['data'] = cached['data'];
+    }
     final updatedAtSeconds = updatedAt is int ? updatedAt : 0;
     return FoldersCompanion.insert(
       id: raw['id'] as String,

@@ -674,6 +674,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// conversation. When null or when it yields null (engine inert), the
   /// legacy direct `api.getConversation` fetch is used instead.
   Future<Conversation?> Function(String chatId)? pullChatSnapshot,
+
+  /// Whether this stream may adopt a server message id other than
+  /// [assistantMessageId] (socket resume, where the server names the message).
+  /// One answer of a multi-model turn must refuse: its sibling answers share
+  /// the chat and the socket session, and adopting one would write a sibling's
+  /// text into this answer.
+  bool allowForeignMessageBinding = true,
 }) {
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
@@ -775,7 +782,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     String? candidateId, {
     required String source,
   }) {
-    if (candidateId == null ||
+    if (!allowForeignMessageBinding ||
+        candidateId == null ||
         candidateId.isEmpty ||
         candidateId == assistantMessageId ||
         boundRemoteMessageId != null) {
@@ -893,7 +901,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return currentTargetId;
     }
 
-    if (!allowBindingForeignMessage) {
+    if (!allowBindingForeignMessage || !allowForeignMessageBinding) {
       final boundMessageId = boundRemoteMessageId;
       DebugLogger.log(
         boundMessageId == null

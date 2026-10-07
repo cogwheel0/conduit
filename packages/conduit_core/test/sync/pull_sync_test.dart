@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
@@ -1296,4 +1297,131 @@ void main() {
           .equals(fetchesBefore + 1);
     });
   });
+
+  group('an account-wide change that ends while a read is in flight', () {
+    // The server deletes the chat after the read was taken but before it is
+    // stored, so the read still describes a chat that no longer exists.
+    Future<void> deleteAllOnServer() => locks.runBarrier(() async {
+      server.deleteChat('x');
+    });
+
+    test('a chat read before it is not stored after it, and the cycle is '
+        'retried rather than called done', () async {
+      server.seedChat(
+        id: 'x',
+        blob: blobFor('x'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      final late = _LateReadClient(server);
+      final latePull = PullSync(client: late, db: db, locks: locks);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+
+      final running = latePull.run();
+      await late.readTaken.future;
+      await deleteAllOnServer();
+      gate.complete();
+      final result = await running;
+
+      check(await db.chatsDao.getChat('x')).isNull();
+      check(result.success).isFalse();
+      check(result.failedFetches).equals(1);
+      // The watermark stays where it was, so the next cycle reads again.
+      check(await db.syncMetaDao.getPullWatermark()).equals(0);
+    });
+
+    test('an archived chat listed before it is not stubbed after it', () async {
+      server.seedChat(
+        id: 'x',
+        blob: blobFor('x'),
+        createdAt: 100,
+        updatedAt: 200,
+        archived: true,
+      );
+      final late = _LateReadClient(server);
+      final latePull = PullSync(client: late, db: db, locks: locks);
+      final gate = Completer<void>();
+      late.listGate = gate.future;
+
+      final running = latePull.run();
+      await late.listTaken.future;
+      await deleteAllOnServer();
+      gate.complete();
+      final result = await running;
+
+      check(await db.chatsDao.getChat('x')).isNull();
+      check(result.success).isFalse();
+      check(await db.syncMetaDao.getPullWatermark()).equals(0);
+    });
+
+    test('a chat opened by name before it comes back as absent', () async {
+      server.seedChat(
+        id: 'x',
+        blob: blobFor('x'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      final late = _LateReadClient(server);
+      final latePull = PullSync(client: late, db: db, locks: locks);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+
+      final opening = latePull.pullChat('x');
+      await late.readTaken.future;
+      await deleteAllOnServer();
+      gate.complete();
+
+      check(await opening).isNull();
+      check(await db.chatsDao.getChat('x')).isNull();
+    });
+
+    test('a read that begins after the change is stored as usual', () async {
+      server.seedChat(
+        id: 'y',
+        blob: blobFor('y'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await deleteAllOnServer();
+
+      final result = await pull.run();
+
+      check(result.success).isTrue();
+      check(await db.chatsDao.getChat('y')).isNotNull();
+    });
+  });
+}
+
+/// A client whose answers are taken at once and delivered late, as a slow
+/// network does: the snapshot reflects the server when the request began.
+class _LateReadClient extends FakeSyncApiClient {
+  _LateReadClient(super.server);
+
+  /// Holds each chat body after it has been read.
+  Future<void>? readGate;
+
+  /// Holds the archived list page after it has been read.
+  Future<void>? listGate;
+
+  /// Complete once a chat body / the archived list has been read, so a test can
+  /// change the server after that point and before the answer is delivered.
+  final readTaken = Completer<void>();
+  final listTaken = Completer<void>();
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final snapshot = await super.getChatRaw(id);
+    if (!readTaken.isCompleted) readTaken.complete();
+    await readGate;
+    return snapshot;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getArchivedChatListPage(int page) async {
+    final items = await super.getArchivedChatListPage(page);
+    if (!listTaken.isCompleted) listTaken.complete();
+    await listGate;
+    return items;
+  }
 }

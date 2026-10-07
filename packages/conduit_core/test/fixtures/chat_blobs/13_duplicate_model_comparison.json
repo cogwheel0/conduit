@@ -1,0 +1,104 @@
+{
+  "description": "A two-slot comparison of the SAME model, as the web client saves it (Chat.svelte:3254-3355): chat.models and the user message's models list repeat the id, both answers are children of the user message and are told apart only by modelIdx (0 and 1). Slot 1 was regenerated, so it holds two sibling answers that stay inside slot 1; the active branch ends on the regenerated one. The slot-0 answer carries an unknown future key and a merged response, both of which must survive.",
+  "envelope": {
+    "id": "d4a1c2e3-5b6f-47a8-9c0d-1e2f3a4b5c6d",
+    "title": "Same model twice",
+    "folder_id": null,
+    "pinned": false,
+    "archived": false,
+    "created_at": 1749720000,
+    "updated_at": 1749720300
+  },
+  "chat": {
+    "id": "d4a1c2e3-5b6f-47a8-9c0d-1e2f3a4b5c6d",
+    "title": "Same model twice",
+    "models": ["gpt-4o", "gpt-4o"],
+    "params": {},
+    "history": {
+      "currentId": "b1b1b1b1-0000-4000-8000-000000000003",
+      "messages": {
+        "c0c0c0c0-0000-4000-8000-000000000001": {
+          "id": "c0c0c0c0-0000-4000-8000-000000000001",
+          "parentId": null,
+          "childrenIds": [
+            "b1b1b1b1-0000-4000-8000-000000000001",
+            "b1b1b1b1-0000-4000-8000-000000000002",
+            "b1b1b1b1-0000-4000-8000-000000000003"
+          ],
+          "role": "user",
+          "content": "Name a prime number between 10 and 20.",
+          "timestamp": 1749720000,
+          "models": ["gpt-4o", "gpt-4o"]
+        },
+        "b1b1b1b1-0000-4000-8000-000000000001": {
+          "id": "b1b1b1b1-0000-4000-8000-000000000001",
+          "parentId": "c0c0c0c0-0000-4000-8000-000000000001",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "13 is a prime number.",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 0,
+          "timestamp": 1749720010,
+          "done": true,
+          "x_future_group_hint": {"rank": 1, "keep": true},
+          "merged": {
+            "status": true,
+            "content": "Both runs agree the answer is a prime such as 13 or 17."
+          }
+        },
+        "b1b1b1b1-0000-4000-8000-000000000002": {
+          "id": "b1b1b1b1-0000-4000-8000-000000000002",
+          "parentId": "c0c0c0c0-0000-4000-8000-000000000001",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "11 is prime.",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 1,
+          "timestamp": 1749720012,
+          "done": true
+        },
+        "b1b1b1b1-0000-4000-8000-000000000003": {
+          "id": "b1b1b1b1-0000-4000-8000-000000000003",
+          "parentId": "c0c0c0c0-0000-4000-8000-000000000001",
+          "childrenIds": [],
+          "role": "assistant",
+          "content": "17 is prime.",
+          "model": "gpt-4o",
+          "modelName": "GPT-4o",
+          "modelIdx": 1,
+          "timestamp": 1749720100,
+          "done": true
+        }
+      }
+    },
+    "messages": [
+      {
+        "id": "c0c0c0c0-0000-4000-8000-000000000001",
+        "parentId": null,
+        "childrenIds": [
+          "b1b1b1b1-0000-4000-8000-000000000001",
+          "b1b1b1b1-0000-4000-8000-000000000002",
+          "b1b1b1b1-0000-4000-8000-000000000003"
+        ],
+        "role": "user",
+        "content": "Name a prime number between 10 and 20.",
+        "timestamp": 1749720000,
+        "models": ["gpt-4o", "gpt-4o"]
+      },
+      {
+        "id": "b1b1b1b1-0000-4000-8000-000000000003",
+        "parentId": "c0c0c0c0-0000-4000-8000-000000000001",
+        "childrenIds": [],
+        "role": "assistant",
+        "content": "17 is prime.",
+        "model": "gpt-4o",
+        "modelName": "GPT-4o",
+        "modelIdx": 1,
+        "timestamp": 1749720100,
+        "done": true
+      }
+    ]
+  }
+}

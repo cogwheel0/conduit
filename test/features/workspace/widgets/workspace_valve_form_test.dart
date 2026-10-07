@@ -257,4 +257,82 @@ void main() {
       expect(emitted!['count'], 7);
     },
   );
+
+  testWidgets('masks schema-marked password fields and submits exact values', (
+    tester,
+  ) async {
+    final spec = WorkspaceValveSpec.fromJson(const {
+      'properties': {
+        // The shape Pydantic emits for SecretStr.
+        'secret_str': {
+          'type': 'string',
+          'format': 'password',
+          'writeOnly': true,
+        },
+        // Optional[SecretStr] carries the format inside an anyOf branch.
+        'maybe_secret': {
+          'anyOf': [
+            {'type': 'string', 'format': 'password', 'writeOnly': true},
+            {'type': 'null'},
+          ],
+        },
+        // Open WebUI's own presentation hint.
+        'hinted': {
+          'type': 'string',
+          'input': {'type': 'password'},
+        },
+        // A name that sounds secret is not a marker: the schema decides.
+        'api_key': {'type': 'string', 'title': 'API Key'},
+      },
+    });
+    const secrets = ['secret_str', 'maybe_secret', 'hinted'];
+    Map<String, dynamic>? emitted;
+    await tester.pumpWidget(
+      harness(
+        spec,
+        initialValues: const {
+          'secret_str': '',
+          'maybe_secret': '',
+          'hinted': '',
+          'api_key': '',
+        },
+        onChanged: (v) => emitted = v,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    bool obscured(String property) => tester
+        .widget<EditableText>(
+          find.descendant(
+            of: find.byKey(Key('workspace-tool-valve-input-$property')),
+            matching: find.byType(EditableText),
+          ),
+        )
+        .obscureText;
+
+    for (final property in [...secrets, 'api_key']) {
+      expect(
+        find.byKey(Key('workspace-tool-valve-input-$property')),
+        findsOneWidget,
+        reason: property,
+      );
+      await tester.enterText(
+        find.byKey(Key('workspace-tool-valve-input-$property')),
+        'value-for-$property',
+      );
+    }
+    await tester.pumpAndSettle();
+
+    for (final property in secrets) {
+      expect(obscured(property), isTrue, reason: property);
+    }
+    expect(obscured('api_key'), isFalse);
+    // Masking is presentation only: the stored text is untouched.
+    expect(emitted, {
+      'secret_str': 'value-for-secret_str',
+      'maybe_secret': 'value-for-maybe_secret',
+      'hinted': 'value-for-hinted',
+      'api_key': 'value-for-api_key',
+    });
+  });
 }

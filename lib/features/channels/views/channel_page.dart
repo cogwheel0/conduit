@@ -39,12 +39,14 @@ import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 
+import 'package:conduit_core/features/channels/providers/channel_members_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 
 import '../providers/channel_socket_handler.dart';
 import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
 import '../widgets/channel_form_dialog.dart';
+import '../widgets/channel_members_sheet.dart';
 import '../widgets/channel_message_content.dart';
 import '../widgets/channel_message_reactions.dart';
 import '../widgets/thread_panel.dart';
@@ -1647,137 +1649,43 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return resolveUserProfileImageUrl(api, message.user?.profileImageUrl);
   }
 
-  Future<void> _showMemberList() async {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) return;
-    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    final channelId = widget.channelId;
-    final operationGeneration = _operationGeneration;
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
+  /// Opens the interactive member list on every platform. The owner is captured
+  /// here, before anything is awaited, and travels with the sheet for as long as
+  /// it is open.
+  void _showMemberList() {
+    final owner = ChannelMembersOwner.capture(ref.read, widget.channelId);
+    if (owner == null) return;
+    unawaited(
+      ChannelMembersSheet.show(
+        context,
+        owner: owner,
+        onMembersChanged: () => unawaited(_refreshChannelDetails(owner)),
+      ),
+    );
+  }
 
+  /// Reads the channel again after a member change so the count in the toolbar
+  /// matches the server. The result is dropped unless the owner that changed
+  /// the members is still the one on screen.
+  Future<void> _refreshChannelDetails(ChannelMembersOwner owner) async {
+    bool stillOwned() =>
+        mounted &&
+        widget.channelId == owner.channelId &&
+        owner.isCurrent(ref.read);
+    if (!stillOwned()) return;
     try {
-      final result = await api.getChannelMembers(channelId);
-      if (!_ownsChannelOperation(
-        api,
-        authSessionEpoch,
-        channelId,
-        operationGeneration,
-      )) {
-        return;
-      }
-      final users = (result['users'] as List<dynamic>?) ?? [];
-      final total = (result['total'] as int?) ?? users.length;
-
-      if (Platform.isIOS) {
-        try {
-          await NativeSheetBridge.instance.presentSheet(
-            root: NativeSheetDetailConfig(
-              id: 'channel-members',
-              title: l10n.channelMembersTitle(total),
-              items: [
-                for (final user in users.cast<Map<String, dynamic>>())
-                  NativeSheetItemConfig(
-                    id: 'member-${user['id'] ?? user['name'] ?? users.indexOf(user)}',
-                    title: user['name'] as String? ?? l10n.channelUnknownMember,
-                    subtitle: user['role'] as String?,
-                    sfSymbol: 'person.circle',
-                    kind: NativeSheetItemKind.info,
-                  ),
-              ],
-            ),
-            rethrowErrors: true,
-          );
-          return;
-        } catch (_) {
-          if (!_ownsChannelOperation(
-            api,
-            authSessionEpoch,
-            channelId,
-            operationGeneration,
-          )) {
-            return;
-          }
-        }
-      }
-
-      if (!mounted ||
-          !_ownsChannelOperation(
-            api,
-            authSessionEpoch,
-            channelId,
-            operationGeneration,
-          )) {
-        return;
-      }
-
-      ThemedSheets.showSurface<void>(
-        context: context,
-        showHandle: false,
-        padding: EdgeInsets.zero,
-        builder: (ctx) => ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.6,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(Spacing.md),
-                child: Text(
-                  l10n.channelMembersTitle(total),
-                  style: AppTypography.titleMediumStyle.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: users.length,
-                  itemBuilder: (ctx, index) {
-                    final u = users[index] as Map<String, dynamic>;
-                    final name =
-                        u['name'] as String? ?? l10n.channelUnknownMember;
-                    final role = u['role'] as String? ?? '';
-                    return ListTile(
-                      leading: CircleAvatar(
-                        radius: 16,
-                        child: Text(
-                          name[0].toUpperCase(),
-                          style: AppTypography.labelMediumStyle,
-                        ),
-                      ),
-                      title: Text(
-                        name,
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.textPrimary,
-                        ),
-                      ),
-                      subtitle: role.isNotEmpty
-                          ? Text(
-                              role,
-                              style: AppTypography.bodySmallStyle.copyWith(
-                                color: theme.textSecondary,
-                              ),
-                            )
-                          : null,
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
+      final json = await owner.api.getChannel(
+        owner.channelId,
+        authSnapshot: owner.authSnapshot,
       );
-    } catch (e, st) {
+      if (!stillOwned()) return;
+      ref.read(activeChannelProvider.notifier).set(Channel.fromJson(json));
+    } catch (e, s) {
       developer.log(
-        'Failed to load members',
+        'Failed to refresh channel after a member change',
         name: 'ChannelPage',
         error: e,
-        stackTrace: st,
+        stackTrace: s,
       );
     }
   }

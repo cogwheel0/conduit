@@ -79,6 +79,84 @@ List<T> chainToRoot<T>(
   return chain.reversed.toList(growable: false);
 }
 
+/// Resolves the leaf Open WebUI would show after selecting [messageId].
+///
+/// Mirrors the web client's `getDeepestChildId`: from [messageId], repeatedly
+/// follow the LAST id in `childrenIds` (list order, never timestamps) until a
+/// message has no children. A child that was already visited ends the walk, so
+/// a malformed cycle terminates.
+///
+/// Unlike the web client, a child id that has no message is skipped rather than
+/// returned: the result is persisted as the chat's current message, so it must
+/// always name a message that exists. [messagesById] is never modified. Returns
+/// null when [messageId] itself is blank or unknown.
+String? deepestLastChildId<T>(
+  String messageId, {
+  required Map<String, T> messagesById,
+  required Iterable<String> Function(T message) childrenIdsOf,
+}) {
+  final startId = normalizeMessageId(messageId);
+  if (startId == null || !messagesById.containsKey(startId)) {
+    return null;
+  }
+
+  var currentId = startId;
+  final visited = <String>{startId};
+  while (true) {
+    final children = childrenIdsOf(
+      messagesById[currentId] as T,
+    ).where(messagesById.containsKey);
+    if (children.isEmpty) {
+      return currentId;
+    }
+    final nextId = children.last;
+    if (!visited.add(nextId)) {
+      return currentId;
+    }
+    currentId = nextId;
+  }
+}
+
+/// Lists the ids sharing [messageId]'s parent, in the order Open WebUI shows
+/// them, [messageId] included.
+///
+/// A parented message uses the parent's `childrenIds` order (ids with no
+/// message are skipped), followed by any child that points at the parent but is
+/// not listed. A root message uses every root message in [messagesById] order,
+/// like the web client. Returns an empty list when [messageId] is unknown.
+List<String> orderedSiblingIds<T>(
+  String messageId, {
+  required Map<String, T> messagesById,
+  required String? Function(T message) parentIdOf,
+  required Iterable<String> Function(T message) childrenIdsOf,
+}) {
+  final id = normalizeMessageId(messageId);
+  final message = id == null ? null : messagesById[id];
+  if (id == null || message == null) {
+    return const <String>[];
+  }
+
+  final parentId = parentIdOf(message);
+  final ordered = <String>[];
+  final seen = <String>{};
+  void add(String candidate) {
+    if (messagesById.containsKey(candidate) && seen.add(candidate)) {
+      ordered.add(candidate);
+    }
+  }
+
+  final parent = parentId == null ? null : messagesById[parentId];
+  if (parent != null) {
+    childrenIdsOf(parent).forEach(add);
+  }
+  for (final entry in messagesById.entries) {
+    if (parentIdOf(entry.value) == parentId) {
+      add(entry.key);
+    }
+  }
+  return ordered;
+}
+
 /// Finds same-role sibling messages for an item in a message tree.
 List<T> sameRoleSiblings<T>({
   required String messageId,

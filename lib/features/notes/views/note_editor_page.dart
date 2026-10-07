@@ -1,3 +1,6 @@
+import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'dart:async';
 import 'dart:io' show File, Platform;
 
@@ -33,7 +36,11 @@ import 'package:conduit_core/features/notes/services/deleted_note_draft_recovery
 import 'package:conduit_core/features/notes/services/note_ai_actions.dart';
 import 'package:conduit_core/features/notes/services/note_attachments_controller.dart';
 import 'package:conduit_core/features/notes/services/note_dictation.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
+
+import '../utils/note_context_actions.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -186,6 +193,27 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   bool _isRecording = false;
   Note? _note;
 
+  // The session the page opened under. A retained provider can rebuild for
+  // another account while this page is alive, so loads, saves and destructive
+  // actions are judged against these rather than against whatever is current
+  // when they run.
+  late final Object? _openApi;
+  late final AppDatabase? _openDb;
+  late final Object _openAuthEpoch;
+  late final String? _openUserId;
+
+  /// A save was refused because edit access is gone. The typed text stays in
+  /// the editor, which turns read-only, until the user saves it as their own
+  /// note or discards it.
+  bool _writeRefused = false;
+
+  /// The server refused to show the note (403), which is not a missing note.
+  bool _loadForbidden = false;
+
+  /// The account changed after the page opened, so nothing it loads or saves
+  /// belongs to the page any more.
+  bool _sessionChanged = false;
+
   late final ProviderContainer _container;
   late final NoteAttachmentsController _attachments;
   late final DeletedNoteDraftRecovery _recovery;
@@ -238,6 +266,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   void initState() {
     super.initState();
     _container = ProviderScope.containerOf(context, listen: false);
+    _openApi = ref.read(apiServiceProvider);
+    _openDb = ref.read(appDatabaseProvider);
+    _openAuthEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    _openUserId = ref.read(currentUserProvider2)?.id;
     _attachments = NoteAttachmentsController(
       container: _container,
       store: createNoteAudioUploadStore(),
@@ -365,6 +397,23 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     authEpoch: authEpoch,
   );
 
+  /// Whether the page is still in the session it opened under. Unlike
+  /// [_isCurrentNoteSession] it takes nothing from the moment of the call, so
+  /// an account switched in between cannot pass for the one that opened it.
+  bool get _isOpenSessionCurrent => _isCurrentNoteSession(
+    api: _openApi,
+    db: _openDb,
+    authEpoch: _openAuthEpoch,
+  );
+
+  /// Editing is off unless the note is known to be writable by the account
+  /// that opened it, or a save was refused.
+  bool get _readOnly =>
+      _writeRefused ||
+      _note == null ||
+      noteWriteAccess(_note!, accountId: _openUserId) !=
+          NoteWriteAccess.allowed;
+
   String _resolvedTitle() {
     final title = _titleController.text.trim();
     return title.isEmpty ? AppLocalizations.of(context)!.untitled : title;
@@ -404,6 +453,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final note = await _readNoteById(widget.noteId);
 
       if (mounted) {
+        // The provider may have rebuilt for another account while loading; its
+        // note is not this page's to show.
+        if (!_isOpenSessionCurrent) {
+          setState(() {
+            _isLoading = false;
+            _sessionChanged = true;
+          });
+          return;
+        }
         if (note == null) {
           setState(() => _isLoading = false);
           return;
@@ -421,6 +479,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       }
     } catch (e) {
       if (mounted) {
+        // A refusal is not a deleted note: say so, and show nothing else.
+        if (e is DioException && e.response?.statusCode == 403) {
+          setState(() {
+            _isLoading = false;
+            _loadForbidden = true;
+          });
+          return;
+        }
         setState(() => _isLoading = false);
         _showError(e.toString());
       }
@@ -429,21 +495,26 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   Future<Note?> _readNoteById(String noteId) {
     final provider = noteByIdProvider(noteId);
+    // An invalidated provider keeps its previous value or error while it
+    // recomputes (e.g. right after this note was saved), so only a state that
+    // is no longer loading is the result for this opening.
     final current = ref.read(provider);
-    if (current.hasValue) {
-      return Future<Note?>.value(current.value);
-    }
-    if (current.hasError) {
-      return Future<Note?>.error(
-        current.error ?? StateError('Failed to load note'),
-      );
+    if (!current.isLoading) {
+      if (current.hasValue) {
+        return Future<Note?>.value(current.value);
+      }
+      if (current.hasError) {
+        return Future<Note?>.error(
+          current.error ?? StateError('Failed to load note'),
+        );
+      }
     }
 
     final completer = Completer<Note?>();
     ProviderSubscription<AsyncValue<Note?>>? subscription;
 
     void completeFromState(AsyncValue<Note?> state) {
-      if (completer.isCompleted) return;
+      if (completer.isCompleted || state.isLoading) return;
       if (state.hasValue) {
         completer.complete(state.value);
       } else if (state.hasError) {
@@ -463,7 +534,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   void _onContentChanged() {
-    if (!mounted || _isLoading || _note == null) return;
+    if (!mounted || _isLoading || _note == null || _readOnly) return;
 
     // Optimistically flag the note dirty so the unsaved indicator reacts
     // immediately. The authoritative comparison — which re-encodes the document
@@ -569,6 +640,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       title: title,
       data: data,
       authEpoch: authEpoch,
+      // The account that opened the page, not whoever is active at Save.
+      accountId: _openUserId,
       authSnapshot: authSnapshot,
       cancelToken: cancelToken,
       isStillOpen: () => mounted,
@@ -576,12 +649,21 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Future<void> _saveNote({bool showFeedback = true}) async {
-    if (_note == null) return;
+    if (_note == null || _readOnly) return;
+
+    // An account switched since the page opened must not receive this edit,
+    // and the text stays where it is rather than being retried under it.
+    if (!_isOpenSessionCurrent) {
+      _saveDebounce?.cancel();
+      setState(() => _sessionChanged = true);
+      _showError(AppLocalizations.of(context)!.noteSessionChangedNotice);
+      return;
+    }
 
     setState(() => _isSaving = true);
 
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
+    final api = _openApi;
+    final db = _openDb;
     if (api == null && db == null) {
       setState(() => _isSaving = false);
       return;
@@ -603,11 +685,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         db: db,
         title: resolvedTitle,
         data: data,
+        authEpoch: _openAuthEpoch,
       );
 
       if (mounted) {
-        if (!_isCurrentNoteSession(api: api, db: db)) {
-          setState(() => _isSaving = false);
+        if (!_isOpenSessionCurrent) {
+          setState(() {
+            _isSaving = false;
+            _sessionChanged = true;
+          });
           return;
         }
 
@@ -625,6 +711,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         } else {
           setState(() => _isSaving = false);
         }
+      }
+    } on NoteWriteDeniedException {
+      // Access went away since the note loaded. Keep the draft on screen,
+      // stop autosaving it, and leave the choice to the user.
+      _saveDebounce?.cancel();
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _writeRefused = true;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -658,7 +754,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       isDestructive: true,
     );
 
-    if (confirmed && mounted) {
+    // The dialog outlives the tap; an account switched while it was open must
+    // not delete the note under another identity.
+    if (confirmed && mounted && _isOpenSessionCurrent) {
       ConduitHaptics.mediumImpact();
       final success = await ref
           .read(noteDeleterProvider.notifier)
@@ -669,9 +767,31 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  /// Opens the note's access sheet. The editor's own opening session must
+  /// still be the active one; the sheet then captures the same session again
+  /// for the share operation itself.
+  Future<void> _shareNote() async {
+    final note = _note;
+    if (note == null || _readOnly) return;
+    if (!_isOpenSessionCurrent) {
+      _showError(AppLocalizations.of(context)!.noteSessionChangedNotice);
+      return;
+    }
+    final saved = await shareNote(context, ref, note);
+    if (saved == null || !mounted || !_isOpenSessionCurrent) return;
+    // The server's answer carries the account's write access, which a save can
+    // change; the editor follows it.
+    setState(() {
+      _note = _note?.copyWith(
+        writeAccess: saved.writeAccess ?? _note?.writeAccess,
+        accessGrants: saved.rawGrants,
+      );
+    });
+  }
+
   Future<void> _togglePin() async {
     final note = _note;
-    if (note == null) {
+    if (note == null || !_isOpenSessionCurrent) {
       return;
     }
 
@@ -688,7 +808,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   // AI title generation
   Future<void> _generateTitle() async {
-    if (_note == null || _isGeneratingTitle) return;
+    if (_note == null || _isGeneratingTitle || _readOnly) return;
     final l10n = AppLocalizations.of(context)!;
 
     setState(() => _isGeneratingTitle = true);
@@ -719,7 +839,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   // AI content enhancement
   Future<void> _enhanceContent() async {
-    if (_note == null || _isEnhancing) return;
+    if (_note == null || _isEnhancing || _readOnly) return;
     final l10n = AppLocalizations.of(context)!;
 
     setState(() => _isEnhancing = true);
@@ -771,6 +891,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Future<void> _startDictation() async {
+    if (_readOnly) return;
     // Use the shared service, as the chat composer does, so dictation honours
     // the user's speech-to-text preference (e.g. server-only) and locale.
     _voiceService ??= ref.read(voiceInputServiceProvider);
@@ -1039,6 +1160,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    // The Share action depends on both; watching rebuilds the menu when the
+    // Advanced setting or the account's permissions arrive or change.
+    ref.watch(appSettingsProvider.select((s) => s.advancedFeaturesEnabled));
+    ref.watch(workspaceCapabilitiesProvider);
     // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
@@ -1089,7 +1214,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   child: Center(child: _buildFloatingMetadataBar(context)),
                 ),
               ),
-            if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
+            if (!_isLoading &&
+                _note != null &&
+                !_readOnly &&
+                !_contentFocusNode.hasFocus)
               Positioned(
                 left: Spacing.md,
                 right: Spacing.md,
@@ -1111,7 +1239,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             // laid out above the keyboard; anchoring at bottom: 0 sits the
             // toolbar directly on top of it (anchoring at viewInsets.bottom
             // would double-count the inset and push it up to the stats row).
-            if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
+            if (!_isLoading &&
+                _note != null &&
+                !_readOnly &&
+                _contentFocusNode.hasFocus)
               Positioned(
                 left: 0,
                 right: 0,
@@ -1208,14 +1339,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     AppLocalizations l10n,
   ) {
     return [
-      AdaptivePopupMenuItem<String>(
-        value: 'generate',
-        label: l10n.generateTitle,
-        icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'sparkles',
-          materialIcon: Icons.auto_awesome,
+      if (!_readOnly)
+        AdaptivePopupMenuItem<String>(
+          value: 'generate',
+          label: l10n.generateTitle,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'sparkles',
+            materialIcon: Icons.auto_awesome,
+          ),
         ),
-      ),
       AdaptivePopupMenuItem<String>(
         value: 'copy',
         label: l10n.copy,
@@ -1224,6 +1356,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           materialIcon: Icons.copy_outlined,
         ),
       ),
+      if (_note != null && !_readOnly && canShareNote(ref, _note!))
+        AdaptivePopupMenuItem<String>(
+          value: 'share',
+          label: l10n.noteShare,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'person.2',
+            materialIcon: Icons.group_outlined,
+          ),
+        ),
       AdaptivePopupMenuItem<String>(
         value: 'pin',
         label: _note?.isPinned == true ? l10n.unpin : l10n.pin,
@@ -1232,15 +1373,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           materialIcon: Icons.push_pin_outlined,
         ),
       ),
-      AdaptivePopupMenuItem<String>(
-        value: 'delete',
-        label: l10n.delete,
-        isDestructive: true,
-        icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'trash',
-          materialIcon: Icons.delete_outline,
+      // The delete endpoint takes the same people as an edit.
+      if (!_readOnly)
+        AdaptivePopupMenuItem<String>(
+          value: 'delete',
+          label: l10n.delete,
+          isDestructive: true,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'trash',
+            materialIcon: Icons.delete_outline,
+          ),
         ),
-      ),
     ];
   }
 
@@ -1269,6 +1412,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         return;
       case 'pin':
         _togglePin();
+        return;
+      case 'share':
+        ConduitHaptics.selectionClick();
+        unawaited(_shareNote());
         return;
       case 'delete':
         ConduitHaptics.mediumImpact();
@@ -1352,6 +1499,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                 controller: _titleController,
                                 focusNode: _titleFocusNode,
                                 enabled: !_isGeneratingTitle,
+                                readOnly: _readOnly,
                                 style: titleTextStyle,
                                 placeholder: l10n.untitled,
                                 textAlign: TextAlign.center,
@@ -1589,6 +1737,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_accessNotice(AppLocalizations.of(context)!)
+                  case final notice?)
+                _buildAccessNotice(context, notice),
               // File attachments section (including durable pending audio).
               if (files.isNotEmpty || _attachments.pending.isNotEmpty) ...[
                 _buildAttachmentsSection(context, files),
@@ -1818,11 +1969,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     // Push local changes and pull remote ones so the local row reflects both
     // sides. Mirrors the notes-list pull-to-refresh.
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
-    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    final userId = ref.read(currentUserProvider2)?.id;
-    if (db == null) return;
+    final api = _openApi;
+    final db = _openDb;
+    final authEpoch = _openAuthEpoch;
+    final userId = _openUserId;
+    if (db == null || !_isOpenSessionCurrent) return;
     try {
       final syncEngine = ref.read(syncEngineProvider.notifier);
       await syncEngine.requestPull(reason: 'note-editor-refresh');
@@ -1917,6 +2068,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       child: FleatherEditor(
         controller: controller,
         focusNode: _contentFocusNode,
+        readOnly: _readOnly,
         // Lives inside the page's SingleChildScrollView; the editor must not
         // scroll independently so the whole note grows with the content. Give
         // Fleather the parent controller so context-menu actions can reveal the
@@ -2011,7 +2163,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       isDestructive: true,
     );
 
-    if (confirmed != true || _note == null) return;
+    if (confirmed != true || _note == null || _readOnly) return;
 
     final localUploadId = file['_localAudioUploadId']?.toString();
     if (localUploadId != null && localUploadId.isNotEmpty) {
@@ -2019,9 +2171,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return;
     }
 
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
+    final api = _openApi;
+    final db = _openDb;
     if (api == null && db == null) return;
+    if (!_isOpenSessionCurrent) {
+      _showError(l10n.noteSessionChangedNotice);
+      return;
+    }
 
     setState(() => _isSaving = true);
 
@@ -2056,6 +2212,94 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  /// Why the note cannot be edited, or null when it can.
+  String? _accessNotice(AppLocalizations l10n) {
+    final note = _note;
+    if (note == null) return null;
+    if (_writeRefused) return l10n.noteAccessRevokedNotice;
+    return switch (noteWriteAccess(note, accountId: _openUserId)) {
+      NoteWriteAccess.allowed => null,
+      NoteWriteAccess.denied => l10n.noteReadOnlyNotice,
+      NoteWriteAccess.unknown => l10n.noteAccessUnverifiedNotice,
+    };
+  }
+
+  /// Saves what is on screen as a new note the user owns, through the same
+  /// recovery used when a note is deleted under an open editor.
+  Future<void> _saveDraftAsOwnNote() async {
+    final session = NoteRecoverySession(
+      api: _openApi,
+      db: _openDb,
+      authEpoch: _openAuthEpoch,
+      userId: _openUserId,
+    );
+    await _recovery.recover(session);
+    // The recovery rebinds the editor to the new note, which the user owns.
+    if (mounted && !_hasChanges) setState(() => _writeRefused = false);
+  }
+
+  void _discardDraft() {
+    _saveDebounce?.cancel();
+    setState(() {
+      _hasChanges = false;
+      _titleController.text = _note?.title ?? '';
+      _installContentDocument(
+        documentFromMarkdown(_note?.markdownContent ?? ''),
+      );
+      _savedMarkdown = _contentMarkdown;
+      _updateWordCount();
+    });
+  }
+
+  Widget _buildAccessNotice(BuildContext context, String notice) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: DecoratedBox(
+        key: const ValueKey<String>('note-access-notice'),
+        decoration: BoxDecoration(
+          color: theme.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                notice,
+                style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              ),
+              if (_writeRefused && _hasChanges) ...[
+                const SizedBox(height: Spacing.sm),
+                Wrap(
+                  spacing: Spacing.sm,
+                  children: [
+                    ConduitButton(
+                      key: const ValueKey<String>('note-save-as-own'),
+                      text: l10n.noteSaveAsOwnNote,
+                      isCompact: true,
+                      onPressed: _saveDraftAsOwnNote,
+                    ),
+                    ConduitButton(
+                      key: const ValueKey<String>('note-discard-draft'),
+                      text: l10n.noteDiscardChanges,
+                      isCompact: true,
+                      isSecondary: true,
+                      onPressed: _discardDraft,
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Notes open with `go`, so the editor is often the only page in its
   /// navigator; popping it would leave nothing on screen.
   void _leaveMissingNote() {
@@ -2072,6 +2316,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
 
+    final headline = _loadForbidden
+        ? l10n.noteNoAccess
+        : _sessionChanged
+        ? l10n.noteSessionChangedNotice
+        : l10n.noteNotFound;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(Spacing.xxl),
@@ -2095,7 +2344,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             ),
             const SizedBox(height: Spacing.lg),
             Text(
-              l10n.noteNotFound,
+              headline,
               style: AppTypography.headlineSmallStyle.copyWith(
                 color: theme.textPrimary,
                 fontWeight: FontWeight.w600,

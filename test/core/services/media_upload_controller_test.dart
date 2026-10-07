@@ -1345,6 +1345,298 @@ void main() {
     },
   );
 
+  group('an attachment whose draft is queued behind a response', () {
+    Future<
+      ({
+        ProviderContainer container,
+        AttachmentUploadQueue queue,
+        AppDatabase database,
+        File image,
+        Completer<void> uploadStarted,
+        Completer<String> releaseUpload,
+        Future<void> upload,
+      })
+    >
+    startQueuedUpload(String uuidSuffix, {bool staged = true}) async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      // A staged file is app-owned, so a terminal upload deletes it. A file
+      // outside the staging roots stays where it is.
+      final directory = staged
+          ? Directory('${Directory.systemTemp.path}/conduit-native-paste')
+          : await Directory.systemTemp.createTemp('conduit-shared-file');
+      await directory.create(recursive: true);
+      final image = File(
+        '${directory.path}/'
+        '123e4567-e89b-12d3-a456-$uuidSuffix-paste.png',
+      );
+      await image.writeAsBytes([1]);
+      addTearDown(() async {
+        if (await image.exists()) await image.delete();
+        if (!staged && await directory.exists()) {
+          await directory.delete(recursive: true);
+        }
+      });
+      final uploadStarted = Completer<void>();
+      final releaseUpload = Completer<String>();
+      addTearDown(() {
+        if (!releaseUpload.isCompleted) releaseUpload.complete('teardown');
+      });
+      var uploads = 0;
+      final queue = AttachmentUploadQueue();
+      await queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) {
+          // The first upload is held until the test releases it; a later one
+          // is a retry and finishes at once with a file id of its own.
+          if (++uploads > 1) return Future.value('retry-file');
+          if (!uploadStarted.isCompleted) uploadStarted.complete();
+          return releaseUpload.future;
+        },
+        database: () => database,
+      );
+      addTearDown(queue.dispose);
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+          attachmentUploadQueueProvider.overrideWithValue(queue),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFilesNotifier([
+              _pendingImage(image, reportedBytes: 1),
+            ]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final upload = container
+          .read(mediaUploadControllerProvider)
+          .upload(filePath: image.path, fileName: 'paste.png', fileSize: 1);
+      await uploadStarted.future.timeout(const Duration(seconds: 1));
+      // Queueing the draft hands the file from the tray to the draft.
+      final tray = container.read(attachedFilesProvider);
+      container.read(queuedDraftAttachmentsProvider.notifier).adopt([
+        QueuedDraftAttachment(
+          id: 'draft-file',
+          queueId: 'queue',
+          upload: tray.single,
+        ),
+      ]);
+      container.read(attachedFilesProvider.notifier).releaseIdentical(tray);
+      return (
+        container: container,
+        queue: queue,
+        database: database,
+        image: image,
+        uploadStarted: uploadStarted,
+        releaseUpload: releaseUpload,
+        upload: upload,
+      );
+    }
+
+    test('keeps uploading and reports its result into the draft', () async {
+      final run = await startQueuedUpload('426614174201');
+
+      expect(run.container.read(attachedFilesProvider), isEmpty);
+      run.releaseUpload.complete('server-file');
+      await run.upload.timeout(const Duration(seconds: 1));
+
+      final held = run.container.read(queuedDraftAttachmentsProvider).single;
+      expect(held.id, 'draft-file');
+      expect(held.upload.status, FileUploadStatus.completed);
+      expect(held.upload.fileId, 'server-file');
+      expect(run.container.read(attachedFilesProvider), isEmpty);
+    });
+
+    test('reports into its own queue, never a file another queue holds at the '
+        'same path', () async {
+      final run = await startQueuedUpload('426614174203');
+      QueuedDraftAttachment heldAtPath(
+        String id,
+        String queueId, {
+        String? fileId,
+      }) => QueuedDraftAttachment(
+        id: id,
+        queueId: queueId,
+        upload: FileUploadState(
+          file: File(run.image.path),
+          fileName: 'paste.png',
+          fileSize: 1,
+          progress: fileId == null ? 0 : 1,
+          status: fileId == null
+              ? FileUploadStatus.pending
+              : FileUploadStatus.completed,
+          fileId: fileId,
+          isImage: true,
+        ),
+      );
+      // The same queue holds a second file waiting on this upload, and another
+      // queue holds a finished upload of its own at the same pathname.
+      run.container.read(queuedDraftAttachmentsProvider.notifier).adopt([
+        heldAtPath('joined-file', 'queue'),
+        heldAtPath('other-file', 'other-queue', fileId: 'other-queue-file'),
+      ]);
+
+      run.releaseUpload.complete('server-file');
+      await run.upload.timeout(const Duration(seconds: 1));
+
+      expect({
+        for (final held in run.container.read(queuedDraftAttachmentsProvider))
+          held.id: held.upload.fileId,
+      }, {
+        'draft-file': 'server-file',
+        'joined-file': 'server-file',
+        'other-file': 'other-queue-file',
+      });
+    });
+
+    group('another queue holding the same path', () {
+      // Another queue's file is picked while the first queue's identical
+      // pathname is still uploading, so its upload joins that operation.
+      ({FileUploadState second, Future<void> joined}) joinFromOtherQueue(
+        ProviderContainer container,
+        File image, {
+        required bool queued,
+      }) {
+        final secondState = _pendingImage(image, reportedBytes: 1);
+        (container.read(
+          attachedFilesProvider.notifier,
+        ) as _SeededAttachedFilesNotifier).replaceAttachments([secondState]);
+        final joined = container
+            .read(mediaUploadControllerProvider)
+            .upload(filePath: image.path, fileName: 'paste.png', fileSize: 1);
+        if (queued) {
+          container.read(queuedDraftAttachmentsProvider.notifier).adopt([
+            QueuedDraftAttachment(
+              id: 'other-file',
+              queueId: 'other-queue',
+              upload: secondState,
+            ),
+          ]);
+          container.read(attachedFilesProvider.notifier).releaseIdentical([
+            secondState,
+          ]);
+        }
+        return (second: secondState, joined: joined);
+      }
+
+      FileUploadState held(ProviderContainer container, String id) => container
+          .read(queuedDraftAttachmentsProvider)
+          .singleWhere((entry) => entry.id == id)
+          .upload;
+
+      test('fails once the shared upload settles, then retries on its own '
+          'without touching the first queue', () async {
+        final run = await startQueuedUpload('426614174209', staged: false);
+        final controller = run.container.read(mediaUploadControllerProvider);
+        final other = joinFromOtherQueue(
+          run.container,
+          run.image,
+          queued: true,
+        );
+
+        // The first upload still holds the pathname, so a retry must wait.
+        await controller.retryQueuedAttachment(
+          queueId: 'other-queue',
+          id: 'other-file',
+        );
+        expect(
+          identical(held(run.container, 'other-file'), other.second),
+          isTrue,
+        );
+
+        run.releaseUpload.complete('server-file');
+        await Future.wait([run.upload, other.joined])
+            .timeout(const Duration(seconds: 2));
+
+        final firstAfter = held(run.container, 'draft-file');
+        expect(firstAfter.status, FileUploadStatus.completed);
+        expect(firstAfter.fileId, 'server-file');
+        // The other queue's file never reports the first queue's file id. It
+        // fails visibly instead of staying pending with no way forward.
+        final secondAfter = held(run.container, 'other-file');
+        expect(secondAfter.status, FileUploadStatus.failed);
+        expect(secondAfter.fileId, isNull);
+        expect(secondAfter.error, isNotEmpty);
+
+        await controller
+            .retryQueuedAttachment(queueId: 'other-queue', id: 'other-file')
+            .timeout(const Duration(seconds: 2));
+
+        final secondRetried = held(run.container, 'other-file');
+        expect(secondRetried.status, FileUploadStatus.completed);
+        expect(secondRetried.fileId, 'retry-file');
+        expect(
+          identical(held(run.container, 'draft-file'), firstAfter),
+          isTrue,
+        );
+        expect(firstAfter.fileId, 'server-file');
+      });
+
+      test('fails in the composer when it is still there as the shared upload '
+          'settles', () async {
+        final run = await startQueuedUpload('426614174210', staged: false);
+        joinFromOtherQueue(run.container, run.image, queued: false);
+
+        run.releaseUpload.complete('server-file');
+        await run.upload.timeout(const Duration(seconds: 2));
+        await Future<void>.delayed(Duration.zero);
+
+        final tray = run.container.read(attachedFilesProvider).single;
+        expect(tray.status, FileUploadStatus.failed);
+        expect(tray.fileId, isNull);
+        expect(held(run.container, 'draft-file').fileId, 'server-file');
+      });
+
+      test('keeps reporting a retry into the draft while the composer holds '
+          'the same path', () async {
+        final run = await startQueuedUpload('426614174211', staged: false);
+        final controller = run.container.read(mediaUploadControllerProvider);
+        final other = joinFromOtherQueue(
+          run.container,
+          run.image,
+          queued: true,
+        );
+        run.releaseUpload.complete('server-file');
+        await Future.wait([run.upload, other.joined])
+            .timeout(const Duration(seconds: 2));
+        final inComposer = _pendingImage(run.image, reportedBytes: 1);
+        (run.container.read(
+          attachedFilesProvider.notifier,
+        ) as _SeededAttachedFilesNotifier).replaceAttachments([inComposer]);
+
+        await controller
+            .retryQueuedAttachment(queueId: 'other-queue', id: 'other-file')
+            .timeout(const Duration(seconds: 2));
+
+        expect(held(run.container, 'other-file').fileId, 'retry-file');
+        expect(
+          identical(
+            run.container.read(attachedFilesProvider).single,
+            inComposer,
+          ),
+          isTrue,
+        );
+      });
+    });
+
+    test('is retired when its draft is removed before it finishes', () async {
+      final run = await startQueuedUpload('426614174202');
+
+      run.container
+          .read(queuedDraftAttachmentsProvider.notifier)
+          .release('queue', ['draft-file']);
+      final settled = run.upload.then<void>((_) {}, onError: (_) {});
+      await settled.timeout(const Duration(seconds: 2));
+      for (var i = 0; i < 100 && await run.image.exists(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(await run.image.exists(), isFalse);
+      expect(await run.database.attachmentQueueDao.getAll(), isEmpty);
+      expect(run.container.read(queuedDraftAttachmentsProvider), isEmpty);
+    });
+  });
+
   test(
     'ownership snapshot preserves a replacement at the same pathname',
     () async {

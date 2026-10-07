@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -94,7 +95,10 @@ final class _CountingModelsApi extends ApiService {
   int getModelsCalls = 0;
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async {
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     getModelsCalls++;
     if (started != null && !started!.isCompleted) started!.complete();
     await release?.future;
