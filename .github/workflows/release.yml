@@ -97,16 +97,21 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Generate code in workspace
-        shell: bash
-        run: |
-          for dir in . packages/* apps/*; do
-            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
-              echo "::group::build_runner in $dir"
-              (cd "$dir" && dart run build_runner build)
-              echo "::endgroup::"
-            fi
-          done
+      # Each workspace member keeps its own build cache, and the app never
+      # waited on the packages' output, so they generate side by side.
+      - parallel:
+          - name: Generate code (app)
+            run: dart run build_runner build
+          - name: Generate code (packages)
+            shell: bash
+            run: |
+              for dir in packages/* apps/*; do
+                if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+                  echo "::group::build_runner in $dir"
+                  (cd "$dir" && dart run build_runner build)
+                  echo "::endgroup::"
+                fi
+              done
 
       
 
@@ -126,26 +131,27 @@ jobs:
       - name: Build appBundle
         run: flutter build appbundle --target-platform android-arm,android-arm64 --release
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Android-Release
-          path: |
-            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-            build/app/outputs/bundle/release/app-release.aab
-
-      - name: Update Release with Artifacts
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk,build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk,build/app/outputs/bundle/release/app-release.aab"
-          tag: ${{ github.ref_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          allowUpdates: true
-          makeLatest: true
-          omitBody: true
-          omitBodyDuringUpdate: true
-          omitNameDuringUpdate: true
+      # Both only read the built files.
+      - parallel:
+          - name: Upload Artifacts
+            uses: actions/upload-artifact@v4
+            with:
+              name: Android-Release
+              path: |
+                build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+                build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+                build/app/outputs/bundle/release/app-release.aab
+          - name: Update Release with Artifacts
+            uses: ncipollo/release-action@v1
+            with:
+              artifacts: "build/app/outputs/flutter-apk/app-arm64-v8a-release.apk,build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk,build/app/outputs/bundle/release/app-release.aab"
+              tag: ${{ github.ref_name }}
+              token: ${{ secrets.GITHUB_TOKEN }}
+              allowUpdates: true
+              makeLatest: true
+              omitBody: true
+              omitBodyDuringUpdate: true
+              omitNameDuringUpdate: true
 
 
   build-ios:
@@ -174,19 +180,6 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Generate code in workspace
-        shell: bash
-        run: |
-          for dir in . packages/* apps/*; do
-            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
-              echo "::group::build_runner in $dir"
-              (cd "$dir" && dart run build_runner build)
-              echo "::endgroup::"
-            fi
-          done
-
-      
-
         #4 Setup Xcode
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -203,10 +196,26 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pods-
 
-      - name: Install CocoaPods
-        run: |
-          cd ios
-          pod install --verbose
+      # Each workspace member keeps its own build cache, and the app never
+      # waited on the packages' output, so they generate side by side.
+      # CocoaPods needs only what `pub get` wrote, so it installs alongside.
+      - parallel:
+          - name: Generate code (app)
+            run: dart run build_runner build
+          - name: Generate code (packages)
+            shell: bash
+            run: |
+              for dir in packages/* apps/*; do
+                if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+                  echo "::group::build_runner in $dir"
+                  (cd "$dir" && dart run build_runner build)
+                  echo "::endgroup::"
+                fi
+              done
+          - name: Install CocoaPods
+            run: |
+              cd ios
+              pod install --verbose
 
         #6 Cache Xcode DerivedData
       - name: Cache Xcode DerivedData
@@ -234,23 +243,22 @@ jobs:
           zip -r ../ipa/conduit.ipa Payload
           cd ../ipa
 
-        #8 Upload Artifacts
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: iOS-Release
-          path: |
-            build/ios/ipa/*.ipa
-
-        #9 Update Release
-      - name: Update Release with IPA
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "build/ios/ipa/conduit.ipa"
-          tag: ${{ github.ref_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          allowUpdates: true
-          makeLatest: true
-          omitBody: true
-          omitBodyDuringUpdate: true
-          omitNameDuringUpdate: true
+        #8 Upload Artifacts and #9 Update Release: both only read the IPA.
+      - parallel:
+          - name: Upload Artifacts
+            uses: actions/upload-artifact@v4
+            with:
+              name: iOS-Release
+              path: |
+                build/ios/ipa/*.ipa
+          - name: Update Release with IPA
+            uses: ncipollo/release-action@v1
+            with:
+              artifacts: "build/ios/ipa/conduit.ipa"
+              tag: ${{ github.ref_name }}
+              token: ${{ secrets.GITHUB_TOKEN }}
+              allowUpdates: true
+              makeLatest: true
+              omitBody: true
+              omitBodyDuringUpdate: true
+              omitNameDuringUpdate: true
