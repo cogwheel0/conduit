@@ -1,3 +1,5 @@
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -7,6 +9,7 @@ import 'package:conduit_core/services/settings_service.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
@@ -54,15 +57,16 @@ class NotificationTargetsSection extends ConsumerWidget {
                 child: Center(child: ConduitLoadingIndicator(isCompact: true)),
               )
             else if (data == null)
-              UtilityRow(
+              _ProblemRow(
+                key: const Key('notification-targets-load-failed'),
                 title: l10n.notificationTargetsLoadFailed,
-                subtitle: l10n.retry,
-                onTap: () => _refresh(ref),
+                onRetry: () => _refresh(ref),
               )
             else if (targets.isEmpty)
               UtilityRow(
                 title: l10n.notificationTargetsEmpty,
                 semanticLabel: l10n.notificationTargetsEmpty,
+                foregroundColor: context.conduitTheme.textSecondary,
               )
             else
               for (final target in targets)
@@ -71,17 +75,25 @@ class NotificationTargetsSection extends ConsumerWidget {
                   onTap: () => _openEditor(context, ref, target),
                 ),
             if (data != null)
+              // An action, not a place: tinted, with no chevron.
               UtilityRow(
                 key: const Key('notification-targets-add'),
+                leading: SettingsIconBadge(
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.add_circled,
+                    android: Icons.add_circle_outline,
+                  ),
+                  color: context.conduitTheme.buttonPrimary,
+                ),
                 title: l10n.notificationTargetsAdd,
-                showChevron: true,
+                foregroundColor: context.conduitTheme.buttonPrimary,
                 onTap: () => _openEditor(context, ref, null),
               ),
             if (data?.stale ?? false)
-              UtilityRow(
+              _ProblemRow(
+                key: const Key('notification-targets-stale'),
                 title: l10n.notificationTargetsStale,
-                subtitle: l10n.retry,
-                onTap: () => _refresh(ref),
+                onRetry: () => _refresh(ref),
               ),
           ],
         ),
@@ -116,6 +128,37 @@ class NotificationTargetsSection extends ConsumerWidget {
   }
 }
 
+/// A load that went wrong: a warning glyph, what happened, and Retry where
+/// the eye lands after reading it.
+class _ProblemRow extends StatelessWidget {
+  const _ProblemRow({super.key, required this.title, required this.onRetry});
+
+  final String title;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return UtilityRow(
+      leading: SettingsIconBadge(
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.exclamationmark_triangle,
+          android: Icons.warning_amber_rounded,
+        ),
+        color: theme.warning,
+      ),
+      title: title,
+      preserveTrailingSemantics: true,
+      trailing: AdaptiveButton(
+        onPressed: onRetry,
+        label: AppLocalizations.of(context)!.retry,
+        style: AdaptiveButtonStyle.plain,
+        size: AdaptiveButtonSize.small,
+      ),
+    );
+  }
+}
+
 class _TargetRow extends StatelessWidget {
   const _TargetRow({required this.target, required this.onTap});
 
@@ -137,6 +180,13 @@ class _TargetRow extends StatelessWidget {
     ].join(' · ');
     final subtitle = [?target.maskedUrl, delivery].join(' · ');
     return UtilityRow(
+      leading: SettingsIconBadge(
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.bell,
+          android: Icons.webhook,
+        ),
+        color: context.conduitTheme.buttonPrimary,
+      ),
       title: target.id,
       subtitle: subtitle,
       status: Text(

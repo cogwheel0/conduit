@@ -571,9 +571,20 @@ void main() {
     expect(find.byKey(const Key('settings-category-ai')), findsNothing);
     expect(find.byKey(const Key('settings-category-server')), findsNothing);
     expect(find.byKey(const Key('workspace-entry')), findsOneWidget);
+    // Connection rows follow in the next group.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('data-connection-entry')),
+      find.byType(ListView),
+      const Offset(0, -200),
+    );
     expect(find.byKey(const Key('data-connection-entry')), findsOneWidget);
 
     // The centered profile header is tall; bring the whole row on screen.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('workspace-entry')),
+      find.byType(ListView),
+      const Offset(0, 200),
+    );
     await tester.ensureVisible(find.byKey(const Key('workspace-entry')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('workspace-entry')));

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:conduit/features/chat/services/chat_backup_files.dart';
 import 'package:conduit/shared/utils/ui_utils.dart';
+import 'package:conduit/shared/widgets/advanced_required_state.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
@@ -20,6 +22,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../widgets/settings_page_scaffold.dart';
 
 /// Back up and restore the signed-in Open WebUI account's chats, and change
 /// every one of them at once.
@@ -42,12 +45,18 @@ enum _Activity { idle, syncing, preparing, exporting, importing, changing }
 
 enum _Bulk { archive, unarchive, unshare, delete }
 
+/// The row an action started from. Its progress shows in that row, and its
+/// result under the group that holds it.
+enum _Origin { sync, export, import, archive, unarchive, unshare, delete }
+
 class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
   late final ProviderContainer _container;
   ChatDataControlsOwner? _owner;
   ServerChatBulkScope? _scope;
   _Activity _activity = _Activity.idle;
+  _Origin? _origin;
   int _chatsRead = 0;
+  int _importing = 0;
   CancelToken? _cancel;
 
   PickedChatFile? _picked;
@@ -135,6 +144,7 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
     if (owner == null || _busy) return;
     setState(() {
       _activity = _Activity.syncing;
+      _origin = _Origin.sync;
       _status = null;
     });
     try {
@@ -158,6 +168,7 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
 
     setState(() {
       _activity = _Activity.preparing;
+      _origin = _Origin.export;
       _chatsRead = 0;
       _status = null;
     });
@@ -249,6 +260,7 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
       _importError = null;
       _status = null;
       _activity = _Activity.preparing;
+      _origin = _Origin.import;
     });
 
     ChatImportPreview preview;
@@ -302,7 +314,10 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
       return;
     }
 
-    setState(() => _activity = _Activity.importing);
+    setState(() {
+      _activity = _Activity.importing;
+      _importing = preview.chats;
+    });
     try {
       final result = await _service(owner).importChats(preview);
       if (!_ownerIsCurrent()) return;
@@ -341,6 +356,12 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
 
     setState(() {
       _activity = _Activity.preparing;
+      _origin = switch (kind) {
+        _Bulk.archive => _Origin.archive,
+        _Bulk.unarchive => _Origin.unarchive,
+        _Bulk.unshare => _Origin.unshare,
+        _Bulk.delete => _Origin.delete,
+      };
       _status = null;
     });
     try {
@@ -371,10 +392,18 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
             '${l10n.chatDataControlsDeleteAllMessage(owner.accountName, owner.serverName)}'
                 '${discard ? '\n\n${l10n.chatDataControlsDeleteUnsentMessage(scope.unsyncedEdits, scope.queuedResponses)}' : ''}',
         },
-        confirmText: kind == _Bulk.delete
-            ? (discard ? l10n.chatDataControlsDiscardAndDelete : l10n.delete)
-            : null,
-        isDestructive: kind == _Bulk.delete || kind == _Bulk.unshare,
+        // Each button names what it does; only deleting is destructive, since
+        // removed share links and archived chats can be brought back.
+        confirmText: switch (kind) {
+          _Bulk.archive => l10n.chatDataControlsArchiveAllConfirm,
+          _Bulk.unarchive => l10n.chatDataControlsUnarchiveAllConfirm,
+          _Bulk.unshare => l10n.chatDataControlsUnshareAllConfirm,
+          _Bulk.delete =>
+            discard
+                ? l10n.chatDataControlsDiscardAndDeleteConfirm
+                : l10n.chatDataControlsDeleteAllConfirm,
+        },
+        isDestructive: kind == _Bulk.delete,
       );
       if (!proceed || !mounted) return;
 
@@ -401,7 +430,14 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
       // The stored chats are already changed; bring the screen in line even if
       // this page was left meanwhile.
       applyChatBulkOutcome(_container, owner, change, outcome);
-      _show(l10n.chatDataControlsDone);
+      // The action reaches every chat on the server, so the result names no
+      // count: the outcome only counts the chats this device had stored.
+      _show(switch (kind) {
+        _Bulk.archive => l10n.chatDataControlsArchivedAll,
+        _Bulk.unarchive => l10n.chatDataControlsUnarchivedAll,
+        _Bulk.unshare => l10n.chatDataControlsUnsharedAll,
+        _Bulk.delete => l10n.chatDataControlsDeletedAll,
+      });
     } catch (error) {
       _show(_failureText(l10n, error), error: true);
     } finally {
@@ -424,13 +460,32 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
     ref.watch(currentUserProvider2);
     ref.watch(openWebUiAuthSessionEpochProvider);
     final owner = _owner;
-    if (!advanced || owner == null || !_ownerIsCurrent()) {
+    if (!advanced) {
+      return UtilityPageScaffold.settings(
+        title: l10n.chatDataControlsTitle,
+        children: [AdvancedRequiredState(feature: l10n.chatDataControlsTitle)],
+      );
+    }
+    if (owner == null || !_ownerIsCurrent()) {
+      // The page never follows a different account on its own, so a changed
+      // account is told apart from no account at all.
       return UtilityPageScaffold.settings(
         title: l10n.chatDataControlsTitle,
         children: [
-          Text(
-            l10n.chatDataControlsUnavailable,
-            key: const Key('chat-data-controls-unavailable'),
+          ConduitEmptyState(
+            key: Key(
+              owner == null
+                  ? 'chat-data-controls-no-account'
+                  : 'chat-data-controls-account-changed',
+            ),
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.person_crop_circle,
+              android: Icons.account_circle_outlined,
+            ),
+            title: l10n.chatDataControlsTitle,
+            message: owner == null
+                ? l10n.chatDataControlsNoAccount
+                : l10n.chatDataControlsAccountChanged,
           ),
         ],
       );
@@ -447,103 +502,118 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
         ref.watch(openWebUiChatActionAllowedProvider('delete')).asData?.value ??
         false;
     final scope = _scope;
-    final unsynced =
-        scope != null &&
-        (scope.localOnlyChatIds.isNotEmpty ||
-            scope.unsyncedEdits > 0 ||
-            scope.queuedResponses > 0);
+    final localOnly = scope?.localOnlyChatIds.length ?? 0;
+    final unsent = scope?.chatsWithUnsentWork ?? 0;
+    final backupNotes = [
+      if (canExport) l10n.chatDataControlsMediaNote,
+      if (canImport) l10n.chatDataControlsImportFooter,
+    ].join('\n\n');
 
     return UtilityPageScaffold.settings(
       title: l10n.chatDataControlsTitle,
       children: [
-        Text(
-          l10n.chatDataControlsStoredOn(owner.accountName, owner.serverName),
-          key: const Key('chat-data-controls-account'),
-          style: AppTypography.bodyMediumStyle.copyWith(
-            color: theme.textPrimary,
-          ),
-        ),
-        const SizedBox(height: Spacing.xs),
-        Text(
-          l10n.chatDataControlsMediaNote,
-          key: const Key('chat-data-controls-media-note'),
-          style: AppTypography.bodySmallStyle.copyWith(
-            color: theme.textSecondary,
-          ),
-        ),
-        if (unsynced) ...[
-          const SizedBox(height: Spacing.md),
-          InsetGroupedSection(
-            key: const Key('chat-data-controls-unsynced'),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (scope.localOnlyChatIds.isNotEmpty)
-                  Text(
-                    l10n.chatDataControlsLocalOnly(
-                      scope.localOnlyChatIds.length,
-                    ),
-                  ),
-                if (scope.unsyncedEdits + scope.queuedResponses > 0)
-                  Text(
-                    l10n.chatDataControlsUnsent(
-                      scope.unsyncedEdits + scope.queuedResponses,
-                    ),
-                  ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  l10n.chatDataControlsUnsyncedNote,
-                  style: AppTypography.bodySmallStyle.copyWith(
-                    color: theme.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: Spacing.sm),
-                ConduitButton(
-                  key: const Key('chat-data-sync'),
-                  text: _activity == _Activity.syncing
-                      ? l10n.chatDataControlsSyncing
-                      : l10n.chatDataControlsSyncNow,
-                  isSecondary: true,
-                  isLoading: _activity == _Activity.syncing,
-                  onPressed: _busy ? null : _syncNow,
-                ),
-              ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+          child: Text(
+            l10n.chatDataControlsStoredOn(owner.accountName, owner.serverName),
+            key: const Key('chat-data-controls-account'),
+            style: AppTypography.bodyMediumStyle.copyWith(
+              color: theme.textSecondary,
             ),
+          ),
+        ),
+        if (localOnly > 0 || unsent > 0) ...[
+          const SizedBox(height: Spacing.md),
+          InsetGroupedList(
+            key: const Key('chat-data-controls-unsynced'),
+            footer: l10n.chatDataControlsUnsyncedNote,
+            children: [
+              if (localOnly > 0)
+                UtilityRow(
+                  key: const Key('chat-data-local-only'),
+                  leading: _badge(
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.device_phone_portrait,
+                      android: Icons.smartphone_outlined,
+                    ),
+                    theme.warning,
+                  ),
+                  title: l10n.chatDataControlsLocalOnly(localOnly),
+                ),
+              if (unsent > 0)
+                UtilityRow(
+                  key: const Key('chat-data-unsent'),
+                  leading: _badge(
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.arrow_up_circle,
+                      android: Icons.cloud_upload_outlined,
+                    ),
+                    theme.warning,
+                  ),
+                  title: l10n.chatDataControlsUnsent(unsent),
+                ),
+              _actionRow(
+                key: const Key('chat-data-sync'),
+                origin: _Origin.sync,
+                icon: UiUtils.platformIcon(
+                  ios: CupertinoIcons.arrow_2_circlepath,
+                  android: Icons.sync,
+                ),
+                title: _activity == _Activity.syncing
+                    ? l10n.chatDataControlsSyncing
+                    : l10n.chatDataControlsSyncNow,
+                tinted: true,
+                onTap: _syncNow,
+              ),
+            ],
           ),
         ],
         if (canExport || canImport) ...[
           const SizedBox(height: Spacing.lg),
           InsetGroupedList(
             title: l10n.chatDataControlsBackupSection,
+            footer: backupNotes,
             children: [
               if (canExport)
-                UtilityRow(
+                _actionRow(
                   key: const Key('chat-data-export'),
-                  title: l10n.chatDataControlsExportLibrary,
-                  leading: Icon(
-                    UiUtils.platformIcon(
-                      ios: CupertinoIcons.square_arrow_up,
-                      android: Icons.ios_share,
-                    ),
+                  origin: _Origin.export,
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.square_arrow_up,
+                    android: Icons.ios_share,
                   ),
-                  enabled: !_busy,
+                  title: l10n.chatDataControlsExportLibrary,
+                  progress: _activity == _Activity.exporting
+                      ? l10n.chatDataControlsExporting(_chatsRead)
+                      : null,
+                  cancel: _activity == _Activity.exporting
+                      ? AdaptiveButton(
+                          key: const Key('chat-data-cancel-export'),
+                          onPressed: () => _cancel?.cancel(),
+                          label: l10n.cancel,
+                          style: AdaptiveButtonStyle.plain,
+                          size: AdaptiveButtonSize.small,
+                        )
+                      : null,
                   onTap: _exportLibrary,
                 ),
               if (canImport)
-                UtilityRow(
+                _actionRow(
                   key: const Key('chat-data-import'),
-                  title: l10n.chatDataControlsImport,
-                  leading: Icon(
-                    UiUtils.platformIcon(
-                      ios: CupertinoIcons.square_arrow_down,
-                      android: Icons.file_download_outlined,
-                    ),
+                  origin: _Origin.import,
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.square_arrow_down,
+                    android: Icons.file_download_outlined,
                   ),
-                  enabled: !_busy,
+                  title: l10n.chatDataControlsImport,
+                  progress: _activity == _Activity.importing
+                      ? l10n.chatDataControlsImporting(_importing)
+                      : null,
                   onTap: _chooseImportFile,
                 ),
             ],
           ),
+          ?_statusFooter(theme, const {_Origin.export, _Origin.import}),
         ],
         if (_picked != null && _importError != null) ...[
           const SizedBox(height: Spacing.sm),
@@ -554,10 +624,13 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
               children: [
                 Text(l10n.chatDataControlsImportFile(_picked!.name)),
                 const SizedBox(height: Spacing.xs),
-                Text(
-                  _importError!,
-                  style: AppTypography.bodyMediumStyle.copyWith(
-                    color: theme.error,
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _importError!,
+                    style: AppTypography.bodyMediumStyle.copyWith(
+                      color: theme.error,
+                    ),
                   ),
                 ),
                 const SizedBox(height: Spacing.sm),
@@ -575,79 +648,150 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
         InsetGroupedList(
           title: l10n.chatDataControlsManageSection,
           children: [
-            UtilityRow(
+            _actionRow(
               key: const Key('chat-data-archive-all'),
+              origin: _Origin.archive,
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.archivebox,
+                android: Icons.archive_outlined,
+              ),
               title: l10n.chatDataControlsArchiveAll,
-              enabled: !_busy,
               onTap: () => _change(_Bulk.archive),
             ),
-            UtilityRow(
+            _actionRow(
               key: const Key('chat-data-unarchive-all'),
+              origin: _Origin.unarchive,
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.tray_arrow_up,
+                android: Icons.unarchive_outlined,
+              ),
               title: l10n.chatDataControlsUnarchiveAll,
-              enabled: !_busy,
               onTap: () => _change(_Bulk.unarchive),
             ),
-            UtilityRow(
+            _actionRow(
               key: const Key('chat-data-unshare-all'),
+              origin: _Origin.unshare,
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.link,
+                android: Icons.link_off,
+              ),
               title: l10n.chatDataControlsUnshareAll,
-              enabled: !_busy,
               onTap: () => _change(_Bulk.unshare),
             ),
-            if (canDelete)
-              UtilityRow(
-                key: const Key('chat-data-delete-all'),
-                title: l10n.chatDataControlsDeleteAll,
-                destructive: true,
-                enabled: !_busy,
-                onTap: () => _change(_Bulk.delete),
-              ),
           ],
         ),
-        if (_activity == _Activity.exporting) ...[
-          const SizedBox(height: Spacing.md),
-          Row(
-            key: const Key('chat-data-progress'),
-            children: [
-              const SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator.adaptive(strokeWidth: 2),
-              ),
-              const SizedBox(width: Spacing.sm),
-              Expanded(child: Text(l10n.chatDataControlsExporting(_chatsRead))),
-              TextButton(
-                key: const Key('chat-data-cancel-export'),
-                onPressed: () => _cancel?.cancel(),
-                child: Text(l10n.cancel),
-              ),
-            ],
-          ),
-        ] else if (_activity == _Activity.changing ||
-            _activity == _Activity.importing) ...[
-          const SizedBox(height: Spacing.md),
-          Row(
-            key: const Key('chat-data-progress'),
-            children: [
-              const SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator.adaptive(strokeWidth: 2),
-              ),
-              const SizedBox(width: Spacing.sm),
-              if (_activity == _Activity.changing)
-                Expanded(child: Text(l10n.chatDataControlsWaiting)),
-            ],
-          ),
-        ],
-        if (_status != null) ...[
-          const SizedBox(height: Spacing.md),
-          Text(
-            _status!,
-            key: const Key('chat-data-status'),
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: _statusIsError ? theme.error : theme.textPrimary,
+        ?_statusFooter(theme, const {
+          _Origin.archive,
+          _Origin.unarchive,
+          _Origin.unshare,
+        }),
+        if (canDelete) ...[
+          const SizedBox(height: Spacing.lg),
+          InsetGroupedList(
+            key: const Key('chat-data-delete-group'),
+            footer: l10n.chatDataControlsDeleteFooter(
+              owner.accountName,
+              owner.serverName,
             ),
+            children: [
+              _actionRow(
+                key: const Key('chat-data-delete-all'),
+                origin: _Origin.delete,
+                icon: UiUtils.platformIcon(
+                  ios: CupertinoIcons.delete,
+                  android: Icons.delete_outline,
+                ),
+                title: l10n.chatDataControlsDeleteAll,
+                destructive: true,
+                onTap: () => _change(_Bulk.delete),
+              ),
+            ],
           ),
+          ?_statusFooter(theme, const {_Origin.delete}),
         ],
       ],
+    );
+  }
+
+  Widget _badge(IconData icon, Color color) =>
+      SettingsIconBadge(icon: icon, color: color);
+
+  /// One action row. While its action runs, the row stays at full strength
+  /// and shows the progress; every other row waits, dimmed.
+  Widget _actionRow({
+    required Key key,
+    required _Origin origin,
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    String? progress,
+    Widget? cancel,
+    bool tinted = false,
+    bool destructive = false,
+  }) {
+    final theme = context.conduitTheme;
+    final active = _origin == origin;
+    final running =
+        active &&
+        (_activity == _Activity.syncing ||
+            _activity == _Activity.exporting ||
+            _activity == _Activity.importing ||
+            _activity == _Activity.changing);
+    final l10n = AppLocalizations.of(context)!;
+    final subtitle =
+        progress ??
+        (running && _activity == _Activity.changing
+            ? l10n.chatDataControlsWaiting
+            : null);
+    final indicator = running
+        ? const SizedBox.square(
+            key: Key('chat-data-progress'),
+            dimension: IconSize.medium,
+            child: Center(
+              child: ConduitLoadingIndicator(size: 18, isCompact: true),
+            ),
+          )
+        : null;
+    return UtilityRow(
+      key: key,
+      leading: _badge(icon, destructive ? theme.error : theme.buttonPrimary),
+      title: title,
+      subtitle: subtitle,
+      foregroundColor: tinted ? theme.buttonPrimary : null,
+      destructive: destructive,
+      trailing: cancel == null
+          ? indicator
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ?indicator,
+                const SizedBox(width: Spacing.xs),
+                cancel,
+              ],
+            ),
+      preserveTrailingSemantics: cancel != null,
+      enabled: !_busy || active,
+      onTap: _busy ? null : onTap,
+    );
+  }
+
+  /// The latest result or error, under the group whose row started it. A
+  /// live region, so assistive tech reads it out when it appears.
+  Widget? _statusFooter(ConduitThemeExtension theme, Set<_Origin> origins) {
+    final status = _status;
+    if (status == null || !origins.contains(_origin)) return null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Spacing.xs, Spacing.xs, Spacing.xs, 0),
+      child: Semantics(
+        liveRegion: true,
+        child: Text(
+          status,
+          key: const Key('chat-data-status'),
+          style: AppTypography.bodySmallStyle.copyWith(
+            color: _statusIsError ? theme.error : theme.textSecondary,
+          ),
+        ),
+      ),
     );
   }
 }

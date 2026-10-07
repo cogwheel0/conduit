@@ -288,6 +288,7 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
   ComposerPersonalConnections connections = ComposerPersonalConnections.none,
   bool toolSettingsAvailable = false,
   bool compareModelsAvailable = false,
+  bool hasMessage = true,
   CodeInterpreterOffer? codeInterpreter,
 }) {
   final items = buildComposerOverflowItems(
@@ -314,6 +315,7 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
     // Comparing models is an Open WebUI server feature.
     compareModelsAvailable:
         !hermesMode && !directMode && compareModelsAvailable,
+    hasMessage: hasMessage,
     codeInterpreter: codeInterpreter,
   );
 
@@ -344,6 +346,14 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
           subtitle: item.subtitle,
           sfSymbol: item.sfSymbol,
           section: item.section.nativeValue,
+          // Headings come from the app's strings, never the native side.
+          sectionTitle: item.section.titleFor(l10n),
+          kind: item.kind == ComposerOverflowItemKind.toggle
+              ? IosKeyboardAttachmentActionKind.toggle
+              : IosKeyboardAttachmentActionKind.command,
+          stateLabel: item.kind == ComposerOverflowItemKind.toggle
+              ? (item.selected ? l10n.switchOnLabel : l10n.switchOffLabel)
+              : null,
           enabled: item.enabled,
           selected: item.selected,
           dismissesKeyboard: item.dismissesKeyboard,
@@ -864,13 +874,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// Queues what is typed, with the composer's files, and clears the composer.
   /// A draft the queue refuses (the response just ended) leaves it untouched.
+  /// Queueing is a send, so it is felt once, as one, whichever way it came.
   void _queueDraft() {
     final text = _controller.text.trim();
     if (text.isEmpty || !widget.enabled) return;
     final wireText = _controller.toWireFormat().trim();
     final queue = ref.read(chatDraftQueueProvider.notifier);
     if (queue.enqueue(wireText) == null) return;
-    ConduitHaptics.lightImpact();
+    ConduitHaptics.mediumImpact();
     _controller.clearMentions();
     _controller.clear();
     _focusNode.requestFocus();
@@ -1276,6 +1287,23 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// Opens personal tool settings for both the native iOS keyboard menu and
   /// the Flutter overflow panel. The account owner is captured inside
   /// [showPersonalToolSettings] before anything here awaits or dismisses.
+  /// The chosen code interpreter cannot run this turn: says why, and offers to
+  /// turn it off, which a tap on a working pill does directly.
+  void _explainBlockedCodeInterpreter(String reason) {
+    final l10n = AppLocalizations.of(context)!;
+    AdaptiveSnackBar.show(
+      context,
+      message: reason,
+      type: AdaptiveSnackBarType.warning,
+      action: l10n.codeInterpreterTurnOff,
+      onActionPressed: () => setComposerOverflowSelection(
+        ref,
+        actionId: ComposerOverflowActionIds.codeInterpreter,
+        selected: false,
+      ),
+    );
+  }
+
   void _openToolSettings() {
     if (!mounted || _isDeactivated) return;
     unawaited(showPersonalToolSettings(context, ref));
@@ -2832,6 +2860,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required ComposerPersonalConnections connections,
     required bool toolSettingsAvailable,
     required bool compareModelsAvailable,
+    required bool hasMessage,
     required CodeInterpreterOffer? codeInterpreter,
   }) {
     if (kIsWeb || !Platform.isIOS) {
@@ -2860,6 +2889,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       connections: connections,
       toolSettingsAvailable: toolSettingsAvailable,
       compareModelsAvailable: compareModelsAvailable,
+      hasMessage: hasMessage,
       codeInterpreter: codeInterpreter,
     );
   }
@@ -2913,6 +2943,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       connections: connections,
       toolSettingsAvailable: ref.read(personalValvesCommandAvailableProvider),
       compareModelsAvailable: _comparisonCommandAvailable(ref.read),
+      hasMessage: _controller.text.trim().isNotEmpty,
       codeInterpreter: ref.read(codeInterpreterOfferProvider),
     );
   }
@@ -3374,6 +3405,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       connections: nativeConnections,
       toolSettingsAvailable: ref.watch(personalValvesCommandAvailableProvider),
       compareModelsAvailable: _comparisonCommandAvailable(ref.watch),
+      hasMessage: _hasText,
       codeInterpreter: codeInterpreterOffer,
     );
 
@@ -3519,25 +3551,39 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     // A chosen code interpreter stays in view, and can be turned off here,
-    // whether or not Advanced is on.
+    // even when it can no longer run. Then it reads as inactive, with a
+    // warning glyph, and a tap says why before offering to turn it off.
     if (codeInterpreterOffer?.selected == true &&
         !isHermesComposer &&
         !isDirectComposer) {
+      final block = codeInterpreterOffer!.block;
+      final blockReason = block == null
+          ? null
+          : codeInterpreterBlockReason(l10n, block);
       quickPills.add(
         _buildPillButton(
-          icon: Platform.isIOS
-              ? CupertinoIcons.chevron_left_slash_chevron_right
-              : Icons.code,
+          key: const ValueKey<String>('composer-code-interpreter-pill'),
+          icon: blockReason != null
+              ? (Platform.isIOS
+                    ? CupertinoIcons.exclamationmark_triangle
+                    : Icons.warning_amber_rounded)
+              : (Platform.isIOS
+                    ? CupertinoIcons.chevron_left_slash_chevron_right
+                    : Icons.code),
+          iconColor: blockReason != null ? context.conduitTheme.warning : null,
           label: l10n.codeInterpreter,
-          isActive: true,
+          isActive: blockReason == null,
           dense: true,
-          onTap: widget.enabled && !_isRecording
-              ? () => setComposerOverflowSelection(
+          semanticsHint: blockReason,
+          onTap: !widget.enabled || _isRecording
+              ? null
+              : blockReason != null
+              ? () => _explainBlockedCodeInterpreter(blockReason)
+              : () => setComposerOverflowSelection(
                   ref,
                   actionId: ComposerOverflowActionIds.codeInterpreter,
                   selected: false,
-                )
-              : null,
+                ),
         ),
       );
     }
@@ -3714,6 +3760,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   label: l10n.queueDraftAction,
                   isActive: true,
                   dense: true,
+                  // _queueDraft gives the one haptic, and only if it queued.
+                  haptic: false,
                   onTap: widget.enabled && !_isRecording ? _queueDraft : null,
                 ),
                 const SizedBox(width: Spacing.xs),
@@ -3966,6 +4014,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       onCompareModels: _comparisonCommandAvailable(ref.watch)
           ? () => unawaited(_openCompareModels())
           : null,
+      compareModelsHasMessage: _hasText,
     );
 
     return PopScope(
@@ -4710,12 +4759,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildPillButton({
+    Key? key,
     required IconData icon,
     required String label,
     required bool isActive,
     VoidCallback? onTap,
     String? iconUrl,
     bool dense = false,
+    bool haptic = true,
+    Color? iconColor,
+    String? semanticsHint,
   }) {
     final bool enabled = onTap != null;
     final theme = context.conduitTheme;
@@ -4732,17 +4785,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? theme.textPrimary
         : theme.textSecondary.withValues(alpha: enabled ? 1.0 : Alpha.disabled);
 
-    final Color iconColor = isActive ? theme.buttonPrimary : textColor;
+    final Color glyphColor =
+        iconColor ?? (isActive ? theme.buttonPrimary : textColor);
 
     return Semantics(
+      key: key,
       button: true,
       enabled: enabled,
+      hint: semanticsHint,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap == null
             ? null
             : () {
-                ConduitHaptics.mediumImpact();
+                if (haptic) ConduitHaptics.mediumImpact();
                 onTap();
               },
         child: AnimatedContainer(
@@ -4766,7 +4822,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       imageUrl: iconUrl,
                       label: label,
                     )
-                  : Icon(icon, size: IconSize.chip, color: iconColor),
+                  : Icon(icon, size: IconSize.chip, color: glyphColor),
               SizedBox(width: dense ? Spacing.xs : Spacing.xs + 1),
               AnimatedDefaultTextStyle(
                 duration: context.motionDuration(

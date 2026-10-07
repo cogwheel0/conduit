@@ -5,12 +5,14 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/adaptive_selection_sheet.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility/utility_rows.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_branch_service.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -73,6 +75,7 @@ class _ChatBranchOpening {
     required this.owner,
     required this.l10n,
     required this.report,
+    required this.direction,
   });
 
   final ProviderContainer container;
@@ -80,6 +83,7 @@ class _ChatBranchOpening {
   final ChatMutationOwnerToken owner;
   final AppLocalizations l10n;
   final BuildContext report;
+  final TextDirection direction;
 
   static _ChatBranchOpening? capture(BuildContext context) {
     final container = ProviderScope.containerOf(context, listen: false);
@@ -91,12 +95,25 @@ class _ChatBranchOpening {
       owner: captureChatMutationOwner(container, conversation),
       l10n: AppLocalizations.of(context)!,
       report: Navigator.of(context, rootNavigator: true).context,
+      direction: Directionality.maybeOf(context) ?? TextDirection.ltr,
     );
   }
 }
 
+/// How a successful branch change is told to the user.
+enum ChatBranchNotice {
+  /// A snackbar naming the version. For a choice made away from the
+  /// transcript (the version list), where the result is not otherwise seen.
+  snackbar,
+
+  /// A screen reader announcement only. For an in-place step whose result is
+  /// already on screen (the pager's chevrons), where a snackbar is noise.
+  announce,
+}
+
 /// Makes [alternativeId] the active branch of the open chat, in place of the
-/// displayed message [displayedMessageId], and reports the outcome.
+/// displayed message [displayedMessageId], and reports the outcome. A refusal
+/// is always shown; success is told as [notice] says.
 ///
 /// The open chat is captured here, synchronously, which is only right for a
 /// caller that acts on a tap. A caller that awaits first captures its own
@@ -105,6 +122,7 @@ Future<void> continueFromChatBranch(
   BuildContext context, {
   required String displayedMessageId,
   required String alternativeId,
+  ChatBranchNotice notice = ChatBranchNotice.snackbar,
 }) async {
   final opening = _ChatBranchOpening.capture(context);
   if (opening == null) return;
@@ -112,6 +130,7 @@ Future<void> continueFromChatBranch(
     opening,
     displayedMessageId: displayedMessageId,
     alternativeId: alternativeId,
+    notice: notice,
   );
 }
 
@@ -122,6 +141,7 @@ Future<void> _continueFromOpening(
   _ChatBranchOpening opening, {
   required String displayedMessageId,
   required String alternativeId,
+  ChatBranchNotice notice = ChatBranchNotice.snackbar,
 }) async {
   final container = opening.container;
   final conversation = opening.conversation;
@@ -143,14 +163,29 @@ Future<void> _continueFromOpening(
     );
     final position = siblings?.ids.indexOf(alternativeId) ?? -1;
     if (siblings != null && position >= 0 && report.mounted) {
-      AdaptiveSnackBar.show(
-        report,
-        message: l10n.chatBranchSelectedNotice(
-          position + 1,
-          siblings.ids.length,
-        ),
-        duration: const Duration(seconds: 3),
+      final message = l10n.chatBranchSelectedNotice(
+        position + 1,
+        siblings.ids.length,
       );
+      switch (notice) {
+        case ChatBranchNotice.snackbar:
+          AdaptiveSnackBar.show(
+            report,
+            message: message,
+            duration: const Duration(seconds: 3),
+          );
+        case ChatBranchNotice.announce:
+          final view = View.maybeOf(report);
+          if (view != null) {
+            unawaited(
+              SemanticsService.sendAnnouncement(
+                view,
+                message,
+                opening.direction,
+              ),
+            );
+          }
+      }
     }
   } on ChatBranchException catch (error) {
     if (!report.mounted) return;
@@ -162,8 +197,9 @@ Future<void> _continueFromOpening(
   }
 }
 
-/// Forks the open chat at [messageId] on the server and opens the new chat,
-/// reporting a refusal in plain words. Nothing is cloned on failure.
+/// Branches the open chat at [messageId] into a new chat on the server (Open
+/// WebUI's fork) and opens it, confirming that it did and reporting a refusal
+/// in plain words. Nothing is cloned on failure.
 Future<void> forkChatFromMessage(
   BuildContext context, {
   required String messageId,
@@ -180,6 +216,13 @@ Future<void> forkChatFromMessage(
       conversation: conversation,
       messageId: messageId,
       owner: owner,
+    );
+    if (!report.mounted) return;
+    AdaptiveSnackBar.show(
+      report,
+      message: l10n.chatBranchForkOpened,
+      type: AdaptiveSnackBarType.success,
+      duration: const Duration(seconds: 3),
     );
   } on ChatBranchException catch (error) {
     if (!report.mounted) return;
@@ -213,12 +256,13 @@ Future<void> showChatBranchSheet(
       maxChildSize: 0.68,
       itemBuilder: (context, index) {
         final id = siblings.ids[index];
-        final isCurrent = id == siblings.messageId;
-        return AdaptiveSelectionTile(
+        return _ChatBranchVersionTile(
           key: ValueKey<String>('chat-branch-version-$id'),
           title: l10n.chatBranchVersionTitle(index + 1),
-          subtitle: isCurrent ? l10n.chatBranchVersionCurrent : null,
-          selected: isCurrent,
+          preview: siblings.previews[id],
+          current: id == siblings.messageId
+              ? l10n.chatBranchVersionCurrent
+              : null,
           onTap: () => Navigator.of(sheetContext).pop(id),
         );
       },
@@ -232,11 +276,60 @@ Future<void> showChatBranchSheet(
   );
 }
 
+/// One version in the version list: its number, a two-line excerpt of its
+/// text, and, for the version on screen, a "Shown now" note and a checkmark.
+class _ChatBranchVersionTile extends StatelessWidget {
+  const _ChatBranchVersionTile({
+    super.key,
+    required this.title,
+    required this.onTap,
+    this.preview,
+    this.current,
+  });
+
+  final String title;
+  final String? preview;
+
+  /// The note for the version on screen; null for the others.
+  final String? current;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final selected = current != null;
+    return UtilityRow(
+      title: title,
+      subtitle: preview,
+      subtitleMaxLines: 2,
+      selected: selected,
+      onTap: onTap,
+      semanticLabel: [title, ?current, ?preview].join('. '),
+      status: selected
+          ? Text(
+              current!,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+            )
+          : null,
+      trailing: selected
+          ? Icon(Icons.check, color: theme.buttonPrimary, size: IconSize.medium)
+          : null,
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.sm,
+        vertical: Spacing.xs,
+      ),
+    );
+  }
+}
+
 /// `‹ 2/3 ›` under an edited user message: steps through its versions, and its
 /// label opens the full list. Each step continues the chat from that version
-/// with its own replies.
+/// with its own replies; the new position is on screen, so a step is only
+/// announced to screen readers, while a pick from the list is confirmed.
 ///
-/// Nothing is shown unless the Advanced branch controls are on and the stored
+/// Nothing is shown unless the branch controls are offered and the stored
 /// graph really holds more than one version, so a message with no real
 /// alternatives (or one the server never stored) offers nothing.
 class ChatBranchSwitcher extends ConsumerStatefulWidget {
@@ -260,6 +353,7 @@ class _ChatBranchSwitcherState extends ConsumerState<ChatBranchSwitcher> {
         context,
         displayedMessageId: widget.messageId,
         alternativeId: alternativeId,
+        notice: ChatBranchNotice.announce,
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -268,6 +362,17 @@ class _ChatBranchSwitcherState extends ConsumerState<ChatBranchSwitcher> {
 
   @override
   Widget build(BuildContext context) {
+    // Grows into place when the versions load (and shrinks if they go), so
+    // the transcript below eases down instead of jumping.
+    return AnimatedSize(
+      duration: context.motionDuration(AnimationDuration.fast),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topRight,
+      child: _buildSwitcher(context),
+    );
+  }
+
+  Widget _buildSwitcher(BuildContext context) {
     if (!ref.watch(chatBranchControlsProvider)) return const SizedBox.shrink();
     final chatId = ref.watch(activeConversationProvider.select((c) => c?.id));
     if (chatId == null) return const SizedBox.shrink();
@@ -311,19 +416,35 @@ class _ChatBranchSwitcherState extends ConsumerState<ChatBranchSwitcher> {
             label: l10n.chatBranchSwitcherSemantics(position, total),
             excludeSemantics: true,
             child: GestureDetector(
+              key: const ValueKey<String>('chat-branch-switcher-label'),
               behavior: HitTestBehavior.opaque,
               onTap: _busy
                   ? null
                   : () => unawaited(
                       showChatBranchSheet(context, siblings: siblings),
                     ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-                child: Text(
-                  '$position/$total',
-                  style: AppTypography.small.copyWith(
-                    color: theme.textPrimary.withValues(alpha: 0.8),
-                    fontFeatures: const [FontFeature.tabularFigures()],
+              // The label is the way into the full list, so it gets a full
+              // touch target width even though the text is small, and the
+              // height of the chevrons beside it.
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: TouchTarget.minimum,
+                  minHeight: TouchTarget.chip,
+                ),
+                child: Center(
+                  widthFactor: 1,
+                  heightFactor: 1,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: Spacing.xs,
+                    ),
+                    child: Text(
+                      '$position/$total',
+                      style: AppTypography.small.copyWith(
+                        color: theme.textPrimary.withValues(alpha: 0.8),
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
                   ),
                 ),
               ),

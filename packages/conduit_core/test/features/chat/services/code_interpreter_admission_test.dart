@@ -598,25 +598,25 @@ void main() {
   });
 
   group('the composer offers it', () {
-    test('only with Advanced on and the interpreter usable', () async {
-      final off = await _Session.start(advanced: false);
-      check(off.container.read(codeInterpreterOfferProvider)).isNull();
+    test('whenever the interpreter is usable, with Advanced off', () async {
+      final session = await _Session.start(advanced: false);
 
-      final on = await _Session.start();
-      check(on.container.read(codeInterpreterOfferProvider)).isNotNull()
+      check(session.container.read(codeInterpreterOfferProvider)).isNotNull()
         ..has((offer) => offer.selected, 'selected').isFalse()
         ..has((offer) => offer.block, 'block').isNull();
     });
 
-    test('and says why a browser-engine server cannot be used', () async {
-      final session = await _Session.start(
-        serve: (s) => s.config = _serverConfig(engine: 'pyodide'),
-      );
+    test('and says why a browser-engine server cannot be used only with '
+        'Advanced on', () async {
+      void pyodide(_Server s) => s.config = _serverConfig(engine: 'pyodide');
+      final on = await _Session.start(serve: pyodide);
+      final off = await _Session.start(advanced: false, serve: pyodide);
 
-      check(session.container.read(codeInterpreterOfferProvider))
+      check(on.container.read(codeInterpreterOfferProvider))
           .isNotNull()
           .has((offer) => offer.block, 'block')
           .equals(CodeInterpreterBlock.unsupportedEngine);
+      check(off.container.read(codeInterpreterOfferProvider)).isNull();
     });
 
     test(
@@ -640,17 +640,20 @@ void main() {
     );
 
     test(
-      'and keeps an active selection in view when Advanced is off',
+      'and keeps an active selection in view once it may no longer run',
       () async {
         final session = await _Session.start(advanced: false);
-        check(session.container.read(codeInterpreterOfferProvider)).isNull();
-
         session.selection.set(true);
+
+        session.server.permissions = _permissions(false);
+        session.container.invalidate(userPermissionsProvider);
+        await session.container.read(userPermissionsProvider.future);
 
         check(session.container.read(codeInterpreterOfferProvider))
             .isNotNull()
-            .has((offer) => offer.selected, 'selected')
-            .isTrue();
+          ..has((offer) => offer.selected, 'selected').isTrue()
+          ..has((offer) => offer.block, 'block')
+              .equals(CodeInterpreterBlock.noPermission);
       },
     );
   });

@@ -2,6 +2,9 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/features/integrations/views/personal_connection_editor_page.dart';
 import 'package:conduit/features/integrations/views/personal_connections_page.dart';
+import 'package:conduit/shared/widgets/connection_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -14,7 +17,7 @@ import 'package:conduit_core/testing.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -67,9 +70,27 @@ final _accountEpoch = NotifierProvider<_AccountEpoch, int>(_AccountEpoch.new);
 
 class _RealHttpOverrides extends HttpOverrides {}
 
+/// A phone-width view tall enough to build the whole form, so a check of text
+/// near the top is not defeated by the list having scrolled to a control
+/// below.
+void useTallView(WidgetTester tester) {
+  tester.view
+    ..physicalSize = const Size(800, 2400)
+    ..devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+}
+
 Future<void> tapKey(WidgetTester tester, String key) async {
   final finder = find.byKey(Key(key));
-  // The form sits in a scroll view; bring the control fully into reach.
+  // The form sits in a lazily built scroll view; bring the control into the
+  // tree, then fully into reach.
+  if (finder.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      finder,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+  }
   for (var attempt = 0; attempt < 3; attempt++) {
     await tester.ensureVisible(finder);
     await tester.pumpAndSettle();
@@ -112,6 +133,7 @@ void main() {
     PersonalConnectionsAccess access =
         const PersonalConnectionsAccess.allowed(),
   }) async {
+    useTallView(tester);
     final router = GoRouter(
       routes: [
         GoRoute(path: '/', builder: (_, _) => const Scaffold()),
@@ -157,6 +179,12 @@ void main() {
 
       expect(
         find.byKey(const Key('personal-connections-needs-advanced')),
+        findsOneWidget,
+      );
+      // The shared Advanced page, with a way to turn Advanced on here.
+      expect(find.byKey(const Key('advanced-required')), findsOneWidget);
+      expect(
+        find.byKey(const Key('advanced-required-turn-on')),
         findsOneWidget,
       );
       expect(find.text('Alpha tools'), findsNothing);
@@ -229,6 +257,101 @@ void main() {
       expect(stored['key'], 'secret-alpha');
       expect(stored['x_vendor'], <String, dynamic>{'tier': 2});
       expect((server.settings['ui'] as Map)['system'], 'Be brief');
+    });
+
+    testWidgets('a switch moves at once and waits for the server', (
+      tester,
+    ) async {
+      await pumpPage(tester, const PersonalConnectionsPage());
+      server.gateFirstPost();
+
+      await tester.tap(find.byKey(const Key('personal-tool-switch-alpha')));
+      for (var i = 0; i < 100 && !server.postEntered.isCompleted; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 30)),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(server.postEntered.isCompleted, isTrue);
+
+      final pending = tester.widget<AdaptiveSwitch>(
+        find.byKey(const Key('personal-tool-switch-alpha')),
+      );
+      expect(pending.value, isFalse);
+      expect(pending.onChanged, isNull);
+
+      server.releasePost.complete();
+      await settleIo(tester);
+      final settled = tester.widget<AdaptiveSwitch>(
+        find.byKey(const Key('personal-tool-switch-alpha')),
+      );
+      expect(settled.value, isFalse);
+      expect(settled.onChanged, isNotNull);
+    });
+
+    testWidgets('a switch the server did not keep goes back and says so', (
+      tester,
+    ) async {
+      await pumpPage(tester, const PersonalConnectionsPage());
+      server.stripToolServers = true;
+
+      await tapKey(tester, 'personal-tool-switch-alpha');
+
+      expect(
+        tester
+            .widget<AdaptiveSwitch>(
+              find.byKey(const Key('personal-tool-switch-alpha')),
+            )
+            .value,
+        isTrue,
+      );
+      expect(
+        find.textContaining('The server did not keep this change.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a URL is listed without credentials or query', (tester) async {
+      server.settings = <String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[
+            <String, dynamic>{
+              ..._tool('alpha', 'Alpha tools'),
+              'url': 'https://user:pw@alpha.example:8443/api?token=secret',
+            },
+          ],
+        },
+      };
+      await pumpPage(tester, const PersonalConnectionsPage());
+
+      expect(find.text('https://alpha.example:8443/api'), findsOneWidget);
+      expect(find.textContaining('secret'), findsNothing);
+      expect(find.textContaining('pw@'), findsNothing);
+    });
+
+    testWidgets('an empty list invites adding the first entry', (tester) async {
+      server.settings = <String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[],
+          'terminalServers': <dynamic>[],
+        },
+      };
+      await pumpPage(tester, const PersonalConnectionsPage());
+
+      expect(find.text('No tool servers saved.'), findsOneWidget);
+      expect(
+        find.text('Add an OpenAPI tool server to use its tools in your chats.'),
+        findsOneWidget,
+      );
+      expect(find.text('No terminals saved.'), findsOneWidget);
+      // The empty row is the add action, so there is one per section.
+      expect(find.byKey(const Key('personal-tool-add')), findsOneWidget);
+      expect(find.byKey(const Key('personal-terminal-add')), findsOneWidget);
+      expect(
+        tester.widget<UtilityRow>(find.byKey(const Key('personal-tool-add')))
+            .semanticLabel,
+        startsWith('Add tool server. '),
+      );
     });
   });
 
@@ -428,6 +551,205 @@ void main() {
         expect(stored['key'], 'secret-mcp');
       },
     );
+  });
+
+  group('editor form', () {
+    const newTool = PersonalConnectionEditorPage(
+      kind: PersonalConnectionKind.toolServer,
+      identity: personalConnectionNewRouteValue,
+    );
+
+    Finder fieldText(String key, String text) => find.descendant(
+      of: find.byKey(Key(key)),
+      matching: find.text(text),
+    );
+
+    testWidgets('each field shows its own issue after the first Save, and '
+        'the issue clears as it is fixed', (tester) async {
+      await pumpPage(tester, newTool);
+      await tester.enterText(find.byKey(const Key('personal-connection-path')), '');
+
+      expect(find.text('Enter a URL.'), findsNothing);
+      await tapKey(tester, 'personal-connection-save');
+
+      expect(fieldText('personal-connection-url', 'Enter a URL.'), findsOneWidget);
+      expect(
+        fieldText('personal-connection-path', 'Enter a path.'),
+        findsOneWidget,
+      );
+      expect(server.log.where((r) => r.method == 'POST'), isEmpty);
+
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-url')),
+        'https://new.example',
+      );
+      await tester.pump();
+      expect(find.text('Enter a URL.'), findsNothing);
+      expect(find.text('Enter a path.'), findsOneWidget);
+    });
+
+    testWidgets('a pasted document is typed as code', (tester) async {
+      await pumpPage(tester, newTool);
+
+      await tapKey(tester, 'personal-connection-spec-url');
+      await tester.tap(find.text('Paste JSON').last);
+      await tester.pumpAndSettle();
+
+      final field = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('personal-connection-spec')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(field.autocorrect, isFalse);
+      expect(field.enableSuggestions, isFalse);
+      expect(field.smartQuotesType, SmartQuotesType.disabled);
+      expect(field.smartDashesType, SmartDashesType.disabled);
+      expect(field.style?.fontFamily, isNotNull);
+
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-url')),
+        'https://new.example',
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-spec')),
+        '{"openapi": "3.1.0"}',
+      );
+      await tapKey(tester, 'personal-connection-save');
+      expect(
+        fieldText(
+          'personal-connection-spec',
+          'Enter a valid OpenAPI JSON document.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the key can be shown while typing it', (tester) async {
+      await pumpPage(tester, newTool);
+      TextField keyField() => tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('personal-connection-key')),
+          matching: find.byType(TextField),
+        ),
+      );
+
+      expect(keyField().obscureText, isTrue);
+      expect(keyField().keyboardType, TextInputType.visiblePassword);
+      await tester.tap(find.byTooltip('Show password'));
+      await tester.pump();
+      expect(keyField().obscureText, isFalse);
+      expect(find.byTooltip('Hide password'), findsOneWidget);
+    });
+
+    testWidgets('a test result shows under Test and clears on the next edit', (
+      tester,
+    ) async {
+      await pumpPage(tester, newTool);
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-url')),
+        'http://127.0.0.1:9',
+      );
+
+      await tapKey(tester, 'personal-connection-test');
+
+      final banner = find.byType(ConnectionAttemptBanner);
+      expect(
+        find.descendant(of: banner, matching: find.text('Connecting...')),
+        findsNothing,
+      );
+      expect(
+        tester.widget<ConnectionAttemptBanner>(banner).state.phase,
+        ConnectionAttemptPhase.failed,
+      );
+      expect(
+        tester.getRect(banner).top,
+        greaterThan(
+          tester.getRect(find.byKey(const Key('personal-connection-test'))).top,
+        ),
+      );
+      expect(server.log.where((r) => r.method == 'POST'), isEmpty);
+
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-name')),
+        'Renamed',
+      );
+      await tester.pumpAndSettle();
+      expect(banner, findsNothing);
+    });
+
+    testWidgets('leaving an untouched form does not ask', (tester) async {
+      await pumpPage(tester, newTool);
+
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).last,
+      );
+      unawaited(navigator.maybePop());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(find.byKey(const Key('personal-connection-url')), findsNothing);
+    });
+
+    testWidgets('leaving with an edit asks first', (tester) async {
+      await pumpPage(
+        tester,
+        const PersonalConnectionEditorPage(
+          kind: PersonalConnectionKind.toolServer,
+          identity: 'alpha',
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const Key('personal-connection-name')),
+        'Alpha renamed',
+      );
+      await tester.pump();
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).last,
+      );
+
+      unawaited(navigator.maybePop());
+      await tester.pumpAndSettle();
+      expect(find.text('Discard changes?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(find.text('Alpha renamed'), findsOneWidget);
+
+      unawaited(navigator.maybePop());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('personal-connection-name')), findsNothing);
+      expect(server.log.where((r) => r.method == 'POST'), isEmpty);
+    });
+
+    testWidgets('an entry the form cannot edit shows its values read-only', (
+      tester,
+    ) async {
+      server.settings = <String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[
+            <String, dynamic>{
+              ..._tool('mcp', 'MCP thing'),
+              'type': 'mcp',
+              'url': 'https://mcp.example/v1?token=secret',
+            },
+          ],
+        },
+      };
+      await pumpPage(
+        tester,
+        const PersonalConnectionEditorPage(
+          kind: PersonalConnectionKind.toolServer,
+          identity: 'mcp',
+        ),
+      );
+
+      expect(find.byType(UtilityValueRow), findsNWidgets(2));
+      expect(find.text('https://mcp.example/v1'), findsOneWidget);
+      expect(find.textContaining('secret'), findsNothing);
+      expect(find.byKey(const Key('personal-connection-name')), findsNothing);
+    });
   });
 
   // Another client can change the settings while a form is open. The form's
@@ -690,6 +1012,7 @@ void main() {
       Widget home, {
       bool awaitLoad = true,
     }) async {
+      useTallView(tester);
       final router = GoRouter(
         routes: [
           GoRoute(path: '/', builder: (_, _) => const Scaffold()),

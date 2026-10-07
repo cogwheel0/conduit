@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,7 +40,13 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 class ModelSelectorSheet extends ConsumerStatefulWidget {
-  const ModelSelectorSheet({super.key, required this.models, this.onPick});
+  const ModelSelectorSheet({
+    super.key,
+    required this.models,
+    this.onPick,
+    this.title,
+    this.selectedModelId,
+  });
 
   final List<Model> models;
 
@@ -47,6 +54,15 @@ class ModelSelectorSheet extends ConsumerStatefulWidget {
   /// chat's model. The same list and search serve a comparison's slots; the
   /// ordinary picker passes nothing and keeps its one-tap selection.
   final ValueChanged<Model>? onPick;
+
+  /// The sheet's title in place of "Choose model", e.g. the comparison slot
+  /// the pick is for.
+  final String? title;
+
+  /// The model to mark as chosen when [onPick] is set. A pick is for the
+  /// caller's slot, so the chat's own model is not marked; null marks none.
+  /// The ordinary picker ignores this and marks the chat's model.
+  final String? selectedModelId;
 
   @override
   ConsumerState<ModelSelectorSheet> createState() => ModelSelectorSheetState();
@@ -128,12 +144,18 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
       );
     } on FormatException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.message)));
+      AdaptiveSnackBar.show(
+        context,
+        message: error.message,
+        type: AdaptiveSnackBarType.error,
+      );
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.errorMessage,
+        type: AdaptiveSnackBarType.error,
+      );
     }
   }
 
@@ -150,11 +172,15 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                   .defaultModelId ??
               localDefaultModelId
         : localDefaultModelId;
+    final chatModelId = ref.watch(selectedModelProvider)?.id;
+    final markedModelId = widget.onPick != null
+        ? widget.selectedModelId
+        : chatModelId;
     final layout = buildModelSelectorLayout(
       models: widget.models,
       pinnedModelIds: pinnedModelIds,
       defaultModelId: defaultModelId,
-      selectedModelId: ref.watch(selectedModelProvider)?.id,
+      selectedModelId: markedModelId,
     );
     final normalizedQuery = _searchQuery.trim().toLowerCase();
     final moreModels = layout.more
@@ -192,7 +218,9 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
             children: [
               const SheetHandle(),
               _SelectorHeader(
-                title: _showMore ? l10n.moreModels : l10n.chooseModel,
+                title: _showMore
+                    ? l10n.moreModels
+                    : widget.title ?? l10n.chooseModel,
                 isBack: _showMore,
                 onPressed: () {
                   if (_showMore) {
@@ -226,6 +254,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                         models: moreModels,
                         onTogglePinnedModel: _togglePinnedModel,
                         scrollController: scrollController,
+                        selectedModelId: markedModelId,
                         onPick: widget.onPick,
                       )
                     : ListView(
@@ -234,6 +263,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                           _ModelGroup(
                             models: layout.featured,
                             onTogglePinnedModel: _togglePinnedModel,
+                            selectedModelId: markedModelId,
                             onPick: widget.onPick,
                           ),
                           const SizedBox(height: Spacing.md),
@@ -374,12 +404,14 @@ class _ModelGroup extends ConsumerWidget {
   const _ModelGroup({
     required this.models,
     required this.onTogglePinnedModel,
+    required this.selectedModelId,
     this.scrollController,
     this.onPick,
   });
 
   final List<Model> models;
   final Future<void> Function(String modelId) onTogglePinnedModel;
+  final String? selectedModelId;
   final ScrollController? scrollController;
   final ValueChanged<Model>? onPick;
 
@@ -398,7 +430,6 @@ class _ModelGroup extends ConsumerWidget {
         ),
       );
     }
-    final selectedModelId = ref.watch(selectedModelProvider)?.id;
     final pinnedModelIds = ref.watch(effectivePinnedModelIdsProvider);
     final canToggle = ref.watch(canTogglePinnedModelsProvider);
     final api = ref.watch(apiServiceProvider);

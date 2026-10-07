@@ -1288,10 +1288,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     ValueChanged<String> onMenuSelected,
   ) {
     return buildConduitAdaptiveToolbarActionWidgets([
-      if (channel?.userCount != null)
+      if (channel?.userCount case final memberCount?)
         ConduitAdaptiveAppBarIconButton(
-          icon: Icons.people_outline,
+          key: const ValueKey<String>('channel-page-members-button'),
+          icon: Platform.isIOS ? CupertinoIcons.person_2 : Icons.people_outline,
+          iosSymbol: 'person.2',
           iconColor: theme.textPrimary,
+          semanticLabel:
+              AppLocalizations.of(context)?.channelMembersTitle(memberCount) ??
+              'Members ($memberCount)',
           onPressed: _showMemberList,
         ),
       _ChannelToolbarPopupButton(

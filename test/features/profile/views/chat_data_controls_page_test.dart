@@ -400,8 +400,63 @@ void main() {
         find.textContaining('attached files and images themselves are not'),
         findsOneWidget,
       );
-      expect(find.text('Only on this device: 2'), findsOneWidget);
+      expect(find.text('2 chats are only on this device'), findsOneWidget);
       expect(row('chat-data-controls-unsynced'), findsOneWidget);
+    });
+
+    testWidgets('puts the delete action in its own group naming its reach', (
+      tester,
+    ) async {
+      await pumpPage(tester, seed: (db) => seedServerChat(db, 's1'));
+
+      final deleteGroup = row('chat-data-delete-group');
+      expect(deleteGroup, findsOneWidget);
+      expect(
+        find.descendant(of: deleteGroup, matching: row('chat-data-delete-all')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Removes every chat of Ava from Test Server. '
+          'Chats only on this device are kept.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('It never replaces chats already on the server.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('counts a chat with an unsent edit and a queued reply once', (
+      tester,
+    ) async {
+      await pumpPage(
+        tester,
+        seed: (db) async {
+          await seedServerChat(db, 's1');
+          await db.chatsDao.updateEnvelopeWithOutbox(
+            's1',
+            title: const Value('edited'),
+            enqueue: true,
+          );
+          await db.transaction(
+            () => db.outboxDao.enqueue(
+              kind: OutboxKind.requestCompletion,
+              chatId: 's1',
+              payload: const RequestCompletionPayload(
+                assistantMessageId: 'a',
+                model: 'm',
+              ).toJson(),
+            ),
+          );
+        },
+      );
+
+      expect(
+        find.text("1 chat has changes the server hasn't received"),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows no warning when everything is on the server', (
@@ -416,7 +471,7 @@ void main() {
       'offers nothing with Advanced off or after the account changed',
       (tester) async {
         await pumpPage(tester, settings: const AppSettings());
-        expect(row('chat-data-controls-unavailable'), findsOneWidget);
+        expect(find.byKey(const ValueKey('advanced-required')), findsOneWidget);
         expect(row('chat-data-export'), findsNothing);
 
         final session = await pumpPage(tester);
@@ -425,7 +480,11 @@ void main() {
         await _settle(tester);
 
         // The page was opened for the first account; it does not retarget.
-        expect(row('chat-data-controls-unavailable'), findsOneWidget);
+        expect(row('chat-data-controls-account-changed'), findsOneWidget);
+        expect(
+          find.text('The account changed. Go back and open Data controls again.'),
+          findsOneWidget,
+        );
         expect(row('chat-data-export'), findsNothing);
       },
     );
@@ -482,7 +541,7 @@ void main() {
         'a',
         'b',
       ]);
-      expect(status(tester), 'Backup ready. Chats saved: 2');
+      expect(status(tester), 'Export ready. Chats saved: 2');
     });
 
     testWidgets('asks first when work is not on the server, and sends nothing '
@@ -495,7 +554,7 @@ void main() {
 
       await tapRow(tester, 'chat-data-export');
 
-      expect(find.text("Back up the server's copy?"), findsOneWidget);
+      expect(find.text("Export the server's copy?"), findsOneWidget);
       expect(find.textContaining('Ava'), findsWidgets);
       expect(session.wire.requests, isEmpty);
       await tester.tap(find.widgetWithText(ConduitTextButton, 'Cancel').last);
@@ -504,7 +563,7 @@ void main() {
       expect(session.files.created, isEmpty);
 
       await tapRow(tester, 'chat-data-export');
-      await confirm(tester, 'Back up');
+      await confirm(tester, 'Export');
       expect(session.files.delivered, hasLength(1));
     });
 
@@ -533,7 +592,7 @@ void main() {
         await _settle(tester);
 
         expect(session.files.delivered.single.committed, isTrue);
-        expect(status(tester), 'Backup ready. Chats saved: 1');
+        expect(status(tester), 'Export ready. Chats saved: 1');
       });
 
       testWidgets('does not deliver the old account file after an account '
@@ -592,7 +651,7 @@ void main() {
       expect(session.files.delivered, isEmpty);
       expect(session.files.created.single.aborted, isTrue);
       expect(session.files.created.single.committed, isFalse);
-      expect(status(tester), contains('was not saved'));
+      expect(status(tester), startsWith('Nothing was saved.'));
     });
 
     testWidgets('stopping an export in progress discards it', (tester) async {
@@ -604,6 +663,14 @@ void main() {
       await tester.tap(row('chat-data-export'));
       await _settle(tester);
       expect(find.text('Exporting… chats read: 1'), findsOneWidget);
+      // The progress and its Cancel sit in the row that started them.
+      expect(
+        find.descendant(
+          of: row('chat-data-export'),
+          matching: row('chat-data-progress'),
+        ),
+        findsOneWidget,
+      );
       await tester.tap(row('chat-data-cancel-export'));
       await _settle(tester);
 
@@ -631,7 +698,7 @@ void main() {
 
       await tapRow(tester, 'chat-data-export');
 
-      expect(status(tester), 'The server has no chats to back up.');
+      expect(status(tester), 'The server has no chats to export.');
       expect(session.files.delivered, isEmpty);
     });
 
@@ -879,13 +946,13 @@ void main() {
       expect(find.text('Waiting for sync to settle…'), findsNothing);
       expect(row('chat-data-progress'), findsNothing);
       expect(session.wire.requests, isEmpty);
-      await confirm(tester, 'Confirm');
+      await confirm(tester, 'Archive All');
 
       expect(
         session.wire.to('POST', '/api/v1/chats/archive/all'),
         hasLength(1),
       );
-      expect(status(tester), 'Done.');
+      expect(status(tester), 'All chats archived.');
       expect((await session.db.chatsDao.getChat('s1'))!.archived, isTrue);
       expect((await session.db.chatsDao.getChat('shared'))!.archived, isFalse);
       expect(
@@ -902,10 +969,35 @@ void main() {
       session.wire.bulkAnswer = false;
 
       await tapRow(tester, 'chat-data-archive-all');
-      await confirm(tester, 'Confirm');
+      await confirm(tester, 'Archive All');
 
       expect(status(tester), 'The server could not do that. Nothing changed.');
       expect((await session.db.chatsDao.getChat('s1'))!.archived, isFalse);
+    });
+
+    testWidgets('removing share links names its button and is not shown as '
+        'destructive', (tester) async {
+      await pumpPage(tester, seed: (db) => seedServerChat(db, 's1'));
+
+      await tapRow(tester, 'chat-data-unshare-all');
+      final button = tester.widget<ConduitTextButton>(
+        find.widgetWithText(ConduitTextButton, 'Remove Links').last,
+      );
+      expect(button.isDestructive, isFalse);
+      await confirm(tester, 'Remove Links');
+
+      // The result reads out as a live region under the group that ran it.
+      final status = row('chat-data-status');
+      expect(status, findsOneWidget);
+      expect(
+        find.ancestor(
+          of: status,
+          matching: find.byWidgetPredicate(
+            (w) => w is Semantics && (w.properties.liveRegion ?? false),
+          ),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('delete all names the target and keeps device-only chats', (
@@ -927,7 +1019,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('Not yet sent to the server'), findsNothing);
-      await confirm(tester, 'Delete');
+      await confirm(tester, 'Delete All Chats');
 
       expect(session.wire.to('DELETE', '/api/v1/chats/'), hasLength(1));
       expect(await session.db.chatsDao.getChat('s1'), isNull);
@@ -962,7 +1054,7 @@ void main() {
       expect(await session.db.chatsDao.getChat('s1'), isNotNull);
 
       await tapRow(tester, 'chat-data-delete-all');
-      await confirm(tester, 'Discard and delete');
+      await confirm(tester, 'Discard and Delete All Chats');
       expect(await session.db.chatsDao.getChat('s1'), isNull);
       expect(session.wire.to('DELETE', '/api/v1/chats/'), hasLength(1));
     });
@@ -986,7 +1078,7 @@ void main() {
           enqueue: true,
         ),
       );
-      await confirm(tester, 'Delete');
+      await confirm(tester, 'Delete All Chats');
 
       expect(
         status(tester),
@@ -1046,7 +1138,7 @@ void main() {
       expect(session.container.read(isChatStreamingProvider), isFalse);
 
       await tapRow(tester, 'chat-data-delete-all');
-      await confirm(tester, 'Delete');
+      await confirm(tester, 'Delete All Chats');
 
       expect(
         status(tester),
@@ -1057,7 +1149,7 @@ void main() {
 
       active.setInactive('s1');
       await tapRow(tester, 'chat-data-delete-all');
-      await confirm(tester, 'Delete');
+      await confirm(tester, 'Delete All Chats');
 
       expect(session.wire.to('DELETE', '/api/v1/chats/'), hasLength(1));
       expect(await session.db.chatsDao.getChat('s1'), isNull);
@@ -1073,7 +1165,7 @@ void main() {
       await tapRow(tester, 'chat-data-delete-all');
       expect(find.textContaining('Delete all chats of Ava'), findsOneWidget);
       session.container.read(activeChatIdsProvider.notifier).setActive('s1');
-      await confirm(tester, 'Delete');
+      await confirm(tester, 'Delete All Chats');
 
       expect(
         status(tester),

@@ -120,10 +120,13 @@ class _Api extends ApiService {
   }
 
   final List<String> stoppedChats = [];
+  Object? stopError;
 
   @override
   Future<void> stopTasksByChat(String chatId) async {
     stoppedChats.add(chatId);
+    final error = stopError;
+    if (error != null) throw error;
   }
 
   @override
@@ -328,10 +331,44 @@ Future<_Rig> _pump(
 void main() {
   const queueLabel = 'Queue';
   final stop = find.byKey(const ValueKey('primary-btn-stop'));
+  final en = lookupAppLocalizations(const Locale('en'));
 
-  testWidgets('Queue holds the typed message behind the response and leaves '
-      'Stop and Send alone', (tester) async {
-    final rig = await _pump(tester);
+  /// Opens the queue sheet from the summary row, once the row has grown in.
+  Future<void> openQueue(WidgetTester tester) async {
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const Key('chat-draft-queue-row')));
+  }
+
+  /// Clears the once-per-session note about queued messages, so the next
+  /// notice is the one on screen.
+  void dismissSessionNote(WidgetTester tester) => tester
+      .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+      .removeCurrentSnackBar();
+
+  /// Counts haptic events of the platform channel.
+  List<String> recordHaptics(WidgetTester tester) {
+    final haptics = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments as String? ?? '');
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    return haptics;
+  }
+
+  testWidgets('with Advanced off, Queue holds the typed message behind the '
+      'response and leaves Stop and Send alone', (tester) async {
+    final rig = await _pump(tester, advanced: false);
 
     await rig.type('next question');
     expect(find.text(queueLabel), findsOneWidget);
@@ -378,39 +415,6 @@ void main() {
     expect(rig.drafts, isEmpty);
   });
 
-  testWidgets('with Advanced off nothing new is queued, pending drafts stay '
-      'visible and manageable, and Enter sends as it always did',
-      (tester) async {
-    final rig = await _pump(tester);
-    await rig.type('already queued');
-    await tester.tap(find.text(queueLabel));
-    await tester.pump();
-    expect(rig.drafts, hasLength(1));
-
-    (rig.container.read(appSettingsProvider.notifier) as _Settings)
-        .setAdvanced(false);
-    await tester.pump();
-
-    expect(find.byKey(const Key('chat-draft-queue-row')), findsOneWidget);
-    await rig.type('typed with advanced off');
-    expect(find.text(queueLabel), findsNothing);
-    expect(stop, findsOneWidget);
-
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
-    expect(rig.sent, ['typed with advanced off']);
-    expect(rig.drafts.map((d) => d.text), ['already queued']);
-
-    // The pending draft can still be managed.
-    await tester.tap(find.byKey(const Key('chat-draft-queue-row')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(Key('chat-draft-delete-${rig.drafts.single.id}')),
-    );
-    await tester.pumpAndSettle();
-    expect(rig.drafts, isEmpty);
-  });
-
   testWidgets('the sheet edits and removes by draft, and send now stops the '
       'response and sends only that draft', (tester) async {
     final rig = await _pump(tester);
@@ -421,7 +425,7 @@ void main() {
     }
     final ids = {for (final d in rig.drafts) d.text: d.id};
 
-    await tester.tap(find.byKey(const Key('chat-draft-queue-row')));
+    await openQueue(tester);
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(Key('chat-draft-edit-action-${ids['second']}')));
@@ -506,7 +510,7 @@ void main() {
     await tester.pump();
     final id = rig.drafts.single.id;
 
-    await tester.tap(find.byKey(const Key('chat-draft-queue-row')));
+    await openQueue(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('slow.txt'), findsOneWidget);
@@ -559,7 +563,7 @@ void main() {
             isImage: false,
           ),
         );
-    await tester.tap(find.byKey(const Key('chat-draft-queue-row')));
+    await openQueue(tester);
     await tester.pumpAndSettle();
 
     await tester.tap(
@@ -568,5 +572,198 @@ void main() {
     await tester.pump();
 
     expect(uploads.retried, [(held.queueId, held.id)]);
+  });
+
+  testWidgets('Queue gives one medium haptic, and the row grows in above the '
+      'composer', (tester) async {
+    final rig = await _pump(tester);
+    final haptics = recordHaptics(tester);
+
+    await rig.type('next question');
+    await tester.tap(find.text(queueLabel));
+    await tester.pump();
+
+    expect(haptics, ['HapticFeedbackType.mediumImpact']);
+    final row = find.ancestor(
+      of: find.byKey(const Key('chat-draft-queue-row')),
+      matching: find.byType(SizeTransition),
+    );
+    expect(row, findsOneWidget);
+    final growing = tester.getSize(row).height;
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.getSize(row).height, greaterThan(growing));
+    expect(rig.drafts, hasLength(1));
+  });
+
+  testWidgets('a removed draft can be put back with Undo, in the sheet while '
+      'it stays open', (tester) async {
+    final rig = await _pump(tester);
+    for (final text in ['first', 'second']) {
+      await rig.type(text);
+      await tester.tap(find.text(queueLabel));
+      await tester.pump();
+    }
+    final second = rig.drafts.last;
+    dismissSessionNote(tester);
+    await openQueue(tester);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(Key('chat-draft-delete-${second.id}')));
+    await tester.pump();
+    expect(rig.drafts.map((d) => d.text), ['first']);
+    expect(find.text(en.queuedDraftRemoved), findsOneWidget);
+
+    await tester.tap(find.byKey(Key('chat-draft-undo-${second.id}')));
+    await tester.pump();
+    expect(rig.drafts.map((d) => d.text), ['first', 'second']);
+    expect(rig.drafts.last.id, second.id);
+    expect(find.text(en.queuedDraftRemoved), findsNothing);
+  });
+
+  for (final (removeOrder, undoOrder) in const [
+    (['a', 'b'], ['a', 'b']),
+    (['a', 'b'], ['b', 'a']),
+    (['b', 'a'], ['a', 'b']),
+    (['c', 'a'], ['c', 'a']),
+  ]) {
+    testWidgets('drafts removed as $removeOrder and put back as $undoOrder '
+        'keep their order', (tester) async {
+      final rig = await _pump(tester);
+      for (final text in ['a', 'b', 'c']) {
+        await rig.type(text);
+        await tester.tap(find.text(queueLabel));
+        await tester.pump();
+      }
+      final byText = {for (final draft in rig.drafts) draft.text: draft.id};
+      dismissSessionNote(tester);
+      await openQueue(tester);
+      await tester.pumpAndSettle();
+
+      for (final text in removeOrder) {
+        await tester.tap(find.byKey(Key('chat-draft-delete-${byText[text]}')));
+        await tester.pump();
+      }
+      // Each offer sits where its draft was.
+      double top(String text) {
+        final undo = find.byKey(Key('chat-draft-undo-${byText[text]}'));
+        final card = find.byKey(Key('chat-draft-delete-${byText[text]}'));
+        return tester
+            .getTopLeft(undo.evaluate().isEmpty ? card : undo)
+            .dy;
+      }
+
+      expect(top('a'), lessThan(top('b')));
+      expect(top('b'), lessThan(top('c')));
+
+      for (final text in undoOrder) {
+        await tester.tap(find.byKey(Key('chat-draft-undo-${byText[text]}')));
+        await tester.pump();
+      }
+      expect(rig.drafts.map((d) => d.text), ['a', 'b', 'c']);
+    });
+  }
+
+  testWidgets('the offer to put a draft back goes away after a while', (
+    tester,
+  ) async {
+    final rig = await _pump(tester);
+    for (final text in ['first', 'second']) {
+      await rig.type(text);
+      await tester.tap(find.text(queueLabel));
+      await tester.pump();
+    }
+    final first = rig.drafts.first;
+    dismissSessionNote(tester);
+    await openQueue(tester);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(Key('chat-draft-delete-${first.id}')));
+    await tester.pump();
+    expect(find.byKey(Key('chat-draft-undo-${first.id}')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 6));
+    expect(find.byKey(Key('chat-draft-undo-${first.id}')), findsNothing);
+    expect(rig.drafts.map((d) => d.text), ['second']);
+  });
+
+  testWidgets('removing the last draft closes the sheet and offers Undo on '
+      'the screen below', (tester) async {
+    final rig = await _pump(tester);
+    await rig.type('only');
+    await tester.tap(find.text(queueLabel));
+    await tester.pump();
+    final only = rig.drafts.single;
+    dismissSessionNote(tester);
+    await openQueue(tester);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(Key('chat-draft-delete-${only.id}')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('chat-draft-queue-sheet')), findsNothing);
+    expect(rig.drafts, isEmpty);
+    expect(find.text(en.queuedDraftRemoved), findsOneWidget);
+
+    await tester.tap(find.text(en.queuedDraftUndo));
+    await tester.pump();
+    expect(rig.drafts.map((d) => d.text), ['only']);
+  });
+
+  testWidgets('Save stays off while the edited text is empty', (tester) async {
+    final rig = await _pump(tester);
+    await rig.type('first');
+    await tester.tap(find.text(queueLabel));
+    await tester.pump();
+    final draft = rig.drafts.single;
+    await openQueue(tester);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(Key('chat-draft-edit-action-${draft.id}')));
+    await tester.pump();
+    await tester.enterText(find.byKey(Key('chat-draft-edit-${draft.id}')), '  ');
+    await tester.pump();
+    final save = find.byKey(Key('chat-draft-save-${draft.id}'));
+    expect(tester.widget<ConduitButton>(save).onPressed, isNull);
+
+    await tester.enterText(
+      find.byKey(Key('chat-draft-edit-${draft.id}')),
+      'first, edited',
+    );
+    await tester.pump();
+    expect(tester.widget<ConduitButton>(save).onPressed, isNotNull);
+    await tester.tap(save);
+    await tester.pump();
+    expect(rig.drafts.single.text, 'first, edited');
+    expect(find.byKey(Key('chat-draft-edit-${draft.id}')), findsNothing);
+  });
+
+  testWidgets('Stop & send that cannot stop the reply says the message is '
+      'still queued', (tester) async {
+    final rig = await _pump(tester);
+    rig.api.stopError = DioException(
+      requestOptions: RequestOptions(path: '/stop'),
+      response: Response<Object?>(
+        requestOptions: RequestOptions(path: '/stop'),
+        statusCode: 500,
+      ),
+    );
+    await rig.type('first');
+    await tester.tap(find.text(queueLabel));
+    await tester.pump();
+    final draft = rig.drafts.single;
+    dismissSessionNote(tester);
+    await openQueue(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.text(en.queuedDraftSendNow), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(Key('chat-draft-send-now-${draft.id}')));
+      for (var i = 0; i < 100; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text(en.queuedDraftStopFailed), findsOneWidget);
+    expect(rig.drafts.map((d) => d.id), [draft.id]);
   });
 }

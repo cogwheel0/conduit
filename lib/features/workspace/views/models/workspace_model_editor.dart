@@ -416,6 +416,10 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           data: (value) => value,
           orElse: () => WorkspaceCapabilities.none,
         );
+    final id = _draft.id;
+    // An existing model saves from the sheet, which stays open with the error
+    // when the save fails. A new one keeps the grants for its first save.
+    final saveInSheet = !_readOnly && !_session.isCreate && id.isNotEmpty;
     final grants = await WorkspaceAccessGrantSheet.show(
       context,
       initialGrants: _draft.normalizedAccessGrants,
@@ -423,31 +427,33 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       allowUserGrants: capabilities.allowUserGrants,
       allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: _readOnly,
+      resourceName: _draft.name,
+      onSave: saveInSheet
+          ? (grants, _) async {
+              final saved = await WorkspaceEditorOperationRunner.stay<void>(
+                session: _session,
+                scope: 'workspace/models',
+                operationLabel: 'model access update',
+                editorMounted: () => mounted,
+                operation: () => ref
+                    .read(workspaceModelsProvider.notifier)
+                    .updateAccess(id, _draft.name, grants),
+                onSuccess: (_) {
+                  _controller.replaceAccessGrants(grants, markDirty: false);
+                  ref.invalidate(workspaceModelDetailProvider(id));
+                  _showSnack(l10n.workspaceModelSaved);
+                },
+              );
+              return saved
+                  ? const WorkspaceAccessSaveOutcome.saved()
+                  : WorkspaceAccessSaveOutcome.failed(
+                      l10n.workspaceModelSaveFailed,
+                    );
+            }
+          : null,
     );
-    if (grants == null || !mounted) return;
-    if (_readOnly) return;
-    if (_session.isCreate) {
-      _controller.replaceAccessGrants(grants);
-      return;
-    }
-    final id = _draft.id;
-    if (id.isEmpty) return;
-    await WorkspaceEditorOperationRunner.stay<void>(
-      session: _session,
-      scope: 'workspace/models',
-      operationLabel: 'model access update',
-      editorMounted: () => mounted,
-      operation: () => ref
-          .read(workspaceModelsProvider.notifier)
-          .updateAccess(id, _draft.name, grants),
-      onSuccess: (_) {
-        _controller.replaceAccessGrants(grants, markDirty: false);
-        ref.invalidate(workspaceModelDetailProvider(id));
-        _showSnack(l10n.workspaceModelSaved);
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceModelSaveFailed, isError: true),
-    );
+    if (grants == null || !mounted || saveInSheet || _readOnly) return;
+    if (_session.isCreate) _controller.replaceAccessGrants(grants);
   }
 
   Future<void> _exportSingle() async {

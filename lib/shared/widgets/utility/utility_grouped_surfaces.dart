@@ -43,8 +43,10 @@ class InsetGroupedSection extends StatelessWidget {
         if (hasTitle)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-            child: Text(
-              title!,
+            child: Semantics(
+              header: true,
+              child: Text(
+                title!,
               style:
                   (nativeSurface
                           ? AppTypography.bodySmallStyle
@@ -55,6 +57,7 @@ class InsetGroupedSection extends StatelessWidget {
                             ? FontWeight.w400
                             : FontWeight.w600,
                       ),
+              ),
             ),
           ),
         if (hasDescription) ...[

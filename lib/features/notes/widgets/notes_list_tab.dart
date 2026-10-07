@@ -1,5 +1,4 @@
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
-import 'package:conduit_core/services/settings_service.dart';
 
 import 'dart:async';
 import 'dart:io' show Platform;
@@ -10,6 +9,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
 import 'package:conduit_core/models/note.dart';
 
 import '../../../shared/services/navigation_service.dart';
@@ -176,6 +177,22 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     );
   }
 
+  Widget _buildNoteTile(Note note) {
+    final accountId = ref.watch(
+      currentUserProvider2.select((user) => user?.id),
+    );
+    return _NoteListTile(
+      note: note,
+      selected: note.id == _activeNoteId,
+      onTap: () => _onNoteTap(note),
+      actions: _buildNoteActions(note),
+      ownerName: noteSharedOwner(note, accountId: accountId)?.name?.trim(),
+      readOnly:
+          noteWriteAccess(note, accountId: accountId) ==
+          NoteWriteAccess.denied,
+    );
+  }
+
   List<ConduitContextMenuAction> _buildNoteActions(Note note) {
     return buildNoteContextMenuActions(
       context: context,
@@ -275,12 +292,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         final pinnedEnd = cursor + pinnedNotes.length;
         if (index < pinnedEnd) {
           final note = pinnedNotes[index - cursor];
-          return _NoteListTile(
-            note: note,
-            selected: note.id == _activeNoteId,
-            onTap: () => _onNoteTap(note),
-            actions: _buildNoteActions(note),
-          );
+          return _buildNoteTile(note);
         }
         cursor = pinnedEnd;
       }
@@ -302,12 +314,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         final recentEnd = cursor + otherNotes.length;
         if (index < recentEnd) {
           final note = otherNotes[index - cursor];
-          return _NoteListTile(
-            note: note,
-            selected: note.id == _activeNoteId,
-            onTap: () => _onNoteTap(note),
-            actions: _buildNoteActions(note),
-          );
+          return _buildNoteTile(note);
         }
       }
     }
@@ -319,9 +326,8 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    // The Share action depends on both; watching rebuilds the menu when the
-    // Advanced setting or the account's permissions arrive or change.
-    ref.watch(appSettingsProvider.select((s) => s.advancedFeaturesEnabled));
+    // The Share action depends on this; watching rebuilds the menu when the
+    // account's permissions arrive or change.
     ref.watch(workspaceCapabilitiesProvider);
     final l10n = AppLocalizations.of(context)!;
     final searchController = ref.watch(sidebarSearchFieldControllerProvider);
@@ -423,12 +429,20 @@ class _NoteListTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.actions,
+    this.ownerName,
+    this.readOnly = false,
   });
 
   final Note note;
   final bool selected;
   final VoidCallback onTap;
   final List<ConduitContextMenuAction> actions;
+
+  /// Who shared the note, when it is someone else's.
+  final String? ownerName;
+
+  /// The account may read but not change the note.
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -449,6 +463,8 @@ class _NoteListTile extends StatelessWidget {
         onTap: onTap,
         semanticLabel: [
           title,
+          if (ownerName case final owner?) l10n.sharedFolderOwner(owner),
+          if (readOnly) l10n.readOnly,
           if (note.isPinned) l10n.pinned,
           timeAgo,
         ].join('. '),
@@ -456,11 +472,23 @@ class _NoteListTile extends StatelessWidget {
         pressedKey: ValueKey<String>('note-sidebar-pressed-${note.id}'),
         child: SidebarListTileContent(
           title: title,
+          subtitle: ownerName == null
+              ? null
+              : l10n.sharedFolderOwner(ownerName!),
           selected: selected,
           titleFontWeight: FontWeight.w400,
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (readOnly) ...[
+                Icon(
+                  Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
+                  key: ValueKey<String>('note-sidebar-read-only-${note.id}'),
+                  size: IconSize.xs,
+                  color: theme.textSecondary.withValues(alpha: Alpha.secondary),
+                ),
+                const SizedBox(width: Spacing.xs),
+              ],
               if (note.isPinned) ...[
                 Icon(UiUtils.pinIcon, size: 14, color: theme.buttonPrimary),
                 const SizedBox(width: 6),

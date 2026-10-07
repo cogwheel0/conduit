@@ -178,6 +178,10 @@ class PlatformNativePastePayload {
   String? deliveryId;
 }
 
+/// Whether a keyboard attachment row turns an option on and off, or runs a
+/// command (attaching a file, opening a sheet).
+enum PlatformKeyboardAttachmentActionKind { toggle, command }
+
 class PlatformKeyboardAttachmentActionConfig {
   PlatformKeyboardAttachmentActionConfig({
     required this.id,
@@ -185,6 +189,9 @@ class PlatformKeyboardAttachmentActionConfig {
     this.subtitle,
     required this.sfSymbol,
     required this.section,
+    this.sectionTitle,
+    required this.kind,
+    this.stateLabel,
     required this.enabled,
     required this.selected,
     required this.dismissesKeyboard,
@@ -195,6 +202,13 @@ class PlatformKeyboardAttachmentActionConfig {
   String? subtitle;
   String sfSymbol;
   String section;
+
+  /// Localized heading of [section], or null when it shows none.
+  String? sectionTitle;
+  PlatformKeyboardAttachmentActionKind kind;
+
+  /// Localized on/off state a toggle row reads to VoiceOver.
+  String? stateLabel;
   bool enabled;
   bool selected;
   bool dismissesKeyboard;

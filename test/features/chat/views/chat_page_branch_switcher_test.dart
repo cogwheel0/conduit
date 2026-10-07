@@ -78,13 +78,10 @@ class _Storage extends Fake implements OptimizedStorageService {
   Future<void> saveLocalDefaultModel(Model? model) async {}
 }
 
+// Advanced stays off: the branch switcher does not depend on it.
 class _Settings extends AppSettingsNotifier {
-  _Settings(this.advanced);
-
-  final bool advanced;
-
   @override
-  AppSettings build() => AppSettings(advancedFeaturesEnabled: advanced);
+  AppSettings build() => const AppSettings();
 }
 
 ApiService _api() => ApiService(
@@ -123,7 +120,6 @@ ChatMessage _assistant(String id, {required String parent}) => ChatMessage(
 void main() {
   Future<void> mountPage(
     WidgetTester tester, {
-    required bool advanced,
     required List<ChatMessage> messages,
     Map<String, List<String>> siblings = const {},
   }) async {
@@ -146,7 +142,7 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        appSettingsProvider.overrideWith(() => _Settings(advanced)),
+        appSettingsProvider.overrideWith(_Settings.new),
         apiServiceProvider.overrideWithValue(_api()),
         appDatabaseProvider.overrideWith((ref) => null),
         isAuthenticatedProvider2.overrideWithValue(false),
@@ -213,12 +209,10 @@ void main() {
     _assistant('a2', parent: 'u2'),
   ];
 
-  testWidgets('a first message with stored edits offers its versions', (
-    tester,
-  ) async {
+  testWidgets('with Advanced off, a first message with stored edits offers '
+      'its versions', (tester) async {
     await mountPage(
       tester,
-      advanced: true,
       messages: transcript,
       siblings: {
         'u1': ['u1', 'u1-edit'],
@@ -238,7 +232,6 @@ void main() {
   testWidgets('a later edited message offers its versions too', (tester) async {
     await mountPage(
       tester,
-      advanced: true,
       messages: [
         _user('u1'),
         _assistant('a1', parent: 'u1'),
@@ -267,32 +260,12 @@ void main() {
   testWidgets('a message with nothing to choose between offers nothing', (
     tester,
   ) async {
-    await mountPage(tester, advanced: true, messages: transcript);
+    await mountPage(tester, messages: transcript);
 
     expect(find.text('question u1'), findsOneWidget);
     expect(switcher, findsNothing);
     // Only the first message is even asked (it may have unlisted edits); a
     // later, unedited one is not wrapped at all.
     expect(find.byType(ChatBranchSwitcher), findsOneWidget);
-  });
-
-  testWidgets('with Advanced off the transcript is exactly as it was', (
-    tester,
-  ) async {
-    await mountPage(
-      tester,
-      advanced: false,
-      messages: transcript,
-      siblings: {
-        'u1': ['u1', 'u1-edit'],
-      },
-    );
-
-    expect(find.text('question u1'), findsOneWidget);
-    expect(find.text('answer a2'), findsOneWidget);
-    expect(switcher, findsNothing);
-    expect(find.text('1/2'), findsNothing);
-    // No row is wrapped to host a control that is not offered.
-    expect(find.byType(ChatBranchSwitcher), findsNothing);
   });
 }

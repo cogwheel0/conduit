@@ -79,12 +79,24 @@ class IosKeyboardAttachmentBridge
   }
 }
 
+/// Whether a native panel row turns an option on and off, or runs a command.
+enum IosKeyboardAttachmentActionKind {
+  /// Shows a checkmark while on, and reads its state label to VoiceOver.
+  toggle,
+
+  /// Attaches something or opens a sheet. A list row shows a chevron.
+  command,
+}
+
 class IosKeyboardAttachmentActionConfig {
   const IosKeyboardAttachmentActionConfig({
     required this.id,
     required this.label,
     required this.sfSymbol,
     required this.section,
+    this.sectionTitle,
+    this.kind = IosKeyboardAttachmentActionKind.command,
+    this.stateLabel,
     this.subtitle,
     this.enabled = true,
     this.selected = false,
@@ -96,6 +108,13 @@ class IosKeyboardAttachmentActionConfig {
   final String? subtitle;
   final String sfSymbol;
   final String section;
+
+  /// The localized heading of [section], or null when the section shows none.
+  final String? sectionTitle;
+  final IosKeyboardAttachmentActionKind kind;
+
+  /// The localized on or off state of a toggle, for VoiceOver.
+  final String? stateLabel;
   final bool enabled;
   final bool selected;
   final bool dismissesKeyboard;
@@ -107,6 +126,9 @@ class IosKeyboardAttachmentActionConfig {
       'subtitle': subtitle,
       'sfSymbol': sfSymbol,
       'section': section,
+      'sectionTitle': sectionTitle,
+      'kind': kind.name,
+      'stateLabel': stateLabel,
       'enabled': enabled,
       'selected': selected,
       'dismissesKeyboard': dismissesKeyboard,
@@ -120,6 +142,14 @@ class IosKeyboardAttachmentActionConfig {
       subtitle: subtitle,
       sfSymbol: sfSymbol,
       section: section,
+      sectionTitle: sectionTitle,
+      kind: switch (kind) {
+        IosKeyboardAttachmentActionKind.toggle =>
+          PlatformKeyboardAttachmentActionKind.toggle,
+        IosKeyboardAttachmentActionKind.command =>
+          PlatformKeyboardAttachmentActionKind.command,
+      },
+      stateLabel: stateLabel,
       enabled: enabled,
       selected: selected,
       dismissesKeyboard: dismissesKeyboard,

@@ -1,10 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit/features/notifications/views/notification_settings_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
-    show AdaptiveSwitch;
+    show AdaptiveButton, AdaptiveSwitch;
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -122,7 +124,10 @@ void main() {
       await _openEditor(tester, 'ops');
 
       await tester.tap(
-        find.byKey(const Key('notification-target-delivery-always')),
+        find.descendant(
+          of: find.byKey(const Key('notification-target-delivery')),
+          matching: find.text('Always'),
+        ),
       );
       await tester.pump();
       await _save(tester);
@@ -250,6 +255,99 @@ void main() {
       );
     });
 
+    testWidgets('Make default waits until the changes on screen are saved', (
+      tester,
+    ) async {
+      final session = await _pump(tester, targets: [_target(isDefault: false)]);
+      await _openEditor(tester, 'ops');
+
+      await tester.tap(find.byKey(const Key('notification-target-enabled')));
+      await tester.pump();
+      expect(
+        find.text('Save your changes to make this the default.'),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('notification-target-make-default')),
+      );
+      await tester.tap(
+        find.byKey(const Key('notification-target-make-default')),
+      );
+      await tester.pumpAndSettle();
+
+      // Nothing was sent and the edit is still on screen, unsaved.
+      expect(session.wire.writes, isEmpty);
+      expect(find.byKey(const Key('notification-target-save')), findsOneWidget);
+      expect(find.text('Saved'), findsNothing);
+    });
+
+    testWidgets('a save on its way is neither closed nor offered as a '
+        'discard', (tester) async {
+      final session = await _pump(tester);
+      await _openEditor(tester, 'ops');
+      await tester.tap(find.byKey(const Key('notification-target-enabled')));
+      await tester.pump();
+      final gate = Completer<void>();
+      session.wire.holdWrites = gate;
+      await tester.ensureVisible(
+        find.byKey(const Key('notification-target-save')),
+      );
+      await tester.tap(find.byKey(const Key('notification-target-save')));
+      await tester.pump();
+
+      // A tap on the backdrop and the back gesture are ignored, without
+      // asking whether to discard.
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Discard changes?'), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(find.byKey(const Key('notification-target-save')), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(session.wire.writes, hasLength(1));
+      expect(find.byKey(const Key('notification-target-save')), findsNothing);
+    });
+
+    testWidgets('while a save is on its way the switch rows take no tap', (
+      tester,
+    ) async {
+      final session = await _pump(tester);
+      await _openEditor(tester, 'ops');
+      final row = find.byKey(const Key('notification-target-enabled'));
+      bool shown() => tester
+          .widget<AdaptiveSwitch>(
+            find.descendant(of: row, matching: find.byType(AdaptiveSwitch)),
+          )
+          .value;
+      await tester.tap(row);
+      await tester.pump();
+      final edited = shown();
+      final gate = Completer<void>();
+      session.wire.holdWrites = gate;
+      await tester.ensureVisible(
+        find.byKey(const Key('notification-target-save')),
+      );
+      await tester.tap(find.byKey(const Key('notification-target-save')));
+      await tester.pump();
+
+      await tester.ensureVisible(row);
+      await tester.tap(row, warnIfMissed: false);
+      await tester.pump();
+      expect(shown(), edited);
+      expect(tester.widget<UtilityRow>(row).onTap, isNull);
+      expect(
+        tester.getSemantics(row),
+        isSemantics(hasTapAction: false, hasEnabledState: true),
+      );
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(session.wire.writes, hasLength(1));
+    });
+
     testWidgets('Delete waits for confirmation', (tester) async {
       final session = await _pump(tester);
       await _openEditor(tester, 'ops');
@@ -366,6 +464,181 @@ void main() {
       expect(session.wire.writes, isEmpty);
     });
   });
+
+  group('editor layout and safety', () {
+    testWidgets('a new destination asks for the URL first and explains the '
+        'name', (tester) async {
+      await _pump(tester);
+      await tester.tap(find.byKey(const Key('notification-targets-add')));
+      await tester.pumpAndSettle();
+
+      final url = tester.getTopLeft(
+        find.byKey(const Key('notification-target-url')),
+      );
+      final name = tester.getTopLeft(
+        find.byKey(const Key('notification-target-name')),
+      );
+      expect(url.dy, lessThan(name.dy));
+      expect(
+        find.text("Can't be changed later. Leave blank to use the URL's host."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a cleared URL is flagged as the user edits', (tester) async {
+      final session = await _pump(tester);
+      await tester.tap(find.byKey(const Key('notification-targets-add')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter the webhook URL.'), findsNothing);
+      await tester.enterText(
+        find.byKey(const Key('notification-target-url')),
+        'https://hooks.example.com',
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const Key('notification-target-url')),
+        '',
+      );
+      await tester.pump();
+
+      expect(find.text('Enter the webhook URL.'), findsOneWidget);
+      expect(session.wire.writes, isEmpty);
+    });
+
+    testWidgets('editing shows the name and explains the delivery choice', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await _openEditor(tester, 'ops');
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('notification-target-id')),
+          matching: find.text('ops'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text("Only while you're not using Open WebUI."),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('notification-target-delivery')),
+          matching: find.text('Always'),
+        ),
+      );
+      await tester.pump();
+      expect(
+        find.text("Every time, even while you're active."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Test waits until the changes on screen are saved', (
+      tester,
+    ) async {
+      final session = await _pump(tester);
+      await _openEditor(tester, 'ops');
+
+      await tester.tap(find.byKey(const Key('notification-target-enabled')));
+      await tester.pump();
+      expect(find.text('Save your changes to test them.'), findsOneWidget);
+      await tester.ensureVisible(
+        find.byKey(const Key('notification-target-test')),
+      );
+      await tester.tap(find.byKey(const Key('notification-target-test')));
+      await tester.pumpAndSettle();
+
+      expect(session.wire.tests, 0);
+    });
+
+    testWidgets('the whole event row toggles and reads as a switch', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await _pump(tester);
+      await _openEditor(tester, 'ops');
+
+      final row = find.byKey(
+        const Key('notification-target-event-channel.message'),
+      );
+      expect(
+        tester.getSemantics(row),
+        isSemantics(
+          label: 'Channel message',
+          hasToggledState: true,
+          isToggled: false,
+          isButton: true,
+          hasTapAction: true,
+        ),
+      );
+      await tester.tap(
+        find.descendant(of: row, matching: find.text('Channel message')),
+      );
+      await tester.pump();
+      expect(
+        tester.getSemantics(row),
+        isSemantics(
+          label: 'Channel message',
+          hasToggledState: true,
+          isToggled: true,
+          isButton: true,
+          hasTapAction: true,
+        ),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('closing with changes asks first and sends nothing', (
+      tester,
+    ) async {
+      final session = await _pump(tester);
+      await _openEditor(tester, 'ops');
+
+      await tester.tap(find.byKey(const Key('notification-target-enabled')));
+      await tester.pump();
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Discard changes?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notification-target-save')), findsOneWidget);
+
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard').last);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('notification-target-save')), findsNothing);
+      expect(session.wire.writes, isEmpty);
+    });
+
+    testWidgets('an untouched editor closes without asking', (tester) async {
+      await _pump(tester);
+      await _openEditor(tester, 'ops');
+
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(find.byKey(const Key('notification-target-save')), findsNothing);
+    });
+
+    testWidgets('a list that failed to load offers Retry', (tester) async {
+      final session = await _pump(tester, failLists: true);
+
+      expect(
+        find.byKey(const Key('notification-targets-load-failed')),
+        findsOneWidget,
+      );
+      session.wire.failLists = false;
+      await tester.tap(find.widgetWithText(AdaptiveButton, 'Retry'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ops'), findsOneWidget);
+    });
+  });
 }
 
 Future<void> _openEditor(WidgetTester tester, String id) async {
@@ -421,13 +694,14 @@ Future<_Session> _pump(
   },
   bool serverEnabled = true,
   List<Map<String, dynamic>>? targets,
+  bool failLists = false,
 }) async {
   // Tall enough that the whole page is built, not only what a phone shows.
   tester.view
     ..physicalSize = const Size(800, 2600)
     ..devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  final wire = _Wire(targets ?? [_target()]);
+  final wire = _Wire(targets ?? [_target()])..failLists = failLists;
   final api = ApiService(
     serverConfig: _server,
     workerManager: WorkerManager(),
@@ -520,6 +794,10 @@ final class _Wire implements HttpClientAdapter {
   final List<Map<String, dynamic>> targets;
   final requests = <RequestOptions>[];
   String? rejectWrites;
+  bool failLists = false;
+
+  /// Holds every write until completed, as on a slow connection.
+  Completer<void>? holdWrites;
 
   Iterable<RequestOptions> get writes =>
       requests.where((r) => r.method != 'GET' && !r.uri.path.endsWith('/test'));
@@ -534,6 +812,7 @@ final class _Wire implements HttpClientAdapter {
   ) async {
     requests.add(options);
     final path = options.uri.path;
+    if (options.method != 'GET') await holdWrites?.future;
     if (options.method != 'GET' && rejectWrites != null) {
       return _json({'detail': rejectWrites}, 400);
     }
@@ -545,7 +824,10 @@ final class _Wire implements HttpClientAdapter {
         ],
       });
     }
-    if (options.method == 'GET') return _json({'targets': targets});
+    if (options.method == 'GET') {
+      if (failLists) return _json({'detail': 'unavailable'}, 500);
+      return _json({'targets': targets});
+    }
     if (path.endsWith('/test') || options.method == 'DELETE') {
       return _json({'ok': true});
     }

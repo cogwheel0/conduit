@@ -243,7 +243,6 @@ void main() {
 
   ProviderContainer container({
     Conversation? active,
-    bool advanced = true,
     bool online = true,
     User? user = _user,
     Future<Map<String, dynamic>> Function()? permissions,
@@ -266,9 +265,8 @@ void main() {
         apiServiceProvider.overrideWithValue(api),
         currentUserProvider2.overrideWithValue(user),
         isOnlineProvider.overrideWithValue(online),
-        appSettingsProvider.overrideWithValue(
-          AppSettings(advancedFeaturesEnabled: advanced),
-        ),
+        // Advanced stays off: none of what is under test depends on it.
+        appSettingsProvider.overrideWithValue(const AppSettings()),
         // Account-scoped like the real provider: a new sign-in session reads
         // its own permissions instead of inheriting the earlier one's.
         if (permissions != null)
@@ -569,7 +567,7 @@ void main() {
 
   group('what the interface may offer', () {
     test(
-      'the controls need Advanced and a durable chat of the user\'s own',
+      'the controls need a durable chat of the user\'s own, not Advanced',
       () async {
         await seed();
         final stored = await _loaded(db, 'c1');
@@ -577,7 +575,6 @@ void main() {
         bool offered(ProviderContainer c) => c.read(chatBranchControlsProvider);
 
         check(offered(container(active: stored))).isTrue();
-        check(offered(container(active: stored, advanced: false))).isFalse();
         check(offered(container())).isFalse();
         check(
           offered(container(active: stored.copyWith(userId: 'someone-else'))),
@@ -597,9 +594,11 @@ void main() {
       },
     );
 
-    test('saved branches stay readable with Advanced off', () async {
+    test('saved branches stay readable where the controls are not offered',
+        () async {
       await seed(currentId: 'a1');
-      final c = container(active: await _loaded(db, 'c1'), advanced: false);
+      final stored = await _loaded(db, 'c1');
+      final c = container(active: stored.copyWith(userId: 'someone-else'));
 
       // The chosen branch and the pager's alternatives are both there.
       check(visibleIds(c)).deepEquals(['u1', 'a1']);
@@ -737,15 +736,10 @@ void main() {
         ).equals(ChatForkAvailability.available);
       });
 
-      test('is hidden with Advanced off and disabled while offline', () async {
+      test('is disabled while offline', () async {
         await seed();
         final stored = await _loaded(db, 'c1');
 
-        check(
-          await availability(
-            container(active: stored, advanced: false, permissions: allowed),
-          ),
-        ).equals(ChatForkAvailability.hidden);
         check(
           await availability(
             container(active: stored, online: false, permissions: allowed),

@@ -2186,7 +2186,7 @@
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
   },
-  "advancedFeaturesDescription": "Zobrazit další nástroje a nastavení chatu.",
+  "advancedFeaturesDescription": "Zobrazit nástroje a nastavení pro pokročilé uživatele.",
   "@advancedFeaturesDescription": {
     "description": "Description for the Advanced setting that reveals additional chat tools and settings."
   },
@@ -2194,11 +2194,11 @@
   "chatSettingsApplied": "Nastavení chatu použito",
   "chatSettingsAppliedDescription": "Tento chat má uložená nastavení a používají se pro každou odpověď.",
   "chatSettingsTurnOnAdvanced": "Pro změnu zapněte Pokročilé",
-  "chatSettingsDescription": "Tato nastavení platí jen pro tento chat. Vše nastavené na Převzít používá vaše výchozí hodnoty.",
+  "chatSettingsDescription": "Tato nastavení platí jen pro tento chat. Vše nastavené na „Vaše výchozí“ používá výchozí hodnotu z vašeho nastavení.",
   "chatSettingsSystemPrompt": "Systémový prompt",
-  "chatSettingsSystemPromptEmptyNote": "Prázdný prompt neodešle žádný systémový prompt, ani když máte výchozí. Zvolte Převzít, aby se použil váš výchozí.",
+  "chatSettingsSystemPromptEmptyNote": "Prázdný prompt neodešle žádný systémový prompt, ani když máte výchozí. Zvolte „Vaše výchozí“, aby se použil váš výchozí.",
   "chatSettingsParameters": "Parametry",
-  "chatSettingsInherit": "Převzít",
+  "chatSettingsInherit": "Vaše výchozí",
   "chatSettingsModelDefault": "Výchozí modelu",
   "chatSettingsCustom": "Vlastní",
   "chatSettingsResetAll": "Obnovit vše",
@@ -2442,10 +2442,6 @@
   "personalConnectionsTerminalOneActive": "Zapnutím jednoho terminálu se ostatní vypnou.",
   "@personalConnectionsTerminalOneActive": {
     "description": "Hint that switching one terminal on switches the others off."
-  },
-  "personalConnectionsNeedsAdvanced": "Chcete-li spravovat osobní připojení, zapněte v nastavení chatu možnost Pokročilé.",
-  "@personalConnectionsNeedsAdvanced": {
-    "description": "Message shown when Advanced is off, with the steps to turn it on before managing personal connections."
   },
   "personalConnectionsNoAccount": "Chcete-li spravovat osobní připojení, přihlaste se k účtu Open WebUI.",
   "@personalConnectionsNoAccount": {
@@ -2712,7 +2708,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "a vytvořit nový sdílený odkaz.",
+  "shareChatDeleteAndCreate": "Odstraní současný odkaz, abyste mohli vytvořit nový.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },
@@ -2972,10 +2968,6 @@
       "formattedTime": {}
     }
   },
-  "advancedPromptOverrides": "Pokročilá přepsání promptů",
-  "@advancedPromptOverrides": {
-    "description": "Title for advanced model/folder prompt override settings."
-  },
   "advancedPromptOverridesDescription": "Přepsání promptů na úrovni modelu jsou v části Aplikace a chat.",
   "@advancedPromptOverridesDescription": {
     "description": "Subtitle for the advanced prompt overrides shortcut."
@@ -2987,14 +2979,6 @@
   "audioSettingsSubtitle": "Řeč na text a text na řeč",
   "@audioSettingsSubtitle": {
     "description": "Subtitle for the audio settings hub tile."
-  },
-  "appAndChat": "Aplikace a chat",
-  "@appAndChat": {
-    "description": "Title for the app and chat settings page."
-  },
-  "appAndChatSubtitle": "Motiv, jazyk, chování chatu a pokročilá přepsání",
-  "@appAndChatSubtitle": {
-    "description": "Subtitle for the app and chat settings hub tile."
   },
   "accountSettingsTitle": "Účet",
   "@accountSettingsTitle": {
@@ -3796,8 +3780,6 @@
   "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
   "workspaceSearchHint": "Search workspace resources",
   "workspaceLoadMore": "Load more",
-  "workspaceAccessTitle": "Sharing & access",
-  "workspaceAccessSharingDisabled": "Sharing is turned off for this resource, so access is read-only.",
   "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
   "workspaceAccessPeopleHeading": "People & groups",
   "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
@@ -3807,8 +3789,6 @@
   "workspaceAccessAddUsers": "Přidat lidi",
   "workspaceAccessGroupsDisabled": "Sdílení se skupinami je vypnuté, můžete sdílet jen s jednotlivými lidmi.",
   "workspaceAccessGrantsDisabled": "Nemáte oprávnění sdílet s lidmi ani se skupinami. Stávající přístup zůstává zachován.",
-  "workspaceAccessVisibilityLabel": "Public",
-  "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
   "workspaceAccessUserBadge": "Person",
   "workspaceAccessCanEdit": "Can edit",
@@ -5236,7 +5216,6 @@
   "notificationTargetsEmpty": "Zatím žádné cíle webhooků.",
   "notificationTargetsLoadFailed": "Cíle webhooků se nepodařilo načíst.",
   "notificationTargetsStale": "Uloženo, ale seznam se nepodařilo obnovit.",
-  "notificationTargetsNativeDescription": "Přidávání a správa cílů webhooků",
   "notificationTargetsUnavailable": "Cíle webhooků nejsou pro tento účet k dispozici.",
   "notificationTargetsAccountChanged": "Účet se změnil. Zavřete toto okno a otevřete cíl znovu.",
   "notificationTargetNewTitle": "Nový cíl",
@@ -5341,9 +5320,9 @@
   "noteSessionChangedNotice": "Přihlášený účet se změnil, takže tato poznámka nebyla uložena.",
   "noteNoAccess": "K této poznámce už nemáte přístup.",
   "noteShare": "Sdílet poznámku",
-  "folderShareSettings": "Nastavení sdílení",
-  "chatShareAudience": "Okruh příjemců",
-  "chatShareAudienceDescription": "Zvolte, kdo může sdílený chat otevřít",
+  "folderShareSettings": "Sdílet složku",
+  "chatShareAudience": "Kdo má přístup",
+  "chatShareAudienceDescription": "Zvolte, kdo může tento chat otevřít",
   "resourceSharingSaved": "Sdílení bylo aktualizováno",
   "resourceSharingFiltered": "Uloženo. Server ponechal jen část přístupu, který jste zvolili.",
   "resourceSharingSessionChanged": "Přihlášený účet se změnil, takže nebylo nic uloženo. Zavřete toto okno a otevřete je znovu.",
@@ -5351,12 +5330,7 @@
   "resourceSharingMissing": "Tato položka už neexistuje.",
   "resourceSharingLoadFailed": "Nepodařilo se načíst, kdo má přístup.",
   "resourceSharingSaveFailed": "Přístup se nepodařilo uložit. Zkuste to znovu.",
-  "resourceAudienceLabel": "Okruh příjemců",
-  "resourceAudiencePrivate": "Soukromé",
-  "resourceAudiencePublic": "Veřejné",
-  "resourceAudienceOpen": "Otevřené",
   "resourceAudiencePrivateHint": "Otevřít ji mohou jen lidé a skupiny uvedené níže.",
-  "resourceAudiencePublicHint": "Otevřít ji může každý uživatel tohoto serveru.",
   "resourceAudienceOpenHint": "Zobrazit ji může kdokoli s odkazem.",
   "channelMembersSearchHint": "Hledat členy",
   "channelMembersEmpty": "Nebyli nalezeni žádní členové.",
@@ -5370,8 +5344,8 @@
   "channelMembersChangeFailed": "Členy se nepodařilo aktualizovat. Zkuste to znovu.",
   "channelMembersChangeDenied": "Server tuto změnu nepovolil.",
   "channelMembersChangeNotPermitted": "Nemůžete spravovat členy tohoto kanálu.",
-  "chatBranchContinueFromResponse": "Pokračovat od této odpovědi",
-  "chatBranchForkChat": "Rozvětvit chat odtud",
+  "chatBranchContinueFromResponse": "Pokračovat odtud",
+  "chatBranchForkChat": "Rozvětvit do nového chatu",
   "chatBranchSwitcherSemantics": "Upravená zpráva, verze {position} z {total}. Zobrazit všechny verze.",
   "@chatBranchSwitcherSemantics": {
     "placeholders": {
@@ -5393,7 +5367,7 @@
       }
     }
   },
-  "chatBranchVersionCurrent": "Aktuální větev",
+  "chatBranchVersionCurrent": "Zobrazeno",
   "chatBranchSelectedNotice": "Pokračování od verze {position} z {total}",
   "@chatBranchSelectedNotice": {
     "placeholders": {
@@ -5405,19 +5379,19 @@
       }
     }
   },
-  "chatBranchWaitForResponse": "Počkejte, až tato odpověď skončí",
+  "chatBranchWaitForResponse": "Počkejte, až tato odpověď skončí.",
   "chatBranchUnavailable": "Větve tohoto chatu zde nelze měnit.",
   "chatBranchOwnerChanged": "Přihlášený účet se změnil, takže nebylo nic změněno.",
   "chatBranchMessageMissing": "Tato verze už není dostupná.",
   "chatForkOffline": "Pro rozvětvení tohoto chatu se připojte k internetu.",
   "chatForkForbidden": "Váš účet nemůže rozvětvovat chaty.",
   "chatForkSourceMissing": "Server už tento chat nemá.",
-  "chatForkUnsupported": "Tento server nepodporuje rozvětvování chatů.",
+  "chatForkUnsupported": "Tento server nemůže rozvětvovat chaty.",
   "chatForkFailed": "Chat se nepodařilo rozvětvit. Zkuste to znovu.",
   "codeInterpreter": "Interpret kódu",
   "codeInterpreterDescription": "Spouštějte kód na serveru pro analýzu dat a vytváření souborů.",
   "codeInterpreterBrowserEngine": "Tento server spouští kód v prohlížeči, což Conduit neumí.",
-  "codeInterpreterUnavailable": "Interpret kódu není pro tento server, účet nebo model dostupný.",
+  "codeInterpreterUnavailable": "Pro tento server, účet nebo model není dostupný.",
   "folderProjectSettings": "Nastavení projektu",
   "folderProjectSettingsDescription": "Výchozí hodnoty pro nové chaty v této složce. Server na každý chat v ní použije její znalosti a systémový prompt.",
   "folderProjectModels": "Výchozí modely",
@@ -5426,9 +5400,8 @@
   "folderProjectNoModels": "Žádný výchozí model. Nové chaty používají tvůj výchozí model.",
   "folderProjectAddKnowledge": "Přidat znalosti",
   "folderProjectAddModel": "Přidat model",
-  "folderProjectAddSelected": "Přidat",
   "folderProjectNothingToAdd": "Není co dalšího přidat.",
-  "folderProjectNotAvailable": "Nedostupné",
+  "folderProjectNotAvailable": "Nedostupné — nové chaty ji vynechají",
   "folderProjectMoveUp": "Posunout {name} nahoru",
   "folderProjectRemove": "Odebrat {name}",
   "folderProjectKindCollection": "Znalostní báze",
@@ -5442,7 +5415,6 @@
   "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTasksTitle": "Naplánované úlohy",
   "scheduledTasksDescription": "Váš server Open WebUI spouští tyto úlohy podle vlastního plánu, i když je tento telefon offline.",
-  "scheduledTasksNeedsAdvanced": "Chcete-li spravovat naplánované úlohy, zapněte v Nastavení režim Pokročilé. Úlohy, které už jsou na serveru, se dál spouštějí.",
   "scheduledTasksUnavailable": "Naplánované úlohy nejsou pro tento účet na tomto serveru k dispozici.",
   "scheduledTasksSearchHint": "Hledat úlohy",
   "scheduledTasksFilterAll": "Vše",
@@ -5490,7 +5462,7 @@
   "scheduledTaskAdvancedSchedule": "Pokročilý plán",
   "scheduledTaskRruleLabel": "Pravidlo opakování",
   "scheduledTaskRruleKept": "Tento plán používá pravidlo, které ovládací prvky neumějí upravit. Zůstane beze změny, pokud ho nezměníte.",
-  "scheduledTaskTimezoneNote": "Časy se řídí časovým pásmem vašeho účtu Open WebUI, které nastavuje webová aplikace, nikoli nutně tohoto zařízení. Kdy se jednotlivá spuštění uskuteční, určuje server.",
+  "scheduledTaskTimezoneNote": "Časy se řídí časovým pásmem vašeho účtu Open WebUI, které se může lišit od tohoto zařízení.",
   "scheduledTaskActiveLabel": "Aktivní",
   "scheduledTaskDestinationLabel": "Výsledek jde do",
   "scheduledTaskDestinationChat": "Nového chatu",
@@ -5523,7 +5495,7 @@
   "scheduledTaskViewChannel": "Zobrazit kanál",
   "scheduledTaskOpenResultFailed": "Tento výsledek se nepodařilo otevřít.",
   "scheduledTaskDelete": "Smazat úlohu",
-  "scheduledTaskDeleteConfirm": "Smazat {name}? Server ji přestane spouštět a její historie se odstraní.",
+  "scheduledTaskDeleteConfirm": "Úloha {name} se na serveru přestane spouštět a její historie spuštění bude odstraněna.",
   "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTaskChangeFailed": "Tuto úlohu se nepodařilo změnit.",
   "scheduledTaskTerminalKept": "K této úloze je připojen terminál. Při úpravě zůstane zachován.",
@@ -5532,23 +5504,18 @@
   "queuedDraftsTitle": "Zprávy ve frontě",
   "queuedDraftsCount": "{count, plural, one{{count} zpráva ve frontě} few{{count} zprávy ve frontě} many{{count} zprávy ve frontě} other{{count} zpráv ve frontě}}",
   "queuedDraftsSessionNote": "Zprávy ve frontě se uchovávají jen po dobu, kdy je Conduit otevřený. Po dokončení odpovědi se odešlou společně jako jedna zpráva.",
-  "queuedDraftSendNow": "Odeslat hned",
+  "queuedDraftSendNow": "Zastavit a odeslat",
   "queuedDraftUploading": "Čekání na dokončení nahrávání souboru",
-  "queuedDraftFileFailed": "Soubor se nenahrál. Odeberte jej, aby se zpráva mohla odeslat.",
+  "queuedDraftFileFailed": "Soubor se nenahrál. Zkuste to znovu, nebo jej odeberte.",
   "queuedDraftsSendFailed": "Zprávy ve frontě se nepodařilo odeslat. Zůstávají ve frontě.",
   "queuedDraftsSending": "Odesílání zpráv z fronty…",
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Kalendář",
-  "calendarDescription": "Váš kalendář Open WebUI. Události jsou uloženy na serveru a zobrazují se v časovém pásmu tohoto zařízení.",
-  "calendarNeedsAdvanced": "Chcete-li používat kalendář, zapněte v Nastavení režim Pokročilé. Události, které už jsou na serveru, to neovlivní.",
   "calendarUnavailable": "Kalendář není pro tento účet na tomto serveru k dispozici.",
-  "calendarTimezoneNote": "Časy se zobrazují v časovém pásmu tohoto zařízení. Opakující se události server rozbaluje v časovém pásmu vašeho účtu.",
+  "calendarTimezoneNote": "Časy se zobrazují v časovém pásmu tohoto zařízení.",
   "calendarRangeLabel": "{start} – {end}",
   "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
-  "calendarEarlier": "Dříve",
-  "calendarLater": "Později",
   "calendarToday": "Dnes",
-  "calendarAllCalendars": "Všechny kalendáře",
   "calendarEmpty": "V tomto období nejsou žádné události.",
   "calendarLoadFailed": "Kalendář se nepodařilo načíst.",
   "calendarStale": "Kalendář může být neaktuální.",
@@ -5562,13 +5529,7 @@
   "calendarScheduledRunFailed": "Spuštění úlohy selhalo",
   "calendarScheduledEntryReadOnly": "Naplánované úlohy se spravují na stránce Naplánované úlohy, ne jako události.",
   "calendarEventDetailTitle": "Událost",
-  "calendarEventCalendar": "Kalendář: {name}",
-  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
-  "calendarEventOrganizer": "Organizuje {name}",
-  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
   "calendarEventSeriesNote": "Tato událost se opakuje. Změny a smazání se týkají celé série.",
-  "calendarEventInvitedCount": "Pozváno: {count}",
-  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarRsvpPrompt": "Vaše odpověď",
   "calendarRsvpAccepted": "Zúčastním se",
   "calendarRsvpTentative": "Možná",
@@ -5598,7 +5559,7 @@
   "calendarFieldStartTime": "Čas začátku",
   "calendarFieldEnds": "Konec",
   "calendarFieldEndTime": "Čas konce",
-  "calendarAddEnd": "Přidat konec",
+  "calendarAddEnd": "Přidat čas konce",
   "calendarFieldRepeat": "Opakování",
   "calendarRepeatNone": "Neopakuje se",
   "calendarRepeatDaily": "Denně",
@@ -5651,9 +5612,8 @@
       }
     }
   },
-  "chatDataControlsUnavailable": "Správa dat vyžaduje zapnutý režim Pokročilé a přihlášený účet Open WebUI.",
-  "chatDataControlsMediaNote": "Záloha obsahuje historii chatů, nastavení a odkazy na přílohy uložené na serveru. Samotné připojené soubory a obrázky zahrnuty nejsou.",
-  "chatDataControlsLocalOnly": "Jen na tomto zařízení: {count}",
+  "chatDataControlsMediaNote": "Export obsahuje historii chatů, nastavení a odkazy na přílohy uložené na serveru. Samotné připojené soubory a obrázky zahrnuty nejsou.",
+  "chatDataControlsLocalOnly": "{count, plural, one{{count} chat je jen v tomto zařízení} few{{count} chaty jsou jen v tomto zařízení} many{{count} chatu je jen v tomto zařízení} other{{count} chatů je jen v tomto zařízení}}",
   "@chatDataControlsLocalOnly": {
     "placeholders": {
       "count": {
@@ -5661,7 +5621,7 @@
       }
     }
   },
-  "chatDataControlsUnsent": "Se změnami, které server nepřijal: {count}",
+  "chatDataControlsUnsent": "{count, plural, one{{count} chat má změny, které server nepřijal} few{{count} chaty mají změny, které server nepřijal} many{{count} chatu má změny, které server nepřijal} other{{count} chatů má změny, které server nepřijal}}",
   "@chatDataControlsUnsent": {
     "placeholders": {
       "count": {
@@ -5669,10 +5629,10 @@
       }
     }
   },
-  "chatDataControlsUnsyncedNote": "Záloha ze serveru je vynechá, dokud nebudou odeslány.",
+  "chatDataControlsUnsyncedNote": "Export je vynechá, dokud nebudou odeslány.",
   "chatDataControlsSyncNow": "Synchronizovat",
   "chatDataControlsSyncing": "Synchronizace…",
-  "chatDataControlsBackupSection": "Záloha a obnovení",
+  "chatDataControlsBackupSection": "Export a import",
   "chatDataControlsManageSection": "Všechny chaty",
   "chatDataControlsExportLibrary": "Exportovat všechny chaty",
   "chatDataControlsImport": "Importovat chaty",
@@ -5688,7 +5648,7 @@
       }
     }
   },
-  "chatDataControlsExportReady": "Záloha je připravena. Uložených chatů: {count}",
+  "chatDataControlsExportReady": "Export je připraven. Uložených chatů: {count}",
   "@chatDataControlsExportReady": {
     "placeholders": {
       "count": {
@@ -5696,10 +5656,10 @@
       }
     }
   },
-  "chatDataControlsExportEmpty": "Na serveru nejsou žádné chaty k zálohování.",
-  "chatDataControlsExportFailed": "Záloha nebyla uložena. Export byl přerušen nebo je neúplný.",
+  "chatDataControlsExportEmpty": "Na serveru nejsou žádné chaty k exportu.",
+  "chatDataControlsExportFailed": "Nic nebylo uloženo. Export byl přerušen nebo je neúplný.",
   "chatDataControlsExportStopped": "Export byl zastaven. Nic nebylo uloženo.",
-  "chatDataControlsExportConfirmTitle": "Zálohovat kopii ze serveru?",
+  "chatDataControlsExportConfirmTitle": "Exportovat kopii ze serveru?",
   "chatDataControlsExportConfirmMessage": "Tím se uloží chaty účtu {account} uložené na serveru {server}. Chaty, které existují jen na tomto zařízení, a změny, které server nepřijal, nejsou zahrnuty.",
   "@chatDataControlsExportConfirmMessage": {
     "placeholders": {
@@ -5711,7 +5671,7 @@
       }
     }
   },
-  "chatDataControlsExportAction": "Zálohovat",
+  "chatDataControlsExportAction": "Exportovat",
   "chatDataControlsImportConfirmTitle": "Importovat tyto chaty?",
   "chatDataControlsImportConfirmMessage": "Přidat chaty ze souboru k účtu {account} na serveru {server}? Chaty: {chats}. Zprávy: {messages}. Chaty, které tam už jsou, se nenahrazují; import přidá kopie.",
   "@chatDataControlsImportConfirmMessage": {
@@ -5787,10 +5747,8 @@
       }
     }
   },
-  "chatDataControlsDiscardAndDelete": "Zahodit a smazat",
   "chatDataControlsResponseRunning": "Odpověď se ještě generuje. Zastavte ji a zkuste to znovu.",
   "chatDataControlsLocalChanged": "Chat, který byl jen na tomto zařízení, se během čekání dostal na server. Nic se nezměnilo. Zkontrolujte to a zkuste to znovu.",
-  "chatDataControlsDone": "Hotovo.",
   "chatDataControlsRefused": "Server to nemohl provést. Nic se nezměnilo.",
   "chatDataControlsUnknown": "Server neodpověděl, takže výsledek není znám. Zkontrolujte své chaty; opakování je bezpečné.",
   "chatDataControlsOwnerChanged": "Přihlášený účet se změnil. Nic se neprovedlo.",
@@ -5821,14 +5779,14 @@
   "chatComparisonSlotFailed": "Selhalo",
   "chatMergedResponseTitle": "Sloučená odpověď",
   "chatCompareModelsAction": "Porovnat modely",
-  "chatCompareModelsDescription": "Odeslat tuto zprávu dvěma modelům a porovnat jejich odpovědi.",
-  "chatCompareNeedsMessage": "Nejprve napište zprávu a pak porovnejte modely.",
+  "chatCompareModelsDescription": "Odeslat dvěma modelům a porovnat odpovědi.",
+  "chatCompareNeedsMessage": "Nejprve napište zprávu",
   "chatCompareFirstModel": "První model",
   "chatCompareSecondModel": "Druhý model",
   "chatCompareChooseModel": "Vyberte model",
   "chatCompareStart": "Porovnat",
   "chatCompareErrorUnavailable": "Porovnávání modelů není v tomto chatu k dispozici.",
-  "chatCompareErrorModelUnavailable": "{models}: na tomto serveru není k dispozici.",
+  "chatCompareErrorModelUnavailable": "{count, plural, =1{Model {models} není na tomto serveru k dispozici.} other{Modely {models} nejsou na tomto serveru k dispozici.}}",
   "@chatCompareErrorModelUnavailable": {
     "placeholders": {
       "models": {
@@ -5836,7 +5794,7 @@
       }
     }
   },
-  "chatCompareErrorVision": "{models} neumí číst obrázky. Odstraňte obrázek nebo zvolte jiné modely.",
+  "chatCompareErrorVision": "{count, plural, =1{Model {models} neumí číst obrázky. Odstraňte obrázek nebo zvolte jiný model.} other{Modely {models} neumějí číst obrázky. Odstraňte obrázek nebo zvolte jiné modely.}}",
   "@chatCompareErrorVision": {
     "placeholders": {
       "models": {
@@ -5844,7 +5802,7 @@
       }
     }
   },
-  "chatCompareErrorTerminal": "{models} neumí použít vybraný terminál. Vypněte terminál nebo zvolte jiné modely.",
+  "chatCompareErrorTerminal": "{count, plural, =1{Model {models} neumí použít vybraný terminál. Vypněte terminál nebo zvolte jiný model.} other{Modely {models} neumějí použít vybraný terminál. Vypněte terminál nebo zvolte jiné modely.}}",
   "@chatCompareErrorTerminal": {
     "placeholders": {
       "models": {
@@ -5852,7 +5810,7 @@
       }
     }
   },
-  "chatCompareErrorInterpreter": "{models} neumí spouštět interpret kódu. Vypněte ho nebo zvolte jiné modely.",
+  "chatCompareErrorInterpreter": "{count, plural, =1{Model {models} neumí spouštět interpret kódu. Vypněte ho nebo zvolte jiný model.} other{Modely {models} neumějí spouštět interpret kódu. Vypněte ho nebo zvolte jiné modely.}}",
   "@chatCompareErrorInterpreter": {
     "placeholders": {
       "models": {
@@ -5860,7 +5818,7 @@
       }
     }
   },
-  "chatCompareErrorEffortOverride": "Tento chat ukládá úroveň uvažování, kterou {models} neumí použít. Odstraňte ji v nastavení chatu nebo zvolte jiné modely.",
+  "chatCompareErrorEffortOverride": "{count, plural, =1{Tento chat ukládá úroveň uvažování, kterou model {models} neumí použít. Odstraňte ji v nastavení chatu nebo zvolte jiný model.} other{Tento chat ukládá úroveň uvažování, kterou modely {models} neumějí použít. Odstraňte ji v nastavení chatu nebo zvolte jiné modely.}}",
   "@chatCompareErrorEffortOverride": {
     "placeholders": {
       "models": {
@@ -5877,5 +5835,102 @@
   "chatMergeErrorOwnerChanged": "Účet nebo chat se změnil, proto bylo sloučení zastaveno.",
   "chatComparisonStopAnswerAction": "Zastavit tuto odpověď",
   "chatMergeChooseDescription": "Zvolte odpovědi ke sloučení. Vyberte alespoň dvě; původní odpovědi zůstanou beze změny.",
-  "folderProjectComparisonFallbackNotice": "Uložené modely tohoto projektu nelze použít všechny, proto chat začíná s menším počtem. Porovnání používá právě dva."
+  "folderProjectComparisonFallbackNotice": "Uložené modely tohoto projektu nelze použít všechny, proto chat začíná s menším počtem. Porovnání používá právě dva.",
+  "advancedFeaturesFooter": "Přidá porovnání modelů, nastavení jednotlivých chatů, nastavení nástrojů, naplánované úlohy, osobní připojení, webhooky a správu dat. Vypnutím je pouze skryjete; vše, co už je nastavené, dál funguje.",
+  "profileAdvancedFooter": "Zobrazeno, protože je v Nastavení > Chat zapnuto Pokročilé.",
+  "advancedRequiredTitle": "Součást Pokročilého",
+  "advancedRequiredMessage": "{feature} je funkce režimu Pokročilé. Zapněte Pokročilé, chcete-li ji použít. Vše, co už je nastavené, dál funguje.",
+  "advancedTurnOn": "Zapnout Pokročilé",
+  "promptOverridesTitle": "Přepsání promptů",
+  "chatSettingsStopHint": "Vaše výchozí (oddělené čárkami)",
+  "chatSettingsUseYourDefault": "Použít vaše výchozí",
+  "personalToolSettingsSaved": "Nastavení nástrojů uloženo",
+  "personalToolSettingsLoadFailed": "Nastavení nástrojů se nepodařilo načíst.",
+  "personalToolSettingsSaveFailed": "Nastavení nástrojů se nepodařilo uložit.",
+  "scheduledTaskDeleteTitle": "Smazat naplánovanou úlohu?",
+  "scheduledTaskRunning": "Probíhá…",
+  "scheduledTaskRunFinished": "Spuštění bylo dokončeno.",
+  "scheduledTaskRunFailedNotice": "Spuštění selhalo. Podrobnosti najdete v Historii.",
+  "scheduledTaskLastRunFailed": "Poslední spuštění selhalo",
+  "scheduledTaskRruleRuns": "Spouští se: {summary}",
+  "scheduledTaskFolderSearchHint": "Hledat složky",
+  "scheduledTasksEmptyHint": "Nechte model plnit vaše pokyny podle plánu, například ranní přehled zpráv.",
+  "scheduledTasksShowAll": "Zobrazit všechny úlohy",
+  "personalConnectionsEmptyToolServersHint": "Přidejte server nástrojů OpenAPI a používejte jeho nástroje v chatech.",
+  "personalConnectionsEmptyTerminalsHint": "Přidejte terminálový server, který mohou modely používat z vašich chatů.",
+  "chatCompareModelPair": "{first} a {second}",
+  "chatDataControlsNoAccount": "Přihlaste se k účtu Open WebUI, abyste mohli spravovat jeho chaty.",
+  "chatDataControlsAccountChanged": "Účet se změnil. Vraťte se zpět a otevřete Správu dat znovu.",
+  "chatDataControlsArchiveAllConfirm": "Archivovat vše",
+  "chatDataControlsUnarchiveAllConfirm": "Zrušit archivaci všech",
+  "chatDataControlsUnshareAllConfirm": "Odebrat odkazy",
+  "chatDataControlsDeleteAllConfirm": "Smazat všechny chaty",
+  "chatDataControlsDiscardAndDeleteConfirm": "Zahodit a smazat všechny chaty",
+  "chatDataControlsDeleteFooter": "Odstraní všechny chaty účtu {account} ze serveru {server}. Chaty, které jsou jen v tomto zařízení, zůstanou.",
+  "chatDataControlsImporting": "{count, plural, one{Importuje se {count} chat…} few{Importují se {count} chaty…} many{Importuje se {count} chatu…} other{Importuje se {count} chatů…}}",
+  "chatDataControlsImportFooter": "Import přidává kopie. Nikdy nenahrazuje chaty, které už na serveru jsou.",
+  "nativeSheetOptionUnavailable": "Tato možnost teď není k dispozici.",
+  "nativeWebhookDestinationsCount": "{count, plural, =0{Žádné} =1{1 cíl} few{{count} cíle} other{{count} cílů}}",
+  "chatBranchForkOpened": "Odtud byl otevřen nový chat",
+  "queuedDraftStopFailed": "Aktuální odpověď se nepodařilo zastavit. Vaše zpráva je stále ve frontě.",
+  "queuedDraftRemoved": "Odebráno z fronty",
+  "queuedDraftUndo": "Zpět",
+  "chatExportPreparing": "Připravuje se export…",
+  "chatStopResponseFailed": "Tuto odpověď se nepodařilo zastavit.",
+  "calendarStartsAt": "Začátek {time}",
+  "calendarEndsAt": "Konec {time}",
+  "calendarDayToday": "Dnes · {date}",
+  "calendarDayTomorrow": "Zítra · {date}",
+  "calendarPreviousDays": "{count, plural, =1{Předchozí den} few{Předchozí {count} dny} other{Předchozích {count} dní}}",
+  "calendarNextDays": "{count, plural, =1{Následující den} few{Následující {count} dny} other{Následujících {count} dní}}",
+  "calendarRemoveEnd": "Odebrat čas konce",
+  "calendarEventReadOnlyNotInvited": "Tuto událost nemůžete měnit.",
+  "calendarFieldOrganizer": "Organizátor",
+  "calendarColorName": "{color, select, blue{Modrá} green{Zelená} amber{Jantarová} red{Červená} purple{Fialová} teal{Tyrkysová} other{Barva}}",
+  "calendarVisibilityFooter": "Zobrazují se události ze zaškrtnutých kalendářů. Klepnutím na kalendář jeho události zobrazíte nebo skryjete.",
+  "personalizationMemoryTypeUserDescription": "Preference, fakt nebo pokyn týkající se vás.",
+  "personalizationMemoryTypeContextDescription": "Souvislosti, na které se má pamatovat v dalších chatech.",
+  "personalizationMemoryTypeUnknown": "Tato paměť má typ, který aplikace nezná. Zůstane beze změny, dokud nevyberete jiný.",
+  "personalizationMemoryAccountChanged": "Účet se změnil. Zavřete toto okno a otevřete paměť znovu.",
+  "notificationTargetDeliveryAwayDescription": "Jen když Open WebUI nepoužíváte.",
+  "notificationTargetDeliveryAlwaysDescription": "Pokaždé, i když jste aktivní.",
+  "notificationTargetTestNeedsSave": "Chcete-li změny otestovat, nejprve je uložte.",
+  "notificationTargetNameHelper": "Později jej nelze změnit. Ponechte prázdné, chcete-li použít hostitele z URL.",
+  "notificationTargetIdLabel": "Název",
+  "codeInterpreterTurnOff": "Vypnout",
+  "libraryShareTitle": "Sdílet",
+  "libraryGeneralAccess": "Obecný přístup",
+  "libraryAccessOnlyPeopleAdded": "Jen přidaní lidé",
+  "libraryAccessEveryoneOnServer": "Všichni na tomto serveru",
+  "libraryAccessAnyoneWithLink": "Kdokoli s odkazem",
+  "libraryAccessEveryoneHint": "Kdokoli s účtem na tomto serveru ji může zobrazit.",
+  "libraryAccessLinkNotAllowed": "Nemáte oprávnění sdílet pomocí odkazu.",
+  "libraryAccessCanView": "Může zobrazit",
+  "libraryAccessLevelFor": "Přístup pro {name}",
+  "libraryAccessRemovePrincipal": "Odebrat {name}",
+  "libraryAccessUnknownPerson": "Neznámá osoba",
+  "libraryAccessUnknownGroup": "Neznámá skupina",
+  "libraryAccessOwner": "Vlastník",
+  "libraryAccessOwnerOnlyNotice": "Kdo má přístup, může měnit jen vlastník a lidé s oprávněním upravovat.",
+  "libraryAccessAccountCantShare": "Váš účet tuto položku nemůže sdílet.",
+  "libraryAccessPartialSave": "Uloženo, ale {names} nemohli získat přístup.",
+  "libraryAccessDone": "Hotovo",
+  "libraryAccessSummaryOnlyYou": "Jen vy",
+  "libraryAccessSummaryShared": "{count, plural, =1{Sdíleno s 1 osobou nebo skupinou} few{Sdíleno s {count} osobami nebo skupinami} many{Sdíleno s {count} osobami nebo skupinami} other{Sdíleno s {count} osobami nebo skupinami}}",
+  "libraryPickerAddCount": "{count, plural, =0{Přidat} other{Přidat ({count})}}",
+  "libraryPickerHasAccess": "Má přístup",
+  "libraryPickerAlreadyMember": "Už je členem",
+  "libraryPickerSearchGroups": "Hledat skupiny",
+  "libraryChannelRemoveTitle": "Odebrat {name}?",
+  "libraryChannelRemoveMessage": "Tento kanál ani jeho zprávy už neuvidí.",
+  "libraryChannelRemoveConfirm": "Odebrat",
+  "libraryChannelMemberRemoved": "{name} byl(a) odebrán(a)",
+  "libraryChannelMembersAdded": "Členové přidáni",
+  "libraryNoteSharedBy": "Sdílí {name}. Poznámku můžete zobrazit, ale ne upravit.",
+  "libraryNoteOpen": "Otevřít",
+  "chatDataControlsArchivedAll": "Všechny chaty byly archivovány.",
+  "chatDataControlsUnarchivedAll": "Všechny chaty byly obnoveny z archivu.",
+  "chatDataControlsUnsharedAll": "Všechny odkazy pro sdílení byly odstraněny.",
+  "chatDataControlsDeletedAll": "Všechny chaty byly smazány.",
+  "notificationTargetMakeDefaultNeedsSave": "Chcete-li tento cíl nastavit jako výchozí, nejprve uložte změny."
 }

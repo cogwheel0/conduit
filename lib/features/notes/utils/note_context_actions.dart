@@ -1,11 +1,14 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/widgets/resource_sharing_sheet.dart';
+import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart'
+    show WorkspaceAccessOwner;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notes/utils/note_access.dart';
 import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/models/note.dart';
-import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/utils/user_avatar_utils.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/features/notes/providers/notes_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -17,11 +20,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Whether the note's access sheet is offered: an Advanced control for a
-/// server note the account may edit, when the server lets it share notes.
-/// Reading and read-only enforcement do not depend on this.
+/// Whether the note's access sheet is offered: for a server note the account
+/// may edit, when the server lets it share notes. Reading and read-only
+/// enforcement do not depend on this.
 bool canShareNote(WidgetRef ref, Note note) {
-  if (!ref.read(appSettingsProvider).advancedFeaturesEnabled) return false;
   // A `local:` note is not on the server yet, so it has no access to edit.
   if (note.id.startsWith('local:')) return false;
   final access = noteWriteAccess(
@@ -33,18 +35,55 @@ bool canShareNote(WidgetRef ref, Note note) {
       true;
 }
 
+/// Whether the signed-in account may change [note]. A note it may only read,
+/// or whose access the server has not confirmed yet, is opened rather than
+/// edited and offers no Delete (the delete route takes the same people as an
+/// edit).
+bool canEditNote(WidgetRef ref, Note note) =>
+    noteWriteAccess(note, accountId: ref.read(currentUserProvider2)?.id) ==
+    NoteWriteAccess.allowed;
+
+/// The note's owner when it is someone other than the signed-in account, or
+/// null for the account's own notes and notes whose owner is not known.
+NoteUser? noteSharedOwner(Note note, {required String? accountId}) {
+  if (note.id.startsWith('local:')) return null;
+  final ownerId = note.userId ?? note.user?.id;
+  if (ownerId == null || ownerId.isEmpty || ownerId == accountId) return null;
+  final name = note.user?.name?.trim();
+  if (name == null || name.isEmpty) return null;
+  return note.user;
+}
+
 /// Opens the access sheet for [note]. The session is captured here, when the
 /// user asks, and the sheet fixes the note id with it.
 Future<ResourceAccessSnapshot?> shareNote(
   BuildContext context,
   WidgetRef ref,
   Note note,
-) => ResourceSharingSheet.show(
-  context,
-  ref,
-  kind: ResourceKind.note,
-  resourceId: note.id,
-);
+) {
+  final l10n = AppLocalizations.of(context)!;
+  final accountId = ref.read(currentUserProvider2)?.id;
+  final ownerId = note.userId ?? note.user?.id;
+  final isYours = ownerId == null || ownerId.isEmpty || ownerId == accountId;
+  final owner = isYours ? null : note.user;
+  return ResourceSharingSheet.show(
+    context,
+    ref,
+    kind: ResourceKind.note,
+    resourceId: note.id,
+    resourceName: note.title.trim().isEmpty ? l10n.untitled : note.title,
+    owner: isYours
+        ? const WorkspaceAccessOwner(isYou: true)
+        : WorkspaceAccessOwner(
+            name: owner?.name,
+            email: owner?.email,
+            imageUrl: resolveUserProfileImageUrl(
+              ref.read(apiServiceProvider),
+              owner?.profileImageUrl,
+            ),
+          ),
+  );
+}
 
 /// Builds the shared note context-menu actions.
 List<ConduitContextMenuAction> buildNoteContextMenuActions({
@@ -56,12 +95,13 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
   required Future<void> Function(Note note) onDelete,
 }) {
   final l10n = AppLocalizations.of(context)!;
+  final canEdit = canEditNote(ref, note);
 
   return [
     ConduitContextMenuAction(
-      cupertinoIcon: CupertinoIcons.pencil,
-      materialIcon: Icons.edit_rounded,
-      label: l10n.edit,
+      cupertinoIcon: canEdit ? CupertinoIcons.pencil : CupertinoIcons.doc_text,
+      materialIcon: canEdit ? Icons.edit_rounded : Icons.description_outlined,
+      label: canEdit ? l10n.edit : l10n.libraryNoteOpen,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
       onSelected: () async => onEdit(note),
     ),
@@ -91,14 +131,15 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
           await shareNote(context, ref, note);
         },
       ),
-    ConduitContextMenuAction(
-      cupertinoIcon: CupertinoIcons.delete,
-      materialIcon: Icons.delete_rounded,
-      label: l10n.delete,
-      destructive: true,
-      onBeforeClose: () => ConduitHaptics.mediumImpact(),
-      onSelected: () async => onDelete(note),
-    ),
+    if (canEdit)
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.delete,
+        materialIcon: Icons.delete_rounded,
+        label: l10n.delete,
+        destructive: true,
+        onBeforeClose: () => ConduitHaptics.mediumImpact(),
+        onSelected: () async => onDelete(note),
+      ),
   ];
 }
 

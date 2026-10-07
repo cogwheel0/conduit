@@ -11,7 +11,6 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../l10n/app_localizations.dart';
-import '../../../shared/theme/theme_extensions.dart';
 import '../../profile/widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../services/local_notification_service.dart';
@@ -44,8 +43,8 @@ class NotificationSettingsPage extends ConsumerWidget {
         enabled: interactive,
         title: title,
         subtitle: subtitle,
-        semanticLabel:
-            '$title. ${value ? l10n.enabled : l10n.disabled}. $subtitle',
+        // Read as a switch with its state, so the label carries no value.
+        toggled: value,
         trailing: AdaptiveSwitch(
           value: value,
           onChanged: interactive ? onChanged : null,
@@ -103,7 +102,7 @@ class NotificationSettingsPage extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: Spacing.lg),
+        settingsSectionGap,
         InsetGroupedList(
           children: [
             tile(

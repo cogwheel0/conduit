@@ -8,16 +8,16 @@ import 'package:conduit_core/navigation/routes.dart';
 
 export 'package:conduit_core/navigation/routes.dart' show RouteNames, Routes;
 
-/// Marks routes opened after a native sheet dismisses so Flutter does not
-/// layer a second platform transition over the outgoing app surface.
+/// Marks routes opened from a native sheet as it slides away, so Flutter does
+/// not layer a second platform transition over the outgoing sheet.
 final class NativeSheetNavigationOrigin {
   const NativeSheetNavigationOrigin();
 }
 
 typedef NativeSheetNavigationRequest = ({String routeName, Object extra});
 
-/// Direct Connections is launched after the native profile sheet dismisses.
-/// Keep its route and transition marker coupled so this entry point cannot
+/// Direct Connections is pushed as the native profile sheet starts to slide
+/// away, so the page is already underneath when it has gone. Keep its route and transition marker coupled so this entry point cannot
 /// accidentally restore a second Cupertino transition over the native sheet.
 const NativeSheetNavigationRequest
 directConnectionsNativeSheetNavigationRequest = (
@@ -25,8 +25,8 @@ directConnectionsNativeSheetNavigationRequest = (
   extra: NativeSheetNavigationOrigin(),
 );
 
-/// Personal connections open the same way: the native sheet dismisses, then
-/// the list page is pushed without a second transition over it.
+/// Personal connections open the same way: the list page is pushed as the
+/// native sheet slides away, without a second transition over it.
 const NativeSheetNavigationRequest
 personalConnectionsNativeSheetNavigationRequest = (
   routeName: RouteNames.personalConnections,
@@ -125,7 +125,7 @@ class NavigationService {
     router.go(routeName);
   }
 
-  /// Opens the Open WebUI connect flow after a native sheet dismisses.
+  /// Opens the Open WebUI connect flow from a native sheet.
   ///
   /// The router moves a newly authenticated session out of the auth flow only
   /// when an auth route is the current location. Pushing the flow over

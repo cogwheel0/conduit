@@ -10,14 +10,16 @@ import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/modal_safe_area.dart';
-import '../../../shared/widgets/sheet_handle.dart';
+import '../../../shared/widgets/horizontal_overflow_fade.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import 'model_selector_sheet.dart';
 
@@ -44,8 +46,10 @@ String chatComparisonSlotLabel(
 /// One tab per model slot of a saved or running comparison.
 ///
 /// The tabs scroll sideways on a narrow phone rather than squeezing every
-/// model into a grid. Picking a tab only chooses which answer is shown; the
-/// caller decides what that does to the transcript.
+/// model into a grid. Each tab is capped at [maxTabWidthFactor] of the row so a
+/// long model name ellipsizes instead of pushing the other tabs off screen.
+/// Picking a tab only chooses which response is shown; the caller decides what
+/// that does to the transcript.
 class ChatComparisonTabs extends StatelessWidget {
   const ChatComparisonTabs({
     super.key,
@@ -58,46 +62,68 @@ class ChatComparisonTabs extends StatelessWidget {
   final String activeMessageId;
   final ValueChanged<ChatComparisonAnswer> onSelected;
 
+  /// The widest a single tab may grow, as a share of the row's width.
+  static const double maxTabWidthFactor = 0.6;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Semantics(
       container: true,
       label: l10n.chatComparisonTabsLabel,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (final slot in group.slots)
-              Padding(
-                padding: const EdgeInsetsDirectional.only(end: Spacing.xs),
-                child: _ComparisonTab(
-                  label: chatComparisonSlotLabel(l10n, group, slot),
-                  status: _statusLabel(l10n, slot.current),
-                  selected: slot.answers.any(
-                    (answer) => answer.messageId == activeMessageId,
-                  ),
-                  onTap: () => onSelected(slot.current),
-                ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final maxTabWidth = constraints.hasBoundedWidth
+              ? constraints.maxWidth * maxTabWidthFactor
+              : double.infinity;
+          return HorizontalOverflowFade(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final slot in group.slots)
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(
+                        end: Spacing.xs,
+                      ),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: maxTabWidth),
+                        child: _ComparisonTab(
+                          key: ValueKey<String>(
+                            'comparison-tab-${slot.index}',
+                          ),
+                          label: chatComparisonSlotLabel(l10n, group, slot),
+                          status: _statusOf(slot.current),
+                          selected: slot.answers.any(
+                            (answer) => answer.messageId == activeMessageId,
+                          ),
+                          onTap: () => onSelected(slot.current),
+                        ),
+                      ),
+                    ),
+                ],
               ),
-          ],
-        ),
+            ),
+          );
+        },
       ),
     );
   }
 
-  static String? _statusLabel(
-    AppLocalizations l10n,
-    ChatComparisonAnswer answer,
-  ) {
-    if (answer.error != null) return l10n.chatComparisonSlotFailed;
-    if (answer.isStreaming) return l10n.chatComparisonSlotResponding;
+  static _ComparisonTabStatus? _statusOf(ChatComparisonAnswer answer) {
+    if (answer.error != null) return _ComparisonTabStatus.failed;
+    if (answer.isStreaming) return _ComparisonTabStatus.responding;
     return null;
   }
 }
 
-class _ComparisonTab extends StatelessWidget {
+enum _ComparisonTabStatus { responding, failed }
+
+/// A quiet pill: the active tab gets a light primary tint and border, like the
+/// composer's feature pills, so the row never shouts over the response.
+class _ComparisonTab extends StatefulWidget {
   const _ComparisonTab({
+    super.key,
     required this.label,
     required this.status,
     required this.selected,
@@ -105,59 +131,123 @@ class _ComparisonTab extends StatelessWidget {
   });
 
   final String label;
-  final String? status;
+  final _ComparisonTabStatus? status;
   final bool selected;
   final VoidCallback onTap;
 
   @override
+  State<_ComparisonTab> createState() => _ComparisonTabState();
+}
+
+class _ComparisonTabState extends State<_ComparisonTab> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
+  void _handleTap() {
+    // Picking the tab already on screen changes nothing, so it stays silent.
+    if (!widget.selected) ConduitHaptics.selectionClick();
+    widget.onTap();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final foreground = selected ? theme.buttonPrimaryText : theme.textPrimary;
-    final semanticLabel = status == null ? label : '$label, $status';
+    final selected = widget.selected;
+    final status = switch (widget.status) {
+      _ComparisonTabStatus.failed => l10n.chatComparisonSlotFailed,
+      _ComparisonTabStatus.responding => l10n.chatComparisonSlotResponding,
+      null => null,
+    };
+    final statusColor = widget.status == _ComparisonTabStatus.failed
+        ? theme.error
+        : theme.textSecondary;
+    final background = selected
+        ? theme.buttonPrimary.withValues(alpha: 0.10)
+        : Colors.transparent;
+    final borderColor = selected
+        ? theme.buttonPrimary.withValues(alpha: 0.4)
+        : theme.cardBorder;
+    final textColor = selected ? theme.textPrimary : theme.textSecondary;
+    final semanticLabel = status == null
+        ? widget.label
+        : '${widget.label}, $status';
+    final duration = context.motionDuration(const Duration(milliseconds: 200));
+
     return Semantics(
       button: true,
       selected: selected,
       label: semanticLabel,
-      onTap: onTap,
+      onTap: _handleTap,
       excludeSemantics: true,
-      child: Material(
-        color: selected ? theme.buttonPrimary : theme.surfaceContainer,
-        borderRadius: BorderRadius.circular(theme.radiusMd),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(theme.radiusMd),
-          onTap: () {
-            ConduitHaptics.selectionClick();
-            onTap();
-          },
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
-                vertical: Spacing.xs,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.small.copyWith(
-                      color: foreground,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                    ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _setPressed(true),
+        onTapUp: (_) => _setPressed(false),
+        onTapCancel: () => _setPressed(false),
+        onTap: _handleTap,
+        child: ConstrainedBox(
+          // The pill stays compact; the hit area keeps the full touch target.
+          constraints: const BoxConstraints(
+            minHeight: TouchTarget.minimum,
+            minWidth: TouchTarget.minimum,
+          ),
+          child: Align(
+            widthFactor: 1,
+            heightFactor: 1,
+            child: AnimatedOpacity(
+              opacity: _pressed ? 0.6 : 1,
+              duration: duration,
+              child: AnimatedContainer(
+                duration: duration,
+                curve: Curves.easeOutCubic,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Spacing.md,
+                  vertical: Spacing.sm - 2,
+                ),
+                decoration: BoxDecoration(
+                  color: background,
+                  borderRadius: BorderRadius.circular(AppBorderRadius.round),
+                  border: Border.all(
+                    color: borderColor,
+                    width: BorderWidth.thin,
                   ),
-                  if (status != null) ...[
-                    const SizedBox(width: Spacing.xs),
-                    Text(
-                      status!,
-                      style: AppTypography.small.copyWith(
-                        color: foreground.withValues(alpha: 0.7),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        widget.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.labelMediumStyle.copyWith(
+                          color: textColor,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                          letterSpacing: AppTypography.letterSpacingNormal,
+                        ),
                       ),
                     ),
+                    if (status != null) ...[
+                      const SizedBox(width: Spacing.xs),
+                      Text(
+                        status,
+                        key: const ValueKey<String>('comparison-tab-status'),
+                        maxLines: 1,
+                        style: AppTypography.labelMediumStyle.copyWith(
+                          color: statusColor,
+                          letterSpacing: AppTypography.letterSpacingNormal,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -235,7 +325,10 @@ class ChatComparisonAnswerStopButton extends StatelessWidget {
             onStop();
           },
           child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
+            constraints: const BoxConstraints(
+              minHeight: TouchTarget.minimum,
+              minWidth: TouchTarget.minimum,
+            ),
             child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: Spacing.md,
@@ -244,7 +337,14 @@ class ChatComparisonAnswerStopButton extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.stop_rounded, size: 18, color: theme.textPrimary),
+                  Icon(
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.stop_fill,
+                      android: Icons.stop_rounded,
+                    ),
+                    size: IconSize.chip,
+                    color: theme.textPrimary,
+                  ),
                   const SizedBox(width: Spacing.xs),
                   Text(
                     l10n.chatComparisonStopAnswerAction,
@@ -262,9 +362,9 @@ class ChatComparisonAnswerStopButton extends StatelessWidget {
   }
 }
 
-/// Asks which of a turn's finished answers to merge. Resolves to the chosen
-/// answers in slot order, or null when the sheet is dismissed. Every answer in
-/// [candidates] starts chosen, so merging them all is one tap.
+/// Asks which of a turn's finished responses to merge. Resolves to the chosen
+/// responses in slot order, or null when the sheet is dismissed. Every response
+/// in [candidates] starts chosen, so merging them all is one tap.
 Future<List<ChatComparisonAnswer>?> showMergeSourcesSheet(
   BuildContext context, {
   required ChatComparisonGroup group,
@@ -296,111 +396,125 @@ class _ChatMergeSourcesSheetState extends State<ChatMergeSourcesSheet> {
     for (final answer in widget.candidates) answer.messageId,
   };
 
+  /// A short, single-paragraph preview of a response for its row.
+  static String _preview(String text) {
+    final flat = text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    const limit = 200;
+    final characters = flat.characters;
+    // Counted in characters, so an emoji at the cut is never split.
+    return characters.length <= limit
+        ? flat
+        : '${characters.take(limit)}…';
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final ready = _chosen.length >= 2;
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.surfaceBackground,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.bottomSheet),
-        ),
+    return ConduitModalSheetSurface(
+      child: Column(
+        key: const ValueKey<String>('merge-sources-sheet'),
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ComparisonSheetHeader(title: l10n.chatMergeResponsesAction),
+          const SizedBox(height: Spacing.xs),
+          Text(
+            l10n.chatMergeChooseDescription,
+            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+          ),
+          const SizedBox(height: Spacing.sm),
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final answer in widget.candidates)
+                    _mergeSourceTile(context, answer),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: Spacing.md),
+          ConduitButton(
+            text: l10n.chatMergeResponsesAction,
+            isFullWidth: true,
+            onPressed: ready
+                ? () => Navigator.of(context).pop(<ChatComparisonAnswer>[
+                    for (final answer in widget.candidates)
+                      if (_chosen.contains(answer.messageId)) answer,
+                  ])
+                : null,
+          ),
+        ],
       ),
-      child: ModalSheetSafeArea(
-        padding: const EdgeInsets.fromLTRB(
-          Spacing.modalPadding,
-          Spacing.sm,
-          Spacing.modalPadding,
-          Spacing.modalPadding,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SheetHandle(),
-            const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.chatMergeResponsesAction,
-              textAlign: TextAlign.center,
-              style: AppTypography.titleLargeStyle.copyWith(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: theme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: Spacing.xs),
-            Text(
-              l10n.chatMergeChooseDescription,
-              textAlign: TextAlign.center,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textSecondary,
-              ),
-            ),
-            const SizedBox(height: Spacing.md),
-            Flexible(
-              // The sheet paints its own background; the rows' ink needs a
-              // Material of its own to draw on.
-              child: Material(
-                type: MaterialType.transparency,
-                child: SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      for (final answer in widget.candidates)
-                        CheckboxListTile(
-                          key: ValueKey<String>(
-                            'merge-source-${answer.messageId}',
-                          ),
-                          contentPadding: EdgeInsets.zero,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          value: _chosen.contains(answer.messageId),
-                          onChanged: (checked) => setState(() {
-                            if (checked ?? false) {
-                              _chosen.add(answer.messageId);
-                            } else {
-                              _chosen.remove(answer.messageId);
-                            }
-                          }),
-                          title: Text(
-                            chatComparisonSlotLabel(
-                              l10n,
-                              widget.group,
-                              widget.group.slotAt(answer.slot)!,
-                            ),
-                            style: AppTypography.bodyLargeStyle.copyWith(
-                              fontWeight: FontWeight.w500,
-                              color: theme.textPrimary,
-                            ),
-                          ),
-                          subtitle: Text(
-                            answer.sourceText.trim(),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.small.copyWith(
-                              color: theme.textSecondary,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: Spacing.sm),
-            ConduitButton(
-              text: l10n.chatMergeResponsesAction,
-              isFullWidth: true,
-              onPressed: ready
-                  ? () => Navigator.of(context).pop(<ChatComparisonAnswer>[
-                      for (final answer in widget.candidates)
-                        if (_chosen.contains(answer.messageId)) answer,
-                    ])
-                  : null,
-            ),
-          ],
-        ),
+    );
+  }
+
+  Widget _mergeSourceTile(BuildContext context, ChatComparisonAnswer answer) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final chosen = _chosen.contains(answer.messageId);
+    return AdaptiveSelectionTile(
+      key: ValueKey<String>('merge-source-${answer.messageId}'),
+      title: chatComparisonSlotLabel(
+        l10n,
+        widget.group,
+        widget.group.slotAt(answer.slot)!,
       ),
+      subtitle: _preview(answer.sourceText),
+      selected: chosen,
+      // A many-choice list: an empty circle says a row can still be added.
+      trailing: Icon(
+        chosen
+            ? UiUtils.platformIcon(
+                ios: CupertinoIcons.checkmark_circle_fill,
+                android: Icons.check_circle,
+              )
+            : UiUtils.platformIcon(
+                ios: CupertinoIcons.circle,
+                android: Icons.radio_button_unchecked,
+              ),
+        size: IconSize.medium,
+        color: chosen ? theme.buttonPrimary : theme.iconSecondary,
+      ),
+      onTap: () => setState(() {
+        if (!_chosen.remove(answer.messageId)) _chosen.add(answer.messageId);
+      }),
+    );
+  }
+}
+
+/// The standard sheet header: a left-aligned title and a close button.
+class _ComparisonSheetHeader extends StatelessWidget {
+  const _ComparisonSheetHeader({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Semantics(
+            header: true,
+            child: Text(
+              title,
+              style: theme.headingSmall,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        const SizedBox(width: Spacing.sm),
+        SheetCloseButton(
+          tooltip: l10n.close,
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+      ],
     );
   }
 }
@@ -465,12 +579,20 @@ class ComparisonSetupSheet extends StatefulWidget {
 class _ComparisonSetupSheetState extends State<ComparisonSetupSheet> {
   late final List<Model?> _slots = <Model?>[widget.initialFirst, null];
 
+  String _slotTitle(AppLocalizations l10n, int index) =>
+      index == 0 ? l10n.chatCompareFirstModel : l10n.chatCompareSecondModel;
+
   Future<void> _pick(int index) async {
+    final l10n = AppLocalizations.of(context)!;
     await ThemedSheets.showCustom<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => ModelSelectorSheet(
         models: widget.models,
+        // The picker speaks for this slot: its title and its checkmark are
+        // the slot's, not the chat's model.
+        title: _slotTitle(l10n, index),
+        selectedModelId: _slots[index]?.id,
         onPick: (model) {
           if (mounted) setState(() => _slots[index] = model);
         },
@@ -483,68 +605,40 @@ class _ComparisonSetupSheetState extends State<ComparisonSetupSheet> {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final ready = _slots.every((slot) => slot != null);
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.surfaceBackground,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.bottomSheet),
-        ),
-      ),
-      child: ModalSheetSafeArea(
-        padding: const EdgeInsets.fromLTRB(
-          Spacing.modalPadding,
-          Spacing.sm,
-          Spacing.modalPadding,
-          Spacing.modalPadding,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SheetHandle(),
+    return ConduitModalSheetSurface(
+      child: Column(
+        key: const ValueKey<String>('comparison-setup-sheet'),
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _ComparisonSheetHeader(title: l10n.chatCompareModelsAction),
+          const SizedBox(height: Spacing.xs),
+          Text(
+            l10n.chatCompareModelsDescription,
+            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+          ),
+          const SizedBox(height: Spacing.md),
+          for (var index = 0; index < _slots.length; index++) ...[
+            _ComparisonSlotRow(
+              key: ValueKey<String>('comparison-slot-$index'),
+              title: _slotTitle(l10n, index),
+              model: _slots[index],
+              placeholder: l10n.chatCompareChooseModel,
+              onTap: () => _pick(index),
+            ),
             const SizedBox(height: Spacing.sm),
-            Text(
-              l10n.chatCompareModelsAction,
-              textAlign: TextAlign.center,
-              style: AppTypography.titleLargeStyle.copyWith(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: theme.textPrimary,
-              ),
-            ),
-            const SizedBox(height: Spacing.xs),
-            Text(
-              l10n.chatCompareModelsDescription,
-              textAlign: TextAlign.center,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textSecondary,
-              ),
-            ),
-            const SizedBox(height: Spacing.md),
-            for (var index = 0; index < _slots.length; index++) ...[
-              _ComparisonSlotRow(
-                key: ValueKey<String>('comparison-slot-$index'),
-                title: index == 0
-                    ? l10n.chatCompareFirstModel
-                    : l10n.chatCompareSecondModel,
-                model: _slots[index],
-                placeholder: l10n.chatCompareChooseModel,
-                onTap: () => _pick(index),
-              ),
-              const SizedBox(height: Spacing.sm),
-            ],
-            const SizedBox(height: Spacing.sm),
-            ConduitButton(
-              text: l10n.chatCompareStart,
-              isFullWidth: true,
-              onPressed: ready
-                  ? () =>
-                        Navigator.of(context)
-                            .pop(<Model>[for (final slot in _slots) slot!])
-                  : null,
-            ),
           ],
-        ),
+          const SizedBox(height: Spacing.sm),
+          ConduitButton(
+            text: l10n.chatCompareStart,
+            isFullWidth: true,
+            onPressed: ready
+                ? () => Navigator.of(context).pop(<Model>[
+                    for (final slot in _slots) slot!,
+                  ])
+                : null,
+          ),
+        ],
       ),
     );
   }
@@ -604,7 +698,15 @@ class _ComparisonSlotRow extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: theme.iconSecondary),
+            const SizedBox(width: Spacing.sm),
+            Icon(
+              UiUtils.platformIcon(
+                ios: CupertinoIcons.chevron_forward,
+                android: Icons.chevron_right,
+              ),
+              size: IconSize.small,
+              color: theme.iconSecondary,
+            ),
           ],
         ),
       ),
@@ -612,28 +714,56 @@ class _ComparisonSlotRow extends StatelessWidget {
   }
 }
 
+/// The display names of [modelIds], looked up in [models] and falling back to
+/// the id when a model is unknown or unnamed. Repeats are listed once.
+List<String> comparisonModelNames(
+  Iterable<String> modelIds,
+  Iterable<Model>? models,
+) {
+  final byId = <String, Model>{
+    for (final model in models ?? const <Model>[]) model.id: model,
+  };
+  final names = <String>{};
+  for (final id in modelIds) {
+    final name = byId[id]?.name.trim();
+    names.add(name == null || name.isEmpty ? id : name);
+  }
+  return names.toList(growable: false);
+}
+
 /// Words for a refused comparison. Nothing was sent or saved when this shows.
+///
+/// Pass the server's [models] so the message names models the way the picker
+/// does; without them it falls back to model ids.
 String comparisonAdmissionMessage(
   AppLocalizations l10n,
-  ComparisonAdmissionException error,
-) {
-  final models = error.modelIds.toSet().join(', ');
+  ComparisonAdmissionException error, {
+  Iterable<Model>? models,
+}) {
+  var names = comparisonModelNames(error.modelIds, models);
+  if (names.isEmpty) names = [l10n.chatComparisonUnnamedModel];
+  final count = names.length;
+  final listed = names.length == 1
+      ? names.single
+      : l10n.chatCompareModelPair(
+          names.sublist(0, names.length - 1).join(', '),
+          names.last,
+        );
   return switch (error.reason) {
     ComparisonAdmissionFailure.unavailable => l10n.chatCompareErrorUnavailable,
     ComparisonAdmissionFailure.wrongModelCount =>
       l10n.chatCompareErrorUnavailable,
     ComparisonAdmissionFailure.modelUnavailable =>
-      l10n.chatCompareErrorModelUnavailable(models),
-    ComparisonAdmissionFailure.visionUnsupported => l10n.chatCompareErrorVision(
-      models,
-    ),
+      l10n.chatCompareErrorModelUnavailable(listed, count),
+    ComparisonAdmissionFailure.visionUnsupported =>
+      l10n.chatCompareErrorVision(listed, count),
     ComparisonAdmissionFailure.terminalConflict =>
-      l10n.chatCompareErrorTerminal(models),
+      l10n.chatCompareErrorTerminal(listed, count),
     ComparisonAdmissionFailure.interpreterUnsupported =>
-      l10n.chatCompareErrorInterpreter(models),
+      l10n.chatCompareErrorInterpreter(listed, count),
     ComparisonAdmissionFailure.settingsConflict =>
       error.conflict?.source == ComparisonConflictSource.chatOverride
-          ? l10n.chatCompareErrorEffortOverride(models)
+          ? l10n.chatCompareErrorEffortOverride(listed, count)
           : l10n.chatCompareErrorEffortPicker,
   };
 }

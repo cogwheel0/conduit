@@ -367,6 +367,9 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   Future<void> _manageAccess() async {
     final l10n = AppLocalizations.of(context)!;
     final capabilities = _capabilities;
+    final summary = widget.summary;
+    // An existing prompt saves from the sheet, which stays open with the error
+    // when the save fails. A new one keeps the grants for its first save.
     final grants = await WorkspaceAccessGrantSheet.show(
       context,
       initialGrants: _grants,
@@ -374,31 +377,33 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       allowUserGrants: capabilities.allowUserGrants,
       allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: !_writeAccess,
+      resourceName: summary?.name,
+      onSave: summary != null && _writeAccess
+          ? (grants, _) async {
+              final saved = await WorkspaceEditorOperationRunner.stay<void>(
+                session: _session,
+                scope: 'workspace/prompts',
+                operationLabel: 'prompt access update',
+                editorMounted: () => mounted,
+                operation: () => ref
+                    .read(workspacePromptsProvider.notifier)
+                    .updateAccess(summary.id, grants),
+                onSuccess: (_) {
+                  setState(() => _grants = grants);
+                  _showSnack(l10n.workspacePromptSaved);
+                },
+              );
+              return saved
+                  ? const WorkspaceAccessSaveOutcome.saved()
+                  : WorkspaceAccessSaveOutcome.failed(
+                      l10n.workspacePromptSaveFailed,
+                    );
+            }
+          : null,
     );
-    if (grants == null || !mounted) return;
-    final summary = widget.summary;
-    // In create mode (or without write access) the grants are held locally and
-    // persisted with the first save.
-    if (summary == null || !_writeAccess) {
-      setState(() => _grants = grants);
-      if (summary == null) _session.markDirty();
-      return;
-    }
-    await WorkspaceEditorOperationRunner.stay<void>(
-      session: _session,
-      scope: 'workspace/prompts',
-      operationLabel: 'prompt access update',
-      editorMounted: () => mounted,
-      operation: () => ref
-          .read(workspacePromptsProvider.notifier)
-          .updateAccess(summary.id, grants),
-      onSuccess: (_) {
-        setState(() => _grants = grants);
-        _showSnack(l10n.workspacePromptSaved);
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspacePromptSaveFailed, isError: true),
-    );
+    if (grants == null || !mounted || summary != null) return;
+    setState(() => _grants = grants);
+    _session.markDirty();
   }
 
   Future<void> _import() async {

@@ -481,9 +481,9 @@ void main() {
       check(s.tray.map((f) => f.fileName)).deepEquals(['a.txt']);
     });
 
-    test('is offered only while a response runs, under Advanced, on a stored '
-        'Open WebUI chat', () async {
-      final s = await _Session.start();
+    test('is offered only while a response runs on a stored Open WebUI chat, '
+        'with Advanced off', () async {
+      final s = await _Session.start(advanced: false);
       bool offered() => s.container.read(chatDraftQueueOfferProvider);
 
       check(offered()).isTrue();
@@ -494,12 +494,6 @@ void main() {
       final running = _runningTurn();
       s.container.read(chatMessagesProvider.notifier).setMessages(running);
       check(offered()).isTrue();
-
-      (s.container.read(appSettingsProvider.notifier) as _Settings)
-          .setAdvanced(false);
-      check(offered()).isFalse();
-      (s.container.read(appSettingsProvider.notifier) as _Settings)
-          .setAdvanced(true);
 
       s.container.read(temporaryChatEnabledProvider.notifier).set(true);
       check(offered()).isFalse();
@@ -893,21 +887,137 @@ void main() {
       check(s.parked).isEmpty();
     });
 
-    test('pending drafts stay manageable and drain with Advanced off',
+    test('a removed draft can be put back where it was, with its files',
         () async {
       final s = await _Session.start();
-      final draft = s.queue.enqueue('first')!;
+      final first = s.queue.enqueue('first')!;
+      s.attach([_file('a.txt')]);
+      final second = s.queue.enqueue('second')!;
+      s.queue.enqueue('third');
+      final before = s.active!;
+      final files = s.parked
+          .where((held) => second.attachmentIds.contains(held.id))
+          .toList();
 
-      (s.container.read(appSettingsProvider.notifier) as _Settings)
-          .setAdvanced(false);
+      check(s.queue.removeDraft(second.id)).isTrue();
+      check(s.parked).isEmpty();
+      check(
+        s.queue.restoreDraft(before, second, 1, attachments: files),
+      ).isTrue();
 
-      check(s.container.read(chatDraftQueueOfferProvider)).isFalse();
-      check(s.active!.drafts.single.id).equals(draft.id);
-      check(s.queue.editDraft(draft.id, 'still mine')).isTrue();
+      check(s.active!.drafts.map((d) => d.text))
+          .deepEquals(['first', 'second', 'third']);
+      check(s.parked.map((held) => held.id)).deepEquals(second.attachmentIds);
+      check(s.parked.single.queueId).equals(s.active!.id);
+      // Putting it back twice does not queue it twice.
+      check(
+        s.queue.restoreDraft(before, second, 1, attachments: files),
+      ).isFalse();
+      check(s.active!.drafts.map((d) => d.id).first).equals(first.id);
+    });
 
-      s.finishResponse();
-      await s.until(() => s.active == null);
-      check((await s.sentUserRows()).single.content).equals('still mine');
+    test('drafts removed one after another go back between the neighbours '
+        'they were removed from, in whatever order they are put back',
+        () async {
+      for (final undo in const [
+        ['a', 'b'],
+        ['b', 'a'],
+      ]) {
+        final s = await _Session.start();
+        final drafts = {
+          for (final text in ['a', 'b', 'c']) text: s.queue.enqueue(text)!,
+        };
+        final seen = [for (final d in s.active!.drafts) d.id];
+        final froms = <String, ChatDraftQueue>{};
+        for (final text in ['a', 'b']) {
+          froms[text] = s.active!;
+          // The index each had when it left: both were first by then.
+          check(s.active!.drafts.first.id).equals(drafts[text]!.id);
+          check(s.queue.removeDraft(drafts[text]!.id)).isTrue();
+        }
+
+        for (final text in undo) {
+          check(
+            s.queue.restoreDraft(
+              froms[text]!,
+              drafts[text]!,
+              0,
+              seenOrder: seen,
+            ),
+          ).isTrue();
+        }
+        check(
+          s.active!.drafts.map((d) => d.text),
+        ).deepEquals(['a', 'b', 'c']);
+      }
+    });
+
+    test('the place to put a draft back follows its nearest neighbour still '
+        'queued', () {
+      int place(List<String> ids, String id, {int fallback = 0}) =>
+          chatDraftRestoreIndex(
+            ids,
+            seenOrder: const ['a', 'b', 'c', 'd'],
+            draftId: id,
+            fallback: fallback,
+          );
+      check(place(['c', 'd'], 'a')).equals(0);
+      check(place(['a', 'c', 'd'], 'b')).equals(1);
+      // b's preceding neighbour is gone, so it goes before c.
+      check(place(['c', 'd'], 'b')).equals(0);
+      check(place(['a', 'x', 'c'], 'b')).equals(1);
+      check(place(['x', 'a'], 'd')).equals(2);
+      // No neighbour left: the index it had.
+      check(place(['x', 'y'], 'b', fallback: 1)).equals(1);
+      check(place(['x'], 'b', fallback: 5)).equals(1);
+      check(
+        chatDraftRestoreIndex(
+          ['x', 'y'],
+          seenOrder: const [],
+          draftId: 'b',
+          fallback: 1,
+        ),
+      ).equals(1);
+    });
+
+    test('the last removed draft comes back in a queue of its own', () async {
+      final s = await _Session.start();
+      final only = s.queue.enqueue('only')!;
+      final before = s.active!;
+
+      check(s.queue.removeDraft(only.id)).isTrue();
+      check(s.active).isNull();
+      check(s.queue.restoreDraft(before, only, 0)).isTrue();
+
+      check(s.active!.id).equals(before.id);
+      check(s.active!.drafts.single.text).equals('only');
+    });
+
+    test('a draft whose file had not finished uploading is not put back',
+        () async {
+      final s = await _Session.start();
+      s.attach([_file('a.txt', status: FileUploadStatus.uploading)]);
+      final draft = s.queue.enqueue('with upload')!;
+      final before = s.active!;
+      final files = List.of(s.parked);
+
+      check(s.queue.removeDraft(draft.id)).isTrue();
+      check(
+        s.queue.restoreDraft(before, draft, 0, attachments: files),
+      ).isFalse();
+      check(s.active).isNull();
+      check(s.parked).isEmpty();
+    });
+
+    test('a draft is never put back under another chat or account', () async {
+      final s = await _Session.start();
+      final draft = s.queue.enqueue('mine')!;
+      final before = s.active!;
+      check(s.queue.removeDraft(draft.id)).isTrue();
+
+      s.signInElsewhere(_Api('server-b'));
+      check(s.queue.restoreDraft(before, draft, 0)).isFalse();
+      check(s.container.read(chatDraftQueueProvider)).isEmpty();
     });
 
     test('a draft being sent can be neither edited nor removed', () async {

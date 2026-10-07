@@ -28,7 +28,6 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/sync/id_remapper.dart' show RemapEvent;
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -177,6 +176,35 @@ enum ChatDraftSendNowOutcome {
   admissionFailed,
 }
 
+/// Where [draftId] goes back among [ids], given [seenOrder], the ids in the
+/// order the user saw when it was removed (the draft included).
+///
+/// It goes right after the nearest draft that preceded it there and is still
+/// in [ids], else right before the nearest one that followed it. Neighbours
+/// that left meanwhile, or were removed and are not back yet, are skipped, so
+/// drafts removed one after another and put back in any order end up in the
+/// order they started in. With no neighbour left, or no [seenOrder], it goes
+/// to [fallback], clamped to [ids].
+int chatDraftRestoreIndex(
+  List<String> ids, {
+  required List<String> seenOrder,
+  required String draftId,
+  required int fallback,
+}) {
+  final at = seenOrder.indexOf(draftId);
+  if (at >= 0) {
+    for (var i = at - 1; i >= 0; i--) {
+      final found = ids.indexOf(seenOrder[i]);
+      if (found >= 0) return found + 1;
+    }
+    for (var i = at + 1; i < seenOrder.length; i++) {
+      final found = ids.indexOf(seenOrder[i]);
+      if (found >= 0) return found;
+    }
+  }
+  return fallback.clamp(0, ids.length);
+}
+
 /// [draft]'s files in order, found among the files [queue] itself captured. A
 /// file another queue holds, under another account or on another chat, is never
 /// one of them, even at the same pathname. A file that is no longer held is
@@ -250,13 +278,10 @@ bool _canDrainRoute(dynamic read) {
 }
 
 /// Whether a draft may be queued now: a response is running on a conversation
-/// that takes queued turns, and Advanced is on. Existing drafts stay visible
-/// and manageable whatever this says.
+/// that takes queued turns. Existing drafts stay visible and manageable
+/// whatever this says.
 final chatDraftQueueOfferProvider = Provider<bool>((ref) {
-  final advanced = ref.watch(
-    appSettingsProvider.select((settings) => settings.advancedFeaturesEnabled),
-  );
-  if (!advanced || !ref.watch(chatMainAnswerActiveProvider)) return false;
+  if (!ref.watch(chatMainAnswerActiveProvider)) return false;
   return _queueableRoute(ref.watch);
 });
 
@@ -448,6 +473,98 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       ),
     );
     _releaseAttachments(queue.id, draft.attachmentIds);
+    _scheduleDrain();
+    return true;
+  }
+
+  /// Puts back a draft the user just removed, at [index] of the queue it left
+  /// (or of the queue the chat has now). [from] is that queue as it was when
+  /// the draft was removed; it names the chat and account the draft belongs
+  /// to, and nothing is restored under any other.
+  ///
+  /// [seenOrder], when given, is the order of draft ids the user saw when they
+  /// removed it, the draft included. The draft then goes back next to the
+  /// neighbours it had there (see [chatDraftRestoreIndex]), so drafts removed
+  /// one after another and put back in any order keep their original order;
+  /// [index] only applies when none of those neighbours is queued.
+  ///
+  /// [attachments] are the draft's files as they were held then, in order. An
+  /// upload is never resumed, so a draft comes back only when every one of its
+  /// files had finished uploading. Returns whether the draft is queued again.
+  bool restoreDraft(
+    ChatDraftQueue from,
+    QueuedChatDraft draft,
+    int index, {
+    List<QueuedDraftAttachment> attachments = const <QueuedDraftAttachment>[],
+    List<String> seenOrder = const <String>[],
+  }) {
+    if (attachments.length != draft.attachmentIds.length) return false;
+    for (final (i, held) in attachments.indexed) {
+      if (held.id != draft.attachmentIds[i] ||
+          held.queueId != from.id ||
+          held.upload.status != FileUploadStatus.completed ||
+          held.upload.fileId == null) {
+        return false;
+      }
+    }
+    final active = ref.read(activeConversationProvider);
+    if (active == null ||
+        active.id != from.chatId ||
+        !_queueableRoute(ref.read) ||
+        !identical(ref.read(appDatabaseProvider), from.database) ||
+        !identical(ref.read(apiServiceProvider), from.api) ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          from.authSessionEpoch,
+        )) {
+      return false;
+    }
+    final current = _active;
+    if (current != null &&
+        current.drafts.any((other) => other.id == draft.id)) {
+      return false;
+    }
+
+    // Removing the last draft dropped its queue. The draft then comes back in
+    // a queue of the same identity, so its files keep their owner.
+    final queueId = current?.id ?? from.id;
+    if (current == null) {
+      state = [
+        ...state,
+        ChatDraftQueue._(
+          id: from.id,
+          chatId: from.chatId,
+          database: from.database,
+          api: from.api,
+          authSessionEpoch: from.authSessionEpoch,
+          drafts: [draft],
+        ),
+      ];
+    } else {
+      _replace(
+        current.id,
+        (queue) => queue._copyWith(
+          drafts: [...queue.drafts]
+            ..insert(
+              chatDraftRestoreIndex(
+                [for (final other in queue.drafts) other.id],
+                seenOrder: seenOrder,
+                draftId: draft.id,
+                fallback: index,
+              ),
+              draft,
+            ),
+        ),
+      );
+    }
+    ref.read(queuedDraftAttachmentsProvider.notifier).adopt([
+      for (final held in attachments)
+        QueuedDraftAttachment(
+          id: held.id,
+          queueId: queueId,
+          upload: held.upload,
+        ),
+    ]);
     _scheduleDrain();
     return true;
   }

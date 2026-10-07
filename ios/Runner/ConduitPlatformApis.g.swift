@@ -241,6 +241,13 @@ enum PlatformNativeSheetItemKind: Int, CaseIterable {
   case statusUpdate = 12
 }
 
+/// Whether a keyboard attachment row turns an option on and off, or runs a
+/// command (attaching a file, opening a sheet).
+enum PlatformKeyboardAttachmentActionKind: Int, CaseIterable {
+  case toggle = 0
+  case command = 1
+}
+
 /// Generated class from Pigeon that represents data sent in messages.
 struct PlatformBackgroundStreamLease: Hashable, CustomStringConvertible {
   var id: String
@@ -793,6 +800,11 @@ struct PlatformKeyboardAttachmentActionConfig: Hashable, CustomStringConvertible
   var subtitle: String? = nil
   var sfSymbol: String
   var section: String
+  /// Localized heading of [section], or null when it shows none.
+  var sectionTitle: String? = nil
+  var kind: PlatformKeyboardAttachmentActionKind
+  /// Localized on/off state a toggle row reads to VoiceOver.
+  var stateLabel: String? = nil
   var enabled: Bool
   var selected: Bool
   var dismissesKeyboard: Bool
@@ -805,9 +817,12 @@ struct PlatformKeyboardAttachmentActionConfig: Hashable, CustomStringConvertible
     let subtitle: String? = nilOrValue(pigeonVar_list[2])
     let sfSymbol = pigeonVar_list[3] as! String
     let section = pigeonVar_list[4] as! String
-    let enabled = pigeonVar_list[5] as! Bool
-    let selected = pigeonVar_list[6] as! Bool
-    let dismissesKeyboard = pigeonVar_list[7] as! Bool
+    let sectionTitle: String? = nilOrValue(pigeonVar_list[5])
+    let kind = pigeonVar_list[6] as! PlatformKeyboardAttachmentActionKind
+    let stateLabel: String? = nilOrValue(pigeonVar_list[7])
+    let enabled = pigeonVar_list[8] as! Bool
+    let selected = pigeonVar_list[9] as! Bool
+    let dismissesKeyboard = pigeonVar_list[10] as! Bool
 
     return PlatformKeyboardAttachmentActionConfig(
       id: id,
@@ -815,6 +830,9 @@ struct PlatformKeyboardAttachmentActionConfig: Hashable, CustomStringConvertible
       subtitle: subtitle,
       sfSymbol: sfSymbol,
       section: section,
+      sectionTitle: sectionTitle,
+      kind: kind,
+      stateLabel: stateLabel,
       enabled: enabled,
       selected: selected,
       dismissesKeyboard: dismissesKeyboard
@@ -827,6 +845,9 @@ struct PlatformKeyboardAttachmentActionConfig: Hashable, CustomStringConvertible
       subtitle,
       sfSymbol,
       section,
+      sectionTitle,
+      kind,
+      stateLabel,
       enabled,
       selected,
       dismissesKeyboard,
@@ -836,7 +857,7 @@ struct PlatformKeyboardAttachmentActionConfig: Hashable, CustomStringConvertible
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.label, rhs.label) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.section, rhs.section) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.enabled, rhs.enabled) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.selected, rhs.selected) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissesKeyboard, rhs.dismissesKeyboard)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.label, rhs.label) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.section, rhs.section) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sectionTitle, rhs.sectionTitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.stateLabel, rhs.stateLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.enabled, rhs.enabled) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.selected, rhs.selected) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissesKeyboard, rhs.dismissesKeyboard)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -846,13 +867,16 @@ struct PlatformKeyboardAttachmentActionConfig: Hashable, CustomStringConvertible
     ConduitPlatformApisPigeonInternal.deepHash(value: subtitle, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: sfSymbol, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: section, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: sectionTitle, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: kind, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: stateLabel, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: enabled, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: selected, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: dismissesKeyboard, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformKeyboardAttachmentActionConfig(id: \(String(describing: id)), label: \(String(describing: label)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), section: \(String(describing: section)), enabled: \(String(describing: enabled)), selected: \(String(describing: selected)), dismissesKeyboard: \(String(describing: dismissesKeyboard)))"
+    return "PlatformKeyboardAttachmentActionConfig(id: \(String(describing: id)), label: \(String(describing: label)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), section: \(String(describing: section)), sectionTitle: \(String(describing: sectionTitle)), kind: \(String(describing: kind)), stateLabel: \(String(describing: stateLabel)), enabled: \(String(describing: enabled)), selected: \(String(describing: selected)), dismissesKeyboard: \(String(describing: dismissesKeyboard)))"
   }
 }
 
@@ -3233,108 +3257,114 @@ private class ConduitPlatformApisPigeonCodecReader: FlutterStandardReader {
       }
       return nil
     case 136:
-      return PlatformBackgroundStreamLease.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
+      if let enumResultAsInt = enumResultAsInt {
+        return PlatformKeyboardAttachmentActionKind(rawValue: enumResultAsInt)
+      }
+      return nil
     case 137:
-      return PlatformBackgroundStartRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStreamLease.fromList(self.readValue() as! [Any?])
     case 138:
-      return PlatformBackgroundStopRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStartRequest.fromList(self.readValue() as! [Any?])
     case 139:
-      return PlatformBackgroundKeepAliveRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStopRequest.fromList(self.readValue() as! [Any?])
     case 140:
-      return PlatformBackgroundAudioSessionOwnerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundKeepAliveRequest.fromList(self.readValue() as! [Any?])
     case 141:
-      return PlatformServiceFailureEvent.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundAudioSessionOwnerRequest.fromList(self.readValue() as! [Any?])
     case 142:
-      return PlatformTimeLimitWarningEvent.fromList(self.readValue() as! [Any?])
+      return PlatformServiceFailureEvent.fromList(self.readValue() as! [Any?])
     case 143:
-      return PlatformStreamsSuspendingEvent.fromList(self.readValue() as! [Any?])
+      return PlatformTimeLimitWarningEvent.fromList(self.readValue() as! [Any?])
     case 144:
-      return PlatformBackgroundTaskExtendedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformStreamsSuspendingEvent.fromList(self.readValue() as! [Any?])
     case 145:
-      return PlatformAppIntentImagePayload.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundTaskExtendedEvent.fromList(self.readValue() as! [Any?])
     case 146:
-      return PlatformAppIntentResponse.fromList(self.readValue() as! [Any?])
+      return PlatformAppIntentImagePayload.fromList(self.readValue() as! [Any?])
     case 147:
-      return PlatformNativePasteImageItem.fromList(self.readValue() as! [Any?])
+      return PlatformAppIntentResponse.fromList(self.readValue() as! [Any?])
     case 148:
-      return PlatformNativePastePayload.fromList(self.readValue() as! [Any?])
+      return PlatformNativePasteImageItem.fromList(self.readValue() as! [Any?])
     case 149:
-      return PlatformKeyboardAttachmentActionConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativePastePayload.fromList(self.readValue() as! [Any?])
     case 150:
-      return PlatformKeyboardAttachmentConfig.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentActionConfig.fromList(self.readValue() as! [Any?])
     case 151:
-      return PlatformKeyboardAttachmentActionEvent.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentConfig.fromList(self.readValue() as! [Any?])
     case 152:
-      return PlatformKeyboardAttachmentVisibilityEvent.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentActionEvent.fromList(self.readValue() as! [Any?])
     case 153:
-      return PlatformRect.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentVisibilityEvent.fromList(self.readValue() as! [Any?])
     case 154:
-      return PlatformDropdownOption.fromList(self.readValue() as! [Any?])
+      return PlatformRect.fromList(self.readValue() as! [Any?])
     case 155:
-      return PlatformImageViewerItem.fromList(self.readValue() as! [Any?])
+      return PlatformDropdownOption.fromList(self.readValue() as! [Any?])
     case 156:
-      return PlatformImageViewerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformImageViewerItem.fromList(self.readValue() as! [Any?])
     case 157:
-      return PlatformDropdownRequest.fromList(self.readValue() as! [Any?])
+      return PlatformImageViewerRequest.fromList(self.readValue() as! [Any?])
     case 158:
-      return PlatformNativeSheetOption.fromList(self.readValue() as! [Any?])
+      return PlatformDropdownRequest.fromList(self.readValue() as! [Any?])
     case 159:
-      return PlatformNativeSheetTheme.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetOption.fromList(self.readValue() as! [Any?])
     case 160:
-      return PlatformNativeSheetItem.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTheme.fromList(self.readValue() as! [Any?])
     case 161:
-      return PlatformNativeSheetLink.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetItem.fromList(self.readValue() as! [Any?])
     case 162:
-      return PlatformNativeSheetSection.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetLink.fromList(self.readValue() as! [Any?])
     case 163:
-      return PlatformNativeEditProfileSheetConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetSection.fromList(self.readValue() as! [Any?])
     case 164:
-      return PlatformNativeProfileSheetUser.fromList(self.readValue() as! [Any?])
+      return PlatformNativeEditProfileSheetConfig.fromList(self.readValue() as! [Any?])
     case 165:
-      return PlatformNativeSheetDetail.fromList(self.readValue() as! [Any?])
+      return PlatformNativeProfileSheetUser.fromList(self.readValue() as! [Any?])
     case 166:
-      return PlatformNativeProfileSheetConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDetail.fromList(self.readValue() as! [Any?])
     case 167:
-      return PlatformNativeSheetModelOption.fromList(self.readValue() as! [Any?])
+      return PlatformNativeProfileSheetConfig.fromList(self.readValue() as! [Any?])
     case 168:
-      return PlatformNativeSheetModelSelectorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelOption.fromList(self.readValue() as! [Any?])
     case 169:
-      return PlatformNativeSheetOptionsSelectorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelSelectorRequest.fromList(self.readValue() as! [Any?])
     case 170:
-      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetOptionsSelectorRequest.fromList(self.readValue() as! [Any?])
     case 171:
-      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
     case 172:
-      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
     case 173:
-      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
     case 174:
-      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
     case 175:
-      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
     case 176:
-      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
     case 177:
-      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
     case 178:
-      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
     case 179:
-      return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
+      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
     case 180:
-      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
     case 181:
-      return PlatformPccImage.fromList(self.readValue() as! [Any?])
+      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
     case 182:
-      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
+      return PlatformPccImage.fromList(self.readValue() as! [Any?])
     case 183:
-      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
+      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
     case 184:
-      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
     case 185:
-      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
     case 186:
-      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
     case 187:
+      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+    case 188:
       return PlatformPccStreamEvent.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -3365,161 +3395,164 @@ private class ConduitPlatformApisPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? PlatformNativeSheetItemKind {
       super.writeByte(135)
       super.writeValue(value.rawValue)
-    } else if let value = value as? PlatformBackgroundStreamLease {
+    } else if let value = value as? PlatformKeyboardAttachmentActionKind {
       super.writeByte(136)
-      super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundStartRequest {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? PlatformBackgroundStreamLease {
       super.writeByte(137)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundStopRequest {
+    } else if let value = value as? PlatformBackgroundStartRequest {
       super.writeByte(138)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundKeepAliveRequest {
+    } else if let value = value as? PlatformBackgroundStopRequest {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundAudioSessionOwnerRequest {
+    } else if let value = value as? PlatformBackgroundKeepAliveRequest {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformServiceFailureEvent {
+    } else if let value = value as? PlatformBackgroundAudioSessionOwnerRequest {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformTimeLimitWarningEvent {
+    } else if let value = value as? PlatformServiceFailureEvent {
       super.writeByte(142)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformStreamsSuspendingEvent {
+    } else if let value = value as? PlatformTimeLimitWarningEvent {
       super.writeByte(143)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundTaskExtendedEvent {
+    } else if let value = value as? PlatformStreamsSuspendingEvent {
       super.writeByte(144)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformAppIntentImagePayload {
+    } else if let value = value as? PlatformBackgroundTaskExtendedEvent {
       super.writeByte(145)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformAppIntentResponse {
+    } else if let value = value as? PlatformAppIntentImagePayload {
       super.writeByte(146)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativePasteImageItem {
+    } else if let value = value as? PlatformAppIntentResponse {
       super.writeByte(147)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativePastePayload {
+    } else if let value = value as? PlatformNativePasteImageItem {
       super.writeByte(148)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentActionConfig {
+    } else if let value = value as? PlatformNativePastePayload {
       super.writeByte(149)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentConfig {
+    } else if let value = value as? PlatformKeyboardAttachmentActionConfig {
       super.writeByte(150)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentActionEvent {
+    } else if let value = value as? PlatformKeyboardAttachmentConfig {
       super.writeByte(151)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentVisibilityEvent {
+    } else if let value = value as? PlatformKeyboardAttachmentActionEvent {
       super.writeByte(152)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformRect {
+    } else if let value = value as? PlatformKeyboardAttachmentVisibilityEvent {
       super.writeByte(153)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformDropdownOption {
+    } else if let value = value as? PlatformRect {
       super.writeByte(154)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformImageViewerItem {
+    } else if let value = value as? PlatformDropdownOption {
       super.writeByte(155)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformImageViewerRequest {
+    } else if let value = value as? PlatformImageViewerItem {
       super.writeByte(156)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformDropdownRequest {
+    } else if let value = value as? PlatformImageViewerRequest {
       super.writeByte(157)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetOption {
+    } else if let value = value as? PlatformDropdownRequest {
       super.writeByte(158)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTheme {
+    } else if let value = value as? PlatformNativeSheetOption {
       super.writeByte(159)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetItem {
+    } else if let value = value as? PlatformNativeSheetTheme {
       super.writeByte(160)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetLink {
+    } else if let value = value as? PlatformNativeSheetItem {
       super.writeByte(161)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetSection {
+    } else if let value = value as? PlatformNativeSheetLink {
       super.writeByte(162)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileSheetConfig {
+    } else if let value = value as? PlatformNativeSheetSection {
       super.writeByte(163)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeProfileSheetUser {
+    } else if let value = value as? PlatformNativeEditProfileSheetConfig {
       super.writeByte(164)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetail {
+    } else if let value = value as? PlatformNativeProfileSheetUser {
       super.writeByte(165)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeProfileSheetConfig {
+    } else if let value = value as? PlatformNativeSheetDetail {
       super.writeByte(166)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelOption {
+    } else if let value = value as? PlatformNativeProfileSheetConfig {
       super.writeByte(167)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelSelectorRequest {
+    } else if let value = value as? PlatformNativeSheetModelOption {
       super.writeByte(168)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetOptionsSelectorRequest {
+    } else if let value = value as? PlatformNativeSheetModelSelectorRequest {
       super.writeByte(169)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
+    } else if let value = value as? PlatformNativeSheetOptionsSelectorRequest {
       super.writeByte(170)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
+    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
       super.writeByte(171)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetResultRequest {
+    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
       super.writeByte(172)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
+    } else if let value = value as? PlatformNativeSheetResultRequest {
       super.writeByte(173)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
+    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
       super.writeByte(174)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
+    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
       super.writeByte(175)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
+    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
       super.writeByte(176)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
+    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
       super.writeByte(177)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
+    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
       super.writeByte(178)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetActionResult {
+    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
       super.writeByte(179)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStatus {
+    } else if let value = value as? PlatformNativeSheetActionResult {
       super.writeByte(180)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccImage {
+    } else if let value = value as? PlatformPccStatus {
       super.writeByte(181)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccMessage {
+    } else if let value = value as? PlatformPccImage {
       super.writeByte(182)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolDefinition {
+    } else if let value = value as? PlatformPccMessage {
       super.writeByte(183)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolCall {
+    } else if let value = value as? PlatformPccToolDefinition {
       super.writeByte(184)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolResult {
+    } else if let value = value as? PlatformPccToolCall {
       super.writeByte(185)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccCompletionRequest {
+    } else if let value = value as? PlatformPccToolResult {
       super.writeByte(186)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStreamEvent {
+    } else if let value = value as? PlatformPccCompletionRequest {
       super.writeByte(187)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPccStreamEvent {
+      super.writeByte(188)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)

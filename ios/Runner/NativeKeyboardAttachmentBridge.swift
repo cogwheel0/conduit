@@ -9,10 +9,21 @@ import UIKit
 private var nativeKeyboardAttachmentInputViewKey: UInt8 = 0
 
 private struct NativeKeyboardAttachmentAction: Equatable {
+    /// Whether the row turns an option on and off, or runs a command.
+    enum Kind: Equatable {
+        case toggle
+        case command
+    }
+
     let id: String
     let label: String
     let subtitle: String?
     let section: String
+    /// Localized heading of the row's section, from Dart; nil shows none.
+    let sectionTitle: String?
+    let kind: Kind
+    /// Localized on/off state of a toggle, read by VoiceOver.
+    let stateLabel: String?
     let sfSymbol: String
     let enabled: Bool
     let selected: Bool
@@ -23,6 +34,9 @@ private struct NativeKeyboardAttachmentAction: Equatable {
         label = config.label
         subtitle = config.subtitle
         section = config.section
+        sectionTitle = config.sectionTitle
+        kind = config.kind == .toggle ? .toggle : .command
+        stateLabel = config.stateLabel
         sfSymbol = config.sfSymbol
         enabled = config.enabled
         selected = config.selected
@@ -43,6 +57,9 @@ private struct NativeKeyboardAttachmentAction: Equatable {
         self.label = label
         subtitle = payload["subtitle"] as? String
         section = (payload["section"] as? String) ?? "attachments"
+        sectionTitle = payload["sectionTitle"] as? String
+        kind = (payload["kind"] as? String) == "toggle" ? .toggle : .command
+        stateLabel = payload["stateLabel"] as? String
         sfSymbol = (payload["sfSymbol"] as? String) ?? "circle"
         enabled = payload["enabled"] as? Bool ?? true
         selected = payload["selected"] as? Bool ?? false
@@ -552,8 +569,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
                 continue
             }
 
-            if key != "attachments", key != "features" {
-                addSectionTitle(title(for: key))
+            if let title = sectionActions.first?.sectionTitle, !title.isEmpty {
+                addSectionTitle(title)
             }
             if key == "attachments" {
                 attachmentStrip = addAttachmentRow(sectionActions)
@@ -587,6 +604,8 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         )
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .tertiaryLabel
+        label.numberOfLines = 0
+        label.accessibilityTraits = .header
         label.setContentHuggingPriority(.required, for: .vertical)
         stackView.addArrangedSubview(label)
         stackView.setCustomSpacing(2, after: label)
@@ -666,20 +685,6 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
 
         stackView.addArrangedSubview(sectionStack)
     }
-
-    /// Maps section identifiers to their native headings.
-    private func title(for section: String) -> String {
-        switch section {
-        case "attachments":
-            return "Attach"
-        case "features":
-            return "Features"
-        case "tools":
-            return "Tools"
-        default:
-            return section.capitalized
-        }
-    }
 }
 
 private final class NativeKeyboardAttachmentTile: UIControl {
@@ -690,6 +695,7 @@ private final class NativeKeyboardAttachmentTile: UIControl {
 
     private let action: NativeKeyboardAttachmentAction
     private let style: Style
+    private weak var listTitleLabel: UILabel?
 
     init(action: NativeKeyboardAttachmentAction, style: Style) {
         self.action = action
@@ -710,6 +716,21 @@ private final class NativeKeyboardAttachmentTile: UIControl {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    /// Titles get a second line at accessibility text sizes.
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.preferredContentSizeCategory
+            != traitCollection.preferredContentSizeCategory
+        else {
+            return
+        }
+        listTitleLabel?.numberOfLines = listTitleLineCount
+    }
+
+    private var listTitleLineCount: Int {
+        traitCollection.preferredContentSizeCategory.isAccessibilityCategory ? 2 : 1
     }
 
     private weak var highlightView: UIView?
@@ -792,8 +813,9 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         ])
     }
 
-    /// A flat menu row: plain symbol, regular-weight title, and a
-    /// checkmark only while the option is on.
+    /// A flat menu row: plain symbol, regular-weight title, and a trailing
+    /// checkmark while a toggle is on, or a chevron on a command that opens
+    /// something.
     private func buildListContent() {
         let highlight = UIView()
         highlight.translatesAutoresizingMaskIntoConstraints = false
@@ -819,28 +841,33 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         titleLabel.font = .preferredFont(forTextStyle: .subheadline)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textColor = foreground
-        titleLabel.numberOfLines = 1
+        titleLabel.numberOfLines = listTitleLineCount
+        listTitleLabel = titleLabel
 
         let subtitleLabel = UILabel()
         subtitleLabel.text = action.subtitle
         subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.textColor = .secondaryLabel
-        subtitleLabel.numberOfLines = 1
+        // A row that can't be used explains why in full; others get two lines.
+        subtitleLabel.numberOfLines = action.enabled ? 2 : 0
         subtitleLabel.isHidden = (action.subtitle ?? "").isEmpty
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
         textStack.axis = .vertical
         textStack.spacing = 0
 
-        let accessory = UIImageView(image: UIImage(systemName: "checkmark"))
+        let isCommand = action.kind == .command
+        let accessory = UIImageView(
+            image: UIImage(systemName: isCommand ? "chevron.right" : "checkmark")
+        )
         accessory.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            textStyle: .subheadline,
+            textStyle: isCommand ? .footnote : .subheadline,
             scale: .medium
         )
-        accessory.tintColor = .label
+        accessory.tintColor = isCommand ? .secondaryLabel : .label
         accessory.contentMode = .scaleAspectFit
-        accessory.isHidden = !action.selected
+        accessory.isHidden = !isCommand && !action.selected
         accessory.translatesAutoresizingMaskIntoConstraints = false
 
         let row = UIStackView(arrangedSubviews: [icon, textStack, accessory])
@@ -856,11 +883,17 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         let accessoryWidth = accessory.widthAnchor.constraint(equalToConstant: 20)
         accessoryWidth.priority = .defaultHigh
 
-        // A selected option also reads as selected to VoiceOver.
+        // A toggle reads its on/off state as its value; without a state
+        // label, a selected option at least reads as selected.
         isAccessibilityElement = true
         accessibilityLabel = action.label
         accessibilityHint = action.subtitle
-        accessibilityTraits = action.selected ? [.button, .selected] : .button
+        if action.kind == .toggle, let state = action.stateLabel, !state.isEmpty {
+            accessibilityValue = state
+            accessibilityTraits = .button
+        } else {
+            accessibilityTraits = action.selected ? [.button, .selected] : .button
+        }
 
         NSLayoutConstraint.activate([
             highlight.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -8),

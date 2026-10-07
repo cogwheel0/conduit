@@ -197,10 +197,15 @@ mixin _AuthApi on _ApiServiceBase {
   }
 
   Future<WorkspacePagedResponse<WorkspacePrincipalPreview>>
-  searchWorkspaceUsers(String query, {int page = 1}) async {
+  searchWorkspaceUsers(
+    String query, {
+    int page = 1,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     final response = await _dio.get(
       '/api/v1/users/search',
       queryParameters: {'query': query, 'page': page},
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
     return WorkspacePagedResponse.fromJson(
       response.data,
@@ -208,11 +213,47 @@ mixin _AuthApi on _ApiServiceBase {
     );
   }
 
-  Future<List<WorkspacePrincipalPreview>> getWorkspaceGroups() async {
-    final response = await _dio.get('/api/v1/groups/');
+  Future<List<WorkspacePrincipalPreview>> getWorkspaceGroups({
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/groups/',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
     return workspaceJsonList(response.data)
         .map(WorkspacePrincipalPreview.group)
         .toList(growable: false);
+  }
+
+  /// Reads the name and email of one user, the way Open WebUI's access editor
+  /// names the people a resource is shared with (`GET /users/{id}/info`, open
+  /// to any verified user).
+  ///
+  /// Returns null when the server has no such user (it answers 400) or will
+  /// not describe them (403/404). Any other failure is thrown, so a caller
+  /// that caches answers can ask again later.
+  Future<WorkspacePrincipalPreview?> getWorkspaceUserInfo(
+    String userId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/api/v1/users/${Uri.encodeComponent(userId)}/info',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
+      final data = response.data;
+      if (data is! Map) return null;
+      final preview = WorkspacePrincipalPreview.user(
+        Map<String, dynamic>.from(data),
+      );
+      return preview.id == userId ? preview : null;
+    } on DioException catch (error) {
+      switch (error.response?.statusCode) {
+        case 400 || 403 || 404:
+          return null;
+      }
+      rethrow;
+    }
   }
 
   // Permissions & Features

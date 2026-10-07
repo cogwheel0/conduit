@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -10,8 +11,9 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/conduit_loading.dart';
+import 'package:conduit/shared/utils/ui_utils.dart';
+import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
-import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_members_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
@@ -101,29 +103,45 @@ class _ChannelMembersSheetState extends ConsumerState<ChannelMembersSheet> {
     _ => l10n.channelMembersChangeFailed,
   };
 
-  Future<void> _remove(ChannelMember member) async {
+  /// Asks first, since a removed member loses the channel and its history,
+  /// then removes as the owner that opened the sheet.
+  Future<void> _remove(ChannelMember member, String name) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.libraryChannelRemoveTitle(name),
+      message: l10n.libraryChannelRemoveMessage,
+      confirmText: l10n.libraryChannelRemoveConfirm,
+      isDestructive: true,
+    );
+    if (!confirmed || !mounted) return;
     setState(() => _actionError = null);
     final result = await _controller.removeMember(member.id);
     if (result == ChannelMemberMutationResult.done) {
       widget.onMembersChanged?.call();
     }
-    if (!mounted ||
-        result == ChannelMemberMutationResult.done ||
-        result == ChannelMemberMutationResult.ownerChanged) {
+    if (!mounted || result == ChannelMemberMutationResult.ownerChanged) {
       return;
     }
-    setState(
-      () =>
-          _actionError = _failureMessage(AppLocalizations.of(context)!, result),
-    );
+    if (result == ChannelMemberMutationResult.done) {
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.libraryChannelMemberRemoved(name),
+        type: AdaptiveSnackBarType.success,
+      );
+      return;
+    }
+    setState(() => _actionError = _failureMessage(l10n, result));
   }
 
   Future<void> _add() async {
+    final state = ref.read(channelMembersControllerProvider(_owner));
     await ThemedSheets.showCustom<void>(
       context: context,
       builder: (_) => ChannelAddMembersSheet(
         owner: _owner,
         onMembersChanged: widget.onMembersChanged,
+        memberIds: {for (final member in state.members) member.id},
       ),
     );
   }
@@ -158,13 +176,15 @@ class _ChannelMembersSheetState extends ConsumerState<ChannelMembersSheet> {
                 ),
               ),
               if (management.canManage)
-                IconButton(
+                ConduitIconButton(
                   key: const Key('channel-members-add'),
                   tooltip: l10n.channelMembersAdd,
-                  icon: Icon(
-                    Icons.person_add_alt_1_outlined,
-                    color: theme.iconSecondary,
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.person_badge_plus,
+                    android: Icons.person_add_alt_1_outlined,
                   ),
+                  iconColor: theme.iconSecondary,
+                  isCompact: true,
                   onPressed: state.mutating ? null : _add,
                 ),
               SheetCloseButton(
@@ -305,34 +325,51 @@ class _ChannelMembersSheetState extends ConsumerState<ChannelMembersSheet> {
   }) {
     final theme = context.conduitTheme;
     final name = member.name.isEmpty ? l10n.channelUnknownMember : member.name;
+    final email = member.email?.trim();
+    final Widget? trailing;
+    if (isSelf) {
+      // The web client does not let you remove yourself.
+      trailing = Text(
+        l10n.you,
+        key: Key('channel-member-self-${member.id}'),
+        style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+      );
+    } else if (canRemove) {
+      trailing = ConduitIconButton(
+        key: Key('channel-member-remove-${member.id}'),
+        tooltip: l10n.channelMembersRemoveMember(name),
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.xmark,
+          android: Icons.close,
+        ),
+        iconColor: theme.iconSecondary,
+        isCompact: true,
+        onPressed: busy ? null : () => _remove(member, name),
+      );
+    } else {
+      trailing = null;
+    }
     return Material(
       color: Colors.transparent,
       child: AdaptiveListTile(
         key: Key('channel-member-${member.id}'),
-        leading: UserAvatar(
-          size: 32,
+        leading: WorkspacePersonAvatar(
+          name: name,
           imageUrl: resolveUserProfileImageUrl(
             _owner.api,
             member.profileImageUrl,
           ),
-          fallbackText: String.fromCharCode(name.runes.first).toUpperCase(),
         ),
         title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: member.role == null
+        subtitle: email == null || email.isEmpty
             ? null
             : Text(
-                member.role!,
+                email,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: theme.bodySmall?.copyWith(color: theme.textSecondary),
               ),
-        trailing: canRemove
-            ? IconButton(
-                key: Key('channel-member-remove-${member.id}'),
-                tooltip: l10n.channelMembersRemoveMember(name),
-                icon: Icon(Icons.close, color: theme.iconSecondary),
-                // The web client disables removing yourself.
-                onPressed: isSelf || busy ? null : () => _remove(member),
-              )
-            : null,
+        trailing: trailing,
       ),
     );
   }
@@ -349,10 +386,16 @@ class ChannelAddMembersSheet extends ConsumerStatefulWidget {
     super.key,
     required this.owner,
     this.onMembersChanged,
+    this.memberIds = const {},
   });
 
   final ChannelMembersOwner owner;
   final VoidCallback? onMembersChanged;
+
+  /// The members already listed, which the picker shows as already added.
+  /// The list is paged, so a member not loaded yet can still be picked; the
+  /// server ignores someone who is already in.
+  final Set<String> memberIds;
 
   @override
   ConsumerState<ChannelAddMembersSheet> createState() =>
@@ -375,20 +418,26 @@ class _ChannelAddMembersSheetState
   }
 
   Future<void> _pick(ChannelMemberManagement management) async {
-    final picked = await WorkspacePrincipalPicker.show(
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await WorkspacePrincipalPicker.showMany(
       context,
       directory: WorkspacePrincipalDirectory.fromApi(_owner.api),
       allowUsers: management.allowUsers,
       allowGroups: management.allowGroups,
+      // Only real members read as "Already a member"; someone picked earlier
+      // in this sheet is not one yet, and picking them again adds nothing.
+      existing: {for (final id in widget.memberIds) 'user:$id'},
+      existingLabel: l10n.libraryPickerAlreadyMember,
     );
     // A pick made for an account that has since changed is not kept.
     if (picked == null || !mounted || !_owner.isCurrent(ref.read)) return;
-    final alreadyPicked = _selected.any(
-      (p) => p.type == picked.type && p.id == picked.id,
-    );
-    if (alreadyPicked) return;
     setState(() {
-      _selected.add(picked);
+      for (final principal in picked) {
+        final alreadyPicked = _selected.any(
+          (p) => p.type == principal.type && p.id == principal.id,
+        );
+        if (!alreadyPicked) _selected.add(principal);
+      }
       _error = null;
     });
   }
@@ -416,6 +465,12 @@ class _ChannelAddMembersSheetState
     if (!mounted) return;
     switch (result) {
       case ChannelMemberMutationResult.done:
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.libraryChannelMembersAdded,
+          type: AdaptiveSnackBarType.success,
+        );
+        _close();
       case ChannelMemberMutationResult.ownerChanged:
         _close();
       case ChannelMemberMutationResult.denied:
@@ -444,7 +499,7 @@ class _ChannelAddMembersSheetState
     ref.listen(channelMembersControllerProvider(_owner), (_, next) {
       if (next.phase == ChannelMembersPhase.ownerChanged) _close();
     });
-    // Management ended (Advanced turned off, permission withdrawn): keep the
+    // Management ended (permission withdrawn, Channels turned off): keep the
     // picks on screen but stop offering to send them.
     final canPickAny = management.allowUsers || management.allowGroups;
 
@@ -474,35 +529,13 @@ class _ChannelAddMembersSheetState
             const SizedBox(height: Spacing.sm),
             if (_selected.isNotEmpty)
               Flexible(
-                child: SingleChildScrollView(
-                  child: Wrap(
-                    spacing: Spacing.xs,
-                    runSpacing: Spacing.xs,
-                    children: [
-                      for (final principal in _selected)
-                        InputChip(
-                          key: Key(
-                            'channel-add-selected-${principal.type.name}-'
-                            '${principal.id}',
-                          ),
-                          avatar: Icon(
-                            principal.type == WorkspacePrincipalType.group
-                                ? Icons.groups_outlined
-                                : Icons.person_outline,
-                            size: IconSize.small,
-                          ),
-                          label: Text(
-                            principal.name.isEmpty
-                                ? principal.id
-                                : principal.name,
-                          ),
-                          onDeleted: _submitting
-                              ? null
-                              : () =>
-                                    setState(() => _selected.remove(principal)),
-                        ),
-                    ],
-                  ),
+                child: ListView(
+                  key: const Key('channel-add-selected-list'),
+                  shrinkWrap: true,
+                  children: [
+                    for (final principal in _selected)
+                      _selectedRow(context, l10n, principal),
+                  ],
                 ),
               ),
             if (!canPickAny)
@@ -527,7 +560,10 @@ class _ChannelAddMembersSheetState
                     (true, false) => l10n.workspaceAccessAddUsers,
                     _ => l10n.workspaceAccessAddGroups,
                   },
-                  icon: Icons.person_add_alt_1_outlined,
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.person_badge_plus,
+                    android: Icons.person_add_alt_1_outlined,
+                  ),
                   isSecondary: true,
                   isFullWidth: true,
                   onPressed: _submitting ? null : () => _pick(management),
@@ -555,6 +591,58 @@ class _ChannelAddMembersSheetState
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// One person or group waiting to be added, with a way to take it back out.
+  Widget _selectedRow(
+    BuildContext context,
+    AppLocalizations l10n,
+    WorkspacePrincipalPreview principal,
+  ) {
+    final theme = context.conduitTheme;
+    final isGroup = principal.type == WorkspacePrincipalType.group;
+    final name = principal.name.trim().isNotEmpty
+        ? principal.name.trim()
+        : isGroup
+        ? l10n.libraryAccessUnknownGroup
+        : l10n.libraryAccessUnknownPerson;
+    final email = principal.email?.trim();
+    return AdaptiveListTile(
+      key: Key(
+        'channel-add-selected-${principal.type.name}-${principal.id}',
+      ),
+      leading: isGroup
+          ? Icon(
+              UiUtils.platformIcon(
+                ios: CupertinoIcons.person_3,
+                android: Icons.groups_outlined,
+              ),
+              color: theme.iconSecondary,
+            )
+          : WorkspacePersonAvatar(
+              name: name,
+              imageUrl: principal.profileImageUrl,
+            ),
+      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: isGroup || email == null || email.isEmpty
+          ? null
+          : Text(email, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: ConduitIconButton(
+        key: Key(
+          'channel-add-remove-${principal.type.name}-${principal.id}',
+        ),
+        tooltip: l10n.libraryAccessRemovePrincipal(name),
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.xmark,
+          android: Icons.close,
+        ),
+        iconColor: theme.iconSecondary,
+        isCompact: true,
+        onPressed: _submitting
+            ? null
+            : () => setState(() => _selected.remove(principal)),
       ),
     );
   }
@@ -593,7 +681,7 @@ class _KeyboardAwareSheet extends StatelessWidget {
         _surfaceChrome -
         Spacing.sm;
     return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
+      duration: context.motionDuration(AnimationDuration.fast),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: keyboard),
       child: ConduitModalSheetSurface(

@@ -20,8 +20,42 @@ String formatCalendarDay(BuildContext context, CalendarWallTime day) =>
 
 /// A wall clock time, in the 12 or 24 hour style the device uses.
 String formatCalendarClock(BuildContext context, CalendarWallTime wall) =>
-    MaterialLocalizations.of(context)
-        .formatTimeOfDay(TimeOfDay(hour: wall.hour, minute: wall.minute));
+    MaterialLocalizations.of(context).formatTimeOfDay(
+      TimeOfDay(hour: wall.hour, minute: wall.minute),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
+
+/// The heading of an agenda day: "Today · Tue, Oct 6" and "Tomorrow · …" for
+/// the next two days, otherwise just the day.
+String formatCalendarDayHeading(
+  BuildContext context,
+  AppLocalizations l10n, {
+  required CalendarWallTime day,
+  required CalendarWallTime today,
+}) {
+  final date = formatCalendarDay(context, day);
+  if (day.sameDate(today)) return l10n.calendarDayToday(date);
+  if (day.sameDate(today.addDays(1))) return l10n.calendarDayTomorrow(date);
+  return date;
+}
+
+/// The first and last day of the agenda, with the year when either is not in
+/// [today]'s year.
+String formatCalendarRange(
+  BuildContext context,
+  AppLocalizations l10n, {
+  required CalendarRange range,
+  required CalendarWallTime today,
+}) {
+  final last = range.endDay.addDays(-1);
+  final withYear = range.firstDay.year != today.year || last.year != today.year;
+  final locale = _locale(context);
+  final format = withYear ? DateFormat.yMMMd(locale) : DateFormat.MMMd(locale);
+  return l10n.calendarRangeLabel(
+    format.format(range.firstDay.fields),
+    format.format(last.fields),
+  );
+}
 
 /// When an item happens, in [zone]: its days for an all-day event, otherwise
 /// its start and end.
@@ -49,8 +83,12 @@ String formatCalendarWhen(
   return '$firstDay $startClock – ${formatCalendarDay(context, end)} $endClock';
 }
 
-/// The time line of an agenda row, which sits under a day heading and so omits
-/// the day.
+/// The time line of an agenda row on [day], which sits under that day's
+/// heading and so omits the day.
+///
+/// A timed event that runs over several days starts on its first day ("Starts
+/// 10:00 PM"), fills the days between ("All day") and ends on its last day
+/// ("Ends 2:00 AM"); an end at midnight leaves its last day whole.
 String formatCalendarRowTime(
   BuildContext context,
   AppLocalizations l10n, {
@@ -58,11 +96,22 @@ String formatCalendarRowTime(
   required int? endNs,
   required bool allDay,
   required CalendarZone zone,
+  required CalendarWallTime day,
 }) {
   if (allDay) return l10n.calendarAllDay;
-  final start = formatCalendarClock(context, wallTimeAt(startNs, zone));
-  if (endNs == null || endNs <= startNs) return start;
-  return '$start – ${formatCalendarClock(context, wallTimeAt(endNs, zone))}';
+  final start = wallTimeAt(startNs, zone);
+  final startClock = formatCalendarClock(context, start);
+  if (endNs == null || endNs <= startNs) return startClock;
+  final end = wallTimeAt(endNs, zone);
+  final span = daySpan(startNs: startNs, endNs: endNs, zone: zone);
+  if (span.first.sameDate(span.last)) {
+    return '$startClock – ${formatCalendarClock(context, end)}';
+  }
+  if (day.sameDate(span.first)) return l10n.calendarStartsAt(startClock);
+  if (day.sameDate(span.last) && day.sameDate(end)) {
+    return l10n.calendarEndsAt(formatCalendarClock(context, end));
+  }
+  return l10n.calendarAllDay;
 }
 
 /// `#rrggbb` as a colour, or null when the server stored none or something

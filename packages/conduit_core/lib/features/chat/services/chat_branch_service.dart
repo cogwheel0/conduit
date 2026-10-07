@@ -58,8 +58,9 @@ final class ChatBranchException implements Exception {
 
 /// The message graph of one chat: every message, not the presentation window.
 ///
-/// Holds only ids, parents, roles and ordered children, so it is cheap to build
-/// from a stored envelope and safe to hand across an isolate. Reading it never
+/// Holds only ids, parents, roles, ordered children and a short text preview,
+/// so it is cheap to build from a stored envelope and safe to hand across an
+/// isolate. Reading it never
 /// modifies the stored graph, and malformed input (a missing child, a cycle, an
 /// orphan) only shortens a walk.
 @immutable
@@ -83,6 +84,7 @@ final class ChatBranchGraph {
           parentId: parentId,
           role: normalizeMessageId(value['role']) ?? '',
           childrenIds: coerceMessageIdList(value['childrenIds']),
+          preview: _previewOf(value['content']),
         );
         if (parentId != null) {
           pointingAt.putIfAbsent(parentId, () => <String>[]).add(id);
@@ -105,6 +107,7 @@ final class ChatBranchGraph {
         parentId: entry.value.parentId,
         role: entry.value.role,
         childrenIds: List<String>.unmodifiable(listed),
+        preview: entry.value.preview,
       );
     }
     return ChatBranchGraph._(Map<String, _Node>.unmodifiable(nodes));
@@ -146,29 +149,77 @@ final class ChatBranchGraph {
   ChatBranchSiblings? siblingsOf(String messageId) {
     final displayed = _nodes[messageId];
     if (displayed == null) return null;
+    final ids = [
+      for (final id in siblingIdsOf(messageId))
+        if (_nodes[id]!.role == displayed.role) id,
+    ];
     return ChatBranchSiblings(
       messageId: messageId,
-      ids: [
-        for (final id in siblingIdsOf(messageId))
-          if (_nodes[id]!.role == displayed.role) id,
-      ],
+      ids: ids,
+      previews: {
+        for (final id in ids)
+          if (_nodes[id]!.preview.isNotEmpty) id: _nodes[id]!.preview,
+      },
     );
   }
 }
 
-typedef _Node = ({String? parentId, String role, List<String> childrenIds});
+typedef _Node = ({
+  String? parentId,
+  String role,
+  List<String> childrenIds,
+  String preview,
+});
+
+/// Longest preview kept per message: enough for a two-line subtitle, small
+/// enough that a long chat's graph stays cheap to pass between isolates.
+const int _previewLength = 160;
+
+/// A message's text on one line, shortened to [_previewLength]. Only plain text
+/// parts count; attachments and other parts have nothing to show here.
+String _previewOf(Object? content) {
+  final String text;
+  if (content is String) {
+    text = content;
+  } else if (content is List) {
+    text = content
+        .whereType<Map>()
+        .where((part) => part['type'] == 'text')
+        .map((part) => part['text'])
+        .whereType<String>()
+        .join(' ');
+  } else {
+    return '';
+  }
+  final collapsed = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (collapsed.length <= _previewLength) return collapsed;
+  // Never cut a surrogate pair in half.
+  final lead = collapsed.codeUnitAt(_previewLength - 1);
+  final end = lead >= 0xD800 && lead <= 0xDBFF
+      ? _previewLength - 1
+      : _previewLength;
+  return '${collapsed.substring(0, end).trimRight()}…';
+}
 
 /// The alternatives to one displayed message, identified by their real message
 /// ids, in the order Open WebUI shows them.
 @immutable
 final class ChatBranchSiblings {
-  const ChatBranchSiblings({required this.messageId, required this.ids});
+  const ChatBranchSiblings({
+    required this.messageId,
+    required this.ids,
+    this.previews = const <String, String>{},
+  });
 
   /// The message these are alternatives to.
   final String messageId;
 
   /// Same parent and role, [messageId] included.
   final List<String> ids;
+
+  /// A short one-line excerpt of each version's text, by id. A version with no
+  /// text (only attachments, say) has no entry.
+  final Map<String, String> previews;
 
   /// [messageId]'s 0-based position among [ids].
   int get index => ids.indexOf(messageId);

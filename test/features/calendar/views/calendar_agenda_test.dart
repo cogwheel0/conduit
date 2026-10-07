@@ -1,13 +1,31 @@
+import 'dart:async';
+
+import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'calendar_harness.dart';
 
 Finder item(String key) => find.byKey(Key('calendar-item-$key'));
+
+/// [utc] as the server's epoch nanoseconds.
+int ns(DateTime utc) => utc.microsecondsSinceEpoch * 1000;
+
+/// The RSVP segment labelled [label] in the event sheet.
+Finder rsvp(String label) => find.descendant(
+  of: find.byKey(const Key('calendar-rsvp')),
+  matching: find.text(label),
+);
+
+Future<void> openCalendars(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('calendar-manage-calendars')));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   group('the agenda', () {
@@ -35,7 +53,7 @@ void main() {
 
       expect(find.byKey(const Key('calendar-range')), findsOneWidget);
       expect(find.text('Oct 6 – Oct 19'), findsOneWidget);
-      expect(find.text('Tue, Oct 6'), findsOneWidget);
+      expect(find.text('Today · Tue, Oct 6'), findsOneWidget);
       expect(find.text('5:09 PM – 6:09 PM'), findsOneWidget);
       // A span of days is listed on each of them.
       for (final day in ['Mon, Oct 12', 'Tue, Oct 13', 'Wed, Oct 14']) {
@@ -43,7 +61,123 @@ void main() {
       }
       expect(find.text('Offsite'), findsNWidgets(3));
       expect(find.text('All day'), findsNWidgets(3));
-      expect(find.byKey(const Key('calendar-timezone-note')), findsOneWidget);
+      expect(
+        find.text("Times are shown in this device's time zone."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a timed event over several days starts, fills and ends its '
+        'days', (tester) async {
+      await pumpCalendar(
+        tester,
+        configureWire: (wire) => wire.events = [
+          // 22:00 on Wed Oct 7 to 02:00 on Fri Oct 9 at UTC-4.
+          eventJson(
+            'ev-night',
+            'cal-mine',
+            title: 'Night shift',
+            startAt: ns(DateTime.utc(2026, 10, 8, 2)),
+            endAt: ns(DateTime.utc(2026, 10, 9, 6)),
+          ),
+          // 22:00 on Sat Oct 10 to midnight at the end of Sun Oct 11.
+          eventJson(
+            'ev-weekend',
+            'cal-mine',
+            title: 'Weekend',
+            startAt: ns(DateTime.utc(2026, 10, 11, 2)),
+            endAt: ns(DateTime.utc(2026, 10, 12, 4)),
+          ),
+        ],
+      );
+
+      // The event is listed under each of its days, in order.
+      String label(String key, int day) =>
+          tester.getSemantics(item(key).at(day)).label;
+
+      expect(item('ev-night|'), findsNWidgets(3));
+      expect(label('ev-night|', 0), 'Night shift. Starts 10:00 PM. Personal');
+      expect(label('ev-night|', 1), 'Night shift. All day. Personal');
+      expect(label('ev-night|', 2), 'Night shift. Ends 2:00 AM. Personal');
+      // The first day's time was once its whole span.
+      expect(find.text('10:00 PM – 2:00 AM'), findsNothing);
+      expect(item('ev-weekend|'), findsNWidgets(2));
+      expect(label('ev-weekend|', 0), 'Weekend. Starts 10:00 PM. Personal');
+      expect(label('ev-weekend|', 1), 'Weekend. All day. Personal');
+      // Ending at midnight leaves no row on the next day.
+      expect(
+        find.byKey(const Key('calendar-day-2026-10-12T00:00')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('times follow the device\'s 24-hour setting', (tester) async {
+      await pumpCalendar(tester, alwaysUse24HourFormat: true);
+
+      expect(find.text('17:09 – 18:09'), findsOneWidget);
+      expect(find.textContaining('PM'), findsNothing);
+    });
+
+    testWidgets('day headings are headers that name today and tomorrow', (
+      tester,
+    ) async {
+      await pumpCalendar(
+        tester,
+        configureWire: (wire) => wire.events = [
+          eventJson('ev-mine', 'cal-mine', title: 'Planning'),
+          eventJson(
+            'ev-next',
+            'cal-mine',
+            title: 'Review',
+            startAt: ns(DateTime.utc(2026, 10, 7, 14)),
+            endAt: ns(DateTime.utc(2026, 10, 7, 15)),
+          ),
+          eventJson(
+            'ev-later',
+            'cal-mine',
+            title: 'Retro',
+            startAt: ns(DateTime.utc(2026, 10, 9, 14)),
+            endAt: ns(DateTime.utc(2026, 10, 9, 15)),
+          ),
+        ],
+      );
+
+      expect(find.text('Today · Tue, Oct 6'), findsOneWidget);
+      expect(find.text('Tomorrow · Wed, Oct 7'), findsOneWidget);
+      expect(find.text('Fri, Oct 9'), findsOneWidget);
+      expect(
+        tester.getSemantics(
+          find.byKey(const Key('calendar-day-2026-10-06T00:00')),
+        ),
+        isSemantics(isHeader: true),
+      );
+    });
+
+    testWidgets('a row reads its title, time, calendar and answer', (
+      tester,
+    ) async {
+      await pumpCalendar(
+        tester,
+        configureWire: (wire) => wire.events = [
+          eventJson('ev-mine', 'cal-mine', title: ''),
+          eventJson(
+            'ev-invite',
+            'cal-ro',
+            title: 'Open house',
+            owner: 'user-9',
+            attendees: [attendeeJson('ev-invite', 'user-1')],
+          ),
+        ],
+      );
+
+      expect(
+        tester.getSemantics(item('ev-mine|')).label,
+        'Untitled event. 5:09 PM – 6:09 PM. Personal',
+      );
+      expect(
+        tester.getSemantics(item('ev-invite|')).label,
+        'Open house. 5:09 PM – 6:09 PM. Holidays. No response yet',
+      );
     });
 
     testWidgets('lists every occurrence of a recurring event', (tester) async {
@@ -92,14 +226,27 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Oct 6 – Oct 19'), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('calendar-filter-cal-ro')));
+      // Calendars are shown or hidden from the Calendars sheet.
+      await openCalendars(tester);
+      await tester.tap(find.byKey(const Key('calendar-row-cal-ro')));
       await tester.pumpAndSettle();
       expect(
-        session.wire.agendaRequests.last.uri.queryParameters['calendar_ids'],
-        'cal-ro',
+        session.wire.agendaRequests.last.uri.queryParameters['calendar_ids']!
+            .split(',')
+            .toSet(),
+        {'cal-mine', 'cal-rw'},
+      );
+      expect(
+        tester.getSemantics(find.byKey(const Key('calendar-row-cal-ro'))),
+        isSemantics(isSelected: false, hasSelectedState: true),
+      );
+      expect(
+        tester.getSemantics(find.byKey(const Key('calendar-row-cal-mine'))),
+        isSemantics(isSelected: true, hasSelectedState: true),
       );
 
-      await tester.tap(find.byKey(const Key('calendar-filter-all')));
+      // Showing every calendar again asks for all of them.
+      await tester.tap(find.byKey(const Key('calendar-row-cal-ro')));
       await tester.pumpAndSettle();
       expect(
         session.wire.agendaRequests.last.uri.queryParameters.containsKey(
@@ -109,23 +256,151 @@ void main() {
       );
     });
 
-    testWidgets('says so when there is nothing in the period', (tester) async {
+    testWidgets('the last shown calendar cannot be hidden', (tester) async {
+      final session = await pumpCalendar(tester);
+      await openCalendars(tester);
+
+      await tester.tap(find.byKey(const Key('calendar-row-cal-ro')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('calendar-row-cal-rw')));
+      await tester.pumpAndSettle();
+      final before = session.wire.agendaRequests.length;
+      await tester.tap(find.byKey(const Key('calendar-row-cal-mine')));
+      await tester.pumpAndSettle();
+
+      expect(session.wire.agendaRequests.length, before);
+      expect(
+        session.wire.agendaRequests.last.uri.queryParameters['calendar_ids'],
+        'cal-mine',
+      );
+    });
+
+    testWidgets('the range bar pages with labelled chevrons, shows progress, '
+        'and returns to today', (tester) async {
+      final session = await pumpCalendar(tester);
+      ConduitTextButton today() => tester.widget<ConduitTextButton>(
+        find.byKey(const Key('calendar-today')),
+      );
+
+      // Already at today, so there is nowhere to return to.
+      expect(today().onPressed, isNull);
+      expect(find.byTooltip('Previous 14 days'), findsOneWidget);
+      expect(find.byTooltip('Next 14 days'), findsOneWidget);
+
+      final gate = Completer<void>();
+      session.wire.holdAgenda = gate;
+      await tester.tap(find.byKey(const Key('calendar-later')));
+      await tester.pump();
+      expect(find.byKey(const Key('calendar-paging')), findsOneWidget);
+      gate.complete();
+      session.wire.holdAgenda = null;
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-paging')), findsNothing);
+      expect(find.text('Oct 20 – Nov 2'), findsOneWidget);
+      expect(today().onPressed, isNotNull);
+
+      // A range outside this year carries the year.
+      for (var page = 0; page < 5; page++) {
+        await tester.tap(find.byKey(const Key('calendar-later')));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Dec 29, 2026 – Jan 11, 2027'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('calendar-earlier')));
+      await tester.pumpAndSettle();
+      expect(find.text('Dec 15 – Dec 28'), findsOneWidget);
+    });
+
+    testWidgets('a quick second page keeps its progress until it loads', (
+      tester,
+    ) async {
+      final session = await pumpCalendar(tester);
+
+      int agendaReads() => session.wire.requests
+          .where((r) => r.uri.path == '/api/v1/calendars/events')
+          .length;
+      // Taps the chevron and waits until its read reached the server and is
+      // held there by [gate].
+      Future<void> page(String key, Completer<void> gate) async {
+        final reads = agendaReads();
+        session.wire.holdAgenda = gate;
+        await tester.tap(find.byKey(Key(key)));
+        for (var i = 0; i < 20 && agendaReads() == reads; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(agendaReads(), reads + 1);
+      }
+
+      final first = Completer<void>();
+      await page('calendar-later', first);
+      final second = Completer<void>();
+      await page('calendar-earlier', second);
+
+      // The first page lands while the second is still loading.
+      first.complete();
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(find.byKey(const Key('calendar-paging')), findsOneWidget);
+
+      second.complete();
+      session.wire.holdAgenda = null;
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-paging')), findsNothing);
+    });
+
+    testWidgets('a page that fails to load keeps the range bar and offers to '
+        'retry', (tester) async {
+      final session = await pumpCalendar(tester);
+      session.wire.failAgenda = true;
+
+      await tester.tap(find.byKey(const Key('calendar-later')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Oct 20 – Nov 2'), findsOneWidget);
+      expect(find.byKey(const Key('calendar-retry')), findsOneWidget);
+      expect(find.byKey(const Key('calendar-earlier')), findsOneWidget);
+
+      session.wire.failAgenda = false;
+      await tester.tap(find.byKey(const Key('calendar-retry')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-retry')), findsNothing);
+      expect(
+        session.wire.agendaRequests.last.uri.queryParameters['start'],
+        '2026-10-20T00:00:00-04:00',
+      );
+    });
+
+    testWidgets('says so when there is nothing in the period, and offers a '
+        'new event', (tester) async {
       await pumpCalendar(tester, configureWire: (wire) => wire.events = []);
 
       expect(find.byKey(const Key('calendar-empty')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('calendar-empty-add')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-editor-save')), findsOneWidget);
+    });
+
+    testWidgets('a new event starts from the navigation bar', (tester) async {
+      await pumpCalendar(tester);
+
+      expect(find.byTooltip('New event'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('calendar-add-event')));
+      await tester.pumpAndSettle();
+      expect(find.text('New event'), findsWidgets);
+      expect(find.byKey(const Key('calendar-editor-save')), findsOneWidget);
     });
   });
 
   group('who may open it', () {
-    testWidgets('Advanced off explains itself and sends nothing', (
-      tester,
-    ) async {
-      final session = await pumpCalendar(tester, settings: const AppSettings());
+    testWidgets('anyone the server allows, with Advanced off', (tester) async {
+      final session = await pumpCalendar(tester);
 
-      expect(find.byKey(const Key('calendar-needs-advanced')), findsOneWidget);
-      expect(session.wire.requests, isEmpty);
-      // Turning Advanced off hides the screen; the events stay where they are.
-      expect(session.wire.events, hasLength(1));
+      expect(
+        session.container.read(appSettingsProvider).advancedFeaturesEnabled,
+        isFalse,
+      );
+      expect(find.byKey(const Key('calendar-range')), findsOneWidget);
     });
 
     testWidgets('a server or account without the calendar sees why', (
@@ -299,13 +574,19 @@ void main() {
       expect(find.byKey(const Key('calendar-event-delete')), findsNothing);
       expect(find.byKey(const Key('calendar-event-read-only')), findsOneWidget);
       expect(
+        find.text(
+          "You can't change this event. You can still answer an invitation.",
+        ),
+        findsOneWidget,
+      );
+      expect(
         session.wire.requests.where(
           (r) => r.uri.path == '/api/v1/calendars/events/ev-invite',
         ),
         isEmpty,
       );
 
-      await tester.tap(find.byKey(const Key('calendar-rsvp-tentative')));
+      await tester.tap(rsvp('Maybe'));
       await tester.pumpAndSettle();
 
       final write = session.wire.writes.single;
@@ -318,16 +599,71 @@ void main() {
       expect(find.text('Maybe'), findsWidgets);
     });
 
+    testWidgets('the answer stays shown and takes no tap while it sends', (
+      tester,
+    ) async {
+      final session = await pumpCalendar(tester, configureWire: withInvitation);
+      final haptics = <Object?>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            haptics.add(call.arguments);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      CalendarRsvp shown() => tester
+          .widget<AdaptiveSegmentedSelector<CalendarRsvp>>(
+            find.byKey(const Key('calendar-rsvp')),
+          )
+          .value;
+
+      await tester.tap(item('ev-invite|'));
+      await tester.pumpAndSettle();
+      final gate = Completer<void>();
+      session.wire.holdWrites = gate;
+      await tester.tap(rsvp('Going'));
+      await tester.pump();
+      expect(find.byKey(const Key('calendar-rsvp-sending')), findsOneWidget);
+      expect(shown(), CalendarRsvp.accepted);
+      haptics.clear();
+
+      await tester.tap(rsvp('Maybe'));
+      await tester.pump();
+      expect(haptics, isEmpty);
+      expect(shown(), CalendarRsvp.accepted);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(session.wire.writes.single.data, {'status': 'accepted'});
+    });
+
     testWidgets('a refused RSVP says so and changes nothing', (tester) async {
       final session = await pumpCalendar(tester, configureWire: withInvitation);
       session.wire.rejectWrites = (status: 404, detail: 'Not an attendee');
 
       await tester.tap(item('ev-invite|'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('calendar-rsvp-accepted')));
+      await tester.tap(rsvp('Going'));
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('calendar-event-error')), findsOneWidget);
+      // The refused answer is not left looking chosen.
+      expect(
+        tester
+            .widget<AdaptiveSegmentedSelector<CalendarRsvp>>(
+              find.byKey(const Key('calendar-rsvp')),
+            )
+            .value,
+        CalendarRsvp.pending,
+      );
       expect(
         session.wire.stored('ev-invite')!['attendees'][0]['status'],
         'pending',
@@ -352,7 +688,7 @@ void main() {
 
       await tester.tap(item('ev-ro|'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('calendar-rsvp-declined')));
+      await tester.tap(rsvp("Can't go"));
       await tester.pumpAndSettle();
 
       expect(session.wire.writes.single.uri.path, endsWith('/ev-ro/rsvp'));
@@ -371,6 +707,48 @@ void main() {
       expect(find.byKey(const Key('calendar-event-delete')), findsOneWidget);
     });
 
+    testWidgets('an answer on its way holds Edit without showing it as '
+        'loading', (tester) async {
+      final session = await pumpCalendar(
+        tester,
+        configureWire: (wire) => wire.events = [
+          eventJson(
+            'ev-mine',
+            'cal-mine',
+            attendees: [attendeeJson('ev-mine', 'user-1')],
+          ),
+        ],
+      );
+      await tester.tap(item('ev-mine|'));
+      await tester.pumpAndSettle();
+      ConduitButton edit() => tester.widget<ConduitButton>(
+        find.byKey(const Key('calendar-event-edit')),
+      );
+      expect(edit().isLoading, isFalse);
+
+      final gate = Completer<void>();
+      session.wire.holdWrites = gate;
+      await tester.tap(rsvp('Going'));
+      await tester.pump();
+      expect(find.byKey(const Key('calendar-rsvp-sending')), findsOneWidget);
+      expect(edit().onPressed, isNull);
+      expect(edit().isLoading, isFalse);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(edit().onPressed, isNotNull);
+
+      // Fetching the event to edit is what shows on Edit.
+      final read = Completer<void>();
+      session.wire.holdEventReads = read;
+      await tester.tap(find.byKey(const Key('calendar-event-edit')));
+      await tester.pump();
+      expect(edit().isLoading, isTrue);
+      read.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-editor-save')), findsOneWidget);
+    });
+
     testWidgets('an event in a read-only calendar can be neither', (
       tester,
     ) async {
@@ -385,7 +763,74 @@ void main() {
 
       expect(find.byKey(const Key('calendar-event-edit')), findsNothing);
       expect(find.byKey(const Key('calendar-event-delete')), findsNothing);
-      expect(find.byKey(const Key('calendar-event-read-only')), findsOneWidget);
+      expect(find.text("You can't change this event."), findsOneWidget);
+    });
+
+    testWidgets('shows its details as rows and its actions stacked, after a '
+        'loading indicator', (tester) async {
+      final session = await pumpCalendar(
+        tester,
+        configureWire: (wire) => wire.events = [
+          eventJson(
+            'ev-mine',
+            'cal-mine',
+            title: 'Planning',
+            attendees: [attendeeJson('ev-mine', 'user-3')],
+          ),
+        ],
+      );
+      final gate = Completer<void>();
+      session.wire.holdEventReads = gate;
+
+      await tester.tap(item('ev-mine|'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('calendar-event-loading')), findsOneWidget);
+      expect(find.byKey(const Key('calendar-event-edit')), findsNothing);
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('calendar-event-loading')), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('calendar-event-calendar')),
+          matching: find.text('Personal'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('calendar-event-invited')),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
+      final edit = tester.getRect(find.byKey(const Key('calendar-event-edit')));
+      final delete = tester.getRect(
+        find.byKey(const Key('calendar-event-delete')),
+      );
+      expect(delete.top, greaterThan(edit.bottom));
+      expect(delete.width, edit.width);
+    });
+
+    testWidgets('an untitled event is named in the delete question', (
+      tester,
+    ) async {
+      await pumpCalendar(
+        tester,
+        configureWire: (wire) =>
+            wire.events = [eventJson('ev-mine', 'cal-mine', title: '')],
+      );
+
+      await tester.tap(item('ev-mine|'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('calendar-event-delete')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Delete Untitled event? This cannot be undone.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a refused detail read keeps the agenda copy, turns editing '
@@ -499,8 +944,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.byKey(const Key('calendar-manage-calendars')));
-      await tester.pumpAndSettle();
+      await openCalendars(tester);
 
       // The other owner's default and a shared calendar get no button, and the
       // account's current default has nothing to offer.
@@ -531,20 +975,64 @@ void main() {
       );
     });
 
-    testWidgets('the scheduled-tasks calendar cannot be chosen as a default '
-        'or listed for events', (tester) async {
+    testWidgets('the scheduled-tasks calendar can be hidden but not made a '
+        'default', (tester) async {
       await pumpCalendar(
         tester,
         configureWire: (wire) => wire.virtualCalendar = true,
       );
 
-      await tester.tap(find.byKey(const Key('calendar-manage-calendars')));
-      await tester.pumpAndSettle();
+      await openCalendars(tester);
 
       expect(
         find.byKey(Key('calendar-row-$scheduledTasksCalendarId')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(Key('calendar-make-default-$scheduledTasksCalendarId')),
         findsNothing,
       );
+    });
+
+    testWidgets('a new calendar is behind an add row, and its colours are '
+        'named buttons', (tester) async {
+      final session = await pumpCalendar(tester);
+      await openCalendars(tester);
+
+      expect(find.byKey(const Key('calendar-new-name')), findsNothing);
+      await tester.tap(find.byKey(const Key('calendar-new-calendar')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calendar-new-name')), findsOneWidget);
+
+      final green = find.byKey(const Key('calendar-new-color-#22c55e'));
+      expect(tester.getSize(green).height, greaterThanOrEqualTo(44));
+      expect(
+        tester.getSemantics(green),
+        isSemantics(
+          label: 'Green',
+          isButton: true,
+          isSelected: false,
+          hasSelectedState: true,
+        ),
+      );
+      await tester.tap(green);
+      await tester.pump();
+      expect(
+        tester.getSemantics(green),
+        isSemantics(isSelected: true, hasSelectedState: true),
+      );
+
+      await tester.enterText(find.byKey(const Key('calendar-new-name')), 'Gym');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('calendar-create-calendar')));
+      await tester.pumpAndSettle();
+
+      expect(session.wire.writes.single.data, {
+        'name': 'Gym',
+        'color': '#22c55e',
+      });
+      // The form folds away again once the calendar exists.
+      expect(find.byKey(const Key('calendar-new-name')), findsNothing);
     });
   });
 }

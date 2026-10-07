@@ -39,7 +39,7 @@ void main() {
           isAuthLoadingProvider2.overrideWithValue(false),
           apiServiceProvider.overrideWithValue(null),
           appSettingsProvider.overrideWithValue(const AppSettings()),
-          calendarEntryVisibleProvider.overrideWithValue(visible),
+          calendarAvailableProvider.overrideWithValue(visible),
         ],
         child: MaterialApp.router(
           routerConfig: router,

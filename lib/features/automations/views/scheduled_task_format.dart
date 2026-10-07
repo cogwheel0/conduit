@@ -12,17 +12,28 @@ import '../../../l10n/app_localizations.dart';
 String _locale(BuildContext context) =>
     Localizations.localeOf(context).toString();
 
+/// A date with its time of day, in the 12 or 24 hour style the device uses.
+DateFormat _dateAndTime(BuildContext context) {
+  final date = DateFormat.yMMMd(_locale(context));
+  return MediaQuery.alwaysUse24HourFormatOf(context)
+      ? date.add_Hm()
+      : date.add_jm();
+}
+
 /// A server nanosecond timestamp as a local date and time, or null when the
 /// server sent none.
 String? formatServerTime(BuildContext context, int? nanoseconds) {
   final time = dateTimeFromEpochNanoseconds(nanoseconds);
   if (time == null) return null;
-  return DateFormat.yMMMd(_locale(context)).add_jm().format(time);
+  return _dateAndTime(context).format(time);
 }
 
+/// A wall clock time, in the 12 or 24 hour style the device uses.
 String formatWallClockTime(BuildContext context, int hour, int minute) =>
-    MaterialLocalizations.of(context)
-        .formatTimeOfDay(TimeOfDay(hour: hour, minute: minute));
+    MaterialLocalizations.of(context).formatTimeOfDay(
+      TimeOfDay(hour: hour, minute: minute),
+      alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
 
 /// Short weekday name for a rule code such as `MO`, in the app's language.
 String weekdayLabel(BuildContext context, String code) {
@@ -40,7 +51,7 @@ String scheduleSummary(
 ) {
   return switch (schedule) {
     OnceAutomationSchedule() => l10n.scheduledTaskScheduleOnceSummary(
-      DateFormat.yMMMd(_locale(context)).add_jm().format(schedule.wallClock),
+      _dateAndTime(context).format(schedule.wallClock),
     ),
     DailyAutomationSchedule() => l10n.scheduledTaskScheduleDailySummary(
       formatWallClockTime(context, schedule.hour, schedule.minute),

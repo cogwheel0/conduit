@@ -15,6 +15,8 @@ import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
+import 'package:conduit_core/features/sharing/providers/principal_lookup.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -131,9 +133,11 @@ class _DetailApi extends ApiService {
 Map<String, dynamic> _noteJson({
   required bool writeAccess,
   String owner = 'creator',
+  String? ownerName,
 }) => {
   'id': 'note-1',
   'user_id': owner,
+  if (ownerName != null) 'user': {'id': owner, 'name': ownerName},
   'title': 'Shared note',
   'write_access': writeAccess,
   'data': {
@@ -187,7 +191,7 @@ void main() {
   Future<ProviderContainer> pumpEditor(
     WidgetTester tester,
     _DetailApi api, {
-    bool advanced = false,
+    Map<String, String> userNames = const {},
   }) async {
     final container = ProviderContainer(
       // A provider that errors would otherwise schedule a retry timer.
@@ -200,13 +204,26 @@ void main() {
         currentUserProvider2.overrideWith((ref) => ref.watch(_currentUser)),
         connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
         isOnlineProvider.overrideWithValue(true),
-        appSettingsProvider.overrideWithValue(
-          AppSettings(advancedFeaturesEnabled: advanced),
-        ),
+        // Advanced stays off: nothing here depends on it.
+        appSettingsProvider.overrideWithValue(const AppSettings()),
         workspaceCapabilitiesProvider.overrideWith(
           (ref) async => WorkspaceCapabilities.all,
         ),
         syncEngineProvider.overrideWith(_QuietSyncEngine.new),
+        // People are named from a fixed list, never the network.
+        workspacePrincipalLookupProvider.overrideWithValue(
+          WorkspacePrincipalLookup(
+            fetchUser: (id) async => switch (userNames[id]) {
+              final String name => WorkspacePrincipalPreview(
+                id: id,
+                type: WorkspacePrincipalType.user,
+                name: name,
+              ),
+              null => null,
+            },
+            fetchGroups: () async => const [],
+          ),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -283,6 +300,41 @@ void main() {
       expect(api.updates, 0);
     },
   );
+
+  testWidgets('a read-only note names who shared it, with a lock', (
+    tester,
+  ) async {
+    final note = _noteJson(writeAccess: false, ownerName: 'Casey');
+    final api = _DetailApi(detail: note);
+    await storeLocally(note);
+    await pumpEditor(tester, api);
+
+    expect(
+      find.text(l10n(tester).libraryNoteSharedBy('Casey')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('note-access-notice')),
+        matching: find.byIcon(Icons.lock_outline),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the owner of a read-only note is looked up when the note does '
+      'not name them', (tester) async {
+    final api = _DetailApi(detail: _noteJson(writeAccess: false));
+    await storeLocally(_noteJson(writeAccess: false));
+    await pumpEditor(tester, api, userNames: {'creator': 'Robin'});
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.text(l10n(tester).libraryNoteSharedBy('Robin')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('access revoked before save keeps the draft and never resends', (
     tester,
@@ -497,12 +549,12 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('is offered with Advanced on and opens the access sheet', (
+    testWidgets('is offered with Advanced off and opens the access sheet', (
       tester,
     ) async {
       final api = _DetailApi(detail: _noteJson(writeAccess: true));
       await storeLocally(_noteJson(writeAccess: true));
-      await pumpEditor(tester, api, advanced: true);
+      await pumpEditor(tester, api);
 
       await openOverflow(tester);
       await tester.tap(find.text(l10n(tester).noteShare));
@@ -512,28 +564,10 @@ void main() {
       expect(find.byKey(const Key('workspace-access-list')), findsOneWidget);
     });
 
-    testWidgets('is hidden with Advanced off while editing still works', (
-      tester,
-    ) async {
-      final api = _DetailApi(detail: _noteJson(writeAccess: true));
-      await storeLocally(_noteJson(writeAccess: true));
-      await pumpEditor(tester, api);
-
-      await openOverflow(tester);
-
-      expect(find.text(l10n(tester).noteShare), findsNothing);
-      expect(
-        tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
-        isFalse,
-      );
-    });
-
-    testWidgets('is hidden on a read-only note even with Advanced on', (
-      tester,
-    ) async {
+    testWidgets('is hidden on a read-only note', (tester) async {
       final api = _DetailApi(detail: _noteJson(writeAccess: false));
       await storeLocally(_noteJson(writeAccess: false));
-      await pumpEditor(tester, api, advanced: true);
+      await pumpEditor(tester, api);
 
       await openOverflow(tester);
 

@@ -5,7 +5,9 @@ import 'dart:typed_data';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/chat/widgets/personal_valves_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/models/personal_valves.dart';
 import 'package:conduit_core/features/chat/providers/personal_valves_providers.dart';
@@ -39,6 +41,8 @@ const _pipe = PersonalValvesTarget(
   label: 'Echo pipe',
 );
 
+final _en = AppLocalizationsEn();
+
 const _phone = Size(402, 874);
 const _keyboardHeight = 302.0;
 const _keyboardTop = 874.0 - _keyboardHeight;
@@ -70,6 +74,7 @@ void main() {
       expect(tester.getRect(save).bottom, lessThanOrEqualTo(_keyboardTop));
 
       await tester.enterText(field, 'ap-south');
+      await tester.pump();
       await tester.tap(save);
       await tester.pumpAndSettle();
 
@@ -83,6 +88,7 @@ void main() {
         everyElement(contains('/valves/user')),
       );
       expect(find.text('Your settings'), findsNothing);
+      expect(find.text(_en.personalToolSettingsSaved), findsOneWidget);
     },
   );
 
@@ -182,6 +188,200 @@ void main() {
     expect(find.text('typed-by-user-a'), findsNothing);
     expect(harness.requests.length, sent);
   });
+
+  Finder regionField() =>
+      find.byKey(const Key('workspace-tool-valve-input-region'));
+  Finder save() => find.byKey(const Key('personal-valves-save'));
+  bool saveEnabled(WidgetTester tester) =>
+      tester
+          .widget<ElevatedButton>(
+            find.descendant(
+              of: save(),
+              matching: find.byWidgetPredicate((w) => w is ElevatedButton),
+            ),
+          )
+          .onPressed !=
+      null;
+
+  testWidgets('Save stays off until a value changes', (tester) async {
+    final harness = _Harness(advanced: true, targets: const [_tool]);
+    await harness.pumpSheet(tester);
+
+    expect(saveEnabled(tester), isFalse);
+    await tester.enterText(regionField(), 'ap-south');
+    await tester.pump();
+    expect(saveEnabled(tester), isTrue);
+    // Putting the stored value back leaves nothing to save.
+    await tester.enterText(regionField(), 'eu');
+    await tester.pump();
+    expect(saveEnabled(tester), isFalse);
+    expect(harness.valveRequests.where((r) => r.method == 'POST'), isEmpty);
+  });
+
+  testWidgets('a failed load says so and Retry loads again', (tester) async {
+    final harness = _Harness(
+      advanced: true,
+      targets: const [_tool],
+      failSpecLoads: 1,
+    );
+    await harness.pumpSheet(tester);
+
+    expect(find.text(_en.personalToolSettingsLoadFailed), findsOneWidget);
+    expect(find.textContaining('valves'), findsNothing);
+    expect(save(), findsNothing);
+
+    await tester.tap(find.byKey(const Key('personal-valves-retry')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(_en.personalToolSettingsLoadFailed), findsNothing);
+    expect(regionField(), findsOneWidget);
+    expect(save(), findsOneWidget);
+  });
+
+  group('unsaved edits', () {
+    testWidgets('closing a clean sheet does not ask', (tester) async {
+      final harness = _Harness(advanced: true, targets: const [_tool]);
+      await harness.pumpSheetRoute(tester);
+
+      await tester.tap(find.byType(SheetCloseButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text('Your settings'), findsNothing);
+    });
+
+    testWidgets('Close with edits asks; Keep Editing keeps them', (
+      tester,
+    ) async {
+      final harness = _Harness(advanced: true, targets: const [_tool]);
+      await harness.pumpSheetRoute(tester);
+
+      await tester.enterText(regionField(), 'typed');
+      await tester.pump();
+      await tester.tap(find.byType(SheetCloseButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
+      await tester.tap(find.text(_en.workspaceEditorKeepEditing));
+      await tester.pumpAndSettle();
+      expect(find.text('Your settings'), findsOneWidget);
+      expect(find.text('typed'), findsOneWidget);
+
+      await tester.tap(find.byType(SheetCloseButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(_en.workspaceEditorDiscardConfirm));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Your settings'), findsNothing);
+      expect(harness.valveRequests.where((r) => r.method == 'POST'), isEmpty);
+    });
+
+    testWidgets('system back with edits asks first', (tester) async {
+      final harness = _Harness(advanced: true, targets: const [_tool]);
+      await harness.pumpSheetRoute(tester);
+
+      await tester.enterText(regionField(), 'typed');
+      await tester.pump();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
+      await tester.tap(find.text(_en.workspaceEditorDiscardConfirm));
+      await tester.pumpAndSettle();
+      expect(find.text('Your settings'), findsNothing);
+    });
+
+    testWidgets('swiping the sheet down with edits asks instead of closing', (
+      tester,
+    ) async {
+      final harness = _Harness(advanced: true, targets: const [_tool]);
+      await harness.pumpSheetRoute(tester);
+
+      await tester.enterText(regionField(), 'typed');
+      await tester.pump();
+      await tester.fling(find.text('Shared tool'), const Offset(0, 500), 2000);
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
+      await tester.tap(find.text(_en.workspaceEditorKeepEditing));
+      await tester.pumpAndSettle();
+      expect(find.text('Your settings'), findsOneWidget);
+      expect(find.text('typed'), findsOneWidget);
+    });
+
+    testWidgets('while a save is on its way nothing asks or closes, and the '
+        'save then closes the sheet', (tester) async {
+      final harness = _Harness(advanced: true, targets: const [_tool, _pipe]);
+      await harness.pumpSheetRoute(tester);
+      await tester.tap(
+        find.byKey(const Key('personal-valves-target-tool-shared_tool')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(regionField(), 'typed');
+      await tester.pump();
+      final gate = harness.holdPosts = Completer<void>();
+      await tester.tap(save());
+      await tester.pump();
+
+      await tester.tap(find.byType(SheetCloseButton), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      await tester.tap(
+        find.byKey(const Key('personal-valves-back')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      await tester.fling(find.text('Shared tool'), const Offset(0, 500), 2000);
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text('Your settings'), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text('Your settings'), findsNothing);
+      expect(find.text(_en.personalToolSettingsSaved), findsOneWidget);
+      expect(
+        harness.valveRequests.where((r) => r.method == 'POST'),
+        hasLength(1),
+      );
+    });
+
+    testWidgets('going back to the list with edits asks first', (
+      tester,
+    ) async {
+      final harness = _Harness(advanced: true, targets: const [_tool, _pipe]);
+      await harness.pumpSheet(tester);
+      await tester.tap(
+        find.byKey(const Key('personal-valves-target-tool-shared_tool')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(regionField(), 'typed');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('personal-valves-back')));
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
+      await tester.tap(find.text(_en.workspaceEditorKeepEditing));
+      await tester.pumpAndSettle();
+      expect(find.text('typed'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('personal-valves-back')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(_en.workspaceEditorDiscardConfirm));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('personal-valves-target-function-echo_pipe')),
+        findsOneWidget,
+      );
+    });
+  });
 }
 
 class _Session {
@@ -208,7 +408,11 @@ class _Harness {
     required this.advanced,
     required this.targets,
     this.fieldCount = 0,
+    this.failSpecLoads = 0,
   });
+
+  /// How many personal spec loads fail before the server answers.
+  int failSpecLoads;
 
   final bool advanced;
   final List<PersonalValvesTarget> targets;
@@ -216,6 +420,9 @@ class _Harness {
   /// Number of generated `fieldN` string properties added to the schema.
   final int fieldCount;
   final List<RequestOptions> requests = [];
+
+  /// While set, a save waits for it before the server answers.
+  Completer<void>? holdPosts;
   late final ProviderContainer container = _container();
 
   /// Requests to any tool or function valve route. The composer makes other,
@@ -228,7 +435,10 @@ class _Harness {
       serverConfig: _server,
       workerManager: WorkerManager(),
     );
-    api.dio.httpClientAdapter = _Adapter(_serve);
+    api.dio.httpClientAdapter = _Adapter(
+      _serve,
+      hold: (request) => request.method == 'POST' ? holdPosts?.future : null,
+    );
     api.dio.interceptors.clear();
     final container = ProviderContainer(
       overrides: [
@@ -275,6 +485,10 @@ class _Harness {
     // The composer's own, unrelated calls.
     if (!request.path.contains('/valves/user')) return _json({});
     if (request.path.endsWith('/spec')) {
+      if (failSpecLoads > 0) {
+        failSpecLoads--;
+        return _json({'detail': 'boom'}, 500);
+      }
       return _json({
         'properties': {
           'region': {'type': 'string', 'title': 'Region'},
@@ -311,6 +525,32 @@ class _Harness {
     await tester.pumpAndSettle();
   }
 
+  /// Opens the sheet the way the app does, in its own modal route.
+  Future<void> pumpSheetRoute(WidgetTester tester) async {
+    await container.read(activeServerProvider.future);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Consumer(
+              builder: (context, ref, _) => Center(
+                child: TextButton(
+                  onPressed: () => showPersonalToolSettings(context, ref),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+  }
+
   Future<void> pumpSheet(WidgetTester tester) async {
     await container.read(activeServerProvider.future);
     final owner = PersonalValvesOwner.capture(container.read)!;
@@ -331,16 +571,22 @@ class _Harness {
 }
 
 class _Adapter implements HttpClientAdapter {
-  _Adapter(this.handler);
+  _Adapter(this.handler, {this.hold});
 
   final ResponseBody Function(RequestOptions request) handler;
+
+  /// Holds a request until the returned future completes.
+  final Future<void>? Function(RequestOptions request)? hold;
 
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
-  ) async => handler(options);
+  ) async {
+    await hold?.call(options);
+    return handler(options);
+  }
 
   @override
   void close({bool force = false}) {}

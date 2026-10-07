@@ -15,7 +15,6 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/profile/views/personalization_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
-import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,7 +43,7 @@ void main() {
     expect(find.text('Default model'), findsWidgets);
     expect(find.text('Your system prompt'), findsNothing);
     expect(find.text('Memory'), findsNothing);
-    expect(find.text('Advanced prompt overrides'), findsNothing);
+    expect(find.text('Prompt overrides'), findsNothing);
 
     await tester.tap(find.text('Default model').last);
     await tester.pumpAndSettle();
@@ -165,13 +164,98 @@ void main() {
       await tester.tap(find.text('Add memory').last);
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('memory-type-user')), findsNothing);
+      expect(find.byKey(const Key('memory-type')), findsNothing);
       expect(find.byKey(const Key('memory-path')), findsNothing);
+    });
+
+    testWidgets('Cancel closes an untouched editor without asking', (
+      tester,
+    ) async {
+      await _pumpSignedInPage(tester, _MemoriesApi());
+
+      await _openMemoryManager(tester);
+      await tester.tap(find.text('Add memory').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('Keep editing'), findsNothing);
+    });
+
+    testWidgets('a save on its way is neither closed nor offered as a '
+        'discard', (tester) async {
+      final api = _MemoriesApi();
+      final gate = Completer<void>();
+      api.holdWrites = gate;
+      await _pumpSignedInPage(tester, api);
+
+      await _openMemoryManager(tester);
+      await tester.tap(find.text('Add memory').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'I prefer metric units');
+      await tester.tap(find.text('Save').last);
+      await tester.pump();
+
+      // A tap on the backdrop and the back gesture are ignored, without
+      // asking whether to discard.
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Keep editing'), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Keep editing'), findsNothing);
+      expect(find.text('I prefer metric units'), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(api.adds.map((add) => add.content), ['I prefer metric units']);
+      expect(find.byType(TextField), findsNothing);
+    });
+
+    testWidgets('Cancel asks before discarding a typed memory', (tester) async {
+      final api = _MemoriesApi();
+      await _pumpSignedInPage(tester, api);
+
+      await _openMemoryManager(tester);
+      await tester.tap(find.text('Add memory').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Half a thought');
+      await tester.pump();
+
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Keep editing'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      // Still editing, with the text kept.
+      expect(find.text('Half a thought'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard').last);
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing);
+      expect(api.adds, isEmpty);
     });
   });
 
   group('memories with Advanced on', () {
     const advanced = AppSettings(advancedFeaturesEnabled: true);
+
+    Finder typeSegment(String label) => find.descendant(
+      of: find.byKey(const Key('memory-type')),
+      matching: find.text(label),
+    );
+
+    Set<String> selectedType(WidgetTester tester) => tester
+        .widget<SegmentedButton<String>>(
+          find.descendant(
+            of: find.byKey(const Key('memory-type')),
+            matching: find.byType(SegmentedButton<String>),
+          ),
+        )
+        .selected;
 
     Future<void> openAdd(WidgetTester tester) async {
       await tester.tap(find.text('Add memory').last);
@@ -192,7 +276,7 @@ void main() {
 
       await openAdd(tester);
       await tester.enterText(find.byType(TextField).first, 'Repo notes');
-      await tester.tap(find.byKey(const Key('memory-type-context')));
+      await tester.tap(typeSegment('Context'));
       await tester.pump();
       await tester.enterText(
         find.byKey(const Key('memory-path')),
@@ -218,10 +302,11 @@ void main() {
       await _openMemoryManager(tester);
       await tester.tap(find.text('Original'));
       await tester.pumpAndSettle();
-      final contextChip = tester.widget<ConduitChip>(
-        find.byKey(const Key('memory-type-context')),
+      expect(selectedType(tester), {'context'});
+      expect(
+        find.text('Background to keep in mind in future chats.'),
+        findsOneWidget,
       );
-      expect(contextChip.isSelected, isTrue);
       await tester.enterText(find.byType(TextField).first, 'Edited');
       await tester.tap(find.text('Save').last);
       await tester.pumpAndSettle();
@@ -240,8 +325,12 @@ void main() {
       await _openMemoryManager(tester);
       await tester.tap(find.text('Original'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('memory-type-user')));
+      await tester.tap(typeSegment('User'));
       await tester.pump();
+      expect(
+        find.text('A preference, fact or instruction about you.'),
+        findsOneWidget,
+      );
       await tester.enterText(find.byKey(const Key('memory-path')), '');
       await tester.tap(find.text('Save').last);
       await tester.pumpAndSettle();
@@ -263,12 +352,11 @@ void main() {
       await _openMemoryManager(tester);
       await tester.tap(find.text('Original').first);
       await tester.pumpAndSettle();
-      for (final key in const ['memory-type-user', 'memory-type-context']) {
-        expect(
-          tester.widget<ConduitChip>(find.byKey(Key(key))).isSelected,
-          isFalse,
-        );
-      }
+      expect(selectedType(tester), isEmpty);
+      expect(
+        find.textContaining("a type this app doesn't recognize"),
+        findsOneWidget,
+      );
       await tester.enterText(find.byType(TextField).first, 'Edited');
       await tester.tap(find.text('Save').last);
       await tester.pumpAndSettle();
@@ -296,9 +384,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(session.api.adds, isEmpty);
-      // The sheet is still open with what was typed.
+      // The sheet is still open with what was typed, and says why.
       expect(find.text('meant for account A'), findsOneWidget);
       expect(find.text('Save'), findsOneWidget);
+      expect(
+        find.text('The account changed. Close this and open the memory again.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('keeps the Advanced fields it was filled in with', (
@@ -524,7 +616,11 @@ final class _MemoriesApi extends ApiService {
   /// Makes the next create or update fail, as a server refusal would.
   bool failNextWrite = false;
 
-  void _refuseIfRequested() {
+  /// Holds creates and updates until completed, as on a slow connection.
+  Completer<void>? holdWrites;
+
+  Future<void> _refuseIfRequested() async {
+    await holdWrites?.future;
     if (failNextWrite) {
       failNextWrite = false;
       throw StateError('server refused');
@@ -548,7 +644,7 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
-    _refuseIfRequested();
+    await _refuseIfRequested();
     adds.add((content: content, type: type, path: path));
     return ServerMemory(
       id: 'new',
@@ -569,7 +665,7 @@ final class _MemoriesApi extends ApiService {
     String? path,
     ApiAuthSnapshot? authSnapshot,
   }) async {
-    _refuseIfRequested();
+    await _refuseIfRequested();
     updates.add((content: content, type: type, path: path));
     return ServerMemory(
       id: memoryId,

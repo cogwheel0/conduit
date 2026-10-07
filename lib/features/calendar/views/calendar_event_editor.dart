@@ -9,14 +9,19 @@ import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 
+import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_date_time_picker.dart';
+import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/discard_changes.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../workspace/widgets/workspace_access_grants.dart';
 import 'calendar_calendars_sheet.dart';
+import 'calendar_color_dot.dart';
 import 'calendar_format.dart';
 import 'calendar_sheet_frame.dart';
 
@@ -57,6 +62,10 @@ class CalendarEventEditor extends ConsumerStatefulWidget {
 
 class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
   late CalendarEventDraft _draft;
+
+  /// The draft as the editor opened, which a new event is compared with to
+  /// tell whether anything was changed.
+  late final CalendarEventDraft _opened;
   late final CalendarZone _zone;
   final _title = TextEditingController();
   final _description = TextEditingController();
@@ -66,6 +75,11 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
   final _names = <String, String>{};
   bool _saving = false;
   String? _error;
+
+  /// Whether the user typed in the title, so a missing one is pointed out.
+  /// Moving on without typing, as to a date picker, does not count.
+  bool _titleTouched = false;
+  bool _saveAttempted = false;
 
   CalendarAgenda get _notifier => ref.read(calendarAgendaProvider.notifier);
 
@@ -82,6 +96,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
         start: _defaultStart(),
       );
     }
+    _opened = _draft;
     _title.text = _draft.title;
     _description.text = _draft.description;
     _location.text = _draft.location;
@@ -120,6 +135,25 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
     return CalendarWallTime(day.year, day.month, day.day, 9);
   }
 
+  /// Whether closing now would lose something the user changed. An edit counts
+  /// what would be sent; a new event counts any field moved from where it
+  /// started.
+  bool get _dirty {
+    final draft = _draft;
+    if (!draft.isNew) return draft.isChanged(zone: _zone);
+    final opened = _opened;
+    return draft.title != opened.title ||
+        draft.description != opened.description ||
+        draft.location != opened.location ||
+        draft.calendarId != opened.calendarId ||
+        draft.allDay != opened.allDay ||
+        draft.start != opened.start ||
+        draft.end != opened.end ||
+        draft.repeat != opened.repeat ||
+        draft.attendees.length != opened.attendees.length ||
+        !draft.attendees.every(opened.attendees.contains);
+  }
+
   void _update(CalendarEventDraft draft) => setState(() {
     _draft = draft;
     _error = null;
@@ -131,13 +165,24 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
     }
   }
 
+  /// Closes the editor, asking first when that would throw edits away.
+  Future<void> _close() async {
+    // A save on its way can't be called back, and its result closes the
+    // editor; a discard question asked meanwhile would be answered by it.
+    if (_saving) return;
+    if (_dirty && !await confirmDiscardChanges(context)) return;
+    if (mounted && !_saving) Navigator.of(context).pop();
+  }
+
   Future<void> _pickDate({required bool end}) async {
+    final l10n = AppLocalizations.of(context)!;
     final current = (end ? _draft.end : _draft.start) ?? _draft.start;
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: current.fields,
-      firstDate: DateTime.utc(2000),
-      lastDate: DateTime.utc(2100),
+    final picked = await showAdaptiveDatePicker(
+      context,
+      initial: DateTime(current.year, current.month, current.day),
+      first: DateTime(2000),
+      last: DateTime(2100),
+      title: end ? l10n.calendarFieldEnds : l10n.calendarFieldStarts,
     );
     if (picked == null || !mounted) return;
     final wall = CalendarWallTime(
@@ -151,10 +196,12 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
   }
 
   Future<void> _pickTime({required bool end}) async {
+    final l10n = AppLocalizations.of(context)!;
     final current = (end ? _draft.end : _draft.start) ?? _draft.start;
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: current.hour, minute: current.minute),
+    final picked = await showAdaptiveTimePicker(
+      context,
+      initial: TimeOfDay(hour: current.hour, minute: current.minute),
+      title: end ? l10n.calendarFieldEndTime : l10n.calendarFieldStartTime,
     );
     if (picked == null || !mounted) return;
     _setBoundary(
@@ -195,6 +242,38 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
       }
     }
     _update(next);
+  }
+
+  Future<void> _pickRepeat() async {
+    final l10n = AppLocalizations.of(context)!;
+    final current = _draft.repeat;
+    // A rule the editor cannot write stays on offer while it is the event's.
+    final choices = [
+      for (final repeat in CalendarRepeat.values)
+        if (repeat != CalendarRepeat.custom || current == CalendarRepeat.custom)
+          repeat,
+    ];
+    final picked = await showAdaptiveSelectionSheet<CalendarRepeat>(
+      context: context,
+      builder: (sheetContext) => AdaptiveSelectionSheet(
+        title: l10n.calendarFieldRepeat,
+        itemCount: choices.length,
+        initialChildSize: 0.5,
+        minChildSize: 0.32,
+        maxChildSize: 0.75,
+        itemBuilder: (context, index) {
+          final repeat = choices[index];
+          return AdaptiveSelectionTile(
+            key: Key('calendar-editor-repeat-${repeat.name}'),
+            title: repeatLabel(l10n, repeat),
+            selected: repeat == current,
+            onTap: () => Navigator.of(sheetContext).pop(repeat),
+          );
+        },
+      ),
+    );
+    if (picked == null || picked == current || !mounted) return;
+    _update(_draft.copyWith(repeat: picked));
   }
 
   Future<void> _pickCalendar() async {
@@ -250,9 +329,8 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
     if (_saving) return;
     final l10n = AppLocalizations.of(context)!;
     final draft = _draft;
-    final issues = draft.issues;
-    if (issues.isNotEmpty) {
-      setState(() => _error = draftIssueText(l10n, issues.first));
+    if (draft.issues.isNotEmpty) {
+      setState(() => _saveAttempted = true);
       return;
     }
     setState(() {
@@ -276,6 +354,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
       // A save accepted for the previous account stays accepted, but it must
       // not close this editor as though it were for the signed-in one.
       _requireOwner();
+      ConduitHaptics.success();
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
       // The form keeps everything that was typed, whatever the reason.
@@ -293,6 +372,9 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
     }
   }
 
+  String _personName(AppLocalizations l10n, CalendarDraftAttendee person) =>
+      person.name ?? _names[person.userId] ?? l10n.calendarInvitedPerson;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -304,294 +386,474 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
         .firstOrNull;
     final start = draft.start;
     final end = draft.end;
-    final changed = draft.isChanged(zone: _zone);
+    final issues = draft.issues;
+    final dirty = _dirty;
+    final changed = draft.isNew || dirty;
     final recurring = draft.original?.isRecurring ?? false;
+    final titleError =
+        (_titleTouched || _saveAttempted) &&
+            issues.contains(CalendarDraftIssue.titleRequired)
+        ? l10n.calendarTitleRequired
+        : null;
+    final endBeforeStart = issues.contains(CalendarDraftIssue.endBeforeStart);
+    // With no calendar to write to, the note says how to get one; otherwise
+    // the missing choice is pointed out, since Save waits for it.
+    final noWritableCalendar =
+        data != null && data.writableCalendars.isEmpty && draft.isNew;
+    final calendarMissing =
+        !noWritableCalendar &&
+        issues.contains(CalendarDraftIssue.calendarRequired);
+    final canSave = !_saving && changed && issues.isEmpty;
+    final whenNotes = [
+      if (draft.repeat == CalendarRepeat.custom) l10n.calendarRepeatKept,
+      if (draft.repeat != CalendarRepeat.none)
+        l10n.calendarRecurrenceTimezoneNote,
+    ];
 
-    String day(CalendarWallTime wall) => formatCalendarDay(context, wall);
-    String clock(CalendarWallTime wall) => formatCalendarClock(context, wall);
-
-    return CalendarSheetFrame(
-      title: draft.isNew
-          ? l10n.calendarNewEventTitle
-          : recurring
-          ? l10n.calendarEditSeriesTitle
-          : l10n.calendarEditEventTitle,
-      child: ListView(
-        shrinkWrap: true,
-        children: [
-          ConduitInput(
-            key: const Key('calendar-editor-title'),
-            controller: _title,
-            label: l10n.calendarFieldTitle,
-            enabled: !_saving,
-            onChanged: (value) => _update(draft.copyWith(title: value)),
-          ),
-          const SizedBox(height: Spacing.md),
-          ConduitInput(
-            key: const Key('calendar-editor-description'),
-            controller: _description,
-            label: l10n.calendarFieldDescription,
-            minLines: 2,
-            maxLines: 6,
-            enabled: !_saving,
-            onChanged: (value) => _update(draft.copyWith(description: value)),
-          ),
-          const SizedBox(height: Spacing.md),
-          ConduitInput(
-            key: const Key('calendar-editor-location'),
-            controller: _location,
-            label: l10n.calendarFieldLocation,
-            enabled: !_saving,
-            onChanged: (value) => _update(draft.copyWith(location: value)),
-          ),
-          const SizedBox(height: Spacing.md),
-          InsetGroupedList(
-            children: [
-              UtilityRow(
-                title: l10n.calendarFieldAllDay,
-                trailing: AdaptiveSwitch(
-                  key: const Key('calendar-editor-all-day'),
-                  value: draft.allDay,
-                  semanticLabel: l10n.calendarFieldAllDay,
-                  onChanged: _saving
-                      ? null
-                      : (value) => _update(draft.copyWith(allDay: value)),
-                ),
-                preserveTrailingSemantics: true,
+    return DiscardChangesScope(
+      dirty: dirty,
+      busy: _saving,
+      child: CalendarSheetFrame(
+        title: draft.isNew
+            ? l10n.calendarNewEventTitle
+            : recurring
+            ? l10n.calendarEditSeriesTitle
+            : l10n.calendarEditEventTitle,
+        onClose: _close,
+        holdDismiss: dirty || _saving,
+        footer: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_error case final message?) ...[
+              Text(
+                message,
+                key: const Key('calendar-editor-error'),
+                style: theme.bodySmall?.copyWith(color: theme.error),
+                // The footer stays pinned, so a long message must not crowd out
+                // the actions; the whole text is still read out.
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
               ),
-              UtilityRow(
-                key: const Key('calendar-editor-start-date'),
-                title: l10n.calendarFieldStarts,
-                subtitle: day(start),
-                showChevron: true,
-                onTap: _saving ? null : () => _pickDate(end: false),
-              ),
-              if (!draft.allDay)
-                UtilityRow(
-                  key: const Key('calendar-editor-start-time'),
-                  title: l10n.calendarFieldStartTime,
-                  subtitle: clock(start),
-                  showChevron: true,
-                  onTap: _saving ? null : () => _pickTime(end: false),
-                ),
-              if (end == null)
-                UtilityRow(
-                  key: const Key('calendar-editor-add-end'),
-                  title: l10n.calendarAddEnd,
-                  leading: Icon(
-                    UiUtils.platformIcon(
-                      ios: CupertinoIcons.add_circled,
-                      android: Icons.add_circle_outline,
-                    ),
-                  ),
-                  onTap: _saving
-                      ? null
-                      : () => _update(draft.copyWith(end: start)),
-                )
-              else ...[
-                UtilityRow(
-                  key: const Key('calendar-editor-end-date'),
-                  title: l10n.calendarFieldEnds,
-                  subtitle: day(end),
-                  showChevron: true,
-                  onTap: _saving ? null : () => _pickDate(end: true),
-                ),
-                if (!draft.allDay)
-                  UtilityRow(
-                    key: const Key('calendar-editor-end-time'),
-                    title: l10n.calendarFieldEndTime,
-                    subtitle: clock(end),
-                    showChevron: true,
-                    onTap: _saving ? null : () => _pickTime(end: true),
-                  ),
-                UtilityRow(
-                  key: const Key('calendar-editor-remove-end'),
-                  title: l10n.clear,
-                  leading: Icon(
-                    UiUtils.platformIcon(
-                      ios: CupertinoIcons.minus_circled,
-                      android: Icons.remove_circle_outline,
-                    ),
-                  ),
-                  onTap: _saving
-                      ? null
-                      : () => _update(draft.copyWith(clearEnd: true)),
-                ),
-              ],
+              const SizedBox(height: Spacing.sm),
             ],
-          ),
-          const SizedBox(height: Spacing.md),
-          Text(
-            l10n.calendarFieldRepeat,
-            style: theme.label?.copyWith(color: theme.textSecondary),
-          ),
-          const SizedBox(height: Spacing.xs),
-          Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.sm,
-            children: [
-              for (final repeat in CalendarRepeat.values)
-                if (repeat != CalendarRepeat.custom)
-                  ConduitChip(
-                    key: Key('calendar-editor-repeat-${repeat.name}'),
-                    label: repeatLabel(l10n, repeat),
-                    isSelected: draft.repeat == repeat,
-                    onTap: _saving
-                        ? null
-                        : () => _update(draft.copyWith(repeat: repeat)),
-                  ),
-            ],
-          ),
-          if (draft.repeat == CalendarRepeat.custom) ...[
-            const SizedBox(height: Spacing.xs),
-            Text(
-              '${l10n.calendarRepeatCustom}: ${draft.original?.rrule ?? ''}',
-              key: const Key('calendar-editor-custom-rule'),
-              style: theme.bodySmall?.copyWith(color: theme.textPrimary),
-            ),
-            Text(
-              l10n.calendarRepeatKept,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          ],
-          if (draft.repeat != CalendarRepeat.none) ...[
-            const SizedBox(height: Spacing.xs),
-            Text(
-              l10n.calendarRecurrenceTimezoneNote,
-              key: const Key('calendar-editor-recurrence-note'),
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          ],
-          const SizedBox(height: Spacing.md),
-          InsetGroupedList(
-            children: [
-              UtilityRow(
-                key: const Key('calendar-editor-calendar'),
-                title: l10n.calendarFieldCalendar,
-                subtitle:
-                    calendar?.name ??
-                    (draft.calendarId.isEmpty
-                        ? l10n.calendarChooseCalendar
-                        : draft.calendarId),
-                showChevron: true,
-                onTap: _saving ? null : _pickCalendar,
-              ),
-            ],
-          ),
-          const SizedBox(height: Spacing.md),
-          Text(
-            l10n.calendarFieldAttendees,
-            style: theme.label?.copyWith(color: theme.textSecondary),
-          ),
-          const SizedBox(height: Spacing.xs),
-          Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.sm,
-            children: [
-              for (final person in draft.attendees)
-                _PersonChip(
-                  key: Key('calendar-editor-person-${person.userId}'),
-                  label:
-                      person.name ??
-                      _names[person.userId] ??
-                      l10n.calendarInvitedPerson,
-                  removeLabel: l10n.calendarRemovePerson(
-                    person.name ??
-                        _names[person.userId] ??
-                        l10n.calendarInvitedPerson,
-                  ),
-                  onRemove: _saving ? null : () => _removePerson(person),
-                ),
-              ConduitChip(
-                key: const Key('calendar-editor-add-people'),
-                label: l10n.calendarAddPeople,
-                icon: Icons.person_add_alt_1_outlined,
-                onTap: _saving ? null : _addPeople,
-              ),
-            ],
-          ),
-          const SizedBox(height: Spacing.xs),
-          Text(
-            l10n.calendarAttendeesNote,
-            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-          ),
-          if (data != null &&
-              data.writableCalendars.isEmpty &&
-              draft.isNew) ...[
-            const SizedBox(height: Spacing.md),
-            Text(
-              l10n.calendarNoWritableCalendar,
-              key: const Key('calendar-editor-no-calendar'),
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          ],
-          if (_error case final message?) ...[
-            const SizedBox(height: Spacing.md),
-            Text(
-              message,
-              key: const Key('calendar-editor-error'),
-              style: theme.bodySmall?.copyWith(color: theme.error),
-            ),
-          ],
-          const SizedBox(height: Spacing.lg),
-          Row(
-            children: [
-              Expanded(
-                child: ConduitButton(
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                ConduitButton(
+                  key: const Key('calendar-editor-cancel'),
                   text: l10n.cancel,
                   isSecondary: true,
-                  onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                  isCompact: true,
+                  onPressed: _saving ? null : _close,
                 ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: ConduitButton(
+                const SizedBox(width: Spacing.sm),
+                ConduitButton(
                   key: const Key('calendar-editor-save'),
                   text: l10n.save,
+                  isCompact: true,
                   isLoading: _saving,
-                  onPressed: _saving || !changed ? null : _save,
+                  onPressed: canSave ? _save : null,
                 ),
+              ],
+            ),
+          ],
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ConduitInput(
+              key: const Key('calendar-editor-title'),
+              controller: _title,
+              label: l10n.calendarFieldTitle,
+              enabled: !_saving,
+              autofocus: draft.isNew,
+              textInputAction: TextInputAction.next,
+              errorText: titleError,
+              onChanged: (value) {
+                _titleTouched = true;
+                _update(_draft.copyWith(title: value));
+              },
+            ),
+            const SizedBox(height: Spacing.md),
+            ConduitInput(
+              key: const Key('calendar-editor-location'),
+              controller: _location,
+              label: l10n.calendarFieldLocation,
+              enabled: !_saving,
+              textInputAction: TextInputAction.next,
+              onChanged: (value) => _update(_draft.copyWith(location: value)),
+            ),
+            const SizedBox(height: Spacing.md),
+            InsetGroupedList(
+              children: [
+                UtilityRow(
+                  title: l10n.calendarFieldAllDay,
+                  trailing: AdaptiveSwitch(
+                    key: const Key('calendar-editor-all-day'),
+                    value: draft.allDay,
+                    semanticLabel: l10n.calendarFieldAllDay,
+                    onChanged: _saving
+                        ? null
+                        : (value) => _update(_draft.copyWith(allDay: value)),
+                  ),
+                  preserveTrailingSemantics: true,
+                ),
+                _BoundaryRow(
+                  label: l10n.calendarFieldStarts,
+                  timeLabel: l10n.calendarFieldStartTime,
+                  dateKey: const Key('calendar-editor-start-date'),
+                  timeKey: const Key('calendar-editor-start-time'),
+                  wall: start,
+                  allDay: draft.allDay,
+                  onPickDate: _saving ? null : () => _pickDate(end: false),
+                  onPickTime: _saving ? null : () => _pickTime(end: false),
+                ),
+                if (end == null)
+                  UtilityRow(
+                    key: const Key('calendar-editor-add-end'),
+                    title: l10n.calendarAddEnd,
+                    leading: Icon(
+                      UiUtils.platformIcon(
+                        ios: CupertinoIcons.add_circled,
+                        android: Icons.add_circle_outline,
+                      ),
+                    ),
+                    onTap: _saving
+                        ? null
+                        : () => _update(_draft.copyWith(end: _draft.start)),
+                  )
+                else ...[
+                  _BoundaryRow(
+                    label: l10n.calendarFieldEnds,
+                    timeLabel: l10n.calendarFieldEndTime,
+                    dateKey: const Key('calendar-editor-end-date'),
+                    timeKey: const Key('calendar-editor-end-time'),
+                    wall: end,
+                    allDay: draft.allDay,
+                    invalid: endBeforeStart,
+                    onPickDate: _saving ? null : () => _pickDate(end: true),
+                    onPickTime: _saving ? null : () => _pickTime(end: true),
+                  ),
+                  UtilityRow(
+                    key: const Key('calendar-editor-remove-end'),
+                    title: l10n.calendarRemoveEnd,
+                    leading: Icon(
+                      UiUtils.platformIcon(
+                        ios: CupertinoIcons.minus_circled,
+                        android: Icons.remove_circle_outline,
+                      ),
+                    ),
+                    onTap: _saving
+                        ? null
+                        : () => _update(_draft.copyWith(clearEnd: true)),
+                  ),
+                ],
+                UtilityRow(
+                  key: const Key('calendar-editor-repeat'),
+                  title: l10n.calendarFieldRepeat,
+                  status: Text(
+                    repeatLabel(l10n, draft.repeat),
+                    key: const Key('calendar-editor-repeat-value'),
+                    style: theme.bodyMedium?.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                  showChevron: true,
+                  onTap: _saving ? null : _pickRepeat,
+                ),
+              ],
+            ),
+            if (endBeforeStart)
+              _GroupNote(
+                l10n.calendarEndBeforeStart,
+                key: const Key('calendar-editor-end-error'),
+                color: theme.error,
               ),
-            ],
+            if (whenNotes.isNotEmpty)
+              _GroupNote(
+                whenNotes.join(' '),
+                key: const Key('calendar-editor-recurrence-note'),
+              ),
+            const SizedBox(height: Spacing.md),
+            InsetGroupedList(
+              children: [
+                UtilityRow(
+                  key: const Key('calendar-editor-calendar'),
+                  title: l10n.calendarFieldCalendar,
+                  status: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (calendar != null) ...[
+                        CalendarColorDot(
+                          color: parseCalendarColor(calendar.color),
+                        ),
+                        const SizedBox(width: Spacing.xs),
+                      ],
+                      Flexible(
+                        child: Text(
+                          calendar?.name ??
+                              (draft.calendarId.isEmpty
+                                  ? l10n.calendarChooseCalendar
+                                  : draft.calendarId),
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.bodyMedium?.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  semanticLabel: [
+                    l10n.calendarFieldCalendar,
+                    calendar?.name ?? l10n.calendarChooseCalendar,
+                  ].join('. '),
+                  showChevron: true,
+                  onTap: _saving ? null : _pickCalendar,
+                ),
+              ],
+            ),
+            if (noWritableCalendar)
+              _GroupNote(
+                l10n.calendarNoWritableCalendar,
+                key: const Key('calendar-editor-no-calendar'),
+              )
+            else if (calendarMissing)
+              _GroupNote(
+                l10n.calendarCalendarRequired,
+                key: const Key('calendar-editor-calendar-error'),
+                color: theme.error,
+              ),
+            const SizedBox(height: Spacing.md),
+            InsetGroupedList(
+              title: l10n.calendarFieldAttendees,
+              footer: l10n.calendarAttendeesNote,
+              children: [
+                for (final person in draft.attendees)
+                  UtilityRow(
+                    key: Key('calendar-editor-person-${person.userId}'),
+                    title: _personName(l10n, person),
+                    leading: Icon(
+                      UiUtils.platformIcon(
+                        ios: CupertinoIcons.person,
+                        android: Icons.person_outline,
+                      ),
+                      color: theme.iconSecondary,
+                    ),
+                    trailing: ConduitIconButton(
+                      key: Key('calendar-editor-remove-${person.userId}'),
+                      icon: UiUtils.platformIcon(
+                        ios: CupertinoIcons.minus_circle,
+                        android: Icons.remove_circle_outline,
+                      ),
+                      iconColor: theme.error,
+                      tooltip: l10n.calendarRemovePerson(
+                        _personName(l10n, person),
+                      ),
+                      isCompact: true,
+                      onPressed: _saving ? null : () => _removePerson(person),
+                    ),
+                    preserveTrailingSemantics: true,
+                  ),
+                UtilityRow(
+                  key: const Key('calendar-editor-add-people'),
+                  title: l10n.calendarAddPeople,
+                  leading: Icon(
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.person_add,
+                      android: Icons.person_add_alt_1_outlined,
+                    ),
+                  ),
+                  onTap: _saving ? null : _addPeople,
+                ),
+              ],
+            ),
+            const SizedBox(height: Spacing.md),
+            ConduitInput(
+              key: const Key('calendar-editor-description'),
+              controller: _description,
+              label: l10n.calendarFieldDescription,
+              minLines: 3,
+              maxLines: 6,
+              enabled: !_saving,
+              onChanged: (value) =>
+                  _update(_draft.copyWith(description: value)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A line under a grouped list, set like the group's own footer.
+class _GroupNote extends StatelessWidget {
+  const _GroupNote(this.text, {super.key, this.color});
+
+  final String text;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Spacing.xs, Spacing.xs, Spacing.xs, 0),
+      child: Text(
+        text,
+        style: AppTypography.bodySmallStyle.copyWith(
+          color: color ?? theme.textTertiary,
+        ),
+      ),
+    );
+  }
+}
+
+/// "Starts" or "Ends" with its day and, unless the event is all day, its time,
+/// each a button that opens its picker.
+class _BoundaryRow extends StatelessWidget {
+  const _BoundaryRow({
+    required this.label,
+    required this.timeLabel,
+    required this.dateKey,
+    required this.timeKey,
+    required this.wall,
+    required this.allDay,
+    required this.onPickDate,
+    required this.onPickTime,
+    this.invalid = false,
+  });
+
+  final String label;
+  final String timeLabel;
+  final Key dateKey;
+  final Key timeKey;
+  final CalendarWallTime wall;
+  final bool allDay;
+  final bool invalid;
+  final VoidCallback? onPickDate;
+  final VoidCallback? onPickTime;
+
+  @override
+  Widget build(BuildContext context) {
+    final day = formatCalendarDay(context, wall);
+    final clock = formatCalendarClock(context, wall);
+    return UtilityRow(
+      title: label,
+      semanticLabel: label,
+      titleFlex: 2,
+      statusFlex: 5,
+      preserveTrailingSemantics: true,
+      status: Wrap(
+        alignment: WrapAlignment.end,
+        spacing: Spacing.xs,
+        children: [
+          _PickerButton(
+            key: dateKey,
+            text: day,
+            semanticLabel: '$label, $day',
+            invalid: invalid,
+            onTap: onPickDate,
           ),
+          if (!allDay)
+            _PickerButton(
+              key: timeKey,
+              text: clock,
+              semanticLabel: '$timeLabel, $clock',
+              invalid: invalid,
+              onTap: onPickTime,
+            ),
         ],
       ),
     );
   }
 }
 
-class _PersonChip extends StatelessWidget {
-  const _PersonChip({
+/// A filled value that opens a picker, as the date and time in a calendar
+/// event's rows. Its hit area is at least [TouchTarget.minimum] tall.
+class _PickerButton extends StatefulWidget {
+  const _PickerButton({
     super.key,
-    required this.label,
-    required this.removeLabel,
-    required this.onRemove,
+    required this.text,
+    required this.semanticLabel,
+    required this.onTap,
+    this.invalid = false,
   });
 
-  final String label;
-  final String removeLabel;
-  final VoidCallback? onRemove;
+  final String text;
+  final String semanticLabel;
+  final VoidCallback? onTap;
+  final bool invalid;
+
+  @override
+  State<_PickerButton> createState() => _PickerButtonState();
+}
+
+class _PickerButtonState extends State<_PickerButton> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value || widget.onTap == null) return;
+    setState(() => _pressed = value);
+  }
+
+  void _handleTap() {
+    final onTap = widget.onTap;
+    if (onTap == null) return;
+    ConduitHaptics.selectionClick();
+    onTap();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    return Container(
-      padding: const EdgeInsets.only(left: Spacing.md),
-      decoration: BoxDecoration(
-        color: theme.surfaceContainer,
-        borderRadius: BorderRadius.circular(AppBorderRadius.chip),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
-          IconButton(
-            tooltip: removeLabel,
-            onPressed: onRemove,
-            icon: const Icon(Icons.close, size: 16),
-            visualDensity: VisualDensity.compact,
+    final enabled = widget.onTap != null;
+    final foreground = widget.invalid
+        ? theme.error
+        : enabled
+        ? theme.textPrimary
+        : theme.textSecondary;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: widget.semanticLabel,
+      excludeSemantics: true,
+      onTap: enabled ? _handleTap : null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: enabled ? (_) => _setPressed(true) : null,
+        onTapUp: enabled ? (_) => _setPressed(false) : null,
+        onTapCancel: enabled ? () => _setPressed(false) : null,
+        onTap: enabled ? _handleTap : null,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
+          child: Align(
+            widthFactor: 1,
+            heightFactor: 1,
+            child: AnimatedOpacity(
+              opacity: _pressed ? Alpha.strong : 1,
+              duration: context.motionDuration(AnimationDuration.buttonPress),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: widget.invalid
+                      ? theme.error.withValues(alpha: Alpha.highlight)
+                      : theme.textSecondary.withValues(alpha: Alpha.highlight),
+                  borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.sm,
+                    vertical: Spacing.xs,
+                  ),
+                  child: Text(
+                    widget.text,
+                    maxLines: 1,
+                    style: theme.bodyMedium?.copyWith(color: foreground),
+                  ),
+                ),
+              ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }

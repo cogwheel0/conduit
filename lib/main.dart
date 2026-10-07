@@ -75,7 +75,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarEntryVisibleProvider;
+    show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -84,9 +84,12 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 
 import 'core/utils/native_sheet_utils.dart'
     show
+        nativeAdvancedFeaturesId,
+        nativeCitationShowTitlesId,
         nativeMemoryEditorActionPrefix,
         nativeMemoryEditorNewActionId,
         nativeNotificationTargetsActionId;
+import 'shared/utils/ui_utils.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
 
@@ -149,8 +152,6 @@ const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
   defaultValue: false,
 );
-
-const _nativeSheetFollowUpDelay = Duration(milliseconds: 700);
 
 Locale? _localeFromNativeTag(String code) {
   final normalized = code.replaceAll('_', '-');
@@ -635,7 +636,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         // The sheet was built before this arrived, and Advanced or the
         // account's access can change while it is open. The page enforces the
         // same rule, but a stale row should not even navigate.
-        if (!ref.read(personalConnectionsEntryVisibleProvider)) return;
+        if (!ref.read(personalConnectionsEntryVisibleProvider)) {
+          _showNativeOptionUnavailable();
+          return;
+        }
         final request = personalConnectionsNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
@@ -650,7 +654,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         // As for Personal connections: the sheet was built before this
         // arrived, so a row that went stale (Advanced turned off, the account
         // or its permission changed) must not navigate.
-        if (!ref.read(scheduledTasksEntryVisibleProvider)) return;
+        if (!ref.read(scheduledTasksEntryVisibleProvider)) {
+          _showNativeOptionUnavailable();
+          return;
+        }
         final request = scheduledTasksNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
@@ -663,9 +670,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
       if (event.id == NativeSheetRoutes.calendar) {
         // As for Scheduled tasks: the sheet was built before this arrived, so
-        // a row that went stale (Advanced turned off, the account or its
-        // permission changed) must not navigate.
-        if (!ref.read(calendarEntryVisibleProvider)) return;
+        // a row that went stale (the account or its permission changed) must
+        // not navigate.
+        if (!ref.read(calendarAvailableProvider)) {
+          _showNativeOptionUnavailable();
+          return;
+        }
         final request = calendarNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
@@ -681,7 +691,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         // a row that went stale (Advanced turned off, the account signed out)
         // must not navigate. The page itself opens its file picker only after
         // the user acts on it, never while this sheet is still up.
-        if (!ref.read(chatDataControlsEntryVisibleProvider)) return;
+        if (!ref.read(chatDataControlsEntryVisibleProvider)) {
+          _showNativeOptionUnavailable();
+          return;
+        }
         final request = chatDataControlsNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
@@ -692,8 +705,9 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      // Both rows close the sheet themselves and arrive as it slides away, so
+      // their Flutter page is already opening underneath it.
       if (event.id == NativeSheetRoutes.releaseNotesManual) {
-        await _dismissNativeSheetBeforeFollowUp();
         final context = NavigationService.context;
         if (context == null || !context.mounted) return;
         await _showManualReleaseNotes(context);
@@ -701,7 +715,6 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       }
 
       if (event.id == NativeSheetRoutes.openSourceLicenses) {
-        await _dismissNativeSheetBeforeFollowUp();
         final context = NavigationService.context;
         if (context == null || !context.mounted) return;
         showLicensePage(context: context, applicationName: 'Conduit');
@@ -961,14 +974,22 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setTemporaryChatByDefault(value);
           }
-        case 'advanced-features':
+        case nativeAdvancedFeaturesId:
           if (value is bool) {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setAdvancedFeaturesEnabled(value);
+            final hydration = ref.read(nativeSheetHydrationServiceProvider);
+            await hydration.hydrateDetail(NativeSheetRoutes.chats);
+            // The Settings root under this page lists what Advanced reveals,
+            // so it gains or loses those rows before the user goes back.
+            await hydration.refreshProfileRoot();
+          }
+        case nativeCitationShowTitlesId:
+          if (value is bool) {
             await ref
-                .read(nativeSheetHydrationServiceProvider)
-                .hydrateDetail(NativeSheetRoutes.chats);
+                .read(appSettingsProvider.notifier)
+                .setCitationShowTitles(value);
           }
         case 'disable-haptics-streaming':
           if (value is bool) {
@@ -1137,7 +1158,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   /// only has to keep a stale or denied row from navigating.
   void _openNativeNotificationTargets() {
     final advanced = ref.read(appSettingsProvider).advancedFeaturesEnabled;
-    if (!advanced || !ref.read(notificationTargetsAvailableProvider)) return;
+    if (!advanced || !ref.read(notificationTargetsAvailableProvider)) {
+      _showNativeOptionUnavailable();
+      return;
+    }
     unawaited(
       NavigationService.router.pushNamed<void>(
         RouteNames.notificationSettings,
@@ -1181,11 +1205,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     );
   }
 
-  Future<void> _dismissNativeSheetBeforeFollowUp() async {
-    await NativeSheetBridge.instance.dismiss();
-    // The platform channel returns before UIKit finishes dismissing the sheet.
-    // Presenting the next sheet inside that animation window can no-op on iOS.
-    await Future<void>.delayed(_nativeSheetFollowUpDelay);
+  /// Says why a row tapped in the native sheet did nothing: it went away
+  /// while the sheet was open (Advanced turned off, the account lost access).
+  /// The sheet has already closed, so the message shows over the app.
+  void _showNativeOptionUnavailable() {
+    final context = NavigationService.context;
+    if (context == null || !context.mounted) return;
+    final l10n = AppLocalizations.of(context);
+    if (l10n == null) return;
+    UiUtils.showMessage(context, l10n.nativeSheetOptionUnavailable);
   }
 
   Future<void> _handleNativeTtsVoicePick(

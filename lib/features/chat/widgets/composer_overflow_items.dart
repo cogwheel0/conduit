@@ -87,7 +87,25 @@ enum ComposerOverflowSection {
   const ComposerOverflowSection(this.nativeValue);
 
   final String nativeValue;
+
+  /// The heading shown above the section, or null for the sections that lead
+  /// the panel without one (the attach strip and the feature toggles).
+  String? titleFor(AppLocalizations l10n) => switch (this) {
+    ComposerOverflowSection.attachments => null,
+    ComposerOverflowSection.features => null,
+    ComposerOverflowSection.tools => l10n.tools,
+    ComposerOverflowSection.filters => l10n.filters,
+  };
 }
+
+/// Why the code interpreter cannot run, in the user's words.
+String codeInterpreterBlockReason(
+  AppLocalizations l10n,
+  CodeInterpreterBlock block,
+) => switch (block) {
+  CodeInterpreterBlock.unsupportedEngine => l10n.codeInterpreterBrowserEngine,
+  _ => l10n.codeInterpreterUnavailable,
+};
 
 class ComposerOverflowAttachmentAvailability {
   const ComposerOverflowAttachmentAvailability({
@@ -153,6 +171,7 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
   ComposerPersonalConnections connections = ComposerPersonalConnections.none,
   bool toolSettingsAvailable = false,
   bool compareModelsAvailable = false,
+  bool hasMessage = true,
   CodeInterpreterOffer? codeInterpreter,
 }) {
   return <ComposerOverflowItem>[
@@ -171,6 +190,7 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
     ...buildComposerOverflowComparisonItems(
       l10n: l10n,
       available: compareModelsAvailable,
+      hasMessage: hasMessage,
     ),
     ...buildComposerOverflowToolItems(
       availableTools: availableTools,
@@ -312,15 +332,12 @@ List<ComposerOverflowItem> buildComposerOverflowFeatureItems({
         kind: ComposerOverflowItemKind.toggle,
         section: ComposerOverflowSection.features,
         label: l10n.codeInterpreter,
-        subtitle: switch (block) {
-          null => l10n.codeInterpreterDescription,
-          CodeInterpreterBlock.unsupportedEngine =>
-            l10n.codeInterpreterBrowserEngine,
-          _ => l10n.codeInterpreterUnavailable,
-        },
+        subtitle: block == null
+            ? l10n.codeInterpreterDescription
+            : codeInterpreterBlockReason(l10n, block),
         cupertinoIcon: CupertinoIcons.chevron_left_slash_chevron_right,
         materialIcon: Icons.code,
-        sfSymbol: 'chevron.left.forwardslash.chevron.right',
+        sfSymbol: 'curlybraces',
         // An explanation row is not tappable, but a choice already made can
         // always be turned off.
         enabled: block == null || codeInterpreter.selected,
@@ -486,7 +503,7 @@ List<ComposerOverflowItem> buildComposerOverflowConnectionItems({
         subtitle: server.subtitle,
         cupertinoIcon: CupertinoIcons.chevron_left_slash_chevron_right,
         materialIcon: Icons.terminal_rounded,
-        sfSymbol: 'chevron.left.forwardslash.chevron.right',
+        sfSymbol: 'terminal',
         selected: connections.selectedTerminalId == server.selectionId,
         dismissesKeyboard: false,
       ),
@@ -587,9 +604,13 @@ void _toggleToolServer(
 /// the native iOS panel, which groups rows by section, renders it without a new
 /// native section; the id reaches Flutter through the same action callback as
 /// every other row, so setup is one code path on both.
+///
+/// It compares the message being written, so it stays visible but off, and
+/// says why, until there is one ([hasMessage]).
 List<ComposerOverflowItem> buildComposerOverflowComparisonItems({
   required AppLocalizations l10n,
   required bool available,
+  bool hasMessage = true,
 }) {
   if (!available) return const <ComposerOverflowItem>[];
   return <ComposerOverflowItem>[
@@ -598,7 +619,10 @@ List<ComposerOverflowItem> buildComposerOverflowComparisonItems({
       kind: ComposerOverflowItemKind.action,
       section: ComposerOverflowSection.features,
       label: l10n.chatCompareModelsAction,
-      subtitle: l10n.chatCompareModelsDescription,
+      subtitle: hasMessage
+          ? l10n.chatCompareModelsDescription
+          : l10n.chatCompareNeedsMessage,
+      enabled: hasMessage,
       cupertinoIcon: CupertinoIcons.square_split_2x1,
       materialIcon: Icons.vertical_split_outlined,
       sfSymbol: 'rectangle.split.2x1',
@@ -621,9 +645,9 @@ List<ComposerOverflowItem> buildComposerOverflowToolSettingsItems({
       section: ComposerOverflowSection.tools,
       label: l10n.personalToolSettings,
       subtitle: l10n.personalToolSettingsDescription,
-      cupertinoIcon: CupertinoIcons.slider_horizontal_3,
-      materialIcon: Icons.tune,
-      sfSymbol: 'slider.horizontal.3',
+      cupertinoIcon: CupertinoIcons.wrench,
+      materialIcon: Icons.build_outlined,
+      sfSymbol: 'wrench.and.screwdriver',
     ),
   ];
 }

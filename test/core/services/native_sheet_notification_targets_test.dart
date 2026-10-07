@@ -9,6 +9,8 @@ import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/platform/quick_actions_service.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/notifications/models/notification_target.dart';
+import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatWakelockCoordinatorProvider;
 import 'package:conduit_core/models/backend_config.dart';
@@ -67,6 +69,31 @@ class _Config extends BackendConfigNotifier {
   Future<BackendConfig?> build() async => _config;
 }
 
+/// The account's webhook destinations, without a server round trip.
+class _Targets extends NotificationTargets {
+  _Targets(this._count);
+
+  final int? _count;
+
+  @override
+  Future<NotificationTargetsData> build() async {
+    final count = _count;
+    if (count == null) throw StateError('list unavailable');
+    return NotificationTargetsData(
+      targets: [
+        for (var i = 0; i < count; i++)
+          NotificationTarget(
+            id: 'target-$i',
+            type: NotificationTarget.webhookType,
+            enabled: true,
+            events: const <String>[],
+            delivery: NotificationTarget.deliveryAlways,
+          ),
+      ],
+    );
+  }
+}
+
 final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
   'dev.flutter.pigeon.conduit.NativeSheetHostApi.applyDetailPatch',
   NativeSheetHostApi.pigeonChannelCodec,
@@ -115,6 +142,7 @@ Future<_NativeSettings> _pumpApp(
   Map<String, dynamic> permissions = const {
     'features': {'webhooks': true},
   },
+  int? targetCount = 0,
 }) async {
   if (advanced) {
     await PreferencesStore.put(PreferenceKeys.advancedFeaturesEnabled, true);
@@ -174,6 +202,7 @@ Future<_NativeSettings> _pumpApp(
         ),
       ),
       userPermissionsProvider.overrideWith((ref) async => permissions),
+      notificationTargetsProvider.overrideWith(() => _Targets(targetCount)),
       appStartupFlowProvider.overrideWith(_IdleStartup.new),
       quickActionsCoordinatorProvider.overrideWith(_IdleQuickActions.new),
       userScopedProviderCleanupProvider.overrideWithValue(null),
@@ -245,6 +274,45 @@ void main() {
     expect(row.title, 'Webhook destinations');
     expect(row.dismissOnSelect, isTrue);
     expect(row.actionId, 'notification-targets');
+    expect(row.sfSymbol, 'bell.and.waves.left.and.right');
+    expect(row.subtitle, 'None');
+    // What destinations are lives under the row, not in its subtitle.
+    final group = native.patches.last.sections.last;
+    expect(group.items.single.id, 'notification-targets');
+    expect(
+      group.footer,
+      'Your Open WebUI server sends events to these URLs, even while this '
+      'app is closed.',
+    );
+  });
+
+  testWidgets('the local toggles show before the destinations group is added', (
+    tester,
+  ) async {
+    final native = await _pumpApp(tester, targetCount: 2);
+
+    await native.detailAppeared(_detail);
+
+    final patches = native.patches.where((p) => p.detailId == _detail).toList();
+    expect(patches, hasLength(2));
+    List<String> ids(PlatformNativeSheetApplyDetailPatchRequest patch) => [
+      for (final section in patch.sections) ...section.items.map((i) => i.id),
+    ];
+    expect(ids(patches.first), _localToggles);
+    expect(ids(patches.last), [..._localToggles, 'notification-targets']);
+    expect(native.items(_detail).last.subtitle, '2 destinations');
+  });
+
+  testWidgets('an unreadable list leaves the row without a count', (
+    tester,
+  ) async {
+    final native = await _pumpApp(tester, targetCount: null);
+
+    await native.detailAppeared(_detail);
+
+    final row = native.items(_detail).last;
+    expect(row.id, 'notification-targets');
+    expect(row.subtitle, isNull);
   });
 
   testWidgets('tapping it closes the sheet and opens the Notifications page '
@@ -312,6 +380,10 @@ void main() {
 
         expect(find.text('notifications page'), findsNothing);
         expect(native.pushed, isEmpty);
+        expect(
+          find.text("That option isn't available right now."),
+          findsOneWidget,
+        );
       });
     }
   });

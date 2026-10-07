@@ -12,6 +12,7 @@ import 'package:conduit_core/models/server_memory.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 
+import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
 
@@ -22,11 +23,15 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/discard_changes.dart';
+import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show restoreDefaultModel;
 
+import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/default_model_sheet.dart';
 import '../widgets/expandable_card.dart';
@@ -282,6 +287,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
               subtitle: enabled
                   ? l10n.memoryEnabledDescription
                   : l10n.memoryDisabledDescription,
+              toggled: enabled,
               trailing: AdaptiveSwitch(
                 value: enabled,
                 onChanged: (value) async {
@@ -691,6 +697,7 @@ Future<void> showMemoryEditor(
   final fields = _MemoryEditorFields(
     type: memory == null ? ServerMemory.userType : knownType,
     path: memory?.path ?? '',
+    editing: memory != null,
   );
   await _showTextEditorSheet(
     context,
@@ -787,7 +794,9 @@ Future<void> _showTextEditorSheet(
     return;
   }
 
-  await showAdaptiveSelectionSheet<void>(
+  // A form, so a dimmed backdrop: the sheet keeps the user's attention until
+  // it is saved or put away.
+  await ThemedSheets.showCustom<void>(
     context: context,
     builder: (sheetContext) => _TextEditorSheet(
       title: title,
@@ -795,8 +804,10 @@ Future<void> _showTextEditorSheet(
       initialValue: initialValue,
       hintText: hintText,
       cancelLabel: l10n.cancel,
+      closeLabel: l10n.close,
       saveLabel: l10n.save,
       errorMessage: l10n.errorMessage,
+      accountChangedMessage: l10n.personalizationMemoryAccountChanged,
       savedMessage: l10n.saved,
       onSave: onSave,
       extras: extras,
@@ -811,8 +822,10 @@ class _TextEditorSheet extends StatefulWidget {
     required this.initialValue,
     required this.hintText,
     required this.cancelLabel,
+    required this.closeLabel,
     required this.saveLabel,
     required this.errorMessage,
+    required this.accountChangedMessage,
     required this.savedMessage,
     required this.onSave,
     this.extras,
@@ -823,8 +836,10 @@ class _TextEditorSheet extends StatefulWidget {
   final String initialValue;
   final String hintText;
   final String cancelLabel;
+  final String closeLabel;
   final String saveLabel;
   final String errorMessage;
+  final String accountChangedMessage;
   final String savedMessage;
   final Future<void> Function(String value) onSave;
 
@@ -839,38 +854,60 @@ class _TextEditorSheet extends StatefulWidget {
 class _TextEditorSheetState extends State<_TextEditorSheet> {
   late final TextEditingController _controller;
   bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
+    _controller.addListener(_onEdited);
+    widget.extras?.changes.addListener(_onEdited);
   }
 
   @override
   void dispose() {
+    widget.extras?.changes.removeListener(_onEdited);
     _controller.dispose();
     widget.extras?.dispose();
     super.dispose();
   }
+
+  /// Rebuilds so the discard guard follows whether anything was changed.
+  void _onEdited() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _dirty =>
+      _controller.text != widget.initialValue ||
+      (widget.extras?.dirty ?? false);
 
   Future<void> _handleSave() async {
     if (_saving) {
       return;
     }
 
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       await widget.onSave(_controller.text);
       if (!mounted) {
         return;
       }
+      ConduitHaptics.success();
       UiUtils.showMessage(context, widget.savedMessage);
       Navigator.of(context).pop();
-    } catch (_) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
-      UiUtils.showMessage(context, widget.errorMessage);
+      // The form keeps what was typed and says why next to it.
+      setState(
+        () => _error = error is MemoryOwnerChangedException
+            ? widget.accountChangedMessage
+            : widget.errorMessage,
+      );
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -881,76 +918,118 @@ class _TextEditorSheetState extends State<_TextEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final viewInsets = MediaQuery.of(context).viewInsets;
+    final dirty = _dirty;
+    void close() => Navigator.of(context).maybePop();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.sidebarBackground,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.modal),
+    // Back, Cancel, the close button and a swipe all ask before throwing
+    // edits away, and do nothing while a save is on its way. The sheet insets
+    // for the keyboard itself, and the fields scroll in what is left while
+    // Cancel and Save stay in view.
+    return DiscardChangesScope(
+      dirty: dirty,
+      busy: _saving,
+      child: AnimatedPadding(
+        duration: context.motionDuration(AnimationDuration.microInteraction),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
         ),
-        boxShadow: ConduitShadows.modal(context),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            Spacing.lg,
-            Spacing.lg,
-            Spacing.lg,
-            Spacing.lg + viewInsets.bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.title,
-                style: theme.headingSmall?.copyWith(
-                  color: theme.sidebarForeground,
-                ),
-              ),
-              const SizedBox(height: Spacing.xs),
-              Text(
-                widget.description,
-                style: theme.bodySmall?.copyWith(
-                  color: theme.sidebarForeground.withValues(alpha: 0.75),
-                ),
-              ),
-              const SizedBox(height: Spacing.md),
-              ConduitInput(
-                controller: _controller,
-                hint: widget.hintText,
-                maxLines: 6,
-                autofocus: true,
-              ),
-              if (widget.extras case final extras?) ...[
-                const SizedBox(height: Spacing.md),
-                extras.build(context),
-              ],
-              const SizedBox(height: Spacing.md),
-              Row(
+        child: SheetDismissGuard(
+          guarded: dirty || _saving,
+          onDismissRequest: close,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+            ),
+            child: ConduitModalSheetSurface(
+              showHandle: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: ConduitButton(
-                      text: widget.cancelLabel,
-                      isSecondary: true,
-                      onPressed: _saving
-                          ? null
-                          : () => Navigator.of(context).pop(),
+                  const SheetHandle(),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Semantics(
+                          header: true,
+                          child: Text(
+                            widget.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.headingSmall,
+                          ),
+                        ),
+                      ),
+                      SheetCloseButton(
+                        tooltip: widget.closeLabel,
+                        onPressed: _saving ? null : close,
+                      ),
+                    ],
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.only(top: Spacing.xs),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.description,
+                            style: theme.bodySmall?.copyWith(
+                              color: theme.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: Spacing.md),
+                          ConduitInput(
+                            controller: _controller,
+                            hint: widget.hintText,
+                            maxLines: 6,
+                            autofocus: true,
+                            enabled: !_saving,
+                          ),
+                          if (widget.extras case final extras?) ...[
+                            const SizedBox(height: Spacing.md),
+                            extras.build(context),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: Spacing.sm),
-                  Expanded(
-                    child: ConduitButton(
-                      text: widget.saveLabel,
-                      isLoading: _saving,
-                      onPressed: _saving ? null : _handleSave,
+                  if (_error case final message?) ...[
+                    const SizedBox(height: Spacing.sm),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        message,
+                        key: const Key('text-editor-error'),
+                        style: theme.bodySmall?.copyWith(color: theme.error),
+                      ),
                     ),
+                  ],
+                  const SizedBox(height: Spacing.md),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ConduitButton(
+                          text: widget.cancelLabel,
+                          isSecondary: true,
+                          onPressed: _saving ? null : close,
+                        ),
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Expanded(
+                        child: ConduitButton(
+                          text: widget.saveLabel,
+                          isLoading: _saving,
+                          onPressed: _saving ? null : _handleSave,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -962,6 +1041,12 @@ class _TextEditorSheetState extends State<_TextEditorSheet> {
 abstract interface class _EditorExtras {
   Widget build(BuildContext context);
 
+  /// Fires when any of the fields changes.
+  Listenable get changes;
+
+  /// Whether any field differs from what it started with.
+  bool get dirty;
+
   void dispose();
 }
 
@@ -970,12 +1055,28 @@ abstract interface class _EditorExtras {
 /// [type] is null while no type is chosen, which leaves a memory's existing
 /// classification alone.
 final class _MemoryEditorFields implements _EditorExtras {
-  _MemoryEditorFields({String? type, required String path})
-    : type = ValueNotifier<String?>(type),
-      pathController = TextEditingController(text: path);
+  _MemoryEditorFields({
+    String? type,
+    required String path,
+    required bool editing,
+  }) : _initialType = type,
+       _initialPath = path,
+       _editing = editing,
+       type = ValueNotifier<String?>(type),
+       pathController = TextEditingController(text: path);
 
+  final String? _initialType;
+  final String _initialPath;
+  final bool _editing;
   final ValueNotifier<String?> type;
   final TextEditingController pathController;
+
+  @override
+  late final Listenable changes = Listenable.merge([type, pathController]);
+
+  @override
+  bool get dirty =>
+      type.value != _initialType || pathController.text != _initialPath;
 
   @override
   void dispose() {
@@ -998,27 +1099,57 @@ final class _MemoryEditorFields implements _EditorExtras {
         const SizedBox(height: Spacing.xs),
         ValueListenableBuilder<String?>(
           valueListenable: type,
-          builder: (context, selected, _) => Row(
-            children: [
-              Expanded(
-                child: ConduitChip(
-                  key: const Key('memory-type-user'),
-                  label: l10n.memoryTypeUser,
-                  isSelected: selected == ServerMemory.userType,
-                  onTap: () => type.value = ServerMemory.userType,
+          builder: (context, selected, _) {
+            final note = switch (selected) {
+              ServerMemory.userType =>
+                l10n.personalizationMemoryTypeUserDescription,
+              ServerMemory.contextType =>
+                l10n.personalizationMemoryTypeContextDescription,
+              // Only an existing memory can start without a known type.
+              _ when _editing => l10n.personalizationMemoryTypeUnknown,
+              _ => null,
+            };
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // One choice of two, so a segmented control: it reads and
+                // announces as a single exclusive group. An unknown type
+                // leaves both segments unselected.
+                AdaptiveSegmentedSelector<String>(
+                  key: const Key('memory-type'),
+                  value: selected ?? '',
+                  showIcons: false,
+                  onChanged: (value) => type.value = value,
+                  options: [
+                    (
+                      value: ServerMemory.userType,
+                      label: l10n.memoryTypeUser,
+                      cupertinoIcon: CupertinoIcons.person,
+                      materialIcon: Icons.person_outline,
+                      enabled: true,
+                    ),
+                    (
+                      value: ServerMemory.contextType,
+                      label: l10n.memoryTypeContext,
+                      cupertinoIcon: CupertinoIcons.doc_text,
+                      materialIcon: Icons.notes_outlined,
+                      enabled: true,
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: ConduitChip(
-                  key: const Key('memory-type-context'),
-                  label: l10n.memoryTypeContext,
-                  isSelected: selected == ServerMemory.contextType,
-                  onTap: () => type.value = ServerMemory.contextType,
-                ),
-              ),
-            ],
-          ),
+                if (note != null) ...[
+                  const SizedBox(height: Spacing.xs),
+                  Text(
+                    note,
+                    key: const Key('memory-type-description'),
+                    style: theme.bodySmall?.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
         const SizedBox(height: Spacing.md),
         Text(

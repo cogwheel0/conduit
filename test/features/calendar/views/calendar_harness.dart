@@ -34,8 +34,6 @@ const calendarTestServer = ServerConfig(
   isActive: true,
 );
 
-const advancedSettings = AppSettings(advancedFeaturesEnabled: true);
-
 /// The shell the chat, folder and channel pages live in, as in the app.
 const calendarShellKey = Key('calendar-shell');
 const calendarChatKey = Key('calendar-chat');
@@ -194,6 +192,15 @@ final class CalendarWire implements HttpClientAdapter {
   ({int status, String detail})? rejectWrites;
   Completer<void>? holdWrites;
 
+  /// Holds agenda reads until completed, as on a slow connection.
+  Completer<void>? holdAgenda;
+
+  /// Fails every agenda read, as when the server cannot be reached.
+  bool failAgenda = false;
+
+  /// Holds reads of an event's own record until completed.
+  Completer<void>? holdEventReads;
+
   Iterable<RequestOptions> get writes =>
       requests.where((r) => r.method != 'GET');
 
@@ -259,6 +266,8 @@ final class CalendarWire implements HttpClientAdapter {
       return _json(calendars.firstWhere((c) => c['id'] == id));
     }
     if (path == '/api/v1/calendars/events') {
+      await holdAgenda?.future;
+      if (failAgenda) return _json({'detail': 'Unavailable'}, 500);
       final ids = options.uri.queryParameters['calendar_ids']?.split(',');
       final listed = [
         ...?agendaOverride,
@@ -316,6 +325,7 @@ final class CalendarWire implements HttpClientAdapter {
         _apply(event, options.data as Map<String, dynamic>);
         return _json(event);
       default:
+        await holdEventReads?.future;
         if (denyDetail || !_canRead(event['calendar_id'] as String)) {
           return _json({'detail': 'Access denied'}, 403);
         }
@@ -456,12 +466,12 @@ Future<CalendarSession> pumpCalendar(
   WidgetTester tester, {
   String location = Routes.calendar,
   String shellLocation = Routes.chat,
-  AppSettings settings = advancedSettings,
   Map<String, dynamic> permissions = const {
     'features': {'calendar': true, 'automations': true},
   },
   bool serverEnabled = true,
   String role = 'user',
+  bool alwaysUse24HourFormat = false,
   void Function(CalendarWire wire)? configureWire,
 }) async {
   tester.view
@@ -525,7 +535,8 @@ Future<CalendarSession> pumpCalendar(
 
   final container = ProviderContainer(
     overrides: [
-      appSettingsProvider.overrideWith(() => _Settings(settings)),
+      // Advanced stays off: the calendar does not depend on it.
+      appSettingsProvider.overrideWith(() => _Settings(const AppSettings())),
       apiServiceProvider.overrideWithValue(api),
       optimizedStorageServiceProvider.overrideWithValue(_Storage()),
       currentUserProvider2.overrideWithValue(
@@ -581,6 +592,12 @@ Future<CalendarSession> pumpCalendar(
         routerConfig: router,
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(alwaysUse24HourFormat: alwaysUse24HourFormat),
+          child: child!,
+        ),
       ),
     ),
   );

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
@@ -11,7 +12,10 @@ import '../../features/chat/providers/text_to_speech_provider.dart';
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show captureOpenWebUiReasoningPickTarget, selectReasoningEffortForModel;
+    show
+        captureOpenWebUiReasoningPickTarget,
+        chatDataControlsEntryVisibleProvider,
+        selectReasoningEffortForModel;
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -26,8 +30,20 @@ import '../network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/automations/providers/automation_providers.dart'
+    show scheduledTasksEntryVisibleProvider;
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show currentUserProvider2;
+import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
+    show calendarAvailableProvider;
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
+    show personalConnectionsEntryVisibleProvider;
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart'
-    show notificationTargetsAvailableProvider;
+    show notificationTargetsAvailableProvider, notificationTargetsProvider;
+import 'package:conduit_core/navigation/routes.dart'
+    show permittedWorkspaceSections;
+import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart'
+    show workspaceCapabilitiesProvider;
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -82,6 +98,37 @@ class NativeSheetPresentationAdmission {
   void finish() => _active = false;
 }
 
+/// Reads a provider once; both `Ref.read` and `WidgetRef.read` fit.
+typedef NativeSheetProviderReader = T Function<T>(ProviderListenable<T> provider);
+
+/// Which root rows the signed-in account is offered right now, read from the
+/// providers the Flutter Settings page watches.
+NativeProfileRootVisibility readNativeProfileRootVisibility(
+  NativeSheetProviderReader read,
+) => NativeProfileRootVisibility(
+  showCalendar: read(calendarAvailableProvider),
+  canManageWorkspace: read(workspaceCapabilitiesProvider).maybeWhen(
+    data: (value) => permittedWorkspaceSections(value).isNotEmpty,
+    orElse: () => false,
+  ),
+  showScheduledTasks: read(scheduledTasksEntryVisibleProvider),
+  showPersonalConnections: read(personalConnectionsEntryVisibleProvider),
+  showChatDataControls: read(chatDataControlsEntryVisibleProvider),
+);
+
+/// The native Settings root on screen and the account it was built for.
+final class _NativeProfileRoot {
+  const _NativeProfileRoot({
+    required this.account,
+    required this.api,
+    required this.userId,
+  });
+
+  final NativeProfileRootAccount? account;
+  final Object? api;
+  final String? userId;
+}
+
 @visibleForTesting
 ReasoningEffortPolicy nativeModelSelectorReasoningEffortPolicy(
   bool hydrated,
@@ -128,6 +175,9 @@ class NativeSheetHydrationService {
   final Ref _ref;
   bool _appearanceDetailPresented = false;
   MemoryOwner? _memoryOwner;
+  _NativeProfileRoot? _profileRoot;
+  final NativeSheetHydrationGeneration _notificationsHydration =
+      NativeSheetHydrationGeneration();
   final NativeSheetHydrationGeneration _modelSelectorHydration =
       NativeSheetHydrationGeneration();
   final NativeSheetPresentationAdmission _modelSelectorPresentation =
@@ -137,6 +187,47 @@ class NativeSheetHydrationService {
   /// in that list are sent for this account, so a list left open across an
   /// account switch cannot change the new account's memories.
   MemoryOwner? get memoryOwner => _memoryOwner;
+
+  /// Records the native Settings root that was just presented, with the
+  /// account it was built for, so [refreshProfileRoot] can rebuild it.
+  void rememberProfileRoot(NativeProfileRootAccount? account) {
+    _profileRoot = _NativeProfileRoot(
+      account: account,
+      api: _ref.read(apiServiceProvider),
+      userId: _ref.read(currentUserProvider2)?.id,
+    );
+  }
+
+  /// Rebuilds the rows of the open native Settings root, for when something
+  /// it shows (Advanced, the language) changed while it was up. Nothing is
+  /// sent once another account has taken over: the sheet on screen belongs to
+  /// the one it was built for. Returns whether the sheet took the new rows.
+  Future<bool> refreshProfileRoot() async {
+    final root = _profileRoot;
+    if (root == null) return false;
+    if (!identical(_ref.read(apiServiceProvider), root.api) ||
+        _ref.read(currentUserProvider2)?.id != root.userId) {
+      _profileRoot = null;
+      return false;
+    }
+    final ctx = NavigationService.context;
+    if (ctx == null || !ctx.mounted) return false;
+    final l10n = AppLocalizations.of(ctx);
+    if (l10n == null) return false;
+    final applied = await NativeSheetBridge.instance.applyDetailPatch(
+      detailId: NativeSheetRoutes.profileMenu,
+      title: nativeSettingsTitle(l10n),
+      items: const [],
+      sections: buildNativeProfileRootSections(
+        l10n,
+        account: root.account,
+        visibility: readNativeProfileRootVisibility(_ref.read),
+      ),
+    );
+    // The sheet is gone (or never took a root patch); stop rebuilding it.
+    if (!applied && identical(_profileRoot, root)) _profileRoot = null;
+    return applied;
+  }
 
   Future<List<Model>> loadModels({bool refreshOnError = true}) async {
     final modelsAsync = _ref.read(modelsProvider);
@@ -468,6 +559,7 @@ class NativeSheetHydrationService {
     try {
       await WidgetsBinding.instance.endOfFrame;
       await hydrateDetail(NativeSheetRoutes.appearance);
+      await refreshProfileRoot();
     } catch (error, stackTrace) {
       DebugLogger.error(
         'native-sheet-locale-rehydrate-failed',
@@ -516,9 +608,6 @@ class NativeSheetHydrationService {
         return;
       case NativeSheetRoutes.about:
         await _hydrateNativeAboutDetail(ctx, l10n);
-        return;
-      case NativeSheetRoutes.appCustomization:
-        await _hydrateNativeAppCustomizationDetail(ctx, l10n);
         return;
       case NativeSheetRoutes.personalization:
         await _hydrateNativePersonalizationDetail(ctx, l10n);
@@ -714,7 +803,7 @@ class NativeSheetHydrationService {
             if (hasOpenWebUiAccount)
               NativeSheetItemConfig(
                 id: 'advanced-prompt-overrides',
-                title: l10n.advancedPromptOverrides,
+                title: l10n.promptOverridesTitle,
                 subtitle: models.isEmpty
                     ? l10n.noAccessibleModelsFound
                     : l10n.accessibleModelsCount(models.length),
@@ -755,7 +844,7 @@ class NativeSheetHydrationService {
             buildNativeLoadingDetail(
               l10n: l10n,
               id: 'advanced-prompt-overrides',
-              title: l10n.advancedPromptOverrides,
+              title: l10n.promptOverridesTitle,
               subtitle: l10n.advancedPromptOverridesDescription,
             ),
         ],
@@ -861,101 +950,140 @@ class NativeSheetHydrationService {
     return _ref.read(notificationTargetsAvailableProvider);
   }
 
-  Future<void> _hydrateNativeNotificationsDetail(AppLocalizations l10n) async {
+  /// How many webhook destinations the account has, or null when the list
+  /// could not be read in time; the row then shows no count.
+  Future<int?> _nativeNotificationTargetsCount() async {
     try {
-      final showTargets = await _showNativeNotificationTargets();
-      final s = _ref.read(appSettingsProvider);
-      final masterItem = NativeSheetItemConfig(
-        id: 'notifications-enabled',
-        title: l10n.notificationsEnabledTitle,
-        subtitle: s.notificationsEnabled
-            ? l10n.notificationsEnabledDescription
-            : l10n.notificationRequiresMaster,
-        sfSymbol: 'bell',
-        kind: NativeSheetItemKind.toggle,
-        value: s.notificationsEnabled,
+      final data = await _ref
+          .read(notificationTargetsProvider.future)
+          .timeout(const Duration(seconds: 2));
+      return data.targets.length;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The toggle groups of the native Notifications sheet. They read only
+  /// local settings.
+  List<NativeSheetSectionConfig> _nativeNotificationToggleSections(
+    AppLocalizations l10n,
+  ) {
+    final s = _ref.read(appSettingsProvider);
+    final masterItem = NativeSheetItemConfig(
+      id: 'notifications-enabled',
+      title: l10n.notificationsEnabledTitle,
+      subtitle: s.notificationsEnabled
+          ? l10n.notificationsEnabledDescription
+          : l10n.notificationRequiresMaster,
+      sfSymbol: 'bell',
+      kind: NativeSheetItemKind.toggle,
+      value: s.notificationsEnabled,
+    );
+    final deliveryItems = <NativeSheetItemConfig>[
+      NativeSheetItemConfig(
+        id: 'notification-in-app-banner',
+        title: l10n.notificationInAppBannerTitle,
+        subtitle: l10n.notificationInAppBannerDescription,
+        sfSymbol: 'rectangle.topthird.inset.filled',
+        kind: s.notificationsEnabled
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
+        value: s.notificationInAppBanner,
+      ),
+      NativeSheetItemConfig(
+        id: 'notification-system',
+        title: l10n.notificationSystemTitle,
+        subtitle: l10n.notificationSystemDescription,
+        sfSymbol: 'bell.badge',
+        kind: s.notificationsEnabled
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
+        value: s.notificationSystem,
+      ),
+    ];
+    final soundItems = <NativeSheetItemConfig>[
+      NativeSheetItemConfig(
+        id: 'notification-sound',
+        title: l10n.notificationSoundTitle,
+        subtitle: l10n.notificationSoundDescription,
+        sfSymbol: 'speaker.wave.2',
+        kind: s.notificationsEnabled
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
+        value: s.notificationSound,
+      ),
+      NativeSheetItemConfig(
+        id: 'notification-sound-always',
+        title: l10n.notificationSoundAlwaysTitle,
+        subtitle: s.notificationsEnabled && !s.notificationSound
+            ? l10n.notificationRequiresSound
+            : l10n.notificationSoundAlwaysDescription,
+        sfSymbol: 'speaker.wave.3',
+        kind: s.notificationsEnabled && s.notificationSound
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
+        value: s.notificationSoundAlways,
+      ),
+    ];
+    final contentItems = <NativeSheetItemConfig>[
+      NativeSheetItemConfig(
+        id: 'notification-chat',
+        title: l10n.notificationChatTitle,
+        subtitle: l10n.notificationChatDescription,
+        sfSymbol: 'bubble.left.and.bubble.right',
+        kind: s.notificationsEnabled
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
+        value: s.notificationChatEnabled,
+      ),
+      NativeSheetItemConfig(
+        id: 'notification-channel',
+        title: l10n.notificationChannelTitle,
+        subtitle: l10n.notificationChannelDescription,
+        sfSymbol: 'number',
+        kind: s.notificationsEnabled
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
+        value: s.notificationChannelEnabled,
+      ),
+    ];
+    return [
+      NativeSheetSectionConfig(items: [masterItem]),
+      NativeSheetSectionConfig(items: deliveryItems),
+      NativeSheetSectionConfig(items: soundItems),
+      NativeSheetSectionConfig(items: contentItems),
+    ];
+  }
+
+  /// Shows the local toggles at once, then adds the Webhook destinations group
+  /// once the bounded permission and list reads settle.
+  Future<void> _hydrateNativeNotificationsDetail(AppLocalizations l10n) async {
+    final generation = _notificationsHydration.begin();
+    try {
+      final api = _ref.read(apiServiceProvider);
+      await _applyNativeDetail(
+        NativeSheetDetailConfig(
+          id: NativeSheetRoutes.notificationSettings,
+          title: l10n.notificationsTitle,
+          sections: _nativeNotificationToggleSections(l10n),
+        ),
       );
-      final deliveryItems = <NativeSheetItemConfig>[
-        NativeSheetItemConfig(
-          id: 'notification-in-app-banner',
-          title: l10n.notificationInAppBannerTitle,
-          subtitle: l10n.notificationInAppBannerDescription,
-          sfSymbol: 'rectangle.topthird.inset.filled',
-          kind: s.notificationsEnabled
-              ? NativeSheetItemKind.toggle
-              : NativeSheetItemKind.info,
-          value: s.notificationInAppBanner,
-        ),
-        NativeSheetItemConfig(
-          id: 'notification-system',
-          title: l10n.notificationSystemTitle,
-          subtitle: l10n.notificationSystemDescription,
-          sfSymbol: 'bell.badge',
-          kind: s.notificationsEnabled
-              ? NativeSheetItemKind.toggle
-              : NativeSheetItemKind.info,
-          value: s.notificationSystem,
-        ),
-      ];
-      final soundItems = <NativeSheetItemConfig>[
-        NativeSheetItemConfig(
-          id: 'notification-sound',
-          title: l10n.notificationSoundTitle,
-          subtitle: l10n.notificationSoundDescription,
-          sfSymbol: 'speaker.wave.2',
-          kind: s.notificationsEnabled
-              ? NativeSheetItemKind.toggle
-              : NativeSheetItemKind.info,
-          value: s.notificationSound,
-        ),
-        NativeSheetItemConfig(
-          id: 'notification-sound-always',
-          title: l10n.notificationSoundAlwaysTitle,
-          subtitle: s.notificationsEnabled && !s.notificationSound
-              ? l10n.notificationRequiresSound
-              : l10n.notificationSoundAlwaysDescription,
-          sfSymbol: 'speaker.wave.3',
-          kind: s.notificationsEnabled && s.notificationSound
-              ? NativeSheetItemKind.toggle
-              : NativeSheetItemKind.info,
-          value: s.notificationSoundAlways,
-        ),
-      ];
-      final contentItems = <NativeSheetItemConfig>[
-        NativeSheetItemConfig(
-          id: 'notification-chat',
-          title: l10n.notificationChatTitle,
-          subtitle: l10n.notificationChatDescription,
-          sfSymbol: 'bubble.left.and.bubble.right',
-          kind: s.notificationsEnabled
-              ? NativeSheetItemKind.toggle
-              : NativeSheetItemKind.info,
-          value: s.notificationChatEnabled,
-        ),
-        NativeSheetItemConfig(
-          id: 'notification-channel',
-          title: l10n.notificationChannelTitle,
-          subtitle: l10n.notificationChannelDescription,
-          sfSymbol: 'number',
-          kind: s.notificationsEnabled
-              ? NativeSheetItemKind.toggle
-              : NativeSheetItemKind.info,
-          value: s.notificationChannelEnabled,
-        ),
-      ];
+      if (!await _showNativeNotificationTargets()) return;
+      final count = await _nativeNotificationTargetsCount();
+      // A newer opening of this page, or another account, owns it now.
+      if (!_notificationsHydration.isActive(generation) ||
+          !identical(_ref.read(apiServiceProvider), api) ||
+          !_ref.read(notificationTargetsAvailableProvider)) {
+        return;
+      }
       await _applyNativeDetail(
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.notificationSettings,
           title: l10n.notificationsTitle,
           sections: [
-            NativeSheetSectionConfig(items: [masterItem]),
-            NativeSheetSectionConfig(items: deliveryItems),
-            NativeSheetSectionConfig(items: soundItems),
-            NativeSheetSectionConfig(items: contentItems),
-            if (showTargets)
-              NativeSheetSectionConfig(
-                items: [buildNativeNotificationTargetsItem(l10n)],
-              ),
+            // Rebuilt, so a toggle flipped while the count loaded shows as is.
+            ..._nativeNotificationToggleSections(l10n),
+            buildNativeNotificationTargetsSection(l10n, count: count),
           ],
         ),
       );
@@ -1137,10 +1265,10 @@ class NativeSheetHydrationService {
           ),
       ];
       final behaviorItems = _nativeChatBehaviorItems(l10n, appSettings);
-      final advancedItem = hasOpenWebUiAccount
+      final promptOverridesItem = hasOpenWebUiAccount
           ? NativeSheetItemConfig(
               id: 'advanced-prompt-overrides',
-              title: l10n.advancedPromptOverrides,
+              title: l10n.promptOverridesTitle,
               subtitle: l10n.advancedPromptOverridesDescription,
               sfSymbol: 'cube.box',
             )
@@ -1152,8 +1280,11 @@ class NativeSheetHydrationService {
           sections: [
             NativeSheetSectionConfig(items: modelItems),
             NativeSheetSectionConfig(items: behaviorItems),
-            if (advancedItem != null)
-              NativeSheetSectionConfig(items: [advancedItem]),
+            if (promptOverridesItem != null)
+              NativeSheetSectionConfig(items: [promptOverridesItem]),
+            // Advanced stays last and on its own, as on the Flutter page: it
+            // changes what the rest of the app shows, not how chats behave.
+            _nativeChatAdvancedSection(l10n, appSettings),
           ],
         ),
         detailSheets: [
@@ -1181,7 +1312,7 @@ class NativeSheetHydrationService {
             buildNativeLoadingDetail(
               l10n: l10n,
               id: 'advanced-prompt-overrides',
-              title: l10n.advancedPromptOverrides,
+              title: l10n.promptOverridesTitle,
               subtitle: l10n.advancedPromptOverridesDescription,
             ),
         ],
@@ -1283,6 +1414,7 @@ class NativeSheetHydrationService {
                 ),
               ],
             ),
+            _nativeChatAdvancedSection(l10n, _ref.read(appSettingsProvider)),
           ],
         ),
       );
@@ -1315,278 +1447,35 @@ class NativeSheetHydrationService {
         value: appSettings.temporaryChatByDefault,
       ),
       NativeSheetItemConfig(
-        id: 'advanced-features',
-        title: l10n.advancedFeatures,
-        subtitle: l10n.advancedFeaturesDescription,
-        sfSymbol: 'slider.horizontal.3',
+        id: nativeCitationShowTitlesId,
+        title: l10n.citationShowTitles,
+        subtitle: l10n.citationShowTitlesDescription,
+        sfSymbol: 'link',
         kind: NativeSheetItemKind.toggle,
-        value: appSettings.advancedFeaturesEnabled,
+        value: appSettings.citationShowTitles,
       ),
     ];
   }
 
-  Future<void> _hydrateNativeAppCustomizationDetail(
-    BuildContext context,
+  /// The Advanced group of the native Chats page: the toggle alone, with a
+  /// footer that says what it reveals.
+  NativeSheetSectionConfig _nativeChatAdvancedSection(
     AppLocalizations l10n,
-  ) async {
-    try {
-      final platformBrightness = MediaQuery.platformBrightnessOf(context);
-      final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);
-      final modelsFuture = _ref.read(modelsProvider.future);
-      final models = await modelsFuture;
-      final tools = hasOpenWebUiAccount
-          ? await _ref.read(toolsListProvider.future)
-          : const <Tool>[];
-      if (!context.mounted) return;
-      final appSettings = _ref.read(appSettingsProvider);
-      final themeMode = _ref.read(appThemeModeProvider);
-      final appLocale = _ref.read(appLocaleProvider);
-      final activePalette = _ref.read(appThemePaletteProvider);
-      final transportAvail = _ref.read(socketTransportOptionsProvider);
-      final selectedModel = _ref.read(selectedModelProvider);
-      final socketService = _ref.read(socketServiceProvider);
-      final quickActionsTitle = nativeQuickActionsTitle(l10n);
-      final themeDescription = switch (themeMode) {
-        ThemeMode.system => l10n.followingSystem(
-          platformBrightness == Brightness.dark
-              ? l10n.themeDark
-              : l10n.themeLight,
+    AppSettings appSettings,
+  ) {
+    return NativeSheetSectionConfig(
+      footer: l10n.advancedFeaturesFooter,
+      items: [
+        NativeSheetItemConfig(
+          id: nativeAdvancedFeaturesId,
+          title: l10n.advancedFeatures,
+          subtitle: l10n.advancedFeaturesDescription,
+          sfSymbol: 'gearshape.2',
+          kind: NativeSheetItemKind.toggle,
+          value: appSettings.advancedFeaturesEnabled,
         ),
-        ThemeMode.dark => l10n.currentlyUsingDarkTheme,
-        ThemeMode.light => l10n.currentlyUsingLightTheme,
-      };
-      final currentLanguageTag = appLocale?.toLanguageTag() ?? 'system';
-      final languageLabel = nativeLanguageLabel(l10n, currentLanguageTag);
-      var effectiveTransport = appSettings.socketTransportMode;
-      if (!transportAvail.allowPolling && effectiveTransport == 'polling') {
-        effectiveTransport = 'ws';
-      } else if (!transportAvail.allowWebsocketOnly &&
-          effectiveTransport == 'ws') {
-        effectiveTransport = 'polling';
-      }
-      final transportNavLabel = effectiveTransport == 'polling'
-          ? l10n.transportModePolling
-          : l10n.transportModeWs;
-      final filters = selectedModel?.filters ?? const [];
-      final allowedQuickIds = <String>{
-        'web',
-        'image',
-        ...tools.map((tool) => tool.id),
-        ...filters.map((filter) => 'filter:${filter.id}'),
-      };
-      final selectedQuickPills = appSettings.quickPills
-          .where((id) => allowedQuickIds.contains(id))
-          .toList();
-      final quickPillsSubtitle = l10n.quickActionsSelectedCount(
-        selectedQuickPills.length,
-      );
-      final advancedPromptSubtitle = models.isEmpty
-          ? l10n.noAccessibleModelsFound
-          : l10n.accessibleModelsCount(models.length);
-
-      await _applyNativeDetail(
-        NativeSheetDetailConfig(
-          id: NativeSheetRoutes.appCustomization,
-          title: l10n.appAndChat,
-          subtitle: l10n.appAndChatSubtitle,
-          items: [
-            NativeSheetItemConfig(
-              id: 'display',
-              title: l10n.display,
-              subtitle: '${activePalette.label(l10n)} · $themeDescription',
-              sfSymbol: 'rectangle.3.group',
-            ),
-            NativeSheetItemConfig(
-              id: 'language',
-              title: l10n.appLanguage,
-              subtitle: languageLabel,
-              sfSymbol: 'globe',
-            ),
-            NativeSheetItemConfig(
-              id: 'app-chat-settings',
-              title: l10n.chatSettings,
-              subtitle: transportNavLabel,
-              sfSymbol: 'bubble.left.and.bubble.right',
-            ),
-            if (hasOpenWebUiAccount)
-              NativeSheetItemConfig(
-                id: 'advanced-prompt-overrides',
-                title: l10n.advancedPromptOverrides,
-                subtitle: advancedPromptSubtitle,
-                sfSymbol: 'cube.box',
-              ),
-            if (socketService != null)
-              NativeSheetItemConfig(
-                id: 'socket-health',
-                title: l10n.connectionHealth,
-                subtitle: nativeSocketHealthSummary(
-                  l10n,
-                  socketService.currentHealth,
-                ),
-                sfSymbol: 'waveform.path.ecg',
-              ),
-          ],
-        ),
-        detailSheets: [
-          NativeSheetDetailConfig(
-            id: 'display',
-            title: l10n.display,
-            subtitle: themeDescription,
-            items: [
-              NativeSheetItemConfig(
-                id: 'theme-light',
-                title: l10n.darkMode,
-                subtitle: themeDescription,
-                sfSymbol: 'moon.stars',
-                kind: NativeSheetItemKind.segment,
-                value: themeMode.name,
-                options: [
-                  NativeSheetOptionConfig(id: 'system', label: l10n.system),
-                  NativeSheetOptionConfig(id: 'light', label: l10n.themeLight),
-                  NativeSheetOptionConfig(id: 'dark', label: l10n.themeDark),
-                ],
-              ),
-              NativeSheetItemConfig(
-                id: 'theme-palette',
-                title: l10n.themePalette,
-                subtitle: activePalette.label(l10n),
-                sfSymbol: 'paintpalette',
-                kind: NativeSheetItemKind.dropdown,
-                value: activePalette.id,
-                options: [
-                  for (final theme in TweakcnThemes.all)
-                    NativeSheetOptionConfig(
-                      id: theme.id,
-                      label: theme.label(l10n),
-                    ),
-                ],
-              ),
-              if (hasOpenWebUiAccount)
-                NativeSheetItemConfig(
-                  id: 'quick-pills',
-                  title: quickActionsTitle,
-                  subtitle: quickPillsSubtitle,
-                  sfSymbol: 'bolt',
-                ),
-            ],
-          ),
-          NativeSheetDetailConfig(
-            id: 'language',
-            title: l10n.appLanguage,
-            subtitle: languageLabel,
-            items: [
-              NativeSheetItemConfig(
-                id: 'language',
-                title: l10n.appLanguage,
-                subtitle: languageLabel,
-                sfSymbol: 'globe',
-                kind: NativeSheetItemKind.dropdown,
-                value: currentLanguageTag,
-                options: nativeLanguageDropdownOptions(l10n),
-              ),
-            ],
-          ),
-          if (hasOpenWebUiAccount)
-            buildNativeLoadingDetail(
-              l10n: l10n,
-              id: 'quick-pills',
-              title: quickActionsTitle,
-              subtitle: quickPillsSubtitle,
-            ),
-          NativeSheetDetailConfig(
-            id: 'app-chat-settings',
-            title: l10n.chatSettings,
-            subtitle: l10n.chatSettings,
-            items: [
-              if (transportAvail.allowPolling &&
-                  transportAvail.allowWebsocketOnly)
-                NativeSheetItemConfig(
-                  id: 'transport-mode',
-                  title: l10n.transportMode,
-                  subtitle: transportNavLabel,
-                  sfSymbol: 'network',
-                  kind: NativeSheetItemKind.segment,
-                  value: effectiveTransport == 'ws' ? 'ws' : 'polling',
-                  options: [
-                    NativeSheetOptionConfig(
-                      id: 'polling',
-                      label: l10n.transportModePolling,
-                    ),
-                    NativeSheetOptionConfig(
-                      id: 'ws',
-                      label: l10n.transportModeWs,
-                    ),
-                  ],
-                )
-              else
-                NativeSheetItemConfig(
-                  id: 'transport-fixed',
-                  title: l10n.transportMode,
-                  subtitle: transportNavLabel,
-                  sfSymbol: 'network',
-                  kind: NativeSheetItemKind.info,
-                ),
-              NativeSheetItemConfig(
-                id: 'send-on-enter',
-                title: l10n.sendOnEnter,
-                subtitle: l10n.sendOnEnterDescription,
-                sfSymbol: 'paperplane',
-                kind: NativeSheetItemKind.toggle,
-                value: appSettings.sendOnEnter,
-              ),
-              NativeSheetItemConfig(
-                id: 'temporary-chat-default',
-                title: l10n.temporaryChatByDefault,
-                subtitle: l10n.temporaryChatByDefaultDescription,
-                sfSymbol: 'clock.arrow.circlepath',
-                kind: NativeSheetItemKind.toggle,
-                value: appSettings.temporaryChatByDefault,
-              ),
-              NativeSheetItemConfig(
-                id: 'advanced-features',
-                title: l10n.advancedFeatures,
-                subtitle: l10n.advancedFeaturesDescription,
-                sfSymbol: 'slider.horizontal.3',
-                kind: NativeSheetItemKind.toggle,
-                value: appSettings.advancedFeaturesEnabled,
-              ),
-              NativeSheetItemConfig(
-                id: 'disable-haptics-streaming',
-                title: l10n.disableHapticsWhileStreaming,
-                subtitle: l10n.disableHapticsWhileStreamingDescription,
-                sfSymbol: 'waveform.path',
-                kind: NativeSheetItemKind.toggle,
-                value: appSettings.disableHapticsWhileStreaming,
-              ),
-            ],
-          ),
-          if (hasOpenWebUiAccount)
-            buildNativeLoadingDetail(
-              l10n: l10n,
-              id: 'advanced-prompt-overrides',
-              title: l10n.advancedPromptOverrides,
-              subtitle: l10n.advancedPromptOverridesDescription,
-            ),
-          if (socketService != null)
-            NativeSheetDetailConfig(
-              id: 'socket-health',
-              title: l10n.connectionHealth,
-              subtitle: nativeSocketHealthSummary(
-                l10n,
-                socketService.currentHealth,
-              ),
-              items: nativeSocketHealthItems(l10n, socketService.currentHealth),
-            ),
-        ],
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'native-app-customization-hydration-failed',
-        scope: 'native-sheet',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
+      ],
+    );
   }
 
   Future<void> _hydrateNativeDefaultModelDetail(
@@ -1637,7 +1526,7 @@ class NativeSheetHydrationService {
       await _applyNativeDetail(
         NativeSheetDetailConfig(
           id: 'advanced-prompt-overrides',
-          title: l10n.advancedPromptOverrides,
+          title: l10n.promptOverridesTitle,
           subtitle: models.isEmpty
               ? l10n.noAccessibleModelsFound
               : l10n.accessibleModelsCount(models.length),

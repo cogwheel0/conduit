@@ -138,6 +138,12 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   static final NativeSheetBridge instance = NativeSheetBridge._();
 
   final NativeSheetHostApi _api = NativeSheetHostApi();
+
+  /// Method channel for host calls the generated API does not carry.
+  static const nativeSheetChannelName = 'app.cogwheel.conduit/native_sheet';
+  final MethodChannel _profileChannel = const MethodChannel(
+    nativeSheetChannelName,
+  );
   final StreamController<NativeSheetEvent> _events =
       StreamController<NativeSheetEvent>.broadcast();
   Future<void> Function(String modelId)? _modelPinToggleHandler;
@@ -579,6 +585,9 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   }
 
   /// Replace items for an already-presented detail screen (lazy hydration).
+  ///
+  /// [NativeSheetRoutes.profileMenu] is reserved for the Settings root
+  /// itself: its [sections] (and [title]) replace the open root's rows.
   Future<bool> applyDetailPatch({
     required String detailId,
     required List<NativeSheetItemConfig> items,
@@ -623,6 +632,24 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
         stackTrace,
         data: {'detailId': detailId},
       );
+      return false;
+    }
+  }
+
+  /// Hands the open native Settings sheet a newer copy of the account profile,
+  /// so its header and profile editors start from what the server holds now
+  /// instead of the copy the sheet opened with. Returns false when no
+  /// Settings sheet is open to take it.
+  Future<bool> updateProfile(NativeProfileSheetUser profile) async {
+    if (!_isIOS) return false;
+    try {
+      return await _profileChannel.invokeMethod<bool>(
+            'updateProfile',
+            profile.toMap(),
+          ) ??
+          false;
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError('updateProfile', error, stackTrace);
       return false;
     }
   }

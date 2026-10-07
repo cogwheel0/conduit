@@ -240,7 +240,6 @@ void main() {
   Future<ProviderContainer> open(
     WidgetTester tester, {
     String currentId = 'a3',
-    bool advanced = true,
     bool native = false,
     bool canImport = true,
     // Builds the database, API and auth epoch from factories, so invalidating
@@ -299,9 +298,8 @@ void main() {
         ],
         currentUserProvider2.overrideWithValue(_me),
         isOnlineProvider.overrideWithValue(true),
-        appSettingsProvider.overrideWithValue(
-          AppSettings(advancedFeaturesEnabled: advanced),
-        ),
+        // Advanced stays off: the branch controls do not depend on it.
+        appSettingsProvider.overrideWithValue(const AppSettings()),
         userPermissionsProvider.overrideWith(
           (ref) async => <String, dynamic>{
             'chat': <String, dynamic>{'import': canImport},
@@ -367,7 +365,8 @@ void main() {
 
   group('continuing from an alternative response', () {
     testWidgets(
-      'a user previews a version, continues explicitly, and sees its replies',
+      'with Advanced off, a user previews a version, continues explicitly, '
+      'and sees its replies',
       (tester) async {
         final c = await open(tester);
         expect(visibleIds(c), ['u1', 'a2', 'u2', 'a3']);
@@ -379,6 +378,19 @@ void main() {
         expect(visibleIds(c), ['u1', 'a2', 'u2', 'a3']);
         expect(await storedLeaf(tester, 'c1'), 'a3');
 
+        // The pill sits beside the pager; Copy, Listen and Regenerate keep
+        // their places.
+        final pill = find.byKey(
+          const ValueKey<String>('assistant-continue-from-here'),
+        );
+        expect(pill, findsOneWidget);
+        expect(find.text(_en.chatBranchContinueFromResponse), findsOneWidget);
+        expect(
+          tester.getTopLeft(pill).dx,
+          greaterThan(
+            tester.getTopRight(pagerButton(_en.nextLabel).first).dx - 1,
+          ),
+        );
         await tester.tap(action(_en.chatBranchContinueFromResponse));
         await settle(tester);
 
@@ -396,6 +408,29 @@ void main() {
         ]);
       },
     );
+
+    testWidgets('a screen reader can continue from the previewed response', (
+      tester,
+    ) async {
+      final c = await open(tester);
+      await tester.tap(pagerButton(_en.previousLabel).first);
+      await tester.pumpAndSettle();
+
+      final pill = action(_en.chatBranchContinueFromResponse);
+      expect(
+        tester.getSemantics(pill),
+        isSemantics(
+          label: _en.chatBranchContinueFromResponse,
+          isButton: true,
+          hasTapAction: true,
+        ),
+      );
+      tester.semantics.tap(
+        find.semantics.byLabel(_en.chatBranchContinueFromResponse),
+      );
+      await settle(tester);
+      expect(visibleIds(c), ['u1', 'a1', 'u3', 'a4']);
+    });
 
     testWidgets('is refused with a clear state while a response runs', (
       tester,
@@ -417,27 +452,6 @@ void main() {
       expect(await storedLeaf(tester, 'c1'), 'a3');
       expect(visibleIds(c), ['u1', 'a2', 'u2', 'a3']);
     });
-
-    testWidgets(
-      'with Advanced off the pager still previews and offers no branch controls',
-      (tester) async {
-        final c = await open(tester, currentId: 'a4', advanced: false);
-
-        // The saved branch is the one shown, with its alternative in the pager.
-        expect(visibleIds(c), ['u1', 'a1', 'u3', 'a4']);
-        await tester.tap(pagerButton(_en.previousLabel).first);
-        await tester.pumpAndSettle();
-        expect(find.textContaining('text of a2'), findsOneWidget);
-        expect(action(_en.chatBranchContinueFromResponse), findsNothing);
-        expect(action(_en.chatBranchForkChat), findsNothing);
-        expect(
-          find.byKey(const ValueKey('chat-branch-switcher')),
-          findsNothing,
-        );
-        expect(visibleIds(c), ['u1', 'a1', 'u3', 'a4']);
-        expect(await storedLeaf(tester, 'c1'), 'a4');
-      },
-    );
 
     testWidgets('a version with no stored id stays preview-only', (
       tester,
@@ -503,14 +517,32 @@ void main() {
       );
       expect(find.text('1/2'), findsOneWidget);
 
+      tester.takeAnnouncements();
       await tester.tap(switcherButton(_en.nextLabel));
       await settle(tester);
 
       expect(visibleIds(c), ['e1', 'b1']);
       expect(find.text('text of b1'), findsWidgets);
       expect(find.text('2/2'), findsOneWidget);
-      expect(find.text(_en.chatBranchSelectedNotice(2, 2)), findsOneWidget);
+      // The new position is on screen, so a step is announced, not toasted.
+      expect(find.text(_en.chatBranchSelectedNotice(2, 2)), findsNothing);
+      expect(
+        tester.takeAnnouncements().map((a) => a.message),
+        contains(_en.chatBranchSelectedNotice(2, 2)),
+      );
       expect(await storedLeaf(tester, 'c1'), 'b1');
+    });
+
+    testWidgets('the version label has a full-width touch target', (
+      tester,
+    ) async {
+      await open(tester);
+
+      final size = tester.getSize(
+        find.byKey(const ValueKey<String>('chat-branch-switcher-label')),
+      );
+      expect(size.width, greaterThanOrEqualTo(44));
+      expect(size.height, greaterThanOrEqualTo(32));
     });
 
     testWidgets('the label lists every version and continues from the pick', (
@@ -523,11 +555,16 @@ void main() {
       expect(find.text(_en.chatBranchSheetTitle), findsOneWidget);
       expect(find.text(_en.chatBranchVersionTitle(1)), findsOneWidget);
       expect(find.text(_en.chatBranchVersionCurrent), findsOneWidget);
+      // Each version shows an excerpt of its text.
+      expect(find.text('text of u1'), findsWidgets);
+      expect(find.text('text of e1'), findsWidgets);
       await tester.tap(find.text(_en.chatBranchVersionTitle(2)));
       await settle(tester);
 
       expect(visibleIds(c), ['e1', 'b1']);
       expect(await storedLeaf(tester, 'c1'), 'b1');
+      // A pick made in the list is confirmed.
+      expect(find.text(_en.chatBranchSelectedNotice(2, 2)), findsOneWidget);
     });
   });
 
@@ -699,9 +736,8 @@ void main() {
       await settle(tester);
     }
 
-    testWidgets('sends the shown message once and opens the new chat', (
-      tester,
-    ) async {
+    testWidgets('with Advanced off, sends the shown message once and opens '
+        'the new chat', (tester) async {
       api.forkEnvelope = forkEnvelope();
       final c = await open(tester);
 
@@ -711,6 +747,7 @@ void main() {
       expect(api.clones, 0);
       expect(c.read(activeConversationProvider)!.id, 'fork-1');
       expect(visibleIds(c), ['u1', 'a2']);
+      expect(find.text(_en.chatBranchForkOpened), findsOneWidget);
       final stored = await tester.runAsync(() => db.chatsDao.getChat('fork-1'));
       expect(stored!.title, 'Branches (fork)');
     });
@@ -730,16 +767,10 @@ void main() {
       await tapFork(tester);
 
       expect(find.text(_en.chatBranchWaitForResponse), findsOneWidget);
+      expect(find.text(_en.chatBranchForkOpened), findsNothing);
       expect(api.forks, hasLength(1));
       expect(api.clones, 0);
       expect(c.read(activeConversationProvider)!.id, 'c1');
-    });
-
-    testWidgets('is not offered with Advanced off', (tester) async {
-      await open(tester, advanced: false);
-
-      expect(action(_en.chatBranchForkChat), findsNothing);
-      expect(find.text(_en.chatBranchForkChat), findsNothing);
     });
 
     testWidgets('is not offered to an account that may not import chats', (

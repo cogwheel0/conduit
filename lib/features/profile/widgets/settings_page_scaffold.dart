@@ -18,8 +18,10 @@ class SettingsSectionHeader extends StatelessWidget {
     final native = context.usesCupertinoChrome;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-      child: Text(
-        title,
+      child: Semantics(
+        header: true,
+        child: Text(
+          title,
         style:
             (native
                     ? AppTypography.bodySmallStyle
@@ -28,6 +30,7 @@ class SettingsSectionHeader extends StatelessWidget {
                   color: context.conduitTheme.textSecondary,
                   fontWeight: native ? FontWeight.w400 : FontWeight.w600,
                 ),
+        ),
       ),
     );
   }

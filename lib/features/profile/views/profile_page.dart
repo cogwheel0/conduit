@@ -21,7 +21,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
-    show calendarEntryVisibleProvider;
+    show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -325,6 +325,8 @@ class ProfilePage extends ConsumerWidget {
   }) {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
+    // The calendar is there whenever the server and account allow it.
+    final showCalendar = ref.watch(calendarAvailableProvider);
     // Personal connections need the Advanced disclosure and the server's own
     // rule for who may keep them; either one missing hides the entry.
     final showPersonalConnections = ref.watch(
@@ -333,8 +335,6 @@ class ProfilePage extends ConsumerWidget {
     // Scheduled tasks follow the same rule: Advanced reveals them, and the
     // server and account decide whether they exist at all.
     final showScheduledTasks = ref.watch(scheduledTasksEntryVisibleProvider);
-    // The calendar follows the same rule.
-    final showCalendar = ref.watch(calendarEntryVisibleProvider);
     // Data controls follow the same rule: Advanced reveals them, and a signed
     // in Open WebUI account decides whether there is anything to act on.
     final showChatDataControls = ref.watch(
@@ -392,13 +392,19 @@ class ProfilePage extends ConsumerWidget {
           onTap: () => context.pushNamed(RouteNames.personalization),
         ),
     ];
-    final connectionItems = <Widget>[
-      _buildAccountOption(
-        context,
-        iconAsset: 'assets/icons/hermes_agent.png',
-        title: l10n.hermesAgentSettingsTitle,
-        onTap: () => context.pushNamed(RouteNames.hermesSettings),
-      ),
+    // Everyday server places: things to open and use, not to configure.
+    final placeItems = <Widget>[
+      if (showCalendar)
+        _buildAccountOption(
+          context,
+          key: const Key('calendar-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.calendar,
+            android: Icons.calendar_month_outlined,
+          ),
+          title: l10n.calendarTitle,
+          onTap: () => context.pushNamed(RouteNames.calendar),
+        ),
       if (canManageWorkspace)
         _buildAccountOption(
           context,
@@ -410,13 +416,15 @@ class ProfilePage extends ConsumerWidget {
           title: l10n.workspaceTitle,
           onTap: () => context.pushNamed(RouteNames.workspace),
         ),
+    ];
+    final connectionItems = <Widget>[
       if (hasOpenWebUiAccount)
         _buildAccountOption(
           context,
           key: const Key('data-connection-entry'),
           icon: UiUtils.platformIcon(
             ios: CupertinoIcons.antenna_radiowaves_left_right,
-            android: Icons.hub_outlined,
+            android: Icons.sync_alt,
           ),
           title: l10n.settingsDataAndConnection,
           onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
@@ -430,50 +438,12 @@ class ProfilePage extends ConsumerWidget {
         title: l10n.directConnectionsTitle,
         onTap: () => context.pushNamed(RouteNames.directConnections),
       ),
-      if (showPersonalConnections)
-        _buildAccountOption(
-          context,
-          key: const Key('personal-connections-entry'),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.slider_horizontal_3,
-            android: Icons.tune_rounded,
-          ),
-          title: l10n.personalConnectionsTitle,
-          onTap: () => context.pushNamed(RouteNames.personalConnections),
-        ),
-      if (showScheduledTasks)
-        _buildAccountOption(
-          context,
-          key: const Key('scheduled-tasks-entry'),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.clock,
-            android: Icons.schedule,
-          ),
-          title: l10n.scheduledTasksTitle,
-          onTap: () => context.pushNamed(RouteNames.scheduledTasks),
-        ),
-      if (showCalendar)
-        _buildAccountOption(
-          context,
-          key: const Key('calendar-entry'),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.calendar,
-            android: Icons.calendar_month_outlined,
-          ),
-          title: l10n.calendarTitle,
-          onTap: () => context.pushNamed(RouteNames.calendar),
-        ),
-      if (showChatDataControls)
-        _buildAccountOption(
-          context,
-          key: const Key('chat-data-controls-entry'),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.archivebox,
-            android: Icons.inventory_2_outlined,
-          ),
-          title: l10n.chatDataControlsTitle,
-          onTap: () => context.pushNamed(RouteNames.chatDataControls),
-        ),
+      _buildAccountOption(
+        context,
+        iconAsset: 'assets/icons/hermes_agent.png',
+        title: l10n.hermesAgentSettingsTitle,
+        onTap: () => context.pushNamed(RouteNames.hermesSettings),
+      ),
       if (!hasOpenWebUiAccount)
         _buildAccountOption(
           context,
@@ -485,10 +455,66 @@ class ProfilePage extends ConsumerWidget {
           onTap: () => context.goNamed(RouteNames.serverConnection),
         ),
     ];
+    // Power-user pages that Advanced reveals. The group disappears with its
+    // last row, so turning Advanced off leaves no empty heading behind.
+    final advancedItems = <Widget>[
+      if (showScheduledTasks)
+        _buildAccountOption(
+          context,
+          key: const Key('scheduled-tasks-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.clock,
+            android: Icons.schedule_outlined,
+          ),
+          title: l10n.scheduledTasksTitle,
+          onTap: () => context.pushNamed(RouteNames.scheduledTasks),
+        ),
+      if (showPersonalConnections)
+        _buildAccountOption(
+          context,
+          key: const Key('personal-connections-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.cloud,
+            android: Icons.dns_outlined,
+          ),
+          title: l10n.personalConnectionsTitle,
+          onTap: () => context.pushNamed(RouteNames.personalConnections),
+        ),
+      if (showChatDataControls)
+        _buildAccountOption(
+          context,
+          key: const Key('chat-data-controls-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.tray_2,
+            android: Icons.storage_outlined,
+          ),
+          title: l10n.chatDataControlsTitle,
+          onTap: () => context.pushNamed(RouteNames.chatDataControls),
+        ),
+    ];
     return [
       InsetGroupedList(children: appItems),
+      if (placeItems.isNotEmpty) ...[
+        const SizedBox(height: Spacing.lg),
+        InsetGroupedList(
+          key: const Key('settings-places-group'),
+          children: placeItems,
+        ),
+      ],
       const SizedBox(height: Spacing.lg),
-      InsetGroupedList(children: connectionItems),
+      InsetGroupedList(
+        key: const Key('settings-connections-group'),
+        children: connectionItems,
+      ),
+      if (advancedItems.isNotEmpty) ...[
+        const SizedBox(height: Spacing.lg),
+        InsetGroupedList(
+          key: const Key('settings-advanced-group'),
+          title: l10n.advancedFeatures,
+          footer: l10n.profileAdvancedFooter,
+          children: advancedItems,
+        ),
+      ],
       const SizedBox(height: Spacing.lg),
       InsetGroupedList(children: [_buildAboutTile(context)]),
     ];

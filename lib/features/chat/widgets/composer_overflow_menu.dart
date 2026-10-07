@@ -52,7 +52,8 @@ class ToggleTile extends StatelessWidget {
   final VoidCallback onToggle;
   final ConduitThemeExtension theme;
 
-  /// A command row: announced as a button, never as a toggle.
+  /// A command row that opens something: announced as a button, never as a
+  /// toggle, and marked with a chevron instead of a checkmark.
   final bool isAction;
 
   /// A row that only explains itself, such as an option the server cannot
@@ -110,7 +111,9 @@ class ToggleTile extends StatelessWidget {
                         if (subtitle != null && subtitle!.isNotEmpty)
                           Text(
                             subtitle!,
-                            maxLines: 1,
+                            // A command or an option that is off explains
+                            // itself, so it gets room to finish the sentence.
+                            maxLines: isAction || !enabled ? 2 : 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTypography.labelSmallStyle.copyWith(
                               color: theme.textSecondary,
@@ -122,7 +125,15 @@ class ToggleTile extends StatelessWidget {
                   const SizedBox(width: Spacing.sm),
                   SizedBox(
                     width: IconSize.small,
-                    child: selected
+                    child: isAction
+                        ? Icon(
+                            Platform.isIOS
+                                ? CupertinoIcons.chevron_forward
+                                : Icons.chevron_right,
+                            color: theme.textSecondary,
+                            size: IconSize.small,
+                          )
+                        : selected
                         ? Icon(
                             Platform.isIOS
                                 ? CupertinoIcons.checkmark_alt
@@ -183,6 +194,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
     this.onMcpContent,
     this.onToolSettings,
     this.onCompareModels,
+    this.compareModelsHasMessage = true,
   });
 
   /// Restricts the sheet to device-local attachment actions supplied by the
@@ -204,6 +216,10 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
   /// Starts a model comparison from the composer's message. Null hides the
   /// Advanced command.
   final VoidCallback? onCompareModels;
+
+  /// Whether the composer holds a message to compare. Until it does, the
+  /// command stays visible but off and says why.
+  final bool compareModelsHasMessage;
 
   @override
   ConsumerState<ComposerAttachmentKeyboard> createState() =>
@@ -362,13 +378,10 @@ class _ComposerAttachmentKeyboardState
             },
             loading: () => directMode
                 ? const SizedBox.shrink()
-                : Center(
-                    child: SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: BorderWidth.thin,
-                      ),
+                : const Center(
+                    child: ConduitLoadingIndicator(
+                      size: IconSize.lg,
+                      isCompact: true,
                     ),
                   ),
             error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
@@ -635,6 +648,7 @@ class _ComposerAttachmentKeyboardState
       for (final item in buildComposerOverflowComparisonItems(
         l10n: l10n,
         available: true,
+        hasMessage: widget.compareModelsHasMessage,
       ))
         Padding(
           padding: const EdgeInsets.only(top: Spacing.xxs),
@@ -648,6 +662,7 @@ class _ComposerAttachmentKeyboardState
             subtitle: item.subtitle,
             selected: false,
             isAction: true,
+            enabled: item.enabled,
             onToggle: widget.onCompareModels!,
             theme: theme,
           ),

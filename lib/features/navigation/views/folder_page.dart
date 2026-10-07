@@ -24,6 +24,8 @@ import '../../../shared/services/user_friendly_error_handler.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/widgets/resource_sharing_sheet.dart';
+import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart'
+    show WorkspaceAccessOwner;
 import 'package:conduit_core/features/sharing/models/resource_access.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -173,12 +175,9 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     Folder? folder,
   ) {
     final tintColor = context.conduitTheme.textPrimary;
-    final advanced = ref.watch(
-      appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
-    );
     final menuItems = folder == null
         ? const <AdaptivePopupMenuEntry>[]
-        : _buildFolderToolbarMenuItems(folder, l10n, advanced: advanced);
+        : _buildFolderToolbarMenuItems(folder, l10n);
     final hasOverflowMenu = menuItems.isNotEmpty;
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
@@ -204,10 +203,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       menuItems: menuItems,
       onMenuSelected: onMenuSelected,
     );
-    // The menu holds only what this account may do: Edit Folder / System
-    // Prompt for the owner, Share settings for anyone who may edit access,
-    // and Project settings for anyone who can write (an owner or a write
-    // grant) once Advanced is on.
+    // The menu holds only what this account may do: Edit Folder for the
+    // owner, Share folder for anyone who may edit access, and Project
+    // settings for anyone who can write (an owner or a write grant). System
+    // Prompt is offered on its own only when Project settings can't edit it.
     final nativeMenuAction = folder == null || menuItems.isEmpty
         ? null
         : buildConduitNativeToolbarMenuAction<String>(
@@ -324,15 +323,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     ref.read(temporaryChatEnabledProvider.notifier).set(!current);
   }
 
-  /// Share settings is an Advanced control for a folder whose access the
-  /// account may edit: its own, or one shared with a write grant, when the
-  /// server lets it share folders. Reading a shared folder never needs it.
+  /// Share settings is offered for a folder whose access the account may
+  /// edit: its own, or one shared with a write grant, when the server lets it
+  /// share folders. Reading a shared folder never needs it.
   bool _canShareFolder(Folder folder) {
-    if (!ref.watch(
-      appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
-    )) {
-      return false;
-    }
     if (folder.shared && !folder.canWrite) return false;
     return ref
             .watch(workspaceCapabilitiesProvider)
@@ -343,11 +337,21 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         true;
   }
 
+  /// Project settings edits the system prompt too when the account may change
+  /// it there, so the separate System Prompt item is then left out.
+  bool _projectSettingsCoverSystemPrompt(Folder folder) =>
+      folder.canWrite &&
+      (ref
+              .watch(chat.openWebUiChatSettingsAccessProvider)
+              .asData
+              ?.value
+              .canEditSystemPrompt ??
+          false);
+
   List<AdaptivePopupMenuEntry> _buildFolderToolbarMenuItems(
     Folder folder,
-    AppLocalizations l10n, {
-    required bool advanced,
-  }) => [
+    AppLocalizations l10n,
+  ) => [
     // Edit Folder / System Prompt are owner operations.
     if (!folder.shared) ...[
       AdaptivePopupMenuItem<String>(
@@ -358,25 +362,26 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           materialIcon: Icons.edit_outlined,
         ),
       ),
-      AdaptivePopupMenuItem<String>(
-        value: 'system-prompt',
-        label: l10n.systemPrompt,
-        icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'text.bubble',
-          materialIcon: Icons.notes_outlined,
+      if (!_projectSettingsCoverSystemPrompt(folder))
+        AdaptivePopupMenuItem<String>(
+          value: 'system-prompt',
+          label: l10n.systemPrompt,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'text.bubble',
+            materialIcon: Icons.notes_outlined,
+          ),
         ),
-      ),
     ],
     if (_canShareFolder(folder))
       AdaptivePopupMenuItem<String>(
         value: 'share-folder',
         label: l10n.folderShareSettings,
         icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'person.2',
-          materialIcon: Icons.group_outlined,
+          iosSymbol: 'person.badge.plus',
+          materialIcon: Icons.person_add_alt_1_outlined,
         ),
       ),
-    if (advanced && folder.canWrite)
+    if (folder.canWrite)
       AdaptivePopupMenuItem<String>(
         value: 'project-settings',
         label: l10n.folderProjectSettings,
@@ -406,6 +411,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             ref,
             kind: ResourceKind.folder,
             resourceId: folder.id,
+            resourceName: folder.name,
+            owner: folder.shared
+                ? WorkspaceAccessOwner(name: folder.ownerName)
+                : const WorkspaceAccessOwner(isYou: true),
           ),
         );
         return;
@@ -469,7 +478,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         context: context,
         isScrollControlled: true,
         builder: (sheetContext) =>
-            ModelSelectorSheet(models: models, onPick: _pickSingleModel),
+            ModelSelectorSheet(
+              models: models,
+              selectedModelId: ref.read(selectedModelProvider)?.id,
+              onPick: _pickSingleModel,
+            ),
       );
     } catch (_) {
       return;
@@ -774,7 +787,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       if (mounted) {
         UiUtils.showMessage(
           context,
-          comparisonAdmissionMessage(AppLocalizations.of(context)!, error),
+          comparisonAdmissionMessage(
+            AppLocalizations.of(context)!,
+            error,
+            models: ref.read(modelsProvider).asData?.value,
+          ),
         );
       }
       return null;
