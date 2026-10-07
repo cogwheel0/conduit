@@ -842,15 +842,40 @@ class OptimizedStorageService {
     return config.copyWith(apiKey: null, customHeaders: sanitizedHeaders);
   }
 
-  ServerConfig _retainNonSecretServerDetails(ServerConfig config) {
-    return config.copyWith(
-      apiKey: null,
-      customHeaders: const <String, String>{},
-      mtlsCertificateChainPem: null,
-      mtlsCertificateLabel: null,
-      mtlsPrivateKeyPem: null,
-      mtlsPrivateKeyLabel: null,
-      mtlsPrivateKeyPassword: null,
+  /// What a sign-out that keeps server details keeps of [registry]: every
+  /// server with all its routes in order, their URLs, labels and certificate
+  /// policy, and every account, no longer proven to be anyone and without
+  /// captured cookies. Custom headers and client identities are secrets and
+  /// go. Built from the registry, not from its projections, which carry only
+  /// the route each account is using.
+  OpenWebUiRegistry _retainNonSecretServerDetails(OpenWebUiRegistry registry) {
+    return OpenWebUiRegistry(
+      servers: [
+        for (final server in registry.servers)
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [
+              for (final endpoint in server.endpoints)
+                OpenWebUiEndpoint(
+                  id: endpoint.id,
+                  url: endpoint.url,
+                  label: endpoint.label,
+                  allowSelfSignedCertificates:
+                      endpoint.allowSelfSignedCertificates,
+                ),
+            ],
+          ),
+      ],
+      accounts: [
+        for (final account in registry.accounts)
+          OpenWebUiAccount(
+            id: account.id,
+            serverId: account.serverId,
+            isActive: account.isActive,
+            lastConnected: account.lastConnected,
+          ),
+      ],
     );
   }
 
@@ -2797,17 +2822,15 @@ class OptimizedStorageService {
     final initiatingServerId = _rawStoredActiveServerId(
       bypassReadSuppression: true,
     );
-    var retainedServerConfigs = const <ServerConfig>[];
+    var retainedRegistry = OpenWebUiRegistry.empty;
     String? retainedActiveServerId;
     if (preserveServerDetails) {
       await attempt(() async {
-        final configs =
-            await _getServerConfigsStrictUnlockedBypassingSuppression();
-        retainedServerConfigs = configs
-            .map(_retainNonSecretServerDetails)
-            .toList(growable: false);
+        retainedRegistry = _retainNonSecretServerDetails(
+          await _getRegistryStrictUnlocked(bypassReadSuppression: true),
+        );
         retainedActiveServerId = _effectiveActiveServerId(
-          configs: retainedServerConfigs,
+          configs: retainedRegistry.projectAll(),
           rawActiveServerId: initiatingServerId,
         );
       });
@@ -2881,10 +2904,7 @@ class OptimizedStorageService {
       var configsRestored = false;
       var activeIdRestored = false;
       await attempt(() async {
-        await _saveServerConfigsUnlocked(
-          retainedServerConfigs,
-          authorizeReads: false,
-        );
+        await _saveRegistryUnlocked(retainedRegistry, authorizeReads: false);
         configsRestored = true;
       });
       await attempt(() async {

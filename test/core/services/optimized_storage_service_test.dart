@@ -2369,6 +2369,87 @@ void main() {
     );
   });
 
+  test('a sign-out that keeps server details keeps every route of a server', () async {
+    secureStorageValues['openwebui_registry_v1'] = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(
+              id: 'route-lan',
+              url: 'https://chat.lan',
+              label: 'Home',
+              customHeaders: const {'X-Tenant': 'tenant'},
+              mtlsPrivateKeyPem: 'private-key',
+            ),
+            OpenWebUiEndpoint(
+              id: 'route-away',
+              url: 'https://chat.example.com',
+              label: 'Away',
+              allowSelfSignedCertificates: true,
+            ),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          userId: 'user-a',
+          isActive: true,
+          capturedHeaders: const {
+            'route-away': {'Cookie': 'proxy=a'},
+          },
+        ),
+      ],
+    ).encode();
+    await PreferencesStore.putChecked(
+      PreferenceKeys.activeServerId,
+      'account-a',
+    );
+
+    final cleared = await storage.clearAllIf(
+      canClear: () => true,
+      preserveServerDetails: true,
+    );
+
+    check(cleared).isTrue();
+    check(
+      OpenWebUiRegistry.decode(secureStorageValues['openwebui_registry_v1']!),
+    ).equals(
+      OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 'server-chat',
+            name: 'Chat',
+            endpoints: [
+              OpenWebUiEndpoint(
+                id: 'route-lan',
+                url: 'https://chat.lan',
+                label: 'Home',
+              ),
+              OpenWebUiEndpoint(
+                id: 'route-away',
+                url: 'https://chat.example.com',
+                label: 'Away',
+                allowSelfSignedCertificates: true,
+              ),
+            ],
+          ),
+        ],
+        accounts: [
+          OpenWebUiAccount(
+            id: 'account-a',
+            serverId: 'server-chat',
+            isActive: true,
+          ),
+        ],
+      ),
+    );
+    check(await storage.getActiveServerId()).equals('account-a');
+  });
+
   // sign-out blocks preference writes before the wipe, and the restore of
   // the kept active server id ran into that barrier, so the kept address was
   // read-suppressed and the app fell back to the backend chooser.
