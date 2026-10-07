@@ -169,6 +169,23 @@ final class OpenWebUiServer {
       (selectedEndpointId == null ? null : endpoint(selectedEndpointId)) ??
       endpoints.first;
 
+  /// The route a config carrying [url] was projected from: the selected one
+  /// when it has that URL, else another route that does, else the selected
+  /// one.
+  ///
+  /// A config read on one route and saved after the server moved to another
+  /// still describes the first. Writing it over the route in use would carry
+  /// that route's URL, TLS settings and proxy cookie to the wrong host.
+  OpenWebUiEndpoint routeFor(String url, {String? selectedEndpointId}) {
+    final selected = selectedEndpoint(selectedEndpointId);
+    final identity = openWebUiServerIdentityUrl(url);
+    if (openWebUiServerIdentityUrl(selected.url) == identity) return selected;
+    final sameUrl = endpoints.where(
+      (endpoint) => openWebUiServerIdentityUrl(endpoint.url) == identity,
+    );
+    return sameUrl.firstOrNull ?? selected;
+  }
+
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'name': name,
@@ -391,7 +408,9 @@ final class OpenWebUiRegistry {
   /// Writes a list of projections back, the way the one-server code saves.
   ///
   /// Each config is an account. A known account keeps its server and updates
-  /// the endpoint it was projected from; an unknown one joins the saved server
+  /// the endpoint it was projected from (see [OpenWebUiServer.routeFor]),
+  /// which is the selected one unless the config names another of the
+  /// server's routes; an unknown one joins the saved server
   /// that already has an identical endpoint, or gets a server of its own.
   /// Accounts missing from [configs] are removed, and so is any server left
   /// with no account. Projections round-trip exactly: what [projectAll]
@@ -437,7 +456,10 @@ final class OpenWebUiRegistry {
       if (existing != null && existingDraft != null) {
         draft = existingDraft;
         endpointId = draft.original
-            .selectedEndpoint(selectedEndpoints[draft.original.id])
+            .routeFor(
+              config.url,
+              selectedEndpointId: selectedEndpoints[draft.original.id],
+            )
             .id;
         draft.editEndpoint(endpointId, connection);
         draft.rename(config.name);

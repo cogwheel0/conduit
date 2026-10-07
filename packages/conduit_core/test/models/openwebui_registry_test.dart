@@ -200,6 +200,38 @@ void main() {
       check(viaProxy.customHeaders)
           .deepEquals({'X-Gate': 'g', 'Cookie': 'session=1'});
     });
+
+    test('a config read on a route not in use is saved to that route', () {
+      final registry = OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 's',
+            name: 'Home',
+            endpoints: [
+              OpenWebUiEndpoint(id: 'lan', url: 'http://10.0.0.2:3000'),
+              OpenWebUiEndpoint(id: 'proxy', url: 'https://chat.example.com'),
+            ],
+          ),
+        ],
+        accounts: [OpenWebUiAccount(id: 'a', serverId: 's')],
+      );
+      // Read while the proxy route was in use; saved once the LAN is.
+      final viaProxy = registry.project(
+        'a',
+        selectedEndpoints: const {'s': 'proxy'},
+      )!;
+
+      final next = registry.mergeServerConfigs([
+        viaProxy.copyWith(customHeaders: const {'Cookie': 'session=2'}),
+      ]);
+
+      check(next.servers.single.endpoints.map((endpoint) => endpoint.url))
+          .deepEquals(['http://10.0.0.2:3000', 'https://chat.example.com']);
+      check(next.account('a')!.capturedHeaders).deepEquals({
+        'proxy': {'Cookie': 'session=2'},
+      });
+      check(next.project('a')!.customHeaders).isEmpty();
+    });
   });
 
   group('fromLegacyServerConfigs', () {

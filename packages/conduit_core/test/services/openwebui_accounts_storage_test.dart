@@ -1490,6 +1490,33 @@ void main() {
           .equals('http://10.0.0.2:3000');
     });
 
+    test('a config read before the route changed is saved to its own route, '
+        'keeping the session', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await signIn('a', password: 'pw-a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      final stale = (await storage.getServerConfigs()).single;
+
+      check(await storage.selectEndpoint(server.id, 'lan')).isTrue();
+      await storage.saveServerConfigs([
+        stale.copyWith(
+          customHeaders: {...stale.customHeaders, 'Cookie': 'x=1'},
+        ),
+      ]);
+
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await storage.getSavedCredentialsStrict()).isNotNull();
+      final registry = await storage.getOpenWebUiRegistryStrict();
+      check(registry.servers.single.endpoint('lan')!.url)
+          .equals('http://10.0.0.2:3000');
+      check(registry.account('a')!.capturedHeaders).deepEquals({
+        server.endpoints.first.id: {'Cookie': 'x=1'},
+      });
+      final inUse = (await storage.getServerConfigs()).single;
+      check(inUse.url).equals('http://10.0.0.2:3000');
+      check(inUse.customHeaders).isEmpty();
+    });
+
     test('a captured proxy cookie travels only on its own route', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('proxy', 'https://proxy.example.com');

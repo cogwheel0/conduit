@@ -1094,9 +1094,11 @@ class OptimizedStorageService {
         // Judge ownership by what the save will store, not by what was passed:
         // accounts on one server share its endpoint, so an edit made through
         // one account moves every other account on that server too.
+        // Through the routes in use, as the current configs were projected.
+        final selection = _endpointSelection();
         final nextConfigs = (await _registryForWriteUnlocked())
-            .mergeServerConfigs(sanitizedConfigs)
-            .projectAll();
+            .mergeServerConfigs(sanitizedConfigs, selectedEndpoints: selection)
+            .projectAll(selectedEndpoints: selection);
         final rawActiveServerId = _rawStoredActiveServerId();
         final currentActiveId = _effectiveActiveServerId(
           configs: currentConfigs,
