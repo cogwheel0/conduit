@@ -1295,16 +1295,25 @@ class HermesConfigController extends Notifier<HermesConfig> {
   Future<HermesConfig> savedConnectionConfig(String connectionId) async {
     await _secretsHydration;
     _throwIfSecretsUnavailable();
-    if (connectionId == state.connectionId) return state;
-    final profile = _profile(connectionId);
-    if (profile == null) {
-      throw StateError('This Hermes connection no longer exists.');
+    while (true) {
+      if (connectionId == state.connectionId) return state;
+      final profile = _profile(connectionId);
+      if (profile == null) {
+        throw StateError('This Hermes connection no longer exists.');
+      }
+      final secrets = await _readSecrets(connectionId);
+      // A save can re-address the connection while its secrets are read. It
+      // replaces the profile before writing any secret, so an unchanged
+      // profile means these secrets belong to its address; otherwise read
+      // both again rather than pair the old address with new secrets.
+      if (identical(_profile(connectionId), profile)) {
+        return _configForProfile(
+          profile,
+          enabled: state.enabled,
+          secrets: secrets,
+        );
+      }
     }
-    return _configForProfile(
-      profile,
-      enabled: state.enabled,
-      secrets: await _readSecrets(connectionId),
-    );
   }
 
   Future<void> _serializeMutation(Future<void> Function() operation) {

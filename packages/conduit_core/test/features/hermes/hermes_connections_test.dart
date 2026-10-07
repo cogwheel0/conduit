@@ -686,6 +686,39 @@ void main() {
       check(await storedRefreshToken()).equals('refresh-2');
     });
 
+    test(
+      'a read during a save never pairs the old address with new secrets',
+      () async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://alpha.example'),
+          _profile(_b, 'Beta', 'https://beta.example'),
+        ], active: _a);
+        final secrets = _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        });
+        final container = await _ready(secrets);
+        addTearDown(container.dispose);
+        final controller = container.read(hermesConfigProvider.notifier);
+        final keyRead = Completer<void>();
+        secrets.heldReads['hermes_api_key_v1:$_b'] = keyRead.future;
+
+        // An editor opens Beta while a save moves it to another server.
+        final opening = controller.savedConnectionConfig(_b);
+        await controller.saveConnection(
+          connectionId: _b,
+          baseUrl: 'https://gamma.example',
+          apiKeyChanged: true,
+          apiKey: 'gamma-key',
+        );
+        keyRead.complete();
+        final opened = await opening;
+
+        check(opened.baseUrl).equals('https://gamma.example');
+        check(opened.apiKey).equals('gamma-key');
+      },
+    );
+
     test('a server URL too long to reload is refused', () async {
       _seedConnections([
         _profile(_a, 'Alpha', 'https://alpha.example'),
@@ -935,7 +968,7 @@ final class _Secrets extends InMemorySecureKeyValueStore {
 
   final Set<String> failReadPrefixes = <String>{};
 
-  /// Reads of these exact keys wait for their future.
+  /// The next read of each of these exact keys waits for its future.
   final Map<String, Future<void>> heldReads = <String, Future<void>>{};
 
   @override
@@ -943,7 +976,7 @@ final class _Secrets extends InMemorySecureKeyValueStore {
     if (failReadPrefixes.any(key.startsWith)) {
       throw StateError('secure storage unavailable');
     }
-    await heldReads[key];
+    await heldReads.remove(key);
     return super.read(key: key);
   }
 
