@@ -9,6 +9,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -448,6 +449,39 @@ void main() {
         await controller.deleteConnection(_a);
         check(cookies.clearedOrigins)
             .deepEquals(['https://shared.example/one']);
+      },
+    );
+
+    test(
+      'keeps pending decisions from before the upgrade while a connection '
+      'shares their origin',
+      () async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://shared.example/one'),
+          _profile(_b, 'Beta', 'https://shared.example/two'),
+        ], active: _a);
+        final container = await _ready(_Secrets());
+        addTearDown(container.dispose);
+        final controller = container.read(hermesConfigProvider.notifier);
+        // Written before saved connections existed, so it has no id.
+        await HermesPendingDecisionStore.upsert(
+          origin: 'https://shared.example:443',
+          storedSessionId: 'stored-1',
+          runtimeId: 'runtime-1',
+          requestId: 'request-1',
+          kind: HermesPendingDesktopDecisionKind.approval,
+        );
+        Future<int> pending() async =>
+            (await HermesPendingDecisionStore.forSession(
+              origin: 'https://shared.example:443',
+              storedSessionId: 'stored-1',
+            )).length;
+
+        await controller.deleteConnection(_b);
+        check(await pending()).equals(1);
+
+        await controller.deleteConnection(_a);
+        check(await pending()).equals(0);
       },
     );
 

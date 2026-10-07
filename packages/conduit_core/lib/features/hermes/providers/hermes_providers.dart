@@ -1189,11 +1189,15 @@ class HermesConfigController extends Notifier<HermesConfig> {
             ),
       );
     }
+    // Records from before saved connections carry no id and match by origin
+    // alone, so a connection still on that origin keeps answering them.
     await attempt(
       'deleted-connection-decision-cleanup-failed',
       () => HermesPendingDecisionStore.clearConnection(
         connectionId: profile.id,
-        origin: connectionOrigin(profile.baseUrl),
+        origin: _originSharedByAnotherConnection(profile.baseUrl, profile.id)
+            ? null
+            : connectionOrigin(profile.baseUrl),
       ),
     );
   }
