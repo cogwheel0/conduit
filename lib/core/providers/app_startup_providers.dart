@@ -297,6 +297,9 @@ void _resetUserScopedProviders(Ref ref) {
     ref.invalidate(activePromptCommandProvider);
     ref.invalidate(activeNoteProvider);
     ref.invalidate(conversationSelectionProvider);
+    // A selection still loading no longer owns the reset selection state, so
+    // it would never clear the loading flag it set.
+    ref.invalidate(isLoadingConversationProvider);
   } catch (error, stackTrace) {
     DebugLogger.error(
       'user-scoped-provider-cleanup-failed',
