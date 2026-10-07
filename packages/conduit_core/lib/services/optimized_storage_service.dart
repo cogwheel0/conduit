@@ -254,6 +254,12 @@ class OptimizedStorageService {
   static const String _activeServerIdKey = PreferenceKeys.activeServerId;
   static const String _serverConfigsCacheKey = 'server_configs_v1';
   static const String _registryCacheKey = 'openwebui_registry_v1';
+
+  /// Which route each saved server is being reached through, by server id.
+  /// A server missing here uses its first route. Kept in memory and as a
+  /// preference hint, so a cold start goes straight to the route that last
+  /// answered instead of waiting on probes.
+  Map<String, String>? _selectedEndpoints;
   static const String _themeModeKey = PreferenceKeys.themeMode;
   static const String _themePaletteKey = PreferenceKeys.themePalette;
   static const String _localeCodeKey = PreferenceKeys.localeCode;
@@ -1496,7 +1502,10 @@ class OptimizedStorageService {
     try {
       final base = await _registryForWriteUnlocked();
       await _saveRegistryUnlocked(
-        base.mergeServerConfigs(configs),
+        base.mergeServerConfigs(
+          configs,
+          selectedEndpoints: _endpointSelection(),
+        ),
         authorizeReads: authorizeReads,
       );
       DebugLogger.log(
@@ -2371,6 +2380,144 @@ class OptimizedStorageService {
   // Accounts
   // ---------------------------------------------------------------------------
 
+  Map<String, String> _endpointSelection() {
+    final cached = _selectedEndpoints;
+    if (cached != null) return cached;
+    final selection = <String, String>{};
+    final raw = PreferencesStore.getString(PreferenceKeys.openWebUiEndpointHint);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is String) {
+              selection[entry.key.toString()] = entry.value as String;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return _selectedEndpoints = selection;
+  }
+
+  /// The route each saved server is currently reached through.
+  Map<String, String> get endpointSelection =>
+      Map.unmodifiable(_endpointSelection());
+
+  /// Reaches [serverId] through [endpointId] from now on.
+  ///
+  /// Not an edit: the accounts, their sessions and their data stay exactly
+  /// as they are, only the URL, headers and TLS settings their configs carry
+  /// change. The ownership revision still moves, so a sign-in validated
+  /// against the previous route cannot commit against this one.
+  Future<bool> selectEndpoint(String serverId, String endpointId) {
+    return _serverConfigsLock.synchronized(() async {
+      final registry = await _registryForWriteUnlocked();
+      final server = registry.server(serverId);
+      if (server == null || server.endpoint(endpointId) == null) return false;
+      final selection = _endpointSelection();
+      if (server.selectedEndpoint(selection[serverId]).id == endpointId) {
+        return false;
+      }
+      selection[serverId] = endpointId;
+      _serverOwnershipRevision++;
+      _cacheManager.invalidate(_activeServerIdKey);
+      _cacheRegistry(registry);
+      try {
+        await PreferencesStore.put(
+          PreferenceKeys.openWebUiEndpointHint,
+          jsonEncode(selection),
+        );
+      } catch (error) {
+        DebugLogger.warning(
+          'endpoint-hint-write-failed',
+          scope: 'storage/optimized/registry',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+      return true;
+    });
+  }
+
+  /// Saves [server]'s name and routes: added, removed, reordered or edited.
+  ///
+  /// Accounts keep their sessions. Adding a route is the user saying this
+  /// URL reaches the same server; the caller checks that before saving. A
+  /// removed route takes its captured proxy cookies with it, and a removed
+  /// route that was in use gives way to the first remaining one.
+  Future<void> saveServer(OpenWebUiServer server) {
+    if (server.endpoints.isEmpty) {
+      throw ArgumentError('A server needs at least one route.');
+    }
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        final registry = await _registryForWriteUnlocked();
+        if (registry.server(server.id) == null) {
+          throw StateError('That server is no longer saved.');
+        }
+        final routes = {for (final endpoint in server.endpoints) endpoint.id};
+        final next = OpenWebUiRegistry(
+          servers: [
+            for (final existing in registry.servers)
+              existing.id == server.id ? server : existing,
+          ],
+          accounts: [
+            for (final account in registry.accounts)
+              account.serverId == server.id
+                  ? account.copyWith(
+                      capturedHeaders: {
+                        for (final entry in account.capturedHeaders.entries)
+                          if (routes.contains(entry.key))
+                            entry.key: entry.value,
+                      },
+                    )
+                  : account,
+          ],
+        );
+        final selection = _endpointSelection();
+        if (selection[server.id] case final selected?
+            when !routes.contains(selected)) {
+          selection.remove(server.id);
+        }
+        await _saveRegistryUnlocked(next);
+        _stagedServerConfigCandidate = null;
+      }),
+    );
+  }
+
+  /// Keeps the session headers a proxy sign-in captured for [accountId] on
+  /// one of its server's routes.
+  Future<void> saveEndpointSessionHeaders({
+    required String accountId,
+    required String endpointId,
+    required Map<String, String> headers,
+  }) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        final registry = await _registryForWriteUnlocked();
+        final account = registry.account(accountId);
+        if (account == null ||
+            registry.server(account.serverId)?.endpoint(endpointId) == null) {
+          return;
+        }
+        final captured = {
+          for (final entry in headers.entries)
+            if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+        };
+        await _saveRegistryUnlocked(
+          registry.withAccount(
+            account.copyWith(
+              capturedHeaders: {
+                ...account.capturedHeaders,
+                endpointId: captured,
+              },
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
   /// The saved servers and accounts. Strict: a Keychain failure propagates
   /// rather than reading as "nothing saved".
   Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() =>
@@ -2713,7 +2860,9 @@ class OptimizedStorageService {
           bypassReadSuppression: true,
         );
         final activeId = _effectiveActiveServerId(
-          configs: registry.projectAll(),
+          configs: registry.projectAll(
+            selectedEndpoints: _endpointSelection(),
+          ),
           rawActiveServerId: rawActiveId,
         );
         if (activeId != expectedSourceAccountId) return false;
@@ -2892,7 +3041,7 @@ class OptimizedStorageService {
     final registry = await _getRegistryStrictUnlocked(
       bypassReadSuppression: bypassReadSuppression,
     );
-    return registry.projectAll();
+    return registry.projectAll(selectedEndpoints: _endpointSelection());
   }
 
   Future<OpenWebUiRegistry> _getRegistryStrictUnlocked({
@@ -4025,6 +4174,7 @@ class OptimizedStorageService {
         false,
         ttl: _credentialsFlagTtl,
       );
+      _selectedEndpoints = null;
       _cacheRegistry(OpenWebUiRegistry.empty);
       _registryLeftByWipe = retainedRegistry;
       _cacheActiveServerId(null);
@@ -4176,7 +4326,9 @@ class OptimizedStorageService {
   }
 
   void _cacheRegistry(OpenWebUiRegistry registry) {
-    final configs = registry.projectAll();
+    final configs = registry.projectAll(
+      selectedEndpoints: _endpointSelection(),
+    );
     _cacheManager.write('server_config_count', configs.length);
     _cacheManager.write(_registryCacheKey, registry, ttl: _serverConfigsTtl);
     _cacheManager.write(

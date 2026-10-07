@@ -22,6 +22,8 @@ class Routes {
   static const String audioSettings = '/profile/audio';
   static const String accountSettings = '/profile/account';
   static const String accounts = '/profile/accounts';
+  static const String serverAddresses = '/profile/accounts/addresses';
+  static const String serverAddressEditor = '/profile/accounts/address';
   static const String notificationSettings = '/profile/notifications';
   static const String appearanceSettings = '/profile/appearance';
   static const String chatSettings = '/profile/chat';
@@ -74,6 +76,8 @@ class RouteNames {
   static const String audioSettings = 'audio-settings';
   static const String accountSettings = 'account-settings';
   static const String accounts = 'accounts';
+  static const String serverAddresses = 'server-addresses';
+  static const String serverAddressEditor = 'server-address-editor';
   static const String notificationSettings = 'notification-settings';
   static const String appearanceSettings = 'appearance-settings';
   static const String chatSettings = 'chat-settings';

@@ -208,6 +208,40 @@ void main() {
       },
     );
 
+    test('another route to the same account replaces the socket', () async {
+      final harness = _SocketManagerHarness(
+        initialServer: Future<ServerConfig?>.value(serverA),
+        initialAuth: (authenticated: true, token: 'token-a', epoch: Object()),
+      );
+      final container = harness.createContainer();
+      addTearDown(container.dispose);
+      final subscription = container.listen(
+        socketServiceManagerProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      addTearDown(subscription.close);
+      final viaFirstRoute =
+          await container.read(socketServiceManagerProvider.future)
+              as _TestSocketService;
+
+      // Same account id, reached through another address.
+      harness.setServer(
+        container,
+        Future<ServerConfig?>.value(
+          serverA.copyWith(url: 'http://10.0.0.2:3000'),
+        ),
+      );
+      final viaSecondRoute =
+          await container.read(socketServiceManagerProvider.future)
+              as _TestSocketService;
+      await _flushMicrotasks();
+
+      check(viaSecondRoute).not((it) => it.identicalTo(viaFirstRoute));
+      check(viaSecondRoute.serverConfig.url).equals('http://10.0.0.2:3000');
+      check(viaFirstRoute.disposeCalls).equals(1);
+    });
+
     test('same-context rebuild retains the live socket', () async {
       final harness = _SocketManagerHarness(
         initialServer: Future<ServerConfig?>.value(serverA),

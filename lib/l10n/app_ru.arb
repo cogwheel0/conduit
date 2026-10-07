@@ -4167,5 +4167,16 @@
   "accountsSwitchStopsReply": "Переключение аккаунта остановит его.",
   "accountsSignOutStopsReply": "Выход остановит его.",
   "accountsSwitchAnyway": "Всё равно переключиться",
-  "accountsSignOutAnyway": "Всё равно выйти"
+  "accountsSignOutAnyway": "Всё равно выйти",
+  "accountsServerAddresses": "Адреса",
+  "accountsServerAddressesHelp": "Conduit подключается через первый ответивший адрес, начиная сверху. Перетащите, чтобы изменить порядок.",
+  "accountsAddAddress": "Добавить адрес",
+  "accountsEditAddress": "Изменить адрес",
+  "accountsSaveAddress": "Сохранить адрес",
+  "accountsAddressInUse": "Используется",
+  "accountsAddressName": "Название (необязательно)",
+  "accountsAddressNameHint": "Домашняя сеть, Tailscale…",
+  "accountsAddressDifferentServer": "Этот адрес ведёт на другой сервер или к другому аккаунту на нём.",
+  "accountsRemoveAddress": "Удалить адрес",
+  "accountsRemoveAddressMessage": "Conduit перестанет пробовать этот адрес. Вход в ваши аккаунты сохранится."
 }

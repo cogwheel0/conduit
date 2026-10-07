@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File, HandshakeException, HttpException, SocketException;
 
@@ -16,14 +17,15 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../platform/webview_cookie_helper.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
-import 'package:conduit_core/models/openwebui_registry.dart'
-    show OpenWebUiRegistry, OpenWebUiServer, openWebUiServerIdentityUrl;
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show openWebUiRouteResolverProvider;
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show
         accountAdditionOriginProvider,
@@ -235,7 +237,17 @@ class ServerConnectionPage extends ConsumerStatefulWidget {
     super.key,
     this.addingAccount = false,
     this.serverId,
+    this.routesOfServerId,
+    this.endpointId,
   });
+
+  /// Adding or editing one address of the saved server with this id, rather
+  /// than connecting to sign in. The address is checked the same way, then
+  /// saved as a route to that server.
+  final String? routesOfServerId;
+
+  /// The address being edited; null adds a new one.
+  final String? endpointId;
 
   /// Connecting to sign in to another account while one is signed in. The
   /// form starts empty -- or from [serverId]'s saved route -- rather than
@@ -287,6 +299,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   /// Ends the account addition this page was opened for, as it goes.
   void Function()? _endAccountAddition;
+  final TextEditingController _routeLabelController = TextEditingController();
+
+  bool get _editingRoutes => widget.routesOfServerId != null;
 
   /// The saved server the form was filled in from, when it was.
   OpenWebUiServer? _savedServer;
@@ -295,7 +310,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   void initState() {
     super.initState();
     _urlController.addListener(_resetTransientAttempt);
-    if (widget.addingAccount) {
+    if (_editingRoutes) {
+      _prefillFromRoute();
+    } else if (widget.addingAccount) {
       // openAddAccount began the addition before opening this page, which the
       // router needs; the page only ends it when it goes.
       _endAccountAddition = ref
@@ -305,6 +322,148 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     } else {
       _prefillFromState();
     }
+  }
+
+  Future<void> _prefillFromRoute() async {
+    final endpointId = widget.endpointId;
+    if (endpointId == null) return;
+    final registry = await ref
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    final endpoint = registry
+        .server(widget.routesOfServerId!)
+        ?.endpoint(endpointId);
+    if (!mounted || endpoint == null) return;
+    _routeLabelController.text = endpoint.label ?? '';
+    _applyEndpoint(endpoint);
+  }
+
+  void _applyEndpoint(OpenWebUiEndpoint endpoint) {
+    setState(() {
+      _urlController.text = endpoint.url;
+      _customHeaders
+        ..clear()
+        ..addAll(endpoint.customHeaders);
+      _showAdvancedSettings =
+          endpoint.allowSelfSignedCertificates ||
+          endpoint.customHeaders.isNotEmpty ||
+          (!kIsWeb && endpoint.mtlsPrivateKeyPem != null);
+      _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
+      _mtlsCertificateChainPem = kIsWeb
+          ? null
+          : endpoint.mtlsCertificateChainPem;
+      _mtlsCertificateLabel = kIsWeb ? null : endpoint.mtlsCertificateLabel;
+      _mtlsPrivateKeyPem = kIsWeb ? null : endpoint.mtlsPrivateKeyPem;
+      _mtlsPrivateKeyLabel = kIsWeb ? null : endpoint.mtlsPrivateKeyLabel;
+      _mtlsPrivateKeyPasswordController.text = kIsWeb
+          ? ''
+          : (endpoint.mtlsPrivateKeyPassword ?? '');
+    });
+  }
+
+  /// Saves [verified] -- an address that answered as an Open WebUI server --
+  /// as a route to the server being edited.
+  ///
+  /// When the account in use is on that server, the address must also know
+  /// it: the same user, through the new URL. Otherwise it is another server
+  /// (or another account behind the same proxy), and every account on this
+  /// one would start sending its session there. Returns whether it saved.
+  Future<bool> _saveRoute(ServerConfig verified) async {
+    final l10n = AppLocalizations.of(context)!;
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    final server = registry.server(widget.routesOfServerId!);
+    if (server == null) throw StateError('That server is no longer saved.');
+
+    final activeId = await storage.getActiveServerId();
+    final activeAccount = activeId == null ? null : registry.account(activeId);
+    final checksActiveAccount =
+        activeAccount != null &&
+        activeAccount.serverId == server.id &&
+        activeAccount.userId != null;
+    if (checksActiveAccount) {
+      final token = ref.read(authTokenProvider3);
+      if (token != null && token.isNotEmpty) {
+        final probe = ApiService(
+          serverConfig: verified,
+          workerManager: ref.read(workerManagerProvider),
+          authToken: token,
+        );
+        try {
+          final user = await probe.getCurrentUser(
+            suppressAuthFailureNotification: true,
+          );
+          if (user.id != activeAccount.userId) {
+            if (mounted) {
+              setState(
+                () => _connectionError = l10n.accountsAddressDifferentServer,
+              );
+            }
+            return false;
+          }
+        } catch (_) {
+          if (mounted) {
+            setState(
+              () => _connectionError = l10n.accountsAddressDifferentServer,
+            );
+          }
+          return false;
+        } finally {
+          probe.dispose();
+        }
+      }
+    }
+
+    final label = _routeLabelController.text.trim();
+    final route = OpenWebUiEndpoint(
+      id: widget.endpointId ?? const Uuid().v4(),
+      url: verified.url,
+      label: label.isEmpty ? null : label,
+      customHeaders: {
+        for (final entry in verified.customHeaders.entries)
+          if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+      },
+      allowSelfSignedCertificates: verified.allowSelfSignedCertificates,
+      mtlsCertificateChainPem: verified.mtlsCertificateChainPem,
+      mtlsCertificateLabel: verified.mtlsCertificateLabel,
+      mtlsPrivateKeyPem: verified.mtlsPrivateKeyPem,
+      mtlsPrivateKeyLabel: verified.mtlsPrivateKeyLabel,
+      mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
+    );
+    final editing = server.endpoint(route.id) != null;
+    await storage.saveServer(
+      OpenWebUiServer(
+        id: server.id,
+        name: server.name,
+        endpoints: editing
+            ? [
+                for (final endpoint in server.endpoints)
+                  endpoint.id == route.id ? route : endpoint,
+              ]
+            : [...server.endpoints, route],
+      ),
+    );
+    // A proxy sign-in on this address belongs to the account that made it.
+    if (checksActiveAccount &&
+        verified.customHeaders.keys.any(isCapturedSessionHeader)) {
+      await storage.saveEndpointSessionHeaders(
+        accountId: activeAccount.id,
+        endpointId: route.id,
+        headers: verified.customHeaders,
+      );
+    }
+    ref.invalidate(serverConfigsProvider);
+    ref.invalidate(openWebUiAccountsProvider);
+    unawaited(
+      ref
+          .read(openWebUiRouteResolverProvider.notifier)
+          .resolve(reason: 'routes-edited'),
+    );
+    if (mounted) {
+      ConduitHaptics.success();
+      context.pop();
+    }
+    return true;
   }
 
   Future<void> _prefillFromSavedServer() async {
@@ -337,26 +496,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     if (!mounted || endpoint == null) return;
     _savedServer = server;
     if (_formContents() != untouched) return;
-    setState(() {
-      _urlController.text = endpoint.url;
-      _customHeaders
-        ..clear()
-        ..addAll(endpoint.customHeaders);
-      _showAdvancedSettings =
-          endpoint.allowSelfSignedCertificates ||
-          endpoint.customHeaders.isNotEmpty ||
-          (!kIsWeb && endpoint.mtlsPrivateKeyPem != null);
-      _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
-      _mtlsCertificateChainPem = kIsWeb
-          ? null
-          : endpoint.mtlsCertificateChainPem;
-      _mtlsCertificateLabel = kIsWeb ? null : endpoint.mtlsCertificateLabel;
-      _mtlsPrivateKeyPem = kIsWeb ? null : endpoint.mtlsPrivateKeyPem;
-      _mtlsPrivateKeyLabel = kIsWeb ? null : endpoint.mtlsPrivateKeyLabel;
-      _mtlsPrivateKeyPasswordController.text = kIsWeb
-          ? ''
-          : (endpoint.mtlsPrivateKeyPassword ?? '');
-    });
+    _applyEndpoint(endpoint);
   }
 
   /// What the connection form holds, to tell whether it has been edited.
@@ -412,6 +552,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
     _urlController.removeListener(_resetTransientAttempt);
     _urlController.dispose();
+    _routeLabelController.dispose();
     _headerKeyController.dispose();
     _headerValueController.dispose();
     _mtlsPrivateKeyPasswordController.dispose();
@@ -532,6 +673,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
       if (backendConfig == null) {
         throw Exception(l10n.serverNotOpenWebUI);
+      }
+
+      if (_editingRoutes) {
+        await _saveRoute(tempConfig);
+        return;
       }
 
       DebugLogger.log(
@@ -700,6 +846,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             _connectionError = message;
             _isConnecting = false;
           });
+        }
+        return;
+      }
+
+      if (_editingRoutes) {
+        if (!await _saveRoute(configWithCookies) && mounted) {
+          setState(() => _isConnecting = false);
         }
         return;
       }
@@ -1291,8 +1444,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         if (!didPop) _goBack();
       },
       child: UtilityPageScaffold.auth(
-        title: l10n.backendChooserOpenWebUITitle,
-        onTitleLongPress: _toggleReviewerMode,
+        title: !_editingRoutes
+            ? l10n.backendChooserOpenWebUITitle
+            : widget.endpointId == null
+            ? l10n.accountsAddAddress
+            : l10n.accountsEditAddress,
+        onTitleLongPress: _editingRoutes ? null : _toggleReviewerMode,
         backNavigation: UtilityBackNavigation(
           label: l10n.back,
           buttonKey: const ValueKey<String>('server-connection-back-button'),
@@ -1323,7 +1480,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// Users adding Open WebUI next to a working Apple, Direct, or Hermes
   /// backend came from chat; only first-time setup returns to the backend
   /// chooser. Adding another account goes back to chat too, first dropping
-  /// the added account if its sign-in began and never finished.
+  /// the added account if its sign-in began and never finished. Editing an
+  /// address goes back to the addresses it was opened from.
   Future<void> _goBack() async {
     if (_goingBack) return;
     _goingBack = true;
@@ -1364,7 +1522,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       }
     }
     if (!mounted) return;
-    if (widget.addingAccount && context.canPop()) {
+    if ((widget.addingAccount || _editingRoutes) && context.canPop()) {
       context.pop();
       return;
     }
@@ -1450,6 +1608,19 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (_editingRoutes) ...[
+          InsetGroupedSection(
+            flat: true,
+            child: AccessibleFormField(
+              key: const ValueKey<String>('server-route-label-field'),
+              label: l10n.accountsAddressName,
+              hint: l10n.accountsAddressNameHint,
+              controller: _routeLabelController,
+              textInputAction: TextInputAction.next,
+            ),
+          ),
+          const SizedBox(height: Spacing.md),
+        ],
         InsetGroupedSection(
           flat: true,
           child: AccessibleFormField(
@@ -1835,6 +2006,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return ConduitButton(
       text: _isConnecting
           ? AppLocalizations.of(context)!.connecting
+          : _editingRoutes
+          ? AppLocalizations.of(context)!.accountsSaveAddress
           : AppLocalizations.of(context)!.connectToServerButton,
       onPressed: _isConnecting || _urlController.text.trim().isEmpty
           ? null

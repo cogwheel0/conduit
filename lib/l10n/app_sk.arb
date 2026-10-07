@@ -5951,5 +5951,16 @@
   "accountsSwitchStopsReply": "Prepnutie účtu ju zastaví.",
   "accountsSignOutStopsReply": "Odhlásenie ju zastaví.",
   "accountsSwitchAnyway": "Napriek tomu prepnúť",
-  "accountsSignOutAnyway": "Napriek tomu sa odhlásiť"
+  "accountsSignOutAnyway": "Napriek tomu sa odhlásiť",
+  "accountsServerAddresses": "Adresy",
+  "accountsServerAddressesHelp": "Conduit sa pripojí cez prvú adresu, ktorá odpovie, počnúc zhora. Poradie zmeníte potiahnutím.",
+  "accountsAddAddress": "Pridať adresu",
+  "accountsEditAddress": "Upraviť adresu",
+  "accountsSaveAddress": "Uložiť adresu",
+  "accountsAddressInUse": "Používa sa",
+  "accountsAddressName": "Názov (voliteľné)",
+  "accountsAddressNameHint": "Domáca sieť, Tailscale…",
+  "accountsAddressDifferentServer": "Táto adresa vedie na iný server alebo k inému účtu na ňom.",
+  "accountsRemoveAddress": "Odstrániť adresu",
+  "accountsRemoveAddressMessage": "Conduit prestane skúšať túto adresu. Vaše účty zostanú prihlásené."
 }

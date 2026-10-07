@@ -5645,5 +5645,16 @@
   "accountsSwitchStopsReply": "アカウントを切り替えると停止します。",
   "accountsSignOutStopsReply": "サインアウトすると停止します。",
   "accountsSwitchAnyway": "それでも切り替える",
-  "accountsSignOutAnyway": "それでもサインアウト"
+  "accountsSignOutAnyway": "それでもサインアウト",
+  "accountsServerAddresses": "アドレス",
+  "accountsServerAddressesHelp": "Conduit は上から順に試し、最初に応答したアドレスで接続します。ドラッグして順序を変更できます。",
+  "accountsAddAddress": "アドレスを追加",
+  "accountsEditAddress": "アドレスを編集",
+  "accountsSaveAddress": "アドレスを保存",
+  "accountsAddressInUse": "使用中",
+  "accountsAddressName": "名前（任意）",
+  "accountsAddressNameHint": "自宅ネットワーク、Tailscale…",
+  "accountsAddressDifferentServer": "このアドレスは別のサーバー、またはそのサーバー上の別のアカウントにつながります。",
+  "accountsRemoveAddress": "アドレスを削除",
+  "accountsRemoveAddressMessage": "Conduit はこのアドレスを試さなくなります。アカウントはサインインしたままです。"
 }

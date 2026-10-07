@@ -479,6 +479,10 @@ class ConnectivityService {
     }
   }
 
+  /// Requests that failed to reach their server, by server URI. Lets an
+  /// observer react to a route going away without creating this service.
+  static Stream<Uri> get transportFailures => _transportFailures.stream;
+
   static void reportTransportFailure(Uri? serverUri) {
     if (serverUri != null && !_transportFailures.isClosed) {
       _transportFailures.add(serverUri);
@@ -692,6 +696,42 @@ Dio createConnectivityHealthClient(
     userAgent: ConduitUserAgent.value,
   );
   return dio;
+}
+
+/// Whether [server] answers its health check within [timeout], over exactly
+/// the URL, headers and TLS settings it carries.
+///
+/// For choosing between the routes to one server: a route answers or it does
+/// not. Redirects count as not answering, for the reason the health client
+/// refuses them.
+Future<bool> probeServerHealth(
+  ServerConfig server, {
+  Duration timeout = const Duration(seconds: 4),
+}) async {
+  final baseUri = ServerTlsHttpClientFactory.parseBaseUri(server.url);
+  if (baseUri == null) return false;
+  final dio = createConnectivityHealthClient(server);
+  final cancelToken = CancelToken();
+  try {
+    final response = await dio
+        .getUri<dynamic>(
+          baseUri.resolve('/health'),
+          options: Options(
+            sendTimeout: timeout,
+            receiveTimeout: timeout,
+            followRedirects: false,
+            validateStatus: (status) => status != null && status < 500,
+          ),
+          cancelToken: cancelToken,
+        )
+        .timeout(timeout);
+    return response.statusCode == 200;
+  } catch (_) {
+    if (!cancelToken.isCancelled) cancelToken.cancel('Route probe ended');
+    return false;
+  } finally {
+    dio.close(force: true);
+  }
 }
 
 // Riverpod notifier for connectivity status

@@ -4129,5 +4129,16 @@
   "accountsSwitchStopsReply": "切换账户会停止该回复。",
   "accountsSignOutStopsReply": "退出登录会停止该回复。",
   "accountsSwitchAnyway": "仍然切换",
-  "accountsSignOutAnyway": "仍然退出登录"
+  "accountsSignOutAnyway": "仍然退出登录",
+  "accountsServerAddresses": "地址",
+  "accountsServerAddressesHelp": "Conduit 会从上到下依次尝试，通过第一个有响应的地址连接。拖动可调整顺序。",
+  "accountsAddAddress": "添加地址",
+  "accountsEditAddress": "编辑地址",
+  "accountsSaveAddress": "保存地址",
+  "accountsAddressInUse": "使用中",
+  "accountsAddressName": "名称（可选）",
+  "accountsAddressNameHint": "家庭网络、Tailscale…",
+  "accountsAddressDifferentServer": "此地址指向另一台服务器，或该服务器上的另一个账户。",
+  "accountsRemoveAddress": "移除地址",
+  "accountsRemoveAddressMessage": "Conduit 将不再尝试此地址。你的账户将保持登录状态。"
 }

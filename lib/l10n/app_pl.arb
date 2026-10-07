@@ -7641,5 +7641,16 @@
   "accountsSwitchStopsReply": "Przełączenie konta ją zatrzyma.",
   "accountsSignOutStopsReply": "Wylogowanie ją zatrzyma.",
   "accountsSwitchAnyway": "Przełącz mimo to",
-  "accountsSignOutAnyway": "Wyloguj się mimo to"
+  "accountsSignOutAnyway": "Wyloguj się mimo to",
+  "accountsServerAddresses": "Adresy",
+  "accountsServerAddressesHelp": "Conduit łączy się przez pierwszy adres, który odpowie, zaczynając od góry. Przeciągnij, aby zmienić kolejność.",
+  "accountsAddAddress": "Dodaj adres",
+  "accountsEditAddress": "Edytuj adres",
+  "accountsSaveAddress": "Zapisz adres",
+  "accountsAddressInUse": "Używany",
+  "accountsAddressName": "Nazwa (opcjonalnie)",
+  "accountsAddressNameHint": "Sieć domowa, Tailscale…",
+  "accountsAddressDifferentServer": "Ten adres prowadzi do innego serwera lub do innego konta na nim.",
+  "accountsRemoveAddress": "Usuń adres",
+  "accountsRemoveAddressMessage": "Conduit przestanie próbować tego adresu. Twoje konta będą nadal zalogowane."
 }

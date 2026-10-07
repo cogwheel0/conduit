@@ -62,7 +62,7 @@ class SocketServiceManager extends _$SocketServiceManager {
     final immediatelyKnownServer = activeServerSnapshot.asData?.value;
     if (_service != null &&
         (immediatelyKnownServer == null ||
-            _service!.serverConfig.id != immediatelyKnownServer.id)) {
+            _service!.serverConfig != immediatelyKnownServer)) {
       // A live socket is safe to expose during an ordinary rebuild only while
       // the active server is still provably the same. Server selection enters
       // loading before its replacement resolves, so fail closed instead of
@@ -98,7 +98,9 @@ class SocketServiceManager extends _$SocketServiceManager {
     final requiresNewService =
         _service == null ||
         _serviceToken != token ||
-        _service!.serverConfig.id != server.id ||
+        // The whole connection, not just the account: reaching the same
+        // account through another route changes the URL and headers.
+        _service!.serverConfig != server ||
         _service!.websocketOnly != websocketOnly ||
         _service!.allowWebsocketUpgrade != allowWebsocketUpgrade;
     if (requiresNewService) {

@@ -3901,5 +3901,16 @@
   "accountsSwitchStopsReply": "계정을 전환하면 답변이 중지됩니다.",
   "accountsSignOutStopsReply": "로그아웃하면 답변이 중지됩니다.",
   "accountsSwitchAnyway": "그래도 전환",
-  "accountsSignOutAnyway": "그래도 로그아웃"
+  "accountsSignOutAnyway": "그래도 로그아웃",
+  "accountsServerAddresses": "주소",
+  "accountsServerAddressesHelp": "Conduit은 위에서부터 차례로 시도해 처음 응답하는 주소로 연결합니다. 드래그하여 순서를 변경하세요.",
+  "accountsAddAddress": "주소 추가",
+  "accountsEditAddress": "주소 편집",
+  "accountsSaveAddress": "주소 저장",
+  "accountsAddressInUse": "사용 중",
+  "accountsAddressName": "이름(선택 사항)",
+  "accountsAddressNameHint": "홈 네트워크, Tailscale…",
+  "accountsAddressDifferentServer": "이 주소는 다른 서버 또는 해당 서버의 다른 계정으로 연결됩니다.",
+  "accountsRemoveAddress": "주소 제거",
+  "accountsRemoveAddressMessage": "Conduit이 더 이상 이 주소를 시도하지 않습니다. 계정은 로그인 상태로 유지됩니다."
 }

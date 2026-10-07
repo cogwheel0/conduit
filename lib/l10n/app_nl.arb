@@ -4129,5 +4129,16 @@
   "accountsSwitchStopsReply": "Als je van account wisselt, wordt het gestopt.",
   "accountsSignOutStopsReply": "Als je uitlogt, wordt het gestopt.",
   "accountsSwitchAnyway": "Toch wisselen",
-  "accountsSignOutAnyway": "Toch uitloggen"
+  "accountsSignOutAnyway": "Toch uitloggen",
+  "accountsServerAddresses": "Adressen",
+  "accountsServerAddressesHelp": "Conduit maakt verbinding via het eerste adres dat antwoordt, van boven naar beneden. Sleep om de volgorde te wijzigen.",
+  "accountsAddAddress": "Adres toevoegen",
+  "accountsEditAddress": "Adres bewerken",
+  "accountsSaveAddress": "Adres opslaan",
+  "accountsAddressInUse": "In gebruik",
+  "accountsAddressName": "Naam (optioneel)",
+  "accountsAddressNameHint": "Thuisnetwerk, Tailscale…",
+  "accountsAddressDifferentServer": "Dit adres leidt naar een andere server, of naar een ander account daarop.",
+  "accountsRemoveAddress": "Adres verwijderen",
+  "accountsRemoveAddressMessage": "Conduit probeert dit adres niet meer. Je accounts blijven ingelogd."
 }

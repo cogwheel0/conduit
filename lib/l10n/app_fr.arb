@@ -4129,5 +4129,16 @@
   "accountsSwitchStopsReply": "Le changement de compte l'arrêtera.",
   "accountsSignOutStopsReply": "La déconnexion l'arrêtera.",
   "accountsSwitchAnyway": "Changer quand même",
-  "accountsSignOutAnyway": "Se déconnecter quand même"
+  "accountsSignOutAnyway": "Se déconnecter quand même",
+  "accountsServerAddresses": "Adresses",
+  "accountsServerAddressesHelp": "Conduit se connecte via la première adresse qui répond, en partant du haut. Faites glisser pour modifier l'ordre.",
+  "accountsAddAddress": "Ajouter une adresse",
+  "accountsEditAddress": "Modifier l'adresse",
+  "accountsSaveAddress": "Enregistrer l'adresse",
+  "accountsAddressInUse": "Utilisée",
+  "accountsAddressName": "Nom (facultatif)",
+  "accountsAddressNameHint": "Réseau domestique, Tailscale…",
+  "accountsAddressDifferentServer": "Cette adresse mène à un autre serveur, ou à un autre compte sur celui-ci.",
+  "accountsRemoveAddress": "Supprimer l'adresse",
+  "accountsRemoveAddressMessage": "Conduit n'essaiera plus cette adresse. Vos comptes restent connectés."
 }

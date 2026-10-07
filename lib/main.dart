@@ -156,6 +156,8 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show openWebUiRouteResolverProvider;
 import 'core/services/background_streaming_handler.dart';
 import 'features/profile/widgets/account_actions.dart';
 
@@ -523,6 +525,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     super.initState();
     ref.read(userScopedProviderCleanupProvider);
     ref.read(openWebUiDuplicateAccountReconcilerProvider);
+    ref.read(openWebUiRouteResolverProvider);
     ref.read(quickActionsCoordinatorProvider);
     ref.read(chatWakelockCoordinatorProvider);
     _nativeSheetSubscription = NativeSheetBridge.instance.events.listen(

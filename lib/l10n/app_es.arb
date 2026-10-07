@@ -4129,5 +4129,16 @@
   "accountsSwitchStopsReply": "Cambiar de cuenta la detendrá.",
   "accountsSignOutStopsReply": "Cerrar sesión la detendrá.",
   "accountsSwitchAnyway": "Cambiar de todos modos",
-  "accountsSignOutAnyway": "Cerrar sesión de todos modos"
+  "accountsSignOutAnyway": "Cerrar sesión de todos modos",
+  "accountsServerAddresses": "Direcciones",
+  "accountsServerAddressesHelp": "Conduit se conecta a través de la primera dirección que responde, empezando por arriba. Arrastra para cambiar el orden.",
+  "accountsAddAddress": "Añadir dirección",
+  "accountsEditAddress": "Editar dirección",
+  "accountsSaveAddress": "Guardar dirección",
+  "accountsAddressInUse": "En uso",
+  "accountsAddressName": "Nombre (opcional)",
+  "accountsAddressNameHint": "Red doméstica, Tailscale…",
+  "accountsAddressDifferentServer": "Esta dirección lleva a otro servidor o a otra cuenta en él.",
+  "accountsRemoveAddress": "Eliminar dirección",
+  "accountsRemoveAddressMessage": "Conduit dejará de probar esta dirección. Tus cuentas seguirán con la sesión iniciada."
 }

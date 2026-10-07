@@ -8391,5 +8391,49 @@
   "accountsSignOutAnyway": "Sign out anyway",
   "@accountsSignOutAnyway": {
     "description": "Confirms signing out of the current account even though it stops the reply that is still streaming."
+  },
+  "accountsServerAddresses": "Addresses",
+  "@accountsServerAddresses": {
+    "description": "Row under a saved Open WebUI server, and title of the page, listing the addresses (URLs) the server can be reached at, such as a LAN address, a Tailscale name and a public domain."
+  },
+  "accountsServerAddressesHelp": "Conduit connects through the first address that answers, from the top. Drag to change the order.",
+  "@accountsServerAddressesHelp": {
+    "description": "Explanation under the list of addresses of one Open WebUI server."
+  },
+  "accountsAddAddress": "Add address",
+  "@accountsAddAddress": {
+    "description": "Row and page title for adding another address (URL) at which the same Open WebUI server can be reached."
+  },
+  "accountsEditAddress": "Edit address",
+  "@accountsEditAddress": {
+    "description": "Title of the page that edits one saved address (URL) of an Open WebUI server."
+  },
+  "accountsSaveAddress": "Save address",
+  "@accountsSaveAddress": {
+    "description": "Button that checks an address of an Open WebUI server and saves it."
+  },
+  "accountsAddressInUse": "In use",
+  "@accountsAddressInUse": {
+    "description": "Badge on the address of an Open WebUI server that the app is connected through right now."
+  },
+  "accountsAddressName": "Name (optional)",
+  "@accountsAddressName": {
+    "description": "Label of the optional field naming an address of an Open WebUI server, such as Home network or Tailscale."
+  },
+  "accountsAddressNameHint": "Home network, Tailscale…",
+  "@accountsAddressNameHint": {
+    "description": "Placeholder in the optional name field of an Open WebUI server address."
+  },
+  "accountsAddressDifferentServer": "This address reaches a different server, or a different account on it.",
+  "@accountsAddressDifferentServer": {
+    "description": "Error shown when a new address of an Open WebUI server answers as another server: the signed-in account is not recognized there."
+  },
+  "accountsRemoveAddress": "Remove address",
+  "@accountsRemoveAddress": {
+    "description": "Destructive action that removes one address of an Open WebUI server."
+  },
+  "accountsRemoveAddressMessage": "Conduit stops trying this address. Your accounts stay signed in.",
+  "@accountsRemoveAddressMessage": {
+    "description": "Body of the confirmation before removing one address of an Open WebUI server."
   }
 }

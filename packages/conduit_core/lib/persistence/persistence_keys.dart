@@ -41,6 +41,9 @@ final class PreferenceKeys {
   static const String accountScopedSettingsMigrated =
       'account_scoped_settings_migrated_v1';
 
+  /// Which route each saved Open WebUI server was last reached through.
+  static const String openWebUiEndpointHint = 'openwebui_endpoint_hint_v1';
+
   /// Fail-closed marker set before logout touches any remote or local state.
   /// It prevents bearer/credential restoration and proxy-cookie attachment
   /// after a process death or incomplete secure-storage cleanup.

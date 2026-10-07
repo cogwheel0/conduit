@@ -1429,6 +1429,101 @@ void main() {
     );
     check(stored.account('a')?.userId).equals('user-1');
   });
+
+  group('routes to a server', () {
+    Future<OpenWebUiServer> addRoute(String id, String url) async {
+      final server =
+          (await storage.getOpenWebUiRegistryStrict()).servers.single;
+      final next = OpenWebUiServer(
+        id: server.id,
+        name: server.name,
+        endpoints: [
+          ...server.endpoints,
+          OpenWebUiEndpoint(id: id, url: url),
+        ],
+      );
+      await storage.saveServer(next);
+      return next;
+    }
+
+    test('adding and reordering routes keeps every session', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      await storage.saveAuthToken('token-a');
+
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await storage.saveServer(
+        OpenWebUiServer(
+          id: server.id,
+          name: server.name,
+          endpoints: server.endpoints.reversed.toList(),
+        ),
+      );
+
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await vaultedToken('b')).equals('token-b');
+      check((await storage.getServerConfigs()).first.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
+    test('a sign-in validated on one route cannot commit on another', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      final ownership = await storage.captureServerSessionOwnership(
+        validatedConfig: (await storage.getServerConfigs()).single,
+        requireActive: true,
+      );
+
+      check(await storage.selectEndpoint(server.id, 'lan')).isTrue();
+
+      check(
+        await storage.commitExistingServerSession(
+          ownership: ownership!,
+          token: 'token-a',
+          canCommit: () => true,
+          publish: () {},
+        ),
+      ).isFalse();
+      check((await storage.getServerConfigs()).single.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
+    test('a captured proxy cookie travels only on its own route', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('proxy', 'https://proxy.example.com');
+
+      await storage.saveEndpointSessionHeaders(
+        accountId: 'a',
+        endpointId: 'proxy',
+        headers: const {'Cookie': 'authelia=1', 'X-Other': 'dropped'},
+      );
+
+      check((await storage.getServerConfigs()).single.customHeaders).isEmpty();
+      await storage.selectEndpoint(server.id, 'proxy');
+      check((await storage.getServerConfigs()).single.customHeaders)
+          .deepEquals({'Cookie': 'authelia=1'});
+    });
+
+    test('removing the route in use falls back to the first', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await storage.selectEndpoint(server.id, 'lan');
+
+      await storage.saveServer(
+        OpenWebUiServer(
+          id: server.id,
+          name: server.name,
+          endpoints: [server.endpoints.first],
+        ),
+      );
+
+      check((await storage.getServerConfigs()).single.url)
+          .equals('https://chat.example.com');
+      check(storage.endpointSelection).isEmpty();
+    });
+  });
 }
 
 /// Refuses writes to [refusedKey], and reads of [unreadableKey], once set,
