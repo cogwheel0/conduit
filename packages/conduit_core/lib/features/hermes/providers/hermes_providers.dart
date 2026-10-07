@@ -468,14 +468,11 @@ class HermesConfigController extends Notifier<HermesConfig> {
         _setDesktopNativeTokens(credentials.nativeTokens, epoch, connection);
   }
 
-  /// [holds], when given, must accept the current tokens, so that a writer
-  /// replaces only the tokens its client holds.
   Future<void> _setDesktopNativeTokens(
     HermesDesktopTokenSet? tokens,
     int epoch,
-    HermesConfig connection, {
-    bool Function(HermesDesktopTokenSet? current)? holds,
-  }) {
+    HermesConfig connection,
+  ) {
     return _serializeMutation(() async {
       await _secretsHydration;
       _throwIfSecretsUnavailable();
@@ -486,8 +483,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
           !hermesDesktopConnectionMatches(state, connection) ||
           state.mode != connection.mode ||
           state.allowSelfSignedCertificates !=
-              connection.allowSelfSignedCertificates ||
-          (holds != null && !holds(state.desktopCredentials?.nativeTokens))) {
+              connection.allowSelfSignedCertificates) {
         throw StateError('Hermes connection changed before sign-in completed.');
       }
       final previous = state.desktopCredentials;
@@ -504,10 +500,11 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// Persists token rotations of a temporary client built from [connection]
   /// whichever saved connection is active. Probing or listing profiles of a
   /// Desktop connection can refresh its tokens; dropping the rotation would
-  /// strand the stored refresh token. For the active connection it writes as
-  /// [nativeCredentialsWriter] does. For an inactive one the write is rejected
-  /// once [connection]'s endpoint, auth, or credentials change, or when it
-  /// becomes the active connection, whose live writer then owns rotations.
+  /// strand the stored refresh token. Whether the connection is active is
+  /// judged when a rotation lands, not when the client was built, so a switch
+  /// or turning Hermes off while a refresh is in flight keeps the tokens the
+  /// server already issued. The write is rejected once [connection]'s
+  /// endpoint, auth, or credentials change.
   HermesDesktopCredentialsWriter credentialsWriterFor(HermesConfig connection) {
     final connectionId = connection.connectionId;
     // The refresh token this writer's client holds. Two clients built from
@@ -515,48 +512,37 @@ class HermesConfigController extends Notifier<HermesConfig> {
     // stale refresh (or its sign-out after a 401) must not overwrite them.
     var expectedRefreshToken =
         connection.desktopCredentials?.nativeTokens?.refreshToken;
-    if (connectionId != null && connectionId == state.connectionId) {
-      final epoch = _connectionMutationEpoch;
-      final active = state;
-      return (credentials) async {
-        await _setDesktopNativeTokens(
-          credentials.nativeTokens,
-          epoch,
-          active,
-          holds: (current) => current?.refreshToken == expectedRefreshToken,
-        );
-        expectedRefreshToken = credentials.nativeTokens?.refreshToken;
-      };
-    }
     return (credentials) => _serializeMutation(() async {
       await _secretsHydration;
       _throwIfSecretsUnavailable();
       final profile = _profile(connectionId);
-      if (connectionId == null ||
-          profile == null ||
-          connectionId == state.connectionId) {
+      if (connectionId == null || profile == null) {
         throw StateError('Hermes connection changed before sign-in completed.');
       }
-      final stored = _configForProfile(
-        profile,
-        enabled: true,
-        secrets: await _readSecrets(connectionId),
-      );
+      final active = connectionId == state.connectionId;
+      final stored = active
+          ? state
+          : _configForProfile(
+              profile,
+              enabled: true,
+              secrets: await _readSecrets(connectionId),
+            );
       if (!hermesDesktopConnectionMatches(stored, connection) ||
           stored.mode != connection.mode ||
+          stored.allowSelfSignedCertificates !=
+              connection.allowSelfSignedCertificates ||
           stored.desktopCredentials?.nativeTokens?.refreshToken !=
               expectedRefreshToken) {
         throw StateError('Hermes connection changed before sign-in completed.');
       }
       final previous = stored.desktopCredentials;
-      await _persistDesktopCredentials(
-        connectionId,
-        HermesDesktopCredentials(
-          legacyToken: previous?.legacyToken,
-          nativeTokens: credentials.nativeTokens,
-          accessHeaders: previous?.accessHeaders ?? const {},
-        ),
+      final next = HermesDesktopCredentials(
+        legacyToken: previous?.legacyToken,
+        nativeTokens: credentials.nativeTokens,
+        accessHeaders: previous?.accessHeaders ?? const {},
       );
+      await _persistDesktopCredentials(connectionId, next);
+      if (active) state = _withState(desktopCredentials: next);
       expectedRefreshToken = credentials.nativeTokens?.refreshToken;
     });
   }

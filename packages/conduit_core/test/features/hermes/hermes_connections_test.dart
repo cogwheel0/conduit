@@ -689,6 +689,44 @@ void main() {
       check(await storedRefreshToken()).equals('refresh-2');
     });
 
+    // A client of the active connection refreshes its tokens; the server
+    // has spent the old refresh token by the time the new ones land.
+    for (final (change, leave)
+        in <(String, Future<void> Function(HermesConfigController))>[
+      ('a switch away', (controller) => controller.setActiveConnection(_b)),
+      ('turning Hermes off', (controller) => controller.setEnabled(false)),
+    ]) {
+      test('a token rotation landing after $change is kept', () async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://alpha.example').copyWith(
+            mode: HermesBackendMode.desktopGateway,
+            desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+          ),
+          _profile(_b, 'Beta', 'https://beta.example'),
+        ], active: _a);
+        final secrets = _Secrets({
+          'hermes_desktop_credentials_v1:$_a': jsonEncode(
+            _nativeCredentials('refresh-0').toJson(),
+          ),
+          'hermes_api_key_v1:$_b': 'beta-key',
+        });
+        final container = await _ready(secrets);
+        addTearDown(container.dispose);
+        final controller = container.read(hermesConfigProvider.notifier);
+        final write = controller.credentialsWriterFor(
+          container.read(hermesConfigProvider),
+        );
+
+        await leave(controller);
+        await write(_nativeCredentials('refresh-1'));
+
+        final stored = await controller.savedConnectionConfig(_a);
+        check(
+          stored.desktopCredentials?.nativeTokens?.refreshToken,
+        ).equals('refresh-1');
+      });
+    }
+
     test(
       'a read during a save never pairs the old address with new secrets',
       () async {
