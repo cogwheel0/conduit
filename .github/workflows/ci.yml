@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
       # Building needs only the path dependencies under third_party/;
       # openwebui-src/ and hermes-src/ are reference sources, a few hundred
-      # MB that no step reads. They fetch while Flutter and Gradle install.
+      # MB that no step reads. They fetch while Flutter installs.
       - parallel:
           - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
             with:
@@ -34,12 +34,6 @@ jobs:
               cache: true
           - name: Fetch third_party submodules
             run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
-          # `basic` is the action's MIT-licensed cache provider; the default
-          # one is a proprietary component under separate terms of use.
-          # Caches are written from main only, and read everywhere.
-          - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
-            with:
-              cache-provider: basic
       # One `pub get` at the workspace root resolves every member.
       - run: flutter pub get
       # Every workspace member with codegen, not only this job's own: a
@@ -60,11 +54,10 @@ jobs:
                   echo "::endgroup::"
                 fi
               done
-      # Analysis, the Dart tests and the Android build each need only the
-      # generated code, so they run side by side; the job fails once all
-      # three finish if any of them failed. The analyzer skips the test
-      # runner's temporary test/.shards_*/ entrypoints, as it does every
-      # dot-directory.
+      # Analysis and the Dart tests each need only the generated code, so
+      # they run side by side; the job fails once both finish if either
+      # failed. The analyzer skips the test runner's temporary
+      # test/.shards_*/ entrypoints, as it does every dot-directory.
       - parallel:
           # Errors fail the job; warnings and infos do not yet. The app
           # carries riverpod_lint findings from before this workflow existed
@@ -75,11 +68,53 @@ jobs:
           # step; the runner groups the files into a few entrypoints.
           - run: dart run tool/run_test_shards.dart
             timeout-minutes: 30
-          - name: Android native tests
+
+  # The Android build gets a runner of its own: sharing one with the
+  # analyzer and the Dart tests slowed all three, and it would also share
+  # their build/ and .dart_tool/ files.
+  android:
+    name: Android native tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # Only the third_party/ submodules, as in the mobile job.
+      - parallel:
+          - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+          # `basic` is the action's MIT-licensed cache provider; the default
+          # one is a proprietary component under separate terms of use.
+          # Caches are written from main only, and read everywhere.
+          - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6
+            with:
+              cache-provider: basic
+      - run: flutter pub get
+      # The app compiles against its own generated code and that of the
+      # packages it imports, so both generate, side by side as in the mobile
+      # job.
+      - parallel:
+          - name: Generate code (app)
+            run: dart run build_runner build
+          - name: Generate code (packages)
+            shell: bash
             run: |
-              flutter build apk --debug --target-platform android-arm64
-              cd android
-              ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
+              for dir in packages/* apps/*; do
+                if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+                  echo "::group::build_runner in $dir"
+                  (cd "$dir" && dart run build_runner build)
+                  echo "::endgroup::"
+                fi
+              done
+      - name: Android native tests
+        run: |
+          flutter build apk --debug --target-platform android-arm64
+          cd android
+          ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
 
   # Each workspace member analyzes and tests from its own directory, which
   # is what proves the pub workspace actually works per package. They share
