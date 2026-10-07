@@ -208,6 +208,52 @@ void main() {
     check(after.isLoading).isFalse();
     check(after.token).equals(_tokenA);
   });
+
+  test('a merge storage declines deletes nothing', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    // A switch landed between the check and the storage lock.
+    when(
+      () => storage.mergeActiveAccountInto(
+        'account-b',
+        expectedSourceAccountId: 'account-a',
+      ),
+    ).thenAnswer((_) async => false);
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    final merged = await container
+        .read(authStateManagerProvider.notifier)
+        .mergeActiveAccountInto(
+          'account-b',
+          expectedSourceAccountId: 'account-a',
+        );
+
+    check(merged).isFalse();
+    check(isolation.purged).isEmpty();
+  });
 }
 
 /// The auth state once its first restore has finished. The provider's
@@ -227,6 +273,10 @@ final class _Storage extends Mock implements OptimizedStorageService {}
 
 final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
   int switches = 0;
+  final purged = <String>[];
+
+  @override
+  Future<void> purgeAccount(String accountId) async => purged.add(accountId);
 
   /// Follows auth as the real barrier does, so auth telling it about a switch
   /// runs against the same provider graph as in the app.

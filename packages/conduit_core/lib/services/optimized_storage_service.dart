@@ -2277,7 +2277,11 @@ class OptimizedStorageService {
   /// live token and saved sign-in stay where they are; only the account they
   /// belong to changes, so any older session vaulted for the target is
   /// superseded and dropped.
-  Future<void> mergeActiveAccountInto(
+  ///
+  /// Returns whether it merged. It declines -- changing nothing -- unless
+  /// [expectedSourceAccountId] is still active and the target is another
+  /// account on its server; a failure part-way puts back what it changed.
+  Future<bool> mergeActiveAccountInto(
     String targetAccountId, {
     required String expectedSourceAccountId,
   }) {
@@ -2290,52 +2294,72 @@ class OptimizedStorageService {
             bypassReadSuppression: true,
           ),
         );
-        if (activeId != expectedSourceAccountId) return;
+        if (activeId != expectedSourceAccountId) return false;
         final source = activeId == null ? null : registry.account(activeId);
         final target = registry.account(targetAccountId);
         if (source == null ||
             target == null ||
             source.id == target.id ||
             source.serverId != target.serverId) {
-          return;
+          return false;
         }
 
-        await _deleteVaultedSessionUnlocked(target.id);
-        final payload = _savedCredentialsReadSuppressed
-            ? null
-            : await _secureCredentialStorage.getSavedCredentialsPayloadStrict();
-        if (payload != null &&
-            payload.isNotEmpty &&
-            _savedCredentialsServerId(payload) == source.id) {
-          final decoded = jsonDecode(payload) as Map<String, dynamic>;
-          decoded['serverId'] = target.id;
-          await _secureCredentialStorage.restoreSavedCredentialsPayload(
-            jsonEncode(decoded),
+        final vaultUndo = _VaultUndo();
+        String? rewrittenCredentialsFrom;
+        try {
+          await _deleteVaultedSessionUndoablyUnlocked(target.id, vaultUndo);
+          final payload = _savedCredentialsReadSuppressed
+              ? null
+              : await _secureCredentialStorage
+                    .getSavedCredentialsPayloadStrict();
+          if (payload != null &&
+              payload.isNotEmpty &&
+              _savedCredentialsServerId(payload) == source.id) {
+            final decoded = jsonDecode(payload) as Map<String, dynamic>;
+            decoded['serverId'] = target.id;
+            rewrittenCredentialsFrom = payload;
+            await _secureCredentialStorage.restoreSavedCredentialsPayload(
+              jsonEncode(decoded),
+            );
+          }
+
+          final merged = target.copyWith(
+            isActive: true,
+            userId: target.userId ?? source.userId,
+            capturedHeaders: {
+              ...target.capturedHeaders,
+              ...source.capturedHeaders,
+            },
           );
+          await _saveRegistryUnlocked(
+            OpenWebUiRegistry(
+              servers: registry.servers,
+              accounts: [
+                for (final account in registry.accounts)
+                  if (account.id == target.id)
+                    merged
+                  else if (account.id != source.id)
+                    account.copyWith(isActive: false),
+              ],
+            ),
+          );
+          await _writeActiveServerIdWithoutConfigSync(target.id);
+        } catch (error, stackTrace) {
+          // The source stays the active account with its session; the target
+          // keeps the one it had.
+          await _restoreVaultUnlocked(vaultUndo);
+          final original = rewrittenCredentialsFrom;
+          if (original != null) {
+            try {
+              await _secureCredentialStorage.restoreSavedCredentialsPayload(
+                original,
+              );
+            } catch (_) {}
+          }
+          Error.throwWithStackTrace(error, stackTrace);
         }
-
-        final merged = target.copyWith(
-          isActive: true,
-          userId: target.userId ?? source.userId,
-          capturedHeaders: {
-            ...target.capturedHeaders,
-            ...source.capturedHeaders,
-          },
-        );
-        await _saveRegistryUnlocked(
-          OpenWebUiRegistry(
-            servers: registry.servers,
-            accounts: [
-              for (final account in registry.accounts)
-                if (account.id == target.id)
-                  merged
-                else if (account.id != source.id)
-                  account.copyWith(isActive: false),
-            ],
-          ),
-        );
-        await _writeActiveServerIdWithoutConfigSync(target.id);
         _stagedServerConfigCandidate = null;
+        return true;
       }),
     );
   }

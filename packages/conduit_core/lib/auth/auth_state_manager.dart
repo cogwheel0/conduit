@@ -1249,8 +1249,9 @@ class AuthStateManager extends _$AuthStateManager {
     }
 
     final attemptRevision = _enterAccountBoundary();
+    final bool merged;
     try {
-      await storage.mergeActiveAccountInto(
+      merged = await storage.mergeActiveAccountInto(
         targetAccountId,
         expectedSourceAccountId: expectedSourceAccountId,
       );
@@ -1258,6 +1259,10 @@ class AuthStateManager extends _$AuthStateManager {
       _invalidateServerProviders();
       if (!_authAttemptSuperseded(attemptRevision)) await refresh();
     }
+    // Storage declines when something changed since the check above -- a
+    // switch, or the target signed out of. The source then still exists, and
+    // may be the active account; its data stays.
+    if (!merged) return false;
     await _accountStorageIsolation.purgeAccount(sourceAccountId);
     ref.read(openWebUiAccountSummariesProvider.notifier).reload();
     return true;

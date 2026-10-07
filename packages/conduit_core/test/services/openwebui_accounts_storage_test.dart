@@ -22,7 +22,7 @@ import 'package:test/test.dart';
 /// account it does not belong to.
 void main() {
   late Directory tempDir;
-  late InMemorySecureKeyValueStore secure;
+  late _RefusingSecureStore secure;
   late OptimizedStorageService storage;
   late WorkerManager workerManager;
 
@@ -39,7 +39,7 @@ void main() {
     );
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
-    secure = InMemorySecureKeyValueStore();
+    secure = _RefusingSecureStore();
     workerManager = WorkerManager(maxConcurrentTasks: 1);
     storage = OptimizedStorageService(
       secureStorage: secure,
@@ -363,11 +363,12 @@ void main() {
         password: 'pw',
       );
 
-      await storage.mergeActiveAccountInto(
+      final merged = await storage.mergeActiveAccountInto(
         'existing',
         expectedSourceAccountId: 'new',
       );
 
+      check(merged).isTrue();
       check(await storage.getActiveServerId()).equals('existing');
       check(await storage.getAuthTokenStrict()).equals('fresh-token');
       check((await storage.getSavedCredentialsStrict())?['serverId'])
@@ -381,14 +382,45 @@ void main() {
       await storage.saveServerConfigs([account('existing'), account('new')]);
       await signIn('existing');
 
-      await storage.mergeActiveAccountInto(
+      final merged = await storage.mergeActiveAccountInto(
         'existing',
         expectedSourceAccountId: 'new',
       );
 
+      check(merged).isFalse();
       check((await storage.getServerConfigs()).map((config) => config.id))
           .deepEquals(['existing', 'new']);
       check(await storage.getAuthTokenStrict()).equals('token-existing');
+    });
+
+    test('a merge that fails part-way leaves both accounts as they were', () async {
+      await storage.saveServerConfigs([account('existing'), account('new')]);
+      await signIn('existing', password: 'pw-existing');
+      await storage.switchActiveServer(
+        fromServerId: 'existing',
+        toServerId: 'new',
+      );
+      await storage.saveAuthToken('fresh-token');
+      await storage.saveCredentials(
+        serverId: 'new',
+        username: 'user',
+        password: 'pw',
+      );
+      secure.refusedKey = 'openwebui_registry_v1';
+
+      await check(
+        storage.mergeActiveAccountInto(
+          'existing',
+          expectedSourceAccountId: 'new',
+        ),
+      ).throws<StateError>();
+
+      check(await storage.getActiveServerId()).equals('new');
+      check((await storage.getSavedCredentialsStrict())?['serverId'])
+          .equals('new');
+      check(await vaultedToken('existing')).equals('token-existing');
+      check((await vaultedCredentials('existing'))?['password'])
+          .equals('pw-existing');
     });
   });
 
@@ -427,4 +459,15 @@ void main() {
     check(registry.account('a')?.userId).equals('user-1');
     check(registry).isA<OpenWebUiRegistry>();
   });
+}
+
+/// Refuses writes to [refusedKey] once it is set, as a locked Keychain does.
+final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
+  String? refusedKey;
+
+  @override
+  Future<void> write({required String key, required String? value}) {
+    if (key == refusedKey) throw StateError('keychain refused $key');
+    return super.write(key: key, value: value);
+  }
 }
