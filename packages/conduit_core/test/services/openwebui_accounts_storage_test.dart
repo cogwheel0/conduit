@@ -612,6 +612,86 @@ void main() {
       check((await vaultedCredentials('existing'))?['password'])
           .equals('pw-existing');
     });
+
+    Future<void> signedInAsNewOverExisting() async {
+      await storage.saveServerConfigs([account('existing'), account('new')]);
+      await signIn('existing', password: 'pw-existing');
+      await storage.switchActiveServer(
+        fromServerId: 'existing',
+        toServerId: 'new',
+      );
+      await storage.saveAuthToken('fresh-token');
+      await storage.saveCredentials(
+        serverId: 'new',
+        username: 'user',
+        password: 'pw',
+      );
+    }
+
+    test(
+      'a merge whose active-id write fails leaves both accounts as they were',
+      () async {
+        await signedInAsNewOverExisting();
+        final prefs = InMemoryKeyValueStore();
+        await prefs.setString(PreferenceKeys.activeServerId, 'new');
+        var failed = false;
+        // The first write of the active id fails after changing the value
+        // read back, as SharedPreferences' cache does; later ones succeed.
+        PreferencesStore.debugOverride(
+          prefs,
+          writeInterceptor: (preferences, key, value) async {
+            if (key != PreferenceKeys.activeServerId || failed) return null;
+            failed = true;
+            await preferences.setString(key, value! as String);
+            return false;
+          },
+        );
+
+        await check(
+          storage.mergeActiveAccountInto(
+            'existing',
+            expectedSourceAccountId: 'new',
+          ),
+        ).throws<StateError>();
+
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        check(registry.accounts.map((account) => account.id))
+            .deepEquals(['existing', 'new']);
+        check(registry.account('new')?.isActive).equals(true);
+        check(await storage.getActiveServerId()).equals('new');
+        check(await storage.getAuthTokenStrict()).equals('fresh-token');
+        check((await storage.getSavedCredentialsStrict())?['serverId'])
+            .equals('new');
+        check(await vaultedToken('existing')).equals('token-existing');
+      },
+    );
+
+    test('a merge that cannot be undone ends the live session', () async {
+      await signedInAsNewOverExisting();
+      final prefs = InMemoryKeyValueStore();
+      await prefs.setString(PreferenceKeys.activeServerId, 'new');
+      PreferencesStore.debugOverride(
+        prefs,
+        writeInterceptor: (preferences, key, value) async {
+          if (key != PreferenceKeys.activeServerId) return null;
+          // Neither the active id nor, after it, the accounts can be written.
+          secure.refusedKey = 'openwebui_registry_v1';
+          return false;
+        },
+      );
+
+      await check(
+        storage.mergeActiveAccountInto(
+          'existing',
+          expectedSourceAccountId: 'new',
+        ),
+      ).throws<ServerConfigSessionRollbackException>();
+      secure.refusedKey = null;
+
+      check(await storage.getAuthTokenStrict()).isNull();
+      check(await storage.getSavedCredentialsStrict()).isNull();
+      check(await vaultedToken('existing')).equals('token-existing');
+    });
   });
 
   test('signing out of the active account leaves the others', () async {

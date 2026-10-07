@@ -2391,18 +2391,22 @@ class OptimizedStorageService {
   /// Returns whether it merged. It declines -- changing nothing -- unless
   /// [expectedSourceAccountId] is still active and the target is another
   /// account on its server; a failure part-way puts back what it changed.
+  /// When that cannot be put back either, the live session is ended and a
+  /// [ServerConfigSessionRollbackException] thrown.
   Future<bool> mergeActiveAccountInto(
     String targetAccountId, {
     required String expectedSourceAccountId,
   }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
-        final registry = await _registryForWriteUnlocked();
+        final previousRegistry = await _snapshotRegistryUnlocked();
+        final registry = previousRegistry.registry;
+        final rawActiveId = _rawStoredActiveServerId(
+          bypassReadSuppression: true,
+        );
         final activeId = _effectiveActiveServerId(
           configs: registry.projectAll(),
-          rawActiveServerId: _rawStoredActiveServerId(
-            bypassReadSuppression: true,
-          ),
+          rawActiveServerId: rawActiveId,
         );
         if (activeId != expectedSourceAccountId) return false;
         final source = activeId == null ? null : registry.account(activeId);
@@ -2416,6 +2420,7 @@ class OptimizedStorageService {
 
         final vaultUndo = _VaultUndo();
         String? rewrittenCredentialsFrom;
+        var registryWritten = false;
         try {
           await _deleteVaultedSessionUndoablyUnlocked(target.id, vaultUndo);
           final payload = _savedCredentialsReadSuppressed
@@ -2453,10 +2458,41 @@ class OptimizedStorageService {
               ],
             ),
           );
+          registryWritten = true;
           await _writeActiveServerIdWithoutConfigSync(target.id);
         } catch (error, stackTrace) {
           // The source stays the active account with its session; the target
-          // keeps the one it had.
+          // keeps the one it had. The accounts and the active id go back
+          // first: the live session belongs to whichever account they name.
+          if (registryWritten) {
+            try {
+              await _restoreRegistryUnlocked(previousRegistry);
+              // A failed write can still have changed the id read back.
+              if (_rawStoredActiveServerId(bypassReadSuppression: true) !=
+                  rawActiveId) {
+                await _writeActiveServerIdWithoutConfigSync(rawActiveId);
+              }
+            } catch (rollbackError, rollbackStackTrace) {
+              // Whose the live session is cannot be told any more. End it
+              // rather than leave it with an account it may not belong to.
+              for (final delete in [
+                _deleteAuthTokenUnlocked,
+                _deleteSavedCredentialsUnlocked,
+              ]) {
+                try {
+                  await delete();
+                } catch (_) {}
+              }
+              await _restoreVaultUnlocked(vaultUndo);
+              Error.throwWithStackTrace(
+                ServerConfigSessionRollbackException(
+                  commitError: error,
+                  rollbackError: rollbackError,
+                ),
+                rollbackStackTrace,
+              );
+            }
+          }
           await _restoreVaultUnlocked(vaultUndo);
           final original = rewrittenCredentialsFrom;
           if (original != null) {
