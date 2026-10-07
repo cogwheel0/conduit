@@ -781,6 +781,28 @@ void main() {
         ).isA<DatabaseOpenReady>();
       },
     );
+
+    test('a full sweep requested during a narrower one deletes every '
+        'database', () async {
+      final alpha = fileFor(DatabaseManager.fileNameFor('alpha'))
+        ..writeAsStringSync('data');
+      final beta = fileFor(DatabaseManager.fileNameFor('beta'))
+        ..writeAsStringSync('data');
+
+      final narrow = manager.deleteAllServerDatabases(
+        only: {DatabaseManager.fileNameFor('alpha')},
+      );
+      final full = manager.deleteAllServerDatabases();
+      await narrow;
+      // Nothing opens between the two.
+      check(
+        manager.openForServerIdIfReady('beta'),
+      ).isA<DatabaseOpenDeferred>();
+      await full;
+
+      check(alpha.existsSync()).isFalse();
+      check(beta.existsSync()).isFalse();
+    });
   });
 
   group('fileNameFor', () {

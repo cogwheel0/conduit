@@ -83,6 +83,9 @@ class DatabaseManager {
   final Map<String, String> _deletingFileOwners = <String, String>{};
   Future<void>? _serverDatabasesDeletion;
 
+  /// The file names [_serverDatabasesDeletion] deletes; null for all.
+  Set<String>? _serverDatabasesDeletionOnly;
+
   /// Sync, lazy-open accessor for [server]'s database.
   AppDatabase openFor(ServerConfig server) => openForServerId(server.id);
 
@@ -470,14 +473,28 @@ class DatabaseManager {
   /// [only], just the databases of those file names go.
   Future<void> deleteAllServerDatabases({Set<String>? only}) {
     final running = _serverDatabasesDeletion;
-    if (running != null) return running;
+    final runningOnly = _serverDatabasesDeletionOnly;
+    if (running != null &&
+        (runningOnly == null ||
+            (only != null && runningOnly.containsAll(only)))) {
+      return running;
+    }
+    // A narrower sweep is running: this one follows it rather than reporting
+    // its success, and no database opens in between.
+    final deletion = running == null
+        ? _deleteAllServerDatabases(only)
+        : running
+              .then<void>((_) {}, onError: (_, _) {})
+              .then((_) => _deleteAllServerDatabases(only));
     late final Future<void> sweep;
-    sweep = _deleteAllServerDatabases(only).whenComplete(() {
+    sweep = deletion.whenComplete(() {
       if (identical(_serverDatabasesDeletion, sweep)) {
         _serverDatabasesDeletion = null;
+        _serverDatabasesDeletionOnly = null;
       }
     });
     _serverDatabasesDeletion = sweep;
+    _serverDatabasesDeletionOnly = only == null ? null : Set.of(only);
     return sweep;
   }
 
