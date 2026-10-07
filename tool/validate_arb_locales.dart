@@ -189,10 +189,11 @@ Future<Set<String>> _scanUsedLocalizationKeys(Set<String> baseKeys) async {
       await for (final entity in root.list(recursive: true)) {
         if (entity is! File) continue;
         if (!entity.path.endsWith('.dart')) continue;
-        if (entity.path.contains('lib/l10n/app_localizations')) continue;
+        final path = entity.path.replaceAll(r'\', '/');
+        if (path.contains('lib/l10n/app_localizations')) continue;
         // Generated slang output restates every key, so counting it would
         // make the unused-key check always pass.
-        if (entity.path.contains('desktop_ui/lib/src/l10n/')) continue;
+        if (path.contains('desktop_ui/lib/src/l10n/')) continue;
 
         try {
           sources.add(await entity.readAsString());
