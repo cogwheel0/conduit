@@ -217,4 +217,49 @@ void main() {
     );
     check(records.single.profile).equals('researcher');
   });
+
+  test('records are scoped to the saved connection that raised them', () async {
+    const origin = 'https://shared.example:443';
+    const first = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    for (final (connection, request) in [
+      (first, 'request-first'),
+      (second, 'request-second'),
+      (null, 'request-legacy'),
+    ]) {
+      await HermesPendingDecisionStore.upsert(
+        origin: origin,
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: request,
+        kind: HermesPendingDesktopDecisionKind.clarification,
+        connectionId: connection,
+      );
+    }
+
+    final forFirst = await HermesPendingDecisionStore.forSession(
+      origin: origin,
+      storedSessionId: 'stored-1',
+      connectionId: first,
+    );
+    // Records from before saved connections existed match by origin alone.
+    check(
+      forFirst.map((record) => record.requestId),
+    ).unorderedEquals(['request-first', 'request-legacy']);
+    check(
+      forFirst.firstWhere((r) => r.requestId == 'request-first').connectionId,
+    ).equals(first);
+
+    await HermesPendingDecisionStore.clearConnection(
+      connectionId: first,
+      origin: origin,
+    );
+    final remaining = await HermesPendingDecisionStore.forSession(
+      origin: origin,
+      storedSessionId: 'stored-1',
+    );
+    check(
+      remaining.map((record) => record.requestId),
+    ).deepEquals(['request-second']);
+  });
 }

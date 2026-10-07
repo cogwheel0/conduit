@@ -498,6 +498,7 @@ final class _HermesDesktopAdministration {
     );
     await HermesPendingDecisionStore.resolve(
       origin: _owner._origin,
+      connectionId: _owner.config.connectionId,
       runtimeId: runtimeId,
       requestId: requestId,
     );

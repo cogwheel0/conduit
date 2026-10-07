@@ -7,6 +7,7 @@ List<Model> appendHermesModelIfUsable(
   required bool hermesUsable,
   bool allowSyntheticHermesModel = true,
   List<Model> hermesModels = const [],
+  String? hermesConnectionName,
 }) {
   final directModels = models.where(isLocallyMintedDirectModel);
   final safeModels = sanitizeRemoteHermesModels(
@@ -16,7 +17,8 @@ List<Model> appendHermesModelIfUsable(
       ? <Model>[
           ...safeModels,
           ...directModels,
-          if (allowSyntheticHermesModel) hermesSyntheticModel(),
+          if (allowSyntheticHermesModel)
+            hermesSyntheticModel(name: hermesConnectionName),
           ...hermesModels,
         ]
       : <Model>[...safeModels, ...directModels];
@@ -63,6 +65,9 @@ class Models extends _$Models {
     final hermesMode = ref.watch(
       hermesConfigProvider.select((config) => config.mode),
     );
+    // The synthetic Hermes model carries the active connection's name, so a
+    // rename or a switch to a differently named connection rebuilds the list.
+    ref.watch(hermesConfigProvider.select((config) => config.name));
     if (hermesUsable && hermesMode == HermesBackendMode.desktopGateway) {
       try {
         await ref.watch(hermesDesktopModelsProvider.future);
@@ -351,6 +356,7 @@ class Models extends _$Models {
       withDirect,
       hermesUsable: hermesConfig.isUsable,
       allowSyntheticHermesModel: true,
+      hermesConnectionName: hermesConfig.name,
       hermesModels: hermesConfig.mode == HermesBackendMode.desktopGateway
           ? ref.read(hermesDesktopModelsProvider).asData?.value ?? const []
           : const [],
@@ -755,6 +761,30 @@ class SelectedModel extends _$SelectedModel {
       hermesConfigProvider.select((config) => config.isUsable),
       (previous, next) => _schedulePrimaryAccountlessRestore(),
     );
+    // A Hermes selection belongs to the active saved connection: its synthetic
+    // model carries that connection's name, and a Desktop model may not exist
+    // on another gateway. Follow switches and renames with the new
+    // connection's default agent.
+    ref.listen<(String?, String?)>(
+      hermesConfigProvider.select(
+        (config) => (config.connectionId, config.name),
+      ),
+      (previous, next) {
+        final selected = state;
+        if (previous == next ||
+            next.$1 == null ||
+            selected == null ||
+            !isHermesModel(selected)) {
+          return;
+        }
+        // A rename keeps a chosen Desktop model; only the default agent's
+        // label changes.
+        final switched = previous?.$1 != next.$1;
+        if (switched || selected.id == kHermesDefaultModelId) {
+          state = hermesSyntheticModel(name: next.$2);
+        }
+      },
+    );
     ref.listen<AsyncValue<DirectModelDiscoveryState>>(
       directModelDiscoveryProvider,
       (previous, next) => _schedulePrimaryAccountlessRestore(),
@@ -809,7 +839,8 @@ class SelectedModel extends _$SelectedModel {
     }
 
     if (preferredBackend == PreferredBackend.hermes) {
-      if (!ref.read(hermesConfigProvider).isUsable) {
+      final hermesConfig = ref.read(hermesConfigProvider);
+      if (!hermesConfig.isUsable) {
         // A false value can be the initial secure-secret hydration state.
         // Models owns clearing a connection that is definitively unusable.
         return (shouldReconcile: false, model: null);
@@ -818,7 +849,7 @@ class SelectedModel extends _$SelectedModel {
         shouldReconcile: true,
         model: current != null && isHermesModel(current)
             ? current
-            : hermesSyntheticModel(),
+            : hermesSyntheticModel(name: hermesConfig.name),
       );
     }
 

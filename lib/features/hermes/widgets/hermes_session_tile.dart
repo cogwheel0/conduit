@@ -357,7 +357,7 @@ Future<void> openHermesSession(
     }
   }
 
-  var hermesModel = hermesSyntheticModel();
+  var hermesModel = hermesSyntheticModel(name: service.config.name);
   try {
     final models = await ref.read(modelsProvider.future);
     for (final model in models) {

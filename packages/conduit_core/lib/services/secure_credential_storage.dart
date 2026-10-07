@@ -360,19 +360,127 @@ class SecureCredentialStorage {
     };
   }
 
-  /// Save the Hermes Agent API key (bearer token for the direct Hermes backend).
-  Future<void> saveHermesApiKey(String apiKey) async {
+  /// Hermes secrets are scoped to one saved connection:
+  /// `hermes_api_key_v1:<connectionId>` and so on. The unscoped keys belong to
+  /// the single connection stored before saved connections existed and are
+  /// only read to migrate them.
+  static String _hermesSecretKey(HermesSecretKind kind, String connectionId) {
+    if (!_hermesConnectionIdPattern.hasMatch(connectionId)) {
+      throw ArgumentError.value(connectionId, 'connectionId', 'Invalid id');
+    }
+    return '${_legacyHermesSecretKey(kind)}:$connectionId';
+  }
+
+  static final RegExp _hermesConnectionIdPattern = RegExp(
+    r'^[A-Za-z0-9_-]{1,64}$',
+  );
+
+  static String _legacyHermesSecretKey(HermesSecretKind kind) =>
+      switch (kind) {
+        HermesSecretKind.apiKey => _hermesApiKeyKey,
+        HermesSecretKind.sessionKey => _hermesSessionKeyKey,
+        HermesSecretKind.desktopCredentials => _hermesDesktopCredentialsKey,
+      };
+
+  static String _hermesSecretScope(HermesSecretKind kind) => switch (kind) {
+    HermesSecretKind.apiKey => 'hermes/api-key',
+    HermesSecretKind.sessionKey => 'hermes/session-key',
+    HermesSecretKind.desktopCredentials => 'hermes/desktop-credentials',
+  };
+
+  /// Reads one connection's secret, or null when none is stored. A thrown
+  /// keychain failure is not reported as a missing secret.
+  Future<String?> readHermesSecret(
+    HermesSecretKind kind,
+    String connectionId,
+  ) => _readHermesSecret(
+    _hermesSecretKey(kind, connectionId),
+    scope: _hermesSecretScope(kind),
+  );
+
+  /// Writes one connection's secret. Callers own validation of Desktop
+  /// credential JSON; this class deliberately never logs a payload.
+  Future<void> writeHermesSecret(
+    HermesSecretKind kind,
+    String connectionId,
+    String value,
+  ) async {
     try {
-      await _secureStorage.write(key: _hermesApiKeyKey, value: apiKey);
+      await _secureStorage.write(
+        key: _hermesSecretKey(kind, connectionId),
+        value: value,
+      );
     } catch (e) {
-      DebugLogger.error('save-failed', scope: 'hermes/api-key', error: e);
+      DebugLogger.error(
+        'save-failed',
+        scope: _hermesSecretScope(kind),
+        error: e,
+      );
       rethrow;
     }
   }
 
-  /// Get the Hermes Agent API key, or null when none is stored.
-  Future<String?> getHermesApiKey() =>
-      _readHermesSecret(_hermesApiKeyKey, scope: 'hermes/api-key');
+  Future<void> deleteHermesSecret(
+    HermesSecretKind kind,
+    String connectionId,
+  ) async {
+    try {
+      await _secureStorage.delete(key: _hermesSecretKey(kind, connectionId));
+    } catch (e) {
+      DebugLogger.error(
+        'delete-failed',
+        scope: _hermesSecretScope(kind),
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  /// Removes every secret saved for one Hermes connection. Attempts each key
+  /// and rethrows the first failure afterwards.
+  Future<void> deleteHermesConnectionSecrets(String connectionId) async {
+    Object? firstError;
+    StackTrace? firstStackTrace;
+    for (final kind in HermesSecretKind.values) {
+      try {
+        await deleteHermesSecret(kind, connectionId);
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStackTrace!);
+    }
+  }
+
+  /// Reads a secret stored before saved connections existed.
+  Future<String?> readLegacyHermesSecret(HermesSecretKind kind) =>
+      _readHermesSecret(
+        _legacyHermesSecretKey(kind),
+        scope: _hermesSecretScope(kind),
+      );
+
+  Future<void> deleteLegacyHermesSecret(HermesSecretKind kind) async {
+    try {
+      await _secureStorage.delete(key: _legacyHermesSecretKey(kind));
+    } catch (e) {
+      DebugLogger.error(
+        'legacy-delete-failed',
+        scope: _hermesSecretScope(kind),
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  /// Save a connection's Hermes Agent API key (its bearer token).
+  Future<void> saveHermesApiKey(String connectionId, String apiKey) =>
+      writeHermesSecret(HermesSecretKind.apiKey, connectionId, apiKey);
+
+  /// Get a connection's Hermes Agent API key, or null when none is stored.
+  Future<String?> getHermesApiKey(String connectionId) =>
+      readHermesSecret(HermesSecretKind.apiKey, connectionId);
 
   Future<String?> _readHermesSecret(String key, {required String scope}) async {
     try {
@@ -401,52 +509,39 @@ class SecureCredentialStorage {
     }
   }
 
-  /// Delete the Hermes Agent API key.
-  Future<void> deleteHermesApiKey() async {
-    try {
-      await _secureStorage.delete(key: _hermesApiKeyKey);
-    } catch (e) {
-      DebugLogger.error('delete-failed', scope: 'hermes/api-key', error: e);
-      rethrow;
-    }
-  }
+  /// Delete a connection's Hermes Agent API key.
+  Future<void> deleteHermesApiKey(String connectionId) =>
+      deleteHermesSecret(HermesSecretKind.apiKey, connectionId);
 
-  /// Save the Hermes long-term memory session key (`X-Hermes-Session-Key`).
-  Future<void> saveHermesSessionKey(String sessionKey) async {
-    try {
-      await _secureStorage.write(key: _hermesSessionKeyKey, value: sessionKey);
-    } catch (e) {
-      DebugLogger.error('save-failed', scope: 'hermes/session-key', error: e);
-      rethrow;
-    }
-  }
+  /// Save a connection's long-term memory session key
+  /// (`X-Hermes-Session-Key`).
+  Future<void> saveHermesSessionKey(String connectionId, String sessionKey) =>
+      writeHermesSecret(HermesSecretKind.sessionKey, connectionId, sessionKey);
 
-  /// Get the Hermes long-term memory session key, or null when none is stored.
-  Future<String?> getHermesSessionKey() =>
-      _readHermesSecret(_hermesSessionKeyKey, scope: 'hermes/session-key');
+  /// Get a connection's long-term memory session key, or null when none is
+  /// stored.
+  Future<String?> getHermesSessionKey(String connectionId) =>
+      readHermesSecret(HermesSecretKind.sessionKey, connectionId);
 
-  /// Delete the Hermes long-term memory session key.
-  Future<void> deleteHermesSessionKey() async {
-    try {
-      await _secureStorage.delete(key: _hermesSessionKeyKey);
-    } catch (e) {
-      DebugLogger.error('delete-failed', scope: 'hermes/session-key', error: e);
-      rethrow;
-    }
-  }
+  /// Delete a connection's long-term memory session key.
+  Future<void> deleteHermesSessionKey(String connectionId) =>
+      deleteHermesSecret(HermesSecretKind.sessionKey, connectionId);
 
-  /// Persists the versioned Desktop Gateway credential document. Callers own
-  /// JSON validation; this class deliberately never logs the payload.
-  Future<void> saveHermesDesktopCredentials(String value) =>
-      _secureStorage.write(key: _hermesDesktopCredentialsKey, value: value);
-
-  Future<String?> getHermesDesktopCredentials() => _readHermesSecret(
-    _hermesDesktopCredentialsKey,
-    scope: 'hermes/desktop-credentials',
+  /// Persists a connection's versioned Desktop Gateway credential document.
+  Future<void> saveHermesDesktopCredentials(
+    String connectionId,
+    String value,
+  ) => writeHermesSecret(
+    HermesSecretKind.desktopCredentials,
+    connectionId,
+    value,
   );
 
-  Future<void> deleteHermesDesktopCredentials() =>
-      _secureStorage.delete(key: _hermesDesktopCredentialsKey);
+  Future<String?> getHermesDesktopCredentials(String connectionId) =>
+      readHermesSecret(HermesSecretKind.desktopCredentials, connectionId);
+
+  Future<void> deleteHermesDesktopCredentials(String connectionId) =>
+      deleteHermesSecret(HermesSecretKind.desktopCredentials, connectionId);
 
   /// Persists the complete versioned direct-connection document securely.
   ///
@@ -717,3 +812,6 @@ class SecureCredentialStorage {
     }
   }
 }
+
+/// The secrets one saved Hermes connection can hold.
+enum HermesSecretKind { apiKey, sessionKey, desktopCredentials }

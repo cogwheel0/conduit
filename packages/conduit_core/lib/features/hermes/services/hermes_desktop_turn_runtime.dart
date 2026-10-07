@@ -226,6 +226,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             unawaited(
               HermesPendingDecisionStore.resolve(
                 origin: _origin,
+                connectionId: config.connectionId,
                 runtimeId: binding.runtimeId,
                 requestId: requestId,
               ),
@@ -502,6 +503,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     };
     await HermesPendingDecisionStore.upsert(
       origin: _origin,
+      connectionId: config.connectionId,
       storedSessionId: storedId,
       runtimeId: runtimeId,
       requestId: requestId,
@@ -527,6 +529,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     bool multiSelect = false,
   }) => HermesPendingDecisionStore.upsert(
     origin: _origin,
+    connectionId: config.connectionId,
     storedSessionId: binding.storedId,
     runtimeId: binding.runtimeId,
     requestId: requestId,
@@ -952,6 +955,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     );
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
+      connectionId: config.connectionId,
       runtimeId: runId,
       requestId: approvalId,
     );
@@ -1016,6 +1020,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     );
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
+      connectionId: config.connectionId,
       runtimeId: runtimeId,
       requestId: requestId,
     );

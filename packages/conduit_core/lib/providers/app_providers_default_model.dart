@@ -182,7 +182,7 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
       standalone = hermesConfig.isUsable
           ? (currentSelected != null && isHermesModel(currentSelected)
                 ? currentSelected
-                : hermesSyntheticModel())
+                : hermesSyntheticModel(name: hermesConfig.name))
           : null;
     } else if (preferredBackend == PreferredBackend.direct) {
       final discovery = await ref.read(directModelDiscoveryProvider.future);

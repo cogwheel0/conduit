@@ -34,6 +34,8 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.invalidate(directHttpClientPoolProvider);
 
   ref.invalidate(hermesConfigProvider);
+  ref.invalidate(hermesConnectionsRevisionProvider);
+  ref.invalidate(hermesConnectionsProvider);
   ref.invalidate(hermesSecretsLoadingProvider);
   ref.invalidate(hermesSecretsErrorProvider);
   ref.invalidate(hermesActiveSessionProvider);
