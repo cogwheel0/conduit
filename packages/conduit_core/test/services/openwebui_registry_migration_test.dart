@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -17,6 +18,7 @@ import 'package:test/test.dart';
 
 const _legacyKey = 'server_configs_v2';
 const _registryKey = 'openwebui_registry_v1';
+const _credentialsKey = 'user_credentials_v2';
 
 /// Moving the one-server config list into the registry.
 ///
@@ -151,6 +153,36 @@ void main() {
     check(saved['password']).equals('p');
   });
 
+  test('a sign-in deleted while the migration moves it stays deleted', () async {
+    seedLegacy([
+      server('active', url: 'https://chat.example.com'),
+      server('owner', url: 'https://chat.example.com'),
+    ]);
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'active');
+    secureStore.values[_credentialsKey] = jsonEncode({
+      'serverId': 'owner',
+      'username': 'u',
+      'password': 'p',
+    });
+    const markers = PreferencesOpenWebUiAccountOwnerMarkerStore();
+    for (final id in ['active', 'owner']) {
+      await markers.write(id, (tokenFingerprint: 'fp-$id', userId: 'user-1'));
+    }
+    secureStore.heldReads.add(_credentialsKey);
+    final storage = newStorage();
+
+    final migrating = storage.getServerConfigsStrict();
+    await secureStore.heldReadStarted.future;
+    // Signing out lands after the migration read the sign-in it will move.
+    final deleting = storage.deleteSavedCredentials();
+    await pumpEventQueue();
+    secureStore.releaseHeldReads.complete();
+    await Future.wait([migrating, deleting]);
+
+    check(secureStore.values.containsKey(_credentialsKey)).isFalse();
+    check(await newStorage().getSavedCredentialsStrict()).isNull();
+  });
+
   test('a lone config without an active id is kept as the fallback', () async {
     seedLegacy([server('only')]);
 
@@ -231,10 +263,23 @@ final class _ScriptedSecureStore implements SecureKeyValueStore {
   /// Keys whose writes are accepted but read back as something else.
   final Set<String> corruptWritesTo = <String>{};
 
+  /// Keys whose next read answers with the value it found, but only once
+  /// [releaseHeldReads] completes: a reader paused between its read and
+  /// whatever it does next.
+  final Set<String> heldReads = <String>{};
+  final Completer<void> heldReadStarted = Completer<void>();
+  final Completer<void> releaseHeldReads = Completer<void>();
+
   @override
   Future<String?> read({required String key}) async {
     readCounts.update(key, (count) => count + 1, ifAbsent: () => 1);
     if (failingReads.contains(key)) throw StateError('read failed: $key');
+    if (heldReads.remove(key)) {
+      final value = values[key];
+      heldReadStarted.complete();
+      await releaseHeldReads.future;
+      return value;
+    }
     return values[key];
   }
 

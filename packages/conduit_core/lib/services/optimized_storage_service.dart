@@ -196,6 +196,12 @@ class OptimizedStorageService {
   /// reentrant, so locked methods must call the unlocked bodies internally).
   final Lock _authStateLock = Lock();
   final Lock _serverConfigsLock = Lock();
+
+  /// Set once no read can migrate the one-server config list any more: a
+  /// registry was found or written, or there was no list to move. Until then
+  /// a config read may run the migration, which rewrites the saved sign-in,
+  /// so it holds [_authStateLock] as well.
+  bool _registryMigrationSettled = false;
   int _serverOwnershipRevision = 0;
   int _nextServerConfigCandidateTransactionId = 0;
   _StagedServerConfigCandidate? _stagedServerConfigCandidate;
@@ -1800,8 +1806,21 @@ class OptimizedStorageService {
     return configs.length == 1 ? configs.single.id : null;
   }
 
+  /// Runs a config read under [_serverConfigsLock], and under
+  /// [_authStateLock] first while it could still run the migration: the
+  /// migration moves the saved sign-in, and a sign-in saved or deleted
+  /// between its read and that write would be overwritten or come back.
+  Future<T> _synchronizedServerConfigsRead<T>(Future<T> Function() read) {
+    if (_registryMigrationSettled) {
+      return _serverConfigsLock.synchronized(read);
+    }
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(read),
+    );
+  }
+
   Future<List<ServerConfig>> getServerConfigs() {
-    return _serverConfigsLock.synchronized(() async {
+    return _synchronizedServerConfigsRead(() async {
       try {
         return await _getServerConfigsStrictRetryingUnlocked();
       } catch (error) {
@@ -1818,7 +1837,7 @@ class OptimizedStorageService {
   /// list. Provider-facing callers use this so Riverpod publishes AsyncError
   /// and can recover on invalidation instead of retaining a false empty cache.
   Future<List<ServerConfig>> getServerConfigsStrict() =>
-      _serverConfigsLock.synchronized(_getServerConfigsStrictRetryingUnlocked);
+      _synchronizedServerConfigsRead(_getServerConfigsStrictRetryingUnlocked);
 
   Future<List<ServerConfig>> _getServerConfigsStrictRetryingUnlocked() {
     return _retrySecureStorageRead(
@@ -1878,6 +1897,7 @@ class OptimizedStorageService {
     bool authorizeReads = true,
   }) async {
     await _secureCredentialStorage.saveOpenWebUiRegistry(registry.encode());
+    _registryMigrationSettled = true;
     if (authorizeReads) _serverConfigsReadSuppressed = false;
     _serverOwnershipRevision++;
     _cacheManager.invalidate(_activeServerIdKey);
@@ -1887,6 +1907,7 @@ class OptimizedStorageService {
   Future<OpenWebUiRegistry> _readRegistryFromStorageUnlocked() async {
     final stored = await _secureCredentialStorage.getOpenWebUiRegistry();
     if (stored != null) {
+      _registryMigrationSettled = true;
       if (stored.isEmpty) {
         throw const FormatException('Open WebUI registry payload was empty');
       }
@@ -1894,7 +1915,11 @@ class OptimizedStorageService {
     }
 
     final legacy = await _secureCredentialStorage.getServerConfigs();
-    if (legacy == null) return OpenWebUiRegistry.empty;
+    if (legacy == null) {
+      // Nothing writes the old list any more, so none can appear later.
+      _registryMigrationSettled = true;
+      return OpenWebUiRegistry.empty;
+    }
     if (legacy.isEmpty) {
       throw const FormatException('Server configs payload was empty');
     }
@@ -1902,7 +1927,9 @@ class OptimizedStorageService {
     final configs = decoded
         .map((item) => ServerConfig.fromJson(item))
         .toList(growable: false);
-    return _migrateLegacyServerConfigsUnlocked(configs);
+    final registry = await _migrateLegacyServerConfigsUnlocked(configs);
+    _registryMigrationSettled = true;
+    return registry;
   }
 
   /// Replaces the one-server config list with the registry, once.
@@ -1913,6 +1940,9 @@ class OptimizedStorageService {
   /// before the legacy list is deleted, so a crash at any point leaves one of
   /// the two intact, and the registry wins whenever it exists. One-way: an
   /// older build afterwards finds no saved server and asks to sign in.
+  ///
+  /// It can rewrite the saved sign-in, so it runs with both locks held; see
+  /// [_synchronizedServerConfigsRead].
   Future<OpenWebUiRegistry> _migrateLegacyServerConfigsUnlocked(
     List<ServerConfig> configs,
   ) async {
