@@ -63,7 +63,7 @@ class ServerAddressesPage extends ConsumerWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 buildDefaultDragHandles: false,
                 onReorderItem: (from, to) =>
-                    _reorder(context, ref, server, from, to),
+                    _reorder(context, server, from, to),
                 children: [
                   for (final (index, endpoint) in server.endpoints.indexed)
                     _AddressRow(
@@ -106,7 +106,6 @@ class ServerAddressesPage extends ConsumerWidget {
 
   static Future<void> _reorder(
     BuildContext context,
-    WidgetRef ref,
     OpenWebUiServer server,
     int from,
     int to,
@@ -115,7 +114,6 @@ class ServerAddressesPage extends ConsumerWidget {
     order.insert(to, order.removeAt(from));
     await _save(
       context,
-      ref,
       server.id,
       (endpoints) => [
         for (final id in order)
@@ -130,18 +128,20 @@ class ServerAddressesPage extends ConsumerWidget {
   /// them: another edit may have landed since.
   static Future<void> _save(
     BuildContext context,
-    WidgetRef ref,
     String serverId,
     List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint>) edit,
   ) async {
+    // The page can be left while this saves, and a widget's ref is gone with
+    // it; the configs and the route check must still follow the save.
+    final container = ProviderScope.containerOf(context, listen: false);
     try {
-      await ref
+      await container
           .read(optimizedStorageServiceProvider)
           .editServerEndpoints(serverId, edit);
-      ref.invalidate(serverConfigsProvider);
-      ref.invalidate(openWebUiAccountsProvider);
+      container.invalidate(serverConfigsProvider);
+      container.invalidate(openWebUiAccountsProvider);
       unawaited(
-        ref
+        container
             .read(openWebUiRouteResolverProvider.notifier)
             .resolve(reason: 'routes-edited'),
       );
@@ -162,7 +162,7 @@ class ServerAddressesPage extends ConsumerWidget {
   }
 }
 
-class _AddressRow extends ConsumerWidget {
+class _AddressRow extends StatelessWidget {
   const _AddressRow({
     super.key,
     required this.index,
@@ -177,7 +177,7 @@ class _AddressRow extends ConsumerWidget {
   final bool inUse;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final host = Uri.tryParse(endpoint.url)?.host;
@@ -222,7 +222,7 @@ class _AddressRow extends ConsumerWidget {
                 color: theme.error,
                 size: IconSize.medium,
               ),
-              onPressed: () => _remove(context, ref),
+              onPressed: () => _remove(context),
             ),
           ReorderableDragStartListener(
             index: index,
@@ -243,7 +243,7 @@ class _AddressRow extends ConsumerWidget {
     );
   }
 
-  Future<void> _remove(BuildContext context, WidgetRef ref) async {
+  Future<void> _remove(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await ThemedDialogs.confirm(
       context,
@@ -255,7 +255,6 @@ class _AddressRow extends ConsumerWidget {
     if (!confirmed || !context.mounted) return;
     await ServerAddressesPage._save(
       context,
-      ref,
       server.id,
       (endpoints) => [
         for (final other in endpoints)

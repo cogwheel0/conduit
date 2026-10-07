@@ -184,4 +184,23 @@ void main() {
 
     expect(saved.last, ['c']);
   });
+
+  testWidgets('leaving the page while a save lands still checks the routes', (
+    tester,
+  ) async {
+    await pumpPage(tester);
+    final held = gate = Completer<void>();
+    await remove(tester, 'lan');
+
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(ServerAddressesPage), findsNothing);
+    held.complete();
+    await tester.pumpAndSettle();
+
+    expect(saved, [
+      ['public'],
+    ]);
+    expect(_Routes.reasons, ['routes-edited']);
+  });
 }

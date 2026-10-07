@@ -373,7 +373,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// saved.
   Future<bool> _saveRoute(ServerConfig verified) async {
     final l10n = AppLocalizations.of(context)!;
-    final storage = ref.read(optimizedStorageServiceProvider);
+    // The editor can be left while this runs, and the widget's ref is gone
+    // with it; what follows a save must still run.
+    final container = ProviderScope.containerOf(context, listen: false);
+    final storage = container.read(optimizedStorageServiceProvider);
     final registry = await storage.getOpenWebUiRegistryStrict();
     final server = registry.server(widget.routesOfServerId!);
     if (server == null) throw StateError('That server is no longer saved.');
@@ -389,7 +392,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       serverId: server.id,
       address: verified.url,
       activeAccountId: activeId,
-      liveToken: ref.read(authTokenProvider3),
+      liveToken: container.read(authTokenProvider3),
       keptTokenFor: storage.vaultedTokenFor,
       accountsWithSession: await storage.accountIdsWithSession(),
       confirmSendingSession: (address) async {
@@ -404,7 +407,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       userAt: (token) async {
         final probe = ApiService(
           serverConfig: verified,
-          workerManager: ref.read(workerManagerProvider),
+          workerManager: container.read(workerManagerProvider),
           authToken: token,
         );
         try {
@@ -471,10 +474,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         headers: verified.customHeaders,
       );
     }
-    ref.invalidate(serverConfigsProvider);
-    ref.invalidate(openWebUiAccountsProvider);
+    container.invalidate(serverConfigsProvider);
+    container.invalidate(openWebUiAccountsProvider);
     unawaited(
-      ref
+      container
           .read(openWebUiRouteResolverProvider.notifier)
           .resolve(reason: 'routes-edited'),
     );
