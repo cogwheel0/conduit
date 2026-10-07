@@ -1562,6 +1562,54 @@ void main() {
     expect(await storage.getAuthToken(), 'previous-token');
   });
 
+  test('a superseded server selection puts back the registry it found', () async {
+    final registry = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(id: 'route-lan', url: 'https://chat.lan'),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          userId: 'user-a',
+          isActive: true,
+          capturedHeaders: const {
+            'route-lan': {'Cookie': 'proxy=a'},
+          },
+        ),
+        OpenWebUiAccount(
+          id: 'account-b',
+          serverId: 'server-chat',
+          userId: 'user-b',
+        ),
+      ],
+    );
+    secureStorageValues['openwebui_registry_v1'] = registry.encode();
+    await PreferencesStore.putChecked(
+      PreferenceKeys.activeServerId,
+      'account-a',
+    );
+    var commitAllowed = true;
+
+    final selected = await storage.selectUnauthenticatedServerConfig(
+      _serverConfig('server-new'),
+      canCommit: () => commitAllowed,
+      publish: () => commitAllowed = false,
+    );
+
+    check(selected).isFalse();
+    check(
+      OpenWebUiRegistry.decode(secureStorageValues['openwebui_registry_v1']!),
+    ).equals(registry);
+    check(await storage.getActiveServerId()).equals('account-a');
+  });
+
   test('logout scrubs proxy cookies and legacy bearer but preserves connection '
       'settings', () async {
     final config = _serverConfig('server-a').copyWith(

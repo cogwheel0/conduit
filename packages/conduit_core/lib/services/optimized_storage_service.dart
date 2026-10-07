@@ -49,6 +49,15 @@ typedef ServerSessionOwnershipSnapshot = ({
   bool requireActive,
 });
 
+/// The registry as a transaction found it, and whether reads of it were
+/// fenced then. A rollback puts back exactly this: rebuilding it from the
+/// projected configs would lose what they do not carry, such as an
+/// account's proven user and the ids of its server and routes.
+typedef _RegistrySnapshot = ({
+  OpenWebUiRegistry registry,
+  bool readsSuppressed,
+});
+
 typedef _StagedServerConfigCandidate = ({
   int transactionId,
   ServerConfig candidate,
@@ -879,9 +888,7 @@ class OptimizedStorageService {
         bool ownsAttempt() => canCommit?.call() ?? true;
         if (!ownsAttempt()) return false;
 
-        final previousConfigs = List<ServerConfig>.unmodifiable(
-          await _getServerConfigsStrictUnlocked(),
-        );
+        final previousRegistry = await _snapshotRegistryUnlocked();
         if (!ownsAttempt()) return false;
         final previousActiveServerId = _rawStoredActiveServerId();
         final previousToken = await _getAuthTokenStrictUnlocked();
@@ -926,7 +933,7 @@ class OptimizedStorageService {
           if (persistenceStarted) {
             try {
               await _restoreServerSessionUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
                 token: previousToken,
                 restoreCredentials: true,
@@ -936,7 +943,7 @@ class OptimizedStorageService {
               _stagedServerConfigCandidate = previousStage;
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -955,13 +962,13 @@ class OptimizedStorageService {
             try {
               if (commitError is ServerConfigSessionRollbackException) {
                 await _restoreTokenlessSanitizedServerSessionUnlocked(
-                  configs: previousConfigs,
+                  registry: previousRegistry,
                   activeServerId: previousActiveServerId,
                 );
                 _notifyRollbackUncertainSafely(onRollbackUncertain);
               } else {
                 await _restoreServerSessionUnlocked(
-                  configs: previousConfigs,
+                  registry: previousRegistry,
                   activeServerId: previousActiveServerId,
                   token: previousToken,
                   restoreCredentials: true,
@@ -972,7 +979,7 @@ class OptimizedStorageService {
               }
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1114,6 +1121,7 @@ class OptimizedStorageService {
         final previousConfigs = List<ServerConfig>.unmodifiable(
           await _getServerConfigsStrictUnlocked(),
         );
+        final previousRegistry = await _snapshotRegistryUnlocked();
         if (!canCommit() || _serverOwnershipRevision != ownership.revision) {
           return false;
         }
@@ -1237,7 +1245,7 @@ class OptimizedStorageService {
           if (persistenceStarted) {
             try {
               await _restoreServerSessionUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
                 token: previousToken,
                 restoreConfigs: configsWritten,
@@ -1248,7 +1256,7 @@ class OptimizedStorageService {
               );
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1270,7 +1278,7 @@ class OptimizedStorageService {
                 // Never resurrect a previous bearer, saved credential, or
                 // proxy Cookie under a possibly-cleared fence.
                 await _restoreTokenlessSanitizedServerSessionUnlocked(
-                  configs: previousConfigs,
+                  registry: previousRegistry,
                   activeServerId: previousActiveServerId,
                   // Even when the forward commit did not touch configs, the
                   // baseline may contain the Cookie that the uncertain fence
@@ -1281,7 +1289,7 @@ class OptimizedStorageService {
                 _notifyRollbackUncertainSafely(onRollbackUncertain);
               } else {
                 await _restoreServerSessionUnlocked(
-                  configs: previousConfigs,
+                  registry: previousRegistry,
                   activeServerId: previousActiveServerId,
                   token: previousToken,
                   restoreConfigs: configsWritten,
@@ -1293,7 +1301,7 @@ class OptimizedStorageService {
               }
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1493,6 +1501,7 @@ class OptimizedStorageService {
           committedCandidate,
         ];
 
+        late final _RegistrySnapshot previousRegistry;
         String? previousToken;
         String? previousCredentialsPayload;
         var previousCredentialsReadSuppressed = false;
@@ -1501,6 +1510,7 @@ class OptimizedStorageService {
           // This strict snapshot occurs inside the auth lock and before the
           // first write. A transient Keychain failure must abort the commit,
           // never masquerade as a missing prior session during rollback.
+          previousRegistry = await _snapshotRegistryUnlocked();
           previousToken = await _getAuthTokenStrictUnlocked();
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
           previousCredentialsReadSuppressed = _savedCredentialsReadSuppressed;
@@ -1551,6 +1561,7 @@ class OptimizedStorageService {
             try {
               await _restoreStagedServerConfigSessionUnlocked(
                 staged: staged,
+                previousRegistry: previousRegistry,
                 previousToken: previousToken,
                 previousCredentialsPayload: previousCredentialsPayload,
                 previousCredentialsReadSuppressed:
@@ -1558,7 +1569,7 @@ class OptimizedStorageService {
               );
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: staged.baselineConfigs,
+                registry: previousRegistry,
                 activeServerId: staged.baselineActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1577,13 +1588,14 @@ class OptimizedStorageService {
             try {
               if (commitError is ServerConfigSessionRollbackException) {
                 await _restoreTokenlessSanitizedServerSessionUnlocked(
-                  configs: staged.baselineConfigs,
+                  registry: previousRegistry,
                   activeServerId: staged.baselineActiveServerId,
                 );
                 _notifyRollbackUncertainSafely(onRollbackUncertain);
               } else {
                 await _restoreStagedServerConfigSessionUnlocked(
                   staged: staged,
+                  previousRegistry: previousRegistry,
                   previousToken: previousToken,
                   previousCredentialsPayload: previousCredentialsPayload,
                   previousCredentialsReadSuppressed:
@@ -1592,7 +1604,7 @@ class OptimizedStorageService {
               }
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: staged.baselineConfigs,
+                registry: previousRegistry,
                 activeServerId: staged.baselineActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1650,12 +1662,13 @@ class OptimizedStorageService {
 
   Future<void> _restoreStagedServerConfigSessionUnlocked({
     required _StagedServerConfigCandidate staged,
+    required _RegistrySnapshot previousRegistry,
     required String? previousToken,
     required String? previousCredentialsPayload,
     required bool previousCredentialsReadSuppressed,
   }) {
     return _restoreServerSessionUnlocked(
-      configs: staged.baselineConfigs,
+      registry: previousRegistry,
       activeServerId: staged.baselineActiveServerId,
       token: previousToken,
       restoreCredentials: true,
@@ -1665,7 +1678,7 @@ class OptimizedStorageService {
   }
 
   Future<void> _restoreServerSessionUnlocked({
-    required List<ServerConfig> configs,
+    required _RegistrySnapshot registry,
     required String? activeServerId,
     required String? token,
     bool restoreConfigs = true,
@@ -1692,7 +1705,7 @@ class OptimizedStorageService {
     }
     if (restoreConfigs) {
       try {
-        await _saveServerConfigsUnlocked(configs);
+        await _restoreRegistryUnlocked(registry);
       } catch (error, stackTrace) {
         ownershipRestoreError ??= error;
         ownershipRestoreStackTrace ??= stackTrace;
@@ -1738,10 +1751,11 @@ class OptimizedStorageService {
   }
 
   /// Fail-closed rollback used only when the durable incomplete-logout fence
-  /// cannot be restored. Deleting auth secrets is the first prefix; configs
-  /// are then restored without legacy bearer fields or proxy cookies.
+  /// cannot be restored. Deleting auth secrets is the first prefix; the
+  /// registry is then restored without the proxy cookies its accounts
+  /// captured (it never stores a legacy bearer).
   Future<void> _restoreTokenlessSanitizedServerSessionUnlocked({
-    required List<ServerConfig> configs,
+    required _RegistrySnapshot registry,
     required String? activeServerId,
     bool restoreConfigs = true,
     bool restoreActiveServerId = true,
@@ -1763,12 +1777,13 @@ class OptimizedStorageService {
     // bearer scrub.
     await attempt(_deleteAuthTokenUnlocked);
     await attempt(_deleteSavedCredentialsUnlocked);
-    final sanitized = configs
-        .map(_revokeServerConfigAuthArtifacts)
-        .toList(growable: false);
+    final sanitized = (
+      registry: registry.registry.withoutCapturedHeaders(),
+      readsSuppressed: registry.readsSuppressed,
+    );
     await attempt(
       () => _restoreServerSessionUnlocked(
-        configs: sanitized,
+        registry: sanitized,
         activeServerId: activeServerId,
         token: null,
         restoreConfigs: restoreConfigs,
@@ -1790,12 +1805,12 @@ class OptimizedStorageService {
   /// this safety pass is logged by type only and must not hide that error or
   /// prevent the in-memory uncertainty fence from being published.
   Future<void> _bestEffortFailClosedServerSessionRestoreUnlocked({
-    required List<ServerConfig> configs,
+    required _RegistrySnapshot registry,
     required String? activeServerId,
   }) async {
     try {
       await _restoreTokenlessSanitizedServerSessionUnlocked(
-        configs: configs,
+        registry: registry,
         activeServerId: activeServerId,
       );
     } catch (error, stackTrace) {
@@ -1907,6 +1922,18 @@ class OptimizedStorageService {
         .lookup<OpenWebUiRegistry>(_registryCacheKey);
     if (hasCachedRegistry && cachedRegistry != null) return cachedRegistry;
     return _readRegistryFromStorageUnlocked();
+  }
+
+  Future<_RegistrySnapshot> _snapshotRegistryUnlocked() async => (
+    registry: await _registryForWriteUnlocked(),
+    readsSuppressed: _serverConfigsReadSuppressed,
+  );
+
+  /// Writes [snapshot] back as it was taken. Reads fenced then stay fenced,
+  /// whatever the transaction being undone did to the fence.
+  Future<void> _restoreRegistryUnlocked(_RegistrySnapshot snapshot) async {
+    await _saveRegistryUnlocked(snapshot.registry, authorizeReads: false);
+    _serverConfigsReadSuppressed = snapshot.readsSuppressed;
   }
 
   Future<void> _saveRegistryUnlocked(
