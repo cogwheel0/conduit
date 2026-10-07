@@ -1186,10 +1186,23 @@ class AuthStateManager extends _$AuthStateManager {
         }
 
         final attemptRevision = _enterAccountBoundary();
-        final hasSession = await storage.removeAccount(
-          accountId,
-          thenActivate: thenActivate,
-        );
+        final bool hasSession;
+        try {
+          hasSession = await storage.removeAccount(
+            accountId,
+            thenActivate: thenActivate,
+          );
+        } catch (error, stackTrace) {
+          _logAuthenticationFailure(
+            'account-sign-out-failed',
+            error,
+            stackTrace: stackTrace,
+          );
+          // Settle on whatever reached storage rather than staying in loading.
+          _invalidateServerProviders();
+          if (!_authAttemptSuperseded(attemptRevision)) await refresh();
+          Error.throwWithStackTrace(error, stackTrace);
+        }
         signedIn = _authAttemptSuperseded(attemptRevision)
             ? _current.isAuthenticated
             : await _settleAtAccountBoundary(

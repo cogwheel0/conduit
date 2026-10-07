@@ -161,6 +161,53 @@ void main() {
     check(after.token).isNull();
     check(container.read(apiAuthTokenMirrorProvider)).isNull();
   });
+
+  test('a sign-out that storage refuses settles back on the account', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.removeAccount(
+        'account-a',
+        thenActivate: any(named: 'thenActivate'),
+      ),
+    ).thenThrow(StateError('keychain unavailable'));
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    await check(
+      container
+          .read(authStateManagerProvider.notifier)
+          .signOutAccount('account-a'),
+    ).throws<StateError>();
+
+    // Not left loading and tokenless: storage still holds the session, so
+    // the account is still signed in.
+    final after = container.read(authStateManagerProvider).requireValue;
+    check(after.isLoading).isFalse();
+    check(after.token).equals(_tokenA);
+  });
 }
 
 /// The auth state once its first restore has finished. The provider's
