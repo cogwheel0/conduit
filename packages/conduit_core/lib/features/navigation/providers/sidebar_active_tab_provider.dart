@@ -25,6 +25,9 @@ class SidebarActiveTab extends _$SidebarActiveTab {
 
   @override
   SidebarTabId build() {
+    // The notifier outlives an account switch, so a legacy index read for
+    // the previous account must not carry over to the next one.
+    _legacyIndex = null;
     ref.watch(settledActiveAccountIdProvider);
     final raw = PreferencesStore.getRaw(
       scopedPreferenceReadKey(PreferenceKeys.sidebarActiveTab),
