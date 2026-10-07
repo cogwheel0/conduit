@@ -1190,15 +1190,17 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     bool? sound,
     bool? soundAlways,
   }) async {
-    if (currentPreferenceAccountId() == accountId) {
+    void show() {
+      if (currentPreferenceAccountId() != accountId) return;
       final next = state.copyWith(
         notificationsEnabled: enabled,
         notificationSound: sound,
         notificationSoundAlways: soundAlways,
       );
-      if (next == state) return;
-      state = next;
+      if (next != state) state = next;
     }
+
+    show();
     String key(String baseKey) =>
         accountScopedPreferenceKey(baseKey, accountId);
     await PreferencesStore.putAll({
@@ -1206,6 +1208,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       key(SettingsService._notificationSoundKey): ?sound,
       key(SettingsService._notificationSoundAlwaysKey): ?soundAlways,
     });
+    // Switching away and back while these were written reloads the settings
+    // from the ones written by then; show all of them once they are.
+    show();
   }
 
   Future<void> setHighContrast(bool value) async {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
@@ -15,6 +16,14 @@ import 'package:test/test.dart';
 final class _SettledOnA extends SettledActiveAccountId {
   @override
   String? build() => 'a';
+}
+
+/// Settles where the test says.
+final class _Settled extends SettledActiveAccountId {
+  @override
+  String? build() => 'a';
+
+  void settle(String? accountId) => state = accountId;
 }
 
 /// Model and chat defaults that belong to one Open WebUI account.
@@ -154,6 +163,63 @@ void main() {
       check(container.read(appSettingsProvider)).identicalTo(shown);
     },
   );
+
+  test('server notification prefs show once written, after a switch away '
+      'and back', () async {
+    final paused = Completer<void>();
+    final resume = Completer<void>();
+    final soundKey = accountScopedPreferenceKey(
+      PreferenceKeys.notificationSound,
+      'a',
+    );
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async {
+        if (key == soundKey && !paused.isCompleted) {
+          paused.complete();
+          await resume.future;
+        }
+        return null;
+      },
+    );
+    await PreferencesStore.put(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    await activate('a');
+    final container = ProviderContainer(
+      overrides: [settledActiveAccountIdProvider.overrideWith(_Settled.new)],
+    );
+    addTearDown(container.dispose);
+    final settled = container.read(settledActiveAccountIdProvider.notifier)
+        as _Settled;
+    container.read(appSettingsProvider);
+
+    final apply = container
+        .read(appSettingsProvider.notifier)
+        .applyServerNotificationPrefs(
+          accountId: 'a',
+          enabled: true,
+          sound: false,
+          soundAlways: true,
+        );
+    // Only the first of the three is written when the user switches to B
+    // and back, and the settings reload from what is there.
+    await paused.future;
+    await activate('b');
+    settled.settle('b');
+    container.read(appSettingsProvider);
+    await activate('a');
+    settled.settle('a');
+    check(container.read(appSettingsProvider).notificationSound).isTrue();
+    resume.complete();
+    await apply;
+
+    final shown = container.read(appSettingsProvider);
+    check(shown.notificationsEnabled).isTrue();
+    check(shown.notificationSound).isFalse();
+    check(shown.notificationSoundAlways).isTrue();
+  });
 
   test('a saved server voice is read back for its account', () async {
     await PreferencesStore.put(
