@@ -38,6 +38,10 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.invalidate(hermesSecretsErrorProvider);
   ref.invalidate(hermesActiveSessionProvider);
   ref.invalidate(hermesApiServiceProvider);
+
+  ref.invalidate(openWebUiAccountSummariesProvider);
+  ref.invalidate(openWebUiAccountsProvider);
+  ref.read(openWebUiValidatedIdentityLedgerProvider).clear();
 }
 
 final signOutCoordinatorProvider = Provider<SignOutCoordinator>(
@@ -123,6 +127,14 @@ final class SignOutCoordinator {
       }
     }
 
+    // Every saved account goes, not just the active one. Their databases are
+    // no longer deleted when a session ends, so list them now, while the
+    // registry still names them, and end their sessions on the server too.
+    final accountIds = await _savedAccountIds();
+    final inactiveSessions = await _ref
+        .read(authStateManagerProvider.notifier)
+        .inactiveAccountSessions();
+
     try {
       outcome = await _ref
           .read(authStateManagerProvider.notifier)
@@ -140,6 +152,12 @@ final class SignOutCoordinator {
           // admission barrier and may still lose auth ownership.
           await _ref.read(directLocalDatabasePurgeProvider)();
           directLocalPurgeCompleted = true;
+          await _purgeAccountDatabases(accountIds);
+          unawaited(
+            _ref
+                .read(authStateManagerProvider.notifier)
+                .revokeSessions(inactiveSessions),
+          );
           await disarmIncompleteAppDataClearMarker();
           directProfiles.finishAppDataClear();
           directMcpServers.finishAppDataClear();
@@ -180,6 +198,42 @@ final class SignOutCoordinator {
         directProfiles.resumeMutationsAfterAppDataClearAbort();
         directMcpServers.resumeMutationsAfterAppDataClearAbort();
         hermesConfig.resumeMutationsAfterAppDataClearAbort();
+      }
+    }
+  }
+}
+
+extension on SignOutCoordinator {
+  Future<Set<String>> _savedAccountIds() async {
+    try {
+      final registry = await _ref
+          .read(optimizedStorageServiceProvider)
+          .getOpenWebUiRegistryStrict();
+      return {for (final account in registry.accounts) account.id};
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'sign-out-account-list-failed',
+        scope: 'auth/sign-out',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      final active = PreferencesStore.getString(PreferenceKeys.activeServerId);
+      return {if (active != null && active.isNotEmpty) active};
+    }
+  }
+
+  Future<void> _purgeAccountDatabases(Set<String> accountIds) async {
+    final purge = _ref.read(openWebUiDatabasePurgeProvider);
+    for (final accountId in accountIds) {
+      try {
+        await purge(accountId);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'sign-out-account-database-purge-failed',
+          scope: 'auth/sign-out',
+          error: error,
+          stackTrace: stackTrace,
+        );
       }
     }
   }

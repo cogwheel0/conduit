@@ -373,6 +373,7 @@ _harness({
   OpenWebUiAccountCacheClear? accountCacheClear,
   OpenWebUiDatabasePurge? databasePurge,
   OpenWebUiPostCertificationSyncKickoff? postCertificationSyncKickoff,
+  Override? apiOverride,
   List<Override> additionalOverrides = const <Override>[],
 }) async {
   if (!PreferencesStore.isReady) {
@@ -423,7 +424,7 @@ _harness({
       activeServerProvider.overrideWith(
         (ref) async => ref.watch(_serverSelectionProvider),
       ),
-      apiServiceProvider.overrideWithValue(null),
+      apiOverride ?? apiServiceProvider.overrideWithValue(null),
       socketServiceProvider.overrideWithValue(null),
       databaseManagerProvider.overrideWithValue(manager),
       directLocalDatabaseProvider.overrideWithValue(direct),
@@ -433,6 +434,7 @@ _harness({
         accountCacheClear ?? () async {},
       ),
       openWebUiCertifiedUserPersistProvider.overrideWithValue((_) async {}),
+      openWebUiAccountUserBindProvider.overrideWithValue((_, _) async {}),
       openWebUiPostCertificationSyncKickoffProvider.overrideWithValue(
         postCertificationSyncKickoff ?? () {},
       ),
@@ -469,8 +471,12 @@ _harness({
     await container
         .read(openWebUiAccountStorageIsolationProvider.notifier)
         .settled;
-    check(container.read(openWebUiDatabaseAccessProvider))
-        .equals(OpenWebUiDatabaseAccessPhase.closed);
+    // Closed for chat either way: a terminal state with nothing proven yet
+    // waits in bootstrap, a failed purge in closed.
+    check(const [
+      OpenWebUiDatabaseAccessPhase.bootstrap,
+      OpenWebUiDatabaseAccessPhase.closed,
+    ]).contains(container.read(openWebUiDatabaseAccessProvider));
   }
 
   return (
@@ -513,7 +519,7 @@ void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
 
   test(
-    'visible-state scrub logs each best-effort failure and keeps purging',
+    'visible-state scrub logs each best-effort failure and still closes the account',
     () async {
       final previousDebugPrint = debugPrint;
       final logs = <String>[];
@@ -552,8 +558,11 @@ void main() {
                 message.contains('visible-state-provider-reset-failed'),
           ),
         ).isTrue();
+        // The session ended: the database closes, but stays for the same
+        // user to sign back in to.
         check(harness.container.read(openWebUiDatabaseAccessProvider))
-            .equals(OpenWebUiDatabaseAccessPhase.closed);
+            .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
+        check(harness.container.read(appDatabaseProvider)).isNull();
       } finally {
         debugPrint = previousDebugPrint;
       }
@@ -1376,15 +1385,22 @@ void main() {
           .read(openWebUiAccountStorageIsolationProvider.notifier)
           .settled;
 
+      // Closed, not deleted: whoever signs in next is judged by the marker.
       check(container.read(openWebUiDatabaseAccessProvider))
-          .equals(OpenWebUiDatabaseAccessPhase.closed);
+          .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
       check(container.read(activeConversationProvider)).isNull();
       check(container.read(chatMessagesProvider)).isEmpty();
       check(postLogoutEmissions.every((ids) => !ids.contains('account-a-chat')))
           .isTrue();
 
+      // B's marker check finds A's database and deletes it before opening.
       harness.auth.publish(_authenticated('token-b', _userB));
       await Future<void>.delayed(Duration.zero);
+      check(container.read(openWebUiDatabaseAccessProvider))
+          .not((it) => it.equals(OpenWebUiDatabaseAccessPhase.open));
+      await container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
       check(container.read(openWebUiDatabaseAccessProvider))
           .equals(OpenWebUiDatabaseAccessPhase.open);
 
@@ -1456,11 +1472,11 @@ void main() {
         },
       );
 
-      harness.auth.publish(const AuthState(status: AuthStatus.unauthenticated));
-      await Future<void>.delayed(Duration.zero);
+      // Signing out of the account is what deletes its data now; a session
+      // merely ending keeps it.
       await harness.container
           .read(openWebUiAccountStorageIsolationProvider.notifier)
-          .settled;
+          .purgeAccount(_server.id);
 
       check(revocationWrites).equals(2);
       check(cacheClearCalls).equals(2);
@@ -1872,4 +1888,243 @@ void main() {
           .identicalTo(localRemap);
     },
   );
+
+  group('saved accounts', () {
+    Future<List<String>> openWebUiChatIds(ProviderContainer container) async {
+      final chats = await container.read(conversationsProvider.future);
+      return [
+        for (final chat in chats)
+          if (chat.id != 'direct-chat') chat.id,
+      ];
+    }
+
+    Future<void> switchTo(
+      ({
+        ProviderContainer container,
+        _MutableAuthStateManager auth,
+        AppDatabase serverA,
+        AppDatabase serverB,
+        AppDatabase direct,
+        DatabaseManager manager,
+        _ServerSelection serverSelection,
+        _MemoryAccountOwnerMarkerStore markerStore,
+      })
+      harness,
+      ServerConfig server,
+      AuthState auth,
+    ) async {
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.loading, isLoading: true),
+      );
+      isolation.beginAccountSwitch();
+      harness.serverSelection.set(server);
+      harness.auth.publish(auth);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+    }
+
+    test('an announced switch opens the next account with its data', () async {
+      final harness = await _harness();
+      await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-a-chat']);
+
+      await switchTo(harness, _serverTwo, _authenticated('token-b', _userB));
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-b-chat']);
+
+      // And back again: A's data was never deleted.
+      await switchTo(harness, _server, _authenticated('token-a', _userA));
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.markerStore.read(_server.id)).isNotNull();
+    });
+
+    test(
+      'a new token for the same user keeps the data only when the server vouched for it',
+      () async {
+        final harness = await _harness();
+        await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+        harness.markerStore.markers[_serverTwo.id] =
+            openWebUiAccountOwnerMarker(token: 'old-b', userId: _userB.id)!;
+        harness.container
+            .read(openWebUiValidatedIdentityLedgerProvider)
+            .record(token: 'new-b', userId: _userB.id);
+
+        await switchTo(harness, _serverTwo, _authenticated('new-b', _userB));
+
+        check(harness.container.read(openWebUiDatabaseAccessProvider))
+            .equals(OpenWebUiDatabaseAccessPhase.open);
+        check(await openWebUiChatIds(harness.container))
+            .deepEquals(['account-b-chat']);
+        check(
+          harness.markerStore.read(_serverTwo.id)?.tokenFingerprint,
+        ).equals(openWebUiAccountTokenFingerprint('new-b'));
+      },
+    );
+
+    test('a new token nobody vouched for purges before opening', () async {
+      final harness = await _harness();
+      await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'old-b',
+        userId: _userB.id,
+      )!;
+
+      await switchTo(harness, _serverTwo, _authenticated('new-b', _userB));
+
+      check(await openWebUiChatIds(harness.container)).isEmpty();
+    });
+
+    test('another user on the account purges it before opening', () async {
+      final harness = await _harness();
+      await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      harness.container
+          .read(openWebUiValidatedIdentityLedgerProvider)
+          .record(token: 'token-a2', userId: _userA.id);
+
+      await switchTo(harness, _serverTwo, _authenticated('token-a2', _userA));
+
+      check(await openWebUiChatIds(harness.container)).isEmpty();
+    });
+
+    test('a session ending keeps the database for the same user', () async {
+      final harness = await _harness();
+
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.tokenExpired, error: 'expired'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
+
+      harness.container
+          .read(openWebUiValidatedIdentityLedgerProvider)
+          .record(token: 'token-a2', userId: _userA.id);
+      harness.auth.publish(_authenticated('token-a2', _userA));
+      for (var i = 0; i < 3; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .settled;
+      }
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-a-chat']);
+    });
+
+    test(
+      'a sign-in that adds an account never purges the one it left',
+      () async {
+        final purged = <String>[];
+        final harness = await _harness(
+          databasePurge: (serverId) async => purged.add(serverId),
+          // The app's API client lags the selection: while it re-resolves,
+          // the client is rebuilt from the server just left.
+          apiOverride: apiServiceProvider.overrideWith(
+            (ref) => ref.watch(_apiSelectionProvider),
+          ),
+        );
+        harness.container
+            .read(_apiSelectionProvider.notifier)
+            .set(ApiService(serverConfig: _server, workerManager: WorkerManager()));
+        await PreferencesStore.put(
+          PreferenceKeys.activeServerId,
+          _serverTwo.id,
+        );
+
+        // The way a proxy sign-in commits: the selection re-resolves and the
+        // new identity is published before it has settled.
+        harness.serverSelection.set(_serverTwo);
+        harness.auth.publish(_authenticated('token-n', _userB));
+        for (var i = 0; i < 5; i++) {
+          await Future<void>.delayed(Duration.zero);
+          await harness.container
+              .read(openWebUiAccountStorageIsolationProvider.notifier)
+              .settled;
+        }
+
+        check(purged).not((it) => it.contains(_server.id));
+        check(harness.markerStore.read(_server.id)).isNotNull();
+        check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+            .equals(_serverTwo.id);
+      },
+    );
+
+    test(
+      'an unannounced arrival on an account that is theirs keeps its data',
+      () async {
+        final harness = await _harness();
+        await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+        harness.markerStore.markers[_serverTwo.id] =
+            openWebUiAccountOwnerMarker(token: 'token-b', userId: _userB.id)!;
+        await PreferencesStore.put(
+          PreferenceKeys.activeServerId,
+          _serverTwo.id,
+        );
+
+        // A saved sign-in for another account committing straight over the
+        // open one, with no switch announced first.
+        harness.serverSelection.set(_serverTwo);
+        harness.auth.publish(_authenticated('token-b', _userB));
+        for (var i = 0; i < 5; i++) {
+          await Future<void>.delayed(Duration.zero);
+          await harness.container
+              .read(openWebUiAccountStorageIsolationProvider.notifier)
+              .settled;
+        }
+
+        check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+            .equals(_serverTwo.id);
+        final chats = await harness.container.read(
+          conversationsProvider.future,
+        );
+        check(chats.map((chat) => chat.id)).contains('account-b-chat');
+        check(harness.markerStore.read(_server.id)).isNotNull();
+      },
+    );
+
+    test('purging an inactive account leaves the active one open', () async {
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async => purged.add(serverId),
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .purgeAccount(_serverTwo.id);
+
+      check(purged).deepEquals([_serverTwo.id]);
+      check(harness.markerStore.read(_serverTwo.id)).isNull();
+      check(harness.markerStore.read(_server.id)).isNotNull();
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-a-chat']);
+    });
+  });
 }

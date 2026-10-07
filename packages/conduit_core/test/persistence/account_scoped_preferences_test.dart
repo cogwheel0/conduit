@@ -1,0 +1,129 @@
+import 'dart:convert';
+
+import 'package:checks/checks.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:test/test.dart';
+
+/// Model and chat defaults that belong to one Open WebUI account.
+void main() {
+  setUp(() async {
+    PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+    await PreferencesStore.ensureInitialized();
+  });
+
+  tearDown(PreferencesStore.debugReset);
+
+  Future<void> activate(String? accountId) =>
+      PreferencesStore.put(PreferenceKeys.activeServerId, accountId);
+
+  test('each account keeps its own default model', () async {
+    await PreferencesStore.put(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    await activate('a');
+    await SettingsService.setDefaultModel('model-on-a');
+    await activate('b');
+    await SettingsService.setDefaultModel('model-on-b');
+
+    check(await SettingsService.getDefaultModel()).equals('model-on-b');
+    await activate('a');
+    check(await SettingsService.getDefaultModel()).equals('model-on-a');
+    check((await SettingsService.loadSettings()).defaultModel)
+        .equals('model-on-a');
+  });
+
+  test('look-and-feel settings stay device-wide', () async {
+    await activate('a');
+    await SettingsService.setReduceMotion(true);
+    await activate('b');
+
+    check(await SettingsService.getReduceMotion()).isTrue();
+  });
+
+  test('without an account the device-wide value is used', () async {
+    await activate(null);
+    await SettingsService.setPinnedModels(['direct:model']);
+
+    check(PreferencesStore.getStringList(PreferenceKeys.pinnedModels))
+        .isNotNull()
+        .deepEquals(['direct:model']);
+    check(await SettingsService.getPinnedModels()).deepEquals(['direct:model']);
+  });
+
+  test(
+    'before its one-time copy an account reads the old device value',
+    () async {
+      await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+      await activate('a');
+
+      check(await SettingsService.getDefaultModel()).equals('pre-upgrade');
+
+      await migrateDeviceSettingsIntoAccount('a');
+      await activate('b');
+      // A later account starts from the defaults, not from someone else's.
+      check(await SettingsService.getDefaultModel()).isNull();
+      await activate('a');
+      check(await SettingsService.getDefaultModel()).equals('pre-upgrade');
+    },
+  );
+
+  test('a write lands under the account active when it started', () async {
+    await PreferencesStore.put(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    await activate('a');
+    final save = SettingsService.saveSettings(
+      (await SettingsService.loadSettings()).copyWith(defaultModel: 'on-a'),
+    );
+    await activate('b');
+    await save;
+
+    check(await SettingsService.getDefaultModel()).isNull();
+    await activate('a');
+    check(await SettingsService.getDefaultModel()).equals('on-a');
+  });
+
+  test('clearing an account removes everything it kept', () async {
+    await activate('a');
+    await SettingsService.setDefaultModel('model-on-a');
+    await PreferencesStore.put(
+      '${PreferenceKeys.transportOptionsPrefix}:${base64Url.encode(utf8.encode('a'))}',
+      '{}',
+    );
+    await PreferencesStore.put(
+      PreferenceKeys.serverFeatureAvailability,
+      jsonEncode({
+        'a::user': {'notes': true},
+        'b::user': {'notes': false},
+      }),
+    );
+    await PreferencesStore.put(
+      PreferenceKeys.openWebUiAccountSummaries,
+      jsonEncode({
+        'a': {'name': 'A'},
+        'b': {'name': 'B'},
+      }),
+    );
+
+    await clearOpenWebUiAccountPreferences('a');
+
+    check(PreferencesStore.keys().where((key) => key.contains('@acct:')))
+        .isEmpty();
+    check(
+      jsonDecode(
+        PreferencesStore.getString(PreferenceKeys.serverFeatureAvailability)!,
+      ) as Map,
+    ).keys.deepEquals(['b::user']);
+    check(
+      jsonDecode(
+        PreferencesStore.getString(PreferenceKeys.openWebUiAccountSummaries)!,
+      ) as Map,
+    ).keys.deepEquals(['b']);
+  });
+}

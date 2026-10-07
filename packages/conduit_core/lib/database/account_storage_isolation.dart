@@ -1,11 +1,16 @@
 /// Keeps one account's local database out of another account's hands.
 ///
-/// The on-disk schema is keyed by *server*, not by account, so two accounts
-/// on the same server would otherwise share a database. Until an
-/// account-scoped migration exists the rule is fail-closed: every terminal
-/// auth transition deletes the active server database before another account
-/// may open it, and `appDatabaseProvider` yields null until this notifier has
-/// certified the current identity against an on-disk owner marker.
+/// Each saved account has its own database, keyed by its account id (the id
+/// its `ServerConfig` projection carries). `appDatabaseProvider` yields null
+/// until this notifier has certified the current identity against that
+/// account's on-disk owner marker, and the rule stays fail-closed: a database
+/// whose marker names another user is deleted before anyone may open it.
+///
+/// What no longer happens is deleting a database just because its session
+/// ended. Switching accounts, a token expiring or signing in again leaves the
+/// database closed but intact, so the same user gets their offline history
+/// and queued sends back; signing out of an account purges it explicitly
+/// through [OpenWebUiAccountStorageIsolation.purgeAccount].
 ///
 /// Extracted from the mobile app's startup flow. It is not startup
 /// plumbing -- it decides whether there is a local database at all, which the
@@ -18,6 +23,7 @@ import 'dart:async';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
@@ -25,6 +31,7 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -104,12 +111,32 @@ final openWebUiCertifiedUserPersistProvider =
           storage.saveLocalUserWithAvatar(user, avatarUrl: user.profileImage);
     });
 
-/// Fail-closed ownership barrier for the server-scoped OpenWebUI database.
+typedef OpenWebUiAccountUserBind =
+    Future<void> Function(String accountId, String userId);
+
+/// Records in the registry which user a certified account belongs to, so a
+/// later sign-in as the same user on the same server can be recognized.
+final openWebUiAccountUserBindProvider = Provider<OpenWebUiAccountUserBind>(
+  (ref) => ref.watch(optimizedStorageServiceProvider).bindAccountUser,
+);
+
+typedef OpenWebUiAccountPrivateDataClear =
+    Future<void> Function(String accountId);
+
+/// Removes what an account keeps outside its database: its transport
+/// options, feature flags and preferences scoped to it. Run when signing out
+/// of that account, never while it is active.
+final openWebUiAccountPrivateDataClearProvider =
+    Provider<OpenWebUiAccountPrivateDataClear>(
+      (ref) => (accountId) => clearOpenWebUiAccountPreferences(accountId),
+    );
+
+/// Fail-closed ownership barrier for the account-scoped OpenWebUI databases.
 ///
-/// The current on-disk schema is keyed by server, not account. Until a future
-/// account-scoped migration exists, every terminal auth transition deletes the
-/// active server database before another account may open it. Direct-local
-/// storage is independent and remains visible throughout.
+/// A database opens only for the identity its owner marker names, or for the
+/// same user with a token the server accepted in this process. Anything else
+/// deletes it first. Direct-local storage is independent and remains visible
+/// throughout.
 final openWebUiAccountStorageIsolationProvider =
     NotifierProvider<OpenWebUiAccountStorageIsolation, void>(
       OpenWebUiAccountStorageIsolation.new,
@@ -207,6 +234,31 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     }
   }
 
+  bool _ownerMarkerCarriesOver(
+    String serverId,
+    _OpenWebUiAccountIdentity identity,
+  ) {
+    try {
+      return openWebUiAccountOwnerMarkerCarriesOver(
+        marker: ref.read(openWebUiAccountOwnerMarkerStoreProvider).read(serverId),
+        token: identity.token,
+        userId: identity.userId,
+        ledger: ref.read(openWebUiValidatedIdentityLedgerProvider),
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String? _settledActiveServerId() {
+    try {
+      final id = ref.read(activeServerProvider).asData?.value?.id;
+      return id == null || id.isEmpty ? null : id;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _serializeMarkerMutation(Future<void> Function() mutation) {
     final operation = _markerMutation.then((_) => mutation());
     _markerMutation = operation.then<void>(
@@ -262,15 +314,93 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       return;
     }
     final departedCertifiedSession = _certifiedIdentity != null;
-
-    _initialAuthDecisionComplete = true;
-    _certifiedIdentity = null;
-    _pendingIdentity = null;
-    _purgeRequired = true;
-    _beginIsolation(
+    _closeAtAccountBoundary(
       reason: departedCertifiedSession
           ? 'authenticated-session-ended'
           : 'terminal-unauthenticated',
+    );
+  }
+
+  /// Announces that the active account is about to change.
+  ///
+  /// Call before the active id moves. The current account's database closes
+  /// without being deleted, and the next identity to authenticate is judged
+  /// against the *next* account's owner marker exactly as a cold start would
+  /// judge it. Unannounced changes of the active server while a database is
+  /// open still purge the target first; see [_onActiveServer].
+  void beginAccountSwitch() {
+    if (_disposed) return;
+    if (_purgeRunning) {
+      // A purge of the account being left may still be deleting its files.
+      // Let it finish, but not decide anything about the next account: its
+      // completion would otherwise read the new active id and purge that.
+      _purgeGeneration++;
+      _purgeRunning = false;
+    }
+    _closeAtAccountBoundary(reason: 'account-switch');
+  }
+
+  /// Closes the account database at an account boundary, keeping it on disk.
+  void _closeAtAccountBoundary({required String reason}) {
+    _certificationGeneration++;
+    _initialAuthDecisionComplete = false;
+    _certifiedIdentity = null;
+    _pendingIdentity = null;
+    _cleanServerId = null;
+    _purgeRequired = false;
+    ref.read(openWebUiDatabaseAccessProvider.notifier).reenterBootstrap();
+    ref.read(openWebUiCertifiedDatabaseServerProvider.notifier).clear();
+    _clearOpenWebUiVisibleState();
+    ref.invalidate(appDatabaseProvider);
+    ref.invalidate(chatDatabaseRepositoryProvider);
+    DebugLogger.log(
+      'account-database-closed',
+      scope: 'auth/storage-isolation',
+      data: {'reason': reason},
+    );
+  }
+
+  /// Deletes [accountId]'s local data: its database, owner marker, Hermes
+  /// session trust and cached auth data.
+  ///
+  /// For signing out of an account, after the account has been removed or
+  /// switched away from. It never targets the database a certified session
+  /// has open; when [accountId] is still the active account, the ordinary
+  /// isolation purge runs instead.
+  Future<void> purgeAccount(String accountId) async {
+    if (_disposed) return;
+    // Judge "active" by what storage durably selected, not by the provider
+    // chain: mid-transition the API client can still carry the account just
+    // left, and treating that as active would run the isolation purge, whose
+    // follow-up then deletes whichever account really is active.
+    if (PreferencesStore.getString(PreferenceKeys.activeServerId) ==
+        accountId) {
+      _certifiedIdentity = null;
+      _pendingIdentity = null;
+      _purgeRequired = true;
+      _beginIsolation(reason: 'account-signed-out');
+      await _settled;
+      return;
+    }
+    final ownerMarker = ref
+        .read(openWebUiAccountOwnerMarkerStoreProvider)
+        .read(accountId);
+    final ownerUserId = ownerMarker?.userId.trim();
+    if (ownerMarker != null && ownerUserId != null && ownerUserId.isNotEmpty) {
+      await HermesMixedSessionBindingTrustStore.forgetStorageAccount(
+        HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
+          serverId: accountId,
+          userId: ownerUserId,
+          tokenFingerprint: ownerMarker.tokenFingerprint,
+        ),
+      );
+    }
+    await ref.read(openWebUiDatabasePurgeProvider)(accountId);
+    await _removeOwnerMarker(accountId);
+    await ref.read(openWebUiAccountPrivateDataClearProvider)(accountId);
+    DebugLogger.log(
+      'account-database-purged',
+      scope: 'auth/storage-isolation',
     );
   }
 
@@ -293,14 +423,22 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         !_purgeRequired &&
         phase == OpenWebUiDatabaseAccessPhase.bootstrap) {
       // activeServerProvider can still be resolving even though auth restored
-      // first. Defer the cold-start decision; the server listener re-enters
-      // this exact marker-validation branch once the identity is addressable.
-      if (serverId == null) return;
+      // first, or still be re-resolving after an account switch. Defer the
+      // decision; the server listener re-enters this exact marker-validation
+      // branch once the identity is addressable by a settled selection.
+      final settledServerId = _settledActiveServerId();
+      if (serverId == null || settledServerId == null) return;
       _initialAuthDecisionComplete = true;
-      if (_ownerMarkerMatches(serverId, identity)) {
+      if (_ownerMarkerMatches(settledServerId, identity)) {
         // The marker is independent of the account database and was flushed
         // before that database was opened by the previous process.
         _scheduleCertification(markerAlreadyDurable: true);
+      } else if (_ownerMarkerCarriesOver(settledServerId, identity)) {
+        // Same user, with a token the server accepted in this process: a
+        // re-login after expiry, or a sign-in that landed in this account.
+        // The database is theirs; certification rewrites the marker for the
+        // new token before opening it.
+        _scheduleCertification();
       } else {
         // Legacy/missing/mismatched markers never self-certify from the cached
         // user stored inside the database they are supposed to protect.
@@ -316,6 +454,17 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         serverId != null &&
         _cleanServerId == serverId) {
       _scheduleCertification();
+      return;
+    }
+
+    if (!_purgeRunning && !_purgeRequired) {
+      // Another identity arrived without the boundary being announced: a
+      // sign-in that added an account, or one that changed who holds this
+      // one. Treat it as the boundary it is -- close what was open, keeping
+      // it -- and judge the new identity by its own account's marker, which
+      // deletes that account's database only if it belongs to someone else.
+      _closeAtAccountBoundary(reason: 'account-session-change');
+      _onAuthenticated(identity);
       return;
     }
 
@@ -369,17 +518,22 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     _ensurePurge(reason: reason);
   }
 
+  /// The account whose database is in question: the settled selection, else
+  /// what storage durably selected. The API client comes last because, while
+  /// the selection re-resolves, it is rebuilt from the *previous* server --
+  /// and the account just left must never be mistaken for the one to purge.
   String? _currentServerId() {
     try {
       final active = ref.read(activeServerProvider).asData?.value?.id;
       if (active != null && active.isNotEmpty) return active;
     } catch (_) {}
+    final stored = PreferencesStore.getString(PreferenceKeys.activeServerId);
+    if (stored != null && stored.isNotEmpty) return stored;
     try {
       final apiId = ref.read(apiServiceProvider)?.serverConfig.id;
       if (apiId != null && apiId.isNotEmpty) return apiId;
     } catch (_) {}
-    final stored = PreferencesStore.getString(PreferenceKeys.activeServerId);
-    return stored == null || stored.isEmpty ? null : stored;
+    return null;
   }
 
   void _ensurePurge({required String reason}) {
@@ -595,11 +749,32 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     ref.invalidate(currentUserProvider);
     ref.read(openWebUiPostCertificationSyncKickoffProvider)();
     ref.read(openWebUiCachedAccountOwnerMismatchProvider.notifier).set(false);
+    final certifiedUserId = identity.userId;
+    if (certifiedUserId != null) {
+      unawaited(_bindAccountUser(serverId, certifiedUserId));
+    }
     final authenticated = ref.read(authStateManagerProvider).asData?.value;
     final certifiedUser = authenticated?.user;
     if (certifiedUser != null &&
         authenticated?.token == identity.token &&
         certifiedUser.id == identity.userId) {
+      // Recorded here, where the account and its user are known to belong
+      // together, rather than from a later read of whichever is active.
+      try {
+        unawaited(
+          ref
+              .read(openWebUiAccountSummariesProvider.notifier)
+              .recordUser(serverId, certifiedUser),
+        );
+        unawaited(migrateDeviceSettingsIntoAccount(serverId));
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'certified-account-summary-failed',
+          scope: 'auth/storage-isolation',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
       try {
         // A fresh account may have published while the database gate was
         // closed for purge, making AuthStateManager's earlier cache write a
@@ -619,6 +794,19 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       'account-database-certified',
       scope: 'auth/storage-isolation',
     );
+  }
+
+  Future<void> _bindAccountUser(String accountId, String userId) async {
+    try {
+      await ref.read(openWebUiAccountUserBindProvider)(accountId, userId);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'account-user-bind-failed',
+        scope: 'auth/storage-isolation',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   void _clearOpenWebUiVisibleState() {

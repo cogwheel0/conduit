@@ -65,6 +65,11 @@ class OpenWebUiDatabaseAccessNotifier
 
   void beginPurge() => state = OpenWebUiDatabaseAccessPhase.purging;
 
+  /// Back to the state a cold start is in: only the auth cache may read, so
+  /// the next account's saved session can restore while chat and sync stay
+  /// closed until it is certified.
+  void reenterBootstrap() => state = OpenWebUiDatabaseAccessPhase.bootstrap;
+
   void close() => state = OpenWebUiDatabaseAccessPhase.closed;
 
   void open() => state = OpenWebUiDatabaseAccessPhase.open;

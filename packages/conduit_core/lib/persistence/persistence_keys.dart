@@ -27,7 +27,19 @@ final class PreferenceKeys {
   static const String webSearchSafeSearch = 'web_search_safe_search_v1';
   static const String webSearchRegion = 'web_search_region_v1';
   static const String sendOnEnterKey = 'send_on_enter';
+  /// Holds the active Open WebUI *account* id. The key predates accounts:
+  /// an account's id is the id its server config always had.
   static const String activeServerId = 'active_server_id';
+
+  /// Non-secret display details of saved Open WebUI accounts (name, email,
+  /// avatar, last use), so the account list renders without Keychain reads.
+  static const String openWebUiAccountSummaries =
+      'openwebui_account_summaries_v1';
+
+  /// Set once the device-wide model and chat defaults were copied into the
+  /// account that was active when per-account settings arrived.
+  static const String accountScopedSettingsMigrated =
+      'account_scoped_settings_migrated_v1';
 
   /// Fail-closed marker set before logout touches any remote or local state.
   /// It prevents bearer/credential restoration and proxy-cookie attachment

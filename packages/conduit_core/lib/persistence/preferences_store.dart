@@ -122,6 +122,9 @@ class PreferencesStore {
   static List<String>? getStringList(String key) => _prefs?.getStringList(key);
   static bool containsKey(String key) => _prefs?.containsKey(key) ?? false;
 
+  /// Every stored key; empty until the store is loaded.
+  static Set<String> keys() => _prefs?.keys ?? const <String>{};
+
   // --- writes --------------------------------------------------------------
 
   /// Hive-box-like write that dispatches by runtime type. A null value removes

@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show settledActiveAccountIdProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../models/sidebar_navigation_model.dart';
@@ -13,14 +16,19 @@ part 'sidebar_active_tab_provider.g.dart';
 /// Stable identity of the active sidebar tab.
 ///
 /// Persisting the identity instead of its visible position prevents optional
-/// tabs from changing which feature is restored on the next launch.
+/// tabs from changing which feature is restored on the next launch. Each Open
+/// WebUI account remembers its own tab, so switching restores where that
+/// account was left.
 @Riverpod(keepAlive: true)
 class SidebarActiveTab extends _$SidebarActiveTab {
   int? _legacyIndex;
 
   @override
   SidebarTabId build() {
-    final raw = PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab);
+    ref.watch(settledActiveAccountIdProvider);
+    final raw = PreferencesStore.getRaw(
+      scopedPreferenceReadKey(PreferenceKeys.sidebarActiveTab),
+    );
     if (raw is int) {
       _legacyIndex = raw.clamp(0, 4);
       // Legacy values were positions within the conditionally visible list.
@@ -44,7 +52,7 @@ class SidebarActiveTab extends _$SidebarActiveTab {
     if (mustNotifyLegacyClear) ref.notifyListeners();
     unawaited(
       PreferencesStore.put(
-        PreferenceKeys.sidebarActiveTab,
+        scopedPreferenceWriteKey(PreferenceKeys.sidebarActiveTab),
         tab.name,
       ).catchError((Object error, StackTrace stackTrace) {
         DebugLogger.error(

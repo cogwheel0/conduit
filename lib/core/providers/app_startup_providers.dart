@@ -24,6 +24,12 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/services/interaction_activity.dart';
 
 import '../../shared/services/navigation_service.dart';
+import '../../features/navigation/providers/conversation_selection_provider.dart'
+    show conversationSelectionProvider;
+import 'package:conduit_core/features/notes/providers/notes_providers.dart'
+    show activeNoteProvider;
+import 'package:conduit_core/features/prompts/providers/prompts_providers.dart'
+    show activePromptCommandProvider;
 import '../../platform/app_intents_service.dart';
 import '../../platform/carplay_service.dart';
 import '../../platform/home_widget_service.dart';
@@ -120,6 +126,33 @@ final userScopedProviderCleanupProvider = Provider<void>((ref) {
 
     scheduleCleanup();
   });
+
+  // Switching Open WebUI accounts goes tokenless only for the moment it takes
+  // to restore the next account's session, so the cleanup above sees the new
+  // session arrive and stands down. The account itself changing is the
+  // boundary: everything the departing account owned goes now.
+  ref.listen<String?>(settledActiveAccountIdProvider, (previous, next) {
+    if (previous == null || previous == next) return;
+    ref.read(contextAttachmentsProvider.notifier).clear();
+    ref.read(knowledgeCacheProvider.notifier).clearAllCaches();
+    final attachmentOwnership = ref
+        .read(mediaUploadControllerProvider)
+        .captureAttachmentOwnership();
+    unawaited(
+      ref
+          .read(mediaUploadControllerProvider)
+          .retireAttachmentOwnership(attachmentOwnership)
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'account-switch-attachment-cleanup-failed',
+              scope: 'startup/auth-cleanup',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+    );
+    _resetUserScopedProviders(ref);
+  });
 });
 
 Future<void> _cleanupUserScopedProvidersAfterSignOut(
@@ -177,6 +210,22 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(
       return;
     }
 
+    _resetUserScopedProviders(ref);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'user-scoped-provider-cleanup-failed',
+      scope: 'startup',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
+/// Drops every keepAlive provider holding the previous Open WebUI account's
+/// data or selections. Direct and Hermes state survives: a local chat or
+/// model does not belong to any account.
+void _resetUserScopedProviders(Ref ref) {
+  try {
     final active = ref.read(activeConversationProvider);
     final preserveLocalConversation =
         active != null && !conversationUsesOpenWebUiStorage(active);
@@ -237,6 +286,17 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(
     );
     ref.invalidate(notificationRouterProvider);
     ref.invalidate(notificationSocketListenerProvider);
+    // Selections that name the previous account's folders, prompts, notes or
+    // chats.
+    ref.invalidate(pendingFolderIdProvider);
+    ref.invalidate(folderDraftModelNoticeProvider);
+    ref.invalidate(folderDraftComparisonProvider);
+    ref.invalidate(folderDraftComparisonNoticeProvider);
+    ref.invalidate(isManualModelSelectionProvider);
+    ref.invalidate(searchQueryProvider);
+    ref.invalidate(activePromptCommandProvider);
+    ref.invalidate(activeNoteProvider);
+    ref.invalidate(conversationSelectionProvider);
   } catch (error, stackTrace) {
     DebugLogger.error(
       'user-scoped-provider-cleanup-failed',

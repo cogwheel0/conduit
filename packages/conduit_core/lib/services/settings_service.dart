@@ -3,6 +3,8 @@ import 'dart:developer' as developer;
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../persistence/account_scoped_preferences.dart';
+import '../providers/app_providers.dart' show settledActiveAccountIdProvider;
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 
@@ -92,10 +94,14 @@ class SettingsService {
   static const String _notificationChannelEnabledKey =
       PreferenceKeys.notificationChannelEnabled;
 
-  static T? _getPreference<T>(String key) => PreferencesStore.get<T>(key);
+  // Settings that name a server's data are stored per Open WebUI account;
+  // see account_scoped_preferences.dart. Every read and write below resolves
+  // its key through these, which is the identity for device-wide settings.
+  static T? _getPreference<T>(String key) =>
+      PreferencesStore.get<T>(scopedPreferenceReadKey(key));
 
   static Future<void> _putPreference(String key, Object? value) =>
-      PreferencesStore.put(key, value);
+      PreferencesStore.put(scopedPreferenceWriteKey(key), value);
 
   /// Get reduced motion preference
   static Future<bool> getReduceMotion() {
@@ -231,22 +237,21 @@ class SettingsService {
 
   /// Set default model preference
   static Future<void> setDefaultModel(String? modelId) {
+    final key = scopedPreferenceWriteKey(_defaultModelKey);
     if (modelId != null) {
-      return PreferencesStore.put(_defaultModelKey, modelId);
+      return PreferencesStore.put(key, modelId);
     }
-    return PreferencesStore.remove(_defaultModelKey);
+    return PreferencesStore.remove(key);
   }
 
   /// Set the model used by OpenRouter's dedicated Image API.
   static Future<void> setOpenRouterImageGenerationModel(String? modelId) {
     final normalized = modelId?.trim();
+    final key = scopedPreferenceWriteKey(_openRouterImageGenerationModelKey);
     if (normalized != null && normalized.isNotEmpty) {
-      return PreferencesStore.put(
-        _openRouterImageGenerationModelKey,
-        normalized,
-      );
+      return PreferencesStore.put(key, normalized);
     }
-    return PreferencesStore.remove(_openRouterImageGenerationModelKey);
+    return PreferencesStore.remove(key);
   }
 
   /// Load all settings
@@ -294,18 +299,28 @@ class SettingsService {
       _notificationChannelEnabledKey: settings.notificationChannelEnabled,
     };
 
+    // Resolve every account-scoped key now, before the first write yields: a
+    // switch completing mid-save must not land the rest under another account.
+    final defaultModelKey = scopedPreferenceWriteKey(_defaultModelKey);
+    final openRouterImageGenerationModelKey = scopedPreferenceWriteKey(
+      _openRouterImageGenerationModelKey,
+    );
+
     // Web search preferences are written only by their own setters, so a
     // bulk save of a stale snapshot can't undo a concurrent change.
-    await PreferencesStore.putAll(updates);
+    await PreferencesStore.putAll({
+      for (final entry in updates.entries)
+        scopedPreferenceWriteKey(entry.key): entry.value,
+    });
 
     await _putOrRemove(_chatWebSearchEnabledKey, settings.chatWebSearchEnabled);
     await _putOrRemove(
       _chatImageGenerationEnabledKey,
       settings.chatImageGenerationEnabled,
     );
-    await _putOrRemove(_defaultModelKey, settings.defaultModel);
+    await _putOrRemove(defaultModelKey, settings.defaultModel);
     await _putOrRemove(
-      _openRouterImageGenerationModelKey,
+      openRouterImageGenerationModelKey,
       settings.openRouterImageGenerationModel,
     );
     await _putOrRemove(
@@ -594,7 +609,9 @@ class SettingsService {
   }
 
   static Future<List<String>> getPinnedModels() {
-    final raw = PreferencesStore.getStringList(_pinnedModelsKey);
+    final raw = PreferencesStore.getStringList(
+      scopedPreferenceReadKey(_pinnedModelsKey),
+    );
     if (raw == null) {
       return Future.value(const []);
     }
@@ -633,102 +650,106 @@ class SettingsService {
   }
 
   static AppSettings _loadSettingsSync() {
+    T? get<T>(String key) =>
+        PreferencesStore.get<T>(scopedPreferenceReadKey(key));
+    List<String>? getStringList(String key) =>
+        PreferencesStore.getStringList(scopedPreferenceReadKey(key));
     return AppSettings(
-      reduceMotion: PreferencesStore.get<bool>(_reduceMotionKey) ?? false,
+      reduceMotion: get<bool>(_reduceMotionKey) ?? false,
       animationSpeed:
-          PreferencesStore.get<num>(_animationSpeedKey)?.toDouble() ?? 1.0,
+          get<num>(_animationSpeedKey)?.toDouble() ?? 1.0,
       disableHapticsWhileStreaming:
-          PreferencesStore.get<bool>(_disableHapticsWhileStreamingKey) ?? false,
+          get<bool>(_disableHapticsWhileStreamingKey) ?? false,
       citationShowTitles:
-          PreferencesStore.get<bool>(PreferenceKeys.citationShowTitles) ??
+          get<bool>(PreferenceKeys.citationShowTitles) ??
           false,
-      highContrast: PreferencesStore.get<bool>(_highContrastKey) ?? false,
-      darkMode: PreferencesStore.get<bool>(_darkModeKey) ?? true,
-      defaultModel: PreferencesStore.get<String>(_defaultModelKey),
-      openRouterImageGenerationModel: PreferencesStore.get<String>(
+      highContrast: get<bool>(_highContrastKey) ?? false,
+      darkMode: get<bool>(_darkModeKey) ?? true,
+      defaultModel: get<String>(_defaultModelKey),
+      openRouterImageGenerationModel: get<String>(
         _openRouterImageGenerationModelKey,
       ),
       voiceLocaleId: normalizeVoiceLocaleId(
-        PreferencesStore.get<String>(_voiceLocaleKey),
+        get<String>(_voiceLocaleKey),
       ),
-      voiceHoldToTalk: PreferencesStore.get<bool>(_voiceHoldToTalkKey) ?? false,
+      voiceHoldToTalk: get<bool>(_voiceHoldToTalkKey) ?? false,
       voiceAutoSendFinal:
-          PreferencesStore.get<bool>(_voiceAutoSendKey) ?? false,
+          get<bool>(_voiceAutoSendKey) ?? false,
       voiceBargeInEnabled:
-          PreferencesStore.get<bool>(PreferenceKeys.voiceBargeInEnabled) ??
+          get<bool>(PreferenceKeys.voiceBargeInEnabled) ??
           false,
       socketTransportMode:
-          PreferencesStore.get<String>(_socketTransportModeKey) ?? 'ws',
-      quickPills: PreferencesStore.getStringList(_quickPillsKey) ?? const [],
-      chatWebSearchEnabled: PreferencesStore.get<bool>(
+          get<String>(_socketTransportModeKey) ?? 'ws',
+      quickPills: getStringList(_quickPillsKey) ?? const [],
+      chatWebSearchEnabled: get<bool>(
         _chatWebSearchEnabledKey,
       ),
-      chatImageGenerationEnabled: PreferencesStore.get<bool>(
+      chatImageGenerationEnabled: get<bool>(
         _chatImageGenerationEnabledKey,
       ),
-      sendOnEnter: PreferencesStore.get<bool>(_sendOnEnterKey) ?? false,
-      ttsVoice: PreferencesStore.get<String>(PreferenceKeys.ttsVoice),
-      ttsVoiceName: PreferencesStore.get<String>(PreferenceKeys.ttsVoiceName),
+      sendOnEnter: get<bool>(_sendOnEnterKey) ?? false,
+      ttsVoice: get<String>(PreferenceKeys.ttsVoice),
+      ttsVoiceName: get<String>(PreferenceKeys.ttsVoiceName),
       ttsSpeechRate:
-          PreferencesStore.get<num>(PreferenceKeys.ttsSpeechRate)?.toDouble() ??
+          get<num>(PreferenceKeys.ttsSpeechRate)?.toDouble() ??
           0.5,
       ttsPitch:
-          PreferencesStore.get<num>(PreferenceKeys.ttsPitch)?.toDouble() ?? 1.0,
+          get<num>(PreferenceKeys.ttsPitch)?.toDouble() ?? 1.0,
       ttsVolume:
-          PreferencesStore.get<num>(PreferenceKeys.ttsVolume)?.toDouble() ??
+          get<num>(PreferenceKeys.ttsVolume)?.toDouble() ??
           1.0,
       ttsEngine: _parseTtsEngine(
-        PreferencesStore.get<String>(PreferenceKeys.ttsEngine),
+        get<String>(PreferenceKeys.ttsEngine),
       ),
-      ttsServerVoiceId: PreferencesStore.get<String>(
+      ttsServerVoiceId: get<String>(
         PreferenceKeys.ttsServerVoiceId,
       ),
-      ttsServerVoiceName: PreferencesStore.get<String>(
+      ttsServerVoiceName: get<String>(
         PreferenceKeys.ttsServerVoiceName,
       ),
       sttPreference: _parseSttPreference(
-        PreferencesStore.get<String>(PreferenceKeys.voiceSttPreference),
+        get<String>(PreferenceKeys.voiceSttPreference),
       ),
       sttLanguageCode: normalizeSttLanguageCode(
-        PreferencesStore.get<String>(_voiceSttLanguageCodeKey),
+        get<String>(_voiceSttLanguageCodeKey),
       ),
       androidAssistantTrigger: _parseAndroidAssistantTrigger(
-        PreferencesStore.get<String>(_androidAssistantTriggerKey),
+        get<String>(_androidAssistantTriggerKey),
       ),
       voiceSilenceDuration:
-          (PreferencesStore.get<int>(_voiceSilenceDurationKey) ??
+          (get<int>(_voiceSilenceDurationKey) ??
                   defaultVoiceSilenceDurationMs)
               .clamp(minVoiceSilenceDurationMs, maxVoiceSilenceDurationMs),
       temporaryChatByDefault:
-          PreferencesStore.get<bool>(PreferenceKeys.temporaryChatByDefault) ??
+          get<bool>(PreferenceKeys.temporaryChatByDefault) ??
           false,
       advancedFeaturesEnabled:
-          PreferencesStore.get<bool>(PreferenceKeys.advancedFeaturesEnabled) ??
+          get<bool>(PreferenceKeys.advancedFeaturesEnabled) ??
           false,
       pinnedModels: sanitizePinnedModels(
-        PreferencesStore.getStringList(_pinnedModelsKey) ?? const <String>[],
+        getStringList(_pinnedModelsKey) ?? const <String>[],
       ),
       notificationsEnabled:
-          PreferencesStore.get<bool>(_notificationsEnabledKey) ?? false,
+          get<bool>(_notificationsEnabledKey) ?? false,
       notificationSound:
-          PreferencesStore.get<bool>(_notificationSoundKey) ?? true,
+          get<bool>(_notificationSoundKey) ?? true,
       notificationSoundAlways:
-          PreferencesStore.get<bool>(_notificationSoundAlwaysKey) ?? false,
+          get<bool>(_notificationSoundAlwaysKey) ?? false,
       notificationInAppBanner:
-          PreferencesStore.get<bool>(_notificationInAppBannerKey) ?? true,
+          get<bool>(_notificationInAppBannerKey) ?? true,
       notificationSystem:
-          PreferencesStore.get<bool>(_notificationSystemKey) ?? true,
+          get<bool>(_notificationSystemKey) ?? true,
       notificationChatEnabled:
-          PreferencesStore.get<bool>(_notificationChatEnabledKey) ?? true,
+          get<bool>(_notificationChatEnabledKey) ?? true,
       notificationChannelEnabled:
-          PreferencesStore.get<bool>(_notificationChannelEnabledKey) ?? true,
+          get<bool>(_notificationChannelEnabledKey) ?? true,
       webSearchEngine: WebSearchEngineChoice.parse(
-        PreferencesStore.get<String>(PreferenceKeys.webSearchEngine),
+        get<String>(PreferenceKeys.webSearchEngine),
       ),
       webSearchSafeSearch: parseSafeSearch(
-        PreferencesStore.get<String>(PreferenceKeys.webSearchSafeSearch),
+        get<String>(PreferenceKeys.webSearchSafeSearch),
       ),
-      webSearchRegion: PreferencesStore.get<String>(
+      webSearchRegion: get<String>(
         PreferenceKeys.webSearchRegion,
       ),
     );
@@ -1062,6 +1083,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
 
   @override
   AppSettings build() {
+    // Model and chat defaults belong to the active Open WebUI account, so a
+    // settled switch reloads them. Device-wide settings read the same values.
+    ref.watch(settledActiveAccountIdProvider);
     if (PreferencesStore.isReady) {
       return SettingsService._loadSettingsSync();
     }

@@ -928,9 +928,10 @@ void main() {
       // token last so every possible termination prefix is unauthenticated or
       // internally consistent.
       // The transaction now re-checks ownership after both strict baseline
-      // snapshots. The eighth check is immediately after the candidate token
-      // write and before publication.
-      canCommit: () => ++checks < 8,
+      // snapshots and after stashing the previous account's session. The
+      // ninth check is immediately after the candidate token write and before
+      // publication.
+      canCommit: () => ++checks < 9,
       publish: () => published = true,
     );
 
@@ -940,13 +941,25 @@ void main() {
     expect(await storage.getActiveServerId(), previous.id);
     expect(await storage.getAuthToken(), 'previous-token');
     expect(await storage.getSavedCredentials(), previousCredentials);
+    // The previous account was stashed before the commit; the rollback hands
+    // its session back to the live slots and leaves no vault copy behind.
+    expect(
+      secureStorageValues.containsKey('auth_token_server_v1:server-a'),
+      isFalse,
+    );
+    expect(
+      secureStorageValues.containsKey('user_credentials_server_v1:server-a'),
+      isFalse,
+    );
     expect(
       secureStorageOperations,
       containsAllInOrder([
+        'write:auth_token_server_v1:server-a',
         'delete:auth_token_v2',
         'delete:user_credentials_v2',
         'write:openwebui_registry_v1',
         'write:auth_token_v2',
+        'delete:auth_token_server_v1:server-a',
         'delete:auth_token_v2',
         'write:openwebui_registry_v1',
         'write:user_credentials_v2',
@@ -1453,7 +1466,7 @@ void main() {
     },
   );
 
-  test('fresh server selection is bearer-tokenless and preserves exact candidate headers', () async {
+  test('fresh server selection is bearer-tokenless, keeps the prior account and preserves exact candidate headers', () async {
     final previous = _serverConfig('server-a').copyWith(isActive: true);
     final target = _serverConfig('server-b').copyWith(
       apiKey: 'legacy-bearer',
@@ -1488,9 +1501,21 @@ void main() {
     expect(await storage.getAuthToken(), isNull);
     expect(await storage.getSavedCredentials(), isNull);
     expect(await storage.getServerConfigs(), [
+      previous.copyWith(isActive: false),
       target.copyWith(apiKey: null, isActive: true),
     ]);
+    // The account being left stays signed in, in the vault.
+    expect(secureStorageValues['auth_token_server_v1:server-a'], 'previous-token');
+    expect(
+      jsonDecode(secureStorageValues['user_credentials_server_v1:server-a']!)
+          as Map<String, dynamic>,
+      containsPair('username', 'previous-user'),
+    );
+    final stash = secureStorageOperations.indexOf(
+      'write:auth_token_server_v1:server-a',
+    );
     final tokenDelete = secureStorageOperations.indexOf('delete:auth_token_v2');
+    expect(stash, lessThan(tokenDelete));
     final credentialsDelete = secureStorageOperations.indexOf(
       'delete:user_credentials_v2',
     );
