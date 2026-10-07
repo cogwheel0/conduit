@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -185,6 +188,8 @@ void main() {
     ).thenAnswer((_) async {});
     when(() => storage.getActiveServerId())
         .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
     when(
       () => storage.removeAccount(
         'account-a',
@@ -279,7 +284,10 @@ void main() {
       ),
     ).thenAnswer((_) async {});
     when(() => storage.getActiveServerId()).thenAnswer((_) async => active);
-    when(() => storage.removeAccount('account-a')).thenAnswer((_) async => false);
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => active);
+    when(() => storage.removeInactiveAccount('account-a'))
+        .thenAnswer((_) async => true);
     final workerManager = WorkerManager();
     // A switch to B finishes while the server is asked to end A's session.
     final api = _LoggingOutApi(workerManager, onLogout: () {
@@ -312,7 +320,99 @@ void main() {
     check(container.read(authStateManagerProvider).requireValue.status)
         .not((it) => it.equals(AuthStatus.unauthenticated));
     check(isolation.purged).deepEquals(['account-a']);
-    verify(() => storage.removeAccount('account-a')).called(1);
+    verify(() => storage.removeInactiveAccount('account-a')).called(1);
+  });
+
+  test('a sign-out of an inactive account overtaken by a switch to it '
+      'settles tokenless', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    String? active = 'account-a';
+    String? token = _tokenA;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => token);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => active == 'account-b' ? _userB : _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId()).thenAnswer((_) async => active);
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => active);
+    when(() => storage.vaultedTokenFor('account-b'))
+        .thenAnswer((_) async => _tokenB);
+    when(() => storage.getOpenWebUiRegistryStrict()).thenAnswer(
+      (_) async => OpenWebUiRegistry.empty.mergeServerConfigs(const [
+        ServerConfig(id: 'account-a', name: 'A', url: 'https://a.example'),
+        ServerConfig(id: 'account-b', name: 'B', url: 'https://b.example'),
+      ]),
+    );
+    when(
+      () => storage.switchActiveServer(
+        fromServerId: 'account-a',
+        toServerId: 'account-b',
+      ),
+    ).thenAnswer((_) async {
+      active = 'account-b';
+      token = _tokenB;
+      return true;
+    });
+    // Storage decides under its own lock whether B is active.
+    when(() => storage.removeInactiveAccount('account-b'))
+        .thenAnswer((_) async => active != 'account-b');
+    when(() => storage.removeAccount('account-b')).thenAnswer((_) async {
+      active = null;
+      token = null;
+      return false;
+    });
+    late final ProviderContainer container;
+    final workerManager = WorkerManager();
+    addTearDown(workerManager.dispose);
+    // The user switches to B while its vaulted session is ended on the
+    // server.
+    final api = _LoggingOutApi(
+      workerManager,
+      serverConfig: const ServerConfig(
+        id: 'account-b',
+        name: 'B',
+        url: 'https://b.example',
+      ),
+      onLogout: () => container
+          .read(authStateManagerProvider.notifier)
+          .switchToAccount('account-b'),
+    );
+
+    container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+        savedCredentialAuthApiFactoryProvider.overrideWithValue(
+          ({required serverConfig, required workerManager}) => api,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    final signedIn = await container
+        .read(authStateManagerProvider.notifier)
+        .signOutAccount('account-b');
+
+    // B is gone, so nothing may go on carrying its bearer: the next API
+    // client would send it to whichever server is left.
+    check(signedIn).isFalse();
+    final after = container.read(authStateManagerProvider).requireValue;
+    check(after.token).isNull();
+    check(after.status).not((it) => it.equals(AuthStatus.authenticated));
+    check(container.read(apiAuthTokenMirrorProvider)).isNull();
+    check(isolation.switches).equals(2);
+    check(isolation.purged).deepEquals(['account-b']);
   });
 }
 
@@ -351,17 +451,17 @@ final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
 
 /// An API client whose server logout runs [onLogout] instead of a request.
 final class _LoggingOutApi extends ApiService {
-  _LoggingOutApi(WorkerManager workerManager, {required this.onLogout})
-    : super(
-        serverConfig: const ServerConfig(
-          id: 'account-a',
-          name: 'A',
-          url: 'https://a.example',
-        ),
-        workerManager: workerManager,
-      );
+  _LoggingOutApi(
+    WorkerManager workerManager, {
+    required this.onLogout,
+    super.serverConfig = const ServerConfig(
+      id: 'account-a',
+      name: 'A',
+      url: 'https://a.example',
+    ),
+  }) : super(workerManager: workerManager);
 
-  final void Function() onLogout;
+  final FutureOr<void> Function() onLogout;
 
   @override
   Future<void> logout({ApiAuthSnapshot? authSnapshot}) async => onLogout();

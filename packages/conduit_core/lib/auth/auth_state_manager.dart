@@ -1166,13 +1166,13 @@ class AuthStateManager extends _$AuthStateManager {
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
       Future<bool> isActive() async {
-        final activeId = await storage.getActiveServerId();
+        final activeId = await storage.getEffectiveActiveServerId();
         return activeId == accountId ||
             (activeId == null &&
                 ref.read(activeServerProvider).asData?.value?.id == accountId);
       }
 
-      var signedIn = _current.isAuthenticated;
+      final bool signedIn;
       var revoked = false;
       if (await isActive()) {
         final api = ref.read(apiServiceProvider);
@@ -1192,7 +1192,19 @@ class AuthStateManager extends _$AuthStateManager {
       // A switch can finish while the server is asked. The account is then
       // no longer the active one, and leaving it must not touch the one that
       // is: no boundary, no tokenless state for the account now in use.
-      if (await isActive()) {
+      var removedInactive = false;
+      if (!await isActive()) {
+        if (!revoked) await _revokeVaultedSession(storage, accountId);
+        // The reverse too: a switch to it can land while its vaulted session
+        // is ended on the server. Storage then declines, and it is removed
+        // below as the active account, behind a boundary, so auth does not
+        // go on holding the token of an account that is gone.
+        removedInactive = await storage.removeInactiveAccount(accountId);
+      }
+      if (removedInactive) {
+        ref.invalidate(serverConfigsProvider);
+        signedIn = _current.isAuthenticated;
+      } else {
         final attemptRevision = _enterAccountBoundary();
         final bool hasSession;
         try {
@@ -1222,10 +1234,6 @@ class AuthStateManager extends _$AuthStateManager {
                 attemptRevision: attemptRevision,
                 hasSession: hasSession || !removedActive,
               );
-      } else {
-        if (!revoked) await _revokeVaultedSession(storage, accountId);
-        await storage.removeAccount(accountId);
-        ref.invalidate(serverConfigsProvider);
       }
 
       await _accountStorageIsolation.purgeAccount(accountId);

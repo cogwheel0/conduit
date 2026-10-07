@@ -2304,7 +2304,24 @@ class OptimizedStorageService {
   /// up its vaulted session; without one the active id is cleared. Returns
   /// whether the newly active account has a session to restore. Purging the
   /// account's local data is the caller's job, after this returns.
-  Future<bool> removeAccount(String accountId, {String? thenActivate}) {
+  Future<bool> removeAccount(String accountId, {String? thenActivate}) async =>
+      await _removeAccount(accountId, thenActivate: thenActivate) ?? false;
+
+  /// Forgets [accountId] as [removeAccount] does, unless it is the active
+  /// account: then it changes nothing and returns false.
+  ///
+  /// Deciding that under the same locks as the removal is what keeps a
+  /// switch to it from landing in between, after which its live session
+  /// would be deleted with nobody told.
+  Future<bool> removeInactiveAccount(String accountId) async =>
+      await _removeAccount(accountId, onlyIfInactive: true) != null;
+
+  /// Null when [onlyIfInactive] declined.
+  Future<bool?> _removeAccount(
+    String accountId, {
+    String? thenActivate,
+    bool onlyIfInactive = false,
+  }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
         final configs = await _getServerConfigsStrictUnlocked(
@@ -2317,6 +2334,7 @@ class OptimizedStorageService {
               rawActiveServerId: rawActive,
             ) ==
             accountId;
+        if (wasActive && onlyIfInactive) return null;
         if (wasActive) {
           await _deleteAuthTokenUnlocked();
           await _deleteSavedCredentialsUnlocked();

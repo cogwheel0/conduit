@@ -493,6 +493,23 @@ void main() {
           .deepEquals(['b']);
     });
 
+    test('removing an inactive one declines once it is active', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      await signIn('a');
+
+      check(await storage.removeInactiveAccount('b')).isTrue();
+      check(await storage.removeInactiveAccount('a')).isFalse();
+
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await storage.getActiveServerId()).equals('a');
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['a', 'c']);
+    });
+
     test('the last one leaves nothing active', () async {
       await storage.saveServerConfigs([account('a')]);
       await signIn('a', password: 'pw-a');
