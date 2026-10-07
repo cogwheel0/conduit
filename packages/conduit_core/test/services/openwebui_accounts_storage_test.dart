@@ -1662,6 +1662,72 @@ void main() {
           .equals('http://10.0.0.2:3000');
     });
 
+    group('signing out', () {
+      // a and b each keep a cookie on the proxy route, which is not in use.
+      Future<OpenWebUiServer> cookiesOnProxy() async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        final server = await addRoute('proxy', 'https://proxy.example.com');
+        for (final id in ['a', 'b']) {
+          await storage.saveEndpointSessionHeaders(
+            accountId: id,
+            endpointId: 'proxy',
+            headers: {'Cookie': 'session=$id'},
+          );
+        }
+        await signIn('a');
+        return server;
+      }
+
+      test('of every account clears cookies on routes not in use', () async {
+        final server = await cookiesOnProxy();
+
+        await storage.clearAuthData();
+        await storage.selectEndpoint(server.id, 'proxy');
+
+        for (final config in await storage.getServerConfigs()) {
+          check(config.customHeaders).isEmpty();
+        }
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        for (final account in registry.accounts) {
+          check(account.capturedHeaders).isEmpty();
+        }
+      });
+
+      test('of the active account clears its cookies alone', () async {
+        final server = await cookiesOnProxy();
+
+        check(await storage.clearActiveAccountAuthDataIf(canClear: () => true))
+            .isTrue();
+        await storage.selectEndpoint(server.id, 'proxy');
+
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        check(registry.account('a')!.capturedHeaders).isEmpty();
+        check(registry.account('b')!.capturedHeaders).deepEquals({
+          'proxy': {'Cookie': 'session=b'},
+        });
+      });
+
+      test('a rollback failing closed clears cookies on every route', () async {
+        await cookiesOnProxy();
+
+        await check(
+          storage.selectUnauthenticatedServerConfig(
+            account('c', url: 'https://other.example.com'),
+            publish: () {
+              // The rollback's own restore of the configs then fails too.
+              secure.failNextRegistryWrite = true;
+              throw StateError('publish failed');
+            },
+          ),
+        ).throws<ServerConfigSessionRollbackException>();
+
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        for (final account in registry.accounts) {
+          check(account.capturedHeaders).isEmpty();
+        }
+      });
+    });
+
     test('removing the route in use falls back to the first', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');

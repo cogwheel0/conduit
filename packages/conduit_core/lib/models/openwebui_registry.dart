@@ -514,17 +514,21 @@ final class OpenWebUiRegistry {
     );
   }
 
-  /// This registry without the session headers any account captured, on
-  /// every route: the proxy cookies a sign-out revokes.
-  OpenWebUiRegistry withoutCapturedHeaders() => OpenWebUiRegistry(
-    servers: servers,
-    accounts: [
-      for (final account in accounts)
-        account.copyWith(
-          capturedHeaders: const <String, Map<String, String>>{},
-        ),
-    ],
-  );
+  /// This registry without the session headers captured for [accountId], or
+  /// for every account when it is null, on every route. A projection only
+  /// shows the route in use; a cookie left on another comes back with it.
+  OpenWebUiRegistry withoutCapturedHeaders({String? accountId}) =>
+      OpenWebUiRegistry(
+        servers: servers,
+        accounts: [
+          for (final account in accounts)
+            accountId == null || account.id == accountId
+                ? account.copyWith(
+                    capturedHeaders: const <String, Map<String, String>>{},
+                  )
+                : account,
+        ],
+      );
 
   /// This registry with [account] replacing the stored account of its id.
   OpenWebUiRegistry withAccount(OpenWebUiAccount account) => OpenWebUiRegistry(

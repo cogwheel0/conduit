@@ -1219,30 +1219,6 @@ class OptimizedStorageService {
     return null;
   }
 
-  ServerConfig _revokeServerConfigAuthArtifacts(ServerConfig config) {
-    // Only Open WebUI *session* credentials are revoked here. The legacy
-    // apiKey bearer and app-captured proxy session cookies (merged into a
-    // Cookie custom header by the reverse-proxy flow) authenticate a signed-in
-    // session and must not survive logout. Everything else on the config is a
-    // connection prerequisite, not a session credential: user-configured
-    // custom headers (Cloudflare Access service tokens, Authelia header
-    // gates) and the mTLS client identity are required just to reach the
-    // sign-in page, so scrubbing them would strand the user before re-login.
-    // They are preserved exactly like the server URL.
-    final hasCookieHeader = config.customHeaders.keys.any(
-      (key) => key.toLowerCase() == 'cookie',
-    );
-    if (config.apiKey == null && !hasCookieHeader) return config;
-    final sanitizedHeaders = hasCookieHeader
-        ? Map<String, String>.fromEntries(
-            config.customHeaders.entries.where(
-              (entry) => entry.key.toLowerCase() != 'cookie',
-            ),
-          )
-        : config.customHeaders;
-    return config.copyWith(apiKey: null, customHeaders: sanitizedHeaders);
-  }
-
   /// What a sign-out that keeps server details keeps of [registry]: every
   /// server with all its routes in order, their URLs, labels and certificate
   /// policy, and every account, no longer proven to be anyone and without
@@ -2335,6 +2311,8 @@ class OptimizedStorageService {
         tokenAlreadyDeleted: true,
       ),
     );
+    // If that restore failed, whatever the commit wrote is still there.
+    if (restoreConfigs) await attempt(_scrubServerConfigAuthArtifactsUnlocked);
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -4020,23 +3998,9 @@ class OptimizedStorageService {
         final (configs, activeId) = await activeAccount();
         if (activeId == null) return;
         await attempt(() => _deleteVaultedSessionUnlocked(activeId));
-        await attempt(() async {
-          var changed = false;
-          final sanitized = [
-            for (final config in configs)
-              if (config.id == activeId)
-                () {
-                  final revoked = _revokeServerConfigAuthArtifacts(config);
-                  changed = revoked != config;
-                  return revoked;
-                }()
-              else
-                config,
-          ];
-          if (changed) {
-            await _saveServerConfigsUnlocked(sanitized, authorizeReads: false);
-          }
-        });
+        await attempt(
+          () => _scrubServerConfigAuthArtifactsUnlocked(accountId: activeId),
+        );
       });
       _stagedServerConfigCandidate = null;
     });
@@ -4046,27 +4010,21 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> _scrubServerConfigAuthArtifactsUnlocked() async {
-    // After a wipe whose delete failed, the old registry is still stored,
-    // cookies and all. What the wipe meant to leave goes over it: a copy
-    // with only its secrets taken out would keep what the wipe removed.
-    final leftByWipe = _registryLeftByWipe;
-    if (leftByWipe != null) {
-      await _saveRegistryUnlocked(leftByWipe, authorizeReads: false);
-      return;
-    }
-    final configs = await _getServerConfigsStrictUnlockedBypassingSuppression();
-    var changed = false;
-    final sanitized = configs
-        .map((config) {
-          final revoked = _revokeServerConfigAuthArtifacts(config);
-          if (revoked == config) return config;
-          changed = true;
-          return revoked;
-        })
-        .toList(growable: false);
-    if (changed) {
-      await _saveServerConfigsUnlocked(sanitized, authorizeReads: false);
+  /// Revokes the proxy cookies captured for [accountId], or for every
+  /// account, on every route of their servers. Scrubbing the projected
+  /// configs would reach only the routes in use. The registry never stores a
+  /// legacy apiKey, so the cookies are all there is to revoke.
+  ///
+  /// After a wipe whose delete failed, the old registry is still stored,
+  /// cookies and all, under the one writes build on: written over, the wipe
+  /// is finished.
+  Future<void> _scrubServerConfigAuthArtifactsUnlocked({
+    String? accountId,
+  }) async {
+    final registry = await _registryForWriteUnlocked();
+    final scrubbed = registry.withoutCapturedHeaders(accountId: accountId);
+    if (scrubbed != registry || _registryLeftByWipe != null) {
+      await _saveRegistryUnlocked(scrubbed, authorizeReads: false);
     }
   }
 
