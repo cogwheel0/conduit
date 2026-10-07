@@ -2120,6 +2120,73 @@ void main() {
       },
     );
 
+    test('a purge overtaken by a switch leaves the next account\'s cache', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        PreferenceKeys.activeServerId: _server.id,
+      });
+      PreferencesStore.debugReset();
+      HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+      final preferences = await FlutterKeyValueStore.load();
+      Completer<void>? holdTrustWrite;
+      PreferencesStore.debugOverride(
+        preferences,
+        writeInterceptor: (_, key, value) async {
+          if (key == PreferenceKeys.hermesMixedSessionBindingTrust) {
+            await holdTrustWrite?.future;
+          }
+          return null;
+        },
+      );
+      addTearDown(() {
+        HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+        PreferencesStore.debugReset();
+      });
+      final marker = openWebUiAccountOwnerMarker(
+        token: 'token-a',
+        userId: _userA.id,
+      )!;
+      await HermesMixedSessionBindingTrustStore.remember(
+        storageAccountIdentity:
+            HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
+              serverId: _server.id,
+              userId: _userA.id,
+              tokenFingerprint: marker.tokenFingerprint,
+            ),
+        conversationId: 'account-a-chat',
+        assistantMessageId: 'assistant-a',
+        sessionId: 'session-a',
+        connectionIdentity: 'connection-a',
+      );
+      final clearedWhileActive = <String?>[];
+      final harness = await _harness(
+        accountCacheClear: () async => clearedWhileActive.add(
+          PreferencesStore.getString(PreferenceKeys.activeServerId),
+        ),
+        databasePurge: (_) async {},
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      // Another user on the open account starts its purge, which stops
+      // revoking the old owner's trust.
+      final hold = holdTrustWrite = Completer<void>();
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      // Meanwhile the app switches to another account.
+      isolation.beginAccountSwitch();
+      await PreferencesStore.put(PreferenceKeys.activeServerId, _serverTwo.id);
+      hold.complete();
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(clearedWhileActive).not((it) => it.contains(_serverTwo.id));
+    });
+
     test('a session ending mid-purge keeps the files closed', () async {
       final releasePurge = Completer<void>();
       final purged = <String>[];

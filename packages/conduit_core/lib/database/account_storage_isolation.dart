@@ -608,7 +608,13 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
             revokedStorageAccountIdentities.add(storageAccountIdentity);
           }
         }
-        await ref.read(openWebUiAccountCacheClearProvider)();
+        // The cache clear acts on whichever account is active when it runs,
+        // not on [serverId]. A switch since this purge began made another
+        // account active; clearing now would empty that account's cache. The
+        // database and marker below are this account's and still go.
+        if (generation == _purgeGeneration) {
+          await ref.read(openWebUiAccountCacheClearProvider)();
+        }
         await ref.read(openWebUiDatabasePurgeProvider)(serverId);
         await _removeOwnerMarker(serverId);
         lastError = null;
