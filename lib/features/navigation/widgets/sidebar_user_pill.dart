@@ -44,7 +44,10 @@ import 'package:conduit_core/utils/user_avatar_utils.dart';
 
 import 'package:conduit_core/utils/user_display_name.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
+import '../../hermes/widgets/hermes_connection_switcher.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
@@ -369,13 +372,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     final directTitle = l10n.directConnectionsTitle;
+    final hermesName = ref.watch(hermesActiveConnectionNameProvider);
     final displayName = hermesOnly
-        ? 'Hermes Agent'
+        ? hermesName ?? kHermesDefaultConnectionName
         : directPrimary && user == null
         ? directTitle
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
     final initial = hermesOnly
-        ? 'HA'
+        ? hermesConnectionInitials(hermesName)
         : directPrimary && user == null
         ? directTitle.characters.first.toUpperCase()
         : displayName.isEmpty
@@ -710,6 +714,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       l10n,
       account: rootAccount,
       visibility: visibility,
+      hermesConnectionName: ref.read(hermesActiveConnectionNameProvider),
     );
     final supportItems = buildNativeSupportItems(l10n);
     // The native sheet lays itself out from [sections]; the flat lists are
@@ -723,12 +728,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       profileMenuTitle: nativeSettingsTitle(l10n),
       profile: hermesOnly
           ? NativeProfileSheetUser(
-              displayName: 'Hermes Agent',
+              displayName:
+                  ref.read(hermesActiveConnectionNameProvider) ??
+                  kHermesDefaultConnectionName,
               email: _hermesHostLabel(
                 ref,
                 fallback: l10n.hermesSelfHostedAgentLabel,
               ),
-              initials: 'HA',
+              initials: hermesConnectionInitials(
+                ref.read(hermesActiveConnectionNameProvider),
+              ),
               avatarBytes: hermesAvatarBytes,
               avatarIsTemplate: true,
             )

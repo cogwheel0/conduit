@@ -222,6 +222,7 @@ class NativeSheetHydrationService {
         l10n,
         account: root.account,
         visibility: readNativeProfileRootVisibility(_ref.read),
+        hermesConnectionName: _ref.read(hermesActiveConnectionNameProvider),
       ),
     );
     // The sheet is gone (or never took a root patch); stop rebuilding it.

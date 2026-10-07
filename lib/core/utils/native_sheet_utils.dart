@@ -144,10 +144,14 @@ class NativeProfileRootAccount {
 ///
 /// Pure, so the open sheet can be rebuilt with the same rows when a setting
 /// it depends on (Advanced) changes while it is up.
+///
+/// [hermesConnectionName] names the active saved Hermes connection under the
+/// Hermes Agent row.
 List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   AppLocalizations l10n, {
   required NativeProfileRootAccount? account,
   required NativeProfileRootVisibility visibility,
+  String? hermesConnectionName,
 }) {
   final hasAccount = account != null;
   final profileItem = account == null
@@ -219,6 +223,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
     NativeSheetItemConfig(
       id: NativeSheetRoutes.hermes,
       title: l10n.hermesAgentSettingsTitle,
+      subtitle: hermesConnectionName,
       sfSymbol: 'sparkles',
       iconAsset: 'assets/icons/hermes_agent.png',
       iconSize: 26,
