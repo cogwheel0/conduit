@@ -479,7 +479,6 @@ void main() {
   });
 
   testWidgets('the enable row announces whether Hermes is on', (tester) async {
-    final semantics = tester.ensureSemantics();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [secureStorageProvider.overrideWithValue(secrets)],
@@ -498,7 +497,6 @@ void main() {
       ),
       isSemantics(hasToggledState: true, isToggled: true),
     );
-    semantics.dispose();
   });
 
   test('initials come from the first two words of a name', () {
