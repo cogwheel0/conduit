@@ -2199,7 +2199,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
             spacing: Spacing.xs,
             runSpacing: Spacing.xs,
             children: [
-              ChoiceChip(
+              AdaptiveChip.choice(
                 label: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2216,7 +2216,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
                 onSelected: _isSaving ? null : (_) => _selectIcon(null),
               ),
               for (final option in folderIconOptions)
-                ChoiceChip(
+                AdaptiveChip.choice(
                   label: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

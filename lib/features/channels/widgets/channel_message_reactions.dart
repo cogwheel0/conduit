@@ -1,4 +1,7 @@
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/platform_ui/vocabulary.dart';
 
 import 'package:conduit_core/models/channel_message.dart';
 
@@ -33,7 +36,7 @@ class ChannelMessageReactions extends StatelessWidget {
           final isActive = reaction.users.any(
             (u) => u['user_id'] == currentUserId || u['id'] == currentUserId,
           );
-          return ActionChip(
+          return AdaptiveChip.action(
             label: Text(
               '${reaction.name} ${reaction.count}',
               style: AppTypography.labelMediumStyle,
