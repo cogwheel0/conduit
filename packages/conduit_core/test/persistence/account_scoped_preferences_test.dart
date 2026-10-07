@@ -5,8 +5,17 @@ import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show SettledActiveAccountId, settledActiveAccountIdProvider;
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
+
+/// The settled account stays on A, so settings do not reload mid-test.
+final class _SettledOnA extends SettledActiveAccountId {
+  @override
+  String? build() => 'a';
+}
 
 /// Model and chat defaults that belong to one Open WebUI account.
 void main() {
@@ -88,6 +97,63 @@ void main() {
     await activate('a');
     check(await SettingsService.getDefaultModel()).equals('on-a');
   });
+
+  test(
+    'server notification prefs land under the account they came from',
+    () async {
+      await PreferencesStore.put(
+        PreferenceKeys.accountScopedSettingsMigrated,
+        true,
+      );
+      await activate('a');
+      final container = ProviderContainer(
+        overrides: [
+          settledActiveAccountIdProvider.overrideWith(_SettledOnA.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      final settings = container.read(appSettingsProvider.notifier);
+      bool? stored(String key, String accountId) =>
+          PreferencesStore.getBool(accountScopedPreferenceKey(key, accountId));
+      void checkNothingOnB() {
+        for (final key in const [
+          PreferenceKeys.notificationsEnabled,
+          PreferenceKeys.notificationSound,
+          PreferenceKeys.notificationSoundAlways,
+        ]) {
+          check(stored(key, 'b')).isNull();
+        }
+      }
+
+      final apply = settings.applyServerNotificationPrefs(
+        accountId: 'a',
+        enabled: true,
+        sound: false,
+        soundAlways: true,
+      );
+      await activate('b');
+      await apply;
+
+      checkNothingOnB();
+      check(stored(PreferenceKeys.notificationsEnabled, 'a')).equals(true);
+      check(stored(PreferenceKeys.notificationSound, 'a')).equals(false);
+      check(stored(PreferenceKeys.notificationSoundAlways, 'a')).equals(true);
+
+      // Prefs fetched for A that arrive once B is active still go to A, and
+      // leave the settings on screen alone.
+      final shown = container.read(appSettingsProvider);
+      await settings.applyServerNotificationPrefs(
+        accountId: 'a',
+        enabled: false,
+        sound: true,
+        soundAlways: false,
+      );
+
+      checkNothingOnB();
+      check(stored(PreferenceKeys.notificationsEnabled, 'a')).equals(false);
+      check(container.read(appSettingsProvider)).identicalTo(shown);
+    },
+  );
 
   test('a saved server voice is read back for its account', () async {
     await PreferencesStore.put(

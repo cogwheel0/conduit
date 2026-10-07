@@ -264,6 +264,7 @@ class PersonalizationSettings extends _$PersonalizationSettings {
         ref
             .read(appSettingsProvider.notifier)
             .applyServerNotificationPrefs(
+              accountId: serverId,
               enabled: settings.notificationEnabled,
               sound: settings.notificationSound,
               soundAlways: settings.notificationSoundAlways,

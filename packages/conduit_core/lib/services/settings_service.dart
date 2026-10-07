@@ -1180,23 +1180,32 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   /// without echoing them back to the server. Used at bootstrap so the server
   /// stays authoritative for cross-device parity. Only writes when a value
   /// actually changed to avoid spurious rebuilds.
+  ///
+  /// They are stored under [accountId], the account they were fetched for:
+  /// a switch can complete before or while they are written, and they must
+  /// not land under the account that took over.
   Future<void> applyServerNotificationPrefs({
+    required String accountId,
     bool? enabled,
     bool? sound,
     bool? soundAlways,
   }) async {
-    final next = state.copyWith(
-      notificationsEnabled: enabled,
-      notificationSound: sound,
-      notificationSoundAlways: soundAlways,
-    );
-    if (next == state) return;
-    state = next;
-    if (enabled != null) await SettingsService.setNotificationsEnabled(enabled);
-    if (sound != null) await SettingsService.setNotificationSound(sound);
-    if (soundAlways != null) {
-      await SettingsService.setNotificationSoundAlways(soundAlways);
+    if (currentPreferenceAccountId() == accountId) {
+      final next = state.copyWith(
+        notificationsEnabled: enabled,
+        notificationSound: sound,
+        notificationSoundAlways: soundAlways,
+      );
+      if (next == state) return;
+      state = next;
     }
+    String key(String baseKey) =>
+        accountScopedPreferenceKey(baseKey, accountId);
+    await PreferencesStore.putAll({
+      key(SettingsService._notificationsEnabledKey): ?enabled,
+      key(SettingsService._notificationSoundKey): ?sound,
+      key(SettingsService._notificationSoundAlwaysKey): ?soundAlways,
+    });
   }
 
   Future<void> setHighContrast(bool value) async {
