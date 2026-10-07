@@ -1914,16 +1914,30 @@ class OptimizedStorageService {
       configs: configs,
       rawActiveServerId: _rawStoredActiveServerId(bypassReadSuppression: true),
     );
-    final credentialOwner = _savedCredentialsServerId(
-      await _secureCredentialStorage.getSavedCredentialsPayloadStrict(),
-    );
+    final credentials = await _secureCredentialStorage
+        .getSavedCredentialsPayloadStrict();
+    final credentialOwner = _savedCredentialsServerId(credentials);
     final vaulted = await _secureCredentialStorage.vaultedServerIds();
     const markers = PreferencesOpenWebUiAccountOwnerMarkerStore();
+    final collapsedInto = <String, String>{};
     final registry = OpenWebUiRegistry.fromLegacyServerConfigs(
       configs,
       priority: <String>[?activeId, ?credentialOwner, ...vaulted],
       userIdFor: (accountId) => markers.read(accountId)?.userId,
+      onCollapsed: (droppedId, keptId) => collapsedInto[droppedId] = keptId,
     );
+
+    // The saved sign-in may name an account that collapsed into another of
+    // the same user; it follows that account, or a silent sign-in would find
+    // its owner gone and drop it. Before the registry write, so a crash
+    // reruns the migration with the sign-in already owned by a kept account.
+    final credentialHeir = collapsedInto[credentialOwner];
+    if (credentials != null && credentialHeir != null) {
+      final decoded = jsonDecode(credentials) as Map<String, dynamic>;
+      await _secureCredentialStorage.restoreSavedCredentialsPayload(
+        jsonEncode(<String, dynamic>{...decoded, 'serverId': credentialHeir}),
+      );
+    }
 
     final encoded = registry.encode();
     await _secureCredentialStorage.saveOpenWebUiRegistry(encoded);

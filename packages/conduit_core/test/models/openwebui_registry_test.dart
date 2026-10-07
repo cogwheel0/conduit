@@ -223,6 +223,24 @@ void main() {
       check(registry.servers).length.equals(1);
     });
 
+    test('an id listed twice ranks where it is listed first', () {
+      final collapsed = <String, String>{};
+      final registry = OpenWebUiRegistry.fromLegacyServerConfigs(
+        [
+          config('older', url: 'https://chat.example.com'),
+          config('active', url: 'https://chat.example.com'),
+        ],
+        // The active account first, and again later as a vaulted id.
+        priority: const ['active', 'older', 'active'],
+        userIdFor: (_) => 'user-1',
+        onCollapsed: (dropped, kept) => collapsed[dropped] = kept,
+      );
+
+      check(registry.accounts.map((account) => account.id))
+          .deepEquals(['active']);
+      check(collapsed).deepEquals({'older': 'active'});
+    });
+
     test('two users on one server stay two accounts on it', () {
       final registry = OpenWebUiRegistry.fromLegacyServerConfigs(
         [

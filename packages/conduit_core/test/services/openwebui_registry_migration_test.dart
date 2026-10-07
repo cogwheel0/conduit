@@ -123,6 +123,34 @@ void main() {
         .deepEquals({'active', 'credential-owner', 'vaulted'});
   });
 
+  test('a saved sign-in follows the account its owner collapsed into', () async {
+    seedLegacy([
+      server('active', url: 'https://chat.example.com'),
+      server('owner', url: 'https://chat.example.com'),
+    ]);
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'active');
+    // Left behind by an interrupted commit: the sign-in names the older
+    // account of the same user on the same server.
+    secureStore.values['user_credentials_v2'] = jsonEncode({
+      'serverId': 'owner',
+      'username': 'u',
+      'password': 'p',
+    });
+    const markers = PreferencesOpenWebUiAccountOwnerMarkerStore();
+    for (final id in ['active', 'owner']) {
+      await markers.write(id, (tokenFingerprint: 'fp-$id', userId: 'user-1'));
+    }
+
+    final configs = await newStorage().getServerConfigsStrict();
+
+    check(configs.map((config) => config.id)).deepEquals(['active']);
+    final saved =
+        jsonDecode(secureStore.values['user_credentials_v2']!)
+            as Map<String, dynamic>;
+    check(saved['serverId']).equals('active');
+    check(saved['password']).equals('p');
+  });
+
   test('a lone config without an active id is kept as the fallback', () async {
     seedLegacy([server('only')]);
 

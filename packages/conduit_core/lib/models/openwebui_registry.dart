@@ -509,17 +509,20 @@ final class OpenWebUiRegistry {
   /// now as accounts would surprise the user. Configs that reach the server
   /// identically share one server record. Two kept configs proven to belong
   /// to the same user on the same server collapse into the one listed first
-  /// in [priority].
+  /// in [priority]; [onCollapsed] hears of each, so whatever named the dropped
+  /// one can follow it.
   factory OpenWebUiRegistry.fromLegacyServerConfigs(
     List<ServerConfig> configs, {
     required List<String> priority,
     required String? Function(String accountId) userIdFor,
+    void Function(String droppedId, String keptId)? onCollapsed,
   }) {
     final keep = priority.toSet();
-    final rank = <String, int>{
-      for (var index = 0; index < priority.length; index++)
-        priority[index]: index,
-    };
+    // An id listed twice ranks where it is listed first.
+    final rank = <String, int>{};
+    for (var index = 0; index < priority.length; index++) {
+      rank.putIfAbsent(priority[index], () => index);
+    }
     final kept = configs.where((config) => keep.contains(config.id)).toList()
       ..sort(
         (left, right) => (rank[left.id] ?? priority.length).compareTo(
@@ -528,12 +531,17 @@ final class OpenWebUiRegistry {
       );
     final merged = OpenWebUiRegistry.empty.mergeServerConfigs(kept);
 
-    final owners = <(String, String)>{};
+    final owners = <(String, String), String>{};
     final accounts = <OpenWebUiAccount>[];
     for (final account in merged.accounts) {
       final userId = userIdFor(account.id)?.trim();
       if (userId != null && userId.isNotEmpty) {
-        if (!owners.add((account.serverId, userId))) continue;
+        final owner = owners[(account.serverId, userId)];
+        if (owner != null) {
+          onCollapsed?.call(account.id, owner);
+          continue;
+        }
+        owners[(account.serverId, userId)] = account.id;
         accounts.add(account.copyWith(userId: userId));
       } else {
         accounts.add(account);
