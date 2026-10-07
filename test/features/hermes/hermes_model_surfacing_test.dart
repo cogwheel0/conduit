@@ -840,6 +840,51 @@ void main() {
       check(isHermesModel(model!)).isTrue();
     });
 
+    test('default model follows a switch while resolving', () async {
+      final hermesController = _MutableHermesConfigController(
+        _usableHermes.copyWith(
+          connectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          name: 'Alpha',
+        ),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          preferredBackendProvider.overrideWith(
+            () => _FakePreferredBackendController(PreferredBackend.hermes),
+          ),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          isAuthLoadingProvider2.overrideWithValue(false),
+          authStatusProvider.overrideWithValue(AuthStatus.unauthenticated),
+          apiServiceProvider.overrideWithValue(null),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(() => hermesController),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Let startup reconciliation settle, then clear the selection: with
+      // nothing selected, no selection follows the switch below.
+      container.read(selectedModelProvider);
+      await pumpEventQueue();
+      container.read(selectedModelProvider.notifier).set(null);
+
+      final pendingDefault = container.read(defaultModelProvider.future);
+      hermesController.setConfig(
+        _usableHermes.copyWith(
+          connectionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          name: 'Beta',
+        ),
+      );
+      await pendingDefault;
+
+      check(container.read(selectedModelProvider))
+          .isNotNull()
+          .has((model) => model.name, 'name')
+          .equals('Beta');
+    });
+
     test('default model reacts when reviewer mode is enabled', () async {
       final container = ProviderContainer(
         overrides: [

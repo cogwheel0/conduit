@@ -53,7 +53,6 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
   // owns reconciliation, and the post-await checks below reject stale
   // snapshots.
   final preferredBackend = ref.read(preferredBackendProvider);
-  final hermesConfig = ref.read(hermesConfigProvider);
   final reviewerMode = ref.read(reviewerModeProvider);
   final selectedAtResolutionStart = ref.read(selectedModelProvider);
   final manualAtResolutionStart = ref.read(isManualModelSelectionProvider);
@@ -178,11 +177,14 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         ? null
         : ref.read(appSettingsProvider).defaultModel;
     final Model? standalone;
+    // Read again: the active connection may have changed during the auth wait,
+    // and the synthetic model carries its name.
+    final hermesAtSelection = ref.read(hermesConfigProvider);
     if (preferredBackend == PreferredBackend.hermes) {
-      standalone = hermesConfig.isUsable
+      standalone = hermesAtSelection.isUsable
           ? (currentSelected != null && isHermesModel(currentSelected)
                 ? currentSelected
-                : hermesSyntheticModel(name: hermesConfig.name))
+                : hermesSyntheticModel(name: hermesAtSelection.name))
           : null;
     } else if (preferredBackend == PreferredBackend.direct) {
       final discovery = await ref.read(directModelDiscoveryProvider.future);
@@ -228,9 +230,9 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
       preferredBackend: preferredBackend,
       hasApiService: ref.read(apiServiceProvider) != null,
     );
+    final latestHermes = ref.read(hermesConfigProvider);
     final hermesSnapshotIsCurrent =
-        preferredBackend != PreferredBackend.hermes ||
-        ref.read(hermesConfigProvider).isUsable;
+        preferredBackend != PreferredBackend.hermes || latestHermes.isUsable;
     final directBindingIsCurrent =
         standalone == null ||
         !isLocallyMintedDirectModel(standalone) ||
@@ -241,6 +243,13 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         !directBindingIsCurrent ||
         !identical(latestSelected, currentSelected)) {
       return latestSelected;
+    }
+    // Without a Hermes selection, SelectedModel has nothing to follow a
+    // switch or rename with; saving now would keep the old name.
+    if (preferredBackend == PreferredBackend.hermes &&
+        (latestHermes.connectionId != hermesAtSelection.connectionId ||
+            latestHermes.name != hermesAtSelection.name)) {
+      return _resolveDefaultModel(ref);
     }
     if (!identical(currentSelected, standalone)) {
       if (currentSelected?.id != standalone?.id) {
