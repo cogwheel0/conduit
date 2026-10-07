@@ -193,10 +193,14 @@ class AdaptiveButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final button = _buildButton(context);
-    return semanticLabel == null
+    return semanticLabel == null || !_canUseNative(context)
         ? button
         : Semantics(label: semanticLabel, child: button);
   }
+
+  Widget _semanticContent(Widget content) => semanticLabel == null
+      ? content
+      : Semantics(label: semanticLabel, excludeSemantics: true, child: content);
 
   Widget _buildButton(BuildContext context) {
     if (_canUseNative(context)) {
@@ -307,7 +311,7 @@ class AdaptiveButton extends StatelessWidget {
       borderRadius: resolvedRadius,
       color: background,
       minimumSize: minSize ?? Size(0, _defaultHeight),
-      child: _content(fallbackColor: foreground),
+      child: _semanticContent(_content(fallbackColor: foreground)),
     );
     final borderSide = style == AdaptiveButtonStyle.bordered
         ? BorderSide(color: primary)
@@ -368,13 +372,17 @@ class AdaptiveButton extends StatelessWidget {
         : borderRadius == null
         ? null
         : RoundedRectangleBorder(borderRadius: effectiveRadius);
-    final primaryContent = _content(
-      fallbackColor: textColor ?? colorScheme.onPrimary,
-      wrapCustomChild: false,
+    final primaryContent = _semanticContent(
+      _content(
+        fallbackColor: textColor ?? colorScheme.onPrimary,
+        wrapCustomChild: false,
+      ),
     );
-    final accentContent = _content(
-      fallbackColor: textColor ?? color ?? colorScheme.primary,
-      wrapCustomChild: false,
+    final accentContent = _semanticContent(
+      _content(
+        fallbackColor: textColor ?? color ?? colorScheme.primary,
+        wrapCustomChild: false,
+      ),
     );
     return switch (style) {
       AdaptiveButtonStyle.filled => ElevatedButton(

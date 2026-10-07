@@ -113,9 +113,12 @@ class AdaptiveChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final callback = enabled ? onSelected : null;
+    final chipLabel = semanticLabel == null
+        ? label
+        : Semantics(label: semanticLabel, excludeSemantics: true, child: label);
     final chip = switch (style) {
       AdaptiveChipStyle.action => ActionChip(
-        label: label,
+        label: chipLabel,
         avatar: avatar,
         onPressed: enabled ? onPressed : null,
         backgroundColor: backgroundColor,
@@ -127,7 +130,7 @@ class AdaptiveChip extends StatelessWidget {
         materialTapTargetSize: materialTapTargetSize,
       ),
       AdaptiveChipStyle.choice => ChoiceChip(
-        label: label,
+        label: chipLabel,
         selected: selected,
         onSelected: callback,
         avatar: avatar,
@@ -142,7 +145,7 @@ class AdaptiveChip extends StatelessWidget {
         materialTapTargetSize: materialTapTargetSize,
       ),
       AdaptiveChipStyle.filter => FilterChip(
-        label: label,
+        label: chipLabel,
         selected: selected,
         onSelected: callback,
         avatar: avatar,
@@ -157,7 +160,7 @@ class AdaptiveChip extends StatelessWidget {
         materialTapTargetSize: materialTapTargetSize,
       ),
       AdaptiveChipStyle.input => InputChip(
-        label: label,
+        label: chipLabel,
         selected: selected,
         onSelected: callback,
         avatar: avatar,
@@ -175,8 +178,6 @@ class AdaptiveChip extends StatelessWidget {
         materialTapTargetSize: materialTapTargetSize,
       ),
     };
-    return semanticLabel == null
-        ? chip
-        : Semantics(label: semanticLabel, child: chip);
+    return chip;
   }
 }

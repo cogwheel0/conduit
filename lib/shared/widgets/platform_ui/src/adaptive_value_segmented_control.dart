@@ -9,17 +9,16 @@ class AdaptiveSegment<T extends Object> {
     required this.label,
     this.icon,
     this.enabled = true,
-    this.sfSymbol,
     this.semanticLabel,
   });
   final T value;
   final Widget label;
   final Widget? icon;
-  final String? sfSymbol;
   final String? semanticLabel;
   final bool enabled;
 }
 
+/// Requires at least two segments with distinct values on every platform.
 class AdaptiveValueSegmentedControl<T extends Object> extends StatelessWidget {
   const AdaptiveValueSegmentedControl({
     super.key,
@@ -43,8 +42,31 @@ class AdaptiveValueSegmentedControl<T extends Object> extends StatelessWidget {
     onChanged!(next);
   }
 
+  Widget _label(AdaptiveSegment<T> segment) => Semantics(
+    label: segment.semanticLabel,
+    enabled: segment.enabled && onChanged != null,
+    excludeSemantics: segment.semanticLabel != null,
+    child: segment.label,
+  );
+
+  Widget _cupertinoLabel(AdaptiveSegment<T> segment) {
+    final icon = segment.icon;
+    final label = _label(segment);
+    return icon == null
+        ? label
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [icon, const SizedBox(width: 6), label],
+          );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (segments.length < 2 ||
+        segments.map((segment) => segment.value).toSet().length !=
+            segments.length) {
+      throw ArgumentError('Segments require at least two distinct values.');
+    }
     final platform = Theme.of(context).platform;
     if (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS) {
       return CupertinoSlidingSegmentedControl<T>(
@@ -57,7 +79,8 @@ class AdaptiveValueSegmentedControl<T extends Object> extends StatelessWidget {
           if (next != null) _select(next);
         },
         children: {
-          for (final segment in segments) segment.value: segment.label,
+          for (final segment in segments)
+            segment.value: _cupertinoLabel(segment),
         },
       );
     }
@@ -69,7 +92,7 @@ class AdaptiveValueSegmentedControl<T extends Object> extends StatelessWidget {
         for (final segment in segments)
           ButtonSegment<T>(
             value: segment.value,
-            label: segment.label,
+            label: _label(segment),
             icon: segment.icon,
             enabled: segment.enabled,
           ),
