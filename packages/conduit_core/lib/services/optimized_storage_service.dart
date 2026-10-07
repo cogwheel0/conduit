@@ -2172,7 +2172,7 @@ class OptimizedStorageService {
   /// The saved servers and accounts. Strict: a Keychain failure propagates
   /// rather than reading as "nothing saved".
   Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() =>
-      _serverConfigsLock.synchronized(
+      _synchronizedServerConfigsRead(
         () => _retrySecureStorageRead(
           _getRegistryStrictUnlocked,
           scope: 'storage/optimized/registry',
@@ -2184,7 +2184,8 @@ class OptimizedStorageService {
   Future<void> bindAccountUser(String accountId, String userId) {
     final normalized = userId.trim();
     if (normalized.isEmpty) return Future<void>.value();
-    return _serverConfigsLock.synchronized(() async {
+    // Its read can run the migration too.
+    return _synchronizedServerConfigsRead(() async {
       final registry = await _registryForWriteUnlocked();
       final account = registry.account(accountId);
       if (account == null || account.userId == normalized) return;
