@@ -285,6 +285,38 @@ void main() {
       ).equals(true);
     });
 
+    testWidgets('sits alone in the last group, explained by its footer', (
+      tester,
+    ) async {
+      final native = await openNativeSettings(tester, models: _NoModels.new);
+      final l10n = AppLocalizations.of(NavigationService.context!)!;
+
+      final chats = await reopenChats(tester, native.service, native.patches);
+
+      final advanced = chats.sections.last;
+      check(advanced.footer).equals(l10n.advancedFeaturesFooter);
+      check(advanced.items.map((r) => r.id)).deepEquals(['advanced-features']);
+      check(advanced.items.single.sfSymbol).equals('gearshape.2');
+      // The citation titles toggle joins the chat behavior group, as on the
+      // Flutter Chat page.
+      final citation = rows(chats).singleWhere(
+        (r) => r.id == 'citation-show-titles',
+      );
+      check(citation.title).equals(l10n.citationShowTitles);
+      check(citation.kind).equals(PlatformNativeSheetItemKind.toggle);
+      check(citation.value).equals(false);
+      check(
+        chats.sections
+            .firstWhere((s) => s.items.any((r) => r.id == 'send-on-enter'))
+            .items
+            .map((r) => r.id),
+      ).deepEquals([
+        'send-on-enter',
+        'temporary-chat-default',
+        'citation-show-titles',
+      ]);
+    });
+
     testWidgets('stays available when the models request fails', (
       tester,
     ) async {
@@ -305,6 +337,9 @@ void main() {
       check(byId['temporary-chat-default']).isNotNull();
       check(byId['chats-error']!.title)
           .equals(l10n.unableToLoadOpenWebuiSettings);
+      // Advanced keeps its own last group beside the error.
+      check(chats.sections.last.footer).equals(l10n.advancedFeaturesFooter);
+      check(chats.sections.last.items.single.id).equals('advanced-features');
     });
   });
 }

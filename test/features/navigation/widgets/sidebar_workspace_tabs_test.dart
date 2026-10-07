@@ -29,6 +29,7 @@ import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -385,10 +386,22 @@ void main() {
     expect(nativePresentationCalls, 1);
   });
 
-  testWidgets('profile sheet opens on the server profile, not a stale one', (
-    tester,
-  ) async {
+  testWidgets('profile sheet opens on the cached profile and then takes the '
+      'server one, so its editors save over the stored fields', (tester) async {
     NativeProfileSheetConfig? presented;
+    final profileUpdates = <Map<Object?, Object?>>[];
+    const channel = MethodChannel(NativeSheetBridge.nativeSheetChannelName);
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      profileUpdates.add(call.arguments as Map<Object?, Object?>);
+      return true;
+    });
+    addTearDown(() {
+      NativeSheetBridge.instance.debugIsIOSOverride = null;
+      messenger.setMockMethodCallHandler(channel, null);
+    });
     const user = User(
       id: 'user-1',
       username: 'ava',
@@ -431,9 +444,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // Opened at once on the cached copy...
     expect(presented, isNotNull);
-    expect(presented!.profile.gender, 'male');
-    expect(presented!.profile.dateOfBirth, '1990-04-02');
+    expect(presented!.profile.gender, isNull);
+    // ...which the server copy then replaces in the open sheet.
+    expect(profileUpdates, hasLength(1));
+    expect(profileUpdates.single['gender'], 'male');
+    expect(profileUpdates.single['dateOfBirth'], '1990-04-02');
   });
 
   for (final visible in <bool>[true, false]) {

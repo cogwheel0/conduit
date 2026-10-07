@@ -196,6 +196,72 @@ void main() {
     check(received!.subtitle).isNull();
   });
 
+  group('NativeSheetBridge.updateProfile', () {
+    const channel = MethodChannel(NativeSheetBridge.nativeSheetChannelName);
+    const profile = NativeProfileSheetUser(
+      displayName: 'Ada',
+      email: 'ada@example.com',
+      initials: 'A',
+      bio: 'Hello',
+      gender: 'female',
+      dateOfBirth: '1990-01-01',
+      profileImageUrl: '/avatar.png',
+    );
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    test('hands the open sheet the refreshed profile fields', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      MethodCall? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            received = call;
+            return true;
+          });
+
+      final updated = await NativeSheetBridge.instance.updateProfile(profile);
+
+      check(updated).isTrue();
+      check(received!.method).equals('updateProfile');
+      final arguments = received!.arguments as Map<Object?, Object?>;
+      check(arguments['displayName']).equals('Ada');
+      check(arguments['bio']).equals('Hello');
+      check(arguments['gender']).equals('female');
+      check(arguments['dateOfBirth']).equals('1990-01-01');
+      check(arguments['profileImageUrl']).equals('/avatar.png');
+    });
+
+    test('reports false when no sheet takes it or the call fails', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (_) async => false);
+      check(await NativeSheetBridge.instance.updateProfile(profile)).isFalse();
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (_) async => throw PlatformException(code: 'boom'),
+          );
+      check(await NativeSheetBridge.instance.updateProfile(profile)).isFalse();
+    });
+
+    test('does not send off iOS', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = false;
+      var calls = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (_) async {
+            calls++;
+            return true;
+          });
+
+      check(await NativeSheetBridge.instance.updateProfile(profile)).isFalse();
+      check(calls).equals(0);
+    });
+  });
+
   test('detail patch rejects mixed flat and sectioned content', () async {
     await expectLater(
       NativeSheetBridge.instance.applyDetailPatch(

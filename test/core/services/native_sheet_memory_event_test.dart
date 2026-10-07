@@ -246,6 +246,12 @@ Future<_NativeSettings> _pumpApp(
   return native;
 }
 
+/// A segment of the memory editor's type control, by its label.
+Finder _typeSegment(String label) => find.descendant(
+  of: find.byKey(const Key('memory-type')),
+  matching: find.text(label),
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -310,9 +316,9 @@ void main() {
 
       await native.control('memory-editor-new', true);
 
-      expect(find.byKey(const Key('memory-type-user')), findsOneWidget);
+      expect(find.byKey(const Key('memory-type')), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'Repo notes');
-      await tester.tap(find.byKey(const Key('memory-type-context')));
+      await tester.tap(_typeSegment('Context'));
       await tester.pump();
       await tester.enterText(find.byKey(const Key('memory-path')), 'repos/a');
       await tester.tap(find.text('Save').last);
@@ -342,7 +348,7 @@ void main() {
       expect(detail.items.map((item) => item.id), contains('memory-delete:m1'));
 
       await native.control(row.actionId!, true);
-      await tester.tap(find.byKey(const Key('memory-type-user')));
+      await tester.tap(_typeSegment('User'));
       await tester.pump();
       await tester.tap(find.text('Save').last);
       await tester.pumpAndSettle();
@@ -375,7 +381,7 @@ void main() {
       await native.control('memory-save:m1', 'denied');
       await native.control('memory-delete:m1', true);
 
-      expect(find.byKey(const Key('memory-type-user')), findsNothing);
+      expect(find.byKey(const Key('memory-type')), findsNothing);
       expect(native.api.adds, isEmpty);
       expect(native.api.updates, isEmpty);
       expect(native.api.deleted, isEmpty);
@@ -397,7 +403,7 @@ void main() {
       await native.control('memory-delete:m1', true);
       await native.control('memory-clear-all', true);
 
-      expect(find.byKey(const Key('memory-type-user')), findsNothing);
+      expect(find.byKey(const Key('memory-type')), findsNothing);
       expect(native.api.adds, isEmpty);
       expect(native.api.updates, isEmpty);
       expect(native.api.deleted, isEmpty);
