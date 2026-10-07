@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
@@ -121,16 +122,42 @@ DatabaseManager databaseManager(Ref ref) {
   );
   // Every account database opens through this manager, so starting here
   // finishes an earlier sign-out's deletion before any of them can open.
-  if (PreferencesStore.getBool(PreferenceKeys.pendingAccountDatabaseWipe) ==
-      true) {
-    unawaited(_finishPendingAccountDatabaseWipe(manager));
+  final pending = PreferencesStore.getString(
+    PreferenceKeys.pendingAccountDatabaseWipe,
+  );
+  if (pending != null) {
+    unawaited(
+      _finishPendingAccountDatabaseWipe(
+        manager,
+        only: pendingAccountDatabaseWipeFiles(pending),
+      ),
+    );
   }
   return manager;
 }
 
-Future<void> _finishPendingAccountDatabaseWipe(DatabaseManager manager) async {
+/// The value a failed full sign-out records: the database files it left
+/// behind, or every file when it could not list them.
+String pendingAccountDatabaseWipeValue(Set<String>? files) =>
+    files == null ? '*' : jsonEncode(files.toList()..sort());
+
+/// The files a pending wipe deletes; null for all of them. Only those listed
+/// go, so an account signed in to after the failed sign-out keeps its data.
+Set<String>? pendingAccountDatabaseWipeFiles(String value) {
+  if (value == '*') return null;
   try {
-    await manager.deleteAllServerDatabases();
+    return {for (final name in jsonDecode(value) as List) name as String};
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> _finishPendingAccountDatabaseWipe(
+  DatabaseManager manager, {
+  required Set<String>? only,
+}) async {
+  try {
+    await manager.deleteAllServerDatabases(only: only);
     await PreferencesStore.putChecked(
       PreferenceKeys.pendingAccountDatabaseWipe,
       null,
@@ -164,6 +191,12 @@ final openWebUiDatabaseSweepProvider = Provider<OpenWebUiDatabaseSweep>((ref) {
   final manager = ref.watch(databaseManagerProvider);
   return manager.deleteAllServerDatabases;
 });
+
+/// The account database files now on disk, for a sign-out that could not
+/// delete them to name what is left.
+final openWebUiDatabaseFilesProvider = Provider<Future<Set<String>> Function()>(
+  (ref) => ref.watch(databaseManagerProvider).serverDatabaseFileNames,
+);
 
 /// The active server's database, or null when no active server / reviewer
 /// mode (mirrors `apiServiceProvider`'s gate).

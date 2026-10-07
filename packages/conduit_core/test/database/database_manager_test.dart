@@ -707,6 +707,35 @@ void main() {
   });
 
   group('deleteAllServerDatabases', () {
+    test('with only, deletes those databases, open or not, and keeps the '
+        'rest', () async {
+      final open = manager.openFor(_server('alpha'));
+      await open.customSelect('SELECT 1').get();
+      final alpha = fileFor(DatabaseManager.fileNameFor('alpha'));
+      final beta = fileFor(DatabaseManager.fileNameFor('beta'))
+        ..writeAsStringSync('data');
+      final gamma = fileFor(DatabaseManager.fileNameFor('gamma'))
+        ..writeAsStringSync('data');
+      check(await manager.serverDatabaseFileNames()).deepEquals({
+        DatabaseManager.fileNameFor('alpha'),
+        DatabaseManager.fileNameFor('beta'),
+        DatabaseManager.fileNameFor('gamma'),
+      });
+
+      await manager.deleteAllServerDatabases(
+        only: {
+          DatabaseManager.fileNameFor('alpha'),
+          DatabaseManager.fileNameFor('beta'),
+        },
+      );
+
+      check(alpha.existsSync()).isFalse();
+      check(beta.existsSync()).isFalse();
+      check(gamma.existsSync()).isTrue();
+      // The open one was closed before its file went.
+      await _waitForClosed(open);
+    });
+
     test(
       'deletes every server database, open or not, and nothing else',
       () async {

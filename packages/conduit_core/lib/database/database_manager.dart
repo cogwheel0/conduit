@@ -466,12 +466,13 @@ class DatabaseManager {
   /// database included. No database opens until this has finished.
   ///
   /// It needs no list of servers, so a full sign-out also removes databases
-  /// whose accounts can no longer be read or were already forgotten.
-  Future<void> deleteAllServerDatabases() {
+  /// whose accounts can no longer be read or were already forgotten. With
+  /// [only], just the databases of those file names go.
+  Future<void> deleteAllServerDatabases({Set<String>? only}) {
     final running = _serverDatabasesDeletion;
     if (running != null) return running;
     late final Future<void> sweep;
-    sweep = _deleteAllServerDatabases().whenComplete(() {
+    sweep = _deleteAllServerDatabases(only).whenComplete(() {
       if (identical(_serverDatabasesDeletion, sweep)) {
         _serverDatabasesDeletion = null;
       }
@@ -480,21 +481,24 @@ class DatabaseManager {
     return sweep;
   }
 
-  Future<void> _deleteAllServerDatabases() async {
+  Future<void> _deleteAllServerDatabases(Set<String>? only) async {
     // Databases this manager opened go through deleteFor, so their executors
     // have released the files before they are unlinked.
-    for (final serverId in _fileOwners.values.toSet()) {
-      await deleteFor(serverId);
+    for (final MapEntry(key: fileName, value: serverId)
+        in _fileOwners.entries.toList()) {
+      if (only == null || only.contains(fileName)) await deleteFor(serverId);
     }
     final directory = await _databaseDirectory();
     if (!await directory.exists()) return;
     final files = await directory
         .list(followLinks: false)
-        .where(
-          (entity) =>
-              entity is File &&
-              _serverDatabaseFile.hasMatch(p.basename(entity.path)),
-        )
+        .where((entity) {
+          if (entity is! File) return false;
+          final match = _serverDatabaseFile.firstMatch(
+            p.basename(entity.path),
+          );
+          return match != null && (only == null || only.contains(match[1]));
+        })
         .toList();
     for (final file in files) {
       if (await file.exists()) await file.delete();
@@ -720,8 +724,20 @@ class DatabaseManager {
 
   /// A [fileNameFor] database file or one of its SQLite siblings.
   static final RegExp _serverDatabaseFile = RegExp(
-    r'^server_[A-Za-z0-9_-]+\.sqlite(-journal|-wal|-shm)?$',
+    r'^(server_[A-Za-z0-9_-]+)\.sqlite(-journal|-wal|-shm)?$',
   );
+
+  /// The [fileNameFor] names of the server databases now in the directory,
+  /// in the form [deleteAllServerDatabases] takes as `only`.
+  Future<Set<String>> serverDatabaseFileNames() async {
+    final directory = await _databaseDirectory();
+    if (!await directory.exists()) return const <String>{};
+    return {
+      await for (final entity in directory.list(followLinks: false))
+        if (entity is File)
+          ?_serverDatabaseFile.firstMatch(p.basename(entity.path))?[1],
+    };
+  }
 }
 
 /// Result of a non-blocking [DatabaseManager.openForServerIdIfReady] request.

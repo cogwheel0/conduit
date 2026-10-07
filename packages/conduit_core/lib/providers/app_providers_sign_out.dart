@@ -225,10 +225,16 @@ extension on SignOutCoordinator {
         }
       }
     }
+    // Name the files left, so the next start deletes those and not an account
+    // signed in to after this.
+    Set<String>? leftover;
+    try {
+      leftover = await _ref.read(openWebUiDatabaseFilesProvider)();
+    } catch (_) {}
     try {
       await PreferencesStore.putChecked(
         PreferenceKeys.pendingAccountDatabaseWipe,
-        true,
+        pendingAccountDatabaseWipeValue(leftover),
         bypassAppDataClearBarrier: true,
       );
     } catch (error, stackTrace) {

@@ -408,8 +408,8 @@ void main() {
       check(inactive.existsSync()).isFalse();
       check(directLocal.existsSync()).isTrue();
       check(
-        PreferencesStore.getBool(PreferenceKeys.pendingAccountDatabaseWipe),
-      ).isNull();
+        PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).isFalse();
     },
   );
 
@@ -429,6 +429,9 @@ void main() {
             attempts++;
             throw const FileSystemException('busy');
           }),
+          openWebUiDatabaseFilesProvider.overrideWithValue(
+            () async => {'server_b', 'server_a'},
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -442,19 +445,28 @@ void main() {
 
       check(result).equals(SignOutRequestResult.completed);
       check(attempts).equals(3);
+      // The files left behind, by name: an account signed in to afterwards
+      // must not lose its data at the next start.
       check(
-        PreferencesStore.getBool(PreferenceKeys.pendingAccountDatabaseWipe),
-      ).equals(true);
+        PreferencesStore.getString(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).equals('["server_a","server_b"]');
     },
   );
 
   test('the next start deletes them before any database opens', () async {
     final directory = _tempDatabaseDirectory();
     final leftover = _accountDatabaseFile(directory, 'signed-out');
+    // Signed in to after the sign-out that could not finish.
+    final later = _accountDatabaseFile(directory, 'signed-in-later');
     final directLocal = File(
       p.join(directory.path, '$kDirectLocalDatabaseFileName.sqlite'),
     )..writeAsStringSync('device chats');
-    await PreferencesStore.put(PreferenceKeys.pendingAccountDatabaseWipe, true);
+    await PreferencesStore.put(
+      PreferenceKeys.pendingAccountDatabaseWipe,
+      pendingAccountDatabaseWipeValue({
+        DatabaseManager.fileNameFor('signed-out'),
+      }),
+    );
     final container = ProviderContainer(
       overrides: [
         databaseOpenerProvider.overrideWithValue(
@@ -478,6 +490,7 @@ void main() {
     }
 
     check(leftover.existsSync()).isFalse();
+    check(later.existsSync()).isTrue();
     check(directLocal.existsSync()).isTrue();
     check(
       PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
