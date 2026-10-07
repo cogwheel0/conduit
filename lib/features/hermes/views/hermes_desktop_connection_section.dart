@@ -25,13 +25,30 @@ class HermesDesktopConnectionSection extends ConsumerStatefulWidget {
   const HermesDesktopConnectionSection({
     super.key,
     required this.controller,
-    required this.saveSettings,
+    required this.savedConfig,
+    required this.editsActiveConnection,
+    required this.prepareSignIn,
     required this.testConnection,
+    this.signInFooter,
   });
 
   final HermesConnectionController controller;
-  final Future<bool> Function() saveSettings;
+
+  /// The saved connection being edited, which drafts are compared against.
+  final HermesConfig Function() savedConfig;
+
+  /// Whether that connection is the active one, whose live client and
+  /// credential writer this section may use.
+  final bool Function() editsActiveConnection;
+
+  /// Saves the draft and makes its connection active; sign-in writes tokens
+  /// through the live connection. Resolves false when that failed.
+  final Future<bool> Function() prepareSignIn;
   final Future<void> Function() testConnection;
+
+  /// Shown under the sign-in options, e.g. that signing in activates the
+  /// connection.
+  final String? signInFooter;
 
   @override
   ConsumerState<HermesDesktopConnectionSection> createState() =>
@@ -65,7 +82,7 @@ class _HermesDesktopConnectionSectionState
     super.initState();
     _lastOrigin = HermesConfig.connectionEndpoint(_controller.url.text);
     _lastProfileIdentity = _authDraftIdentity(
-      _controller.buildDraft(ref.read(hermesConfigProvider)).config,
+      _controller.buildDraft(widget.savedConfig()).config,
     );
     _controller.addListener(_handleDraftChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -88,7 +105,7 @@ class _HermesDesktopConnectionSectionState
       unawaited(_recommendAuthForNewConnection(force: true));
     }
     final identity = _authDraftIdentity(
-      _controller.buildDraft(ref.read(hermesConfigProvider)).config,
+      _controller.buildDraft(widget.savedConfig()).config,
     );
     if (identity != _lastProfileIdentity) {
       _lastProfileIdentity = identity;
@@ -122,16 +139,21 @@ class _HermesDesktopConnectionSectionState
 
   Future<void> _loadProfiles({bool force = false}) async {
     if (_profilesLoading && !force) return;
-    final draft = _controller.buildDraft(ref.read(hermesConfigProvider));
+    final saved = widget.savedConfig();
+    final draft = _controller.buildDraft(saved);
     if (HermesConfig.connectionOrigin(draft.config.baseUrl) == null) {
       if (!mounted) return;
       setState(() => _profilesError = 'Enter the Hermes server URL first.');
       return;
     }
     final identity = _authDraftIdentity(draft.config);
-    final writeCredentials = ref
-        .read(hermesConfigProvider.notifier)
-        .nativeCredentialsWriter();
+    final editsActive = widget.editsActiveConnection();
+    // A token refresh while listing profiles must land with the connection it
+    // belongs to: the live writer for the active one, the stored connection
+    // otherwise. Either rejects the write once the draft no longer matches.
+    final writeCredentials = editsActive
+        ? ref.read(hermesConfigProvider.notifier).nativeCredentialsWriter()
+        : ref.read(hermesConfigProvider.notifier).credentialsWriterFor(saved);
     final epoch = ++_profileEpoch;
     if (!mounted) return;
     setState(() {
@@ -139,8 +161,7 @@ class _HermesDesktopConnectionSectionState
       _profilesError = null;
     });
     try {
-      final saved = ref.read(hermesConfigProvider);
-      final live = ref.read(hermesApiServiceProvider);
+      final live = editsActive ? ref.read(hermesApiServiceProvider) : null;
       final profiles = await _desktopConnection.profiles(
         draft.config.copyWith(enabled: true),
         service: switch (live) {
@@ -150,7 +171,7 @@ class _HermesDesktopConnectionSectionState
           _ => null,
         },
         onCredentialsChanged: (credentials) async {
-          final current = ref.read(hermesConfigProvider);
+          final current = widget.savedConfig();
           if (!hermesDesktopConnectionMatches(current, draft.config)) {
             throw StateError(
               'Save the Hermes server before refreshing its sign-in.',
@@ -159,9 +180,7 @@ class _HermesDesktopConnectionSectionState
           await writeCredentials(credentials);
         },
       );
-      final current = _controller
-          .buildDraft(ref.read(hermesConfigProvider))
-          .config;
+      final current = _controller.buildDraft(widget.savedConfig()).config;
       if (!mounted ||
           epoch != _profileEpoch ||
           _authDraftIdentity(current) != identity) {
@@ -180,9 +199,7 @@ class _HermesDesktopConnectionSectionState
             : null;
       });
     } catch (_) {
-      final current = _controller
-          .buildDraft(ref.read(hermesConfigProvider))
-          .config;
+      final current = _controller.buildDraft(widget.savedConfig()).config;
       if (mounted &&
           epoch == _profileEpoch &&
           _authDraftIdentity(current) == identity) {
@@ -198,7 +215,7 @@ class _HermesDesktopConnectionSectionState
   }
 
   Future<void> _recommendAuthForNewConnection({bool force = false}) async {
-    final saved = ref.read(hermesConfigProvider);
+    final saved = widget.savedConfig();
     if (!force && saved.mode == HermesBackendMode.desktopGateway) return;
     final draft = _controller.buildDraft(saved).config.copyWith(enabled: true);
     if (HermesConfig.connectionOrigin(draft.baseUrl) == null) return;
@@ -207,7 +224,7 @@ class _HermesDesktopConnectionSectionState
     try {
       final recommended = await _desktopConnection.recommendedAuth(draft);
       final current = _controller
-          .buildDraft(ref.read(hermesConfigProvider))
+          .buildDraft(widget.savedConfig())
           .config
           .copyWith(enabled: true);
       if (mounted &&
@@ -221,7 +238,7 @@ class _HermesDesktopConnectionSectionState
   }
 
   Future<void> _signInNative() async {
-    if (!await widget.saveSettings()) return;
+    if (!await widget.prepareSignIn()) return;
     final saved = ref.read(hermesConfigProvider);
     if (saved.mode != HermesBackendMode.desktopGateway) return;
     final writeCredentials = ref
@@ -251,7 +268,7 @@ class _HermesDesktopConnectionSectionState
   }
 
   Future<void> _signInDashboard() async {
-    if (!await widget.saveSettings() || !mounted) return;
+    if (!await widget.prepareSignIn() || !mounted) return;
     final config = ref.read(hermesConfigProvider);
     final signedIn = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -324,7 +341,12 @@ class _HermesDesktopConnectionSectionState
           footer:
               _controller.desktopAuthKind ==
                   HermesDesktopAuthKind.dashboardCookie
-              ? l10n.hermesDashboardAuthHelp
+              ? [
+                  l10n.hermesDashboardAuthHelp,
+                  ?widget.signInFooter,
+                ].join('\n\n')
+              : _controller.desktopAuthKind == HermesDesktopAuthKind.nativePkce
+              ? widget.signInFooter
               : null,
           flat: !PlatformInfo.isIOS,
           child: Column(

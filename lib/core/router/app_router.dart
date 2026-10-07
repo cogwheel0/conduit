@@ -31,6 +31,7 @@ import '../../features/profile/views/about_page.dart';
 import '../../features/profile/views/account_settings_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
+import '../../features/hermes/views/hermes_connections_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/hermes/views/hermes_jobs_page.dart';
 import '../../features/hermes/views/hermes_mcp_page.dart';
@@ -432,8 +433,26 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.hermesSettings,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        child: HermesSettingsPage(isOnboarding: state.extra == true),
+        // Onboarding sets up the first connection directly; afterwards this
+        // is the list of saved connections.
+        child: state.extra == true
+            ? const HermesSettingsPage(isOnboarding: true)
+            : const HermesConnectionsPage(),
       ),
+    ),
+    GoRoute(
+      path: Routes.hermesConnectionEditor,
+      name: RouteNames.hermesConnectionEditor,
+      pageBuilder: (context, state) {
+        final id = state.pathParameters['id']!;
+        return _buildPlatformPage(
+          state: state,
+          child: HermesSettingsPage(
+            key: ValueKey<String>('hermes-connection-editor-$id'),
+            connectionId: id == Routes.hermesNewConnectionId ? null : id,
+          ),
+        );
+      },
     ),
     GoRoute(
       path: Routes.hermesJobs,

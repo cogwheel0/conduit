@@ -48,10 +48,15 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.dataConnectionSettings ||
       location == Routes.personalization ||
       isDirectConnectionsLocation(location) ||
-      location == Routes.hermesSettings ||
+      isHermesSettingsLocation(location) ||
       location == Routes.hermesJobs ||
       location == Routes.about;
 }
+
+/// The saved Hermes connection list and its connection editors.
+bool isHermesSettingsLocation(String location) =>
+    location == Routes.hermesSettings ||
+    location.startsWith('${Routes.hermesSettings}/connections/');
 
 bool isDirectConnectionsLocation(String location) {
   return location == Routes.directConnections ||
@@ -103,7 +108,7 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
   );
   final isLocalBackendSetup =
       location == Routes.backendChooser ||
-      location == Routes.hermesSettings ||
+      isHermesSettingsLocation(location) ||
       isDirectConnectionsLocation(location);
 
   // A stale optional Open WebUI credential must not block local-backend

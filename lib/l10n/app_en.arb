@@ -8303,5 +8303,99 @@
   "notificationTargetMakeDefaultNeedsSave": "Save your changes to make this the default.",
   "@notificationTargetMakeDefaultNeedsSave": {
     "description": "Shown under the dimmed 'Make default' action in the webhook destination editor while the form has unsaved edits. Making a destination the default closes the editor, so the edits must be saved first."
+  },
+  "hermesConnectionsSectionTitle": "Connections",
+  "@hermesConnectionsSectionTitle": {
+    "description": "Heading above the list of saved Hermes connections in Hermes Agent settings."
+  },
+  "hermesAddConnection": "Add connection",
+  "@hermesAddConnection": {
+    "description": "Button that opens the editor for a new saved Hermes connection."
+  },
+  "hermesNewConnectionTitle": "New connection",
+  "@hermesNewConnectionTitle": {
+    "description": "Title of the editor page when adding a new Hermes connection."
+  },
+  "hermesConnectionNameHint": "Shown in the model picker and sidebar",
+  "@hermesConnectionNameHint": {
+    "description": "Helper text under the name field of a Hermes connection, explaining where the name appears."
+  },
+  "hermesNoConnectionsTitle": "No Hermes connections",
+  "@hermesNoConnectionsTitle": {
+    "description": "Title of the empty state when no Hermes connection is saved."
+  },
+  "hermesNoConnectionsSubtitle": "Add a Hermes server to chat with your agent.",
+  "@hermesNoConnectionsSubtitle": {
+    "description": "Subtitle of the empty state when no Hermes connection is saved."
+  },
+  "hermesActiveConnection": "Active",
+  "@hermesActiveConnection": {
+    "description": "Label marking the saved Hermes connection that is currently in use."
+  },
+  "hermesUseConnection": "Use this connection",
+  "@hermesUseConnection": {
+    "description": "Action that makes a saved Hermes connection the active one."
+  },
+  "hermesInactiveConnectionNotice": "Switch to this connection to see its status and manage the server.",
+  "@hermesInactiveConnectionNotice": {
+    "description": "Notice in the editor of a saved Hermes connection that is not the active one."
+  },
+  "hermesSignInActivatesConnection": "Signing in makes this the active connection.",
+  "@hermesSignInActivatesConnection": {
+    "description": "Footer under Desktop Gateway sign-in options of an inactive Hermes connection."
+  },
+  "hermesDeleteConnectionTitle": "Delete connection?",
+  "@hermesDeleteConnectionTitle": {
+    "description": "Title of the confirmation dialog before deleting a saved Hermes connection."
+  },
+  "hermesDeleteConnectionMessage": "This removes {name} and its credentials from this device.",
+  "@hermesDeleteConnectionMessage": {
+    "description": "Confirmation message before deleting a saved Hermes connection and its credentials.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Home agent"
+      }
+    }
+  },
+  "hermesDeleteConnectionFailed": "Could not delete this connection.",
+  "@hermesDeleteConnectionFailed": {
+    "description": "Error shown when a saved Hermes connection cannot be deleted."
+  },
+  "hermesSwitchConnectionFailed": "Could not switch to this connection.",
+  "@hermesSwitchConnectionFailed": {
+    "description": "Error shown when switching to another saved Hermes connection fails."
+  },
+  "hermesSwitchConnectionTitle": "Switch connection",
+  "@hermesSwitchConnectionTitle": {
+    "description": "Title of the picker that switches the active Hermes connection."
+  },
+  "hermesSwitchConnectionPromptTitle": "Switch to {name}?",
+  "@hermesSwitchConnectionPromptTitle": {
+    "description": "Title of the dialog asking whether to switch to the Hermes connection that owns a chat session.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Home agent"
+      }
+    }
+  },
+  "hermesSwitchConnectionPromptMessage": "This chat's Hermes session belongs to {name}. Switch to continue it, or keep the current connection to start a new session.",
+  "@hermesSwitchConnectionPromptMessage": {
+    "description": "Message of the dialog asking whether to switch to the Hermes connection that owns this chat's session.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Home agent"
+      }
+    }
+  },
+  "hermesSwitchConnectionConfirm": "Switch",
+  "@hermesSwitchConnectionConfirm": {
+    "description": "Confirm button that switches to another Hermes connection."
+  },
+  "hermesKeepCurrentConnection": "Keep current",
+  "@hermesKeepCurrentConnection": {
+    "description": "Button that keeps the current Hermes connection instead of switching."
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -5,50 +7,130 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../controllers/hermes_connection_controller.dart';
+import '../widgets/hermes_connection_switcher.dart';
 
-import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 
 import 'hermes_desktop_connection_section.dart';
 import 'hermes_settings_sections.dart';
 
-/// Settings for the optional direct Hermes Agent backend: enable toggle, server
-/// URL, API key, long-term memory key, and a connection test.
+/// Editor for one saved Hermes connection: name, server URL, credentials, and
+/// a connection test. For the active connection it also shows the server's
+/// capabilities and management sections.
 class HermesSettingsPage extends ConsumerStatefulWidget {
-  const HermesSettingsPage({super.key, this.isOnboarding = false});
+  const HermesSettingsPage({
+    super.key,
+    this.isOnboarding = false,
+    this.connectionId,
+  });
 
-  /// When true, the page is shown as a first-run setup step: the enable toggle
-  /// is implicit, and a "Finish setup" button completes onboarding into the app.
+  /// When true, the page is shown as a first-run setup step for the active
+  /// connection (or the first one): the enable toggle is implicit, and a
+  /// "Connect" button completes onboarding into the app.
   final bool isOnboarding;
+
+  /// Saved connection to edit; null adds a new one. Ignored in onboarding.
+  final String? connectionId;
 
   @override
   ConsumerState<HermesSettingsPage> createState() => _HermesSettingsPageState();
 }
 
 class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
-  late final HermesConnectionController _connectionController;
+  HermesConnectionController? _connectionController;
+
+  /// Stored settings and secrets of an inactive connection, the baseline its
+  /// drafts are built against. The active connection reads the live state.
+  HermesConfig? _stored;
+  bool _loadFailed = false;
+  bool _switching = false;
 
   @override
   void initState() {
     super.initState();
+    final active = ref.read(hermesConfigProvider);
+    final target = widget.isOnboarding
+        ? active.connectionId
+        : widget.connectionId;
+    if (target == null) {
+      _attach(widget.isOnboarding ? active : const HermesConfig());
+    } else if (target == active.connectionId) {
+      _attach(active);
+    } else {
+      unawaited(_loadStored(target));
+    }
+  }
+
+  void _attach(HermesConfig initial) {
+    final profile = ref
+        .read(hermesConnectionsProvider)
+        .where((profile) => profile.id == initial.connectionId)
+        .firstOrNull;
     _connectionController = HermesConnectionController(
-      initialConfig: ref.read(hermesConfigProvider),
+      initialConfig: initial,
+      initialNameSource: profile?.nameSource,
       gateway: ref.read(hermesConnectionGatewayProvider),
     )..addListener(_handleConnectionChanged);
   }
 
+  Future<void> _loadStored(String connectionId) async {
+    try {
+      final stored = await ref
+          .read(hermesConfigProvider.notifier)
+          .savedConnectionConfig(connectionId);
+      if (!mounted) return;
+      setState(() {
+        _stored = stored;
+        _attach(stored);
+      });
+    } catch (error) {
+      DebugLogger.warning(
+        'connection-load-failed',
+        scope: 'hermes/connections',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      if (mounted) setState(() => _loadFailed = true);
+    }
+  }
+
   void _handleConnectionChanged() {
     if (mounted) setState(() {});
+  }
+
+  HermesConnectionController get _controller => _connectionController!;
+
+  /// Whether this editor's connection is the active one.
+  bool get _editsActive {
+    final id = _controller.connectionId;
+    return widget.isOnboarding ||
+        (id != null && id == ref.read(hermesConfigProvider).connectionId);
+  }
+
+  /// Whether the persisted baseline for this editor is loaded. An inactive
+  /// connection's baseline must come from storage: comparing a draft against
+  /// an empty one would read as an origin change and drop its secrets.
+  bool get _baselineReady =>
+      _editsActive || _controller.connectionId == null || _stored != null;
+
+  /// The persisted state drafts compare against (origin changes, configured
+  /// secrets).
+  HermesConfig _saved() {
+    if (_editsActive) return ref.read(hermesConfigProvider);
+    if (_controller.connectionId == null) return const HermesConfig();
+    return _stored ?? HermesConfig(connectionId: _controller.connectionId);
   }
 
   HermesConnectionMessages _messages(AppLocalizations l10n) =>
@@ -64,8 +146,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   Future<void> _finishOnboarding() async {
     FocusManager.instance.primaryFocus?.unfocus();
     final l10n = AppLocalizations.of(context)!;
-    final result = await _connectionController.finishOnboarding(
-      saved: ref.read(hermesConfigProvider),
+    final result = await _controller.finishOnboarding(
+      saved: _saved(),
       messages: _messages(l10n),
     );
     if (!mounted) return;
@@ -75,146 +157,239 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   void _leaveOnboarding() {
-    _connectionController.cancelPendingOnboarding();
+    _controller.cancelPendingOnboarding();
     context.go(Routes.backendChooser);
   }
 
   @override
   void dispose() {
-    _connectionController.removeListener(_handleConnectionChanged);
-    _connectionController.dispose();
+    _connectionController?.removeListener(_handleConnectionChanged);
+    _connectionController?.dispose();
     super.dispose();
   }
 
   Future<bool> _saveSettings() async {
+    if (!_baselineReady) return false;
     final l10n = AppLocalizations.of(context)!;
-    return _connectionController.save(
-      ref.read(hermesConfigProvider),
-      messages: _messages(l10n),
-    );
+    final saved = await _controller.save(_saved(), messages: _messages(l10n));
+    if (saved) await _refreshStored();
+    return saved;
   }
 
-  Future<void> _retrySecrets() =>
-      ref.read(hermesConfigProvider.notifier).retrySecrets();
+  /// Reloads the stored baseline after an inactive connection was saved.
+  Future<void> _refreshStored() async {
+    final id = _controller.connectionId;
+    if (id == null || _editsActive) {
+      if (mounted) setState(() => _stored = null);
+      return;
+    }
+    try {
+      final stored = await ref
+          .read(hermesConfigProvider.notifier)
+          .savedConnectionConfig(id);
+      if (mounted) setState(() => _stored = stored);
+    } catch (_) {
+      // The next save rebuilds against the live state or reports the outage.
+    }
+  }
 
-  /// Toggle the Hermes backend. When disabling a Hermes-only backend (no OWUI
-  /// server, so the preference is still 'hermes'), reset the preference to
-  /// 'unset' so the backend chooser is shown rather than leaving a stale value.
-  Future<void> _setHermesEnabled(bool value) async {
-    await ref.read(hermesConfigProvider.notifier).setEnabled(value);
-    if (!value &&
-        ref.read(preferredBackendProvider) == PreferredBackend.hermes) {
-      await ref
-          .read(preferredBackendProvider.notifier)
-          .set(PreferredBackend.unset);
+  /// Desktop sign-in needs the live connection: save the draft, then make
+  /// this connection the active one.
+  Future<bool> _prepareSignIn() async {
+    if (!await _saveSettings() || !mounted) return false;
+    return _editsActive || await _useConnection();
+  }
+
+  Future<bool> _useConnection() async {
+    final id = _controller.connectionId;
+    if (id == null || _switching) return false;
+    setState(() => _switching = true);
+    final switched = await switchHermesConnection(context, ref, id);
+    if (mounted) {
+      setState(() {
+        _switching = false;
+        if (switched) _stored = null;
+      });
+    }
+    return switched;
+  }
+
+  Future<void> _delete() async {
+    final id = _controller.connectionId;
+    if (id == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final name =
+        ref
+            .read(hermesConnectionsProvider)
+            .where((profile) => profile.id == id)
+            .firstOrNull
+            ?.name ??
+        kHermesDefaultConnectionName;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.hermesDeleteConnectionTitle,
+      message: l10n.hermesDeleteConnectionMessage(name),
+      confirmText: l10n.delete,
+      isDestructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await ref.read(hermesConfigProvider.notifier).deleteConnection(id);
+      // With nothing left to connect to, a Hermes-only install goes back to
+      // the backend chooser instead of keeping a stale preference.
+      if (ref.read(hermesConnectionsProvider).isEmpty &&
+          ref.read(preferredBackendProvider) == PreferredBackend.hermes) {
+        await ref
+            .read(preferredBackendProvider.notifier)
+            .set(PreferredBackend.unset);
+      }
+      if (mounted) unawaited(Navigator.of(context).maybePop());
+    } catch (error) {
+      DebugLogger.warning(
+        'connection-delete-failed',
+        scope: 'hermes/connections',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.hermesDeleteConnectionFailed,
+        type: AdaptiveSnackBarType.error,
+      );
     }
   }
 
   Future<void> _testConnection() async {
-    await _connectionController.testConnection(
-      saved: ref.read(hermesConfigProvider),
+    await _controller.testConnection(
+      saved: _saved(),
       messages: _messages(AppLocalizations.of(context)!),
     );
-    ref.invalidate(hermesServerStatusProvider);
+    if (_editsActive) ref.invalidate(hermesServerStatusProvider);
   }
 
   @override
   Widget build(BuildContext context) {
-    final config = ref.watch(hermesConfigProvider);
-    final secretsError = ref.watch(hermesSecretsErrorProvider);
-    final secretsLoading = ref.watch(hermesSecretsLoadingProvider);
-    final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final capabilities =
-        ref.watch(hermesCapabilitiesProvider).asData?.value ??
-        (config.mode == HermesBackendMode.desktopGateway
-            ? HermesCapabilities.desktopCoreOnly
-            : HermesCapabilities.enabledByDefault);
-    final urlError = switch (_connectionController.validationIssue) {
+    final controller = _connectionController;
+    if (controller == null) {
+      return UtilityPageScaffold.settings(
+        title: l10n.hermesAgentSettingsTitle,
+        children: [
+          if (_loadFailed)
+            UtilityStatusBanner(
+              message: l10n.hermesSecretsUnavailable,
+              tone: UtilityStatusTone.warning,
+            )
+          else
+            const Padding(
+              padding: EdgeInsets.all(Spacing.xl),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      );
+    }
+    // An editor whose connection stops being active (switched elsewhere)
+    // reloads its stored baseline before it can save again.
+    ref.listen<String?>(hermesActiveConnectionIdProvider, (previous, next) {
+      if (previous != next && !_editsActive && _stored == null) {
+        unawaited(_refreshStored());
+      }
+    });
+    // Rebuild when the active connection changes or its state hydrates.
+    final activeConfig = ref.watch(hermesConfigProvider);
+    final connectionNames = ref.watch(hermesConnectionsProvider);
+    final editsActive = _editsActive;
+    final config = editsActive ? activeConfig : _saved();
+    final existing = controller.connectionId != null;
+    final draftUsable =
+        _baselineReady &&
+        controller.draftIsUsable(config) &&
+        !controller.operation.isBusy;
+    final urlError = switch (controller.validationIssue) {
       HermesConnectionValidationIssue.invalidUrl =>
         l10n.directConnectionUrlInvalid,
       HermesConnectionValidationIssue.credentialsReentryRequired =>
         l10n.directConnectionCredentialsReentryRequired,
       null => null,
     };
+    final gap = SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg);
+    final nameField = AccessibleFormField(
+      key: const ValueKey<String>('hermes-connection-name-field'),
+      enabled: !controller.operation.isBusy,
+      label: l10n.name,
+      hint: HermesConnectionProfile.deriveName(controller.url.text),
+      controller: controller.name,
+      textInputAction: TextInputAction.next,
+      autocorrect: false,
+      onChanged: (_) => controller.markNameChanged(),
+      iosSettingsRow: PlatformInfo.isIOS,
+    );
     final serverUrlField = AccessibleFormField(
-      enabled: !_connectionController.operation.isBusy,
+      enabled: !controller.operation.isBusy,
       label: l10n.hermesServerUrlTitle,
       hint: 'http://192.168.1.10:8642',
-      controller: _connectionController.url,
+      controller: controller.url,
       keyboardType: TextInputType.url,
       textInputAction: TextInputAction.next,
       autocorrect: false,
       errorText: urlError,
-      onChanged: (_) => _connectionController.markUrlChanged(),
+      onChanged: (_) => controller.markUrlChanged(),
       isRequired: true,
       iosSettingsRow: PlatformInfo.isIOS,
     );
     final apiKeyField = AccessibleFormField(
-      enabled: !_connectionController.operation.isBusy,
+      enabled: !controller.operation.isBusy,
       label: l10n.hermesApiKeyTitle,
       hint: config.apiKey == null || config.apiKey!.isEmpty
           ? l10n.hermesApiKeyPlaceholder
           : l10n.hermesConfiguredReplacePlaceholder,
       obscureText: true,
-      controller: _connectionController.apiKey,
+      controller: controller.apiKey,
       keyboardType: TextInputType.visiblePassword,
       textInputAction: TextInputAction.next,
       autocorrect: false,
-      onChanged: (_) => _connectionController.markApiKeyChanged(),
+      onChanged: (_) => controller.markApiKeyChanged(),
       isRequired: true,
       iosSettingsRow: PlatformInfo.isIOS,
     );
     final desktopTokenField = AccessibleFormField(
-      enabled: !_connectionController.operation.isBusy,
+      enabled: !controller.operation.isBusy,
       label: l10n.hermesLegacySessionToken,
       hint: config.desktopCredentials?.legacyToken?.isNotEmpty == true
           ? l10n.hermesConfiguredReplacePlaceholder
           : l10n.hermesLegacySessionTokenHint,
       obscureText: true,
-      controller: _connectionController.desktopLegacyToken,
+      controller: controller.desktopLegacyToken,
       keyboardType: TextInputType.visiblePassword,
       textInputAction: TextInputAction.next,
       autocorrect: false,
-      onChanged: (_) => _connectionController.markDesktopLegacyTokenChanged(),
+      onChanged: (_) => controller.markDesktopLegacyTokenChanged(),
       isRequired:
-          _connectionController.desktopAuthKind ==
-          HermesDesktopAuthKind.legacyToken,
+          controller.desktopAuthKind == HermesDesktopAuthKind.legacyToken,
       iosSettingsRow: PlatformInfo.isIOS,
     );
 
     final content = <Widget>[
-      if (secretsError != null)
-        Container(
-          margin: const EdgeInsets.only(bottom: Spacing.lg),
-          padding: const EdgeInsets.all(Spacing.md),
-          decoration: BoxDecoration(
-            color: theme.error.withValues(alpha: 0.08),
-            border: Border.all(color: theme.error.withValues(alpha: 0.3)),
-            borderRadius: BorderRadius.circular(AppBorderRadius.md),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.lock_outline, color: theme.error),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: Text(
-                  l10n.hermesSecretsUnavailable,
-                  style: AppTypography.bodyMediumStyle.copyWith(
-                    color: theme.textPrimary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: Spacing.sm),
-              ConduitButton(
-                text: l10n.retry,
-                isSecondary: true,
-                isLoading: secretsLoading,
-                onPressed: secretsLoading ? null : _retrySecrets,
-              ),
-            ],
-          ),
+      const HermesSecretsErrorBanner(),
+      if (!widget.isOnboarding && existing && !editsActive) ...[
+        InsetGroupedList(
+          footer: l10n.hermesInactiveConnectionNotice,
+          children: [
+            UtilityRow(
+              key: const ValueKey<String>('hermes-use-connection'),
+              title: l10n.hermesUseConnection,
+              titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+              foregroundColor: context.conduitTheme.buttonPrimary,
+              enabled: !_switching && !controller.operation.isBusy,
+              status: _switching
+                  ? const CupertinoActivityIndicator(radius: 8)
+                  : null,
+              onTap: _switching ? null : _useConnection,
+            ),
+          ],
         ),
+        gap,
+      ],
       InsetGroupedSection(
         title: 'Hermes connection mode',
         flat: true,
@@ -222,59 +397,28 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         child: AdaptiveSegmentedControl(
           key: const ValueKey<String>('hermes-backend-mode-selector'),
           labels: const ['Responses API', 'Desktop Gateway'],
-          selectedIndex:
-              _connectionController.mode == HermesBackendMode.responsesApi
+          selectedIndex: controller.mode == HermesBackendMode.responsesApi
               ? 0
               : 1,
-          enabled: !_connectionController.operation.isBusy,
-          onValueChanged: (index) => _connectionController.setMode(
+          enabled: !controller.operation.isBusy,
+          onValueChanged: (index) => controller.setMode(
             index == 0
                 ? HermesBackendMode.responsesApi
                 : HermesBackendMode.desktopGateway,
           ),
         ),
       ),
-      SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
-      if (!widget.isOnboarding) ...[
-        InsetGroupedList(
-          footer: PlatformInfo.isIOS ? l10n.hermesEnableSubtitle : null,
-          children: [
-            UtilityRow(
-              title: l10n.hermesEnableTitle,
-              subtitle: PlatformInfo.isIOS ? null : l10n.hermesEnableSubtitle,
-              titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
-              trailing: AdaptiveSwitch(
-                value: config.enabled,
-                onChanged: _setHermesEnabled,
-              ),
-              onTap: () => _setHermesEnabled(!config.enabled),
-            ),
-          ],
-        ),
-        if (config.enabled && capabilities.jobs) ...[
-          SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
-          InsetGroupedList(
-            title: l10n.hermesScheduledAgentsTitle,
-            children: [
-              UtilityRow(
-                leading: _badge(context, Icons.schedule),
-                title: l10n.hermesReviewSchedules,
-                showChevron: true,
-                onTap: () => context.pushNamed(RouteNames.hermesJobs),
-              ),
-            ],
-          ),
-        ],
-        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
-      ],
+      gap,
       if (PlatformInfo.isIOS)
         InsetGroupedList(
           useNativeSurface: true,
+          footer: widget.isOnboarding ? null : l10n.hermesConnectionNameHint,
           children: [
+            if (!widget.isOnboarding) nameField,
             serverUrlField,
-            if (_connectionController.mode == HermesBackendMode.responsesApi)
+            if (controller.mode == HermesBackendMode.responsesApi)
               apiKeyField
-            else if (_connectionController.desktopAuthKind ==
+            else if (controller.desktopAuthKind ==
                 HermesDesktopAuthKind.legacyToken)
               desktopTokenField,
           ],
@@ -287,12 +431,24 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (!widget.isOnboarding) ...[
+                nameField,
+                Padding(
+                  padding: const EdgeInsets.only(top: Spacing.xs),
+                  child: Text(
+                    l10n.hermesConnectionNameHint,
+                    style: AppTypography.bodySmallStyle.copyWith(
+                      color: context.conduitTheme.textSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: Spacing.md),
+              ],
               serverUrlField,
-              if (_connectionController.mode ==
-                  HermesBackendMode.responsesApi) ...[
+              if (controller.mode == HermesBackendMode.responsesApi) ...[
                 const SizedBox(height: Spacing.md),
                 apiKeyField,
-              ] else if (_connectionController.desktopAuthKind ==
+              ] else if (controller.desktopAuthKind ==
                   HermesDesktopAuthKind.legacyToken) ...[
                 const SizedBox(height: Spacing.md),
                 desktopTokenField,
@@ -300,18 +456,23 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ],
           ),
         ),
-      if (_connectionController.mode == HermesBackendMode.desktopGateway) ...[
-        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+      if (controller.mode == HermesBackendMode.desktopGateway) ...[
+        gap,
         HermesDesktopConnectionSection(
-          controller: _connectionController,
-          saveSettings: _saveSettings,
+          controller: controller,
+          savedConfig: _saved,
+          editsActiveConnection: () => _editsActive,
+          prepareSignIn: _prepareSignIn,
           testConnection: _testConnection,
+          signInFooter: widget.isOnboarding || editsActive
+              ? null
+              : l10n.hermesSignInActivatesConnection,
         ),
       ],
-      SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
-      HermesTransportSection(controller: _connectionController),
-      if (_connectionController.mode == HermesBackendMode.responsesApi) ...[
-        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+      gap,
+      HermesTransportSection(controller: controller),
+      if (controller.mode == HermesBackendMode.responsesApi) ...[
+        gap,
         UtilityDisclosureSection(
           key: const ValueKey<String>('hermes-memory-key-disclosure'),
           title: l10n.hermesMemoryKeyTitle,
@@ -321,23 +482,23 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           contentPadding: PlatformInfo.isIOS
               ? EdgeInsets.zero
               : const EdgeInsets.only(top: Spacing.md),
-          expanded: _connectionController.showMemoryKey,
-          onChanged: _connectionController.setShowMemoryKey,
+          expanded: controller.showMemoryKey,
+          onChanged: controller.setShowMemoryKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               AccessibleFormField(
-                enabled: !_connectionController.operation.isBusy,
+                enabled: !controller.operation.isBusy,
                 label: l10n.hermesMemoryKeyFieldLabel,
                 hint: config.sessionKey == null || config.sessionKey!.isEmpty
                     ? l10n.hermesMemoryKeyPlaceholder
                     : l10n.hermesConfiguredReplacePlaceholder,
                 obscureText: true,
-                controller: _connectionController.sessionKey,
+                controller: controller.sessionKey,
                 keyboardType: TextInputType.visiblePassword,
                 textInputAction: TextInputAction.done,
                 autocorrect: false,
-                onChanged: (_) => _connectionController.markSessionKeyChanged(),
+                onChanged: (_) => controller.markSessionKeyChanged(),
                 iosSettingsRow: PlatformInfo.isIOS,
               ),
               Padding(
@@ -352,7 +513,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                 child: Text(
                   l10n.hermesMemoryKeyDescription,
                   style: AppTypography.bodySmallStyle.copyWith(
-                    color: theme.textSecondary,
+                    color: context.conduitTheme.textSecondary,
                   ),
                 ),
               ),
@@ -361,7 +522,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         ),
       ],
       if (!widget.isOnboarding) ...[
-        SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
+        gap,
         if (PlatformInfo.isIOS)
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -373,25 +534,19 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                     title: l10n.testDirectConnection,
                     titleFontWeight: FontWeight.w400,
                     foregroundColor: context.conduitTheme.buttonPrimary,
-                    enabled:
-                        _connectionController.draftIsUsable(config) &&
-                        !_connectionController.operation.isBusy,
+                    enabled: draftUsable,
                     status:
-                        _connectionController.operation ==
+                        controller.operation ==
                             HermesConnectionOperation.testing
                         ? const CupertinoActivityIndicator(radius: 8)
                         : null,
-                    onTap:
-                        _connectionController.draftIsUsable(config) &&
-                            !_connectionController.operation.isBusy
-                        ? _testConnection
-                        : null,
+                    onTap: draftUsable ? _testConnection : null,
                   ),
                 ],
               ),
-              if (_connectionController.attempt.isVisible) ...[
+              if (controller.attempt.isVisible) ...[
                 const SizedBox(height: Spacing.sm),
-                ConnectionAttemptBanner(state: _connectionController.attempt),
+                ConnectionAttemptBanner(state: controller.attempt),
               ],
             ],
           )
@@ -403,51 +558,56 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
                 text: l10n.testDirectConnection,
                 isSecondary: true,
                 isLoading:
-                    _connectionController.operation ==
-                    HermesConnectionOperation.testing,
+                    controller.operation == HermesConnectionOperation.testing,
                 isFullWidth: true,
-                onPressed:
-                    _connectionController.draftIsUsable(config) &&
-                        !_connectionController.operation.isBusy
-                    ? _testConnection
-                    : null,
+                onPressed: draftUsable ? _testConnection : null,
               ),
               const SizedBox(height: Spacing.sm),
               ConduitButton(
+                key: const ValueKey<String>('hermes-save-button'),
                 text: l10n.save,
                 isLoading:
-                    _connectionController.operation ==
-                    HermesConnectionOperation.saving,
+                    controller.operation == HermesConnectionOperation.saving,
                 isFullWidth: true,
-                onPressed:
-                    _connectionController.draftIsUsable(config) &&
-                        !_connectionController.operation.isBusy
-                    ? _saveSettings
-                    : null,
+                onPressed: draftUsable ? _saveSettings : null,
               ),
-              if (_connectionController.attempt.isVisible) ...[
+              if (controller.attempt.isVisible) ...[
                 const SizedBox(height: Spacing.sm),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 320),
-                  child: ConnectionAttemptBanner(
-                    state: _connectionController.attempt,
-                  ),
+                  child: ConnectionAttemptBanner(state: controller.attempt),
                 ),
               ],
             ],
           ),
       ],
-      if (config.isUsable) ...[
+      if (editsActive && !widget.isOnboarding && activeConfig.isUsable) ...[
         const SizedBox(height: Spacing.xl),
         const HermesCapabilitiesSection(),
         const SizedBox(height: Spacing.lg),
         const HermesToolsetsSection(),
-        if (config.mode == HermesBackendMode.desktopGateway) ...[
+        if (activeConfig.mode == HermesBackendMode.desktopGateway) ...[
           const SizedBox(height: Spacing.lg),
           const HermesDesktopManagementSection(),
         ],
         const SizedBox(height: Spacing.lg),
         const HermesServerStatusSection(),
+      ],
+      if (!widget.isOnboarding && existing) ...[
+        gap,
+        InsetGroupedList(
+          useNativeSurface: PlatformInfo.isIOS,
+          children: [
+            UtilityRow(
+              key: const ValueKey<String>('hermes-delete-connection'),
+              title: l10n.delete,
+              titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+              destructive: true,
+              enabled: !controller.operation.isBusy && !_switching,
+              onTap: _delete,
+            ),
+          ],
+        ),
       ],
     ];
 
@@ -462,20 +622,15 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         bottomAction: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ConnectionAttemptBanner(state: _connectionController.attempt),
-            if (_connectionController.attempt.isVisible)
+            ConnectionAttemptBanner(state: controller.attempt),
+            if (controller.attempt.isVisible)
               const SizedBox(height: Spacing.sm),
             ConduitButton(
               text: l10n.hermesConnectAction,
               isFullWidth: true,
               isLoading:
-                  _connectionController.operation ==
-                  HermesConnectionOperation.finishing,
-              onPressed:
-                  _connectionController.draftIsUsable(config) &&
-                      !_connectionController.operation.isBusy
-                  ? _finishOnboarding
-                  : null,
+                  controller.operation == HermesConnectionOperation.finishing,
+              onPressed: draftUsable ? _finishOnboarding : null,
             ),
           ],
         ),
@@ -486,28 +641,24 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       );
     }
 
+    final savedName = connectionNames
+        .where((profile) => profile.id == controller.connectionId)
+        .firstOrNull
+        ?.name;
     return UtilityPageScaffold.settings(
-      title: l10n.hermesAgentSettingsTitle,
+      title: savedName ?? l10n.hermesNewConnectionTitle,
       trailing: PlatformInfo.isIOS
           ? CupertinoButton(
               key: const ValueKey<String>('hermes-save-toolbar-button'),
               padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
               minimumSize: const Size(0, TouchTarget.minimum),
-              onPressed:
-                  _connectionController.draftIsUsable(config) &&
-                      !_connectionController.operation.isBusy
-                  ? _saveSettings
-                  : null,
-              child:
-                  _connectionController.operation ==
-                      HermesConnectionOperation.saving
+              onPressed: draftUsable ? _saveSettings : null,
+              child: controller.operation == HermesConnectionOperation.saving
                   ? const CupertinoActivityIndicator(radius: 8)
                   : Text(
                       l10n.save,
                       style: TextStyle(
-                        color:
-                            _connectionController.draftIsUsable(config) &&
-                                !_connectionController.operation.isBusy
+                        color: draftUsable
                             ? context.conduitTheme.buttonPrimary
                             : context.conduitTheme.textDisabled,
                       ),
@@ -515,15 +666,6 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             )
           : null,
       children: content,
-    );
-  }
-
-  Widget _badge(BuildContext context, IconData icon) {
-    final theme = context.conduitTheme;
-    return SizedBox(
-      width: IconSize.xl,
-      height: IconSize.xl,
-      child: Icon(icon, size: IconSize.medium, color: theme.buttonPrimary),
     );
   }
 }
