@@ -291,13 +291,16 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
+    // The deletion and the preference after it finish even if the page
+    // closes meanwhile, when its ref is gone.
+    final container = ProviderScope.containerOf(context, listen: false);
     try {
-      await ref.read(hermesConfigProvider.notifier).deleteConnection(id);
+      await container.read(hermesConfigProvider.notifier).deleteConnection(id);
       // With nothing left to connect to, a Hermes-only install goes back to
       // the backend chooser instead of keeping a stale preference.
-      if (ref.read(hermesConnectionsProvider).isEmpty &&
-          ref.read(preferredBackendProvider) == PreferredBackend.hermes) {
-        await ref
+      if (container.read(hermesConnectionsProvider).isEmpty &&
+          container.read(preferredBackendProvider) == PreferredBackend.hermes) {
+        await container
             .read(preferredBackendProvider.notifier)
             .set(PreferredBackend.unset);
       }

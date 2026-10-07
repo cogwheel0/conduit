@@ -17,6 +17,8 @@ import 'package:conduit_core/features/hermes/services/hermes_connection_service.
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -405,6 +407,77 @@ void main() {
     check(save().onPressed).isNotNull();
   });
 
+  testWidgets('a delete that ends after its page closed still finishes', (
+    tester,
+  ) async {
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(<String, Object?>{
+        PreferenceKeys.hermesEnabled: true,
+        PreferenceKeys.preferredBackend: PreferredBackend.hermes.name,
+        PreferenceKeys.hermesConnections: HermesConnectionsDocument(
+          connections: const [
+            HermesConnectionProfile(
+              id: _home,
+              name: 'Home agent',
+              baseUrl: 'https://home.example',
+              documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+            ),
+          ],
+        ).encode(),
+        PreferenceKeys.hermesActiveConnectionId: _home,
+      }),
+    );
+    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final cookies = _BlockingCookieJar();
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(secrets),
+          cookieJarProvider.overrideWithValue(cookies),
+        ],
+        child: MaterialApp(
+          navigatorKey: navigator,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const SizedBox(),
+        ),
+      ),
+    );
+    unawaited(
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const HermesSettingsPage(connectionId: _home),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(HermesSettingsPage)),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('hermes-delete-connection')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pump();
+    // The user leaves while the deletion signs out of the dashboard.
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(HermesSettingsPage), findsNothing);
+    cookies.release.complete(true);
+    await tester.pumpAndSettle();
+
+    check(container.read(hermesConnectionsProvider)).isEmpty();
+    // With nothing left, a Hermes-only install goes back to the chooser.
+    check(
+      container.read(preferredBackendProvider),
+    ).equals(PreferredBackend.unset);
+    check(tester.takeException()).isNull();
+  });
+
   testWidgets('the enable row announces whether Hermes is on', (tester) async {
     final semantics = tester.ensureSemantics();
     await tester.pumpWidget(
@@ -494,4 +567,11 @@ final class _FailingSecrets extends InMemorySecureKeyValueStore {
     }
     return super.read(key: key);
   }
+}
+
+final class _BlockingCookieJar extends NullCookieJarPort {
+  final Completer<bool> release = Completer<bool>();
+
+  @override
+  Future<bool> clearForOrigin(String origin) => release.future;
 }
