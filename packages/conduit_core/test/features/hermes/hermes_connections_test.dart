@@ -476,6 +476,39 @@ void main() {
           .equals('beta-key');
       check(container.read(hermesConfigProvider).connectionId).equals(_a);
     });
+
+    test(
+      'keeps dashboard cookies when the replacement cannot be read',
+      () async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://alpha.example'),
+          _profile(_b, 'Beta', 'https://beta.example'),
+        ], active: _a);
+        final secrets = _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        });
+        final cookies = _RecordingCookieJar();
+        final container = await _ready(secrets, cookies: cookies);
+        addTearDown(container.dispose);
+        secrets.failReadPrefixes.add('hermes_api_key_v1:$_b');
+
+        await check(
+          container.read(hermesConfigProvider.notifier).deleteConnection(_a),
+        ).throws<StateError>();
+
+        check(cookies.clearedOrigins).isEmpty();
+        check(container.read(hermesConfigProvider).connectionId).equals(_a);
+        check(HermesConnectionStore.readActiveId()).equals(_a);
+        check(
+          container
+              .read(hermesConnectionsProvider)
+              .map((profile) => profile.id),
+        ).deepEquals([_a, _b]);
+        check(await secrets.read(key: 'hermes_api_key_v1:$_a'))
+            .equals('alpha-key');
+      },
+    );
   });
 
   group('inactive connections', () {

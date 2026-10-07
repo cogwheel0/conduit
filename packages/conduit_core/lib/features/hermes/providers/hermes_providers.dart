@@ -1087,17 +1087,8 @@ class HermesConfigController extends Notifier<HermesConfig> {
         final wasActive = state.connectionId == connectionId;
 
         Future<void> commit() async {
-          // Cleared while the connection still exists, so a failure keeps it
-          // instead of leaving its dashboard session signed in behind a
-          // deletion that reported success. A connection sharing the origin
-          // still uses that session.
-          if (connectionOrigin(target.baseUrl) != null &&
-              !_originSharedByAnotherConnection(target.baseUrl, connectionId) &&
-              !await ref
-                  .read(cookieJarProvider)
-                  .clearForOrigin(target.baseUrl)) {
-            throw StateError('Hermes dashboard cookies could not be cleared.');
-          }
+          // Reads that can fail come before the cookies are cleared, so such
+          // a failure leaves the connection signed in to its dashboard.
           HermesConnectionProfile? replacement;
           var replacementSecrets = const _HermesCredentialSnapshot();
           if (wasActive) {
@@ -1105,6 +1096,20 @@ class HermesConfigController extends Notifier<HermesConfig> {
             if (replacement != null) {
               replacementSecrets = await _readSecrets(replacement.id);
             }
+          }
+          // Cleared while the connection still exists, so a failure keeps it
+          // instead of leaving its dashboard session signed in behind a
+          // deletion that reported success. A connection sharing the origin
+          // still uses that session. A write failing after this keeps the
+          // connection signed out, and the deletion still reports the error.
+          if (connectionOrigin(target.baseUrl) != null &&
+              !_originSharedByAnotherConnection(target.baseUrl, connectionId) &&
+              !await ref
+                  .read(cookieJarProvider)
+                  .clearForOrigin(target.baseUrl)) {
+            throw StateError('Hermes dashboard cookies could not be cleared.');
+          }
+          if (wasActive) {
             // Repoint the runtime first: an active id must never name a
             // profile that is gone, and if the document write below fails the
             // deleted connection is simply no longer active.
