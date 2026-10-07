@@ -8,6 +8,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
@@ -63,20 +64,23 @@ final class _Hermes extends HermesConfigController {
   HermesConfig build() => const HermesConfig();
 }
 
-OpenWebUiAccountEntry _entry(String id, {bool hasSession = true}) =>
-    OpenWebUiAccountEntry(
-      account: OpenWebUiAccount(id: id, serverId: 'server'),
-      server: OpenWebUiServer(
-        id: 'server',
-        name: 'Chat',
-        endpoints: [
-          OpenWebUiEndpoint(id: 'endpoint', url: 'https://chat.example'),
-        ],
-      ),
-      summary: const OpenWebUiAccountSummary(),
-      isActive: false,
-      hasSession: hasSession,
-    );
+OpenWebUiAccountEntry _entry(
+  String id, {
+  bool hasSession = true,
+  OpenWebUiAccountSummary? summary,
+}) => OpenWebUiAccountEntry(
+  account: OpenWebUiAccount(id: id, serverId: 'server'),
+  server: OpenWebUiServer(
+    id: 'server',
+    name: 'Chat',
+    endpoints: [
+      OpenWebUiEndpoint(id: 'endpoint', url: 'https://chat.example'),
+    ],
+  ),
+  summary: summary ?? const OpenWebUiAccountSummary(),
+  isActive: false,
+  hasSession: hasSession,
+);
 
 /// Signs out of the only account, with Direct profiles still loading
 /// synchronously and resolving to [direct] once awaited.
@@ -146,6 +150,48 @@ void main() {
 
     check(preferred).equals(PreferredBackend.unset);
     check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+  });
+
+  test('leaving an addition goes back to the account signed in to last', () async {
+    final storage = _Storage()..active = 'old';
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => _Auth(storage)),
+        hermesConfigProvider.overrideWith(_Hermes.new),
+        openWebUiAccountsProvider.overrideWith((ref) async {
+          final summaries = ref.watch(openWebUiAccountSummariesProvider);
+          return [
+            for (final id in ['old', 'a', 'b', 'c'])
+              _entry(id, hasSession: id != 'c', summary: summaries[id]),
+          ];
+        }),
+        accountChangeReplyGuardProvider.overrideWithValue(() => false),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(openWebUiAccountsControllerProvider);
+
+    await controller.switchTo('a');
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    // B is added and signed in to: its account is certified for its user.
+    storage.active = 'b';
+    await container
+        .read(openWebUiAccountSummariesProvider.notifier)
+        .recordUser(
+          'b',
+          const User(
+            id: 'user-b',
+            username: 'b',
+            email: 'b@example.test',
+            role: 'user',
+          ),
+        );
+    // Another addition starts from B, and is left before signing in.
+    storage.active = 'c';
+    await controller.signOut('c');
+
+    check(storage.active).equals('b');
   });
 
   group('with several accounts', () {

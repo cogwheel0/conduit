@@ -3,8 +3,9 @@
 /// Only the active account has its user loaded, from its own database. The
 /// others are listed from this small, non-secret record kept in preferences:
 /// who the account is (name, email, avatar) and when it was last used. It is
-/// written when an account is certified and when the app switches to it, and
-/// never holds anything that authenticates.
+/// written when an account is certified -- after every sign-in, and every
+/// start, that makes it the one in use -- and when the app switches to it,
+/// and never holds anything that authenticates.
 library;
 
 import 'dart:convert';
@@ -86,7 +87,12 @@ class OpenWebUiAccountSummaries
   @override
   Map<String, OpenWebUiAccountSummary> build() => _read();
 
-  /// Records who [accountId] turned out to be.
+  /// Records who [accountId] turned out to be, and that it is in use now.
+  ///
+  /// A sign-in makes an account the one in use as much as a switch does. An
+  /// account added and signed in to would otherwise rank behind every
+  /// account switched to before it, and leaving a later addition would land
+  /// on one of those instead.
   Future<void> recordUser(String accountId, User user) {
     final name = user.name?.trim();
     final previous = state[accountId] ?? const OpenWebUiAccountSummary();
@@ -95,7 +101,7 @@ class OpenWebUiAccountSummaries
         name: name == null || name.isEmpty ? user.username : name,
         email: user.email.isEmpty ? previous.email : user.email,
         profileImage: user.profileImage ?? previous.profileImage,
-        lastUsedAt: previous.lastUsedAt,
+        lastUsedAt: DateTime.now(),
       );
     });
   }

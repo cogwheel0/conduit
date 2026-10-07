@@ -2275,6 +2275,19 @@ void main() {
           .equals(OpenWebUiDatabaseAccessPhase.open);
     });
 
+    test('certifying an account records it as the one just used', () async {
+      final harness = await _harness();
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+      await Future<void>.delayed(Duration.zero);
+
+      final summary = harness.container.read(
+        openWebUiAccountSummariesProvider,
+      )[_server.id];
+      check(summary?.lastUsedAt).isNotNull();
+    });
+
     test('purging an inactive account leaves the active one open', () async {
       final purged = <String>[];
       final harness = await _harness(
