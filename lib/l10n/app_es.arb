@@ -4141,5 +4141,8 @@
   "accountsAddressDifferentServer": "Esta dirección lleva a otro servidor o a otra cuenta en él.",
   "accountsAddressNeedsSignIn": "Primero inicia sesión en una cuenta de este servidor para poder comprobar la dirección.",
   "accountsRemoveAddress": "Eliminar dirección",
-  "accountsRemoveAddressMessage": "Conduit dejará de probar esta dirección. Tus cuentas seguirán con la sesión iniciada."
+  "accountsRemoveAddressMessage": "Conduit dejará de probar esta dirección. Tus cuentas seguirán con la sesión iniciada.",
+  "accountsAddressConfirmTitle": "¿Comprobar esta dirección?",
+  "accountsAddressConfirmMessage": "Para asegurarse de que {host} es este servidor, Conduit le envía la sesión de una cuenta guardada aquí. Continúa solo si confías en esta dirección.",
+  "accountsAddressConfirmAction": "Comprobar dirección"
 }

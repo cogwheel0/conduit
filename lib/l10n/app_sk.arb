@@ -5963,5 +5963,8 @@
   "accountsAddressDifferentServer": "Táto adresa vedie na iný server alebo k inému účtu na ňom.",
   "accountsAddressNeedsSignIn": "Najprv sa prihláste do účtu na tomto serveri, aby bolo možné adresu overiť.",
   "accountsRemoveAddress": "Odstrániť adresu",
-  "accountsRemoveAddressMessage": "Conduit prestane skúšať túto adresu. Vaše účty zostanú prihlásené."
+  "accountsRemoveAddressMessage": "Conduit prestane skúšať túto adresu. Vaše účty zostanú prihlásené.",
+  "accountsAddressConfirmTitle": "Overiť túto adresu?",
+  "accountsAddressConfirmMessage": "Aby Conduit overil, že {host} je tento server, pošle mu reláciu účtu uloženého v tomto zariadení. Pokračujte, len ak tejto adrese dôverujete.",
+  "accountsAddressConfirmAction": "Overiť adresu"
 }

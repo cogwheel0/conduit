@@ -28,18 +28,26 @@ final _registry = OpenWebUiRegistry(
 void main() {
   Future<OpenWebUiAddressCheck> check0({
     required String? activeAccountId,
+    String address = 'https://home.example.net',
     String? liveToken,
     Map<String, String> kept = const {},
     Set<String> sessions = const {},
     Map<String, String> usersByToken = const {},
     List<String>? asked,
+    bool agrees = true,
+    List<Uri>? confirmations,
   }) => checkOpenWebUiAddress(
     registry: _registry,
     serverId: 'home',
+    address: address,
     activeAccountId: activeAccountId,
     liveToken: liveToken,
     keptTokenFor: (id) async => kept[id],
     accountsWithSession: sessions,
+    confirmSendingSession: (address) async {
+      confirmations?.add(address);
+      return agrees;
+    },
     userAt: (token) async {
       asked?.add(token);
       final user = usersByToken[token];
@@ -95,6 +103,40 @@ void main() {
           .equals(OpenWebUiAddressCheck.needsSignIn);
     },
   );
+
+  test('a token goes to a new host only once the user agrees', () async {
+    final asked = <String>[];
+    final confirmations = <Uri>[];
+
+    final result = await check0(
+      activeAccountId: 'ada',
+      liveToken: 'live-ada',
+      usersByToken: {'live-ada': 'user-ada'},
+      asked: asked,
+      agrees: false,
+      confirmations: confirmations,
+    );
+
+    check(result).equals(OpenWebUiAddressCheck.declined);
+    check(asked).isEmpty();
+    check(confirmations.single.host).equals('home.example.net');
+  });
+
+  test('a host one of the routes already uses is not asked about', () async {
+    final confirmations = <Uri>[];
+
+    final result = await check0(
+      activeAccountId: 'ada',
+      address: 'http://10.0.0.2:3000/owui',
+      liveToken: 'live-ada',
+      usersByToken: {'live-ada': 'user-ada'},
+      agrees: false,
+      confirmations: confirmations,
+    );
+
+    check(result).equals(OpenWebUiAddressCheck.sameServer);
+    check(confirmations).isEmpty();
+  });
 
   test(
     'a server with nothing kept for its accounts has nothing to protect',

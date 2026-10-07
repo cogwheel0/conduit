@@ -49,6 +49,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
 import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/account_actions.dart'
     show abandonAddedAccount, confirmLeavingActiveAccount;
@@ -386,10 +387,20 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final check = await checkOpenWebUiAddress(
       registry: registry,
       serverId: server.id,
+      address: verified.url,
       activeAccountId: activeId,
       liveToken: ref.read(authTokenProvider3),
       keptTokenFor: storage.vaultedTokenFor,
       accountsWithSession: await storage.accountIdsWithSession(),
+      confirmSendingSession: (address) async {
+        if (!mounted) return false;
+        return ThemedDialogs.confirm(
+          context,
+          title: l10n.accountsAddressConfirmTitle,
+          message: l10n.accountsAddressConfirmMessage(address.authority),
+          confirmText: l10n.accountsAddressConfirmAction,
+        );
+      },
       userAt: (token) async {
         final probe = ApiService(
           serverConfig: verified,
@@ -406,14 +417,17 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         }
       },
     );
-    final refusal = switch (check) {
-      OpenWebUiAddressCheck.differentServer =>
-        l10n.accountsAddressDifferentServer,
-      OpenWebUiAddressCheck.needsSignIn => l10n.accountsAddressNeedsSignIn,
-      OpenWebUiAddressCheck.sameServer ||
-      OpenWebUiAddressCheck.nothingToProtect => null,
-    };
-    if (refusal != null) {
+    if (check != OpenWebUiAddressCheck.sameServer &&
+        check != OpenWebUiAddressCheck.nothingToProtect) {
+      final refusal = switch (check) {
+        OpenWebUiAddressCheck.differentServer =>
+          l10n.accountsAddressDifferentServer,
+        OpenWebUiAddressCheck.needsSignIn => l10n.accountsAddressNeedsSignIn,
+        // Nothing was sent, as the user chose; the form stays as it is.
+        OpenWebUiAddressCheck.declined ||
+        OpenWebUiAddressCheck.sameServer ||
+        OpenWebUiAddressCheck.nothingToProtect => null,
+      };
       if (mounted) setState(() => _connectionError = refusal);
       return false;
     }

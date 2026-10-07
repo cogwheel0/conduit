@@ -5657,5 +5657,8 @@
   "accountsAddressDifferentServer": "このアドレスは別のサーバー、またはそのサーバー上の別のアカウントにつながります。",
   "accountsAddressNeedsSignIn": "アドレスを確認できるよう、先にこのサーバーのアカウントにサインインしてください。",
   "accountsRemoveAddress": "アドレスを削除",
-  "accountsRemoveAddressMessage": "Conduit はこのアドレスを試さなくなります。アカウントはサインインしたままです。"
+  "accountsRemoveAddressMessage": "Conduit はこのアドレスを試さなくなります。アカウントはサインインしたままです。",
+  "accountsAddressConfirmTitle": "このアドレスを確認しますか？",
+  "accountsAddressConfirmMessage": "{host} がこのサーバーであることを確かめるため、Conduit はこのデバイスに保存されたアカウントのセッションをそこへ送信します。このアドレスを信頼できる場合のみ続行してください。",
+  "accountsAddressConfirmAction": "アドレスを確認"
 }

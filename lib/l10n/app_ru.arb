@@ -4179,5 +4179,8 @@
   "accountsAddressDifferentServer": "Этот адрес ведёт на другой сервер или к другому аккаунту на нём.",
   "accountsAddressNeedsSignIn": "Сначала войдите в аккаунт на этом сервере, чтобы адрес можно было проверить.",
   "accountsRemoveAddress": "Удалить адрес",
-  "accountsRemoveAddressMessage": "Conduit перестанет пробовать этот адрес. Вход в ваши аккаунты сохранится."
+  "accountsRemoveAddressMessage": "Conduit перестанет пробовать этот адрес. Вход в ваши аккаунты сохранится.",
+  "accountsAddressConfirmTitle": "Проверить этот адрес?",
+  "accountsAddressConfirmMessage": "Чтобы убедиться, что {host} — это тот же сервер, Conduit отправит туда сеанс аккаунта, сохранённого на этом устройстве. Продолжайте, только если доверяете этому адресу.",
+  "accountsAddressConfirmAction": "Проверить адрес"
 }

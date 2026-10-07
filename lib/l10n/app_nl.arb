@@ -4141,5 +4141,8 @@
   "accountsAddressDifferentServer": "Dit adres leidt naar een andere server, of naar een ander account daarop.",
   "accountsAddressNeedsSignIn": "Log eerst in op een account op deze server, zodat het adres kan worden gecontroleerd.",
   "accountsRemoveAddress": "Adres verwijderen",
-  "accountsRemoveAddressMessage": "Conduit probeert dit adres niet meer. Je accounts blijven ingelogd."
+  "accountsRemoveAddressMessage": "Conduit probeert dit adres niet meer. Je accounts blijven ingelogd.",
+  "accountsAddressConfirmTitle": "Dit adres controleren?",
+  "accountsAddressConfirmMessage": "Om zeker te weten dat {host} deze server is, stuurt Conduit er de sessie van een hier opgeslagen account naartoe. Ga alleen verder als je dit adres vertrouwt.",
+  "accountsAddressConfirmAction": "Adres controleren"
 }

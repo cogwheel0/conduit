@@ -7653,5 +7653,16 @@
   "accountsAddressDifferentServer": "Ten adres prowadzi do innego serwera lub do innego konta na nim.",
   "accountsAddressNeedsSignIn": "Najpierw zaloguj się na konto na tym serwerze, aby można było sprawdzić adres.",
   "accountsRemoveAddress": "Usuń adres",
-  "accountsRemoveAddressMessage": "Conduit przestanie próbować tego adresu. Twoje konta będą nadal zalogowane."
+  "accountsRemoveAddressMessage": "Conduit przestanie próbować tego adresu. Twoje konta będą nadal zalogowane.",
+  "accountsAddressConfirmTitle": "Sprawdzić ten adres?",
+  "accountsAddressConfirmMessage": "Aby upewnić się, że {host} to ten serwer, Conduit wyśle tam sesję konta zapisanego na tym urządzeniu. Kontynuuj tylko wtedy, gdy ufasz temu adresowi.",
+  "@accountsAddressConfirmMessage": {
+    "placeholders": {
+      "host": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "accountsAddressConfirmAction": "Sprawdź adres"
 }

@@ -8439,5 +8439,23 @@
   "accountsRemoveAddressMessage": "Conduit stops trying this address. Your accounts stay signed in.",
   "@accountsRemoveAddressMessage": {
     "description": "Body of the confirmation before removing one address of an Open WebUI server."
+  },
+  "accountsAddressConfirmTitle": "Check this address?",
+  "@accountsAddressConfirmTitle": {
+    "description": "Title of the confirmation shown before a new address of a saved Open WebUI server, on a host none of its addresses uses, is checked by sending it a saved account's session."
+  },
+  "accountsAddressConfirmMessage": "To make sure {host} is this server, Conduit sends it the session of an account saved here. Continue only if you trust this address.",
+  "@accountsAddressConfirmMessage": {
+    "description": "Body of the confirmation shown before a saved account's session is sent to a new address to check that it reaches the same Open WebUI server. {host} is the new address's host name, with its port when it has one.",
+    "placeholders": {
+      "host": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "accountsAddressConfirmAction": "Check address",
+  "@accountsAddressConfirmAction": {
+    "description": "Confirms sending a saved account's session to a new address of an Open WebUI server, to check that it reaches the same server."
   }
 }
