@@ -1728,6 +1728,27 @@ void main() {
       });
     });
 
+    test('a sign-out keeping server details keeps every route, and the one '
+        'in use', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await storage.selectEndpoint(server.id, 'lan');
+
+      check(
+        await storage.clearAllIf(
+          canClear: () => true,
+          preserveServerDetails: true,
+        ),
+      ).isTrue();
+
+      final kept = (await storage.getOpenWebUiRegistryStrict()).servers.single;
+      check(kept.endpoints.map((endpoint) => endpoint.id))
+          .deepEquals(server.endpoints.map((endpoint) => endpoint.id));
+      check((await storage.getServerConfigs()).single.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
     test('removing the route in use falls back to the first', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');

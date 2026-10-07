@@ -4131,6 +4131,7 @@ class OptimizedStorageService {
       bypassReadSuppression: true,
     );
     var retainedRegistry = OpenWebUiRegistry.empty;
+    var retainedSelection = const <String, String>{};
     String? retainedActiveServerId;
     if (preserveServerDetails) {
       await attempt(() async {
@@ -4140,6 +4141,7 @@ class OptimizedStorageService {
           _registryLeftByWipe ??
               await _getRegistryStrictUnlocked(bypassReadSuppression: true),
         );
+        retainedSelection = Map.of(_endpointSelection());
         retainedActiveServerId = _effectiveActiveServerId(
           configs: retainedRegistry.projectAll(),
           rawActiveServerId: initiatingServerId,
@@ -4217,6 +4219,14 @@ class OptimizedStorageService {
       var configsRestored = false;
       var activeIdRestored = false;
       await attempt(() async {
+        // Every route is kept, so each server stays on the one it was
+        // reached through. Only for this run: the launch hint went with the
+        // other preferences, and the next launch probes again.
+        _selectedEndpoints = Map.of(retainedSelection)
+          ..removeWhere(
+            (serverId, endpointId) =>
+                retainedRegistry.server(serverId)?.endpoint(endpointId) == null,
+          );
         await _saveRegistryUnlocked(retainedRegistry, authorizeReads: false);
         configsRestored = true;
       });
