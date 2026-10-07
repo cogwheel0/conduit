@@ -1165,14 +1165,16 @@ class AuthStateManager extends _$AuthStateManager {
     _activeLogoutOperations++;
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
-      final activeId = await storage.getActiveServerId();
-      final wasActive =
-          activeId == accountId ||
-          (activeId == null &&
-              ref.read(activeServerProvider).asData?.value?.id == accountId);
+      Future<bool> isActive() async {
+        final activeId = await storage.getActiveServerId();
+        return activeId == accountId ||
+            (activeId == null &&
+                ref.read(activeServerProvider).asData?.value?.id == accountId);
+      }
 
       var signedIn = _current.isAuthenticated;
-      if (wasActive) {
+      var revoked = false;
+      if (await isActive()) {
         final api = ref.read(apiServiceProvider);
         final token = api?.authToken;
         final snapshot = api?.captureAuthSnapshot();
@@ -1180,11 +1182,17 @@ class AuthStateManager extends _$AuthStateManager {
         if (api != null) {
           try {
             await api.logout(authSnapshot: snapshot);
+            revoked = true;
           } catch (error) {
             _logAuthenticationFailure('server-logout-failed', error);
           }
         }
+      }
 
+      // A switch can finish while the server is asked. The account is then
+      // no longer the active one, and leaving it must not touch the one that
+      // is: no boundary, no tokenless state for the account now in use.
+      if (await isActive()) {
         final attemptRevision = _enterAccountBoundary();
         final bool hasSession;
         try {
@@ -1203,14 +1211,19 @@ class AuthStateManager extends _$AuthStateManager {
           if (!_authAttemptSuperseded(attemptRevision)) await refresh();
           Error.throwWithStackTrace(error, stackTrace);
         }
+        // Storage decides "active" again under its own lock. If a switch got
+        // in first, it removed an inactive account and left the live session
+        // alone; settle on that session rather than publishing it signed out.
+        final next = thenActivate != accountId ? thenActivate : null;
+        final removedActive = await storage.getActiveServerId() == next;
         signedIn = _authAttemptSuperseded(attemptRevision)
             ? _current.isAuthenticated
             : await _settleAtAccountBoundary(
                 attemptRevision: attemptRevision,
-                hasSession: hasSession,
+                hasSession: hasSession || !removedActive,
               );
       } else {
-        await _revokeVaultedSession(storage, accountId);
+        if (!revoked) await _revokeVaultedSession(storage, accountId);
         await storage.removeAccount(accountId);
         ref.invalidate(serverConfigsProvider);
       }

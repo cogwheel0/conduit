@@ -2,11 +2,15 @@ import 'package:checks/checks.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -254,6 +258,58 @@ void main() {
     check(merged).isFalse();
     check(isolation.purged).isEmpty();
   });
+
+  test('a sign-out overtaken by a switch leaves the account now in use', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    var active = 'account-a';
+    var token = _tokenA;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => token);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => active == 'account-a' ? _userA : _userB);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId()).thenAnswer((_) async => active);
+    when(() => storage.removeAccount('account-a')).thenAnswer((_) async => false);
+    final workerManager = WorkerManager();
+    // A switch to B finishes while the server is asked to end A's session.
+    final api = _LoggingOutApi(workerManager, onLogout: () {
+      active = 'account-b';
+      token = _tokenB;
+    });
+    addTearDown(() {
+      api.dispose();
+      workerManager.dispose();
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(api),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    await container
+        .read(authStateManagerProvider.notifier)
+        .signOutAccount('account-a');
+
+    // B's session was never touched: no boundary, no signed-out B.
+    check(isolation.switches).equals(0);
+    check(container.read(authStateManagerProvider).requireValue.status)
+        .not((it) => it.equals(AuthStatus.unauthenticated));
+    check(isolation.purged).deepEquals(['account-a']);
+    verify(() => storage.removeAccount('account-a')).called(1);
+  });
 }
 
 /// The auth state once its first restore has finished. The provider's
@@ -287,4 +343,22 @@ final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
 
   @override
   void beginAccountSwitch() => switches++;
+}
+
+/// An API client whose server logout runs [onLogout] instead of a request.
+final class _LoggingOutApi extends ApiService {
+  _LoggingOutApi(WorkerManager workerManager, {required this.onLogout})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'account-a',
+          name: 'A',
+          url: 'https://a.example',
+        ),
+        workerManager: workerManager,
+      );
+
+  final void Function() onLogout;
+
+  @override
+  Future<void> logout({ApiAuthSnapshot? authSnapshot}) async => onLogout();
 }
