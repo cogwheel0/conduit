@@ -57,14 +57,7 @@ Future<void> switchToSavedAccount(
     final result = await controller.switchTo(accountId);
     if (result != OpenWebUiAccountChangeResult.blockedByActiveReply) return;
     if (!context.mounted) return;
-    final confirmed = await ThemedDialogs.confirm(
-      context,
-      title: l10n.accountsReplyInProgressTitle,
-      message: l10n.accountsSwitchStopsReply,
-      confirmText: l10n.accountsSwitchAnyway,
-      isDestructive: true,
-    );
-    if (!confirmed) return;
+    if (!await _confirmSwitchStopsReply(context)) return;
     await controller.switchTo(accountId, force: true);
   } catch (error, stackTrace) {
     DebugLogger.error(
@@ -75,6 +68,45 @@ Future<void> switchToSavedAccount(
     );
     if (context.mounted) UiUtils.showMessage(context, l10n.errorMessage);
   }
+}
+
+/// Whether the active account may be left for one being signed in to: at
+/// once when no reply is being written, else once the user agrees to stop
+/// it, which this then does.
+///
+/// Signing in to an added account makes it the active one before the
+/// accounts controller is involved, so this asks what [switchToSavedAccount]
+/// asks when the controller reports a reply in the way.
+Future<bool> confirmLeavingActiveAccount(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  if (!ref.read(accountChangeReplyGuardProvider)()) return true;
+  if (!await _confirmSwitchStopsReply(context) || !context.mounted) {
+    return false;
+  }
+  try {
+    ref.read(accountChangeStopRepliesProvider)();
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'account-change-stop-replies-failed',
+      scope: 'auth/accounts',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+  return true;
+}
+
+Future<bool> _confirmSwitchStopsReply(BuildContext context) {
+  final l10n = AppLocalizations.of(context)!;
+  return ThemedDialogs.confirm(
+    context,
+    title: l10n.accountsReplyInProgressTitle,
+    message: l10n.accountsSwitchStopsReply,
+    confirmText: l10n.accountsSwitchAnyway,
+    isDestructive: true,
+  );
 }
 
 /// Signs out of [entry] after confirming, and again when that would stop a

@@ -16,6 +16,7 @@ import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'support/adaptive_auth_harness.dart';
 
@@ -526,6 +527,69 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ada@example.com'), findsNothing);
+
+    await harness.unmount(tester);
+  });
+
+  // The first attempt makes the added account the active one, which stopped a
+  // reply still being written in the account it was added from unasked.
+  testWidgets('signing in to an added account asks before stopping a reply', (
+    tester,
+  ) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final actions = _RejectingAuthActions();
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLdap: true),
+      authActions: actions,
+      addingAccountFrom: 'ada-account',
+      replyBeingWritten: true,
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('LDAP'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byKey(const ValueKey('ldap_form')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), 'grace');
+    await tester.enterText(fields.at(1), 'password');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.pumpAndSettle();
+    expect(find.text('A reply is still being written'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    check(harness.repliesStopped).equals(0);
+    check(actions.ldapAttempts).isEmpty();
+    verifyNever(
+      () => harness.storage.selectUnauthenticatedServerConfig(
+        any(),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        publish: any(named: 'publish'),
+      ),
+    );
+
+    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Switch anyway'));
+    // The attempt waits on timers (server selection) that pumpAndSettle does
+    // not advance.
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    check(harness.repliesStopped).equals(1);
+    check(actions.ldapAttempts).deepEquals([('grace', 'password')]);
 
     await harness.unmount(tester);
   });

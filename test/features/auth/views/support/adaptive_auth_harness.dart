@@ -47,6 +47,7 @@ class AdaptiveAuthHarness {
     this.abandonablePendingSignIn = false,
     this.accountsController,
     this.savedServersError,
+    this.replyBeingWritten = false,
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer(
       (_) async => savedUsername == null ? null : {'username': savedUsername!},
@@ -113,6 +114,16 @@ class AdaptiveAuthHarness {
 
   /// What reading the saved servers fails with, as a Keychain error does.
   final Object? savedServersError;
+
+  /// Whether a reply is still being written that leaving the active account
+  /// would stop.
+  final bool replyBeingWritten;
+
+  /// How many times the replies being written were stopped.
+  int repliesStopped = 0;
+
+  /// The device storage, for a test to see what was saved.
+  OptimizedStorageService get storage => _storage;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
@@ -186,6 +197,12 @@ class AdaptiveAuthHarness {
           ),
         if (abandonablePendingSignIn)
           pendingSignInAbandonableProvider.overrideWith((_) async => true),
+        if (replyBeingWritten) ...[
+          accountChangeReplyGuardProvider.overrideWithValue(() => true),
+          accountChangeStopRepliesProvider.overrideWithValue(
+            () => repliesStopped++,
+          ),
+        ],
         if (accountsController != null)
           openWebUiAccountsControllerProvider.overrideWithValue(
             accountsController!,

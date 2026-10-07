@@ -48,7 +48,8 @@ import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
-import '../../profile/widgets/account_actions.dart' show abandonAddedAccount;
+import '../../profile/widgets/account_actions.dart'
+    show abandonAddedAccount, confirmLeavingActiveAccount;
 
 const int _maxConnectionProviderDetailCharacters = 300;
 const int _maxConnectionErrorCharacters = 640;
@@ -763,6 +764,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     User validatedUser,
     BackendConfig backendConfig,
   ) async {
+    // Committing makes the new account the active one. While another account
+    // is added, that leaves the one it was added from and stops a reply still
+    // being written there, so ask first.
+    if (ref.read(accountAdditionOriginProvider) != null &&
+        !await confirmLeavingActiveAccount(context, ref)) {
+      return;
+    }
+    if (!mounted) return;
     try {
       final authActions = ref.read(authActionsProvider);
       final success = await authActions.commitPrevalidatedProxySession(

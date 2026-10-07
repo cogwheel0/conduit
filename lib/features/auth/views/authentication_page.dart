@@ -16,7 +16,8 @@ import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
-import '../../profile/widgets/account_actions.dart' show abandonAddedAccount;
+import '../../profile/widgets/account_actions.dart'
+    show abandonAddedAccount, confirmLeavingActiveAccount;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -282,6 +283,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     final l10n = AppLocalizations.of(context)!;
     if (!_formKey.currentState!.validate()) return;
+    if (!await _mayLeaveActiveAccount() || !mounted) return;
 
     setState(() {
       _isSigningIn = true;
@@ -377,6 +379,18 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       buttonKey: key,
       onPressed: () => context.go(Routes.serverConnection),
     );
+  }
+
+  /// The first attempt makes the server's new account the active one. While
+  /// another account is added that leaves the one it was added from, and
+  /// stops a reply still being written there, so ask first.
+  Future<bool> _mayLeaveActiveAccount() async {
+    if (_serverConfig == null ||
+        _serverConfigSaved ||
+        ref.read(accountAdditionOriginProvider) == null) {
+      return true;
+    }
+    return confirmLeavingActiveAccount(context, ref);
   }
 
   Future<void> _saveServerConfig(ServerConfig config) async {
@@ -808,6 +822,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   Future<void> _navigateToSso() async {
     if (!mounted || _isSigningIn) return;
+    if (!await _mayLeaveActiveAccount() || !mounted) return;
     setState(() {
       _isSigningIn = true;
       _loginError = null;
