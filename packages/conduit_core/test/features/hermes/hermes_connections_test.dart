@@ -11,6 +11,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
@@ -726,6 +727,72 @@ void main() {
         ).equals('refresh-1');
       });
     }
+
+    group('the live Desktop client', () {
+      late ProviderContainer container;
+      late HermesConfigController controller;
+
+      setUp(() async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://alpha.example').copyWith(
+            mode: HermesBackendMode.desktopGateway,
+            desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+          ),
+          _profile(_b, 'Beta', 'https://beta.example'),
+        ], active: _a);
+        container = await _ready(
+          _Secrets({
+            'hermes_desktop_credentials_v1:$_a': jsonEncode(
+              _nativeCredentials('refresh-0').toJson(),
+            ),
+            'hermes_api_key_v1:$_b': 'beta-key',
+          }),
+        );
+        controller = container.read(hermesConfigProvider.notifier);
+      });
+      tearDown(() => container.dispose());
+
+      HermesDesktopApiService live() =>
+          container.read(hermesApiServiceProvider)! as HermesDesktopApiService;
+      Future<String?> storedRefreshToken() async =>
+          (await controller.savedConnectionConfig(
+            _a,
+          )).desktopCredentials?.nativeTokens?.refreshToken;
+
+      test('takes the tokens another client rotated', () async {
+        final before = live();
+        await controller.credentialsWriterFor(
+          container.read(hermesConfigProvider),
+        )(_nativeCredentials('refresh-1'));
+
+        final after = live();
+        check(identical(after, before)).isFalse();
+        check(
+          after.config.desktopCredentials?.nativeTokens?.refreshToken,
+        ).equals('refresh-1');
+      });
+
+      test('cannot erase the tokens another client rotated', () async {
+        final stale = live();
+        await controller.credentialsWriterFor(
+          container.read(hermesConfigProvider),
+        )(_nativeCredentials('refresh-1'));
+
+        // Its own refresh with the spent token was refused; it signs out.
+        await stale.onCredentialsChanged!(HermesDesktopCredentials());
+
+        check(await storedRefreshToken()).equals('refresh-1');
+      });
+
+      test('keeps its rotation when it lands after a switch away', () async {
+        final client = live();
+        await controller.setActiveConnection(_b);
+
+        await client.onCredentialsChanged!(_nativeCredentials('refresh-1'));
+
+        check(await storedRefreshToken()).equals('refresh-1');
+      });
+    });
 
     test(
       'a read during a rolled-back save never pairs the new address with '

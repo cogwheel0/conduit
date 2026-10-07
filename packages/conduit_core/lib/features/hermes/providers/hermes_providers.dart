@@ -505,7 +505,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// or turning Hermes off while a refresh is in flight keeps the tokens the
   /// server already issued. The write is rejected once [connection]'s
   /// endpoint, auth, or credentials change.
-  HermesDesktopCredentialsWriter credentialsWriterFor(HermesConfig connection) {
+  ///
+  /// [live] marks the writer of the live client itself. Any other writer that
+  /// replaces the active connection's tokens rebuilds the live client, which
+  /// would otherwise go on with the replaced ones.
+  HermesDesktopCredentialsWriter credentialsWriterFor(
+    HermesConfig connection, {
+    bool live = false,
+  }) {
     final connectionId = connection.connectionId;
     // The refresh token this writer's client holds. Two clients built from
     // the same stored tokens can race: once one rotates them, the other's
@@ -542,7 +549,11 @@ class HermesConfigController extends Notifier<HermesConfig> {
         accessHeaders: previous?.accessHeaders ?? const {},
       );
       await _persistDesktopCredentials(connectionId, next);
-      if (active) state = _withState(desktopCredentials: next);
+      if (active) {
+        state = _withState(desktopCredentials: next);
+        // Through the container: the live client watches this notifier.
+        if (!live) ref.container.invalidate(hermesApiServiceProvider);
+      }
       expectedRefreshToken = credentials.nativeTokens?.refreshToken;
     });
   }
@@ -1997,9 +2008,12 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
   if (!config.isUsable) return null;
   final HermesBackendService service;
   if (config.mode == HermesBackendMode.desktopGateway) {
+    // Rotations land even after this client is replaced, as by a switch
+    // away: the server has already spent the refresh token they replace.
+    // They never overwrite tokens this client did not hold.
     final writeCredentials = ref
         .read(hermesConfigProvider.notifier)
-        .nativeCredentialsWriter();
+        .credentialsWriterFor(config, live: true);
     final desktopService = HermesDesktopApiService(
       config: config,
       openExternalUrl: ref.read(openExternalUrlProvider),
@@ -2008,7 +2022,6 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
       ),
       onCredentialsChanged: (credentials) async {
         try {
-          if (!ref.mounted) return;
           await writeCredentials(credentials);
         } catch (error) {
           DebugLogger.error(
