@@ -389,6 +389,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       _closeAtAccountBoundary(reason: 'account-signed-out');
       ref.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
     }
+    final certificationGeneration = _certificationGeneration;
     try {
       final ownerMarker = ref
           .read(openWebUiAccountOwnerMarkerStoreProvider)
@@ -413,8 +414,13 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         scope: 'auth/storage-isolation',
       );
     } finally {
-      // Back to judging the next identity as a cold start would.
-      if (stillOpen && !_disposed) {
+      // Back to judging the next identity as a cold start would, unless a
+      // boundary or another account's certification has decided since.
+      if (stillOpen &&
+          !_disposed &&
+          _certificationGeneration == certificationGeneration &&
+          ref.read(openWebUiDatabaseAccessProvider) ==
+              OpenWebUiDatabaseAccessPhase.purging) {
         ref.read(openWebUiDatabaseAccessProvider.notifier).reenterBootstrap();
       }
     }

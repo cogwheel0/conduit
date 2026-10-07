@@ -1944,6 +1944,34 @@ void main() {
       }
     }
 
+    test('signing out of the open account overtaken by a switch leaves the '
+        'next one open', () async {
+      final releasePurge = Completer<void>();
+      final harness = await _harness(
+        databasePurge: (_) => releasePurge.future,
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final purging = harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .purgeAccount(_server.id);
+      await Future<void>.delayed(Duration.zero);
+
+      // B certifies while A's files are still being deleted.
+      await switchTo(harness, _serverTwo, _authenticated('token-b', _userB));
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      releasePurge.complete();
+      await purging;
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+    });
+
     test('an announced switch opens the next account with its data', () async {
       final harness = await _harness();
       await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
