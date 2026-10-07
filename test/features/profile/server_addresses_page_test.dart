@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/features/profile/views/server_addresses_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -20,23 +22,65 @@ final _server = OpenWebUiServer(
   ],
 );
 
+typedef _Edit = List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint>);
+
 final class _Storage extends Mock implements OptimizedStorageService {}
 
 final class _Routes extends OpenWebUiRouteResolver {
+  static final reasons = <String>[];
+
   @override
   OpenWebUiRouteStatus build() =>
       const OpenWebUiRouteStatus(serverId: 'home', endpointId: 'public');
 
   @override
-  Future<void> resolve({String reason = 'manual'}) async {}
+  Future<void> resolve({String reason = 'manual'}) async => reasons.add(reason);
 }
 
 void main() {
-  setUpAll(() => registerFallbackValue(_server));
+  setUpAll(() {
+    registerFallbackValue(_server);
+    registerFallbackValue((List<OpenWebUiEndpoint> endpoints) => endpoints);
+  });
 
-  Future<_Storage> pumpPage(WidgetTester tester) async {
+  // The server's routes as stored, and each list saved in turn. Saves land
+  // one at a time, as under the storage lock, each held at [gate] if set.
+  late List<OpenWebUiEndpoint> stored;
+  late List<List<String>> saved;
+  late GlobalKey<NavigatorState> navigator;
+  late Future<void> landing;
+  Completer<void>? gate;
+
+  setUp(() {
+    saved = [];
+    gate = null;
+    _Routes.reasons.clear();
+  });
+
+  Future<void> land(_Edit edit) {
+    final landed = landing.then((_) async {
+      await gate?.future;
+      stored = edit(stored);
+      saved.add([for (final endpoint in stored) endpoint.id]);
+    });
+    landing = landed;
+    return landed;
+  }
+
+  Future<void> pumpPage(WidgetTester tester, {OpenWebUiServer? server}) async {
+    final shown = server ?? _server;
+    stored = [...shown.endpoints];
+    // Made in the test's own zone, so pumping runs what waits on it.
+    landing = Future<void>.value();
     final storage = _Storage();
-    when(() => storage.saveServer(any())).thenAnswer((_) async {});
+    when(() => storage.editServerEndpoints(any(), any())).thenAnswer(
+      (invocation) => land(invocation.positionalArguments[1] as _Edit),
+    );
+    when(() => storage.saveServer(any())).thenAnswer((invocation) {
+      final next = invocation.positionalArguments.single as OpenWebUiServer;
+      return land((_) => next.endpoints);
+    });
+    navigator = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -45,7 +89,7 @@ void main() {
             (ref) async => [
               OpenWebUiAccountEntry(
                 account: OpenWebUiAccount(id: 'a', serverId: 'home'),
-                server: _server,
+                server: shown,
                 summary: const OpenWebUiAccountSummary(),
                 isActive: true,
                 hasSession: true,
@@ -54,15 +98,29 @@ void main() {
           ),
           openWebUiRouteResolverProvider.overrideWith(_Routes.new),
         ],
-        child: const MaterialApp(
+        child: MaterialApp(
+          navigatorKey: navigator,
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: ServerAddressesPage(serverId: 'home'),
+          home: const SizedBox.shrink(),
+        ),
+      ),
+    );
+    unawaited(
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const ServerAddressesPage(serverId: 'home'),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    return storage;
+  }
+
+  Future<void> remove(WidgetTester tester, String endpointId) async {
+    await tester.tap(find.byKey(Key('server-address-remove-$endpointId')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remove address').last);
+    await tester.pumpAndSettle();
   }
 
   testWidgets('lists the addresses in order and marks the one in use', (
@@ -93,16 +151,37 @@ void main() {
   testWidgets('removing an address saves the server without it', (
     tester,
   ) async {
-    final storage = await pumpPage(tester);
+    await pumpPage(tester);
 
-    await tester.tap(find.byKey(const Key('server-address-remove-lan')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove address').last);
+    await remove(tester, 'lan');
+
+    expect(saved, [
+      ['public'],
+    ]);
+  });
+
+  testWidgets('a removal started before another lands keeps both', (
+    tester,
+  ) async {
+    await pumpPage(
+      tester,
+      server: OpenWebUiServer(
+        id: 'home',
+        name: 'Home',
+        endpoints: [
+          OpenWebUiEndpoint(id: 'a', url: 'https://a.example.com'),
+          OpenWebUiEndpoint(id: 'b', url: 'https://b.example.com'),
+          OpenWebUiEndpoint(id: 'c', url: 'https://c.example.com'),
+        ],
+      ),
+    );
+    final held = gate = Completer<void>();
+
+    await remove(tester, 'a');
+    await remove(tester, 'b');
+    held.complete();
     await tester.pumpAndSettle();
 
-    final saved =
-        verify(() => storage.saveServer(captureAny())).captured.single
-            as OpenWebUiServer;
-    expect(saved.endpoints.map((endpoint) => endpoint.id), ['public']);
+    expect(saved.last, ['c']);
   });
 }

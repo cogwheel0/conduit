@@ -111,22 +111,33 @@ class ServerAddressesPage extends ConsumerWidget {
     int from,
     int to,
   ) async {
-    final endpoints = [...server.endpoints];
-    endpoints.insert(to, endpoints.removeAt(from));
+    final order = [for (final endpoint in server.endpoints) endpoint.id];
+    order.insert(to, order.removeAt(from));
     await _save(
       context,
       ref,
-      OpenWebUiServer(id: server.id, name: server.name, endpoints: endpoints),
+      server.id,
+      (endpoints) => [
+        for (final id in order)
+          ?endpoints.where((endpoint) => endpoint.id == id).firstOrNull,
+        for (final endpoint in endpoints)
+          if (!order.contains(endpoint.id)) endpoint,
+      ],
     );
   }
 
+  /// Applies [edit] to the routes as stored, not as this page last showed
+  /// them: another edit may have landed since.
   static Future<void> _save(
     BuildContext context,
     WidgetRef ref,
-    OpenWebUiServer server,
+    String serverId,
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint>) edit,
   ) async {
     try {
-      await ref.read(optimizedStorageServiceProvider).saveServer(server);
+      await ref
+          .read(optimizedStorageServiceProvider)
+          .editServerEndpoints(serverId, edit);
       ref.invalidate(serverConfigsProvider);
       ref.invalidate(openWebUiAccountsProvider);
       unawaited(
@@ -245,14 +256,11 @@ class _AddressRow extends ConsumerWidget {
     await ServerAddressesPage._save(
       context,
       ref,
-      OpenWebUiServer(
-        id: server.id,
-        name: server.name,
-        endpoints: [
-          for (final other in server.endpoints)
-            if (other.id != endpoint.id) other,
-        ],
-      ),
+      server.id,
+      (endpoints) => [
+        for (final other in endpoints)
+          if (other.id != endpoint.id) other,
+      ],
     );
   }
 }

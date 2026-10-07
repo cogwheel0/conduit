@@ -1622,6 +1622,25 @@ void main() {
       });
     });
 
+    test('edits made from the same list both land', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await addRoute('tailscale', 'http://home.ts.net:3000');
+
+      Future<void> remove(String id) => storage.editServerEndpoints(
+        server.id,
+        (endpoints) => [
+          for (final endpoint in endpoints)
+            if (endpoint.id != id) endpoint,
+        ],
+      );
+      await Future.wait([remove('lan'), remove('tailscale')]);
+
+      final registry = await storage.getOpenWebUiRegistryStrict();
+      check(registry.servers.single.endpoints.map((endpoint) => endpoint.id))
+          .deepEquals([server.endpoints.first.id]);
+    });
+
     test('a failed save leaves the route in use as it was', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');

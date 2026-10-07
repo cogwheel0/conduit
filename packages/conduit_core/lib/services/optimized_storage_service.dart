@@ -2476,67 +2476,100 @@ class OptimizedStorageService {
       throw ArgumentError('A server needs at least one route.');
     }
     return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() => _saveServerUnlocked(server)),
+    );
+  }
+
+  /// Applies [edit] to [serverId]'s routes as they are stored when the edit
+  /// runs, and saves the result as [saveServer] does.
+  ///
+  /// For edits made from a list on screen: two started before the first
+  /// lands would otherwise each save the list as it was, and the second
+  /// would bring back what the first removed.
+  Future<void> editServerEndpoints(
+    String serverId,
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit,
+  ) {
+    return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
-        final registry = await _registryForWriteUnlocked();
-        final stored = registry.server(server.id);
+        final stored = (await _registryForWriteUnlocked()).server(serverId);
         if (stored == null) {
           throw StateError('That server is no longer saved.');
         }
-        final routes = {for (final endpoint in server.endpoints) endpoint.id};
-        // An edited route keeps its id. Its cookies were issued to the old
-        // host, for every account on the server: they must not follow it to
-        // a new one.
-        final keepsCookies = {
-          for (final endpoint in server.endpoints)
-            if (stored.endpoint(endpoint.id) case final before?
-                when _sameRouteSessionOwner(before, endpoint))
-              endpoint.id,
-        };
-        final next = OpenWebUiRegistry(
-          servers: [
-            for (final existing in registry.servers)
-              existing.id == server.id ? server : existing,
-          ],
-          accounts: [
-            for (final account in registry.accounts)
-              account.serverId == server.id
-                  ? account.copyWith(
-                      capturedHeaders: {
-                        for (final entry in account.capturedHeaders.entries)
-                          if (keepsCookies.contains(entry.key))
-                            entry.key: entry.value,
-                      },
-                    )
-                  : account,
-          ],
+        final endpoints = edit(stored.endpoints);
+        if (endpoints.isEmpty) {
+          throw ArgumentError('A server needs at least one route.');
+        }
+        await _saveServerUnlocked(
+          OpenWebUiServer(
+            id: stored.id,
+            name: stored.name,
+            endpoints: endpoints,
+          ),
         );
-        final selection = _endpointSelection();
-        final previous = selection[server.id];
-        // With nothing selected the first route is used, so a reorder would
-        // move the client at once, cutting off a reply the route resolver
-        // waits for. Pin the route in use instead; the resolver's check
-        // after the edit moves it when it should.
-        final inUse = stored.selectedEndpoint(previous).id;
-        if (routes.contains(inUse)) {
-          selection[server.id] = inUse;
-        } else {
-          selection.remove(server.id);
-        }
-        try {
-          await _saveRegistryUnlocked(next);
-        } catch (_) {
-          // The stored routes are unchanged; so is the one in use.
-          if (previous == null) {
-            selection.remove(server.id);
-          } else {
-            selection[server.id] = previous;
-          }
-          rethrow;
-        }
-        _stagedServerConfigCandidate = null;
-        await _writeEndpointHint();
       }),
     );
+  }
+
+  Future<void> _saveServerUnlocked(OpenWebUiServer server) async {
+    final registry = await _registryForWriteUnlocked();
+    final stored = registry.server(server.id);
+    if (stored == null) {
+      throw StateError('That server is no longer saved.');
+    }
+    final routes = {for (final endpoint in server.endpoints) endpoint.id};
+    // An edited route keeps its id. Its cookies were issued to the old
+    // host, for every account on the server: they must not follow it to
+    // a new one.
+    final keepsCookies = {
+      for (final endpoint in server.endpoints)
+        if (stored.endpoint(endpoint.id) case final before?
+            when _sameRouteSessionOwner(before, endpoint))
+          endpoint.id,
+    };
+    final next = OpenWebUiRegistry(
+      servers: [
+        for (final existing in registry.servers)
+          existing.id == server.id ? server : existing,
+      ],
+      accounts: [
+        for (final account in registry.accounts)
+          account.serverId == server.id
+              ? account.copyWith(
+                  capturedHeaders: {
+                    for (final entry in account.capturedHeaders.entries)
+                      if (keepsCookies.contains(entry.key))
+                        entry.key: entry.value,
+                  },
+                )
+              : account,
+      ],
+    );
+    final selection = _endpointSelection();
+    final previous = selection[server.id];
+    // With nothing selected the first route is used, so a reorder would
+    // move the client at once, cutting off a reply the route resolver
+    // waits for. Pin the route in use instead; the resolver's check
+    // after the edit moves it when it should.
+    final inUse = stored.selectedEndpoint(previous).id;
+    if (routes.contains(inUse)) {
+      selection[server.id] = inUse;
+    } else {
+      selection.remove(server.id);
+    }
+    try {
+      await _saveRegistryUnlocked(next);
+    } catch (_) {
+      // The stored routes are unchanged; so is the one in use.
+      if (previous == null) {
+        selection.remove(server.id);
+      } else {
+        selection[server.id] = previous;
+      }
+      rethrow;
+    }
+    _stagedServerConfigCandidate = null;
+    await _writeEndpointHint();
   }
 
   /// Keeps the session headers a proxy sign-in captured for [accountId] on

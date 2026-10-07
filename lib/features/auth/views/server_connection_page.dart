@@ -448,18 +448,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       mtlsPrivateKeyLabel: verified.mtlsPrivateKeyLabel,
       mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
     );
-    final editing = server.endpoint(route.id) != null;
-    await storage.saveServer(
-      OpenWebUiServer(
-        id: server.id,
-        name: server.name,
-        endpoints: editing
-            ? [
-                for (final endpoint in server.endpoints)
-                  endpoint.id == route.id ? route : endpoint,
-              ]
-            : [...server.endpoints, route],
-      ),
+    // Onto the routes as stored now, not as read before the check, which can
+    // take a while.
+    await storage.editServerEndpoints(
+      server.id,
+      (endpoints) => [
+        for (final endpoint in endpoints)
+          endpoint.id == route.id ? route : endpoint,
+        if (!endpoints.any((endpoint) => endpoint.id == route.id)) route,
+      ],
     );
     // A proxy sign-in on this address belongs to the account whose session
     // proved it, which need not be the active one; with nothing to prove, to
