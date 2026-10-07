@@ -1202,9 +1202,7 @@ class AuthStateManager extends _$AuthStateManager {
         ref.invalidate(serverConfigsProvider);
       }
 
-      await ref
-          .read(openWebUiAccountStorageIsolationProvider.notifier)
-          .purgeAccount(accountId);
+      await _accountStorageIsolation.purgeAccount(accountId);
       ref.read(openWebUiAccountSummariesProvider.notifier).reload();
       return signedIn;
     } finally {
@@ -1247,9 +1245,7 @@ class AuthStateManager extends _$AuthStateManager {
       _invalidateServerProviders();
       if (!_authAttemptSuperseded(attemptRevision)) await refresh();
     }
-    await ref
-        .read(openWebUiAccountStorageIsolationProvider.notifier)
-        .purgeAccount(sourceAccountId);
+    await _accountStorageIsolation.purgeAccount(sourceAccountId);
     ref.read(openWebUiAccountSummariesProvider.notifier).reload();
     return true;
   }
@@ -1261,11 +1257,16 @@ class AuthStateManager extends _$AuthStateManager {
     _lastTransactionalSessionRevision = null;
     _cacheManager.clearAuthCache();
     _publishTokenlessAuthRejection(status: AuthStatus.loading, isLoading: true);
-    ref
-        .read(openWebUiAccountStorageIsolationProvider.notifier)
-        .beginAccountSwitch();
+    _accountStorageIsolation.beginAccountSwitch();
     return attemptRevision;
   }
+
+  /// The storage barrier for account changes. It follows this notifier, so
+  /// Riverpod refuses a read from this notifier's ref as a dependency cycle;
+  /// these are one-off commands, not dependencies, so they go through the
+  /// container.
+  OpenWebUiAccountStorageIsolation get _accountStorageIsolation =>
+      ref.container.read(openWebUiAccountStorageIsolationProvider.notifier);
 
   /// Ends an account boundary: restores the new active account's session, or
   /// settles signed out when it has none.

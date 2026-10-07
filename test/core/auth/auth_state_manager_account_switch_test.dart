@@ -78,6 +78,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
+    container.read(openWebUiAccountStorageIsolationProvider);
     final initial = await _settledAuth(container);
     check(initial.token).equals(_tokenA);
 
@@ -147,6 +148,7 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
     await _settledAuth(container);
 
     final signedIn = await container
@@ -179,8 +181,12 @@ final class _Storage extends Mock implements OptimizedStorageService {}
 final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
   int switches = 0;
 
+  /// Follows auth as the real barrier does, so auth telling it about a switch
+  /// runs against the same provider graph as in the app.
   @override
-  void build() {}
+  void build() {
+    ref.listen(authStateManagerProvider, (_, _) {});
+  }
 
   @override
   void beginAccountSwitch() => switches++;
