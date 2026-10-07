@@ -17,7 +17,7 @@ void main() {
     TargetPlatform.android,
   ]) {
     testWidgets(
-      'does not select a disabled current value on ${platform.name}',
+      'settings segments keep one icon and reject disabled values on ${platform.name}',
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
@@ -48,11 +48,15 @@ void main() {
         );
 
         if (platform == TargetPlatform.iOS) {
+          expect(find.byIcon(CupertinoIcons.circle), findsNWidgets(2));
+          expect(find.byIcon(Icons.circle_outlined), findsNothing);
           final selector = tester.widget<CupertinoSlidingSegmentedControl<int>>(
             find.byType(CupertinoSlidingSegmentedControl<int>),
           );
           check(selector.groupValue).isNull();
         } else {
+          expect(find.byIcon(Icons.circle_outlined), findsNWidgets(2));
+          expect(find.byIcon(CupertinoIcons.circle), findsNothing);
           final selector = tester.widget<SegmentedButton<int>>(
             find.byType(SegmentedButton<int>),
           );

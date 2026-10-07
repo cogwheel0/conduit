@@ -1575,12 +1575,6 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/profile/views/app_customization_page.dart
-    symbol: "Checkbox"
-    count: 2
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/views/app_customization_page.dart
     symbol: "LinearProgressIndicator"
     count: 1
     owner: settings
@@ -1637,36 +1631,6 @@ exceptions:
   - path: lib/features/profile/views/profile_page.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/adaptive_segmented_selector.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/adaptive_segmented_selector.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/adaptive_segmented_selector.dart
-    symbol: "ButtonSegment"
-    count: 4
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/adaptive_segmented_selector.dart
-    symbol: "CupertinoSlidingSegmentedControl"
-    count: 2
-    owner: settings
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/profile/widgets/adaptive_segmented_selector.dart
-    symbol: "SegmentedButton"
-    count: 2
     owner: settings
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration

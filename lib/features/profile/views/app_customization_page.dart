@@ -350,7 +350,7 @@ class AppCustomizationPage extends ConsumerWidget {
                           color: context.conduitTheme.textPrimary,
                         ),
                       ),
-                      trailing: Checkbox.adaptive(
+                      trailing: AdaptiveCheckbox(
                         value: selected.contains(options[i].id),
                         visualDensity: VisualDensity.compact,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,

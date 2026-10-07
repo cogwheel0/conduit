@@ -1,3 +1,4 @@
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,22 +49,58 @@ void main() {
     expect(find.text('Transport mode'), findsNothing);
   });
 
-  testWidgets('Open WebUI Chat opens quick actions without ListTile error', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _sectionHarness(AppCustomizationSection.chat, hasOpenWebUiAccount: true),
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      'quick actions save selection and clearing on ${platform.name}',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        addTearDown(PreferencesStore.debugReset);
+        await tester.runAsync(() async {
+          SharedPreferences.setMockInitialValues(<String, Object>{});
+          PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+        });
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            _sectionHarness(
+              AppCustomizationSection.chat,
+              hasOpenWebUiAccount: true,
+              persistSettings: true,
+              platform: platform,
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Quick actions in chat'));
+          await tester.pumpAndSettle();
+          expect(find.text('Web'), findsOneWidget);
+          expect(find.text('Image Gen'), findsOneWidget);
+          final checkbox = find.descendant(
+            of: find.widgetWithText(AdaptiveListTile, 'Web'),
+            matching: find.byType(AdaptiveCheckbox),
+          );
+          expect(tester.getSemantics(checkbox), isSemantics(isChecked: false));
+          await tester.tap(checkbox);
+          await tester.pumpAndSettle();
+          expect(PreferencesStore.getStringList(PreferenceKeys.quickPills), [
+            'web',
+          ]);
+          expect(tester.getSemantics(checkbox), isSemantics(isChecked: true));
+          await tester.tap(checkbox);
+          await tester.pumpAndSettle();
+          expect(
+            PreferencesStore.getStringList(PreferenceKeys.quickPills),
+            isEmpty,
+          );
+          expect(tester.getSemantics(checkbox), isSemantics(isChecked: false));
+          expect(tester.takeException(), isNull);
+        } finally {
+          semantics.dispose();
+        }
+      },
     );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Quick actions in chat'), findsOneWidget);
-    await tester.tap(find.text('Quick actions in chat'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Web'), findsOneWidget);
-    expect(find.text('Image Gen'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+  }
 
   testWidgets('Open WebUI Chat exposes advanced prompt settings', (
     tester,
@@ -170,6 +207,7 @@ Widget _sectionHarness(
   AppCustomizationSection section, {
   bool hasOpenWebUiAccount = false,
   bool persistSettings = false,
+  TargetPlatform platform = TargetPlatform.android,
 }) {
   return ProviderScope(
     overrides: [
@@ -185,7 +223,7 @@ Widget _sectionHarness(
       socketServiceProvider.overrideWithValue(null),
     ],
     child: MaterialApp(
-      theme: ThemeData(platform: TargetPlatform.android),
+      theme: ThemeData(platform: platform),
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: AppCustomizationPage(section: section),
