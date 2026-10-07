@@ -1770,6 +1770,18 @@ final hermesSecretsErrorProvider =
 final hostHermesDashboardBridgeFactoryProvider =
     Provider<HermesDashboardBridgeFactory?>((ref) => null);
 
+/// Asks the user whether to switch to the saved Hermes connection named
+/// [connectionName]. Resolves false when declined or when nobody can be asked.
+typedef HermesConnectionSwitchPrompt =
+    Future<bool> Function(String connectionName);
+
+/// Offered before continuing a mixed chat whose Hermes session belongs to an
+/// inactive saved connection. The core cannot localize the question, so the
+/// host binds it (through its UI request port); the default declines, which
+/// keeps starting a new session on the active connection.
+final hermesConnectionSwitchPromptProvider =
+    Provider<HermesConnectionSwitchPrompt>((ref) => (_) async => false);
+
 final hermesConfigProvider =
     NotifierProvider<HermesConfigController, HermesConfig>(
       HermesConfigController.new,

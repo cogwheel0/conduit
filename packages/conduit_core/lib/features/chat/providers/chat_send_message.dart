@@ -10,6 +10,13 @@ Future<void> _sendMessageInternal(
   void Function(ChatSendPlaceholderHandle handle)?
   onAssistantPlaceholderCreated,
 ]) async {
+  final hermesSelectedAtStart = ref.read(selectedModelProvider) as Model?;
+  if (hermesSelectedAtStart != null && isHermesModel(hermesSelectedAtStart)) {
+    // Before anything below is captured: switching connections replaces the
+    // Hermes runtime and the selected model.
+    final offer = _offerHermesConnectionSwitchForMixedChat(ref);
+    if (offer is Future<void>) await offer;
+  }
   final conversationAtSendStart =
       ref.read(activeConversationProvider) as Conversation?;
   final sendMutationOwner = captureChatMutationOwner(

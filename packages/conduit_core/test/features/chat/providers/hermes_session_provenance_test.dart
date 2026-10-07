@@ -10,6 +10,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -285,4 +286,160 @@ void main() {
     check(service.sessionIds).deepEquals(<String?>['fresh-session-1']);
     check(service.previousResponseIds).deepEquals(<String?>[null]);
   });
+
+  group('mixed chat bound to another saved connection', () {
+    const otherId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const otherPrincipal = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    final otherIdentity = HermesLocalDocumentTrustStore.connectionIdentity(
+      endpointIdentity: HermesConfigController.connectionEndpoint(
+        'https://other.example',
+      )!,
+      principalId: otherPrincipal,
+    );
+
+    Future<
+      ({ProviderContainer container, _SwitchableHermesConfig config, List<String> asked})
+    >
+    bind({
+      required bool accept,
+      required String connectionIdentity,
+    }) async {
+      final asked = <String>[];
+      late _SwitchableHermesConfig config;
+      final container = ProviderContainer(
+        overrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          appDatabaseProvider.overrideWith((ref) {
+            final database = AppDatabase(NativeDatabase.memory());
+            ref.onDispose(() => unawaited(database.close()));
+            return database;
+          }),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => config = _SwitchableHermesConfig(
+              HermesConnectionProfile(
+                id: otherId,
+                name: 'Other agent',
+                baseUrl: 'https://other.example',
+                documentTrustPrincipalId: otherPrincipal,
+              ),
+            ),
+          ),
+          hermesConnectionSwitchPromptProvider.overrideWithValue((name) async {
+            asked.add(name);
+            return accept;
+          }),
+        ],
+      );
+      container.read(hermesConfigProvider);
+      final history = _assistant(
+        'bound-assistant',
+        metadata: <String, dynamic>{
+          'hermesSessionId': 'other-session',
+          kHermesConnectionIdentityMetadataKey: connectionIdentity,
+          'hermesRunId': 'other-run',
+        },
+      );
+      final conversation = _openWebUiConversation('bound-chat', <ChatMessage>[
+        history,
+      ]);
+      await rememberMixedHermesMessageProvenanceForTest(
+        container,
+        conversation: conversation,
+        assistantMessage: history,
+      );
+      container.read(activeConversationProvider.notifier).set(conversation);
+      container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+        history,
+      ]);
+      return (container: container, config: config, asked: asked);
+    }
+
+    test('offers to switch, and switches when accepted', () async {
+      final bound = await bind(
+        accept: true,
+        connectionIdentity: otherIdentity,
+      );
+      addTearDown(bound.container.dispose);
+
+      await offerHermesConnectionSwitchForMixedChatForTest(bound.container);
+
+      check(bound.asked).deepEquals(<String>['Other agent']);
+      check(bound.config.switchedTo).deepEquals(<String>[otherId]);
+    });
+
+    test('keeps the active connection when declined', () async {
+      final bound = await bind(
+        accept: false,
+        connectionIdentity: otherIdentity,
+      );
+      addTearDown(bound.container.dispose);
+
+      await offerHermesConnectionSwitchForMixedChatForTest(bound.container);
+
+      check(bound.asked).deepEquals(<String>['Other agent']);
+      check(bound.config.switchedTo).isEmpty();
+    });
+
+    test('does not ask for an unknown or already active connection', () async {
+      final unknown = await bind(
+        accept: true,
+        connectionIdentity: 'not-a-saved-connection',
+      );
+      addTearDown(unknown.container.dispose);
+      await offerHermesConnectionSwitchForMixedChatForTest(unknown.container);
+      check(unknown.asked).isEmpty();
+
+      final active = await bind(
+        accept: true,
+        connectionIdentity: HermesLocalDocumentTrustStore.connectionIdentity(
+          endpointIdentity: HermesConfigController.connectionEndpoint(
+            'https://hermes.example',
+          )!,
+          principalId: _SwitchableHermesConfig.activePrincipal,
+        ),
+      );
+      addTearDown(active.container.dispose);
+      await offerHermesConnectionSwitchForMixedChatForTest(active.container);
+      check(active.asked).isEmpty();
+      check(active.config.switchedTo).isEmpty();
+    });
+  });
+}
+
+/// The active connection is the fixed `https://hermes.example` one; [other]
+/// is a second saved connection reachable through [connectionForIdentity].
+final class _SwitchableHermesConfig extends _FixedHermesConfig {
+  _SwitchableHermesConfig(this.other);
+
+  static const activePrincipal = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+  final HermesConnectionProfile other;
+  final List<String> switchedTo = <String>[];
+
+  @override
+  String documentTrustPrincipalId() => activePrincipal;
+
+  @override
+  List<HermesConnectionProfile> get connections => [
+    const HermesConnectionProfile(
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      name: 'Active agent',
+      baseUrl: 'https://hermes.example',
+      documentTrustPrincipalId: activePrincipal,
+    ),
+    other,
+  ];
+
+  @override
+  HermesConnectionProfile? connectionForIdentity(String connectionIdentity) =>
+      HermesConfigController.connectionIdentityFor(other) == connectionIdentity
+      ? other
+      : null;
+
+  @override
+  Future<void> setActiveConnection(String connectionId) async {
+    switchedTo.add(connectionId);
+  }
 }
