@@ -175,9 +175,12 @@ class _HermesDesktopConnectionSectionState
             service,
           _ => null,
         },
+        // Judged against the connection as it was read above, not read
+        // again: the refresh can land after the editor closed, when the page
+        // can no longer be asked, and the writer itself refuses once that
+        // connection changes.
         onCredentialsChanged: (credentials) async {
-          final current = widget.savedConfig();
-          if (!hermesDesktopConnectionMatches(current, draft.config)) {
+          if (!hermesDesktopConnectionMatches(saved, draft.config)) {
             throw StateError(
               'Save the Hermes server before refreshing its sign-in.',
             );
@@ -189,10 +192,11 @@ class _HermesDesktopConnectionSectionState
         widget.trackTokenWork(loading);
       }
       final profiles = await loading;
+      // A closed editor has nothing to show them in, and its page can no
+      // longer be asked for the saved connection.
+      if (!mounted) return;
       final current = _controller.buildDraft(widget.savedConfig()).config;
-      if (!mounted ||
-          epoch != _profileEpoch ||
-          _authDraftIdentity(current) != identity) {
+      if (epoch != _profileEpoch || _authDraftIdentity(current) != identity) {
         return;
       }
       if (profiles.isNotEmpty &&
@@ -208,10 +212,9 @@ class _HermesDesktopConnectionSectionState
             : null;
       });
     } catch (_) {
+      if (!mounted) return;
       final current = _controller.buildDraft(widget.savedConfig()).config;
-      if (mounted &&
-          epoch == _profileEpoch &&
-          _authDraftIdentity(current) == identity) {
+      if (epoch == _profileEpoch && _authDraftIdentity(current) == identity) {
         setState(() {
           _profilesError = 'Sign in, then refresh the profile list.';
         });

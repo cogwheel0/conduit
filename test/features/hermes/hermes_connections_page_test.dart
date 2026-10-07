@@ -392,6 +392,119 @@ void main() {
     }
   });
 
+  testWidgets('a token refresh that ends after its editor closed is kept', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // The binding blocks real HTTP; the refresh must really be in flight.
+    final blockedHttp = HttpOverrides.current;
+    HttpOverrides.global = _RealHttpOverrides();
+    addTearDown(() => HttpOverrides.global = blockedHttp);
+    final gateway = (await tester.runAsync(_RotatingGateway.start))!;
+    addTearDown(gateway.close);
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(<String, Object?>{
+        PreferenceKeys.hermesEnabled: false,
+        PreferenceKeys.hermesConnections: HermesConnectionsDocument(
+          connections: [
+            const HermesConnectionProfile(
+              id: _home,
+              name: 'Home agent',
+              baseUrl: 'https://home.example',
+              documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+            ),
+            HermesConnectionProfile(
+              id: _work,
+              name: 'Work agent',
+              baseUrl: gateway.baseUrl,
+              mode: HermesBackendMode.desktopGateway,
+              desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+              documentTrustPrincipalId: 'bbbbbbbb-0000-4000-8000-000000000000',
+            ),
+          ],
+        ).encode(),
+        PreferenceKeys.hermesActiveConnectionId: _home,
+      }),
+    );
+    await secrets.write(
+      key: 'hermes_desktop_credentials_v1:$_work',
+      value: jsonEncode(
+        HermesDesktopCredentials(
+          nativeTokens: HermesDesktopTokenSet(
+            accessToken: 'access-refresh-0',
+            refreshToken: 'refresh-0',
+            expiresAt: DateTime.utc(2020),
+          ),
+        ).toJson(),
+      ),
+    );
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [secureStorageProvider.overrideWithValue(secrets)],
+        child: MaterialApp(
+          navigatorKey: navigator,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const SizedBox(),
+        ),
+      ),
+    );
+    unawaited(
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const HermesSettingsPage(connectionId: _work),
+        ),
+      ),
+    );
+    Future<void> settleIo() async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    // Opening the editor lists the connection's profiles, which refreshes
+    // its expired tokens; the user leaves before the server answers.
+    for (var i = 0; i < 100 && !gateway.refreshing.isCompleted; i++) {
+      await settleIo();
+    }
+    check(gateway.refreshing.isCompleted).isTrue();
+    navigator.currentState!.pop();
+    for (
+      var i = 0;
+      i < 20 && find.byType(HermesSettingsPage).evaluate().isNotEmpty;
+      i++
+    ) {
+      await settleIo();
+    }
+    expect(find.byType(HermesSettingsPage), findsNothing);
+
+    gateway.release.complete();
+    Future<String?> storedRefreshToken() async {
+      final stored = await secrets.read(
+        key: 'hermes_desktop_credentials_v1:$_work',
+      );
+      return HermesDesktopCredentials.fromJson(
+        jsonDecode(stored!),
+      ).nativeTokens?.refreshToken;
+    }
+
+    for (var i = 0; i < 100 && await storedRefreshToken() != 'refresh-1'; i++) {
+      await settleIo();
+    }
+    // The server spent refresh-0; keeping it would sign the connection out.
+    check(await storedRefreshToken()).equals('refresh-1');
+
+    // Closing the gateway ends the profile request that followed the refresh.
+    await tester.runAsync(gateway.close);
+    for (var i = 0; i < 5; i++) {
+      await settleIo();
+    }
+  });
+
   testWidgets('a save that finishes after the editor closes is harmless', (
     tester,
   ) async {
