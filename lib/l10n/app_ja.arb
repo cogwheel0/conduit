@@ -2186,7 +2186,7 @@
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
   },
-  "advancedFeaturesDescription": "追加のチャットツールと設定を表示します。",
+  "advancedFeaturesDescription": "上級者向けのツールと設定を表示します。",
   "@advancedFeaturesDescription": {
     "description": "Description for the Advanced setting that reveals additional chat tools and settings."
   },
@@ -5561,5 +5561,10 @@
   "chatMergeErrorOwnerChanged": "アカウントまたはチャットが変更されたため、統合を中止しました。",
   "chatComparisonStopAnswerAction": "この回答を停止",
   "chatMergeChooseDescription": "統合する回答を選択してください。2 つ以上選択する必要があります。元の回答はそのまま残ります。",
-  "folderProjectComparisonFallbackNotice": "このプロジェクトに保存されているモデルをすべて使用することはできないため、チャットはそれより少ないモデルで開始されます。比較で使用するモデルは、ちょうど 2 つです。"
+  "folderProjectComparisonFallbackNotice": "このプロジェクトに保存されているモデルをすべて使用することはできないため、チャットはそれより少ないモデルで開始されます。比較で使用するモデルは、ちょうど 2 つです。",
+  "advancedFeaturesFooter": "モデル比較、チャットごとの設定、ツール設定、スケジュールタスク、個人用接続、Webhook、データ管理を追加します。オフにしても非表示になるだけで、設定済みのものは引き続き動作します。",
+  "profileAdvancedFooter": "「設定 > チャット」で詳細設定がオンになっているため表示されています。",
+  "advancedRequiredTitle": "詳細設定の機能です",
+  "advancedRequiredMessage": "{feature} は詳細設定の機能です。使用するには詳細設定をオンにしてください。設定済みのものは引き続き動作します。",
+  "advancedTurnOn": "詳細設定をオンにする"
 }

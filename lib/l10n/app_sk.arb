@@ -2186,7 +2186,7 @@
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
   },
-  "advancedFeaturesDescription": "Zobraziť ďalšie nástroje a nastavenia chatu.",
+  "advancedFeaturesDescription": "Zobraziť nástroje a nastavenia pre pokročilých používateľov.",
   "@advancedFeaturesDescription": {
     "description": "Description for the Advanced setting that reveals additional chat tools and settings."
   },
@@ -5876,5 +5876,10 @@
   "chatMergeErrorOwnerChanged": "Účet alebo chat sa zmenil, preto sa zlúčenie zastavilo.",
   "chatComparisonStopAnswerAction": "Zastaviť túto odpoveď",
   "chatMergeChooseDescription": "Vyberte odpovede na zlúčenie. Vyberte aspoň dve; pôvodné odpovede zostanú nezmenené.",
-  "folderProjectComparisonFallbackNotice": "Uložené modely tohto projektu sa nedajú použiť všetky, preto chat začína s menším počtom. Porovnanie používa presne dva."
+  "folderProjectComparisonFallbackNotice": "Uložené modely tohto projektu sa nedajú použiť všetky, preto chat začína s menším počtom. Porovnanie používa presne dva.",
+  "advancedFeaturesFooter": "Pridá porovnanie modelov, nastavenia jednotlivých chatov, nastavenia nástrojov, naplánované úlohy, osobné pripojenia, webhooky a správu údajov. Vypnutím ich len skryjete; všetko, čo je už nastavené, ďalej funguje.",
+  "profileAdvancedFooter": "Zobrazené, pretože v Nastavenia > Chat je zapnuté Pokročilé.",
+  "advancedRequiredTitle": "Súčasť Pokročilého",
+  "advancedRequiredMessage": "{feature} je funkcia režimu Pokročilé. Zapnite Pokročilé, ak ju chcete používať. Všetko, čo je už nastavené, ďalej funguje.",
+  "advancedTurnOn": "Zapnúť Pokročilé"
 }

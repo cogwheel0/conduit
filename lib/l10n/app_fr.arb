@@ -970,7 +970,7 @@
   "temporaryChatByDefault": "Chat temporaire par défaut",
   "temporaryChatByDefaultDescription": "Les nouveaux chats ne seront pas enregistrés dans l'historique sauf si vous choisissez de les enregistrer",
   "advancedFeatures": "Avancé",
-  "advancedFeaturesDescription": "Afficher des outils et réglages de chat supplémentaires.",
+  "advancedFeaturesDescription": "Afficher les outils et réglages pour utilisateurs avancés.",
   "chatSettingsTitle": "Réglages du chat",
   "chatSettingsApplied": "Réglages du chat appliqués",
   "chatSettingsAppliedDescription": "Ce chat a des réglages enregistrés, utilisés pour chaque réponse.",
@@ -4042,5 +4042,10 @@
   "chatMergeErrorOwnerChanged": "Le compte ou le chat a changé, la fusion a donc été arrêtée.",
   "chatComparisonStopAnswerAction": "Arrêter cette réponse",
   "chatMergeChooseDescription": "Choisissez les réponses à fusionner. Sélectionnez-en au moins deux ; les réponses d'origine restent telles quelles.",
-  "folderProjectComparisonFallbackNotice": "Les modèles enregistrés de ce projet ne peuvent pas tous être utilisés ; le chat démarre donc avec moins de modèles. Une comparaison en utilise exactement deux."
+  "folderProjectComparisonFallbackNotice": "Les modèles enregistrés de ce projet ne peuvent pas tous être utilisés ; le chat démarre donc avec moins de modèles. Une comparaison en utilise exactement deux.",
+  "advancedFeaturesFooter": "Ajoute la comparaison de modèles, les réglages par conversation, les réglages des outils, les tâches planifiées, les connexions personnelles, les webhooks et les contrôles des données. Le désactiver les masque seulement ; ce qui est déjà configuré continue de fonctionner.",
+  "profileAdvancedFooter": "Affiché car Avancé est activé dans Réglages > Chat.",
+  "advancedRequiredTitle": "Fait partie d'Avancé",
+  "advancedRequiredMessage": "{feature} fait partie d'Avancé. Activez Avancé pour l'utiliser. Ce qui est déjà configuré continue de fonctionner.",
+  "advancedTurnOn": "Activer Avancé"
 }

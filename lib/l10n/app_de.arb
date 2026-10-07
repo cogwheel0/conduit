@@ -972,7 +972,7 @@
   "temporaryChatByDefault": "Standardmäßig temporärer Chat",
   "temporaryChatByDefaultDescription": "Neue Chats werden nicht im Verlauf gespeichert, es sei denn, du speicherst sie manuell",
   "advancedFeatures": "Erweitert",
-  "advancedFeaturesDescription": "Zusätzliche Chat-Werkzeuge und Einstellungen anzeigen.",
+  "advancedFeaturesDescription": "Werkzeuge und Einstellungen für Fortgeschrittene anzeigen.",
   "chatSettingsTitle": "Chat-Einstellungen",
   "chatSettingsApplied": "Chat-Einstellungen aktiv",
   "chatSettingsAppliedDescription": "Dieser Chat hat gespeicherte Einstellungen, die bei jeder Antwort verwendet werden.",
@@ -4042,5 +4042,10 @@
   "chatMergeErrorOwnerChanged": "Das Konto oder der Chat hat sich geändert, daher wurde das Zusammenführen abgebrochen.",
   "chatComparisonStopAnswerAction": "Diese Antwort stoppen",
   "chatMergeChooseDescription": "Wähle die Antworten zum Zusammenführen aus. Wähle mindestens zwei; die ursprünglichen Antworten bleiben unverändert.",
-  "folderProjectComparisonFallbackNotice": "Die gespeicherten Modelle dieses Projekts können nicht alle verwendet werden, daher startet der Chat mit weniger. Ein Vergleich verwendet genau zwei."
+  "folderProjectComparisonFallbackNotice": "Die gespeicherten Modelle dieses Projekts können nicht alle verwendet werden, daher startet der Chat mit weniger. Ein Vergleich verwendet genau zwei.",
+  "advancedFeaturesFooter": "Fügt Modellvergleich, Chat-Einstellungen, Werkzeugeinstellungen, geplante Aufgaben, persönliche Verbindungen, Webhooks und Datenverwaltung hinzu. Beim Ausschalten werden sie nur ausgeblendet; bereits Eingerichtetes funktioniert weiter.",
+  "profileAdvancedFooter": "Angezeigt, weil „Erweitert“ unter Einstellungen > Chat aktiviert ist.",
+  "advancedRequiredTitle": "Teil von „Erweitert“",
+  "advancedRequiredMessage": "{feature} gehört zu „Erweitert“. Schalten Sie „Erweitert“ ein, um es zu verwenden. Bereits Eingerichtetes funktioniert weiter.",
+  "advancedTurnOn": "„Erweitert“ einschalten"
 }

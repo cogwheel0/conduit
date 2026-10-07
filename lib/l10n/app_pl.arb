@@ -2467,7 +2467,7 @@
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
   },
-  "advancedFeaturesDescription": "Pokaż dodatkowe narzędzia i ustawienia czatu.",
+  "advancedFeaturesDescription": "Pokaż narzędzia i ustawienia dla zaawansowanych.",
   "@advancedFeaturesDescription": {
     "description": "Description for the Advanced setting that reveals additional chat tools and settings."
   },
@@ -7389,5 +7389,10 @@
   "chatMergeErrorOwnerChanged": "Konto lub czat zostały zmienione, więc scalanie zostało zatrzymane.",
   "chatComparisonStopAnswerAction": "Zatrzymaj tę odpowiedź",
   "chatMergeChooseDescription": "Wybierz odpowiedzi do scalenia. Wybierz co najmniej dwie; oryginalne odpowiedzi pozostają bez zmian.",
-  "folderProjectComparisonFallbackNotice": "Nie wszystkie zapisane modele tego projektu mogą być użyte, więc czat rozpoczyna się z mniejszą ich liczbą. Porównanie używa dokładnie dwóch."
+  "folderProjectComparisonFallbackNotice": "Nie wszystkie zapisane modele tego projektu mogą być użyte, więc czat rozpoczyna się z mniejszą ich liczbą. Porównanie używa dokładnie dwóch.",
+  "advancedFeaturesFooter": "Dodaje porównywanie modeli, ustawienia czatu, ustawienia narzędzi, zaplanowane zadania, połączenia osobiste, webhooki i zarządzanie danymi. Wyłączenie tylko je ukrywa; to, co już skonfigurowano, nadal działa.",
+  "profileAdvancedFooter": "Widoczne, ponieważ opcja Zaawansowane jest włączona w Ustawienia > Czat.",
+  "advancedRequiredTitle": "Część trybu Zaawansowane",
+  "advancedRequiredMessage": "{feature} to funkcja trybu Zaawansowane. Włącz go, aby z niej korzystać. To, co już skonfigurowano, nadal działa.",
+  "advancedTurnOn": "Włącz Zaawansowane"
 }

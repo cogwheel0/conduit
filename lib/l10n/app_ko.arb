@@ -748,7 +748,7 @@
   "temporaryChatByDefault": "기본적으로 임시 채팅",
   "temporaryChatByDefaultDescription": "새 채팅은 저장하지 않으면 기록에 남지 않습니다",
   "advancedFeatures": "고급",
-  "advancedFeaturesDescription": "추가 채팅 도구와 설정을 표시합니다.",
+  "advancedFeaturesDescription": "고급 사용자용 도구와 설정을 표시합니다.",
   "chatSettingsTitle": "채팅 설정",
   "chatSettingsApplied": "채팅 설정 적용됨",
   "chatSettingsAppliedDescription": "이 채팅에는 저장된 설정이 있으며 모든 답변에 사용됩니다.",
@@ -3814,5 +3814,10 @@
   "chatMergeErrorOwnerChanged": "계정 또는 채팅이 변경되어 병합이 중지되었습니다.",
   "chatComparisonStopAnswerAction": "이 답변 중지",
   "chatMergeChooseDescription": "병합할 답변을 선택하세요. 두 개 이상 선택해야 하며, 원래 답변은 그대로 유지됩니다.",
-  "folderProjectComparisonFallbackNotice": "이 프로젝트에 저장된 모델을 모두 사용할 수는 없으므로 채팅이 더 적은 수의 모델로 시작됩니다. 비교에는 정확히 두 개의 모델이 사용됩니다."
+  "folderProjectComparisonFallbackNotice": "이 프로젝트에 저장된 모델을 모두 사용할 수는 없으므로 채팅이 더 적은 수의 모델로 시작됩니다. 비교에는 정확히 두 개의 모델이 사용됩니다.",
+  "advancedFeaturesFooter": "모델 비교, 채팅별 설정, 도구 설정, 예약 작업, 개인 연결, 웹후크, 데이터 관리를 추가합니다. 끄면 숨겨지기만 하며 이미 설정된 항목은 계속 작동합니다.",
+  "profileAdvancedFooter": "설정 > 채팅에서 고급이 켜져 있어 표시됩니다.",
+  "advancedRequiredTitle": "고급 기능",
+  "advancedRequiredMessage": "{feature}은(는) 고급 기능입니다. 사용하려면 고급을 켜세요. 이미 설정된 항목은 계속 작동합니다.",
+  "advancedTurnOn": "고급 켜기"
 }

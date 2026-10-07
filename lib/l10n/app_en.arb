@@ -2476,9 +2476,9 @@
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
   },
-  "advancedFeaturesDescription": "Show additional chat tools and settings.",
+  "advancedFeaturesDescription": "Show power-user tools and settings.",
   "@advancedFeaturesDescription": {
-    "description": "Description for the Advanced setting that reveals additional chat tools and settings."
+    "description": "Subtitle of the Advanced setting. Advanced reveals power-user tools and settings across the app."
   },
   "chatSettingsTitle": "Chat settings",
   "@chatSettingsTitle": {
@@ -7835,5 +7835,30 @@
   "folderProjectComparisonFallbackNotice": "This project's saved models can't all be used, so the chat starts with fewer of them. A comparison uses exactly two.",
   "@folderProjectComparisonFallbackNotice": {
     "description": "Short notice on a folder page when the folder's saved default models cannot all be used, so a new chat starts with fewer of them. It also covers a folder that saves more or fewer than the two models a comparison uses."
+  },
+  "advancedFeaturesFooter": "Adds model comparison, per-chat settings, tool settings, scheduled tasks, personal connections, webhooks and data controls. Turning it off only hides them; anything already set up keeps working.",
+  "@advancedFeaturesFooter": {
+    "description": "Footer under the Advanced setting explaining what it reveals and that turning it off only hides those tools."
+  },
+  "profileAdvancedFooter": "Shown because Advanced is on in Settings > Chat.",
+  "@profileAdvancedFooter": {
+    "description": "Footer under the Advanced group in the Settings list explaining why these entries are shown."
+  },
+  "advancedRequiredTitle": "Part of Advanced",
+  "@advancedRequiredTitle": {
+    "description": "Title of the placeholder shown when a page belongs to the Advanced setting and Advanced is off."
+  },
+  "advancedRequiredMessage": "{feature} is an Advanced feature. Turn on Advanced to use it. Anything already set up keeps working.",
+  "@advancedRequiredMessage": {
+    "description": "Message on the placeholder shown when a page belongs to the Advanced setting and Advanced is off. {feature} is the page name, e.g. Scheduled tasks.",
+    "placeholders": {
+      "feature": {
+        "type": "String"
+      }
+    }
+  },
+  "advancedTurnOn": "Turn On Advanced",
+  "@advancedTurnOn": {
+    "description": "Button that turns on the Advanced setting from a page that needs it."
   }
 }

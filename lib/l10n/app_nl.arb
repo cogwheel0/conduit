@@ -970,7 +970,7 @@
   "temporaryChatByDefault": "Standaard tijdelijke chat",
   "temporaryChatByDefaultDescription": "Nieuwe chats worden niet opgeslagen in de geschiedenis, tenzij je ervoor kiest ze op te slaan",
   "advancedFeatures": "Geavanceerd",
-  "advancedFeaturesDescription": "Toon extra chatgereedschappen en instellingen.",
+  "advancedFeaturesDescription": "Toon tools en instellingen voor gevorderde gebruikers.",
   "chatSettingsTitle": "Chatinstellingen",
   "chatSettingsApplied": "Chatinstellingen toegepast",
   "chatSettingsAppliedDescription": "Deze chat heeft opgeslagen instellingen, die bij elk antwoord worden gebruikt.",
@@ -4042,5 +4042,10 @@
   "chatMergeErrorOwnerChanged": "Het account of de chat is gewijzigd, dus het samenvoegen is gestopt.",
   "chatComparisonStopAnswerAction": "Deze reactie stoppen",
   "chatMergeChooseDescription": "Kies de antwoorden die je wilt samenvoegen. Kies er minstens twee; de oorspronkelijke antwoorden blijven zoals ze zijn.",
-  "folderProjectComparisonFallbackNotice": "Niet alle opgeslagen modellen van dit project kunnen worden gebruikt, dus de chat begint met minder. Een vergelijking gebruikt er precies twee."
+  "folderProjectComparisonFallbackNotice": "Niet alle opgeslagen modellen van dit project kunnen worden gebruikt, dus de chat begint met minder. Een vergelijking gebruikt er precies twee.",
+  "advancedFeaturesFooter": "Voegt modelvergelijking, instellingen per chat, toolinstellingen, geplande taken, persoonlijke verbindingen, webhooks en gegevensbeheer toe. Uitschakelen verbergt ze alleen; wat al is ingesteld, blijft werken.",
+  "profileAdvancedFooter": "Getoond omdat Geavanceerd aan staat in Instellingen > Chat.",
+  "advancedRequiredTitle": "Onderdeel van Geavanceerd",
+  "advancedRequiredMessage": "{feature} hoort bij Geavanceerd. Zet Geavanceerd aan om het te gebruiken. Wat al is ingesteld, blijft werken.",
+  "advancedTurnOn": "Geavanceerd aanzetten"
 }

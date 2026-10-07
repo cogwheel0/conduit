@@ -970,7 +970,7 @@
   "temporaryChatByDefault": "Chat temporal por defecto",
   "temporaryChatByDefaultDescription": "Los nuevos chats no se guardarán en el historial a menos que elijas guardarlos",
   "advancedFeatures": "Avanzado",
-  "advancedFeaturesDescription": "Mostrar herramientas y ajustes de chat adicionales.",
+  "advancedFeaturesDescription": "Mostrar herramientas y ajustes para usuarios avanzados.",
   "chatSettingsTitle": "Ajustes del chat",
   "chatSettingsApplied": "Ajustes del chat aplicados",
   "chatSettingsAppliedDescription": "Este chat tiene ajustes guardados y se usan en cada respuesta.",
@@ -4042,5 +4042,10 @@
   "chatMergeErrorOwnerChanged": "La cuenta o el chat cambió, así que se detuvo la combinación.",
   "chatComparisonStopAnswerAction": "Detener esta respuesta",
   "chatMergeChooseDescription": "Elige las respuestas que quieres combinar. Selecciona al menos dos; las respuestas originales se mantienen como están.",
-  "folderProjectComparisonFallbackNotice": "No se pueden usar todos los modelos guardados de este proyecto, así que el chat empieza con menos. Una comparación usa exactamente dos."
+  "folderProjectComparisonFallbackNotice": "No se pueden usar todos los modelos guardados de este proyecto, así que el chat empieza con menos. Una comparación usa exactamente dos.",
+  "advancedFeaturesFooter": "Añade comparación de modelos, ajustes por chat, ajustes de herramientas, tareas programadas, conexiones personales, webhooks y controles de datos. Desactivarlo solo los oculta; lo que ya esté configurado sigue funcionando.",
+  "profileAdvancedFooter": "Se muestra porque Avanzado está activado en Ajustes > Chat.",
+  "advancedRequiredTitle": "Parte de Avanzado",
+  "advancedRequiredMessage": "{feature} es una función de Avanzado. Activa Avanzado para usarla. Lo que ya esté configurado sigue funcionando.",
+  "advancedTurnOn": "Activar Avanzado"
 }

@@ -970,7 +970,7 @@
   "temporaryChatByDefault": "Chat temporanea per impostazione predefinita",
   "temporaryChatByDefaultDescription": "Le nuove chat non verranno salvate nella cronologia a meno che tu non scelga di salvarle",
   "advancedFeatures": "Avanzate",
-  "advancedFeaturesDescription": "Mostra strumenti e impostazioni di chat aggiuntivi.",
+  "advancedFeaturesDescription": "Mostra strumenti e impostazioni per utenti esperti.",
   "chatSettingsTitle": "Impostazioni chat",
   "chatSettingsApplied": "Impostazioni chat applicate",
   "chatSettingsAppliedDescription": "Questa chat ha impostazioni salvate, usate a ogni risposta.",
@@ -4042,5 +4042,10 @@
   "chatMergeErrorOwnerChanged": "L'account o la chat sono cambiati, quindi l'unione è stata interrotta.",
   "chatComparisonStopAnswerAction": "Interrompi questa risposta",
   "chatMergeChooseDescription": "Scegli le risposte da unire. Selezionane almeno due; le risposte originali restano invariate.",
-  "folderProjectComparisonFallbackNotice": "Non tutti i modelli salvati di questo progetto possono essere usati, quindi la chat parte con meno modelli. Un confronto ne usa esattamente due."
+  "folderProjectComparisonFallbackNotice": "Non tutti i modelli salvati di questo progetto possono essere usati, quindi la chat parte con meno modelli. Un confronto ne usa esattamente due.",
+  "advancedFeaturesFooter": "Aggiunge confronto tra modelli, impostazioni per chat, impostazioni degli strumenti, attività pianificate, connessioni personali, webhook e controlli dei dati. Disattivarlo li nasconde soltanto; ciò che è già configurato continua a funzionare.",
+  "profileAdvancedFooter": "Mostrato perché Avanzate è attivo in Impostazioni > Chat.",
+  "advancedRequiredTitle": "Parte di Avanzate",
+  "advancedRequiredMessage": "{feature} è una funzione di Avanzate. Attiva Avanzate per usarla. Ciò che è già configurato continua a funzionare.",
+  "advancedTurnOn": "Attiva Avanzate"
 }

@@ -970,7 +970,7 @@
   "temporaryChatByDefault": "預設暫時聊天",
   "temporaryChatByDefaultDescription": "新聊天不會儲存到歷史記錄，除非您選擇儲存",
   "advancedFeatures": "進階",
-  "advancedFeaturesDescription": "顯示更多聊天工具和設定。",
+  "advancedFeaturesDescription": "顯示進階使用者的工具與設定。",
   "chatSettingsTitle": "聊天設定",
   "chatSettingsApplied": "已套用聊天設定",
   "chatSettingsAppliedDescription": "此聊天有已儲存的設定，每次回覆都會使用。",
@@ -4042,5 +4042,10 @@
   "chatMergeErrorOwnerChanged": "帳戶或聊天已變更，因此合併已停止。",
   "chatComparisonStopAnswerAction": "停止此回答",
   "chatMergeChooseDescription": "選擇要合併的回答。至少選擇兩則；原始回答會維持不變。",
-  "folderProjectComparisonFallbackNotice": "此專案中儲存的模型無法全部使用，因此聊天將以較少的模型開始。比較恰好使用兩個模型。"
+  "folderProjectComparisonFallbackNotice": "此專案中儲存的模型無法全部使用，因此聊天將以較少的模型開始。比較恰好使用兩個模型。",
+  "advancedFeaturesFooter": "加入模型比較、個別聊天設定、工具設定、排程任務、個人連線、Webhook 與資料管理。關閉後只會隱藏它們，已設定的內容會繼續運作。",
+  "profileAdvancedFooter": "因「設定 > 聊天」中已開啟進階功能而顯示。",
+  "advancedRequiredTitle": "屬於進階功能",
+  "advancedRequiredMessage": "{feature}屬於進階功能。開啟進階功能即可使用。已設定的內容會繼續運作。",
+  "advancedTurnOn": "開啟進階功能"
 }
