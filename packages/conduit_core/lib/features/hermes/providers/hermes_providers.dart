@@ -468,11 +468,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
         _setDesktopNativeTokens(credentials.nativeTokens, epoch, connection);
   }
 
+  /// [holds], when given, must accept the current tokens, so that a writer
+  /// replaces only the tokens its client holds.
   Future<void> _setDesktopNativeTokens(
     HermesDesktopTokenSet? tokens,
     int epoch,
-    HermesConfig connection,
-  ) {
+    HermesConfig connection, {
+    bool Function(HermesDesktopTokenSet? current)? holds,
+  }) {
     return _serializeMutation(() async {
       await _secretsHydration;
       _throwIfSecretsUnavailable();
@@ -483,7 +486,8 @@ class HermesConfigController extends Notifier<HermesConfig> {
           !hermesDesktopConnectionMatches(state, connection) ||
           state.mode != connection.mode ||
           state.allowSelfSignedCertificates !=
-              connection.allowSelfSignedCertificates) {
+              connection.allowSelfSignedCertificates ||
+          (holds != null && !holds(state.desktopCredentials?.nativeTokens))) {
         throw StateError('Hermes connection changed before sign-in completed.');
       }
       final previous = state.desktopCredentials;
@@ -497,22 +501,33 @@ class HermesConfigController extends Notifier<HermesConfig> {
     });
   }
 
-  /// Persists token rotations for [connection] whichever saved connection is
-  /// active. Probing or listing profiles of an inactive Desktop connection can
-  /// refresh its tokens; dropping the rotation would strand the stored refresh
-  /// token. The write is rejected once [connection]'s endpoint, auth, or
-  /// credentials change, or when it becomes the active connection, whose live
-  /// writer then owns rotations.
+  /// Persists token rotations of a temporary client built from [connection]
+  /// whichever saved connection is active. Probing or listing profiles of a
+  /// Desktop connection can refresh its tokens; dropping the rotation would
+  /// strand the stored refresh token. For the active connection it writes as
+  /// [nativeCredentialsWriter] does. For an inactive one the write is rejected
+  /// once [connection]'s endpoint, auth, or credentials change, or when it
+  /// becomes the active connection, whose live writer then owns rotations.
   HermesDesktopCredentialsWriter credentialsWriterFor(HermesConfig connection) {
     final connectionId = connection.connectionId;
-    if (connectionId != null && connectionId == state.connectionId) {
-      return nativeCredentialsWriter();
-    }
     // The refresh token this writer's client holds. Two clients built from
     // the same stored tokens can race: once one rotates them, the other's
     // stale refresh (or its sign-out after a 401) must not overwrite them.
     var expectedRefreshToken =
         connection.desktopCredentials?.nativeTokens?.refreshToken;
+    if (connectionId != null && connectionId == state.connectionId) {
+      final epoch = _connectionMutationEpoch;
+      final active = state;
+      return (credentials) async {
+        await _setDesktopNativeTokens(
+          credentials.nativeTokens,
+          epoch,
+          active,
+          holds: (current) => current?.refreshToken == expectedRefreshToken,
+        );
+        expectedRefreshToken = credentials.nativeTokens?.refreshToken;
+      };
+    }
     return (credentials) => _serializeMutation(() async {
       await _secretsHydration;
       _throwIfSecretsUnavailable();

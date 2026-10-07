@@ -42,15 +42,18 @@ final class _RiverpodHermesConnectionGateway
     final targetsActive = draft.connectionId == current.connectionId;
     // Persist a refresh-token rotation only for a saved connection the draft
     // still matches: testing a different draft can never overwrite or clear
-    // the saved credentials (issue #683). An inactive connection's writer
-    // re-checks the stored connection at write time.
+    // the saved credentials (issue #683). Each writer replaces only the
+    // tokens its client holds, so a client built from tokens another one has
+    // since rotated (a probe, then a name lookup) cannot clear them. An
+    // inactive connection's writer re-checks the stored connection at write
+    // time.
     final HermesDesktopCredentialsWriter? writeCredentials;
     if (draft.connectionId == null ||
         draft.desktopCredentials?.nativeTokens == null) {
       writeCredentials = null;
     } else if (targetsActive) {
       writeCredentials = hermesDesktopConnectionMatches(current, draft)
-          ? notifier.nativeCredentialsWriter()
+          ? notifier.credentialsWriterFor(draft)
           : null;
     } else {
       writeCredentials = notifier.credentialsWriterFor(draft);

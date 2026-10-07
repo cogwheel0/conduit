@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -7,6 +8,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
@@ -829,6 +831,85 @@ void main() {
     });
   });
 
+  test(
+    'a name lookup after a test keeps the sign-in the test refreshed',
+    () async {
+      // Each refresh spends the refresh token it replaces.
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final spent = <String>{};
+      server.listen((request) async {
+        request.response.headers.contentType = ContentType.json;
+        switch (request.uri.path) {
+          case '/api/status':
+            request.response.write('{"auth_required":true}');
+          case '/auth/native/refresh':
+            final body = jsonDecode(await utf8.decodeStream(request)) as Map;
+            final refreshToken = body['refresh_token'] as String;
+            if (spent.add(refreshToken)) {
+              request.response.write(
+                jsonEncode({
+                  'access_token': 'access-$refreshToken-next',
+                  'refresh_token': '$refreshToken-next',
+                  'expires_at':
+                      DateTime.utc(2100).millisecondsSinceEpoch ~/ 1000,
+                }),
+              );
+            } else {
+              request.response.statusCode = HttpStatus.unauthorized;
+            }
+          default:
+            request.response.statusCode = HttpStatus.notFound;
+        }
+        await request.response.close();
+      });
+      _seedConnections(
+        [
+          _profile(_a, 'Alpha', 'http://127.0.0.1:${server.port}').copyWith(
+            mode: HermesBackendMode.desktopGateway,
+            desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+          ),
+        ],
+        active: _a,
+        enabled: false,
+      );
+      final secrets = _Secrets({
+        'hermes_desktop_credentials_v1:$_a': jsonEncode(
+          HermesDesktopCredentials(
+            nativeTokens: HermesDesktopTokenSet(
+              accessToken: 'access-refresh-0',
+              refreshToken: 'refresh-0',
+              expiresAt: DateTime.utc(2020),
+            ),
+          ).toJson(),
+        ),
+      });
+      final container = await _ready(secrets);
+      addTearDown(container.dispose);
+      final gateway = container.read(hermesConnectionGatewayProvider);
+      // With Hermes off there is no live client, so the test and the name
+      // lookup each build one from the same draft and its expired tokens.
+      final draft = container.read(hermesConfigProvider);
+
+      await gateway.probe(draft);
+      await gateway.suggestDisplayName(draft);
+
+      check(
+        container
+            .read(hermesConfigProvider)
+            .desktopCredentials
+            ?.nativeTokens
+            ?.refreshToken,
+      ).equals('refresh-0-next');
+      final stored = HermesDesktopCredentials.fromJson(
+        jsonDecode(
+          (await secrets.read(key: 'hermes_desktop_credentials_v1:$_a'))!,
+        ),
+      );
+      check(stored.nativeTokens?.refreshToken).equals('refresh-0-next');
+    },
+  );
+
   test('maps a session identity back to its saved connection', () async {
     _seedConnections([
       _profile(_a, 'Alpha', 'https://alpha.example'),
@@ -880,10 +961,11 @@ HermesConnectionProfile _profile(
 void _seedConnections(
   List<HermesConnectionProfile> profiles, {
   required String active,
+  bool enabled = true,
 }) {
   PreferencesStore.debugOverride(
     InMemoryKeyValueStore(<String, Object?>{
-      PreferenceKeys.hermesEnabled: true,
+      PreferenceKeys.hermesEnabled: enabled,
       PreferenceKeys.hermesConnections: HermesConnectionsDocument(
         connections: profiles,
       ).encode(),

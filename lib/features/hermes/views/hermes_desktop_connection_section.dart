@@ -149,11 +149,11 @@ class _HermesDesktopConnectionSectionState
     final identity = _authDraftIdentity(draft.config);
     final editsActive = widget.editsActiveConnection();
     // A token refresh while listing profiles must land with the connection it
-    // belongs to: the live writer for the active one, the stored connection
-    // otherwise. Either rejects the write once the draft no longer matches.
-    final writeCredentials = editsActive
-        ? ref.read(hermesConfigProvider.notifier).nativeCredentialsWriter()
-        : ref.read(hermesConfigProvider.notifier).credentialsWriterFor(saved);
+    // belongs to, active or not, and only over the tokens this client holds.
+    // The write is rejected once the draft no longer matches.
+    final writeCredentials = ref
+        .read(hermesConfigProvider.notifier)
+        .credentialsWriterFor(saved);
     final epoch = ++_profileEpoch;
     if (!mounted) return;
     setState(() {
