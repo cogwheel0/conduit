@@ -75,6 +75,7 @@ class AdaptiveButton extends StatelessWidget {
     this.borderRadius,
     this.minSize,
     this.enabled = true,
+    this.semanticLabel,
     this.useSmoothRectangleBorder = true,
     this.useNative = true,
   }) : child = null,
@@ -93,6 +94,7 @@ class AdaptiveButton extends StatelessWidget {
     this.borderRadius,
     this.minSize,
     this.enabled = true,
+    this.semanticLabel,
     this.useSmoothRectangleBorder = true,
     this.useNative = true,
   }) : label = null,
@@ -114,6 +116,7 @@ class AdaptiveButton extends StatelessWidget {
     this.borderRadius,
     this.minSize,
     this.enabled = true,
+    this.semanticLabel,
     this.useSmoothRectangleBorder = true,
     this.useNative = true,
   }) : label = null,
@@ -133,6 +136,7 @@ class AdaptiveButton extends StatelessWidget {
     this.borderRadius,
     this.minSize,
     this.enabled = true,
+    this.semanticLabel,
     this.useSmoothRectangleBorder = true,
     this.useNative = true,
   }) : label = null,
@@ -157,6 +161,7 @@ class AdaptiveButton extends StatelessWidget {
   final BorderRadius? borderRadius;
   final Size? minSize;
   final bool enabled;
+  final String? semanticLabel;
   final bool useSmoothRectangleBorder;
   final bool useNative;
 
@@ -187,6 +192,13 @@ class AdaptiveButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final button = _buildButton(context);
+    return semanticLabel == null
+        ? button
+        : Semantics(label: semanticLabel, child: button);
+  }
+
+  Widget _buildButton(BuildContext context) {
     if (_canUseNative(context)) {
       final resolvedPadding = padding?.resolve(Directionality.of(context));
       final resolvedRadius = borderRadius?.resolve(Directionality.of(context));
