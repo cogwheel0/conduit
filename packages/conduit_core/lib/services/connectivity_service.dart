@@ -705,14 +705,22 @@ Dio createConnectivityHealthClient(
 /// not. Redirects count as not answering, for the reason the health client
 /// refuses them, and so does a web page: a proxy's sign-in page or a captive
 /// portal answers 200 with HTML, where Open WebUI answers with JSON.
+///
+/// [suppressCustomCookieHeader] is the incomplete-logout fence, as for
+/// [createConnectivityHealthClient]: while it holds, a captured proxy cookie
+/// stays off the probe.
 Future<bool> probeServerHealth(
   ServerConfig server, {
   Duration timeout = const Duration(seconds: 4),
+  bool Function()? suppressCustomCookieHeader,
 }) async {
   if (ServerTlsHttpClientFactory.parseBaseUri(server.url) == null) {
     return false;
   }
-  final dio = createConnectivityHealthClient(server);
+  final dio = createConnectivityHealthClient(
+    server,
+    suppressCustomCookieHeader: suppressCustomCookieHeader,
+  );
   final cancelToken = CancelToken();
   try {
     // Relative to the client's base URL, so a server mounted under a path

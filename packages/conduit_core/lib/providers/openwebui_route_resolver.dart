@@ -68,7 +68,24 @@ final class OpenWebUiRouteStatus {
 typedef OpenWebUiRouteProbe = Future<bool> Function(ServerConfig route);
 
 final openWebUiRouteProbeProvider = Provider<OpenWebUiRouteProbe>(
-  (ref) => probeServerHealth,
+  (ref) =>
+      (route) => probeServerHealth(
+        route,
+        // Routes carry their captured proxy cookies; an incomplete logout
+        // keeps them off every request, probes included.
+        suppressCustomCookieHeader: () {
+          try {
+            return ref.read(incompleteLogoutFenceProvider) ||
+                ref
+                    .read(incompleteLogoutFenceProvider.notifier)
+                    .desiredSuppressed;
+          } catch (_) {
+            // A probe racing provider teardown cannot safely reattach a
+            // captured proxy cookie.
+            return true;
+          }
+        },
+      ),
 );
 
 /// Whether the address editor has the reverse-proxy sign-in open, to check a

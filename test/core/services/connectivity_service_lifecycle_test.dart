@@ -267,6 +267,32 @@ void main() {
         check(await probeServerHealth(route(portal))).isFalse();
       }, _RealHttpOverrides());
     });
+
+    test('keeps a proxy cookie off while logout fences it', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final cookies = <String?>[];
+        final origin = await serve((request) async {
+          cookies.add(request.headers.value(HttpHeaders.cookieHeader));
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.json
+            ..write('{"status":true}');
+          await request.response.close();
+        });
+        final proxied = route(origin)
+            .copyWith(customHeaders: const {'Cookie': 'proxy_session=secret'});
+
+        check(await probeServerHealth(proxied)).isTrue();
+        check(
+          await probeServerHealth(
+            proxied,
+            suppressCustomCookieHeader: () => true,
+          ),
+        ).isTrue();
+
+        check(cookies).deepEquals(['proxy_session=secret', null]);
+      }, _RealHttpOverrides());
+    });
   });
 
   test(

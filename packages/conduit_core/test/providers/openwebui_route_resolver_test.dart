@@ -233,6 +233,35 @@ void main() {
         .equals(_tailscale);
   });
 
+  test('a route probe keeps a cookie off while logout fences it', () async {
+    final cookies = <String?>[];
+    final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => origin.close(force: true));
+    origin.listen((request) async {
+      cookies.add(request.headers.value(HttpHeaders.cookieHeader));
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.json
+        ..write('{"status":true}');
+      await request.response.close();
+    });
+    final probes = ProviderContainer();
+    addTearDown(probes.dispose);
+    final probe = probes.read(openWebUiRouteProbeProvider);
+    final route = ServerConfig(
+      id: 'account',
+      name: 'Home',
+      url: 'http://${InternetAddress.loopbackIPv4.address}:${origin.port}',
+      customHeaders: const {'Cookie': 'proxy=1'},
+    );
+
+    check(await probe(route)).isTrue();
+    probes.read(incompleteLogoutFenceProvider.notifier).setSuppressed(true);
+    check(await probe(route)).isTrue();
+
+    check(cookies).deepEquals(['proxy=1', null]);
+  });
+
   test('a route probe carries that route, not the one in use', () async {
     answers = {_lan: true};
     final routes = await resolver();
