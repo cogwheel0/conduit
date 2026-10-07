@@ -71,6 +71,13 @@ String scopedPreferenceWriteKey(String baseKey) {
   return accountScopedPreferenceKey(baseKey, currentPreferenceAccountId());
 }
 
+/// The account the device-wide settings are being copied into, claimed
+/// before the copy's first write. Another account certified while those
+/// writes are under way would otherwise start a second copy, and both would
+/// inherit them. A copy that fails keeps the claim, so that account alone
+/// tries again; one that finishes leaves it to the flag.
+String? _deviceSettingsCopyClaim;
+
 /// Copies the device-wide values of [accountScopedPreferenceKeys] into
 /// [accountId], once, the first time an account is active after per-account
 /// settings arrived. The device-wide values stay as the fallback used when
@@ -81,6 +88,9 @@ Future<void> migrateDeviceSettingsIntoAccount(String accountId) async {
           true) {
     return;
   }
+  final claim = _deviceSettingsCopyClaim;
+  if (claim != null && claim != accountId) return;
+  _deviceSettingsCopyClaim = accountId;
   for (final key in accountScopedPreferenceKeys) {
     final scoped = accountScopedPreferenceKey(key, accountId);
     if (PreferencesStore.containsKey(scoped)) continue;
@@ -91,6 +101,7 @@ Future<void> migrateDeviceSettingsIntoAccount(String accountId) async {
     PreferenceKeys.accountScopedSettingsMigrated,
     true,
   );
+  _deviceSettingsCopyClaim = null;
 }
 
 /// Deletes everything [accountId] keeps in preferences: its scoped settings,

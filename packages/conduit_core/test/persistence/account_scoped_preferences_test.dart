@@ -90,6 +90,38 @@ void main() {
     },
   );
 
+  test('only the first account active after the upgrade inherits the '
+      'device settings', () async {
+    final paused = Completer<void>();
+    final resume = Completer<void>();
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async {
+        if (key == onA && !paused.isCompleted) {
+          paused.complete();
+          await resume.future;
+        }
+        return null;
+      },
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+
+    final copyingToA = migrateDeviceSettingsIntoAccount('a');
+    await paused.future;
+    // B is certified while A's copy is still being written.
+    await migrateDeviceSettingsIntoAccount('b');
+    resume.complete();
+    await copyingToA;
+
+    check(PreferencesStore.getRaw(onA)).equals('pre-upgrade');
+    check(
+      PreferencesStore.containsKey(
+        accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'b'),
+      ),
+    ).isFalse();
+  });
+
   test('a write lands under the account active when it started', () async {
     await PreferencesStore.put(
       PreferenceKeys.accountScopedSettingsMigrated,
