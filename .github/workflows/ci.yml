@@ -83,8 +83,8 @@ jobs:
 
   # Each workspace member analyzes and tests from its own directory, which
   # is what proves the pub workspace actually works per package. They share
-  # one job so setup and codegen run once, then all run side by side; one
-  # failing does not stop the others.
+  # one job so setup and codegen run once; one failing does not stop the
+  # others.
   packages:
     name: Dart packages
     runs-on: ubuntu-latest
@@ -114,31 +114,46 @@ jobs:
               echo "::endgroup::"
             fi
           done
-      - parallel:
-          - name: Analyze conduit_core
-            working-directory: packages/conduit_core
-            run: dart analyze --fatal-infos
-          - name: Test conduit_core
-            working-directory: packages/conduit_core
-            run: dart test
-          - name: Analyze conduit_ddgs
-            working-directory: packages/conduit_ddgs
-            run: dart analyze --fatal-infos
-          - name: Test conduit_ddgs
-            working-directory: packages/conduit_ddgs
-            run: dart test
-          - name: Analyze conduit_markdown
-            working-directory: packages/conduit_markdown
-            run: dart analyze --fatal-infos
-          - name: Test conduit_markdown
-            working-directory: packages/conduit_markdown
-            run: dart test
-          - name: Analyze conduit_theme
-            working-directory: packages/conduit_theme
-            run: dart analyze --fatal-infos
-          - name: Test conduit_theme
-            working-directory: packages/conduit_theme
-            run: dart test
+        id: codegen
+      # The tests run in the background while the analyzer goes through the
+      # packages one at a time: analyzers started together race to build
+      # the analyzer plugin they share under ~/.dartServer, and crash.
+      - name: Test conduit_core
+        working-directory: packages/conduit_core
+        run: dart test
+        background: true
+      - name: Test conduit_ddgs
+        working-directory: packages/conduit_ddgs
+        run: dart test
+        background: true
+      - name: Test conduit_markdown
+        working-directory: packages/conduit_markdown
+        run: dart test
+        background: true
+      - name: Test conduit_theme
+        working-directory: packages/conduit_theme
+        run: dart test
+        background: true
+      # Every package is analyzed even when an earlier one fails, as long as
+      # the code generated.
+      - name: Analyze conduit_core
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_core
+        run: dart analyze --fatal-infos
+      - name: Analyze conduit_ddgs
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_ddgs
+        run: dart analyze --fatal-infos
+      - name: Analyze conduit_markdown
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_markdown
+        run: dart analyze --fatal-infos
+      - name: Analyze conduit_theme
+        if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+        working-directory: packages/conduit_theme
+        run: dart analyze --fatal-infos
+      - name: Wait for the tests
+        wait-all:
 
   # The web-safe packages must survive dart2js, and must not be
   # able to reach dio, drift or conduit_core. Both are cheap to check and
