@@ -140,6 +140,67 @@ void main() {
           .equals('user-a');
     });
 
+    group('with an account active only by its flag', () {
+      // An install whose saved accounts mark the active one but whose active
+      // id is missing: storage still treats A as active and its session as
+      // live, though the stricter active id reads null.
+      setUp(() async {
+        final registry = OpenWebUiRegistry.empty.mergeServerConfigs([
+          account('a').copyWith(isActive: true),
+          account('b'),
+        ]);
+        await secure.write(
+          key: 'openwebui_registry_v1',
+          value: registry.encode(),
+        );
+        await storage.saveAuthToken('token-a');
+      });
+
+      test('a switch away files its session under it', () async {
+        check(await storage.getActiveServerId()).isNull();
+        check(await storage.getEffectiveActiveServerId()).equals('a');
+
+        await storage.switchActiveServer(fromServerId: 'a', toServerId: 'b');
+
+        check(await vaultedToken('a')).equals('token-a');
+        check(await storage.getActiveServerId()).equals('b');
+      });
+
+      test('a switch from no account is refused', () async {
+        await check(
+          storage.switchActiveServer(fromServerId: null, toServerId: 'b'),
+        ).throws<StateError>();
+
+        check(await storage.getAuthTokenStrict()).equals('token-a');
+      });
+
+      test('switching to it keeps its session', () async {
+        check(
+          await storage.switchActiveServer(fromServerId: 'a', toServerId: 'a'),
+        ).isTrue();
+
+        check(await storage.getAuthTokenStrict()).equals('token-a');
+      });
+    });
+
+    test('switching to the active account takes up a session left in its '
+        'vault', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('a');
+      // A switch that moved the active id and then failed before taking up
+      // B's session: B is active with nothing live, its session vaulted.
+      await secure.write(key: 'auth_token_server_v1:b', value: 'token-b');
+      await storage.setActiveServerId('b');
+      check(await storage.getAuthTokenStrict()).isNull();
+
+      check(
+        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'b'),
+      ).isTrue();
+
+      check(await storage.getAuthTokenStrict()).equals('token-b');
+      check(await vaultedToken('b')).isNull();
+    });
+
     test('lists which accounts hold a session', () async {
       await storage.saveServerConfigs([
         account('a'),

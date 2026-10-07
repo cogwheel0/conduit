@@ -166,7 +166,7 @@ final class OpenWebUiAccountsController {
   }
 
   Future<String?> _activeAccountId() =>
-      _ref.read(optimizedStorageServiceProvider).getActiveServerId();
+      _ref.read(optimizedStorageServiceProvider).getEffectiveActiveServerId();
 
   bool _mayLeaveActiveAccount(bool force) {
     if (force) {

@@ -425,10 +425,13 @@ class OptimizedStorageService {
       // account operation moved it since, the live session belongs to that
       // account, and filing it under [fromServerId] would hand one account's
       // bearer to another. A failed read refuses the switch too.
+      //
+      // The account the live session belongs to is the one storage treats as
+      // active, which may be flagged active or the only one saved rather than
+      // named by the active id. Checked against the stricter id, a caller
+      // could pass none, skip the stash and lose that account's session.
       final activeId = await _serverConfigsLock.synchronized(
-        () => _resolveValidatedActiveServerIdUnlocked(
-          rawServerId: _readActiveServerIdState().rawServerId,
-        ),
+        _effectiveActiveServerIdUnlocked,
       );
       final callerIsCurrent =
           activeId == fromServerId ||
@@ -447,11 +450,27 @@ class OptimizedStorageService {
       // user out for re-selecting the server they are on is a quiet enough
       // failure that only a test asking for it would find it.
       if (from == toServerId) {
+        // It may be active only by storage's fallback; name it, so the
+        // stricter active id agrees. Its session is already the live one.
+        if (_rawStoredActiveServerId() != toServerId) {
+          await _setActiveServerIdUnlocked(toServerId);
+        }
         final live = await _retrySecureStorageRead(
           () => _getAuthTokenStrictUnlocked(bypassReadSuppression: true),
           scope: 'storage/optimized/token-switch-noop',
         );
-        return live != null && live.isNotEmpty;
+        if (live != null && live.isNotEmpty) return true;
+        final credentials = _savedCredentialsReadSuppressed
+            ? null
+            : await _retrySecureStorageRead(
+                _secureCredentialStorage.getSavedCredentialsPayloadStrict,
+                scope: 'storage/optimized/credentials-switch-noop',
+              );
+        if (credentials != null && credentials.isNotEmpty) return true;
+        // Nothing live, but the account may have been left active with its
+        // session still in the vault, by a switch that failed part-way. Take
+        // it up rather than leave it for the next switch away to drop.
+        return _adoptVaultedSessionUnlocked(toServerId);
       }
 
       if (from != null) {
@@ -2150,6 +2169,15 @@ class OptimizedStorageService {
     }
   }
 
+  /// The account storage treats as active as reads see it, the way
+  /// [_setActiveServerIdUnlocked] decides whose live session a change ends.
+  /// A failed read propagates.
+  Future<String?> _effectiveActiveServerIdUnlocked() async =>
+      _effectiveActiveServerId(
+        configs: await _getServerConfigsStrictRetryingUnlocked(),
+        rawActiveServerId: _readActiveServerIdState().rawServerId,
+      );
+
   String? _effectiveActiveServerId({
     required List<ServerConfig> configs,
     required String? rawActiveServerId,
@@ -2673,6 +2701,27 @@ class OptimizedStorageService {
           // invalid; the next lookup must be allowed to recover it.
           DebugLogger.log(
             'Failed to validate active server id: $error',
+            scope: 'storage/optimized',
+          );
+          return null;
+        }
+      }),
+    );
+  }
+
+  /// The account the live session belongs to: the one [getActiveServerId]
+  /// names, or failing that the one flagged active, or the only one saved.
+  /// Account changes compare against this, as storage itself does; the
+  /// stricter id can be null while an account is active. Null when nothing
+  /// is active or the read failed.
+  Future<String?> getEffectiveActiveServerId() {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        try {
+          return await _effectiveActiveServerIdUnlocked();
+        } catch (error) {
+          DebugLogger.log(
+            'Failed to resolve effective active server id: $error',
             scope: 'storage/optimized',
           );
           return null;

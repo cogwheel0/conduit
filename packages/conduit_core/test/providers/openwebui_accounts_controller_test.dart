@@ -15,7 +15,7 @@ import 'package:test/test.dart';
 
 final class _Storage implements OptimizedStorageService {
   @override
-  Future<String?> getActiveServerId() async => 'a';
+  Future<String?> getEffectiveActiveServerId() async => 'a';
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>

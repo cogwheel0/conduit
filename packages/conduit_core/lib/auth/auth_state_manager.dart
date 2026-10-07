@@ -1113,7 +1113,7 @@ class AuthStateManager extends _$AuthStateManager {
   /// sign-in, the ordinary case for an account that was signed out of.
   Future<bool> switchToAccount(String accountId) async {
     final storage = ref.read(optimizedStorageServiceProvider);
-    final previousActiveId = await storage.getActiveServerId();
+    final previousActiveId = await storage.getEffectiveActiveServerId();
     if (previousActiveId == accountId) {
       // Already active -- which a single stored config is, by the storage
       // layer's own fallback, before anything has explicitly selected it. So

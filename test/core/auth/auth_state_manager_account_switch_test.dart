@@ -71,6 +71,8 @@ void main() {
     ).thenAnswer((_) async {});
     when(() => storage.getActiveServerId())
         .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
 
     final container = ProviderContainer(
       overrides: [
@@ -135,6 +137,8 @@ void main() {
       ),
     ).thenAnswer((_) async {});
     when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
         .thenAnswer((_) async => 'account-a');
     when(
       () => storage.switchActiveServer(
