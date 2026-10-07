@@ -58,7 +58,7 @@ class AdaptiveSegmentedSelector<T extends Object> extends StatelessWidget {
                     child: Text(option.label),
                   )
                 : Text(option.label),
-            icon: showIcons ? Icon(option.materialIcon) : null,
+            icon: showIcons && !isCupertino ? Icon(option.materialIcon) : null,
           ),
       ],
     );
