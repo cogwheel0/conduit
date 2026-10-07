@@ -157,6 +157,7 @@ dependency_overrides:
   objective_c: 9.6.0
 
 dev_dependencies:
+  analyzer: ^13.3.0
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
