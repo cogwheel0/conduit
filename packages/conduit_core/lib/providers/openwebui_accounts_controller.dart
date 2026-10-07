@@ -206,12 +206,24 @@ final class OpenWebUiAccountsController {
       await preferred.set(PreferredBackend.hermes);
       return;
     }
-    final direct = _ref.read(effectiveDirectConnectionProfilesProvider);
-    if (direct.value?.any((profile) => profile.isUsable) ?? false) {
-      await preferred.set(PreferredBackend.direct);
-      return;
+    // The synchronous view can still be loading with no value, which would
+    // send a user who has usable Direct profiles back to backend selection.
+    var hasUsableDirect = false;
+    try {
+      final direct = await _ref.read(
+        effectiveDirectConnectionProfilesFutureProvider.future,
+      );
+      hasUsableDirect = direct.any((profile) => profile.isUsable);
+    } catch (error) {
+      DebugLogger.warning(
+        'direct-profiles-unavailable',
+        scope: 'auth/accounts',
+        data: {'errorType': error.runtimeType.toString()},
+      );
     }
-    await preferred.set(PreferredBackend.unset);
+    await preferred.set(
+      hasUsableDirect ? PreferredBackend.direct : PreferredBackend.unset,
+    );
   }
 
   void _afterActiveAccountChanged(String? accountId) {
