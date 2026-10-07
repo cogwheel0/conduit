@@ -611,6 +611,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
       if (targetId != null && _profile(targetId) == null) {
         throw StateError('This Hermes connection no longer exists.');
       }
+      if (targetId == null && _profiles.length >= kMaxHermesConnections) {
+        throw StateError('Too many saved Hermes connections.');
+      }
       await _commitConnection(
         targetId == null
             ? _HermesConnectionTarget.create(activate: true)

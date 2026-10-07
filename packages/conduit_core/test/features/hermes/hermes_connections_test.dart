@@ -644,6 +644,44 @@ void main() {
       check(config.apiKey).equals('first-key');
       check(HermesConnectionStore.readActiveId()).equals(config.connectionId);
     });
+
+    test('a save without an active connection respects the limit', () async {
+      // The active id names a profile that was never written, as after a
+      // process kill while the first save of that connection committed.
+      _seedConnections([
+        for (var i = 0; i < kMaxHermesConnections; i++)
+          _profile(
+            '${'$i'.padLeft(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            'Agent $i',
+            'https://agent$i.example',
+          ),
+      ], active: _c);
+      final container = await _ready(_Secrets());
+      addTearDown(container.dispose);
+      check(container.read(hermesConfigProvider).connectionId).isNull();
+      final document = PreferencesStore.getString(
+        PreferenceKeys.hermesConnections,
+      );
+
+      await check(
+        container
+            .read(hermesConfigProvider.notifier)
+            .saveConnection(
+              baseUrl: 'https://extra.example',
+              apiKeyChanged: true,
+              apiKey: 'extra-key',
+            ),
+      ).throws<StateError>();
+
+      check(
+        container.read(hermesConnectionsProvider),
+      ).length.equals(kMaxHermesConnections);
+      check(
+        PreferencesStore.getString(PreferenceKeys.hermesConnections),
+      ).equals(document);
+      check(HermesConnectionStore.readActiveId()).equals(_c);
+      check(container.read(hermesConfigProvider).connectionId).isNull();
+    });
   });
 
   test('maps a session identity back to its saved connection', () async {
