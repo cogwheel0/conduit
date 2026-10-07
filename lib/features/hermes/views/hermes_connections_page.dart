@@ -1,8 +1,8 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -165,10 +165,12 @@ class _ConnectionsHeader extends StatelessWidget {
         if (onAdd != null) ...[
           const SizedBox(width: Spacing.sm),
           if (PlatformInfo.isIOS)
-            CupertinoButton(
+            AdaptiveButton.child(
               key: const ValueKey<String>('hermes-add-connection'),
+              style: AdaptiveButtonStyle.plain,
+              useSmoothRectangleBorder: false,
               padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-              minimumSize: const Size(0, TouchTarget.minimum),
+              minSize: const Size(0, TouchTarget.minimum),
               onPressed: onAdd,
               child: Text(
                 l10n.hermesAddConnection,
@@ -231,17 +233,30 @@ class _ConnectionTile extends StatelessWidget {
               )
             : null,
       ),
-      trailing: IconButton(
+      trailing: AdaptiveButton.child(
         key: ValueKey<String>('hermes-edit-connection-${connection.id}'),
-        tooltip: l10n.edit,
-        icon: Icon(
-          context.usesCupertinoChrome
-              ? CupertinoIcons.info_circle
-              : Icons.edit_outlined,
-          color: theme.buttonPrimary,
-          size: IconSize.medium,
-        ),
+        style: AdaptiveButtonStyle.plain,
+        useSmoothRectangleBorder: false,
+        padding: EdgeInsets.zero,
+        minSize: const Size.square(TouchTarget.comfortable),
         onPressed: onEdit,
+        // Inside the button, so the tooltip names the button's own
+        // accessibility node.
+        child: AdaptiveTooltip(
+          message: l10n.edit,
+          child: SizedBox.square(
+            dimension: TouchTarget.comfortable,
+            child: Center(
+              child: Icon(
+                context.usesCupertinoChrome
+                    ? CupertinoIcons.info_circle
+                    : Icons.edit_outlined,
+                color: theme.buttonPrimary,
+                size: IconSize.medium,
+              ),
+            ),
+          ),
+        ),
       ),
       preserveTrailingSemantics: true,
       onTap: onTap,

@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -311,7 +310,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           ] else
             const Padding(
               padding: EdgeInsets.all(Spacing.xl),
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: AdaptiveProgressIndicator()),
             ),
         ],
       );
@@ -415,7 +414,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
               foregroundColor: context.conduitTheme.buttonPrimary,
               enabled: !_switching && !controller.operation.isBusy,
               status: _switching
-                  ? const CupertinoActivityIndicator(radius: 8)
+                  ? const AdaptiveProgressIndicator.activity(radius: 8)
                   : null,
               onTap: _switching ? null : _useConnection,
             ),

@@ -1,6 +1,7 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -128,6 +129,7 @@ class HermesConnectionSwitcherTile extends ConsumerWidget {
     final count = ref.watch(hermesConnectionsProvider).length;
     if (name == null) return const SizedBox.shrink();
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final canSwitch = count > 1;
     final label = Text(
       name,
@@ -145,14 +147,25 @@ class HermesConnectionSwitcherTile extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 12,
-            backgroundColor: theme.surfaceContainer,
-            child: Text(
-              hermesConnectionInitials(name),
-              style: AppTypography.labelSmallStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w700,
+          SizedBox.square(
+            dimension: 24,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: theme.surfaceContainer,
+                shape: BoxShape.circle,
+              ),
+              // Unscaled, so large text can't push the initials out of the
+              // circle.
+              child: Center(
+                child: MediaQuery.withNoTextScaling(
+                  child: Text(
+                    hermesConnectionInitials(name),
+                    style: AppTypography.labelSmallStyle.copyWith(
+                      color: theme.textSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
@@ -167,6 +180,7 @@ class HermesConnectionSwitcherTile extends ConsumerWidget {
         ],
       ),
     );
+    const key = ValueKey<String>('hermes-connection-switcher');
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         Spacing.sm,
@@ -174,20 +188,20 @@ class HermesConnectionSwitcherTile extends ConsumerWidget {
         Spacing.sm,
         Spacing.xs,
       ),
-      child: Semantics(
-        button: canSwitch,
-        label: canSwitch
-            ? AppLocalizations.of(context)!.hermesSwitchConnectionTitle
-            : null,
-        child: InkWell(
-          key: const ValueKey<String>('hermes-connection-switcher'),
-          borderRadius: BorderRadius.circular(AppBorderRadius.card),
-          onTap: canSwitch
-              ? () => showHermesConnectionPicker(context, ref)
-              : null,
-          child: row,
-        ),
-      ),
+      child: canSwitch
+          ? AdaptiveButton.child(
+              key: key,
+              style: AdaptiveButtonStyle.plain,
+              padding: EdgeInsets.zero,
+              borderRadius: BorderRadius.circular(AppBorderRadius.card),
+              useSmoothRectangleBorder: false,
+              onPressed: () => showHermesConnectionPicker(context, ref),
+              child: Semantics(
+                label: l10n.hermesSwitchConnectionTitle,
+                child: row,
+              ),
+            )
+          : Semantics(key: key, container: true, child: row),
     );
   }
 }

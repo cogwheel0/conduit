@@ -999,12 +999,6 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/hermes/views/hermes_settings_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: hermes
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/hermes/views/hermes_settings_page.dart
     symbol: "CupertinoActivityIndicator"
     count: 2
     owner: hermes
