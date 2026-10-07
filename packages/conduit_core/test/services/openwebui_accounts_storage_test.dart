@@ -1533,6 +1533,69 @@ void main() {
           .deepEquals({'Cookie': 'authelia=1'});
     });
 
+    group('an address edited', () {
+      Future<OpenWebUiServer> cookiesOnProxy() async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        final server = await addRoute('proxy', 'https://proxy.example.com');
+        for (final id in ['a', 'b']) {
+          await storage.saveEndpointSessionHeaders(
+            accountId: id,
+            endpointId: 'proxy',
+            headers: {'Cookie': 'session=$id'},
+          );
+        }
+        return server;
+      }
+
+      Future<void> editProxy(
+        OpenWebUiServer server,
+        OpenWebUiEndpoint Function(OpenWebUiEndpoint) edit,
+      ) async {
+        await storage.saveServer(
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [
+              for (final endpoint in server.endpoints)
+                endpoint.id == 'proxy' ? edit(endpoint) : endpoint,
+            ],
+          ),
+        );
+        await storage.selectEndpoint(server.id, 'proxy');
+      }
+
+      test('to another host drops every account\'s cookie on it', () async {
+        final server = await cookiesOnProxy();
+
+        await editProxy(
+          server,
+          (proxy) =>
+              OpenWebUiEndpoint(id: proxy.id, url: 'https://elsewhere.example'),
+        );
+
+        final configs = await storage.getServerConfigs();
+        check(configs).length.equals(2);
+        for (final config in configs) {
+          check(config.url).equals('https://elsewhere.example');
+          check(config.customHeaders).isEmpty();
+        }
+      });
+
+      test('only by name keeps its cookies', () async {
+        final server = await cookiesOnProxy();
+
+        await editProxy(
+          server,
+          (proxy) =>
+              OpenWebUiEndpoint(id: proxy.id, url: proxy.url, label: 'Proxy'),
+        );
+
+        final configs = await storage.getServerConfigs();
+        check(configs.map((config) => config.customHeaders['Cookie']))
+            .deepEquals(['session=a', 'session=b']);
+      });
+    });
+
     test('removing the route in use falls back to the first', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');

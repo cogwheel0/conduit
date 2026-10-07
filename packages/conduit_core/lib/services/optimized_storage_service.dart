@@ -1872,6 +1872,19 @@ class OptimizedStorageService {
         stored.mtlsPrivateKeyPassword == next.mtlsPrivateKeyPassword;
   }
 
+  /// [_hasSameServerSessionOwnershipIdentity] for a route edited from
+  /// [before] to [after]: the same origin URL and mTLS client identity.
+  bool _sameRouteSessionOwner(
+    OpenWebUiEndpoint before,
+    OpenWebUiEndpoint after,
+  ) {
+    return _normalizedServerIdentityUrl(before.url) ==
+            _normalizedServerIdentityUrl(after.url) &&
+        before.mtlsCertificateChainPem == after.mtlsCertificateChainPem &&
+        before.mtlsPrivateKeyPem == after.mtlsPrivateKeyPem &&
+        before.mtlsPrivateKeyPassword == after.mtlsPrivateKeyPassword;
+  }
+
   String _normalizedServerIdentityUrl(String value) =>
       openWebUiServerIdentityUrl(value);
 
@@ -2445,8 +2458,9 @@ class OptimizedStorageService {
   ///
   /// Accounts keep their sessions. Adding a route is the user saying this
   /// URL reaches the same server; the caller checks that before saving. A
-  /// removed route takes its captured proxy cookies with it, and a removed
-  /// route that was in use gives way to the first remaining one.
+  /// removed route takes its captured proxy cookies with it, and so does a
+  /// route edited to another origin or client identity. A removed route that
+  /// was in use gives way to the first remaining one.
   Future<void> saveServer(OpenWebUiServer server) {
     if (server.endpoints.isEmpty) {
       throw ArgumentError('A server needs at least one route.');
@@ -2454,10 +2468,20 @@ class OptimizedStorageService {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
         final registry = await _registryForWriteUnlocked();
-        if (registry.server(server.id) == null) {
+        final stored = registry.server(server.id);
+        if (stored == null) {
           throw StateError('That server is no longer saved.');
         }
         final routes = {for (final endpoint in server.endpoints) endpoint.id};
+        // An edited route keeps its id. Its cookies were issued to the old
+        // host, for every account on the server: they must not follow it to
+        // a new one.
+        final keepsCookies = {
+          for (final endpoint in server.endpoints)
+            if (stored.endpoint(endpoint.id) case final before?
+                when _sameRouteSessionOwner(before, endpoint))
+              endpoint.id,
+        };
         final next = OpenWebUiRegistry(
           servers: [
             for (final existing in registry.servers)
@@ -2469,7 +2493,7 @@ class OptimizedStorageService {
                   ? account.copyWith(
                       capturedHeaders: {
                         for (final entry in account.capturedHeaders.entries)
-                          if (routes.contains(entry.key))
+                          if (keepsCookies.contains(entry.key))
                             entry.key: entry.value,
                       },
                     )
