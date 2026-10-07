@@ -378,6 +378,19 @@ void main() {
         expect(visibleIds(c), ['u1', 'a2', 'u2', 'a3']);
         expect(await storedLeaf(tester, 'c1'), 'a3');
 
+        // The pill sits beside the pager; Copy, Listen and Regenerate keep
+        // their places.
+        final pill = find.byKey(
+          const ValueKey<String>('assistant-continue-from-here'),
+        );
+        expect(pill, findsOneWidget);
+        expect(find.text(_en.chatBranchContinueFromResponse), findsOneWidget);
+        expect(
+          tester.getTopLeft(pill).dx,
+          greaterThan(
+            tester.getTopRight(pagerButton(_en.nextLabel).first).dx - 1,
+          ),
+        );
         await tester.tap(action(_en.chatBranchContinueFromResponse));
         await settle(tester);
 
@@ -481,14 +494,32 @@ void main() {
       );
       expect(find.text('1/2'), findsOneWidget);
 
+      tester.takeAnnouncements();
       await tester.tap(switcherButton(_en.nextLabel));
       await settle(tester);
 
       expect(visibleIds(c), ['e1', 'b1']);
       expect(find.text('text of b1'), findsWidgets);
       expect(find.text('2/2'), findsOneWidget);
-      expect(find.text(_en.chatBranchSelectedNotice(2, 2)), findsOneWidget);
+      // The new position is on screen, so a step is announced, not toasted.
+      expect(find.text(_en.chatBranchSelectedNotice(2, 2)), findsNothing);
+      expect(
+        tester.takeAnnouncements().map((a) => a.message),
+        contains(_en.chatBranchSelectedNotice(2, 2)),
+      );
       expect(await storedLeaf(tester, 'c1'), 'b1');
+    });
+
+    testWidgets('the version label has a full-width touch target', (
+      tester,
+    ) async {
+      await open(tester);
+
+      final size = tester.getSize(
+        find.byKey(const ValueKey<String>('chat-branch-switcher-label')),
+      );
+      expect(size.width, greaterThanOrEqualTo(44));
+      expect(size.height, greaterThanOrEqualTo(32));
     });
 
     testWidgets('the label lists every version and continues from the pick', (
@@ -501,11 +532,16 @@ void main() {
       expect(find.text(_en.chatBranchSheetTitle), findsOneWidget);
       expect(find.text(_en.chatBranchVersionTitle(1)), findsOneWidget);
       expect(find.text(_en.chatBranchVersionCurrent), findsOneWidget);
+      // Each version shows an excerpt of its text.
+      expect(find.text('text of u1'), findsWidgets);
+      expect(find.text('text of e1'), findsWidgets);
       await tester.tap(find.text(_en.chatBranchVersionTitle(2)));
       await settle(tester);
 
       expect(visibleIds(c), ['e1', 'b1']);
       expect(await storedLeaf(tester, 'c1'), 'b1');
+      // A pick made in the list is confirmed.
+      expect(find.text(_en.chatBranchSelectedNotice(2, 2)), findsOneWidget);
     });
   });
 
@@ -688,6 +724,7 @@ void main() {
       expect(api.clones, 0);
       expect(c.read(activeConversationProvider)!.id, 'fork-1');
       expect(visibleIds(c), ['u1', 'a2']);
+      expect(find.text(_en.chatBranchForkOpened), findsOneWidget);
       final stored = await tester.runAsync(() => db.chatsDao.getChat('fork-1'));
       expect(stored!.title, 'Branches (fork)');
     });
@@ -707,6 +744,7 @@ void main() {
       await tapFork(tester);
 
       expect(find.text(_en.chatBranchWaitForResponse), findsOneWidget);
+      expect(find.text(_en.chatBranchForkOpened), findsNothing);
       expect(api.forks, hasLength(1));
       expect(api.clones, 0);
       expect(c.read(activeConversationProvider)!.id, 'c1');

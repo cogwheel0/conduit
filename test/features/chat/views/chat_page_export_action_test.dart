@@ -271,10 +271,10 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Real async turns between frames: the export reads the database and the
-  /// file adapter.
+  /// Real async turns between frames: the export reads the database while
+  /// the sheet waits, the sheet closes, then the file adapter runs.
   Future<void> settle(WidgetTester tester) async {
-    for (var i = 0; i < 20; i++) {
+    for (var i = 0; i < 40; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 5)),
       );
@@ -306,7 +306,12 @@ void main() {
     await tester.tap(find.text(_en.chatExportAction));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('chat-export-backup')));
+    await tester.pump();
+    // The sheet stays up and says the export is being read.
+    expect(find.text(_en.chatExportPreparing), findsOneWidget);
     await settle(tester);
+    expect(find.text(_en.chatExportPreparing), findsNothing);
+    expect(find.text(_en.chatExportJson), findsNothing);
 
     final file = files.texts.single;
     expect(file.name, matches(RegExp(r'^A chat-\d+\.json$')));
@@ -344,6 +349,22 @@ void main() {
     expect(file.text, contains('text of u1'));
     expect(file.text, contains('text of a2'));
     expect(file.text, isNot(contains('text of a1')));
+  });
+
+  testWidgets('Export uses the download icon and comes before Delete, which '
+      'ends the menu', (tester) async {
+    await mountPage(tester, active: _chat());
+
+    await openOverflow(tester);
+    expect(find.byIcon(Icons.file_download_outlined), findsOneWidget);
+    final export = tester.getTopLeft(find.text(_en.chatExportAction)).dy;
+    final delete = tester.getTopLeft(find.text(_en.delete).last).dy;
+    expect(export, lessThan(delete));
+    for (final label in [_en.rename, _en.chatExportAction]) {
+      final finder = find.text(label);
+      if (finder.evaluate().isEmpty) continue;
+      expect(tester.getTopLeft(finder.first).dy, lessThan(delete));
+    }
   });
 
   testWidgets('an account that may not export is not offered it', (

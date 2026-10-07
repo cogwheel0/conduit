@@ -89,6 +89,69 @@ void main() {
     expect(action.section, 'filters');
     expect(action.selected, isTrue);
     expect(action.dismissesKeyboard, isFalse);
+    // The heading and the on/off state come from the app's strings.
+    expect(action.sectionTitle, l10n.filters);
+    expect(action.kind, IosKeyboardAttachmentActionKind.toggle);
+    expect(action.stateLabel, l10n.switchOnLabel);
+  });
+
+  test('iOS rows say whether they toggle or run a command, with localized '
+      'section headings', () {
+    final actions = buildIosKeyboardAttachmentActions(
+      l10n: l10n,
+      attachmentAvailability: const ComposerOverflowAttachmentAvailability(
+        file: true,
+      ),
+      hermesMode: false,
+      directMode: false,
+      webSearchAvailable: true,
+      webSearchEnabled: false,
+      imageGenerationAvailable: false,
+      imageGenerationEnabled: false,
+      availableTools: const [Tool(id: 'calc', name: 'Calculator')],
+      selectedToolIds: const [],
+      availableFilters: const [],
+      selectedFilterIds: const [],
+      toolSettingsAvailable: true,
+      compareModelsAvailable: true,
+    );
+    IosKeyboardAttachmentActionConfig byId(String id) =>
+        actions.singleWhere((action) => action.id == id);
+
+    final file = byId(ComposerOverflowActionIds.file);
+    expect(file.kind, IosKeyboardAttachmentActionKind.command);
+    expect(file.sectionTitle, isNull);
+    expect(file.stateLabel, isNull);
+
+    final webSearch = byId(ComposerOverflowActionIds.webSearch);
+    expect(webSearch.kind, IosKeyboardAttachmentActionKind.toggle);
+    expect(webSearch.sectionTitle, isNull);
+    expect(webSearch.stateLabel, l10n.switchOffLabel);
+
+    final tool = byId(ComposerOverflowActionIds.tool('calc'));
+    expect(tool.kind, IosKeyboardAttachmentActionKind.toggle);
+    expect(tool.sectionTitle, l10n.tools);
+
+    for (final id in [
+      ComposerOverflowActionIds.toolSettings,
+      ComposerOverflowActionIds.compareModels,
+    ]) {
+      final command = byId(id);
+      expect(command.kind, IosKeyboardAttachmentActionKind.command);
+      expect(command.stateLabel, isNull);
+    }
+    expect(
+      byId(ComposerOverflowActionIds.toolSettings).sfSymbol,
+      'wrench.and.screwdriver',
+    );
+
+    final platform = byId(ComposerOverflowActionIds.toolSettings).toPlatform();
+    expect(platform.kind, PlatformKeyboardAttachmentActionKind.command);
+    expect(platform.sectionTitle, l10n.tools);
+    expect(
+      webSearch.toPlatform().kind,
+      PlatformKeyboardAttachmentActionKind.toggle,
+    );
   });
 
   test('iOS action configuration keeps direct and Hermes restrictions', () {
@@ -225,8 +288,7 @@ void main() {
     const browserExplanation =
         "This server runs code in the browser, which Conduit can't do.";
     const unavailableExplanation =
-        "The code interpreter isn't available for this server, account, or "
-        'model.';
+        'Not available for this server, account, or model.';
     final states =
         <
           String,
@@ -278,7 +340,12 @@ void main() {
         expect(action.id, 'codeInterpreter');
         expect(action.label, 'Code interpreter');
         expect(action.section, 'features');
-        expect(action.sfSymbol, 'chevron.left.forwardslash.chevron.right');
+        expect(action.sfSymbol, 'curlybraces');
+        expect(action.kind, IosKeyboardAttachmentActionKind.toggle);
+        expect(
+          action.stateLabel,
+          value.selected ? l10n.switchOnLabel : l10n.switchOffLabel,
+        );
         expect(action.subtitle, value.subtitle);
         expect(action.selected, value.selected);
         expect(action.enabled, value.enabled);
@@ -403,7 +470,10 @@ void main() {
               userPermissionsProvider.overrideWith(
                 (ref) async => const <String, dynamic>{},
               ),
-              codeInterpreterBlockProvider.overrideWithValue(block),
+              _block.overrideWith(() => _BlockHolder(block)),
+              codeInterpreterBlockProvider.overrideWith(
+                (ref) => ref.watch(_block),
+              ),
             ],
             child: MaterialApp(
               localizationsDelegates: conduitLocalizationsDelegates,
@@ -463,6 +533,50 @@ void main() {
 
         expect(container.read(codeInterpreterEnabledProvider), isFalse);
         expect(find.text('Code interpreter'), findsNothing);
+      });
+
+      testWidgets('a chosen interpreter that can no longer run says why, and '
+          'turns off from there', (tester) async {
+        final container = await pump(tester, block: null);
+        container.read(codeInterpreterEnabledProvider.notifier).set(true);
+        // The account loses the interpreter after it was chosen.
+        container.read(_block.notifier).block = CodeInterpreterBlock.noPermission;
+        await tester.pump();
+
+        final pill = find.byKey(
+          const ValueKey<String>('composer-code-interpreter-pill'),
+        );
+        expect(pill, findsOneWidget);
+        // It reads as not in effect, with a warning, and says why.
+        expect(
+          find.descendant(
+            of: pill,
+            matching: find.byIcon(Icons.warning_amber_rounded),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester.getSemantics(pill),
+          matchesSemantics(
+            isButton: true,
+            hasEnabledState: true,
+            isEnabled: true,
+            hasTapAction: true,
+            label: 'Code interpreter',
+            hint: l10n.codeInterpreterUnavailable,
+          ),
+        );
+
+        // A tap explains instead of switching it off silently.
+        await tester.tap(pill);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(container.read(codeInterpreterEnabledProvider), isTrue);
+        expect(find.text(l10n.codeInterpreterUnavailable), findsOneWidget);
+
+        await tester.tap(find.text(l10n.codeInterpreterTurnOff));
+        await tester.pump();
+        expect(container.read(codeInterpreterEnabledProvider), isFalse);
       });
 
       testWidgets('a browser-engine server is explained and cannot be chosen', (
@@ -621,6 +735,41 @@ void main() {
       selectedFilterIds: const [],
       compareModelsAvailable: available,
     );
+
+    test('stays visible but off until there is a message to compare', () {
+      List<ComposerOverflowItem> compare({required bool hasMessage}) =>
+          buildComposerOverflowComparisonItems(
+            l10n: l10n,
+            available: true,
+            hasMessage: hasMessage,
+          );
+
+      final waiting = compare(hasMessage: false).single;
+      expect(waiting.enabled, isFalse);
+      expect(waiting.subtitle, l10n.chatCompareNeedsMessage);
+      final ready = compare(hasMessage: true).single;
+      expect(ready.enabled, isTrue);
+      expect(ready.subtitle, l10n.chatCompareModelsDescription);
+
+      final native = buildIosKeyboardAttachmentActions(
+        l10n: l10n,
+        attachmentAvailability: const ComposerOverflowAttachmentAvailability(),
+        hermesMode: false,
+        directMode: false,
+        webSearchAvailable: false,
+        webSearchEnabled: false,
+        imageGenerationAvailable: false,
+        imageGenerationEnabled: false,
+        availableTools: const [],
+        selectedToolIds: const [],
+        availableFilters: const [],
+        selectedFilterIds: const [],
+        compareModelsAvailable: true,
+        hasMessage: false,
+      ).singleWhere((a) => a.id == ComposerOverflowActionIds.compareModels);
+      expect(native.enabled, isFalse);
+      expect(native.subtitle, l10n.chatCompareNeedsMessage);
+    });
 
     test('is an action row only when the command is available', () {
       expect(
@@ -1085,4 +1234,20 @@ final class _Api extends ApiService {
 final class _NoTools extends ToolsList {
   @override
   Future<List<Tool>> build() async => const <Tool>[];
+}
+
+/// The interpreter block a test can change after the composer is built.
+final _block = NotifierProvider<_BlockHolder, CodeInterpreterBlock?>(
+  () => _BlockHolder(null),
+);
+
+class _BlockHolder extends Notifier<CodeInterpreterBlock?> {
+  _BlockHolder(this._initial);
+
+  final CodeInterpreterBlock? _initial;
+
+  @override
+  CodeInterpreterBlock? build() => _initial;
+
+  set block(CodeInterpreterBlock? value) => state = value;
 }

@@ -1595,8 +1595,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Future<void> _stopComparisonAnswer() async {
     final outcome = await ref.read(stopComparisonAnswerProvider)(_messageId);
     if (outcome != ComparisonAnswerStop.refused || !mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+    AdaptiveSnackBar.show(
+      context,
+      message: AppLocalizations.of(context)!.chatStopResponseFailed,
+      type: AdaptiveSnackBarType.error,
     );
   }
 
@@ -1608,8 +1610,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       stackTrace: stackTrace,
     );
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+    AdaptiveSnackBar.show(
+      context,
+      message: AppLocalizations.of(context)!.errorMessage,
+      type: AdaptiveSnackBarType.error,
     );
   }
 
@@ -2083,8 +2087,25 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final versionPager = pagerIndices.length > 1
         ? _buildVersionPager(pagerIndices)
         : null;
+    // While an alternative is previewed (a regeneration through the pager, or
+    // another model's response of a comparison through its tabs), continuing
+    // from it is the point, so it leads the row as a labelled pill right after
+    // the pager, and the usual buttons keep their places.
+    final continueFromId = _continueFromVersionId();
+    final pagerGroup = continueFromId == null
+        ? versionPager
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (versionPager != null) ...[
+                versionPager,
+                const SizedBox(width: Spacing.xs),
+              ],
+              _buildContinueFromHerePill(continueFromId),
+            ],
+          );
 
-    if (versionPager == null &&
+    if (pagerGroup == null &&
         infoWidgets.isEmpty &&
         visibleActions.isEmpty &&
         overflowActions.isEmpty) {
@@ -2096,9 +2117,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         : null;
     // Like Open WebUI, the version pager leads the row; the icon buttons sit
     // edge to edge with the overflow trailing them inline, and informational
-    // chips follow the buttons.
+    // chips follow the buttons. With the continue pill the pager is a group of
+    // its own, so a narrow row wraps between it and the buttons.
     final actionButtons = <Widget>[
-      ?versionPager,
+      if (continueFromId == null) ?versionPager,
       for (final action in visibleActions)
         _buildActionButton(
           icon: action.icon,
@@ -2113,10 +2135,121 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       runSpacing: Spacing.sm,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        if (continueFromId != null) pagerGroup!,
         if (actionButtons.isNotEmpty)
           Row(mainAxisSize: MainAxisSize.min, children: actionButtons),
         ...infoWidgets,
       ],
+    );
+  }
+
+  /// The id of the alternative response being previewed, when the chat can
+  /// continue from it: it must be a stored same-role sibling of this response,
+  /// so a version without a reliable id stays preview-only.
+  ///
+  /// The providers read here are what make branch actions exclusive to the
+  /// user's own durable chat, so no other gate is added. Siblings are read as
+  /// soon as there is a version to preview, so the action is ready the moment
+  /// one is shown.
+  String? _continueFromVersionId() {
+    final messageId = _messageId;
+    final branchChatId = ref.watch(
+      activeConversationProvider.select((c) => c?.id),
+    );
+    if (messageId.isEmpty ||
+        branchChatId == null ||
+        widget.message.versions.isEmpty) {
+      return null;
+    }
+    final siblings = ref
+        .watch(
+          chatBranchSiblingsProvider((
+            chatId: branchChatId,
+            messageId: messageId,
+          )),
+        )
+        .asData
+        ?.value;
+    if (_activeVersionIndex < 0 ||
+        _activeVersionIndex >= widget.message.versions.length) {
+      return null;
+    }
+    final previewedId =
+        widget.message.versions[_activeVersionIndex].id as String?;
+    return previewedId != null && (siblings?.contains(previewedId) ?? false)
+        ? previewedId
+        : null;
+  }
+
+  /// "Continue from here": the quiet active pill of the composer, compact to
+  /// sit in the footer row, with the row's full height to tap.
+  Widget _buildContinueFromHerePill(String alternativeId) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final label = l10n.chatBranchContinueFromResponse;
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: const ValueKey<String>('assistant-continue-from-here'),
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          ConduitHaptics.selectionClick();
+          unawaited(
+            continueFromChatBranch(
+              context,
+              displayedMessageId: _messageId,
+              alternativeId: alternativeId,
+            ),
+          );
+        },
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: TouchTarget.chip),
+          child: Center(
+            widthFactor: 1,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.sm,
+                vertical: Spacing.xs + 1,
+              ),
+              decoration: BoxDecoration(
+                color: theme.buttonPrimary.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(AppBorderRadius.round),
+                border: Border.all(
+                  color: theme.buttonPrimary.withValues(alpha: 0.4),
+                  width: BorderWidth.thin,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Platform.isIOS
+                        ? CupertinoIcons.arrow_turn_down_right
+                        : Icons.subdirectory_arrow_right,
+                    size: IconSize.chip,
+                    color: theme.buttonPrimary,
+                  ),
+                  const SizedBox(width: Spacing.xs),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.labelMediumStyle.copyWith(
+                        color: theme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: AppTypography.letterSpacingNormal,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -2192,38 +2325,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     // Branch actions need a real message id. The providers below are what make
     // them exclusive to the user's own durable chat, so the widget adds no
-    // gate of its own. A version being previewed earns
-    // "continue" only when its id is a stored same-role alternative of this
-    // response, so a version without a reliable id stays preview-only (and
-    // offers no fork either: it is not a message to fork at).
+    // gate of its own. A version being previewed is continued from by the pill
+    // beside the pager, and can be branched into a new chat only when its id
+    // is a stored same-role alternative of this response: a version without a
+    // reliable id is not a message to branch at.
     final branchChatId = ref.watch(
       activeConversationProvider.select((c) => c?.id),
     );
     final branchControls = messageId.isNotEmpty && branchChatId != null;
     final previewingVersion = _activeVersionIndex >= 0;
-    final previewedVersionId =
-        previewingVersion &&
-            _activeVersionIndex < widget.message.versions.length
-        ? widget.message.versions[_activeVersionIndex].id as String?
-        : null;
-    // Read as soon as there is a version to preview, so the action is ready
-    // the moment one is shown.
-    final branchSiblings = branchControls && widget.message.versions.isNotEmpty
-        ? ref
-              .watch(
-                chatBranchSiblingsProvider((
-                  chatId: branchChatId,
-                  messageId: messageId,
-                )),
-              )
-              .asData
-              ?.value
-        : null;
-    final String? continueFromId =
-        previewedVersionId != null &&
-            (branchSiblings?.contains(previewedVersionId) ?? false)
-        ? previewedVersionId
-        : null;
+    final continueFromId = _continueFromVersionId();
     final bool canFork =
         branchControls &&
         (!previewingVersion || continueFromId != null) &&
@@ -2268,24 +2379,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         : Icons.stop;
 
     final actions = <_AssistantFooterAction>[
-      // While an alternative is being previewed, continuing from it is the
-      // primary action, so it leads the inline buttons.
-      if (continueFromId != null)
-        _AssistantFooterAction(
-          id: 'continue-branch',
-          icon: Platform.isIOS
-              ? CupertinoIcons.arrow_turn_down_right
-              : Icons.subdirectory_arrow_right,
-          label: l10n.chatBranchContinueFromResponse,
-          onTap: () => unawaited(
-            continueFromChatBranch(
-              context,
-              displayedMessageId: messageId,
-              alternativeId: continueFromId,
-            ),
-          ),
-          sfSymbol: 'arrow.turn.down.right',
-        ),
       _AssistantFooterAction(
         id: 'copy',
         icon: Platform.isIOS

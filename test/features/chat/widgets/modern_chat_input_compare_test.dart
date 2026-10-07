@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
@@ -224,6 +225,40 @@ void main() {
     await settle(tester);
 
     expect(find.text(l10n.chatCompareModelsAction), findsNothing);
+  });
+
+  composerTest('Compare models opens a sheet, so it shows a chevron, and waits '
+      'for a message before it can be chosen', (tester) async {
+    await pump(tester);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('composer-overflow-button')),
+    );
+    await settle(tester);
+    final row = find.ancestor(
+      of: find.text(l10n.chatCompareModelsAction),
+      matching: find.byType(ToggleTile),
+    );
+    expect(find.text(l10n.chatCompareNeedsMessage), findsOneWidget);
+    expect(tester.widget<ToggleTile>(row).enabled, isFalse);
+    expect(
+      find.descendant(of: row, matching: find.byIcon(Icons.chevron_right)),
+      findsOneWidget,
+    );
+
+    // Typing a message makes it available.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('composer-overflow-button')),
+    );
+    await settle(tester);
+    await tester.enterText(find.byType(TextField), draft);
+    await settle(tester);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('composer-overflow-button')),
+    );
+    await settle(tester);
+    expect(tester.widget<ToggleTile>(row).enabled, isTrue);
+    expect(find.text(l10n.chatCompareModelsDescription), findsOneWidget);
   });
 
   composerTest('Send on a draft that starts with saved models sends to both '

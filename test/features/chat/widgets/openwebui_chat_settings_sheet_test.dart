@@ -206,6 +206,16 @@ void main() {
 
   Finder field(String key) => find.byKey(ValueKey('chat-setting-$key'));
   Finder saveButton() => find.byKey(const ValueKey('chat-settings-save'));
+  Finder closeButton() => find.byKey(const ValueKey('chat-settings-close'));
+  Finder discardButton() => find.text(_en.workspaceEditorDiscardConfirm);
+  Finder keepEditingButton() => find.text(_en.workspaceEditorKeepEditing);
+
+  String fieldText(WidgetTester tester, String key) => tester
+      .widget<TextField>(
+        find.descendant(of: field(key), matching: find.byType(TextField)),
+      )
+      .controller!
+      .text;
 
   Future<void> typeInto(WidgetTester tester, Finder finder, String text) async {
     await tester.enterText(
@@ -369,9 +379,12 @@ void main() {
       await openSheet(tester, active: _conversation('c1', chatParams: params));
 
       await typeInto(tester, field('temperature'), '1.5');
-      await tester.tap(find.byKey(const ValueKey('chat-settings-cancel')));
+      await tester.tap(closeButton());
+      await tester.pumpAndSettle();
+      await tester.tap(discardButton());
       await settle(tester);
 
+      expect(find.text(_en.chatSettingsTitle), findsNothing);
       expect(await stored(tester, 'c1'), {'temperature': 0.2});
       final ops = await tester.runAsync(
         () => db.outboxDao.pendingForChat('c1'),
@@ -608,12 +621,7 @@ void main() {
         tester.getBottomLeft(saveButton()).dy,
         lessThanOrEqualTo(keyboardTop),
       );
-      expect(
-        tester
-            .getBottomLeft(find.byKey(const ValueKey('chat-settings-cancel')))
-            .dy,
-        lessThanOrEqualTo(keyboardTop),
-      );
+      expect(tester.getTopLeft(closeButton()).dy, greaterThanOrEqualTo(0));
       expect(saveEnabled(tester), isTrue);
 
       keyboard(tester, up: false);
@@ -639,7 +647,9 @@ void main() {
       expect(ops!.map((op) => op.kind), ['updateChat']);
     });
 
-    testWidgets('Cancel closes it and keeps what was saved', (tester) async {
+    testWidgets('Close without edits closes it and keeps what was saved', (
+      tester,
+    ) async {
       final params = {'temperature': 0.2};
       await tester.runAsync(() => seed('c1', params));
       await openSheet(
@@ -648,8 +658,10 @@ void main() {
         active: _conversation('c1', chatParams: params),
       );
 
+      // Typing a value and putting it back leaves nothing to discard.
       await typeInto(tester, field('temperature'), '1.5');
-      await tester.tap(find.byKey(const ValueKey('chat-settings-cancel')));
+      await typeInto(tester, field('temperature'), '0.2');
+      await tester.tap(closeButton());
       await settle(tester);
 
       expect(find.text(_en.chatSettingsTitle), findsNothing);
@@ -824,6 +836,196 @@ void main() {
     });
   });
 
+  group('unsaved edits', () {
+    testWidgets('Save stays off until something changes', (tester) async {
+      final params = {'temperature': 0.2};
+      await tester.runAsync(() => seed('c1', params));
+      await openSheet(tester, active: _conversation('c1', chatParams: params));
+
+      expect(saveEnabled(tester), isFalse);
+      await typeInto(tester, field('temperature'), '0.5');
+      expect(saveEnabled(tester), isTrue);
+      await typeInto(tester, field('temperature'), '0.2');
+      expect(saveEnabled(tester), isFalse);
+    });
+
+    testWidgets('closing a clean sheet does not ask', (tester) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(tester, active: _conversation('c1'));
+
+      await tester.tap(closeButton());
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text(_en.chatSettingsTitle), findsNothing);
+    });
+
+    testWidgets('Close with edits asks; Keep Editing keeps them', (
+      tester,
+    ) async {
+      final params = {'temperature': 0.2};
+      await tester.runAsync(() => seed('c1', params));
+      await openSheet(tester, active: _conversation('c1', chatParams: params));
+
+      await typeInto(tester, field('temperature'), '1.5');
+      await tester.tap(closeButton());
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
+      await tester.tap(keepEditingButton());
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text(_en.chatSettingsTitle), findsOneWidget);
+      expect(fieldText(tester, 'temperature'), '1.5');
+      expect(saveEnabled(tester), isTrue);
+
+      await tester.tap(closeButton());
+      await tester.pumpAndSettle();
+      await tester.tap(discardButton());
+      await settle(tester);
+
+      expect(find.text(_en.chatSettingsTitle), findsNothing);
+      expect(await stored(tester, 'c1'), {'temperature': 0.2});
+    });
+
+    testWidgets('tapping outside with edits asks first', (tester) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(tester, active: _conversation('c1'));
+
+      await typeInto(tester, field('seed'), '7');
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
+      await tester.tap(keepEditingButton());
+      await tester.pumpAndSettle();
+      expect(find.text(_en.chatSettingsTitle), findsOneWidget);
+      expect(fieldText(tester, 'seed'), '7');
+    });
+
+    testWidgets('tapping outside a clean sheet closes it', (tester) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(tester, active: _conversation('c1'));
+
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text(_en.chatSettingsTitle), findsNothing);
+    });
+
+    testWidgets('swiping the form down with edits asks instead of closing', (
+      tester,
+    ) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(tester, active: _conversation('c1'));
+
+      await typeInto(tester, field('seed'), '7');
+      await tester.fling(
+        find.text(_en.chatSettingsSystemPrompt),
+        const Offset(0, 3000),
+        3000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
+      await tester.tap(keepEditingButton());
+      await tester.pumpAndSettle();
+      expect(find.text(_en.chatSettingsTitle), findsOneWidget);
+      expect(fieldText(tester, 'seed'), '7');
+    });
+
+    testWidgets('swiping the header down with edits asks instead of closing', (
+      tester,
+    ) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(tester, active: _conversation('c1'));
+
+      await typeInto(tester, field('seed'), '7');
+      await tester.fling(
+        find.text(_en.chatSettingsTitle),
+        const Offset(0, 600),
+        2000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsOneWidget);
+      await tester.tap(discardButton());
+      await tester.pumpAndSettle();
+      expect(find.text(_en.chatSettingsTitle), findsNothing);
+    });
+
+    testWidgets('swiping a clean sheet down closes it', (tester) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(tester, active: _conversation('c1'));
+
+      await tester.fling(
+        find.text(_en.chatSettingsSystemPrompt),
+        const Offset(0, 3000),
+        3000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(_en.workspaceEditorDiscardTitle), findsNothing);
+      expect(find.text(_en.chatSettingsTitle), findsNothing);
+    });
+  });
+
+  group('wording', () {
+    testWidgets('unset settings read as the user\'s own default', (
+      tester,
+    ) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(tester, active: _conversation('c1'));
+
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('chat-settings-system-inherit')),
+          matching: find.text(_en.chatSettingsInherit),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: field('stop'),
+          matching: find.text(_en.chatSettingsStopHint),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('(a, b)'), findsNothing);
+      expect(
+        find.descendant(
+          of: field('temperature'),
+          matching: find.text(_en.chatSettingsInherit),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('choices announce whether they are selected', (tester) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(tester, active: _conversation('c1'));
+      final handle = tester.ensureSemantics();
+
+      expect(
+        tester.getSemantics(
+          find.byKey(const ValueKey('chat-settings-system-inherit')),
+        ),
+        isSemantics(
+          label: _en.chatSettingsInherit,
+          isButton: true,
+          isSelected: true,
+          hasSelectedState: true,
+          isEnabled: true,
+          hasEnabledState: true,
+          hasTapAction: true,
+        ),
+      );
+      handle.dispose();
+    });
+  });
+
   group('when the editor is not available', () {
     testWidgets('Advanced off shows what applies and offers to turn it on', (
       tester,
@@ -849,6 +1051,11 @@ void main() {
       await settle(tester);
 
       expect(settings.turnedOn, [true]);
+      // The same sheet now holds the editor instead of closing.
+      expect(find.text(_en.chatSettingsApplied), findsNothing);
+      expect(find.text(_en.chatSettingsTitle), findsOneWidget);
+      expect(saveButton(), findsOneWidget);
+      expect(fieldText(tester, 'temperature'), '0.2');
     });
 
     testWidgets(

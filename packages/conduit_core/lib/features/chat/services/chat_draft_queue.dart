@@ -448,6 +448,83 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     return true;
   }
 
+  /// Puts back a draft the user just removed, at [index] of the queue it left
+  /// (or of the queue the chat has now). [from] is that queue as it was when
+  /// the draft was removed; it names the chat and account the draft belongs
+  /// to, and nothing is restored under any other.
+  ///
+  /// [attachments] are the draft's files as they were held then, in order. An
+  /// upload is never resumed, so a draft comes back only when every one of its
+  /// files had finished uploading. Returns whether the draft is queued again.
+  bool restoreDraft(
+    ChatDraftQueue from,
+    QueuedChatDraft draft,
+    int index, {
+    List<QueuedDraftAttachment> attachments = const <QueuedDraftAttachment>[],
+  }) {
+    if (attachments.length != draft.attachmentIds.length) return false;
+    for (final (i, held) in attachments.indexed) {
+      if (held.id != draft.attachmentIds[i] ||
+          held.queueId != from.id ||
+          held.upload.status != FileUploadStatus.completed ||
+          held.upload.fileId == null) {
+        return false;
+      }
+    }
+    final active = ref.read(activeConversationProvider);
+    if (active == null ||
+        active.id != from.chatId ||
+        !_queueableRoute(ref.read) ||
+        !identical(ref.read(appDatabaseProvider), from.database) ||
+        !identical(ref.read(apiServiceProvider), from.api) ||
+        !identical(
+          ref.read(openWebUiAuthSessionEpochProvider),
+          from.authSessionEpoch,
+        )) {
+      return false;
+    }
+    final current = _active;
+    if (current != null &&
+        current.drafts.any((other) => other.id == draft.id)) {
+      return false;
+    }
+
+    // Removing the last draft dropped its queue. The draft then comes back in
+    // a queue of the same identity, so its files keep their owner.
+    final queueId = current?.id ?? from.id;
+    if (current == null) {
+      state = [
+        ...state,
+        ChatDraftQueue._(
+          id: from.id,
+          chatId: from.chatId,
+          database: from.database,
+          api: from.api,
+          authSessionEpoch: from.authSessionEpoch,
+          drafts: [draft],
+        ),
+      ];
+    } else {
+      _replace(
+        current.id,
+        (queue) => queue._copyWith(
+          drafts: [...queue.drafts]
+            ..insert(index.clamp(0, queue.drafts.length), draft),
+        ),
+      );
+    }
+    ref.read(queuedDraftAttachmentsProvider.notifier).adopt([
+      for (final held in attachments)
+        QueuedDraftAttachment(
+          id: held.id,
+          queueId: queueId,
+          upload: held.upload,
+        ),
+    ]);
+    _scheduleDrain();
+    return true;
+  }
+
   /// Removes one file from a draft, typically one that failed to upload.
   bool removeDraftAttachment(String draftId, String attachmentId) {
     final queue = _active;

@@ -191,6 +191,56 @@ void main() {
       check(graph.isAlternativeOf('b1', 'a2')).isFalse();
     });
 
+    test('carries a one-line preview of each alternative', () {
+      final long = List<String>.filled(60, 'word').join('  ');
+      final blob = _blob({
+        'r': _message('r', children: ['x', 'y', 'z']),
+        'x': _message('x', parent: 'r', role: 'assistant'),
+        'y': {
+          ..._message('y', parent: 'r', role: 'assistant'),
+          'content': 'first line\n\n  second line',
+        },
+        'z': {
+          ..._message('z', parent: 'r', role: 'assistant'),
+          'content': long,
+        },
+      }, currentId: 'x');
+      final graph = ChatBranchGraph.fromEnvelope(<String, dynamic>{
+        'chat': blob,
+      });
+
+      final previews = graph.siblingsOf('x')!.previews;
+      check(previews['x']).equals('text of x');
+      check(previews['y']).equals('first line second line');
+      check(previews['z']!.length).isLessOrEqual(161);
+      check(previews['z']!).endsWith('…');
+      check(previews['z']!).not((it) => it.contains('  '));
+    });
+
+    test('a version without text has no preview', () {
+      final blob = _blob({
+        'r': _message('r', children: ['x', 'y']),
+        'x': {
+          ..._message('x', parent: 'r', role: 'assistant'),
+          'content': '   ',
+        },
+        'y': {
+          ..._message('y', parent: 'r', role: 'assistant'),
+          'content': [
+            {'type': 'image_url', 'image_url': 'data:'},
+            {'type': 'text', 'text': 'look at this'},
+          ],
+        },
+      }, currentId: 'x');
+      final graph = ChatBranchGraph.fromEnvelope(<String, dynamic>{
+        'chat': blob,
+      });
+
+      final previews = graph.siblingsOf('x')!.previews;
+      check(previews.containsKey('x')).isFalse();
+      check(previews['y']).equals('look at this');
+    });
+
     test('a child the parent forgot to list is still its child', () {
       final blob = _blob({
         'r': _message('r', children: ['x']),

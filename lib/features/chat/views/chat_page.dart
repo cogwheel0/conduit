@@ -737,14 +737,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (!mounted) return;
       switch (outcome) {
         case TemporaryChatSaveOutcome.saved:
-          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.chatSaved)),
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!.chatSaved,
+            type: AdaptiveSnackBarType.success,
           );
         case TemporaryChatSaveOutcome.failed:
-          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            SnackBar(
-              content: Text(AppLocalizations.of(context)!.chatSaveFailed),
-            ),
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!.chatSaveFailed,
+            type: AdaptiveSnackBarType.error,
           );
         case TemporaryChatSaveOutcome.skipped:
           break;
@@ -1409,6 +1411,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           message: comparisonAdmissionMessage(
             AppLocalizations.of(context)!,
             error,
+            models: ref.read(modelsProvider).asData?.value,
           ),
           type: AdaptiveSnackBarType.error,
         );
@@ -2032,8 +2035,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           : error is StateError
           ? error.message.toString()
           : l10n.errorMessage;
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(message)));
+      AdaptiveSnackBar.show(
+        context,
+        message: message,
+        type: AdaptiveSnackBarType.error,
+      );
     }
   }
 
@@ -4502,7 +4508,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             conversation: activeConversation,
           )
         : const <ConduitContextMenuAction>[];
-    for (final action in conversationActions) {
+    void addConversationAction(ConduitContextMenuAction action) {
       addItem(
         label: action.label,
         icon: _chatToolbarConversationActionIcon(action),
@@ -4513,6 +4519,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           await action.onSelected();
         },
       );
+    }
+
+    // Everything else comes first; destructive actions (Delete) end the menu.
+    for (final action in conversationActions) {
+      if (!action.destructive) addConversationAction(action);
     }
 
     // Per-chat Open WebUI settings: the editor behind Advanced, or a read-only
@@ -4543,15 +4554,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       addItem(
         label: AppLocalizations.of(context)!.chatExportAction,
         icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'square.and.arrow.up',
-          materialIcon: Icons.ios_share,
+          iosSymbol: 'arrow.down.doc',
+          materialIcon: Icons.file_download_outlined,
         ),
-        iosSymbol: 'square.and.arrow.up',
+        iosSymbol: 'arrow.down.doc',
         onSelected: () async {
           if (!mounted) return;
           await showChatExportSheet(context, ref, exportConversation);
         },
       );
+    }
+
+    for (final action in conversationActions) {
+      if (action.destructive) addConversationAction(action);
     }
 
     if (items.isEmpty) {

@@ -144,6 +144,10 @@ enum PlatformNativeSheetItemKind {
   statusUpdate,
 }
 
+/// Whether a keyboard attachment row turns an option on and off, or runs a
+/// command (attaching a file, opening a sheet).
+enum PlatformKeyboardAttachmentActionKind { toggle, command }
+
 class PlatformBackgroundStreamLease {
   PlatformBackgroundStreamLease({
     required this.id,
@@ -821,6 +825,9 @@ class PlatformKeyboardAttachmentActionConfig {
     this.subtitle,
     required this.sfSymbol,
     required this.section,
+    this.sectionTitle,
+    required this.kind,
+    this.stateLabel,
     required this.enabled,
     required this.selected,
     required this.dismissesKeyboard,
@@ -836,6 +843,14 @@ class PlatformKeyboardAttachmentActionConfig {
 
   String section;
 
+  /// Localized heading of [section], or null when it shows none.
+  String? sectionTitle;
+
+  PlatformKeyboardAttachmentActionKind kind;
+
+  /// Localized on/off state a toggle row reads to VoiceOver.
+  String? stateLabel;
+
   bool enabled;
 
   bool selected;
@@ -849,6 +864,9 @@ class PlatformKeyboardAttachmentActionConfig {
       subtitle,
       sfSymbol,
       section,
+      sectionTitle,
+      kind,
+      stateLabel,
       enabled,
       selected,
       dismissesKeyboard,
@@ -867,9 +885,12 @@ class PlatformKeyboardAttachmentActionConfig {
       subtitle: result[2] as String?,
       sfSymbol: result[3]! as String,
       section: result[4]! as String,
-      enabled: result[5]! as bool,
-      selected: result[6]! as bool,
-      dismissesKeyboard: result[7]! as bool,
+      sectionTitle: result[5] as String?,
+      kind: result[6]! as PlatformKeyboardAttachmentActionKind,
+      stateLabel: result[7] as String?,
+      enabled: result[8]! as bool,
+      selected: result[9]! as bool,
+      dismissesKeyboard: result[10]! as bool,
     );
   }
 
@@ -888,6 +909,9 @@ class PlatformKeyboardAttachmentActionConfig {
         _deepEquals(subtitle, other.subtitle) &&
         _deepEquals(sfSymbol, other.sfSymbol) &&
         _deepEquals(section, other.section) &&
+        _deepEquals(sectionTitle, other.sectionTitle) &&
+        _deepEquals(kind, other.kind) &&
+        _deepEquals(stateLabel, other.stateLabel) &&
         _deepEquals(enabled, other.enabled) &&
         _deepEquals(selected, other.selected) &&
         _deepEquals(dismissesKeyboard, other.dismissesKeyboard);
@@ -899,7 +923,7 @@ class PlatformKeyboardAttachmentActionConfig {
 
   @override
   String toString() {
-    return 'PlatformKeyboardAttachmentActionConfig(id: $id, label: $label, subtitle: $subtitle, sfSymbol: $sfSymbol, section: $section, enabled: $enabled, selected: $selected, dismissesKeyboard: $dismissesKeyboard)';
+    return 'PlatformKeyboardAttachmentActionConfig(id: $id, label: $label, subtitle: $subtitle, sfSymbol: $sfSymbol, section: $section, sectionTitle: $sectionTitle, kind: $kind, stateLabel: $stateLabel, enabled: $enabled, selected: $selected, dismissesKeyboard: $dismissesKeyboard)';
   }
 }
 
@@ -3806,161 +3830,164 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is PlatformNativeSheetItemKind) {
       buffer.putUint8(135);
       writeValue(buffer, value.index);
-    } else if (value is PlatformBackgroundStreamLease) {
+    } else if (value is PlatformKeyboardAttachmentActionKind) {
       buffer.putUint8(136);
-      writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundStartRequest) {
+      writeValue(buffer, value.index);
+    } else if (value is PlatformBackgroundStreamLease) {
       buffer.putUint8(137);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundStopRequest) {
+    } else if (value is PlatformBackgroundStartRequest) {
       buffer.putUint8(138);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundKeepAliveRequest) {
+    } else if (value is PlatformBackgroundStopRequest) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundAudioSessionOwnerRequest) {
+    } else if (value is PlatformBackgroundKeepAliveRequest) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformServiceFailureEvent) {
+    } else if (value is PlatformBackgroundAudioSessionOwnerRequest) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformTimeLimitWarningEvent) {
+    } else if (value is PlatformServiceFailureEvent) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformStreamsSuspendingEvent) {
+    } else if (value is PlatformTimeLimitWarningEvent) {
       buffer.putUint8(143);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundTaskExtendedEvent) {
+    } else if (value is PlatformStreamsSuspendingEvent) {
       buffer.putUint8(144);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformAppIntentImagePayload) {
+    } else if (value is PlatformBackgroundTaskExtendedEvent) {
       buffer.putUint8(145);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformAppIntentResponse) {
+    } else if (value is PlatformAppIntentImagePayload) {
       buffer.putUint8(146);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativePasteImageItem) {
+    } else if (value is PlatformAppIntentResponse) {
       buffer.putUint8(147);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativePastePayload) {
+    } else if (value is PlatformNativePasteImageItem) {
       buffer.putUint8(148);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentActionConfig) {
+    } else if (value is PlatformNativePastePayload) {
       buffer.putUint8(149);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentConfig) {
+    } else if (value is PlatformKeyboardAttachmentActionConfig) {
       buffer.putUint8(150);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentActionEvent) {
+    } else if (value is PlatformKeyboardAttachmentConfig) {
       buffer.putUint8(151);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentVisibilityEvent) {
+    } else if (value is PlatformKeyboardAttachmentActionEvent) {
       buffer.putUint8(152);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformRect) {
+    } else if (value is PlatformKeyboardAttachmentVisibilityEvent) {
       buffer.putUint8(153);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformDropdownOption) {
+    } else if (value is PlatformRect) {
       buffer.putUint8(154);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformImageViewerItem) {
+    } else if (value is PlatformDropdownOption) {
       buffer.putUint8(155);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformImageViewerRequest) {
+    } else if (value is PlatformImageViewerItem) {
       buffer.putUint8(156);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformDropdownRequest) {
+    } else if (value is PlatformImageViewerRequest) {
       buffer.putUint8(157);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOption) {
+    } else if (value is PlatformDropdownRequest) {
       buffer.putUint8(158);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTheme) {
+    } else if (value is PlatformNativeSheetOption) {
       buffer.putUint8(159);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetItem) {
+    } else if (value is PlatformNativeSheetTheme) {
       buffer.putUint8(160);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetLink) {
+    } else if (value is PlatformNativeSheetItem) {
       buffer.putUint8(161);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetSection) {
+    } else if (value is PlatformNativeSheetLink) {
       buffer.putUint8(162);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileSheetConfig) {
+    } else if (value is PlatformNativeSheetSection) {
       buffer.putUint8(163);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeProfileSheetUser) {
+    } else if (value is PlatformNativeEditProfileSheetConfig) {
       buffer.putUint8(164);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetail) {
+    } else if (value is PlatformNativeProfileSheetUser) {
       buffer.putUint8(165);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeProfileSheetConfig) {
+    } else if (value is PlatformNativeSheetDetail) {
       buffer.putUint8(166);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelOption) {
+    } else if (value is PlatformNativeProfileSheetConfig) {
       buffer.putUint8(167);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelSelectorRequest) {
+    } else if (value is PlatformNativeSheetModelOption) {
       buffer.putUint8(168);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
+    } else if (value is PlatformNativeSheetModelSelectorRequest) {
       buffer.putUint8(169);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDatePickerRequest) {
+    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
       buffer.putUint8(170);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTextEditorRequest) {
+    } else if (value is PlatformNativeSheetDatePickerRequest) {
       buffer.putUint8(171);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetResultRequest) {
+    } else if (value is PlatformNativeSheetTextEditorRequest) {
       buffer.putUint8(172);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
+    } else if (value is PlatformNativeSheetResultRequest) {
       buffer.putUint8(173);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetControlChangedEvent) {
+    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
       buffer.putUint8(174);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
+    } else if (value is PlatformNativeSheetControlChangedEvent) {
       buffer.putUint8(175);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
+    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
       buffer.putUint8(176);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
+    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
       buffer.putUint8(177);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileCommittedEvent) {
+    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
       buffer.putUint8(178);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetActionResult) {
+    } else if (value is PlatformNativeEditProfileCommittedEvent) {
       buffer.putUint8(179);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStatus) {
+    } else if (value is PlatformNativeSheetActionResult) {
       buffer.putUint8(180);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccImage) {
+    } else if (value is PlatformPccStatus) {
       buffer.putUint8(181);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccMessage) {
+    } else if (value is PlatformPccImage) {
       buffer.putUint8(182);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolDefinition) {
+    } else if (value is PlatformPccMessage) {
       buffer.putUint8(183);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolCall) {
+    } else if (value is PlatformPccToolDefinition) {
       buffer.putUint8(184);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolResult) {
+    } else if (value is PlatformPccToolCall) {
       buffer.putUint8(185);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccCompletionRequest) {
+    } else if (value is PlatformPccToolResult) {
       buffer.putUint8(186);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStreamEvent) {
+    } else if (value is PlatformPccCompletionRequest) {
       buffer.putUint8(187);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPccStreamEvent) {
+      buffer.putUint8(188);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -3994,130 +4021,135 @@ class _PigeonCodec extends StandardMessageCodec {
         final value = readValue(buffer) as int?;
         return value == null ? null : PlatformNativeSheetItemKind.values[value];
       case 136:
-        return PlatformBackgroundStreamLease.decode(readValue(buffer)!);
+        final value = readValue(buffer) as int?;
+        return value == null
+            ? null
+            : PlatformKeyboardAttachmentActionKind.values[value];
       case 137:
-        return PlatformBackgroundStartRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStreamLease.decode(readValue(buffer)!);
       case 138:
-        return PlatformBackgroundStopRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStartRequest.decode(readValue(buffer)!);
       case 139:
-        return PlatformBackgroundKeepAliveRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStopRequest.decode(readValue(buffer)!);
       case 140:
+        return PlatformBackgroundKeepAliveRequest.decode(readValue(buffer)!);
+      case 141:
         return PlatformBackgroundAudioSessionOwnerRequest.decode(
           readValue(buffer)!,
         );
-      case 141:
-        return PlatformServiceFailureEvent.decode(readValue(buffer)!);
       case 142:
-        return PlatformTimeLimitWarningEvent.decode(readValue(buffer)!);
+        return PlatformServiceFailureEvent.decode(readValue(buffer)!);
       case 143:
-        return PlatformStreamsSuspendingEvent.decode(readValue(buffer)!);
+        return PlatformTimeLimitWarningEvent.decode(readValue(buffer)!);
       case 144:
-        return PlatformBackgroundTaskExtendedEvent.decode(readValue(buffer)!);
+        return PlatformStreamsSuspendingEvent.decode(readValue(buffer)!);
       case 145:
-        return PlatformAppIntentImagePayload.decode(readValue(buffer)!);
+        return PlatformBackgroundTaskExtendedEvent.decode(readValue(buffer)!);
       case 146:
-        return PlatformAppIntentResponse.decode(readValue(buffer)!);
+        return PlatformAppIntentImagePayload.decode(readValue(buffer)!);
       case 147:
-        return PlatformNativePasteImageItem.decode(readValue(buffer)!);
+        return PlatformAppIntentResponse.decode(readValue(buffer)!);
       case 148:
-        return PlatformNativePastePayload.decode(readValue(buffer)!);
+        return PlatformNativePasteImageItem.decode(readValue(buffer)!);
       case 149:
+        return PlatformNativePastePayload.decode(readValue(buffer)!);
+      case 150:
         return PlatformKeyboardAttachmentActionConfig.decode(
           readValue(buffer)!,
         );
-      case 150:
-        return PlatformKeyboardAttachmentConfig.decode(readValue(buffer)!);
       case 151:
-        return PlatformKeyboardAttachmentActionEvent.decode(readValue(buffer)!);
+        return PlatformKeyboardAttachmentConfig.decode(readValue(buffer)!);
       case 152:
+        return PlatformKeyboardAttachmentActionEvent.decode(readValue(buffer)!);
+      case 153:
         return PlatformKeyboardAttachmentVisibilityEvent.decode(
           readValue(buffer)!,
         );
-      case 153:
-        return PlatformRect.decode(readValue(buffer)!);
       case 154:
-        return PlatformDropdownOption.decode(readValue(buffer)!);
+        return PlatformRect.decode(readValue(buffer)!);
       case 155:
-        return PlatformImageViewerItem.decode(readValue(buffer)!);
+        return PlatformDropdownOption.decode(readValue(buffer)!);
       case 156:
-        return PlatformImageViewerRequest.decode(readValue(buffer)!);
+        return PlatformImageViewerItem.decode(readValue(buffer)!);
       case 157:
-        return PlatformDropdownRequest.decode(readValue(buffer)!);
+        return PlatformImageViewerRequest.decode(readValue(buffer)!);
       case 158:
-        return PlatformNativeSheetOption.decode(readValue(buffer)!);
+        return PlatformDropdownRequest.decode(readValue(buffer)!);
       case 159:
-        return PlatformNativeSheetTheme.decode(readValue(buffer)!);
+        return PlatformNativeSheetOption.decode(readValue(buffer)!);
       case 160:
-        return PlatformNativeSheetItem.decode(readValue(buffer)!);
+        return PlatformNativeSheetTheme.decode(readValue(buffer)!);
       case 161:
-        return PlatformNativeSheetLink.decode(readValue(buffer)!);
+        return PlatformNativeSheetItem.decode(readValue(buffer)!);
       case 162:
-        return PlatformNativeSheetSection.decode(readValue(buffer)!);
+        return PlatformNativeSheetLink.decode(readValue(buffer)!);
       case 163:
-        return PlatformNativeEditProfileSheetConfig.decode(readValue(buffer)!);
+        return PlatformNativeSheetSection.decode(readValue(buffer)!);
       case 164:
-        return PlatformNativeProfileSheetUser.decode(readValue(buffer)!);
+        return PlatformNativeEditProfileSheetConfig.decode(readValue(buffer)!);
       case 165:
-        return PlatformNativeSheetDetail.decode(readValue(buffer)!);
+        return PlatformNativeProfileSheetUser.decode(readValue(buffer)!);
       case 166:
-        return PlatformNativeProfileSheetConfig.decode(readValue(buffer)!);
+        return PlatformNativeSheetDetail.decode(readValue(buffer)!);
       case 167:
-        return PlatformNativeSheetModelOption.decode(readValue(buffer)!);
+        return PlatformNativeProfileSheetConfig.decode(readValue(buffer)!);
       case 168:
+        return PlatformNativeSheetModelOption.decode(readValue(buffer)!);
+      case 169:
         return PlatformNativeSheetModelSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 169:
+      case 170:
         return PlatformNativeSheetOptionsSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 170:
-        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 171:
-        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 172:
-        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
       case 173:
+        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+      case 174:
         return PlatformNativeSheetApplyDetailPatchRequest.decode(
           readValue(buffer)!,
         );
-      case 174:
+      case 175:
         return PlatformNativeSheetControlChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 175:
+      case 176:
         return PlatformNativeSheetDetailAppearedEvent.decode(
           readValue(buffer)!,
         );
-      case 176:
+      case 177:
         return PlatformNativeSheetModelPinToggledEvent.decode(
           readValue(buffer)!,
         );
-      case 177:
+      case 178:
         return PlatformNativeSheetReasoningEffortChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 178:
+      case 179:
         return PlatformNativeEditProfileCommittedEvent.decode(
           readValue(buffer)!,
         );
-      case 179:
-        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 180:
-        return PlatformPccStatus.decode(readValue(buffer)!);
+        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 181:
-        return PlatformPccImage.decode(readValue(buffer)!);
+        return PlatformPccStatus.decode(readValue(buffer)!);
       case 182:
-        return PlatformPccMessage.decode(readValue(buffer)!);
+        return PlatformPccImage.decode(readValue(buffer)!);
       case 183:
-        return PlatformPccToolDefinition.decode(readValue(buffer)!);
+        return PlatformPccMessage.decode(readValue(buffer)!);
       case 184:
-        return PlatformPccToolCall.decode(readValue(buffer)!);
+        return PlatformPccToolDefinition.decode(readValue(buffer)!);
       case 185:
-        return PlatformPccToolResult.decode(readValue(buffer)!);
+        return PlatformPccToolCall.decode(readValue(buffer)!);
       case 186:
-        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+        return PlatformPccToolResult.decode(readValue(buffer)!);
       case 187:
+        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+      case 188:
         return PlatformPccStreamEvent.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);

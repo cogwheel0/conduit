@@ -25,7 +25,33 @@ class ChatDraftQueueRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final queue = ref.watch(activeChatDraftQueueProvider);
-    if (queue == null || queue.drafts.isEmpty) return const SizedBox.shrink();
+    final visible = queue != null && queue.drafts.isNotEmpty;
+    // The row grows out of the composer's top edge as it fades in, and folds
+    // back into it, so the transcript above eases instead of jumping.
+    return AnimatedSwitcher(
+      duration: context.motionDuration(AnimationDuration.fast),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SizeTransition(
+          sizeFactor: animation,
+          alignment: Alignment.bottomCenter,
+          child: child,
+        ),
+      ),
+      child: visible
+          ? KeyedSubtree(
+              key: const ValueKey<String>('chat-draft-queue-row-shown'),
+              child: _buildRow(context, queue),
+            )
+          : const SizedBox.shrink(
+              key: ValueKey<String>('chat-draft-queue-row-hidden'),
+            ),
+    );
+  }
+
+  Widget _buildRow(BuildContext context, ChatDraftQueue queue) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final sending = queue.phase != ChatDraftQueuePhase.idle;
@@ -131,13 +157,39 @@ class ChatDraftQueueSheet extends ConsumerStatefulWidget {
       _ChatDraftQueueSheetState();
 }
 
+/// A draft just removed from the open sheet, which the user can still put
+/// back from where it was.
+class _RemovedDraft {
+  _RemovedDraft({
+    required this.queue,
+    required this.draft,
+    required this.index,
+    required this.files,
+    required this.expiry,
+  });
+
+  /// The queue as it was when the draft left it.
+  final ChatDraftQueue queue;
+  final QueuedChatDraft draft;
+  final int index;
+  final List<QueuedDraftAttachment> files;
+  final Timer expiry;
+}
+
 class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
+  /// How long a removed draft can be put back from the sheet.
+  static const _undoWindow = Duration(seconds: 5);
+
   final TextEditingController _editController = TextEditingController();
+  final List<_RemovedDraft> _removed = [];
   String? _editingId;
   bool _closing = false;
 
   @override
   void dispose() {
+    for (final removed in _removed) {
+      removed.expiry.cancel();
+    }
     _editController.dispose();
     super.dispose();
   }
@@ -156,14 +208,153 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
     setState(() => _editingId = draft.id);
   }
 
+  /// Saves the edit. The queue refuses an empty text (Save is off then) and a
+  /// draft that started sending meanwhile; either way nothing is lost, and the
+  /// card shows what the queue holds.
   void _saveEdit(String draftId) {
-    _queue.editDraft(draftId, _editController.text);
-    setState(() => _editingId = null);
+    if (_queue.editDraft(draftId, _editController.text)) {
+      ConduitHaptics.success();
+      setState(() => _editingId = null);
+      return;
+    }
+    final queue = ref.read(activeChatDraftQueueProvider);
+    final stillEditable =
+        queue?.draftById(draftId) != null && !queue!.isFrozen(draftId);
+    if (!stillEditable) setState(() => _editingId = null);
+  }
+
+  /// Removes a draft and offers to put it back. A draft is only offered back
+  /// when all its files had finished uploading: an upload is never resumed.
+  ///
+  /// While other drafts keep the sheet open, the offer takes the removed
+  /// draft's place in the list, where a notice under the sheet could not be
+  /// reached. Removing the last one closes the sheet, so the offer is a
+  /// notice on the screen below.
+  void _removeDraft(ChatDraftQueue queue, QueuedChatDraft draft) {
+    final index = queue.drafts.indexOf(draft);
+    final held = ref.read(queuedDraftAttachmentsProvider);
+    final files = chatDraftFiles(queue, draft, held);
+    final restorable = files.every(
+      (file) =>
+          file != null &&
+          file.upload.status == FileUploadStatus.completed &&
+          file.upload.fileId != null,
+    );
+    if (!_queue.removeDraft(draft.id)) return;
+    if (!restorable) return;
+    final kept = [for (final file in files) file!];
+
+    if (queue.drafts.length > 1) {
+      late final _RemovedDraft removed;
+      removed = _RemovedDraft(
+        queue: queue,
+        draft: draft,
+        index: index,
+        files: kept,
+        expiry: Timer(_undoWindow, () {
+          if (mounted) setState(() => _removed.remove(removed));
+        }),
+      );
+      setState(() => _removed.add(removed));
+      return;
+    }
+
+    final l10n = AppLocalizations.of(context)!;
+    final controller = _queue;
+    final report = Navigator.of(context, rootNavigator: true).context;
+    AdaptiveSnackBar.show(
+      report,
+      message: l10n.queuedDraftRemoved,
+      action: l10n.queuedDraftUndo,
+      onActionPressed: () =>
+          controller.restoreDraft(queue, draft, index, attachments: kept),
+    );
+  }
+
+  void _undoRemoval(_RemovedDraft removed) {
+    removed.expiry.cancel();
+    setState(() => _removed.remove(removed));
+    _queue.restoreDraft(
+      removed.queue,
+      removed.draft,
+      removed.index,
+      attachments: removed.files,
+    );
+  }
+
+  /// The drafts, with each draft the user can still put back shown where it
+  /// was.
+  List<Widget> _draftList(
+    BuildContext context, {
+    required AppLocalizations l10n,
+    required ChatDraftQueue queue,
+    required List<QueuedDraftAttachment> attachments,
+    required bool busy,
+  }) {
+    final pending = [
+      for (final removed in _removed)
+        if (queue.draftById(removed.draft.id) == null) removed,
+    ]..sort((a, b) => a.index.compareTo(b.index));
+    final children = <Widget>[];
+    var next = 0;
+    for (final draft in queue.drafts) {
+      while (next < pending.length && pending[next].index <= children.length) {
+        children.add(_removedRow(context, l10n, pending[next++]));
+      }
+      children.add(
+        _draftCard(
+          context,
+          l10n: l10n,
+          queue: queue,
+          draft: draft,
+          attachments: attachments,
+          busy: busy,
+        ),
+      );
+    }
+    while (next < pending.length) {
+      children.add(_removedRow(context, l10n, pending[next++]));
+    }
+    return children;
+  }
+
+  Widget _removedRow(
+    BuildContext context,
+    AppLocalizations l10n,
+    _RemovedDraft removed,
+  ) {
+    final theme = context.conduitTheme;
+    return Container(
+      key: Key('chat-draft-removed-${removed.draft.id}'),
+      margin: const EdgeInsets.only(bottom: Spacing.sm),
+      padding: const EdgeInsets.only(left: Spacing.sm),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppBorderRadius.card),
+        border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              l10n.queuedDraftRemoved,
+              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          ConduitTextButton(
+            key: Key('chat-draft-undo-${removed.draft.id}'),
+            text: l10n.queuedDraftUndo,
+            isPrimary: true,
+            onPressed: () => _undoRemoval(removed),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _sendNow(QueuedChatDraft draft) async {
     final l10n = AppLocalizations.of(context)!;
-    ConduitHaptics.mediumImpact();
     final outcome = await _queue.sendNow(draft.id);
     if (!mounted) return;
     switch (outcome) {
@@ -176,6 +367,11 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
           type: AdaptiveSnackBarType.warning,
         );
       case ChatDraftSendNowOutcome.stopFailed:
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.queuedDraftStopFailed,
+          type: AdaptiveSnackBarType.error,
+        );
       case ChatDraftSendNowOutcome.admissionFailed:
         AdaptiveSnackBar.show(
           context,
@@ -244,15 +440,13 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final draft in queue.drafts)
-                      _draftCard(
-                        context,
-                        l10n: l10n,
-                        queue: queue,
-                        draft: draft,
-                        attachments: attachments,
-                        busy: busy,
-                      ),
+                    ..._draftList(
+                      context,
+                      l10n: l10n,
+                      queue: queue,
+                      attachments: attachments,
+                      busy: busy,
+                    ),
                   ],
                 ),
               ),
@@ -360,11 +554,16 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
                       onPressed: () => setState(() => _editingId = null),
                     ),
                     const SizedBox(width: Spacing.xs),
-                    ConduitButton(
-                      key: Key('chat-draft-save-${draft.id}'),
-                      text: l10n.save,
-                      isCompact: true,
-                      onPressed: () => _saveEdit(draft.id),
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _editController,
+                      builder: (context, value, _) => ConduitButton(
+                        key: Key('chat-draft-save-${draft.id}'),
+                        text: l10n.save,
+                        isCompact: true,
+                        onPressed: value.text.trim().isEmpty
+                            ? null
+                            : () => _saveEdit(draft.id),
+                      ),
                     ),
                   ]
                 : [
@@ -386,10 +585,7 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
                           : Icons.delete_outline,
                       onPressed: frozen
                           ? null
-                          : () {
-                              ConduitHaptics.lightImpact();
-                              _queue.removeDraft(draft.id);
-                            },
+                          : () => _removeDraft(queue, draft),
                     ),
                     const SizedBox(width: Spacing.xs),
                     ConduitButton(

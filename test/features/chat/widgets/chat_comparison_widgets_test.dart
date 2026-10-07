@@ -6,7 +6,12 @@ import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/chat_comparison_widgets.dart';
 import 'package:conduit/features/chat/widgets/model_selector_sheet.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/adaptive_selection_sheet.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/horizontal_overflow_fade.dart';
+import 'package:conduit/shared/widgets/model_list_tile.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -39,10 +44,12 @@ import 'package:drift/native.dart';
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/app_localizations_de.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -282,15 +289,17 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final continueLabel = AppLocalizationsEn().chatBranchContinueFromResponse;
+    final continueFromHere = find.byKey(
+      const ValueKey<String>('assistant-continue-from-here'),
+    );
 
     // The answer the branch already ends on offers nothing to switch to.
-    expect(find.byTooltip(continueLabel), findsNothing);
+    expect(continueFromHere, findsNothing);
 
     await tester.tap(find.bySemanticsLabel('GPT-4o · 1'));
     await tester.pumpAndSettle();
     // Another slot's answer, previewed, can become the branch's continuation.
-    expect(find.byTooltip(continueLabel), findsOneWidget);
+    expect(continueFromHere, findsOneWidget);
   });
 
   testWidgets('a slot with one run has no pager and the merge sits beside, '
@@ -326,7 +335,11 @@ void main() {
     await tester.pumpAndSettle();
 
     check(message.versions).isNotEmpty();
-    check(find.bySemanticsLabel('Model answers').evaluate()).isEmpty();
+    check(
+      find
+          .bySemanticsLabel(AppLocalizationsEn().chatComparisonTabsLabel)
+          .evaluate(),
+    ).isEmpty();
     check(
       find.byKey(const ValueKey<String>('assistant-version-pager')).evaluate(),
     ).isNotEmpty();
@@ -500,6 +513,398 @@ void main() {
       expect(container.read(selectedModelProvider)?.id, 'alpha');
       expect(find.byType(ModelSelectorSheet), findsNothing);
     });
+
+    Widget opener(void Function(List<Model>?) onResult) => Builder(
+      builder: (context) => Center(
+        child: TextButton(
+          onPressed: () async {
+            onResult(
+              await showModalBottomSheet<List<Model>>(
+                context: context,
+                isScrollControlled: true,
+                builder: (_) => const ComparisonSetupSheet(
+                  models: [alpha, beta],
+                  initialFirst: alpha,
+                ),
+              ),
+            );
+          },
+          child: const Text('open'),
+        ),
+      ),
+    );
+
+    testWidgets('has the standard sheet header, and its close button '
+        'dismisses without a comparison', (tester) async {
+      final semantics = tester.ensureSemantics();
+      var closed = false;
+      List<Model>? result = const [];
+      await pumpHost(
+        tester,
+        opener((value) {
+          closed = true;
+          result = value;
+        }),
+        selected: alpha,
+      );
+      await tester.tap(find.text('open'));
+      await settle(tester);
+
+      final l10n = AppLocalizationsEn();
+      expect(
+        tester.getSemantics(find.text(l10n.chatCompareModelsAction)),
+        isSemantics(isHeader: true),
+      );
+      expect(find.text(l10n.chatCompareModelsDescription), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ComparisonSetupSheet),
+          matching: find.byType(ConduitModalSheetSurface),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(ComparisonSetupSheet),
+          matching: find.byType(SheetCloseButton),
+        ),
+      );
+      await settle(tester);
+      expect(find.byType(ComparisonSetupSheet), findsNothing);
+      expect(closed, isTrue);
+      expect(result, isNull);
+      semantics.dispose();
+    });
+
+    testWidgets('each slot opens the picker titled for that slot, marking the '
+        'slot\'s model rather than the chat\'s', (tester) async {
+      await pumpHost(tester, opener((_) {}), selected: alpha);
+      await tester.tap(find.text('open'));
+      await settle(tester);
+      final l10n = AppLocalizationsEn();
+
+      bool marked(String name) => tester
+          .widget<ModelListTile>(
+            find.descendant(
+              of: find.byType(ModelSelectorSheet),
+              matching: find.widgetWithText(ModelListTile, name),
+            ),
+          )
+          .isSelected;
+      Finder pickerTitle(String title) => find.descendant(
+        of: find.byType(ModelSelectorSheet),
+        matching: find.text(title),
+      );
+
+      // The empty second slot: titled for it, and the chat's model (Alpha)
+      // is not presented as this slot's choice.
+      await tester.tap(find.byKey(const ValueKey<String>('comparison-slot-1')));
+      await settle(tester);
+      expect(pickerTitle(l10n.chatCompareSecondModel), findsOneWidget);
+      expect(pickerTitle(l10n.chooseModel), findsNothing);
+      expect(marked('Alpha'), isFalse);
+      expect(marked('Beta'), isFalse);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(ModelSelectorSheet),
+          matching: find.text('Beta'),
+        ),
+      );
+      await settle(tester);
+
+      // The first slot marks its own model.
+      await tester.tap(find.byKey(const ValueKey<String>('comparison-slot-0')));
+      await settle(tester);
+      expect(pickerTitle(l10n.chatCompareFirstModel), findsOneWidget);
+      expect(marked('Alpha'), isTrue);
+      expect(marked('Beta'), isFalse);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(ModelSelectorSheet),
+          matching: find.byType(SheetCloseButton),
+        ),
+      );
+      await settle(tester);
+
+      // And the second slot now marks the model it was given.
+      await tester.tap(find.byKey(const ValueKey<String>('comparison-slot-1')));
+      await settle(tester);
+      expect(marked('Beta'), isTrue);
+      expect(marked('Alpha'), isFalse);
+    });
+  });
+
+  group('Comparison tabs', () {
+    final l10n = AppLocalizationsEn();
+
+    ChatComparisonGroup group({
+      String firstName = 'Alpha',
+      bool secondFailed = false,
+      bool secondStreaming = false,
+    }) => ChatComparisonGroup(
+      parentId: 'prompt-1',
+      slots: [
+        ChatComparisonSlot(
+          index: 0,
+          answers: [
+            ChatComparisonAnswer(
+              messageId: 'answer-0',
+              slot: 0,
+              content: 'text of Alpha',
+              modelName: firstName,
+            ),
+          ],
+        ),
+        ChatComparisonSlot(
+          index: 1,
+          answers: [
+            ChatComparisonAnswer(
+              messageId: 'answer-1',
+              slot: 1,
+              content: '',
+              modelName: 'Beta',
+              versionIndex: 0,
+              isStreaming: secondStreaming,
+              error: secondFailed
+                  ? const ChatMessageError(content: 'boom')
+                  : null,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    Future<List<ChatComparisonAnswer>> pumpTabs(
+      WidgetTester tester,
+      ChatComparisonGroup group, {
+      double width = 400,
+    }) async {
+      final picked = <ChatComparisonAnswer>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: width,
+                child: ChatComparisonTabs(
+                  group: group,
+                  activeMessageId: 'answer-0',
+                  onSelected: picked.add,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return picked;
+    }
+
+    testWidgets('tabs announce their state and switch on tap', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final picked = await pumpTabs(tester, group());
+
+      expect(
+        tester.getSemantics(_tab('Alpha')),
+        isSemantics(isButton: true, isSelected: true, hasSelectedState: true),
+      );
+      expect(
+        tester.getSemantics(_tab('Beta')),
+        isSemantics(isButton: true, isSelected: false, hasSelectedState: true),
+      );
+      await tester.tap(_tab('Beta'));
+      await tester.pump();
+      expect(picked.map((answer) => answer.messageId), ['answer-1']);
+      expect(find.bySemanticsLabel(l10n.chatComparisonTabsLabel), findsWidgets);
+      semantics.dispose();
+    });
+
+    testWidgets('a failed response is marked in the error color and named in '
+        'the tab\'s label', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpTabs(tester, group(secondFailed: true));
+
+      final status = tester.widget<Text>(
+        find.text(l10n.chatComparisonSlotFailed),
+      );
+      final theme = tester.element(find.byType(ChatComparisonTabs)).conduitTheme;
+      expect(status.style?.color, theme.error);
+      expect(
+        find.bySemanticsLabel('Beta, ${l10n.chatComparisonSlotFailed}'),
+        findsOneWidget,
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('a response still being written is not shown as an error', (
+      tester,
+    ) async {
+      await pumpTabs(tester, group(secondStreaming: true));
+      final status = tester.widget<Text>(
+        find.text(l10n.chatComparisonSlotResponding),
+      );
+      final theme = tester.element(find.byType(ChatComparisonTabs)).conduitTheme;
+      expect(status.style?.color, isNot(theme.error));
+    });
+
+    testWidgets('a long model name is capped and ellipsized so the next tab '
+        'still shows, behind an overflow fade', (tester) async {
+      final longName = 'A very long model name ' * 6;
+      await pumpTabs(tester, group(firstName: longName.trim()));
+
+      final first = tester.getSize(
+        find.byKey(const ValueKey<String>('comparison-tab-0')),
+      );
+      expect(
+        first.width,
+        lessThanOrEqualTo(400 * ChatComparisonTabs.maxTabWidthFactor),
+      );
+      final label = tester.widget<Text>(find.text(longName.trim()));
+      expect(label.overflow, TextOverflow.ellipsis);
+      expect(label.maxLines, 1);
+      // The second tab starts on screen.
+      expect(
+        tester
+            .getTopLeft(find.byKey(const ValueKey<String>('comparison-tab-1')))
+            .dx,
+        lessThan(400),
+      );
+      expect(
+        find.ancestor(
+          of: find.byType(SingleChildScrollView),
+          matching: find.byType(HorizontalOverflowFade),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('Merge sources sheet', () {
+    final l10n = AppLocalizationsEn();
+    final group = ChatComparisonGroup(
+      parentId: 'prompt-1',
+      slots: [
+        for (final (index, name) in ['Alpha', 'Beta', 'Gamma'].indexed)
+          ChatComparisonSlot(
+            index: index,
+            answers: [
+              ChatComparisonAnswer(
+                messageId: 'answer-$index',
+                slot: index,
+                content: 'text of $name',
+                modelName: name,
+              ),
+            ],
+          ),
+      ],
+    );
+
+    Future<List<List<ChatComparisonAnswer>?>> openSheet(
+      WidgetTester tester,
+    ) async {
+      final results = <List<ChatComparisonAnswer>?>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => Center(
+                  child: TextButton(
+                    onPressed: () async => results.add(
+                      await showMergeSourcesSheet(
+                        context,
+                        group: group,
+                        candidates: [
+                          for (final slot in group.slots) slot.current,
+                        ],
+                      ),
+                    ),
+                    child: const Text('open'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return results;
+    }
+
+    Finder row(int index) =>
+        find.byKey(ValueKey<String>('merge-source-answer-$index'));
+
+    testWidgets('is a many-choice list under the standard header', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final results = await openSheet(tester);
+
+      final sheet = find.byType(ChatMergeSourcesSheet);
+      expect(
+        tester.getSemantics(
+          find.descendant(
+            of: sheet,
+            matching: find.text(l10n.chatMergeResponsesAction),
+          ).first,
+        ),
+        isSemantics(isHeader: true),
+      );
+      expect(
+        find.descendant(of: sheet, matching: find.byType(AdaptiveSelectionTile)),
+        findsNWidgets(3),
+      );
+      // Every response starts chosen; tapping one leaves the others chosen.
+      for (final index in [0, 1, 2]) {
+        expect(tester.widget<AdaptiveSelectionTile>(row(index)).selected, isTrue);
+      }
+      await tester.tap(row(1));
+      await tester.pumpAndSettle();
+      expect(tester.widget<AdaptiveSelectionTile>(row(1)).selected, isFalse);
+      expect(tester.widget<AdaptiveSelectionTile>(row(0)).selected, isTrue);
+      expect(tester.widget<AdaptiveSelectionTile>(row(2)).selected, isTrue);
+      expect(
+        tester.getSemantics(row(1)),
+        isSemantics(isSelected: false, hasSelectedState: true),
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: sheet,
+          matching: find.widgetWithText(
+            ConduitButton,
+            l10n.chatMergeResponsesAction,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(results.single!.map((answer) => answer.messageId), [
+        'answer-0',
+        'answer-2',
+      ]);
+      semantics.dispose();
+    });
+
+    testWidgets('closing it merges nothing', (tester) async {
+      final results = await openSheet(tester);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(ChatMergeSourcesSheet),
+          matching: find.byType(SheetCloseButton),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatMergeSourcesSheet), findsNothing);
+      expect(results, [null]);
+    });
   });
 
   group('refused comparisons are explained', () {
@@ -551,6 +956,96 @@ void main() {
           ),
         ),
         contains('different reasoning efforts'),
+      );
+    });
+
+    const models = [
+      Model(id: 'gpt-4o', name: 'GPT-4o'),
+      Model(id: 'claude-x', name: 'Claude'),
+    ];
+    String refused(
+      ComparisonAdmissionFailure reason,
+      List<String> ids, {
+      AppLocalizations? localizations,
+    }) => comparisonAdmissionMessage(
+      localizations ?? l10n,
+      ComparisonAdmissionException(reason, modelIds: ids),
+      models: models,
+    );
+
+    test('names models by their names, not their ids', () {
+      expect(
+        refused(ComparisonAdmissionFailure.modelUnavailable, ['gpt-4o']),
+        "GPT-4o isn't available on this server.",
+      );
+      expect(
+        refused(ComparisonAdmissionFailure.interpreterUnsupported, [
+          'claude-x',
+        ]),
+        allOf(contains('Claude'), isNot(contains('claude-x'))),
+      );
+      // A model the list does not know is still named, by its id.
+      expect(
+        refused(ComparisonAdmissionFailure.modelUnavailable, ['mystery']),
+        "mystery isn't available on this server.",
+      );
+      // Without a model list the ids are all there is.
+      expect(
+        comparisonAdmissionMessage(
+          l10n,
+          const ComparisonAdmissionException(
+            ComparisonAdmissionFailure.modelUnavailable,
+            modelIds: ['gpt-4o'],
+          ),
+        ),
+        "gpt-4o isn't available on this server.",
+      );
+    });
+
+    test('agrees in number with how many models it names', () {
+      expect(
+        refused(ComparisonAdmissionFailure.modelUnavailable, [
+          'gpt-4o',
+          'claude-x',
+        ]),
+        "GPT-4o and Claude aren't available on this server.",
+      );
+      expect(
+        refused(ComparisonAdmissionFailure.visionUnsupported, ['gpt-4o']),
+        "GPT-4o can't read images. Remove the image or choose another model.",
+      );
+      expect(
+        refused(ComparisonAdmissionFailure.visionUnsupported, [
+          'gpt-4o',
+          'claude-x',
+        ]),
+        'GPT-4o and Claude can\'t read images. Remove the image or choose '
+        'other models.',
+      );
+      // The same model twice is one model.
+      expect(
+        refused(ComparisonAdmissionFailure.modelUnavailable, [
+          'gpt-4o',
+          'gpt-4o',
+        ]),
+        "GPT-4o isn't available on this server.",
+      );
+      // Other languages inflect the verb too.
+      expect(
+        refused(
+          ComparisonAdmissionFailure.modelUnavailable,
+          ['gpt-4o', 'claude-x'],
+          localizations: AppLocalizationsDe(),
+        ),
+        'GPT-4o und Claude sind auf diesem Server nicht verfügbar.',
+      );
+      expect(
+        refused(
+          ComparisonAdmissionFailure.modelUnavailable,
+          ['gpt-4o'],
+          localizations: AppLocalizationsDe(),
+        ),
+        'GPT-4o ist auf diesem Server nicht verfügbar.',
       );
     });
   });
@@ -1037,7 +1532,7 @@ void main() {
       expect(a.metadata?['taskId'], 'task-a');
       expect(messages.firstWhere((m) => m.id == 'b').isStreaming, isTrue);
       expect(stop(), findsNWidgets(2));
-      expect(find.text(l10n.errorMessage), findsOneWidget);
+      expect(find.text(l10n.chatStopResponseFailed), findsOneWidget);
       semantics.dispose();
     });
 
@@ -1057,7 +1552,7 @@ void main() {
       acknowledge.completeError(StateError('task is already gone'));
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text(l10n.errorMessage), findsNothing);
+      expect(find.text(l10n.chatStopResponseFailed), findsNothing);
       expect(container.read(chatMessagesProvider).first.isStreaming, isFalse);
       semantics.dispose();
     });

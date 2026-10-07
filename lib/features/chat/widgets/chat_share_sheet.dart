@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:conduit_core/features/sharing/models/resource_access.dart';
 import 'package:conduit_core/features/sharing/providers/resource_access_controller.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -13,10 +11,11 @@ import 'package:conduit_core/features/chat/utils/chat_share_url.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/sheet_handle.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
@@ -39,7 +38,7 @@ Future<void> showChatShareSheet({
   required BuildContext context,
   required Conversation conversation,
 }) async {
-  if (Platform.isIOS) {
+  if (PlatformUiCapabilities.isIOS) {
     try {
       return await _showNativeChatShareSheet(
         context: context,
@@ -66,10 +65,14 @@ Future<void> _showNativeChatShareSheet({
   final container = ProviderScope.containerOf(context, listen: false);
   final l10n = AppLocalizations.of(context)!;
   final conversationId = conversationScopedId(conversation);
+  var hasExistingShare = conversation.shareId?.isNotEmpty == true;
 
-  void showMessage(String message) {
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(message)));
+  void showMessage(
+    String message, {
+    AdaptiveSnackBarType type = AdaptiveSnackBarType.info,
+  }) {
+    if (!context.mounted) return;
+    AdaptiveSnackBar.show(context, message: message, type: type);
   }
 
   Rect? shareOriginForContext() {
@@ -90,17 +93,25 @@ Future<void> _showNativeChatShareSheet({
     if (shareId == null || shareId.isEmpty) {
       throw StateError('Share id missing');
     }
+    hasExistingShare = true;
     return buildChatShareUrl(serverUrl: api.baseUrl, shareId: shareId);
   }
 
-  Future<void> copyLink() async {
+  /// Copies the link; [announce] is false when the sheet comes straight back
+  /// and says so itself, since a toast would sit behind it.
+  Future<void> copyLink({required bool announce}) async {
     try {
       final url = await ensureShareUrl();
       await Clipboard.setData(ClipboardData(text: url));
       ConduitHaptics.success();
-      showMessage(l10n.sharedChatCopied);
+      if (announce) {
+        showMessage(
+          l10n.sharedChatCopied,
+          type: AdaptiveSnackBarType.success,
+        );
+      }
     } catch (_) {
-      showMessage(l10n.chatShareFailed);
+      showMessage(l10n.chatShareFailed, type: AdaptiveSnackBarType.error);
     }
   }
 
@@ -111,7 +122,7 @@ Future<void> _showNativeChatShareSheet({
         ShareParams(text: url, sharePositionOrigin: shareOriginForContext()),
       );
     } catch (_) {
-      showMessage(l10n.chatShareFailed);
+      showMessage(l10n.chatShareFailed, type: AdaptiveSnackBarType.error);
     }
   }
 
@@ -122,71 +133,113 @@ Future<void> _showNativeChatShareSheet({
         throw StateError('API service not available');
       }
       await chat.deleteSharedConversation(container, conversationId);
+      hasExistingShare = false;
       ConduitHaptics.success();
-      showMessage(l10n.sharedLinkDeleted);
+      showMessage(l10n.sharedLinkDeleted, type: AdaptiveSnackBarType.success);
     } catch (_) {
-      showMessage(l10n.deleteSharedLinkFailed);
+      showMessage(
+        l10n.deleteSharedLinkFailed,
+        type: AdaptiveSnackBarType.error,
+      );
     }
   }
 
-  final hasExistingShare = conversation.shareId?.isNotEmpty == true;
-  // Captured now, when the share flow opens, not when Audience is chosen.
-  final audience = hasExistingShare
-      ? _openAudience(container, conversation)
-      : null;
-  final result = await NativeSheetBridge.instance.presentSheet(
-    root: NativeSheetDetailConfig(
-      id: 'chat-share',
-      title: l10n.shareChat,
-      subtitle: hasExistingShare
-          ? l10n.shareChatExisting
-          : l10n.shareChatDescription,
-      items: [
-        NativeSheetItemConfig(
-          id: 'copy-link',
-          title: hasExistingShare ? l10n.updateAndCopyLink : l10n.copyLink,
-          sfSymbol: 'doc.on.doc',
-        ),
-        NativeSheetItemConfig(
-          id: 'share-link',
-          title: l10n.shareSystemSheet,
-          sfSymbol: 'square.and.arrow.up',
-        ),
-        if (audience != null)
-          NativeSheetItemConfig(
-            id: 'audience',
-            title: l10n.chatShareAudience,
-            subtitle: l10n.chatShareAudienceDescription,
-            sfSymbol: 'person.2',
-          ),
-        if (hasExistingShare)
-          NativeSheetItemConfig(
-            id: 'delete-link',
-            title: l10n.shareChatDeleteLink,
-            subtitle: l10n.shareChatDeleteAndCreate,
-            sfSymbol: 'trash',
-            destructive: true,
-          ),
-      ],
-    ),
-    rethrowErrors: true,
-  );
+  // Captured once, when the share flow opens, not when Who has access is
+  // chosen. The row itself only shows while the chat has a link.
+  final audience = _openAudience(container, conversation);
 
-  switch (result?.actionId) {
-    case 'copy-link':
-      await copyLink();
-      break;
-    case 'share-link':
-      await shareLink();
-      break;
-    case 'delete-link':
-      await deleteLink();
-      break;
-    case 'audience':
-      if (audience != null && context.mounted) {
-        await ResourceSharingSheet.showWith(context, audience);
-      }
-      break;
+  // The native sheet closes on every action. A link created from it brings
+  // the sheet straight back, so who has access can be chosen right away.
+  var linkJustCopied = false;
+  for (var pass = 0; pass < 2; pass++) {
+    final reopened = pass > 0;
+    final hadLink = hasExistingShare;
+    final result = await NativeSheetBridge.instance.presentSheet(
+      root: NativeSheetDetailConfig(
+        id: 'chat-share',
+        title: l10n.shareChat,
+        subtitle: linkJustCopied
+            ? l10n.sharedChatCopied
+            : hasExistingShare
+            ? l10n.shareChatExisting
+            : l10n.shareChatDescription,
+        sections: [
+          NativeSheetSectionConfig(
+            items: [
+              NativeSheetItemConfig(
+                id: 'copy-link',
+                title: hasExistingShare
+                    ? l10n.updateAndCopyLink
+                    : l10n.copyLink,
+                sfSymbol: 'doc.on.doc',
+              ),
+              NativeSheetItemConfig(
+                id: 'share-link',
+                title: l10n.shareSystemSheet,
+                sfSymbol: 'square.and.arrow.up',
+              ),
+            ],
+          ),
+          if (hasExistingShare && audience != null)
+            NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: 'audience',
+                  title: l10n.chatShareAudience,
+                  subtitle: l10n.chatShareAudienceDescription,
+                  sfSymbol: 'person.2',
+                  showsDisclosure: true,
+                ),
+              ],
+            ),
+          if (hasExistingShare)
+            NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: 'delete-link',
+                  title: l10n.shareChatDeleteLink,
+                  subtitle: l10n.shareChatDeleteAndCreate,
+                  sfSymbol: 'trash',
+                  destructive: true,
+                ),
+              ],
+            ),
+        ],
+      ),
+      // The first presentation falls back to the Flutter sheet on failure;
+      // a failed return trip just ends the flow.
+      rethrowErrors: !reopened,
+    );
+
+    final actionId = result?.actionId;
+    final reopenAfterLink =
+        !hadLink &&
+        audience != null &&
+        (actionId == 'copy-link' || actionId == 'share-link');
+    linkJustCopied = false;
+    switch (actionId) {
+      case 'copy-link':
+        await copyLink(announce: !reopenAfterLink);
+        linkJustCopied = hasExistingShare;
+        break;
+      case 'share-link':
+        await shareLink();
+        break;
+      case 'delete-link':
+        await deleteLink();
+        break;
+      case 'audience':
+        if (audience != null && context.mounted) {
+          await ResourceSharingSheet.showWith(
+            context,
+            audience,
+            resourceName: conversation.title,
+          );
+        }
+        break;
+    }
+
+    if (!reopenAfterLink || !hasExistingShare || !context.mounted) break;
   }
 }
 
@@ -247,9 +300,12 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
       final url = await _ensureShareUrl();
       await Clipboard.setData(ClipboardData(text: url));
       ConduitHaptics.success();
-      _showSnack(l10n.sharedChatCopied);
+      _showSnack(
+        l10n.sharedChatCopied,
+        type: AdaptiveSnackBarType.success,
+      );
     } catch (_) {
-      _showSnack(l10n.chatShareFailed);
+      _showSnack(l10n.chatShareFailed, type: AdaptiveSnackBarType.error);
     } finally {
       if (mounted) {
         setState(() => _isSharing = false);
@@ -265,7 +321,7 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
       final url = await _ensureShareUrl();
       await widget.share(ShareParams(text: url));
     } catch (_) {
-      _showSnack(l10n.chatShareFailed);
+      _showSnack(l10n.chatShareFailed, type: AdaptiveSnackBarType.error);
     } finally {
       if (mounted) {
         setState(() => _isSharing = false);
@@ -283,9 +339,15 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
         setState(() => _shareId = null);
       }
       ConduitHaptics.success();
-      _showSnack(l10n.sharedLinkDeleted);
+      _showSnack(
+        l10n.sharedLinkDeleted,
+        type: AdaptiveSnackBarType.success,
+      );
     } catch (_) {
-      _showSnack(l10n.deleteSharedLinkFailed);
+      _showSnack(
+        l10n.deleteSharedLinkFailed,
+        type: AdaptiveSnackBarType.error,
+      );
     } finally {
       if (mounted) {
         setState(() => _isDeleting = false);
@@ -293,10 +355,12 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
     }
   }
 
-  void _showSnack(String message) {
+  void _showSnack(
+    String message, {
+    AdaptiveSnackBarType type = AdaptiveSnackBarType.info,
+  }) {
     if (!mounted) return;
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(message)));
+    AdaptiveSnackBar.show(context, message: message, type: type);
   }
 
   @override
@@ -359,30 +423,9 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
                 height: 1.35,
               ),
             ),
-            if (hasExistingShare) ...[
-              const SizedBox(height: Spacing.md),
-              ConduitTextButton(
-                onPressed: _isDeleting || _isSharing ? null : _deleteLink,
-                text:
-                    '${l10n.shareChatDeleteLink} '
-                    '${l10n.shareChatDeleteAndCreate}',
-                isDestructive: true,
-              ),
-            ],
-            if (hasExistingShare && _audience != null) ...[
-              const SizedBox(height: Spacing.md),
-              ConduitButton(
-                key: const Key('chat-share-audience'),
-                text: l10n.chatShareAudience,
-                onPressed: () =>
-                    ResourceSharingSheet.showWith(context, _audience!),
-                isSecondary: true,
-                icon: CupertinoIcons.person_2,
-                isFullWidth: true,
-              ),
-            ],
             const SizedBox(height: Spacing.lg),
             ConduitButton(
+              key: const Key('chat-share-copy'),
               text: hasExistingShare ? l10n.updateAndCopyLink : l10n.copyLink,
               onPressed: _isDeleting ? null : _copyLink,
               isLoading: _isSharing,
@@ -391,12 +434,63 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
             ),
             const SizedBox(height: Spacing.sm),
             ConduitButton(
+              key: const Key('chat-share-system'),
               text: l10n.shareSystemSheet,
               onPressed: _isDeleting ? null : _shareLink,
               isSecondary: true,
               icon: CupertinoIcons.share,
               isFullWidth: true,
             ),
+            if (hasExistingShare && _audience != null) ...[
+              const SizedBox(height: Spacing.lg),
+              InsetGroupedList(
+                children: [
+                  UtilityRow(
+                    key: const Key('chat-share-audience'),
+                    title: l10n.chatShareAudience,
+                    subtitle: l10n.chatShareAudienceDescription,
+                    leading: Icon(
+                      CupertinoIcons.person_2,
+                      color: theme.iconPrimary,
+                      size: IconSize.medium,
+                    ),
+                    showChevron: true,
+                    onTap: () => ResourceSharingSheet.showWith(
+                      context,
+                      _audience!,
+                      resourceName: widget.conversation.title,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (hasExistingShare) ...[
+              const SizedBox(height: Spacing.md),
+              InsetGroupedList(
+                children: [
+                  UtilityRow(
+                    key: const Key('chat-share-delete'),
+                    title:
+                        '${l10n.shareChatDeleteLink} '
+                        '${l10n.shareChatDeleteAndCreate}',
+                    leading: Icon(
+                      CupertinoIcons.trash,
+                      color: theme.error,
+                      size: IconSize.medium,
+                    ),
+                    destructive: true,
+                    enabled: !_isSharing,
+                    trailing: _isDeleting
+                        ? const ConduitLoadingIndicator(
+                            size: IconSize.small,
+                            isCompact: true,
+                          )
+                        : null,
+                    onTap: _isDeleting || _isSharing ? null : _deleteLink,
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

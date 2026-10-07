@@ -887,6 +887,75 @@ void main() {
       check(s.parked).isEmpty();
     });
 
+    test('a removed draft can be put back where it was, with its files',
+        () async {
+      final s = await _Session.start();
+      final first = s.queue.enqueue('first')!;
+      s.attach([_file('a.txt')]);
+      final second = s.queue.enqueue('second')!;
+      s.queue.enqueue('third');
+      final before = s.active!;
+      final files = s.parked
+          .where((held) => second.attachmentIds.contains(held.id))
+          .toList();
+
+      check(s.queue.removeDraft(second.id)).isTrue();
+      check(s.parked).isEmpty();
+      check(
+        s.queue.restoreDraft(before, second, 1, attachments: files),
+      ).isTrue();
+
+      check(s.active!.drafts.map((d) => d.text))
+          .deepEquals(['first', 'second', 'third']);
+      check(s.parked.map((held) => held.id)).deepEquals(second.attachmentIds);
+      check(s.parked.single.queueId).equals(s.active!.id);
+      // Putting it back twice does not queue it twice.
+      check(
+        s.queue.restoreDraft(before, second, 1, attachments: files),
+      ).isFalse();
+      check(s.active!.drafts.map((d) => d.id).first).equals(first.id);
+    });
+
+    test('the last removed draft comes back in a queue of its own', () async {
+      final s = await _Session.start();
+      final only = s.queue.enqueue('only')!;
+      final before = s.active!;
+
+      check(s.queue.removeDraft(only.id)).isTrue();
+      check(s.active).isNull();
+      check(s.queue.restoreDraft(before, only, 0)).isTrue();
+
+      check(s.active!.id).equals(before.id);
+      check(s.active!.drafts.single.text).equals('only');
+    });
+
+    test('a draft whose file had not finished uploading is not put back',
+        () async {
+      final s = await _Session.start();
+      s.attach([_file('a.txt', status: FileUploadStatus.uploading)]);
+      final draft = s.queue.enqueue('with upload')!;
+      final before = s.active!;
+      final files = List.of(s.parked);
+
+      check(s.queue.removeDraft(draft.id)).isTrue();
+      check(
+        s.queue.restoreDraft(before, draft, 0, attachments: files),
+      ).isFalse();
+      check(s.active).isNull();
+      check(s.parked).isEmpty();
+    });
+
+    test('a draft is never put back under another chat or account', () async {
+      final s = await _Session.start();
+      final draft = s.queue.enqueue('mine')!;
+      final before = s.active!;
+      check(s.queue.removeDraft(draft.id)).isTrue();
+
+      s.signInElsewhere(_Api('server-b'));
+      check(s.queue.restoreDraft(before, draft, 0)).isFalse();
+      check(s.container.read(chatDraftQueueProvider)).isEmpty();
+    });
+
     test('a draft being sent can be neither edited nor removed', () async {
       final s = await _Session.start();
       s.api.settingsGate = Completer<void>();
