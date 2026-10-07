@@ -1490,6 +1490,31 @@ void main() {
           .equals('http://10.0.0.2:3000');
     });
 
+    test('a sign-in staged on one route cannot commit on another', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      final candidate = (await storage.getServerConfigs()).single.copyWith(
+        customHeaders: const {'Cookie': 'proxy=1'},
+      );
+      final staged = await storage.stageServerConfigCandidate(candidate);
+
+      check(await storage.selectEndpoint(server.id, 'lan')).isTrue();
+
+      check(
+        await storage.commitServerConfigCandidateSession(
+          candidate: candidate,
+          transactionId: staged.transactionId,
+          token: 'token-a',
+          canCommit: () => true,
+          publish: () {},
+        ),
+      ).isFalse();
+      check(await storage.getAuthTokenStrict()).isNull();
+      check((await storage.getServerConfigs()).single.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
     test('a config read before the route changed is saved to its own route, '
         'keeping the session', () async {
       await storage.saveServerConfigs([account('a')]);

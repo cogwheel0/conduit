@@ -2424,7 +2424,9 @@ class OptimizedStorageService {
   /// Not an edit: the accounts, their sessions and their data stay exactly
   /// as they are, only the URL, headers and TLS settings their configs carry
   /// change. The ownership revision still moves, so a sign-in validated
-  /// against the previous route cannot commit against this one.
+  /// against the previous route cannot commit against this one, and a staged
+  /// sign-in candidate, whose baseline was read on the previous route, is
+  /// dropped for the same reason.
   Future<bool> selectEndpoint(String serverId, String endpointId) {
     return _serverConfigsLock.synchronized(() async {
       final registry = await _registryForWriteUnlocked();
@@ -2436,6 +2438,7 @@ class OptimizedStorageService {
       }
       selection[serverId] = endpointId;
       _serverOwnershipRevision++;
+      _stagedServerConfigCandidate = null;
       _cacheManager.invalidate(_activeServerIdKey);
       _cacheRegistry(registry);
       try {
