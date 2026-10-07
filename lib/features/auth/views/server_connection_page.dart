@@ -26,7 +26,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/auth/openwebui_address_check.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
-    show openWebUiRouteResolverProvider;
+    show openWebUiRouteResolverProvider, proxySignInForRouteEditingProvider;
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show
         accountAdditionOriginProvider,
@@ -748,10 +748,22 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
     if (!mounted) return;
 
-    final result = await context.pushNamed<ProxyAuthResult>(
-      RouteNames.proxyAuth,
-      extra: proxyConfig,
-    );
+    // Addresses are edited signed in, and the router keeps a signed-in user
+    // off sign-in screens; the editor lets the proxy sign-in through while it
+    // waits on it.
+    final routeEditing = _editingRoutes
+        ? ref.read(proxySignInForRouteEditingProvider.notifier)
+        : null;
+    routeEditing?.begin();
+    final ProxyAuthResult? result;
+    try {
+      result = await context.pushNamed<ProxyAuthResult>(
+        RouteNames.proxyAuth,
+        extra: proxyConfig,
+      );
+    } finally {
+      routeEditing?.end();
+    }
 
     if (!mounted) return;
 

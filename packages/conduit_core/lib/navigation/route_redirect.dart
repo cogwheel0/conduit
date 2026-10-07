@@ -9,6 +9,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show proxySignInForRouteEditingProvider;
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -27,6 +29,7 @@ final List<ProviderListenable<Object?>> routeRedirectDependencies = [
   // the Hermes config becomes usable (secrets finish loading).
   preferredBackendProvider,
   accountAdditionOriginProvider,
+  proxySignInForRouteEditingProvider,
   hermesConfigProvider,
   hermesSecretsLoadingProvider,
   effectiveDirectConnectionProfilesProvider,
@@ -133,7 +136,8 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
   if (authState == AuthNavigationState.authenticated &&
       isAuthLocation(location) &&
       location != Routes.connectionIssue &&
-      !_isAddingAccountFromActive(read)) {
+      !_isAddingAccountFromActive(read) &&
+      !_isProxySignInForRouteEditing(location, read)) {
     return Routes.chat;
   }
 
@@ -324,6 +328,7 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
       if (isAuthLocation(location) && _isAddingAccountFromActive(read)) {
         return null;
       }
+      if (_isProxySignInForRouteEditing(location, read)) return null;
       // Avoid unnecessary redirects if already on a non-auth route
       if (isAuthLocation(location) ||
           location == Routes.splash ||
@@ -371,6 +376,11 @@ bool _isAddingAccountFromActive(ProviderRead read) {
       : active.value?.id;
   return origin == activeId;
 }
+
+/// Whether [location] is the proxy sign-in the address editor opened to check
+/// a proxy-protected address, which it does while signed in.
+bool _isProxySignInForRouteEditing(String location, ProviderRead read) =>
+    location == Routes.proxyAuth && read(proxySignInForRouteEditingProvider);
 
 bool isAuthLocation(String location) {
   return location == Routes.serverConnection ||

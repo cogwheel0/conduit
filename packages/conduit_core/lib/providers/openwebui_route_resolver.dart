@@ -71,6 +71,26 @@ final openWebUiRouteProbeProvider = Provider<OpenWebUiRouteProbe>(
   (ref) => probeServerHealth,
 );
 
+/// Whether the address editor has the reverse-proxy sign-in open, to check a
+/// proxy-protected address of a saved server.
+///
+/// The router keeps a signed-in user away from sign-in screens, and editing
+/// addresses happens signed in. While this is set, it lets that one screen
+/// through.
+final proxySignInForRouteEditingProvider =
+    NotifierProvider<ProxySignInForRouteEditing, bool>(
+      ProxySignInForRouteEditing.new,
+    );
+
+class ProxySignInForRouteEditing extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void begin() => state = true;
+
+  void end() => state = false;
+}
+
 final openWebUiRouteResolverProvider =
     NotifierProvider<OpenWebUiRouteResolver, OpenWebUiRouteStatus>(
       OpenWebUiRouteResolver.new,
