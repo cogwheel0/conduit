@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/views/hermes_connections_page.dart';
@@ -275,6 +276,120 @@ void main() {
     check(
       gateway.probed.single.desktopCredentials?.nativeTokens?.refreshToken,
     ).equals('refresh-1');
+  });
+
+  testWidgets('switching waits for the token refresh its editor started', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // The binding blocks real HTTP; the refresh must really be in flight.
+    final blockedHttp = HttpOverrides.current;
+    HttpOverrides.global = _RealHttpOverrides();
+    addTearDown(() => HttpOverrides.global = blockedHttp);
+    final gateway = (await tester.runAsync(_RotatingGateway.start))!;
+    addTearDown(gateway.close);
+    // Hermes stays off, so no live client refreshes the tokens itself.
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(<String, Object?>{
+        PreferenceKeys.hermesEnabled: false,
+        PreferenceKeys.hermesConnections: HermesConnectionsDocument(
+          connections: [
+            const HermesConnectionProfile(
+              id: _home,
+              name: 'Home agent',
+              baseUrl: 'https://home.example',
+              documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+            ),
+            HermesConnectionProfile(
+              id: _work,
+              name: 'Work agent',
+              baseUrl: gateway.baseUrl,
+              mode: HermesBackendMode.desktopGateway,
+              desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+              documentTrustPrincipalId: 'bbbbbbbb-0000-4000-8000-000000000000',
+            ),
+          ],
+        ).encode(),
+        PreferenceKeys.hermesActiveConnectionId: _home,
+      }),
+    );
+    await secrets.write(
+      key: 'hermes_desktop_credentials_v1:$_work',
+      value: jsonEncode(
+        HermesDesktopCredentials(
+          nativeTokens: HermesDesktopTokenSet(
+            accessToken: 'access-refresh-0',
+            refreshToken: 'refresh-0',
+            expiresAt: DateTime.utc(2020),
+          ),
+        ).toJson(),
+      ),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [secureStorageProvider.overrideWithValue(secrets)],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: HermesSettingsPage(connectionId: _work),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(HermesSettingsPage)),
+    );
+    Future<void> settleIo() async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    // Opening the editor lists the connection's profiles, which refreshes
+    // its expired tokens.
+    for (var i = 0; i < 100 && !gateway.refreshing.isCompleted; i++) {
+      await settleIo();
+    }
+    check(gateway.refreshing.isCompleted).isTrue();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('hermes-use-connection')),
+    );
+    for (var i = 0; i < 5; i++) {
+      await settleIo();
+    }
+    check(container.read(hermesConfigProvider).connectionId).equals(_home);
+
+    gateway.release.complete();
+    for (
+      var i = 0;
+      i < 100 && container.read(hermesConfigProvider).connectionId != _work;
+      i++
+    ) {
+      await settleIo();
+    }
+    final active = container.read(hermesConfigProvider);
+    check(active.connectionId).equals(_work);
+    // The switch picked up the replacement tokens; the spent ones would
+    // sign the connection out at its next refresh.
+    check(
+      active.desktopCredentials?.nativeTokens?.refreshToken,
+    ).equals('refresh-1');
+    final stored = HermesDesktopCredentials.fromJson(
+      jsonDecode(
+        (await secrets.read(key: 'hermes_desktop_credentials_v1:$_work'))!,
+      ),
+    );
+    check(stored.nativeTokens?.refreshToken).equals('refresh-1');
+
+    // The editor lists the now active connection's profiles again; closing
+    // the gateway ends that request with the test.
+    await tester.runAsync(gateway.close);
+    for (var i = 0; i < 5; i++) {
+      await settleIo();
+    }
   });
 
   testWidgets('a save that finishes after the editor closes is harmless', (
@@ -572,4 +687,58 @@ final class _BlockingCookieJar extends NullCookieJarPort {
 
   @override
   Future<bool> clearForOrigin(String origin) => release.future;
+}
+
+class _RealHttpOverrides extends HttpOverrides {}
+
+/// A Desktop gateway whose first token refresh waits for [release]. Each
+/// refresh spends the refresh token it replaces.
+final class _RotatingGateway {
+  _RotatingGateway._(this._server) {
+    _server.listen(_handle);
+  }
+
+  static Future<_RotatingGateway> start() async => _RotatingGateway._(
+    await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+  );
+
+  final HttpServer _server;
+  final Completer<void> refreshing = Completer<void>();
+  final Completer<void> release = Completer<void>();
+  final Set<String> _spent = <String>{};
+
+  String get baseUrl => 'http://127.0.0.1:${_server.port}';
+
+  Future<void> _handle(HttpRequest request) async {
+    request.response.headers.contentType = ContentType.json;
+    switch (request.uri.path) {
+      case '/api/status':
+        request.response.write('{"auth_required":true}');
+      case '/auth/native/refresh':
+        final body = jsonDecode(await utf8.decodeStream(request)) as Map;
+        final refreshToken = body['refresh_token'] as String;
+        if (!_spent.add(refreshToken)) {
+          request.response.statusCode = HttpStatus.unauthorized;
+          break;
+        }
+        if (!refreshing.isCompleted) {
+          refreshing.complete();
+          await release.future;
+        }
+        request.response.write(
+          jsonEncode({
+            'access_token': 'access-refresh-1',
+            'refresh_token': 'refresh-1',
+            'expires_at': DateTime.utc(2100).millisecondsSinceEpoch ~/ 1000,
+          }),
+        );
+      case '/api/profiles':
+        request.response.write('{"profiles":[{"name":"default"}]}');
+      default:
+        request.response.statusCode = HttpStatus.notFound;
+    }
+    await request.response.close();
+  }
+
+  Future<void> close() => _server.close(force: true);
 }

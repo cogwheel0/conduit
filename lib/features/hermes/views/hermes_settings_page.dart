@@ -58,6 +58,13 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   bool _loadFailed = false;
   bool _switching = false;
 
+  /// Work in flight that can rotate this inactive connection's stored tokens,
+  /// as listing its profiles does. A switch waits for it, or it would load
+  /// the tokens being replaced, and the replacements would then be refused
+  /// because the connection had become active. (A test keeps the editor
+  /// busy, which already holds the switch back.)
+  final Set<Future<void>> _tokenWork = {};
+
   @override
   void initState() {
     super.initState();
@@ -126,6 +133,15 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
 
   void _handleConnectionChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _trackTokenWork(Future<void> work) {
+    final settled = work.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _tokenWork.add(settled);
+    unawaited(settled.whenComplete(() => _tokenWork.remove(settled)));
   }
 
   HermesConnectionController get _controller => _connectionController!;
@@ -262,6 +278,8 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final id = _controller.connectionId;
     if (id == null || _switching) return false;
     setState(() => _switching = true);
+    await Future.wait(_tokenWork.toList());
+    if (!mounted) return false;
     final switched = await switchHermesConnection(context, ref, id);
     if (mounted) {
       setState(() {
@@ -533,6 +551,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           editsActiveConnection: () => _editsActive,
           prepareSignIn: _prepareSignIn,
           testConnection: _testConnection,
+          trackTokenWork: _trackTokenWork,
           signInFooter: widget.isOnboarding || editsActive
               ? null
               : l10n.hermesSignInActivatesConnection,

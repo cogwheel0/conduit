@@ -29,6 +29,7 @@ class HermesDesktopConnectionSection extends ConsumerStatefulWidget {
     required this.editsActiveConnection,
     required this.prepareSignIn,
     required this.testConnection,
+    required this.trackTokenWork,
     this.signInFooter,
   });
 
@@ -45,6 +46,10 @@ class HermesDesktopConnectionSection extends ConsumerStatefulWidget {
   /// through the live connection. Resolves false when that failed.
   final Future<bool> Function() prepareSignIn;
   final Future<void> Function() testConnection;
+
+  /// Receives work that can rotate an inactive connection's stored tokens,
+  /// so that switching to the connection can wait for the replacements.
+  final void Function(Future<void> work) trackTokenWork;
 
   /// Shown under the sign-in options, e.g. that signing in activates the
   /// connection.
@@ -162,7 +167,7 @@ class _HermesDesktopConnectionSectionState
     });
     try {
       final live = editsActive ? ref.read(hermesApiServiceProvider) : null;
-      final profiles = await _desktopConnection.profiles(
+      final loading = _desktopConnection.profiles(
         draft.config.copyWith(enabled: true),
         service: switch (live) {
           final HermesDesktopApiService service
@@ -180,6 +185,10 @@ class _HermesDesktopConnectionSectionState
           await writeCredentials(credentials);
         },
       );
+      if (!editsActive && saved.desktopCredentials?.nativeTokens != null) {
+        widget.trackTokenWork(loading);
+      }
+      final profiles = await loading;
       final current = _controller.buildDraft(widget.savedConfig()).config;
       if (!mounted ||
           epoch != _profileEpoch ||
