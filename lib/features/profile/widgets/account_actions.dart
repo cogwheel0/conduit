@@ -45,20 +45,27 @@ class SavedAccountAvatar extends StatelessWidget {
 }
 
 /// Makes [accountId] the active account, asking first when that would stop
-/// a reply that is still being written.
+/// a reply that is still being written, and opens its sign-in when it needs
+/// one.
 Future<void> switchToSavedAccount(
   BuildContext context,
   WidgetRef ref,
   String accountId,
 ) async {
   final l10n = AppLocalizations.of(context)!;
+  // The page this began on may not outlast the switch.
+  final router = GoRouter.of(context);
   final controller = ref.read(openWebUiAccountsControllerProvider);
   try {
-    final result = await controller.switchTo(accountId);
-    if (result != OpenWebUiAccountChangeResult.blockedByActiveReply) return;
-    if (!context.mounted) return;
-    if (!await _confirmSwitchStopsReply(context)) return;
-    await controller.switchTo(accountId, force: true);
+    var result = await controller.switchTo(accountId);
+    if (result == OpenWebUiAccountChangeResult.blockedByActiveReply) {
+      if (!context.mounted) return;
+      if (!await _confirmSwitchStopsReply(context)) return;
+      result = await controller.switchTo(accountId, force: true);
+    }
+    if (result == OpenWebUiAccountChangeResult.needsSignIn) {
+      _openSignIn(router);
+    }
   } catch (error, stackTrace) {
     DebugLogger.error(
       'account-switch-failed',
@@ -98,6 +105,13 @@ Future<bool> confirmLeavingActiveAccount(
   return true;
 }
 
+/// Opens sign-in for the active account, which a switch or a sign-out left
+/// signed out. An Open WebUI-first install gets there by redirect, but next
+/// to a usable Hermes or Direct backend the router lets the user stay where
+/// they were, with the account they chose unusable. Sign-in becomes the
+/// router's location, so the router moves on to chat once it succeeds.
+void _openSignIn(GoRouter router) => router.go(Routes.authentication);
+
 Future<bool> _confirmSwitchStopsReply(BuildContext context) {
   final l10n = AppLocalizations.of(context)!;
   return ThemedDialogs.confirm(
@@ -110,7 +124,8 @@ Future<bool> _confirmSwitchStopsReply(BuildContext context) {
 }
 
 /// Signs out of [entry] after confirming, and again when that would stop a
-/// reply that is still being written.
+/// reply that is still being written. When the account that takes over
+/// needs a sign-in, opens it.
 Future<void> signOutOfSavedAccount(
   BuildContext context,
   WidgetRef ref,
@@ -126,20 +141,30 @@ Future<void> signOutOfSavedAccount(
     isDestructive: true,
   );
   if (!confirmed || !context.mounted) return;
+  // The row this began on goes with the account it showed.
+  final router = GoRouter.of(context);
+  final container = ProviderScope.containerOf(context, listen: false);
   final controller = ref.read(openWebUiAccountsControllerProvider);
   try {
-    final result = await controller.signOut(entry.id);
-    if (result != OpenWebUiAccountChangeResult.blockedByActiveReply) return;
-    if (!context.mounted) return;
-    final stopReply = await ThemedDialogs.confirm(
-      context,
-      title: l10n.accountsReplyInProgressTitle,
-      message: l10n.accountsSignOutStopsReply,
-      confirmText: l10n.accountsSignOutAnyway,
-      isDestructive: true,
-    );
-    if (!stopReply) return;
-    await controller.signOut(entry.id, force: true);
+    var result = await controller.signOut(entry.id);
+    if (result == OpenWebUiAccountChangeResult.blockedByActiveReply) {
+      if (!context.mounted) return;
+      final stopReply = await ThemedDialogs.confirm(
+        context,
+        title: l10n.accountsReplyInProgressTitle,
+        message: l10n.accountsSignOutStopsReply,
+        confirmText: l10n.accountsSignOutAnyway,
+        isDestructive: true,
+      );
+      if (!stopReply) return;
+      result = await controller.signOut(entry.id, force: true);
+    }
+    // With no account left there is nothing to sign in to: the app carries
+    // on with Hermes or Direct, or the router goes back to choosing one.
+    if (result == OpenWebUiAccountChangeResult.needsSignIn &&
+        await container.read(activeServerProvider.future) != null) {
+      _openSignIn(router);
+    }
   } catch (error, stackTrace) {
     DebugLogger.error(
       'account-sign-out-failed',

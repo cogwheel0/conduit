@@ -18,6 +18,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 const _alex = User(
   id: 'user-a',
@@ -78,6 +79,11 @@ void main() {
     final controller = _RecordingController();
     final workerManager = WorkerManager();
     addTearDown(workerManager.dispose);
+    // Account actions navigate through the app's router.
+    final router = GoRouter(
+      routes: [GoRoute(path: '/', builder: (_, _) => const ProfilePage())],
+    );
+    addTearDown(router.dispose);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -102,10 +108,10 @@ void main() {
           openWebUiAccountsProvider.overrideWith((ref) async => accounts),
           openWebUiAccountsControllerProvider.overrideWithValue(controller),
         ],
-        child: const MaterialApp(
+        child: MaterialApp.router(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: ProfilePage(),
+          routerConfig: router,
         ),
       ),
     );
