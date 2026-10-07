@@ -305,6 +305,12 @@ class SettingsService {
     final openRouterImageGenerationModelKey = scopedPreferenceWriteKey(
       _openRouterImageGenerationModelKey,
     );
+    final ttsServerVoiceIdKey = scopedPreferenceWriteKey(
+      PreferenceKeys.ttsServerVoiceId,
+    );
+    final ttsServerVoiceNameKey = scopedPreferenceWriteKey(
+      PreferenceKeys.ttsServerVoiceName,
+    );
 
     // Web search preferences are written only by their own setters, so a
     // bulk save of a stale snapshot can't undo a concurrent change.
@@ -342,13 +348,13 @@ class SettingsService {
           : null,
     );
     await _putOrRemove(
-      PreferenceKeys.ttsServerVoiceId,
+      ttsServerVoiceIdKey,
       (settings.ttsServerVoiceId?.isNotEmpty ?? false)
           ? settings.ttsServerVoiceId
           : null,
     );
     await _putOrRemove(
-      PreferenceKeys.ttsServerVoiceName,
+      ttsServerVoiceNameKey,
       (settings.ttsServerVoiceName?.isNotEmpty ?? false)
           ? settings.ttsServerVoiceName
           : null,

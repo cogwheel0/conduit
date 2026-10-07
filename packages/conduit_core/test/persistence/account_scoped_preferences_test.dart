@@ -89,6 +89,28 @@ void main() {
     check(await SettingsService.getDefaultModel()).equals('on-a');
   });
 
+  test('a saved server voice is read back for its account', () async {
+    await PreferencesStore.put(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    await activate('a');
+    await SettingsService.saveSettings(
+      (await SettingsService.loadSettings()).copyWith(
+        ttsServerVoiceId: 'v1',
+        ttsServerVoiceName: 'Voice',
+      ),
+    );
+
+    final onA = await SettingsService.loadSettings();
+    check(onA.ttsServerVoiceId).equals('v1');
+    check(onA.ttsServerVoiceName).equals('Voice');
+    check(PreferencesStore.containsKey(PreferenceKeys.ttsServerVoiceId))
+        .isFalse();
+    await activate('b');
+    check((await SettingsService.loadSettings()).ttsServerVoiceId).isNull();
+  });
+
   test('clearing an account removes everything it kept', () async {
     await activate('a');
     await SettingsService.setDefaultModel('model-on-a');
