@@ -181,41 +181,42 @@ Future<Set<String>> _scanUsedLocalizationKeys(Set<String> baseKeys) async {
     Directory('apps/desktop_ui/lib'),
   ].where((d) => d.existsSync()).toList();
 
-  Future<bool> keyIsUsed(String key) async {
-    try {
-      if (sourceRoots.isEmpty) {
-        return false;
-      }
+  // Read every source once. Walking and re-reading the tree for each of the
+  // few thousand keys took minutes.
+  final sources = <String>[];
+  try {
+    for (final root in sourceRoots) {
+      await for (final entity in root.list(recursive: true)) {
+        if (entity is! File) continue;
+        if (!entity.path.endsWith('.dart')) continue;
+        if (entity.path.contains('lib/l10n/app_localizations')) continue;
+        // Generated slang output restates every key, so counting it would
+        // make the unused-key check always pass.
+        if (entity.path.contains('desktop_ui/lib/src/l10n/')) continue;
 
-      for (final root in sourceRoots) {
-        await for (final entity in root.list(recursive: true)) {
-          if (entity is! File) continue;
-          if (!entity.path.endsWith('.dart')) continue;
-          if (entity.path.contains('lib/l10n/app_localizations')) continue;
-          // Generated slang output restates every key, so counting it would
-          // make the unused-key check always pass.
-          if (entity.path.contains('desktop_ui/lib/src/l10n/')) continue;
-
-          try {
-            final content = await entity.readAsString();
-            if (content.contains(key)) {
-              return true;
-            }
-          } catch (e) {
-            // Skip files that can't be read
-            continue;
-          }
+        try {
+          sources.add(await entity.readAsString());
+        } catch (e) {
+          // Skip files that can't be read
+          continue;
         }
       }
-      return false;
-    } catch (e) {
-      stderr.writeln('warning: failed to search for key "$key": $e');
-      return false;
     }
+  } catch (e) {
+    stderr.writeln('warning: failed to scan sources for keys: $e');
   }
 
+  // A key that appears as a whole identifier is certainly in the source;
+  // only the rest need the substring search.
+  final identifierPattern = RegExp(r'[A-Za-z_$][A-Za-z0-9_$]*');
+  final identifiers = <String>{
+    for (final content in sources)
+      for (final match in identifierPattern.allMatches(content)) match[0]!,
+  };
+
   for (final key in baseKeys) {
-    if (await keyIsUsed(key)) {
+    if (identifiers.contains(key) ||
+        sources.any((content) => content.contains(key))) {
       used.add(key);
     }
   }
