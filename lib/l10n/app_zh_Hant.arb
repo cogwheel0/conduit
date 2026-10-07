@@ -979,7 +979,7 @@
   "chatSettingsSystemPrompt": "系統提示詞",
   "chatSettingsSystemPromptEmptyNote": "空白提示詞不會傳送任何系統提示詞，即使你設定了預設提示詞。選擇「繼承」即可使用預設提示詞。",
   "chatSettingsParameters": "參數",
-  "chatSettingsInherit": "繼承",
+  "chatSettingsInherit": "你的預設",
   "chatSettingsModelDefault": "模型預設",
   "chatSettingsCustom": "自訂",
   "chatSettingsResetAll": "全部重設",
@@ -1057,7 +1057,6 @@
   "personalConnectionsSpecInvalid": "請輸入有效的 OpenAPI JSON 文件。",
   "personalConnectionsSelectionCleared": "由於連線已變更，已從此對話中移除：{names}",
   "personalConnectionsTerminalOneActive": "開啟一個終端機會關閉其他終端機。",
-  "personalConnectionsNeedsAdvanced": "請在對話設定中開啟「進階」，以管理個人連線。",
   "personalConnectionsNoAccount": "請登入 Open WebUI 帳號以管理個人連線。",
   "chatSaved": "聊天已儲存到歷史記錄",
   "chatSaveFailed": "無法儲存聊天",
@@ -1306,12 +1305,9 @@
   "clearAllMemoriesDescription": "這會永久刪除你帳戶的所有已儲存記憶。",
   "noMemoriesSaved": "尚未儲存任何記憶。",
   "memoryUpdatedAt": "更新於 {formattedTime}",
-  "advancedPromptOverrides": "進階提示詞覆寫",
   "advancedPromptOverridesDescription": "模型層級提示詞覆寫位於 App 與聊天。",
   "audioSettingsTitle": "音訊",
   "audioSettingsSubtitle": "語音轉文字和文字轉語音",
-  "appAndChat": "App 與聊天",
-  "appAndChatSubtitle": "主題、語言、聊天行為和進階覆寫",
   "accountSettingsTitle": "帳戶",
   "accountSettingsSubtitle": "個人資料詳情和密碼管理",
   "accountDetails": "帳戶詳情",
@@ -1962,8 +1958,6 @@
   "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
   "workspaceSearchHint": "Search workspace resources",
   "workspaceLoadMore": "Load more",
-  "workspaceAccessTitle": "Sharing & access",
-  "workspaceAccessSharingDisabled": "Sharing is turned off for this resource, so access is read-only.",
   "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
   "workspaceAccessPeopleHeading": "People & groups",
   "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
@@ -1973,8 +1967,6 @@
   "workspaceAccessAddUsers": "新增使用者",
   "workspaceAccessGroupsDisabled": "已停用與群組共用；您只能與個別使用者共用。",
   "workspaceAccessGrantsDisabled": "您沒有與使用者或群組共用的權限。現有的存取權限會保留。",
-  "workspaceAccessVisibilityLabel": "Public",
-  "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
   "workspaceAccessUserBadge": "Person",
   "workspaceAccessCanEdit": "Can edit",
@@ -3402,7 +3394,6 @@
   "notificationTargetsEmpty": "尚無 Webhook 目的地。",
   "notificationTargetsLoadFailed": "無法載入 Webhook 目的地。",
   "notificationTargetsStale": "已儲存，但無法重新整理清單。",
-  "notificationTargetsNativeDescription": "新增及管理 Webhook 目的地",
   "notificationTargetsUnavailable": "此帳戶無法使用 Webhook 目的地。",
   "notificationTargetsAccountChanged": "帳戶已變更。請關閉此頁面，然後重新開啟該目的地。",
   "notificationTargetNewTitle": "新增目的地",
@@ -3507,9 +3498,9 @@
   "noteSessionChangedNotice": "目前登入的帳戶已變更，因此未儲存此筆記。",
   "noteNoAccess": "您已無權存取此筆記。",
   "noteShare": "分享筆記",
-  "folderShareSettings": "共用設定",
-  "chatShareAudience": "對象",
-  "chatShareAudienceDescription": "選擇誰可以開啟共用的聊天",
+  "folderShareSettings": "共用資料夾",
+  "chatShareAudience": "誰有存取權",
+  "chatShareAudienceDescription": "選擇誰可以開啟此聊天",
   "resourceSharingSaved": "共用設定已更新",
   "resourceSharingFiltered": "已儲存。伺服器僅保留了您所選存取權限的一部分。",
   "resourceSharingSessionChanged": "目前登入的帳戶已變更，因此未儲存任何內容。請關閉此頁面，然後重新開啟。",
@@ -3517,12 +3508,7 @@
   "resourceSharingMissing": "此項目已不存在。",
   "resourceSharingLoadFailed": "無法載入有權存取的人員。",
   "resourceSharingSaveFailed": "無法儲存存取權限。請再試一次。",
-  "resourceAudienceLabel": "對象",
-  "resourceAudiencePrivate": "私人",
-  "resourceAudiencePublic": "公開",
-  "resourceAudienceOpen": "知道連結即可",
   "resourceAudiencePrivateHint": "只有下方列出的使用者和群組可以開啟。",
-  "resourceAudiencePublicHint": "此伺服器上的所有使用者都可以開啟。",
   "resourceAudienceOpenHint": "任何擁有連結的人都可以檢視。",
   "channelMembersSearchHint": "搜尋成員",
   "channelMembersEmpty": "找不到成員。",
@@ -3536,8 +3522,8 @@
   "channelMembersChangeFailed": "無法更新成員。請再試一次。",
   "channelMembersChangeDenied": "伺服器不允許此項變更。",
   "channelMembersChangeNotPermitted": "您無權管理此頻道的成員。",
-  "chatBranchContinueFromResponse": "從此回覆繼續",
-  "chatBranchForkChat": "從此處分岔聊天",
+  "chatBranchContinueFromResponse": "從這裡繼續",
+  "chatBranchForkChat": "在新聊天中分支",
   "chatBranchSwitcherSemantics": "已編輯的訊息，第 {position} 個版本，共 {total} 個。顯示所有版本。",
   "@chatBranchSwitcherSemantics": {
     "placeholders": {
@@ -3559,7 +3545,7 @@
       }
     }
   },
-  "chatBranchVersionCurrent": "目前分支",
+  "chatBranchVersionCurrent": "目前顯示",
   "chatBranchSelectedNotice": "正在從第 {position} 個版本繼續（共 {total} 個）",
   "@chatBranchSelectedNotice": {
     "placeholders": {
@@ -3571,19 +3557,19 @@
       }
     }
   },
-  "chatBranchWaitForResponse": "請等待此回覆完成",
+  "chatBranchWaitForResponse": "請等待此回覆完成。",
   "chatBranchUnavailable": "無法在此處變更此聊天的分支。",
   "chatBranchOwnerChanged": "已登入的帳號已變更，因此未做任何變更。",
   "chatBranchMessageMissing": "該版本已無法使用。",
-  "chatForkOffline": "請連線後再分岔此聊天。",
-  "chatForkForbidden": "你的帳號無權分岔聊天。",
+  "chatForkOffline": "請連線後再為此聊天建立分支。",
+  "chatForkForbidden": "你的帳戶無法為聊天建立分支。",
   "chatForkSourceMissing": "伺服器上已沒有此聊天。",
-  "chatForkUnsupported": "此伺服器不支援分岔聊天。",
-  "chatForkFailed": "無法分岔此聊天，請再試一次。",
+  "chatForkUnsupported": "此伺服器無法為聊天建立分支。",
+  "chatForkFailed": "無法為此聊天建立分支，請再試一次。",
   "codeInterpreter": "程式碼解譯器",
   "codeInterpreterDescription": "在伺服器上執行程式碼，以分析資料並產生檔案。",
   "codeInterpreterBrowserEngine": "此伺服器在瀏覽器中執行程式碼，Conduit 不支援。",
-  "codeInterpreterUnavailable": "此伺服器、帳戶或模型無法使用程式碼解譯器。",
+  "codeInterpreterUnavailable": "此伺服器、帳戶或模型無法使用。",
   "folderProjectSettings": "專案設定",
   "folderProjectSettingsDescription": "此資料夾中新聊天的預設設定。伺服器會對其中的每個聊天套用其知識庫與系統提示詞。",
   "folderProjectModels": "預設模型",
@@ -3592,9 +3578,8 @@
   "folderProjectNoModels": "沒有預設模型。新聊天使用你的預設模型。",
   "folderProjectAddKnowledge": "新增知識",
   "folderProjectAddModel": "新增模型",
-  "folderProjectAddSelected": "新增",
   "folderProjectNothingToAdd": "沒有更多可新增的內容。",
-  "folderProjectNotAvailable": "無法使用",
+  "folderProjectNotAvailable": "無法使用 — 新聊天會略過它",
   "folderProjectMoveUp": "將 {name} 上移",
   "folderProjectRemove": "移除 {name}",
   "folderProjectKindCollection": "知識庫",
@@ -3608,7 +3593,6 @@
   "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTasksTitle": "排程工作",
   "scheduledTasksDescription": "即使這支手機已離線，您的 Open WebUI 伺服器仍會依自己的排程執行這些工作。",
-  "scheduledTasksNeedsAdvanced": "請在「設定」中開啟「進階」，以管理排程工作。伺服器上現有的工作會繼續執行。",
   "scheduledTasksUnavailable": "在此伺服器上，此帳戶無法使用排程工作。",
   "scheduledTasksSearchHint": "搜尋工作",
   "scheduledTasksFilterAll": "全部",
@@ -3656,7 +3640,7 @@
   "scheduledTaskAdvancedSchedule": "進階排程",
   "scheduledTaskRruleLabel": "重複規則",
   "scheduledTaskRruleKept": "此排程使用的規則無法透過這些控制項編輯。除非您變更，否則會維持原樣。",
-  "scheduledTaskTimezoneNote": "時間依照您的 Open WebUI 帳戶時區（由網頁版設定），不一定是此裝置的時區。每次執行的確切時間由伺服器決定。",
+  "scheduledTaskTimezoneNote": "時間採用你的 Open WebUI 帳號時區，可能與此裝置不同。",
   "scheduledTaskActiveLabel": "已啟用",
   "scheduledTaskDestinationLabel": "結果傳送至",
   "scheduledTaskDestinationChat": "新聊天",
@@ -3689,7 +3673,7 @@
   "scheduledTaskViewChannel": "檢視頻道",
   "scheduledTaskOpenResultFailed": "無法開啟該結果。",
   "scheduledTaskDelete": "刪除工作",
-  "scheduledTaskDeleteConfirm": "要刪除 {name} 嗎？伺服器將停止執行此工作，其記錄也會一併移除。",
+  "scheduledTaskDeleteConfirm": "伺服器將停止執行「{name}」，其執行記錄也會一併刪除。",
   "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTaskChangeFailed": "無法變更此工作。",
   "scheduledTaskTerminalKept": "此工作已連接終端機。編輯時會予以保留。",
@@ -3698,22 +3682,18 @@
   "queuedDraftsTitle": "排隊中的訊息",
   "queuedDraftsCount": "排隊中的訊息：{count} 則",
   "queuedDraftsSessionNote": "排隊中的訊息只會在 Conduit 保持開啟時保留。回覆結束後，它們會合併成一則訊息一併傳送。",
-  "queuedDraftSendNow": "立即傳送",
+  "queuedDraftSendNow": "停止並傳送",
   "queuedDraftUploading": "正在等待檔案上傳完成",
-  "queuedDraftFileFailed": "有檔案未能上傳。移除它即可傳送此訊息。",
+  "queuedDraftFileFailed": "有檔案未能上傳。請重試或移除它。",
   "queuedDraftsSendFailed": "無法傳送排隊中的訊息，它們仍在佇列中。",
   "queuedDraftsSending": "正在傳送排隊中的訊息…",
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "行事曆",
-  "calendarDescription": "您的 Open WebUI 行事曆。活動儲存在伺服器上，並以此裝置的時區顯示。",
   "calendarUnavailable": "在此伺服器上，此帳戶無法使用行事曆。",
-  "calendarTimezoneNote": "時間以此裝置的時區顯示。重複活動由伺服器依您帳戶的時區展開。",
+  "calendarTimezoneNote": "時間以此裝置的時區顯示。",
   "calendarRangeLabel": "{start} – {end}",
   "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
-  "calendarEarlier": "較早",
-  "calendarLater": "較晚",
   "calendarToday": "今天",
-  "calendarAllCalendars": "所有行事曆",
   "calendarEmpty": "此期間沒有活動。",
   "calendarLoadFailed": "無法載入行事曆。",
   "calendarStale": "行事曆可能已過期。",
@@ -3727,13 +3707,7 @@
   "calendarScheduledRunFailed": "工作執行失敗",
   "calendarScheduledEntryReadOnly": "排程工作需在「排程工作」頁面管理，而不是當作活動管理。",
   "calendarEventDetailTitle": "活動",
-  "calendarEventCalendar": "行事曆：{name}",
-  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
-  "calendarEventOrganizer": "主辦人：{name}",
-  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
   "calendarEventSeriesNote": "此活動會重複。變更和刪除會套用到整個系列。",
-  "calendarEventInvitedCount": "已邀請：{count}",
-  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarRsvpPrompt": "您的回覆",
   "calendarRsvpAccepted": "參加",
   "calendarRsvpTentative": "未定",
@@ -3816,9 +3790,8 @@
       }
     }
   },
-  "chatDataControlsUnavailable": "使用資料控制需要開啟「進階」，並登入 Open WebUI 帳戶。",
-  "chatDataControlsMediaNote": "備份包含儲存在伺服器上的聊天記錄、設定和附件參照，不包含附件的檔案和圖片本身。",
-  "chatDataControlsLocalOnly": "僅在此裝置上：{count}",
+  "chatDataControlsMediaNote": "匯出包含儲存在伺服器上的聊天記錄、設定和附件參照，不包含附件的檔案和圖片本身。",
+  "chatDataControlsLocalOnly": "{count, plural, other{{count} 個聊天僅在此裝置上}}",
   "@chatDataControlsLocalOnly": {
     "placeholders": {
       "count": {
@@ -3826,7 +3799,7 @@
       }
     }
   },
-  "chatDataControlsUnsent": "含有伺服器尚未收到的變更：{count}",
+  "chatDataControlsUnsent": "{count, plural, other{{count} 個聊天有伺服器尚未收到的變更}}",
   "@chatDataControlsUnsent": {
     "placeholders": {
       "count": {
@@ -3834,10 +3807,10 @@
       }
     }
   },
-  "chatDataControlsUnsyncedNote": "在傳送之前，伺服器備份不會包含這些內容。",
+  "chatDataControlsUnsyncedNote": "在傳送之前，匯出不會包含這些內容。",
   "chatDataControlsSyncNow": "立即同步",
   "chatDataControlsSyncing": "正在同步…",
-  "chatDataControlsBackupSection": "備份與還原",
+  "chatDataControlsBackupSection": "匯出與匯入",
   "chatDataControlsManageSection": "所有聊天",
   "chatDataControlsExportLibrary": "匯出所有聊天",
   "chatDataControlsImport": "匯入聊天",
@@ -3853,7 +3826,7 @@
       }
     }
   },
-  "chatDataControlsExportReady": "備份已就緒。已儲存的聊天：{count}",
+  "chatDataControlsExportReady": "匯出已就緒。已儲存的聊天：{count}",
   "@chatDataControlsExportReady": {
     "placeholders": {
       "count": {
@@ -3861,10 +3834,10 @@
       }
     }
   },
-  "chatDataControlsExportEmpty": "伺服器上沒有可備份的聊天。",
-  "chatDataControlsExportFailed": "備份未儲存。匯出已中斷或不完整。",
+  "chatDataControlsExportEmpty": "伺服器上沒有可匯出的聊天。",
+  "chatDataControlsExportFailed": "未儲存任何內容。匯出已中斷或不完整。",
   "chatDataControlsExportStopped": "匯出已停止。未儲存任何內容。",
-  "chatDataControlsExportConfirmTitle": "要備份伺服器上的副本嗎？",
+  "chatDataControlsExportConfirmTitle": "要匯出伺服器上的副本嗎？",
   "chatDataControlsExportConfirmMessage": "這會儲存 {account} 存放在 {server} 上的聊天。僅存在於此裝置上的聊天，以及伺服器尚未收到的變更，不會包含在內。",
   "@chatDataControlsExportConfirmMessage": {
     "placeholders": {
@@ -3876,7 +3849,7 @@
       }
     }
   },
-  "chatDataControlsExportAction": "備份",
+  "chatDataControlsExportAction": "匯出",
   "chatDataControlsImportConfirmTitle": "要匯入這些聊天嗎？",
   "chatDataControlsImportConfirmMessage": "要將檔案中的聊天新增到 {server} 上的 {account} 嗎？聊天：{chats}。訊息：{messages}。已有的聊天不會被取代；匯入會新增副本。",
   "@chatDataControlsImportConfirmMessage": {
@@ -3952,10 +3925,8 @@
       }
     }
   },
-  "chatDataControlsDiscardAndDelete": "捨棄並刪除",
   "chatDataControlsResponseRunning": "仍有回覆正在產生。請先停止，然後再試一次。",
   "chatDataControlsLocalChanged": "在等待期間，一個原本僅存在於此裝置上的聊天已送達伺服器。未做任何變更。請檢查後再試一次。",
-  "chatDataControlsDone": "完成。",
   "chatDataControlsRefused": "伺服器無法執行該操作。未做任何變更。",
   "chatDataControlsUnknown": "伺服器沒有回應，因此結果未知。請檢查您的聊天；再次執行是安全的。",
   "chatDataControlsOwnerChanged": "目前登入的帳戶已變更。未執行任何操作。",
@@ -3969,7 +3940,7 @@
   "chatExportUnsentNote": "其中包含伺服器尚未收到的變更。",
   "chatExportFailed": "無法匯出此聊天。",
   "chatDataControlsWorkChanged": "在等待期間，此裝置上出現了未傳送的變更。未刪除任何內容。請檢查後再試一次。",
-  "chatComparisonTabsLabel": "模型回答",
+  "chatComparisonTabsLabel": "模型回覆",
   "chatComparisonSlotLabel": "{model} · {number}",
   "@chatComparisonSlotLabel": {
     "placeholders": {
@@ -3986,14 +3957,14 @@
   "chatComparisonSlotFailed": "失敗",
   "chatMergedResponseTitle": "合併的回答",
   "chatCompareModelsAction": "比較模型",
-  "chatCompareModelsDescription": "將此訊息傳送給兩個模型並比較它們的回答。",
-  "chatCompareNeedsMessage": "請先輸入訊息，再比較模型。",
+  "chatCompareModelsDescription": "傳送給兩個模型並比較回覆。",
+  "chatCompareNeedsMessage": "請先輸入訊息",
   "chatCompareFirstModel": "第一個模型",
   "chatCompareSecondModel": "第二個模型",
   "chatCompareChooseModel": "選擇模型",
   "chatCompareStart": "比較",
   "chatCompareErrorUnavailable": "此聊天中無法比較模型。",
-  "chatCompareErrorModelUnavailable": "{models} 在此伺服器上無法使用。",
+  "chatCompareErrorModelUnavailable": "{count, plural, other{{models} 在此伺服器上無法使用。}}",
   "@chatCompareErrorModelUnavailable": {
     "placeholders": {
       "models": {
@@ -4001,7 +3972,7 @@
       }
     }
   },
-  "chatCompareErrorVision": "{models} 無法讀取圖片。請移除圖片或選擇其他模型。",
+  "chatCompareErrorVision": "{count, plural, other{{models} 無法讀取圖片。請移除圖片或選擇其他模型。}}",
   "@chatCompareErrorVision": {
     "placeholders": {
       "models": {
@@ -4009,7 +3980,7 @@
       }
     }
   },
-  "chatCompareErrorTerminal": "{models} 無法使用所選的終端機。請關閉終端機或選擇其他模型。",
+  "chatCompareErrorTerminal": "{count, plural, other{{models} 無法使用所選的終端機。請關閉終端機或選擇其他模型。}}",
   "@chatCompareErrorTerminal": {
     "placeholders": {
       "models": {
@@ -4017,7 +3988,7 @@
       }
     }
   },
-  "chatCompareErrorInterpreter": "{models} 無法執行程式碼直譯器。請將其關閉或選擇其他模型。",
+  "chatCompareErrorInterpreter": "{count, plural, other{{models} 無法執行程式碼直譯器。請將其關閉或選擇其他模型。}}",
   "@chatCompareErrorInterpreter": {
     "placeholders": {
       "models": {
@@ -4025,7 +3996,7 @@
       }
     }
   },
-  "chatCompareErrorEffortOverride": "此聊天儲存了 {models} 無法使用的推理強度。請在聊天設定中移除，或選擇其他模型。",
+  "chatCompareErrorEffortOverride": "{count, plural, other{此聊天儲存了 {models} 無法使用的推理強度。請在聊天設定中移除，或選擇其他模型。}}",
   "@chatCompareErrorEffortOverride": {
     "placeholders": {
       "models": {
@@ -4037,15 +4008,107 @@
   "chatMergeResponsesAction": "合併回答",
   "chatMergeStopAction": "停止合併",
   "chatMergeErrorUnavailable": "此伺服器無法合併回覆。",
-  "chatMergeErrorFailed": "合併回覆失敗。原始回答未變更。",
-  "chatMergeErrorNotMergeable": "每則回答都必須以文字結尾，才能合併。",
+  "chatMergeErrorFailed": "合併回覆失敗。原始回覆未變更。",
+  "chatMergeErrorNotMergeable": "每則回覆都必須以文字結尾，才能合併。",
   "chatMergeErrorOwnerChanged": "帳戶或聊天已變更，因此合併已停止。",
-  "chatComparisonStopAnswerAction": "停止此回答",
-  "chatMergeChooseDescription": "選擇要合併的回答。至少選擇兩則；原始回答會維持不變。",
+  "chatComparisonStopAnswerAction": "停止此回覆",
+  "chatMergeChooseDescription": "選擇要合併的回覆。至少選擇兩則；原始回覆會維持不變。",
   "folderProjectComparisonFallbackNotice": "此專案中儲存的模型無法全部使用，因此聊天將以較少的模型開始。比較恰好使用兩個模型。",
   "advancedFeaturesFooter": "加入模型比較、個別聊天設定、工具設定、排程任務、個人連線、Webhook 與資料管理。關閉後只會隱藏它們，已設定的內容會繼續運作。",
   "profileAdvancedFooter": "因「設定 > 聊天」中已開啟進階功能而顯示。",
   "advancedRequiredTitle": "屬於進階功能",
   "advancedRequiredMessage": "{feature}屬於進階功能。開啟進階功能即可使用。已設定的內容會繼續運作。",
-  "advancedTurnOn": "開啟進階功能"
+  "advancedTurnOn": "開啟進階功能",
+  "promptOverridesTitle": "提示詞覆寫",
+  "chatSettingsStopHint": "你的預設（以逗號分隔）",
+  "chatSettingsUseYourDefault": "使用你的預設",
+  "personalToolSettingsSaved": "工具設定已儲存",
+  "personalToolSettingsLoadFailed": "無法載入工具設定。",
+  "personalToolSettingsSaveFailed": "無法儲存工具設定。",
+  "scheduledTaskDeleteTitle": "要刪除排程工作嗎？",
+  "scheduledTaskRunning": "執行中…",
+  "scheduledTaskRunFinished": "執行完成。",
+  "scheduledTaskRunFailedNotice": "執行失敗。請在「記錄」中查看詳細資訊。",
+  "scheduledTaskLastRunFailed": "上次執行失敗",
+  "scheduledTaskRruleRuns": "執行：{summary}",
+  "scheduledTaskFolderSearchHint": "搜尋資料夾",
+  "scheduledTasksEmptyHint": "讓模型依排程執行你的指示，例如每天早上的新聞摘要。",
+  "scheduledTasksShowAll": "顯示所有工作",
+  "personalConnectionsEmptyToolServersHint": "新增 OpenAPI 工具伺服器，即可在聊天中使用其工具。",
+  "personalConnectionsEmptyTerminalsHint": "新增一個模型可在聊天中使用的終端機伺服器。",
+  "chatCompareModelPair": "{first} 和 {second}",
+  "chatDataControlsNoAccount": "登入 Open WebUI 帳戶以管理其聊天。",
+  "chatDataControlsAccountChanged": "帳戶已變更。請返回並重新開啟資料管理。",
+  "chatDataControlsArchiveAllConfirm": "全部封存",
+  "chatDataControlsUnarchiveAllConfirm": "全部取消封存",
+  "chatDataControlsUnshareAllConfirm": "移除連結",
+  "chatDataControlsDeleteAllConfirm": "刪除所有聊天",
+  "chatDataControlsDiscardAndDeleteConfirm": "捨棄並刪除所有聊天",
+  "chatDataControlsDeleteFooter": "從 {server} 刪除 {account} 的所有聊天。僅在此裝置上的聊天會保留。",
+  "chatDataControlsImporting": "{count, plural, other{正在匯入 {count} 個聊天…}}",
+  "chatDataControlsImportFooter": "匯入會新增副本，絕不會取代伺服器上已有的聊天。",
+  "nativeSheetOptionUnavailable": "此選項目前無法使用。",
+  "nativeWebhookDestinationsCount": "{count, plural, =0{無} other{{count} 個目的地}}",
+  "chatBranchForkOpened": "已從這裡開啟新聊天",
+  "queuedDraftStopFailed": "無法停止目前的回覆。你的訊息仍在佇列中。",
+  "queuedDraftRemoved": "已從佇列中移除",
+  "queuedDraftUndo": "復原",
+  "chatExportPreparing": "正在準備匯出…",
+  "chatStopResponseFailed": "無法停止此回覆。",
+  "calendarStartsAt": "{time} 開始",
+  "calendarEndsAt": "{time} 結束",
+  "calendarDayToday": "今天 · {date}",
+  "calendarDayTomorrow": "明天 · {date}",
+  "calendarPreviousDays": "{count, plural, other{前 {count} 天}}",
+  "calendarNextDays": "{count, plural, other{後 {count} 天}}",
+  "calendarRemoveEnd": "移除結束時間",
+  "calendarEventReadOnlyNotInvited": "您無法變更此活動。",
+  "calendarFieldOrganizer": "主辦人",
+  "calendarColorName": "{color, select, blue{藍色} green{綠色} amber{琥珀色} red{紅色} purple{紫色} teal{青色} other{顏色}}",
+  "calendarVisibilityFooter": "會顯示已勾選行事曆中的活動。輕點行事曆可顯示或隱藏其活動。",
+  "personalizationMemoryTypeUserDescription": "關於你的偏好、事實或指示。",
+  "personalizationMemoryTypeContextDescription": "在之後的聊天中需要記住的背景資訊。",
+  "personalizationMemoryTypeUnknown": "此記憶的類型無法被本應用程式辨識。除非你選擇其他類型，否則會保持不變。",
+  "personalizationMemoryAccountChanged": "帳戶已變更。請關閉此視窗並重新開啟該記憶。",
+  "notificationTargetDeliveryAwayDescription": "僅在你未使用 Open WebUI 時。",
+  "notificationTargetDeliveryAlwaysDescription": "每次都傳送，即使你正在使用。",
+  "notificationTargetTestNeedsSave": "儲存變更後才能測試。",
+  "notificationTargetNameHelper": "之後無法變更。留空則使用 URL 的主機名稱。",
+  "notificationTargetIdLabel": "名稱",
+  "codeInterpreterTurnOff": "關閉",
+  "libraryShareTitle": "共用",
+  "libraryGeneralAccess": "一般存取權",
+  "libraryAccessOnlyPeopleAdded": "僅限已新增的人",
+  "libraryAccessEveryoneOnServer": "此伺服器上的所有人",
+  "libraryAccessAnyoneWithLink": "任何知道連結的人",
+  "libraryAccessEveryoneHint": "在此伺服器上擁有帳號的任何人都可以檢視。",
+  "libraryAccessLinkNotAllowed": "你沒有透過連結共用的權限。",
+  "libraryAccessCanView": "可檢視",
+  "libraryAccessLevelFor": "{name} 的存取權",
+  "libraryAccessRemovePrincipal": "移除 {name}",
+  "libraryAccessUnknownPerson": "未知使用者",
+  "libraryAccessUnknownGroup": "未知群組",
+  "libraryAccessOwner": "擁有者",
+  "libraryAccessOwnerOnlyNotice": "只有擁有者和可編輯的人才能變更誰有存取權。",
+  "libraryAccessAccountCantShare": "你的帳號無法共用此內容。",
+  "libraryAccessPartialSave": "已儲存，但無法授予 {names} 存取權。",
+  "libraryAccessDone": "完成",
+  "libraryAccessSummaryOnlyYou": "僅限你自己",
+  "libraryAccessSummaryShared": "{count, plural, other{已與 {count} 個人或群組共用}}",
+  "libraryPickerAddCount": "{count, plural, =0{新增} other{新增（{count}）}}",
+  "libraryPickerHasAccess": "已有存取權",
+  "libraryPickerAlreadyMember": "已是成員",
+  "libraryPickerSearchGroups": "搜尋群組",
+  "libraryChannelRemoveTitle": "要移除 {name} 嗎？",
+  "libraryChannelRemoveMessage": "對方將無法再看到此頻道或其中的訊息。",
+  "libraryChannelRemoveConfirm": "移除",
+  "libraryChannelMemberRemoved": "已移除 {name}",
+  "libraryChannelMembersAdded": "已新增成員",
+  "libraryNoteSharedBy": "由 {name} 共用。你可以檢視此筆記，但無法編輯。",
+  "libraryNoteOpen": "開啟",
+  "chatDataControlsArchivedAll": "已封存所有聊天。",
+  "chatDataControlsUnarchivedAll": "已取消封存所有聊天。",
+  "chatDataControlsUnsharedAll": "已移除所有分享連結。",
+  "chatDataControlsDeletedAll": "已刪除所有聊天。",
+  "notificationTargetMakeDefaultNeedsSave": "儲存變更後才能設為預設。"
 }

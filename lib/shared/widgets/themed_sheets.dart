@@ -485,6 +485,11 @@ class _SheetScope extends InheritedWidget {
   bool updateShouldNotify(_SheetScope oldWidget) => token != oldWidget.token;
 }
 
+/// The close control of a sheet header.
+///
+/// The button keeps its compact [buttonSize] look, but taps anywhere in a
+/// square of at least [TouchTarget.minimum] around it close the sheet, so the
+/// control meets the 44pt touch target.
 class SheetCloseButton extends StatelessWidget {
   const SheetCloseButton({
     super.key,
@@ -503,6 +508,21 @@ class SheetCloseButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hitSize = math.max(buttonSize, TouchTarget.minimum);
+    // Taps on the margin around the visible button reach it too. The button
+    // itself carries the semantics, so the margin adds no second node.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      excludeFromSemantics: true,
+      onTap: onPressed,
+      child: SizedBox.square(
+        dimension: hitSize,
+        child: Center(child: _button(context)),
+      ),
+    );
+  }
+
+  Widget _button(BuildContext context) {
     final theme = context.conduitTheme;
     final iconColor = color ?? theme.textSecondary;
     final icon = Icon(

@@ -979,7 +979,7 @@
   "chatSettingsSystemPrompt": "Systeemprompt",
   "chatSettingsSystemPromptEmptyNote": "Een lege prompt stuurt helemaal geen systeemprompt mee, ook als je een standaardprompt hebt. Kies Overnemen om je standaard te gebruiken.",
   "chatSettingsParameters": "Parameters",
-  "chatSettingsInherit": "Overnemen",
+  "chatSettingsInherit": "Jouw standaard",
   "chatSettingsModelDefault": "Modelstandaard",
   "chatSettingsCustom": "Aangepast",
   "chatSettingsResetAll": "Alles resetten",
@@ -1057,7 +1057,6 @@
   "personalConnectionsSpecInvalid": "Voer een geldig OpenAPI-JSON-document in.",
   "personalConnectionsSelectionCleared": "Uit deze chat verwijderd omdat de verbinding is gewijzigd: {names}",
   "personalConnectionsTerminalOneActive": "Als je een terminal inschakelt, gaan de andere uit.",
-  "personalConnectionsNeedsAdvanced": "Zet Geavanceerd aan in de chatinstellingen om persoonlijke verbindingen te beheren.",
   "personalConnectionsNoAccount": "Log in bij een Open WebUI-account om persoonlijke verbindingen te beheren.",
   "chatSaved": "Chat opgeslagen in geschiedenis",
   "chatSaveFailed": "Chat opslaan mislukt",
@@ -1306,12 +1305,9 @@
   "clearAllMemoriesDescription": "Dit verwijdert permanent alle opgeslagen herinneringen voor je account.",
   "noMemoriesSaved": "Nog geen herinneringen opgeslagen.",
   "memoryUpdatedAt": "Bijgewerkt {formattedTime}",
-  "advancedPromptOverrides": "Geavanceerde promptoverschrijvingen",
   "advancedPromptOverridesDescription": "Modelniveau promptoverschrijvingen staan in App en chat.",
   "audioSettingsTitle": "Audio",
   "audioSettingsSubtitle": "Spraak naar tekst en tekst naar spraak",
-  "appAndChat": "App en chat",
-  "appAndChatSubtitle": "Thema, taal, chatgedrag en geavanceerde overschrijvingen",
   "accountSettingsTitle": "Account",
   "accountSettingsSubtitle": "Profielgegevens en wachtwoordbeheer",
   "accountDetails": "Accountgegevens",
@@ -1962,8 +1958,6 @@
   "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
   "workspaceSearchHint": "Search workspace resources",
   "workspaceLoadMore": "Load more",
-  "workspaceAccessTitle": "Sharing & access",
-  "workspaceAccessSharingDisabled": "Sharing is turned off for this resource, so access is read-only.",
   "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
   "workspaceAccessPeopleHeading": "People & groups",
   "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
@@ -1973,8 +1967,6 @@
   "workspaceAccessAddUsers": "Mensen toevoegen",
   "workspaceAccessGroupsDisabled": "Delen met groepen is uitgeschakeld; je kunt alleen met individuele mensen delen.",
   "workspaceAccessGrantsDisabled": "Je hebt geen toestemming om met mensen of groepen te delen. Bestaande toegang blijft behouden.",
-  "workspaceAccessVisibilityLabel": "Public",
-  "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
   "workspaceAccessUserBadge": "Person",
   "workspaceAccessCanEdit": "Can edit",
@@ -3402,7 +3394,6 @@
   "notificationTargetsEmpty": "Nog geen webhookbestemmingen.",
   "notificationTargetsLoadFailed": "Webhookbestemmingen konden niet worden geladen.",
   "notificationTargetsStale": "Opgeslagen, maar de lijst kon niet worden vernieuwd.",
-  "notificationTargetsNativeDescription": "Webhookbestemmingen toevoegen en beheren",
   "notificationTargetsUnavailable": "Webhookbestemmingen zijn niet beschikbaar voor dit account.",
   "notificationTargetsAccountChanged": "Het account is gewijzigd. Sluit dit en open de bestemming opnieuw.",
   "notificationTargetNewTitle": "Nieuwe bestemming",
@@ -3507,9 +3498,9 @@
   "noteSessionChangedNotice": "Het ingelogde account is gewijzigd, dus deze notitie is niet opgeslagen.",
   "noteNoAccess": "Je hebt geen toegang meer tot deze notitie.",
   "noteShare": "Notitie delen",
-  "folderShareSettings": "Deelinstellingen",
-  "chatShareAudience": "Doelgroep",
-  "chatShareAudienceDescription": "Kies wie de gedeelde chat kan openen",
+  "folderShareSettings": "Map delen",
+  "chatShareAudience": "Wie heeft toegang",
+  "chatShareAudienceDescription": "Kies wie deze chat kan openen",
   "resourceSharingSaved": "Delen bijgewerkt",
   "resourceSharingFiltered": "Opgeslagen. De server heeft slechts een deel van de gekozen toegang behouden.",
   "resourceSharingSessionChanged": "Het ingelogde account is gewijzigd, dus er is niets opgeslagen. Sluit dit en open het opnieuw.",
@@ -3517,12 +3508,7 @@
   "resourceSharingMissing": "Dit item bestaat niet meer.",
   "resourceSharingLoadFailed": "Kon niet laden wie toegang heeft.",
   "resourceSharingSaveFailed": "Kon de toegang niet opslaan. Probeer het opnieuw.",
-  "resourceAudienceLabel": "Doelgroep",
-  "resourceAudiencePrivate": "Privé",
-  "resourceAudiencePublic": "Openbaar",
-  "resourceAudienceOpen": "Open",
   "resourceAudiencePrivateHint": "Alleen de mensen en groepen hieronder kunnen het openen.",
-  "resourceAudiencePublicHint": "Elke gebruiker op deze server kan het openen.",
   "resourceAudienceOpenHint": "Iedereen met de link kan het bekijken.",
   "channelMembersSearchHint": "Leden zoeken",
   "channelMembersEmpty": "Geen leden gevonden.",
@@ -3536,8 +3522,8 @@
   "channelMembersChangeFailed": "De leden konden niet worden bijgewerkt. Probeer het opnieuw.",
   "channelMembersChangeDenied": "De server stond deze wijziging niet toe.",
   "channelMembersChangeNotPermitted": "Je kunt de leden van dit kanaal niet beheren.",
-  "chatBranchContinueFromResponse": "Doorgaan vanaf dit antwoord",
-  "chatBranchForkChat": "Chat hier vertakken",
+  "chatBranchContinueFromResponse": "Hier verdergaan",
+  "chatBranchForkChat": "Vertakken naar nieuwe chat",
   "chatBranchSwitcherSemantics": "Bewerkt bericht, versie {position} van {total}. Alle versies tonen.",
   "@chatBranchSwitcherSemantics": {
     "placeholders": {
@@ -3559,7 +3545,7 @@
       }
     }
   },
-  "chatBranchVersionCurrent": "Huidige tak",
+  "chatBranchVersionCurrent": "Nu getoond",
   "chatBranchSelectedNotice": "Doorgaan vanaf versie {position} van {total}",
   "@chatBranchSelectedNotice": {
     "placeholders": {
@@ -3571,19 +3557,19 @@
       }
     }
   },
-  "chatBranchWaitForResponse": "Wacht tot dit antwoord klaar is",
+  "chatBranchWaitForResponse": "Wacht tot dit antwoord klaar is.",
   "chatBranchUnavailable": "De takken van deze chat kunnen hier niet worden gewijzigd.",
   "chatBranchOwnerChanged": "Het ingelogde account is gewijzigd, dus er is niets aangepast.",
   "chatBranchMessageMissing": "Die versie is niet meer beschikbaar.",
   "chatForkOffline": "Ga online om deze chat te vertakken.",
-  "chatForkForbidden": "Je account mag geen chats vertakken.",
+  "chatForkForbidden": "Je account kan geen chats vertakken.",
   "chatForkSourceMissing": "De server heeft deze chat niet meer.",
-  "chatForkUnsupported": "Deze server ondersteunt het vertakken van chats niet.",
+  "chatForkUnsupported": "Deze server kan geen chats vertakken.",
   "chatForkFailed": "Kon deze chat niet vertakken. Probeer het opnieuw.",
   "codeInterpreter": "Code-interpreter",
   "codeInterpreterDescription": "Voer code uit op de server om gegevens te analyseren en bestanden te maken.",
   "codeInterpreterBrowserEngine": "Deze server voert code uit in de browser, wat Conduit niet kan.",
-  "codeInterpreterUnavailable": "De code-interpreter is niet beschikbaar voor deze server, dit account of dit model.",
+  "codeInterpreterUnavailable": "Niet beschikbaar voor deze server, dit account of dit model.",
   "folderProjectSettings": "Projectinstellingen",
   "folderProjectSettingsDescription": "Standaardwaarden voor nieuwe chats in deze map. De server past de kennis en het systeemprompt toe op elke chat erin.",
   "folderProjectModels": "Standaardmodellen",
@@ -3592,9 +3578,8 @@
   "folderProjectNoModels": "Geen standaardmodel. Nieuwe chats gebruiken je standaardmodel.",
   "folderProjectAddKnowledge": "Kennis toevoegen",
   "folderProjectAddModel": "Model toevoegen",
-  "folderProjectAddSelected": "Toevoegen",
   "folderProjectNothingToAdd": "Er is niets meer toe te voegen.",
-  "folderProjectNotAvailable": "Niet beschikbaar",
+  "folderProjectNotAvailable": "Niet beschikbaar — nieuwe chats slaan dit over",
   "folderProjectMoveUp": "{name} omhoog verplaatsen",
   "folderProjectRemove": "{name} verwijderen",
   "folderProjectKindCollection": "Kennisbank",
@@ -3608,7 +3593,6 @@
   "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTasksTitle": "Geplande taken",
   "scheduledTasksDescription": "Je Open WebUI-server voert deze taken uit volgens een eigen schema, ook als deze telefoon offline is.",
-  "scheduledTasksNeedsAdvanced": "Schakel Geavanceerd in bij Instellingen om geplande taken te beheren. Taken die al op de server staan, blijven draaien.",
   "scheduledTasksUnavailable": "Geplande taken zijn niet beschikbaar voor dit account op deze server.",
   "scheduledTasksSearchHint": "Taken zoeken",
   "scheduledTasksFilterAll": "Alle",
@@ -3656,7 +3640,7 @@
   "scheduledTaskAdvancedSchedule": "Geavanceerd schema",
   "scheduledTaskRruleLabel": "Herhalingsregel",
   "scheduledTaskRruleKept": "Dit schema gebruikt een regel die met de bedieningselementen niet te bewerken is. Het blijft zoals het is, tenzij je het wijzigt.",
-  "scheduledTaskTimezoneNote": "Tijden volgen de tijdzone van je Open WebUI-account, die door de webapp wordt ingesteld en niet per se die van dit apparaat is. De server bepaalt wanneer elke uitvoering plaatsvindt.",
+  "scheduledTaskTimezoneNote": "Tijden volgen de tijdzone van je Open WebUI-account, die kan afwijken van dit apparaat.",
   "scheduledTaskActiveLabel": "Actief",
   "scheduledTaskDestinationLabel": "Resultaat gaat naar",
   "scheduledTaskDestinationChat": "Nieuwe chat",
@@ -3689,7 +3673,7 @@
   "scheduledTaskViewChannel": "Kanaal bekijken",
   "scheduledTaskOpenResultFailed": "Dat resultaat kon niet worden geopend.",
   "scheduledTaskDelete": "Taak verwijderen",
-  "scheduledTaskDeleteConfirm": "{name} verwijderen? De server stopt met het uitvoeren ervan en de geschiedenis wordt verwijderd.",
+  "scheduledTaskDeleteConfirm": "{name} wordt niet meer uitgevoerd op de server en de uitvoeringsgeschiedenis wordt verwijderd.",
   "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTaskChangeFailed": "Deze taak kon niet worden gewijzigd.",
   "scheduledTaskTerminalKept": "Aan deze taak is een terminal gekoppeld. Die blijft behouden als je de taak bewerkt.",
@@ -3698,22 +3682,18 @@
   "queuedDraftsTitle": "Berichten in de wachtrij",
   "queuedDraftsCount": "{count, plural, one{{count} bericht in de wachtrij} other{{count} berichten in de wachtrij}}",
   "queuedDraftsSessionNote": "Berichten in de wachtrij blijven alleen bewaard zolang Conduit open is. Zodra het antwoord klaar is, worden ze samen als één bericht verzonden.",
-  "queuedDraftSendNow": "Nu verzenden",
+  "queuedDraftSendNow": "Stoppen en verzenden",
   "queuedDraftUploading": "Wachten tot een bestand is geüpload",
-  "queuedDraftFileFailed": "Een bestand is niet geüpload. Verwijder het om dit bericht te verzenden.",
+  "queuedDraftFileFailed": "Een bestand is niet geüpload. Probeer het opnieuw of verwijder het.",
   "queuedDraftsSendFailed": "De berichten in de wachtrij konden niet worden verzonden. Ze blijven in de wachtrij staan.",
   "queuedDraftsSending": "Berichten uit de wachtrij verzenden…",
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Agenda",
-  "calendarDescription": "Je Open WebUI-agenda. Afspraken staan op de server en worden getoond in de tijdzone van dit apparaat.",
   "calendarUnavailable": "De agenda is niet beschikbaar voor dit account op deze server.",
-  "calendarTimezoneNote": "Tijden worden getoond in de tijdzone van dit apparaat. Terugkerende afspraken worden door de server uitgewerkt in de tijdzone van je account.",
+  "calendarTimezoneNote": "Tijden worden getoond in de tijdzone van dit apparaat.",
   "calendarRangeLabel": "{start} – {end}",
   "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
-  "calendarEarlier": "Eerder",
-  "calendarLater": "Later",
   "calendarToday": "Vandaag",
-  "calendarAllCalendars": "Alle agenda's",
   "calendarEmpty": "Geen afspraken in deze periode.",
   "calendarLoadFailed": "De agenda kon niet worden geladen.",
   "calendarStale": "De agenda is mogelijk verouderd.",
@@ -3727,13 +3707,7 @@
   "calendarScheduledRunFailed": "Uitvoering van taak mislukt",
   "calendarScheduledEntryReadOnly": "Geplande taken worden beheerd op de pagina Geplande taken, niet als afspraken.",
   "calendarEventDetailTitle": "Afspraak",
-  "calendarEventCalendar": "Agenda: {name}",
-  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
-  "calendarEventOrganizer": "Georganiseerd door {name}",
-  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
   "calendarEventSeriesNote": "Deze afspraak is terugkerend. Wijzigingen en verwijderen gelden voor de hele reeks.",
-  "calendarEventInvitedCount": "Uitgenodigd: {count}",
-  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarRsvpPrompt": "Je antwoord",
   "calendarRsvpAccepted": "Ik kom",
   "calendarRsvpTentative": "Misschien",
@@ -3763,7 +3737,7 @@
   "calendarFieldStartTime": "Begintijd",
   "calendarFieldEnds": "Eindigt",
   "calendarFieldEndTime": "Eindtijd",
-  "calendarAddEnd": "Einde toevoegen",
+  "calendarAddEnd": "Eindtijd toevoegen",
   "calendarFieldRepeat": "Herhalen",
   "calendarRepeatNone": "Herhaalt niet",
   "calendarRepeatDaily": "Dagelijks",
@@ -3816,9 +3790,8 @@
       }
     }
   },
-  "chatDataControlsUnavailable": "Voor gegevensbeheer moet Geavanceerd zijn ingeschakeld en moet je zijn ingelogd bij een Open WebUI-account.",
-  "chatDataControlsMediaNote": "Een back-up bevat de chatgeschiedenis, instellingen en verwijzingen naar bijlagen die op de server zijn opgeslagen. De bijgevoegde bestanden en afbeeldingen zelf zijn niet inbegrepen.",
-  "chatDataControlsLocalOnly": "Alleen op dit apparaat: {count}",
+  "chatDataControlsMediaNote": "Een export bevat de chatgeschiedenis, instellingen en verwijzingen naar bijlagen die op de server zijn opgeslagen. De bijgevoegde bestanden en afbeeldingen zelf zijn niet inbegrepen.",
+  "chatDataControlsLocalOnly": "{count, plural, =1{1 chat staat alleen op dit apparaat} other{{count} chats staan alleen op dit apparaat}}",
   "@chatDataControlsLocalOnly": {
     "placeholders": {
       "count": {
@@ -3826,7 +3799,7 @@
       }
     }
   },
-  "chatDataControlsUnsent": "Met wijzigingen die de server niet heeft ontvangen: {count}",
+  "chatDataControlsUnsent": "{count, plural, =1{1 chat heeft wijzigingen die de server niet heeft ontvangen} other{{count} chats hebben wijzigingen die de server niet heeft ontvangen}}",
   "@chatDataControlsUnsent": {
     "placeholders": {
       "count": {
@@ -3834,10 +3807,10 @@
       }
     }
   },
-  "chatDataControlsUnsyncedNote": "Een serverback-up laat deze weg totdat ze zijn verzonden.",
+  "chatDataControlsUnsyncedNote": "Een export laat deze weg totdat ze zijn verzonden.",
   "chatDataControlsSyncNow": "Nu synchroniseren",
   "chatDataControlsSyncing": "Synchroniseren…",
-  "chatDataControlsBackupSection": "Back-up en herstel",
+  "chatDataControlsBackupSection": "Exporteren en importeren",
   "chatDataControlsManageSection": "Alle chats",
   "chatDataControlsExportLibrary": "Alle chats exporteren",
   "chatDataControlsImport": "Chats importeren",
@@ -3853,7 +3826,7 @@
       }
     }
   },
-  "chatDataControlsExportReady": "Back-up gereed. Opgeslagen chats: {count}",
+  "chatDataControlsExportReady": "Export gereed. Opgeslagen chats: {count}",
   "@chatDataControlsExportReady": {
     "placeholders": {
       "count": {
@@ -3861,10 +3834,10 @@
       }
     }
   },
-  "chatDataControlsExportEmpty": "De server heeft geen chats om een back-up van te maken.",
-  "chatDataControlsExportFailed": "De back-up is niet opgeslagen. De export is onderbroken of onvolledig.",
+  "chatDataControlsExportEmpty": "De server heeft geen chats om te exporteren.",
+  "chatDataControlsExportFailed": "Er is niets opgeslagen. De export is onderbroken of onvolledig.",
   "chatDataControlsExportStopped": "Export gestopt. Er is niets opgeslagen.",
-  "chatDataControlsExportConfirmTitle": "Back-up maken van de kopie op de server?",
+  "chatDataControlsExportConfirmTitle": "De kopie op de server exporteren?",
   "chatDataControlsExportConfirmMessage": "Dit slaat de chats van {account} op die op {server} staan. Chats die alleen op dit apparaat bestaan en wijzigingen die de server niet heeft ontvangen, zijn niet inbegrepen.",
   "@chatDataControlsExportConfirmMessage": {
     "placeholders": {
@@ -3876,7 +3849,7 @@
       }
     }
   },
-  "chatDataControlsExportAction": "Back-up maken",
+  "chatDataControlsExportAction": "Exporteren",
   "chatDataControlsImportConfirmTitle": "Deze chats importeren?",
   "chatDataControlsImportConfirmMessage": "De chats uit het bestand toevoegen aan {account} op {server}? Chats: {chats}. Berichten: {messages}. Chats die er al zijn, worden niet vervangen; importeren voegt kopieën toe.",
   "@chatDataControlsImportConfirmMessage": {
@@ -3952,10 +3925,8 @@
       }
     }
   },
-  "chatDataControlsDiscardAndDelete": "Negeren en verwijderen",
   "chatDataControlsResponseRunning": "Er loopt nog een reactie. Stop die en probeer het opnieuw.",
   "chatDataControlsLocalChanged": "Een chat die alleen op dit apparaat stond, heeft tijdens het wachten de server bereikt. Er is niets gewijzigd. Controleer het en probeer het opnieuw.",
-  "chatDataControlsDone": "Klaar.",
   "chatDataControlsRefused": "De server kon dat niet doen. Er is niets gewijzigd.",
   "chatDataControlsUnknown": "De server antwoordde niet, dus het resultaat is onbekend. Controleer je chats; het opnieuw doen is veilig.",
   "chatDataControlsOwnerChanged": "Het ingelogde account is gewijzigd. Er is niets uitgevoerd.",
@@ -3969,7 +3940,7 @@
   "chatExportUnsentNote": "Dit omvat wijzigingen die de server nog niet heeft ontvangen.",
   "chatExportFailed": "De chat kon niet worden geëxporteerd.",
   "chatDataControlsWorkChanged": "Er verschenen tijdens het wachten niet-verzonden wijzigingen op dit apparaat. Er is niets verwijderd. Controleer het en probeer het opnieuw.",
-  "chatComparisonTabsLabel": "Modelantwoorden",
+  "chatComparisonTabsLabel": "Modelreacties",
   "chatComparisonSlotLabel": "{model} · {number}",
   "@chatComparisonSlotLabel": {
     "placeholders": {
@@ -3986,14 +3957,14 @@
   "chatComparisonSlotFailed": "Mislukt",
   "chatMergedResponseTitle": "Samengevoegd antwoord",
   "chatCompareModelsAction": "Modellen vergelijken",
-  "chatCompareModelsDescription": "Stuur dit bericht naar twee modellen en vergelijk hun antwoorden.",
-  "chatCompareNeedsMessage": "Typ eerst een bericht en vergelijk dan modellen.",
+  "chatCompareModelsDescription": "Stuur naar twee modellen en vergelijk de reacties.",
+  "chatCompareNeedsMessage": "Typ eerst een bericht",
   "chatCompareFirstModel": "Eerste model",
   "chatCompareSecondModel": "Tweede model",
   "chatCompareChooseModel": "Kies een model",
   "chatCompareStart": "Vergelijken",
   "chatCompareErrorUnavailable": "Modellen vergelijken is niet beschikbaar in deze chat.",
-  "chatCompareErrorModelUnavailable": "Niet beschikbaar op deze server: {models}.",
+  "chatCompareErrorModelUnavailable": "{count, plural, =1{{models} is niet beschikbaar op deze server.} other{{models} zijn niet beschikbaar op deze server.}}",
   "@chatCompareErrorModelUnavailable": {
     "placeholders": {
       "models": {
@@ -4001,7 +3972,7 @@
       }
     }
   },
-  "chatCompareErrorVision": "Geen ondersteuning voor afbeeldingen: {models}. Verwijder de afbeelding of kies andere modellen.",
+  "chatCompareErrorVision": "{count, plural, =1{{models} kan geen afbeeldingen lezen. Verwijder de afbeelding of kies een ander model.} other{{models} kunnen geen afbeeldingen lezen. Verwijder de afbeelding of kies andere modellen.}}",
   "@chatCompareErrorVision": {
     "placeholders": {
       "models": {
@@ -4009,7 +3980,7 @@
       }
     }
   },
-  "chatCompareErrorTerminal": "Geen ondersteuning voor de geselecteerde terminal: {models}. Schakel de terminal uit of kies andere modellen.",
+  "chatCompareErrorTerminal": "{count, plural, =1{{models} kan de geselecteerde terminal niet gebruiken. Schakel de terminal uit of kies een ander model.} other{{models} kunnen de geselecteerde terminal niet gebruiken. Schakel de terminal uit of kies andere modellen.}}",
   "@chatCompareErrorTerminal": {
     "placeholders": {
       "models": {
@@ -4017,7 +3988,7 @@
       }
     }
   },
-  "chatCompareErrorInterpreter": "Geen ondersteuning voor de code-interpreter: {models}. Schakel de interpreter uit of kies andere modellen.",
+  "chatCompareErrorInterpreter": "{count, plural, =1{{models} kan de code-interpreter niet uitvoeren. Schakel de interpreter uit of kies een ander model.} other{{models} kunnen de code-interpreter niet uitvoeren. Schakel de interpreter uit of kies andere modellen.}}",
   "@chatCompareErrorInterpreter": {
     "placeholders": {
       "models": {
@@ -4025,7 +3996,7 @@
       }
     }
   },
-  "chatCompareErrorEffortOverride": "Deze chat slaat een redeneerniveau op dat deze modellen niet kunnen gebruiken: {models}. Verwijder het in de chatinstellingen of kies andere modellen.",
+  "chatCompareErrorEffortOverride": "{count, plural, =1{Deze chat slaat een redeneerniveau op dat {models} niet kan gebruiken. Verwijder het in de chatinstellingen of kies een ander model.} other{Deze chat slaat een redeneerniveau op dat {models} niet kunnen gebruiken. Verwijder het in de chatinstellingen of kies andere modellen.}}",
   "@chatCompareErrorEffortOverride": {
     "placeholders": {
       "models": {
@@ -4037,15 +4008,107 @@
   "chatMergeResponsesAction": "Antwoorden samenvoegen",
   "chatMergeStopAction": "Samenvoegen stoppen",
   "chatMergeErrorUnavailable": "Deze server kan antwoorden niet samenvoegen.",
-  "chatMergeErrorFailed": "Het samenvoegen van de antwoorden is mislukt. De oorspronkelijke antwoorden zijn ongewijzigd.",
-  "chatMergeErrorNotMergeable": "Elk antwoord moet met tekst eindigen voordat ze kunnen worden samengevoegd.",
+  "chatMergeErrorFailed": "Het samenvoegen van de reacties is mislukt. De oorspronkelijke reacties zijn ongewijzigd.",
+  "chatMergeErrorNotMergeable": "Elke reactie moet met tekst eindigen voordat ze kunnen worden samengevoegd.",
   "chatMergeErrorOwnerChanged": "Het account of de chat is gewijzigd, dus het samenvoegen is gestopt.",
   "chatComparisonStopAnswerAction": "Deze reactie stoppen",
-  "chatMergeChooseDescription": "Kies de antwoorden die je wilt samenvoegen. Kies er minstens twee; de oorspronkelijke antwoorden blijven zoals ze zijn.",
+  "chatMergeChooseDescription": "Kies de reacties die je wilt samenvoegen. Kies er minstens twee; de originelen blijven zoals ze zijn.",
   "folderProjectComparisonFallbackNotice": "Niet alle opgeslagen modellen van dit project kunnen worden gebruikt, dus de chat begint met minder. Een vergelijking gebruikt er precies twee.",
   "advancedFeaturesFooter": "Voegt modelvergelijking, instellingen per chat, toolinstellingen, geplande taken, persoonlijke verbindingen, webhooks en gegevensbeheer toe. Uitschakelen verbergt ze alleen; wat al is ingesteld, blijft werken.",
   "profileAdvancedFooter": "Getoond omdat Geavanceerd aan staat in Instellingen > Chat.",
   "advancedRequiredTitle": "Onderdeel van Geavanceerd",
   "advancedRequiredMessage": "{feature} hoort bij Geavanceerd. Zet Geavanceerd aan om het te gebruiken. Wat al is ingesteld, blijft werken.",
-  "advancedTurnOn": "Geavanceerd aanzetten"
+  "advancedTurnOn": "Geavanceerd aanzetten",
+  "promptOverridesTitle": "Promptoverschrijvingen",
+  "chatSettingsStopHint": "Jouw standaard (gescheiden door komma's)",
+  "chatSettingsUseYourDefault": "Jouw standaard gebruiken",
+  "personalToolSettingsSaved": "Gereedschapsinstellingen opgeslagen",
+  "personalToolSettingsLoadFailed": "Kan gereedschapsinstellingen niet laden.",
+  "personalToolSettingsSaveFailed": "Kan gereedschapsinstellingen niet opslaan.",
+  "scheduledTaskDeleteTitle": "Geplande taak verwijderen?",
+  "scheduledTaskRunning": "Bezig met uitvoeren…",
+  "scheduledTaskRunFinished": "Uitvoering voltooid.",
+  "scheduledTaskRunFailedNotice": "De uitvoering is mislukt. Zie Geschiedenis voor details.",
+  "scheduledTaskLastRunFailed": "Laatste uitvoering mislukt",
+  "scheduledTaskRruleRuns": "Draait: {summary}",
+  "scheduledTaskFolderSearchHint": "Mappen zoeken",
+  "scheduledTasksEmptyHint": "Laat een model je instructies volgens schema uitvoeren, zoals een ochtendoverzicht van het nieuws.",
+  "scheduledTasksShowAll": "Alle taken tonen",
+  "personalConnectionsEmptyToolServersHint": "Voeg een OpenAPI-toolserver toe om de tools ervan in je chats te gebruiken.",
+  "personalConnectionsEmptyTerminalsHint": "Voeg een terminalserver toe die modellen vanuit je chats kunnen gebruiken.",
+  "chatCompareModelPair": "{first} en {second}",
+  "chatDataControlsNoAccount": "Log in bij een Open WebUI-account om de chats ervan te beheren.",
+  "chatDataControlsAccountChanged": "Het account is gewijzigd. Ga terug en open Gegevensbeheer opnieuw.",
+  "chatDataControlsArchiveAllConfirm": "Alles archiveren",
+  "chatDataControlsUnarchiveAllConfirm": "Alles dearchiveren",
+  "chatDataControlsUnshareAllConfirm": "Links verwijderen",
+  "chatDataControlsDeleteAllConfirm": "Alle chats verwijderen",
+  "chatDataControlsDiscardAndDeleteConfirm": "Negeren en alle chats verwijderen",
+  "chatDataControlsDeleteFooter": "Verwijdert alle chats van {account} van {server}. Chats die alleen op dit apparaat staan, blijven bewaard.",
+  "chatDataControlsImporting": "{count, plural, =1{1 chat importeren…} other{{count} chats importeren…}}",
+  "chatDataControlsImportFooter": "Importeren voegt kopieën toe. Het vervangt nooit chats die al op de server staan.",
+  "nativeSheetOptionUnavailable": "Die optie is nu niet beschikbaar.",
+  "nativeWebhookDestinationsCount": "{count, plural, =0{Geen} =1{1 bestemming} other{{count} bestemmingen}}",
+  "chatBranchForkOpened": "Nieuwe chat vanaf hier geopend",
+  "queuedDraftStopFailed": "Kon het huidige antwoord niet stoppen. Je bericht staat nog in de wachtrij.",
+  "queuedDraftRemoved": "Uit de wachtrij verwijderd",
+  "queuedDraftUndo": "Ongedaan maken",
+  "chatExportPreparing": "Export voorbereiden…",
+  "chatStopResponseFailed": "Kon dit antwoord niet stoppen.",
+  "calendarStartsAt": "Begint om {time}",
+  "calendarEndsAt": "Eindigt om {time}",
+  "calendarDayToday": "Vandaag · {date}",
+  "calendarDayTomorrow": "Morgen · {date}",
+  "calendarPreviousDays": "{count, plural, =1{Vorige dag} other{Vorige {count} dagen}}",
+  "calendarNextDays": "{count, plural, =1{Volgende dag} other{Volgende {count} dagen}}",
+  "calendarRemoveEnd": "Eindtijd verwijderen",
+  "calendarEventReadOnlyNotInvited": "Je kunt deze afspraak niet wijzigen.",
+  "calendarFieldOrganizer": "Organisator",
+  "calendarColorName": "{color, select, blue{Blauw} green{Groen} amber{Amber} red{Rood} purple{Paars} teal{Groenblauw} other{Kleur}}",
+  "calendarVisibilityFooter": "Afspraken uit aangevinkte agenda's worden getoond. Tik op een agenda om de afspraken ervan te tonen of te verbergen.",
+  "personalizationMemoryTypeUserDescription": "Een voorkeur, feit of instructie over jou.",
+  "personalizationMemoryTypeContextDescription": "Achtergrond om in toekomstige chats rekening mee te houden.",
+  "personalizationMemoryTypeUnknown": "Deze herinnering heeft een type dat deze app niet herkent. Het blijft zoals het is, tenzij je er een kiest.",
+  "personalizationMemoryAccountChanged": "Het account is gewijzigd. Sluit dit en open de herinnering opnieuw.",
+  "notificationTargetDeliveryAwayDescription": "Alleen wanneer je Open WebUI niet gebruikt.",
+  "notificationTargetDeliveryAlwaysDescription": "Elke keer, ook als je actief bent.",
+  "notificationTargetTestNeedsSave": "Sla je wijzigingen op om ze te testen.",
+  "notificationTargetNameHelper": "Kan later niet worden gewijzigd. Laat leeg om de host van de URL te gebruiken.",
+  "notificationTargetIdLabel": "Naam",
+  "codeInterpreterTurnOff": "Uitzetten",
+  "libraryShareTitle": "Delen",
+  "libraryGeneralAccess": "Algemene toegang",
+  "libraryAccessOnlyPeopleAdded": "Alleen toegevoegde personen",
+  "libraryAccessEveryoneOnServer": "Iedereen op deze server",
+  "libraryAccessAnyoneWithLink": "Iedereen met de link",
+  "libraryAccessEveryoneHint": "Iedereen met een account op deze server kan het bekijken.",
+  "libraryAccessLinkNotAllowed": "Je hebt geen toestemming om via een link te delen.",
+  "libraryAccessCanView": "Kan bekijken",
+  "libraryAccessLevelFor": "Toegang voor {name}",
+  "libraryAccessRemovePrincipal": "{name} verwijderen",
+  "libraryAccessUnknownPerson": "Onbekende persoon",
+  "libraryAccessUnknownGroup": "Onbekende groep",
+  "libraryAccessOwner": "Eigenaar",
+  "libraryAccessOwnerOnlyNotice": "Alleen de eigenaar en mensen die kunnen bewerken, kunnen wijzigen wie toegang heeft.",
+  "libraryAccessAccountCantShare": "Je account kan dit niet delen.",
+  "libraryAccessPartialSave": "Opgeslagen, maar {names} kon geen toegang krijgen.",
+  "libraryAccessDone": "Gereed",
+  "libraryAccessSummaryOnlyYou": "Alleen jij",
+  "libraryAccessSummaryShared": "{count, plural, =1{Gedeeld met 1 persoon of groep} other{Gedeeld met {count} personen of groepen}}",
+  "libraryPickerAddCount": "{count, plural, =0{Toevoegen} other{Toevoegen ({count})}}",
+  "libraryPickerHasAccess": "Heeft toegang",
+  "libraryPickerAlreadyMember": "Al lid",
+  "libraryPickerSearchGroups": "Groepen zoeken",
+  "libraryChannelRemoveTitle": "{name} verwijderen?",
+  "libraryChannelRemoveMessage": "Diegene ziet dit kanaal en de berichten niet meer.",
+  "libraryChannelRemoveConfirm": "Verwijderen",
+  "libraryChannelMemberRemoved": "{name} verwijderd",
+  "libraryChannelMembersAdded": "Leden toegevoegd",
+  "libraryNoteSharedBy": "Gedeeld door {name}. Je kunt deze notitie bekijken, maar niet bewerken.",
+  "libraryNoteOpen": "Openen",
+  "chatDataControlsArchivedAll": "Alle chats gearchiveerd.",
+  "chatDataControlsUnarchivedAll": "Alle chats uit het archief gehaald.",
+  "chatDataControlsUnsharedAll": "Alle deellinks verwijderd.",
+  "chatDataControlsDeletedAll": "Alle chats verwijderd.",
+  "notificationTargetMakeDefaultNeedsSave": "Sla je wijzigingen op om dit als standaard in te stellen."
 }

@@ -757,7 +757,7 @@
   "chatSettingsSystemPrompt": "시스템 프롬프트",
   "chatSettingsSystemPromptEmptyNote": "비어 있는 프롬프트는 기본 프롬프트가 있어도 시스템 프롬프트를 전혀 보내지 않습니다. 기본값을 사용하려면 상속을 선택하세요.",
   "chatSettingsParameters": "매개변수",
-  "chatSettingsInherit": "상속",
+  "chatSettingsInherit": "내 기본값",
   "chatSettingsModelDefault": "모델 기본값",
   "chatSettingsCustom": "사용자 지정",
   "chatSettingsResetAll": "모두 초기화",
@@ -835,7 +835,6 @@
   "personalConnectionsSpecInvalid": "올바른 OpenAPI JSON 문서를 입력하세요.",
   "personalConnectionsSelectionCleared": "연결이 변경되어 이 채팅에서 제거되었습니다: {names}",
   "personalConnectionsTerminalOneActive": "터미널 하나를 켜면 나머지는 꺼집니다.",
-  "personalConnectionsNeedsAdvanced": "개인 연결을 관리하려면 채팅 설정에서 고급을 켜세요.",
   "personalConnectionsNoAccount": "개인 연결을 관리하려면 Open WebUI 계정에 로그인하세요.",
   "chatSaved": "채팅이 기록에 저장되었습니다",
   "chatSaveFailed": "채팅 저장에 실패했습니다",
@@ -1084,12 +1083,9 @@
   "clearAllMemoriesDescription": "계정의 모든 저장된 메모리를 영구적으로 삭제합니다.",
   "noMemoriesSaved": "아직 저장된 메모리가 없습니다.",
   "memoryUpdatedAt": "{formattedTime} 업데이트됨",
-  "advancedPromptOverrides": "고급 프롬프트 재정의",
   "advancedPromptOverridesDescription": "모델 수준 프롬프트 재정의는 앱 및 채팅에 있습니다.",
   "audioSettingsTitle": "오디오",
   "audioSettingsSubtitle": "음성 텍스트 변환 및 텍스트 음성 변환",
-  "appAndChat": "앱 및 채팅",
-  "appAndChatSubtitle": "테마, 언어, 채팅 동작 및 고급 재정의",
   "accountSettingsTitle": "계정",
   "accountSettingsSubtitle": "프로필 세부 정보 및 비밀번호 관리",
   "accountDetails": "계정 세부 정보",
@@ -1740,8 +1736,6 @@
   "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
   "workspaceSearchHint": "Search workspace resources",
   "workspaceLoadMore": "Load more",
-  "workspaceAccessTitle": "Sharing & access",
-  "workspaceAccessSharingDisabled": "Sharing is turned off for this resource, so access is read-only.",
   "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
   "workspaceAccessPeopleHeading": "People & groups",
   "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
@@ -1751,8 +1745,6 @@
   "workspaceAccessAddUsers": "사용자 추가",
   "workspaceAccessGroupsDisabled": "그룹과의 공유가 비활성화되어 있어 개별 사용자와만 공유할 수 있습니다.",
   "workspaceAccessGrantsDisabled": "사용자 또는 그룹과 공유할 권한이 없습니다. 기존 접근 권한은 유지됩니다.",
-  "workspaceAccessVisibilityLabel": "Public",
-  "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
   "workspaceAccessUserBadge": "Person",
   "workspaceAccessCanEdit": "Can edit",
@@ -3180,7 +3172,6 @@
   "notificationTargetsEmpty": "아직 웹훅 대상이 없습니다.",
   "notificationTargetsLoadFailed": "웹훅 대상을 불러오지 못했습니다.",
   "notificationTargetsStale": "저장했지만 목록을 새로 고치지 못했습니다.",
-  "notificationTargetsNativeDescription": "웹훅 대상 추가 및 관리",
   "notificationTargetsUnavailable": "이 계정에서는 웹훅 대상을 사용할 수 없습니다.",
   "notificationTargetsAccountChanged": "계정이 변경되었습니다. 이 화면을 닫고 대상을 다시 여세요.",
   "notificationTargetNewTitle": "새 대상",
@@ -3279,9 +3270,9 @@
   "noteSessionChangedNotice": "로그인한 계정이 변경되어 이 노트를 저장하지 않았습니다.",
   "noteNoAccess": "더 이상 이 노트에 접근할 수 없습니다.",
   "noteShare": "노트 공유",
-  "folderShareSettings": "공유 설정",
-  "chatShareAudience": "공개 대상",
-  "chatShareAudienceDescription": "공유된 채팅을 열 수 있는 사람을 선택하세요",
+  "folderShareSettings": "폴더 공유",
+  "chatShareAudience": "액세스 권한이 있는 사람",
+  "chatShareAudienceDescription": "이 채팅을 열 수 있는 사람을 선택하세요",
   "resourceSharingSaved": "공유 설정을 업데이트했습니다",
   "resourceSharingFiltered": "저장했습니다. 서버가 선택한 접근 권한의 일부만 유지했습니다.",
   "resourceSharingSessionChanged": "로그인한 계정이 변경되어 아무것도 저장되지 않았습니다. 이 화면을 닫고 다시 여세요.",
@@ -3289,12 +3280,7 @@
   "resourceSharingMissing": "이 항목이 더 이상 존재하지 않습니다.",
   "resourceSharingLoadFailed": "접근 권한이 있는 사람을 불러오지 못했습니다.",
   "resourceSharingSaveFailed": "접근 권한을 저장하지 못했습니다. 다시 시도해 주세요.",
-  "resourceAudienceLabel": "공개 대상",
-  "resourceAudiencePrivate": "비공개",
-  "resourceAudiencePublic": "전체 공개",
-  "resourceAudienceOpen": "링크 공개",
   "resourceAudiencePrivateHint": "아래에 표시된 사용자와 그룹만 열 수 있습니다.",
-  "resourceAudiencePublicHint": "이 서버의 모든 사용자가 열 수 있습니다.",
   "resourceAudienceOpenHint": "링크가 있는 사람은 누구나 볼 수 있습니다.",
   "channelMembersSearchHint": "멤버 검색",
   "channelMembersEmpty": "멤버를 찾을 수 없습니다.",
@@ -3308,8 +3294,8 @@
   "channelMembersChangeFailed": "멤버를 업데이트하지 못했습니다. 다시 시도해 주세요.",
   "channelMembersChangeDenied": "서버에서 이 변경을 허용하지 않았습니다.",
   "channelMembersChangeNotPermitted": "이 채널의 멤버를 관리할 권한이 없습니다.",
-  "chatBranchContinueFromResponse": "이 응답에서 계속하기",
-  "chatBranchForkChat": "여기서 채팅 분기",
+  "chatBranchContinueFromResponse": "여기서 계속하기",
+  "chatBranchForkChat": "새 채팅으로 분기",
   "chatBranchSwitcherSemantics": "수정된 메시지, 버전 {position}/{total}. 모든 버전 보기.",
   "@chatBranchSwitcherSemantics": {
     "placeholders": {
@@ -3331,7 +3317,7 @@
       }
     }
   },
-  "chatBranchVersionCurrent": "현재 분기",
+  "chatBranchVersionCurrent": "현재 표시됨",
   "chatBranchSelectedNotice": "버전 {position}/{total}에서 이어가는 중",
   "@chatBranchSelectedNotice": {
     "placeholders": {
@@ -3343,19 +3329,19 @@
       }
     }
   },
-  "chatBranchWaitForResponse": "이 응답이 끝날 때까지 기다려 주세요",
+  "chatBranchWaitForResponse": "이 응답이 끝날 때까지 기다려 주세요.",
   "chatBranchUnavailable": "이 채팅의 분기는 여기서 변경할 수 없습니다.",
   "chatBranchOwnerChanged": "로그인한 계정이 변경되어 아무것도 변경되지 않았습니다.",
   "chatBranchMessageMissing": "해당 버전은 더 이상 사용할 수 없습니다.",
   "chatForkOffline": "이 채팅을 분기하려면 온라인 상태여야 합니다.",
-  "chatForkForbidden": "이 계정은 채팅을 분기할 수 없습니다.",
+  "chatForkForbidden": "이 계정으로는 채팅을 분기할 수 없습니다.",
   "chatForkSourceMissing": "서버에 더 이상 이 채팅이 없습니다.",
-  "chatForkUnsupported": "이 서버는 채팅 분기를 지원하지 않습니다.",
+  "chatForkUnsupported": "이 서버에서는 채팅을 분기할 수 없습니다.",
   "chatForkFailed": "이 채팅을 분기하지 못했습니다. 다시 시도하세요.",
   "codeInterpreter": "코드 인터프리터",
   "codeInterpreterDescription": "서버에서 코드를 실행해 데이터를 분석하고 파일을 만듭니다.",
   "codeInterpreterBrowserEngine": "이 서버는 브라우저에서 코드를 실행하는데, Conduit은 이를 지원하지 않습니다.",
-  "codeInterpreterUnavailable": "이 서버, 계정 또는 모델에서는 코드 인터프리터를 사용할 수 없습니다.",
+  "codeInterpreterUnavailable": "이 서버, 계정 또는 모델에서는 사용할 수 없습니다.",
   "folderProjectSettings": "프로젝트 설정",
   "folderProjectSettingsDescription": "이 폴더의 새 채팅에 적용되는 기본값입니다. 서버가 폴더 안의 모든 채팅에 지식과 시스템 프롬프트를 적용합니다.",
   "folderProjectModels": "기본 모델",
@@ -3364,9 +3350,8 @@
   "folderProjectNoModels": "기본 모델이 없습니다. 새 채팅은 내 기본 모델을 사용합니다.",
   "folderProjectAddKnowledge": "지식 추가",
   "folderProjectAddModel": "모델 추가",
-  "folderProjectAddSelected": "추가",
   "folderProjectNothingToAdd": "더 추가할 항목이 없습니다.",
-  "folderProjectNotAvailable": "사용할 수 없음",
+  "folderProjectNotAvailable": "사용할 수 없음 — 새 채팅에서 건너뜁니다",
   "folderProjectMoveUp": "{name} 위로 이동",
   "folderProjectRemove": "{name} 제거",
   "folderProjectKindCollection": "지식 베이스",
@@ -3380,7 +3365,6 @@
   "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTasksTitle": "예약된 작업",
   "scheduledTasksDescription": "이 휴대폰이 오프라인일 때도 Open WebUI 서버가 자체 일정에 따라 이 작업을 실행합니다.",
-  "scheduledTasksNeedsAdvanced": "예약된 작업을 관리하려면 설정에서 고급 기능을 켜세요. 서버에 이미 있는 작업은 계속 실행됩니다.",
   "scheduledTasksUnavailable": "이 서버에서는 이 계정에 예약된 작업을 사용할 수 없습니다.",
   "scheduledTasksSearchHint": "작업 검색",
   "scheduledTasksFilterAll": "전체",
@@ -3428,7 +3412,7 @@
   "scheduledTaskAdvancedSchedule": "고급 일정",
   "scheduledTaskRruleLabel": "반복 규칙",
   "scheduledTaskRruleKept": "이 일정은 컨트롤로 편집할 수 없는 규칙을 사용합니다. 변경하지 않으면 그대로 유지됩니다.",
-  "scheduledTaskTimezoneNote": "시간은 이 기기가 아니라 웹 앱에서 설정한 Open WebUI 계정의 시간대를 따릅니다. 각 실행 시점은 서버가 결정합니다.",
+  "scheduledTaskTimezoneNote": "시간은 Open WebUI 계정의 시간대를 따르며, 이 기기와 다를 수 있습니다.",
   "scheduledTaskActiveLabel": "활성",
   "scheduledTaskDestinationLabel": "결과 전달 위치",
   "scheduledTaskDestinationChat": "새 채팅",
@@ -3461,7 +3445,7 @@
   "scheduledTaskViewChannel": "채널 보기",
   "scheduledTaskOpenResultFailed": "해당 결과를 열 수 없습니다.",
   "scheduledTaskDelete": "작업 삭제",
-  "scheduledTaskDeleteConfirm": "{name}을(를) 삭제하시겠습니까? 서버가 이 작업 실행을 중단하며 기록도 삭제됩니다.",
+  "scheduledTaskDeleteConfirm": "{name} 작업이 서버에서 더 이상 실행되지 않으며 실행 기록도 삭제됩니다.",
   "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTaskChangeFailed": "이 작업을 변경하지 못했습니다.",
   "scheduledTaskTerminalKept": "이 작업에는 터미널이 연결되어 있습니다. 편집해도 유지됩니다.",
@@ -3470,22 +3454,18 @@
   "queuedDraftsTitle": "대기 중인 메시지",
   "queuedDraftsCount": "대기 중인 메시지 {count}개",
   "queuedDraftsSessionNote": "대기 중인 메시지는 Conduit이 열려 있는 동안에만 유지됩니다. 응답이 끝나면 하나의 메시지로 함께 전송됩니다.",
-  "queuedDraftSendNow": "지금 보내기",
+  "queuedDraftSendNow": "중지 후 보내기",
   "queuedDraftUploading": "파일 업로드가 끝나기를 기다리는 중",
-  "queuedDraftFileFailed": "업로드하지 못한 파일이 있습니다. 이 메시지를 보내려면 파일을 제거하세요.",
+  "queuedDraftFileFailed": "업로드하지 못한 파일이 있습니다. 다시 시도하거나 제거하세요.",
   "queuedDraftsSendFailed": "대기 중인 메시지를 보내지 못했습니다. 대기열에 그대로 남아 있습니다.",
   "queuedDraftsSending": "대기 중인 메시지를 보내는 중…",
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "캘린더",
-  "calendarDescription": "Open WebUI 캘린더입니다. 일정은 서버에 저장되며 이 기기의 시간대로 표시됩니다.",
   "calendarUnavailable": "이 서버에서는 이 계정으로 캘린더를 사용할 수 없습니다.",
-  "calendarTimezoneNote": "시간은 이 기기의 시간대로 표시됩니다. 반복 일정은 서버가 계정의 시간대를 기준으로 펼칩니다.",
+  "calendarTimezoneNote": "시간은 이 기기의 시간대로 표시됩니다.",
   "calendarRangeLabel": "{start} – {end}",
   "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
-  "calendarEarlier": "이전",
-  "calendarLater": "다음",
   "calendarToday": "오늘",
-  "calendarAllCalendars": "모든 캘린더",
   "calendarEmpty": "이 기간에는 일정이 없습니다.",
   "calendarLoadFailed": "캘린더를 불러오지 못했습니다.",
   "calendarStale": "캘린더가 최신이 아닐 수 있습니다.",
@@ -3499,13 +3479,7 @@
   "calendarScheduledRunFailed": "작업 실행 실패",
   "calendarScheduledEntryReadOnly": "예약된 작업은 일정이 아니라 예약된 작업 페이지에서 관리합니다.",
   "calendarEventDetailTitle": "일정",
-  "calendarEventCalendar": "캘린더: {name}",
-  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
-  "calendarEventOrganizer": "주최자: {name}",
-  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
   "calendarEventSeriesNote": "이 일정은 반복됩니다. 변경 및 삭제는 전체 시리즈에 적용됩니다.",
-  "calendarEventInvitedCount": "초대됨: {count}",
-  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarRsvpPrompt": "내 응답",
   "calendarRsvpAccepted": "참석",
   "calendarRsvpTentative": "미정",
@@ -3535,7 +3509,7 @@
   "calendarFieldStartTime": "시작 시간",
   "calendarFieldEnds": "종료",
   "calendarFieldEndTime": "종료 시간",
-  "calendarAddEnd": "종료 추가",
+  "calendarAddEnd": "종료 시간 추가",
   "calendarFieldRepeat": "반복",
   "calendarRepeatNone": "반복 안 함",
   "calendarRepeatDaily": "매일",
@@ -3588,9 +3562,8 @@
       }
     }
   },
-  "chatDataControlsUnavailable": "데이터 제어를 사용하려면 고급 기능을 켜고 Open WebUI 계정에 로그인해야 합니다.",
-  "chatDataControlsMediaNote": "백업에는 서버에 저장된 채팅 기록, 설정, 첨부 파일 참조가 포함됩니다. 첨부된 파일과 이미지 자체는 포함되지 않습니다.",
-  "chatDataControlsLocalOnly": "이 기기에만 있음: {count}",
+  "chatDataControlsMediaNote": "내보내기에는 서버에 저장된 채팅 기록, 설정, 첨부 파일 참조가 포함됩니다. 첨부된 파일과 이미지 자체는 포함되지 않습니다.",
+  "chatDataControlsLocalOnly": "{count, plural, other{채팅 {count}개가 이 기기에만 있습니다}}",
   "@chatDataControlsLocalOnly": {
     "placeholders": {
       "count": {
@@ -3598,7 +3571,7 @@
       }
     }
   },
-  "chatDataControlsUnsent": "서버가 받지 못한 변경 사항 있음: {count}",
+  "chatDataControlsUnsent": "{count, plural, other{채팅 {count}개에 서버가 받지 못한 변경 사항이 있습니다}}",
   "@chatDataControlsUnsent": {
     "placeholders": {
       "count": {
@@ -3606,10 +3579,10 @@
       }
     }
   },
-  "chatDataControlsUnsyncedNote": "서버 백업에는 이 항목이 전송될 때까지 포함되지 않습니다.",
+  "chatDataControlsUnsyncedNote": "내보내기에는 이 항목이 전송될 때까지 포함되지 않습니다.",
   "chatDataControlsSyncNow": "지금 동기화",
   "chatDataControlsSyncing": "동기화 중…",
-  "chatDataControlsBackupSection": "백업 및 복원",
+  "chatDataControlsBackupSection": "내보내기 및 가져오기",
   "chatDataControlsManageSection": "모든 채팅",
   "chatDataControlsExportLibrary": "모든 채팅 내보내기",
   "chatDataControlsImport": "채팅 가져오기",
@@ -3625,7 +3598,7 @@
       }
     }
   },
-  "chatDataControlsExportReady": "백업이 준비되었습니다. 저장된 채팅: {count}",
+  "chatDataControlsExportReady": "내보내기가 준비되었습니다. 저장된 채팅: {count}",
   "@chatDataControlsExportReady": {
     "placeholders": {
       "count": {
@@ -3633,10 +3606,10 @@
       }
     }
   },
-  "chatDataControlsExportEmpty": "서버에 백업할 채팅이 없습니다.",
-  "chatDataControlsExportFailed": "백업이 저장되지 않았습니다. 내보내기가 중단되었거나 완료되지 않았습니다.",
+  "chatDataControlsExportEmpty": "서버에 내보낼 채팅이 없습니다.",
+  "chatDataControlsExportFailed": "아무것도 저장되지 않았습니다. 내보내기가 중단되었거나 완료되지 않았습니다.",
   "chatDataControlsExportStopped": "내보내기를 중지했습니다. 저장된 내용이 없습니다.",
-  "chatDataControlsExportConfirmTitle": "서버의 사본을 백업할까요?",
+  "chatDataControlsExportConfirmTitle": "서버의 사본을 내보낼까요?",
   "chatDataControlsExportConfirmMessage": "{server}에 저장된 {account}의 채팅을 저장합니다. 이 기기에만 있는 채팅과 서버가 받지 못한 변경 사항은 포함되지 않습니다.",
   "@chatDataControlsExportConfirmMessage": {
     "placeholders": {
@@ -3648,7 +3621,7 @@
       }
     }
   },
-  "chatDataControlsExportAction": "백업",
+  "chatDataControlsExportAction": "내보내기",
   "chatDataControlsImportConfirmTitle": "이 채팅을 가져올까요?",
   "chatDataControlsImportConfirmMessage": "파일의 채팅을 {server}의 {account}에 추가할까요? 채팅: {chats}. 메시지: {messages}. 이미 있는 채팅은 대체되지 않으며, 가져오면 사본이 추가됩니다.",
   "@chatDataControlsImportConfirmMessage": {
@@ -3724,10 +3697,8 @@
       }
     }
   },
-  "chatDataControlsDiscardAndDelete": "버리고 삭제",
   "chatDataControlsResponseRunning": "답변이 아직 진행 중입니다. 중지한 후 다시 시도하세요.",
   "chatDataControlsLocalChanged": "기다리는 동안 이 기기에만 있던 채팅이 서버에 도달했습니다. 변경된 내용은 없습니다. 검토한 후 다시 시도하세요.",
-  "chatDataControlsDone": "완료되었습니다.",
   "chatDataControlsRefused": "서버가 해당 작업을 수행하지 못했습니다. 변경된 내용은 없습니다.",
   "chatDataControlsUnknown": "서버가 응답하지 않아 결과를 알 수 없습니다. 채팅을 확인하세요. 다시 실행해도 안전합니다.",
   "chatDataControlsOwnerChanged": "로그인한 계정이 변경되었습니다. 아무 작업도 수행되지 않았습니다.",
@@ -3741,7 +3712,7 @@
   "chatExportUnsentNote": "서버가 아직 받지 못한 변경 사항도 포함됩니다.",
   "chatExportFailed": "채팅을 내보내지 못했습니다.",
   "chatDataControlsWorkChanged": "기다리는 동안 이 기기에 전송되지 않은 변경 사항이 생겼습니다. 삭제된 내용은 없습니다. 검토한 후 다시 시도하세요.",
-  "chatComparisonTabsLabel": "모델 답변",
+  "chatComparisonTabsLabel": "모델 응답",
   "chatComparisonSlotLabel": "{model} · {number}",
   "@chatComparisonSlotLabel": {
     "placeholders": {
@@ -3758,14 +3729,14 @@
   "chatComparisonSlotFailed": "실패",
   "chatMergedResponseTitle": "병합된 응답",
   "chatCompareModelsAction": "모델 비교",
-  "chatCompareModelsDescription": "이 메시지를 두 모델에 보내 답변을 비교합니다.",
-  "chatCompareNeedsMessage": "먼저 메시지를 입력한 다음 모델을 비교하세요.",
+  "chatCompareModelsDescription": "두 모델에 보내 응답을 비교합니다.",
+  "chatCompareNeedsMessage": "먼저 메시지를 입력하세요",
   "chatCompareFirstModel": "첫 번째 모델",
   "chatCompareSecondModel": "두 번째 모델",
   "chatCompareChooseModel": "모델 선택",
   "chatCompareStart": "비교",
   "chatCompareErrorUnavailable": "이 채팅에서는 모델 비교를 사용할 수 없습니다.",
-  "chatCompareErrorModelUnavailable": "{models}은(는) 이 서버에서 사용할 수 없습니다.",
+  "chatCompareErrorModelUnavailable": "{count, plural, other{{models}은(는) 이 서버에서 사용할 수 없습니다.}}",
   "@chatCompareErrorModelUnavailable": {
     "placeholders": {
       "models": {
@@ -3773,7 +3744,7 @@
       }
     }
   },
-  "chatCompareErrorVision": "{models}은(는) 이미지를 읽을 수 없습니다. 이미지를 제거하거나 다른 모델을 선택하세요.",
+  "chatCompareErrorVision": "{count, plural, other{{models}은(는) 이미지를 읽을 수 없습니다. 이미지를 제거하거나 다른 모델을 선택하세요.}}",
   "@chatCompareErrorVision": {
     "placeholders": {
       "models": {
@@ -3781,7 +3752,7 @@
       }
     }
   },
-  "chatCompareErrorTerminal": "{models}은(는) 선택한 터미널을 사용할 수 없습니다. 터미널을 끄거나 다른 모델을 선택하세요.",
+  "chatCompareErrorTerminal": "{count, plural, other{{models}은(는) 선택한 터미널을 사용할 수 없습니다. 터미널을 끄거나 다른 모델을 선택하세요.}}",
   "@chatCompareErrorTerminal": {
     "placeholders": {
       "models": {
@@ -3789,7 +3760,7 @@
       }
     }
   },
-  "chatCompareErrorInterpreter": "{models}은(는) 코드 인터프리터를 실행할 수 없습니다. 코드 인터프리터를 끄거나 다른 모델을 선택하세요.",
+  "chatCompareErrorInterpreter": "{count, plural, other{{models}은(는) 코드 인터프리터를 실행할 수 없습니다. 코드 인터프리터를 끄거나 다른 모델을 선택하세요.}}",
   "@chatCompareErrorInterpreter": {
     "placeholders": {
       "models": {
@@ -3797,7 +3768,7 @@
       }
     }
   },
-  "chatCompareErrorEffortOverride": "이 채팅에는 {models}이(가) 사용할 수 없는 추론 강도가 저장되어 있습니다. 채팅 설정에서 제거하거나 다른 모델을 선택하세요.",
+  "chatCompareErrorEffortOverride": "{count, plural, other{이 채팅에는 {models}이(가) 사용할 수 없는 추론 강도가 저장되어 있습니다. 채팅 설정에서 제거하거나 다른 모델을 선택하세요.}}",
   "@chatCompareErrorEffortOverride": {
     "placeholders": {
       "models": {
@@ -3809,15 +3780,107 @@
   "chatMergeResponsesAction": "응답 병합",
   "chatMergeStopAction": "병합 중지",
   "chatMergeErrorUnavailable": "이 서버에서는 응답을 병합할 수 없습니다.",
-  "chatMergeErrorFailed": "응답을 병합하지 못했습니다. 원래 답변은 변경되지 않았습니다.",
-  "chatMergeErrorNotMergeable": "병합하려면 모든 답변이 텍스트로 끝나야 합니다.",
+  "chatMergeErrorFailed": "응답을 병합하지 못했습니다. 원래 응답은 변경되지 않았습니다.",
+  "chatMergeErrorNotMergeable": "병합하려면 모든 응답이 텍스트로 끝나야 합니다.",
   "chatMergeErrorOwnerChanged": "계정 또는 채팅이 변경되어 병합이 중지되었습니다.",
-  "chatComparisonStopAnswerAction": "이 답변 중지",
-  "chatMergeChooseDescription": "병합할 답변을 선택하세요. 두 개 이상 선택해야 하며, 원래 답변은 그대로 유지됩니다.",
+  "chatComparisonStopAnswerAction": "이 응답 중지",
+  "chatMergeChooseDescription": "병합할 응답을 선택하세요. 두 개 이상 선택해야 하며, 원래 응답은 그대로 유지됩니다.",
   "folderProjectComparisonFallbackNotice": "이 프로젝트에 저장된 모델을 모두 사용할 수는 없으므로 채팅이 더 적은 수의 모델로 시작됩니다. 비교에는 정확히 두 개의 모델이 사용됩니다.",
   "advancedFeaturesFooter": "모델 비교, 채팅별 설정, 도구 설정, 예약 작업, 개인 연결, 웹후크, 데이터 관리를 추가합니다. 끄면 숨겨지기만 하며 이미 설정된 항목은 계속 작동합니다.",
   "profileAdvancedFooter": "설정 > 채팅에서 고급이 켜져 있어 표시됩니다.",
   "advancedRequiredTitle": "고급 기능",
   "advancedRequiredMessage": "{feature}은(는) 고급 기능입니다. 사용하려면 고급을 켜세요. 이미 설정된 항목은 계속 작동합니다.",
-  "advancedTurnOn": "고급 켜기"
+  "advancedTurnOn": "고급 켜기",
+  "promptOverridesTitle": "프롬프트 재정의",
+  "chatSettingsStopHint": "내 기본값 (쉼표로 구분)",
+  "chatSettingsUseYourDefault": "내 기본값 사용",
+  "personalToolSettingsSaved": "도구 설정이 저장됨",
+  "personalToolSettingsLoadFailed": "도구 설정을 불러올 수 없습니다.",
+  "personalToolSettingsSaveFailed": "도구 설정을 저장할 수 없습니다.",
+  "scheduledTaskDeleteTitle": "예약된 작업을 삭제할까요?",
+  "scheduledTaskRunning": "실행 중…",
+  "scheduledTaskRunFinished": "실행이 완료되었습니다.",
+  "scheduledTaskRunFailedNotice": "실행에 실패했습니다. 자세한 내용은 기록을 확인하세요.",
+  "scheduledTaskLastRunFailed": "마지막 실행 실패",
+  "scheduledTaskRruleRuns": "실행: {summary}",
+  "scheduledTaskFolderSearchHint": "폴더 검색",
+  "scheduledTasksEmptyHint": "아침 뉴스 요약처럼 모델이 일정에 따라 지시를 수행하게 하세요.",
+  "scheduledTasksShowAll": "모든 작업 보기",
+  "personalConnectionsEmptyToolServersHint": "OpenAPI 도구 서버를 추가하면 채팅에서 해당 도구를 사용할 수 있습니다.",
+  "personalConnectionsEmptyTerminalsHint": "채팅에서 모델이 사용할 수 있는 터미널 서버를 추가하세요.",
+  "chatCompareModelPair": "{first} 및 {second}",
+  "chatDataControlsNoAccount": "채팅을 관리하려면 Open WebUI 계정에 로그인하세요.",
+  "chatDataControlsAccountChanged": "계정이 변경되었습니다. 뒤로 가서 데이터 관리를 다시 여세요.",
+  "chatDataControlsArchiveAllConfirm": "모두 보관",
+  "chatDataControlsUnarchiveAllConfirm": "모두 보관 해제",
+  "chatDataControlsUnshareAllConfirm": "링크 제거",
+  "chatDataControlsDeleteAllConfirm": "모든 채팅 삭제",
+  "chatDataControlsDiscardAndDeleteConfirm": "버리고 모든 채팅 삭제",
+  "chatDataControlsDeleteFooter": "{server}에서 {account}의 모든 채팅을 삭제합니다. 이 기기에만 있는 채팅은 유지됩니다.",
+  "chatDataControlsImporting": "{count, plural, other{채팅 {count}개를 가져오는 중…}}",
+  "chatDataControlsImportFooter": "가져오기는 사본을 추가합니다. 서버에 이미 있는 채팅을 대체하지 않습니다.",
+  "nativeSheetOptionUnavailable": "지금은 이 옵션을 사용할 수 없습니다.",
+  "nativeWebhookDestinationsCount": "{count, plural, =0{없음} other{대상 {count}개}}",
+  "chatBranchForkOpened": "여기서 새 채팅을 열었습니다",
+  "queuedDraftStopFailed": "현재 응답을 중지하지 못했습니다. 메시지는 대기열에 그대로 있습니다.",
+  "queuedDraftRemoved": "대기열에서 제거됨",
+  "queuedDraftUndo": "실행 취소",
+  "chatExportPreparing": "내보내기 준비 중…",
+  "chatStopResponseFailed": "이 응답을 중지하지 못했습니다.",
+  "calendarStartsAt": "{time} 시작",
+  "calendarEndsAt": "{time} 종료",
+  "calendarDayToday": "오늘 · {date}",
+  "calendarDayTomorrow": "내일 · {date}",
+  "calendarPreviousDays": "{count, plural, other{이전 {count}일}}",
+  "calendarNextDays": "{count, plural, other{다음 {count}일}}",
+  "calendarRemoveEnd": "종료 시간 삭제",
+  "calendarEventReadOnlyNotInvited": "이 일정은 변경할 수 없습니다.",
+  "calendarFieldOrganizer": "주최자",
+  "calendarColorName": "{color, select, blue{파란색} green{초록색} amber{호박색} red{빨간색} purple{보라색} teal{청록색} other{색상}}",
+  "calendarVisibilityFooter": "체크한 캘린더의 일정이 표시됩니다. 캘린더를 탭하면 해당 일정을 표시하거나 숨길 수 있습니다.",
+  "personalizationMemoryTypeUserDescription": "나에 대한 선호, 사실 또는 지시입니다.",
+  "personalizationMemoryTypeContextDescription": "이후 채팅에서 염두에 둘 배경 정보입니다.",
+  "personalizationMemoryTypeUnknown": "이 메모리에는 이 앱이 인식하지 못하는 유형이 있습니다. 유형을 선택하지 않으면 그대로 유지됩니다.",
+  "personalizationMemoryAccountChanged": "계정이 변경되었습니다. 이 창을 닫고 메모리를 다시 여세요.",
+  "notificationTargetDeliveryAwayDescription": "Open WebUI를 사용하지 않을 때만 보냅니다.",
+  "notificationTargetDeliveryAlwaysDescription": "사용 중일 때도 항상 보냅니다.",
+  "notificationTargetTestNeedsSave": "테스트하려면 변경 사항을 저장하세요.",
+  "notificationTargetNameHelper": "나중에 변경할 수 없습니다. 비워 두면 URL의 호스트를 사용합니다.",
+  "notificationTargetIdLabel": "이름",
+  "codeInterpreterTurnOff": "끄기",
+  "libraryShareTitle": "공유",
+  "libraryGeneralAccess": "일반 액세스",
+  "libraryAccessOnlyPeopleAdded": "추가된 사람만",
+  "libraryAccessEveryoneOnServer": "이 서버의 모든 사람",
+  "libraryAccessAnyoneWithLink": "링크가 있는 모든 사용자",
+  "libraryAccessEveryoneHint": "이 서버에 계정이 있는 모든 사람이 볼 수 있습니다.",
+  "libraryAccessLinkNotAllowed": "링크로 공유할 권한이 없습니다.",
+  "libraryAccessCanView": "보기 가능",
+  "libraryAccessLevelFor": "{name}의 액세스 권한",
+  "libraryAccessRemovePrincipal": "{name} 삭제",
+  "libraryAccessUnknownPerson": "알 수 없는 사용자",
+  "libraryAccessUnknownGroup": "알 수 없는 그룹",
+  "libraryAccessOwner": "소유자",
+  "libraryAccessOwnerOnlyNotice": "소유자와 편집 권한이 있는 사람만 액세스 권한을 변경할 수 있습니다.",
+  "libraryAccessAccountCantShare": "이 계정으로는 이 항목을 공유할 수 없습니다.",
+  "libraryAccessPartialSave": "저장했지만 {names}에게 액세스 권한을 줄 수 없었습니다.",
+  "libraryAccessDone": "완료",
+  "libraryAccessSummaryOnlyYou": "나만",
+  "libraryAccessSummaryShared": "{count, plural, other{{count}명 또는 그룹과 공유됨}}",
+  "libraryPickerAddCount": "{count, plural, =0{추가} other{추가({count})}}",
+  "libraryPickerHasAccess": "액세스 권한 있음",
+  "libraryPickerAlreadyMember": "이미 멤버임",
+  "libraryPickerSearchGroups": "그룹 검색",
+  "libraryChannelRemoveTitle": "{name}님을 삭제할까요?",
+  "libraryChannelRemoveMessage": "이 채널과 메시지를 더 이상 볼 수 없게 됩니다.",
+  "libraryChannelRemoveConfirm": "삭제",
+  "libraryChannelMemberRemoved": "{name}님을 삭제했습니다",
+  "libraryChannelMembersAdded": "멤버를 추가했습니다",
+  "libraryNoteSharedBy": "{name}님이 공유함. 이 노트를 볼 수는 있지만 편집할 수는 없습니다.",
+  "libraryNoteOpen": "열기",
+  "chatDataControlsArchivedAll": "모든 채팅을 보관했습니다.",
+  "chatDataControlsUnarchivedAll": "모든 채팅의 보관을 해제했습니다.",
+  "chatDataControlsUnsharedAll": "모든 공유 링크를 제거했습니다.",
+  "chatDataControlsDeletedAll": "모든 채팅을 삭제했습니다.",
+  "notificationTargetMakeDefaultNeedsSave": "기본으로 설정하려면 변경 사항을 저장하세요."
 }

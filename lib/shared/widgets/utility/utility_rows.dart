@@ -19,6 +19,7 @@ class UtilityRow extends StatefulWidget {
     this.onTap,
     this.selected = false,
     this.expanded,
+    this.toggled,
     this.enabled = true,
     this.destructive = false,
     this.foregroundColor,
@@ -47,6 +48,11 @@ class UtilityRow extends StatefulWidget {
   final VoidCallback? onTap;
   final bool selected;
   final bool? expanded;
+
+  /// Announces the row as an on/off control in this state. Set it on rows
+  /// that toggle a switch so assistive tech reads the current value; leave
+  /// it null for every other row.
+  final bool? toggled;
   final bool enabled;
   final bool destructive;
   final Color? foregroundColor;
@@ -101,6 +107,7 @@ class _UtilityRowState extends State<UtilityRow> {
       enabled: widget.enabled,
       selected: widget.selected,
       expanded: widget.expanded,
+      toggled: widget.toggled,
       label: semantics,
       onTap: _interactive ? _handleTap : null,
       excludeSemantics: !widget.preserveTrailingSemantics,

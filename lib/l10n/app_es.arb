@@ -979,7 +979,7 @@
   "chatSettingsSystemPrompt": "Prompt del sistema",
   "chatSettingsSystemPromptEmptyNote": "Un prompt vacío no envía ningún prompt del sistema, aunque tengas uno predeterminado. Elige Heredar para usar el tuyo.",
   "chatSettingsParameters": "Parámetros",
-  "chatSettingsInherit": "Heredar",
+  "chatSettingsInherit": "Tu predeterminado",
   "chatSettingsModelDefault": "Predeterminado del modelo",
   "chatSettingsCustom": "Personalizado",
   "chatSettingsResetAll": "Restablecer todo",
@@ -1057,7 +1057,6 @@
   "personalConnectionsSpecInvalid": "Introduce un documento JSON de OpenAPI válido.",
   "personalConnectionsSelectionCleared": "Se quitó de este chat porque la conexión cambió: {names}",
   "personalConnectionsTerminalOneActive": "Al activar un terminal se desactivan los demás.",
-  "personalConnectionsNeedsAdvanced": "Activa «Avanzado» en los ajustes del chat para gestionar las conexiones personales.",
   "personalConnectionsNoAccount": "Inicia sesión en una cuenta de Open WebUI para gestionar las conexiones personales.",
   "chatSaved": "Chat guardado en el historial",
   "chatSaveFailed": "No se pudo guardar el chat",
@@ -1306,12 +1305,9 @@
   "clearAllMemoriesDescription": "Esto elimina permanentemente todas las memorias guardadas de tu cuenta.",
   "noMemoriesSaved": "Aún no hay memorias guardadas.",
   "memoryUpdatedAt": "Actualizado {formattedTime}",
-  "advancedPromptOverrides": "Sobrescrituras avanzadas de prompts",
   "advancedPromptOverridesDescription": "Las sobrescrituras de prompts por modelo están en App y chat.",
   "audioSettingsTitle": "Audio",
   "audioSettingsSubtitle": "Voz a texto y texto a voz",
-  "appAndChat": "App y chat",
-  "appAndChatSubtitle": "Tema, idioma, comportamiento del chat y sobrescrituras avanzadas",
   "accountSettingsTitle": "Cuenta",
   "accountSettingsSubtitle": "Detalles del perfil y gestión de contraseña",
   "accountDetails": "Detalles de la cuenta",
@@ -1962,8 +1958,6 @@
   "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
   "workspaceSearchHint": "Search workspace resources",
   "workspaceLoadMore": "Load more",
-  "workspaceAccessTitle": "Sharing & access",
-  "workspaceAccessSharingDisabled": "Sharing is turned off for this resource, so access is read-only.",
   "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
   "workspaceAccessPeopleHeading": "People & groups",
   "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
@@ -1973,8 +1967,6 @@
   "workspaceAccessAddUsers": "Añadir personas",
   "workspaceAccessGroupsDisabled": "Compartir con grupos está desactivado; solo puedes compartir con personas concretas.",
   "workspaceAccessGrantsDisabled": "No tienes permiso para compartir con personas ni grupos. Se mantiene el acceso existente.",
-  "workspaceAccessVisibilityLabel": "Public",
-  "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
   "workspaceAccessGroupBadge": "Group",
   "workspaceAccessUserBadge": "Person",
   "workspaceAccessCanEdit": "Can edit",
@@ -3402,7 +3394,6 @@
   "notificationTargetsEmpty": "Aún no hay destinos de webhook.",
   "notificationTargetsLoadFailed": "No se pudieron cargar los destinos de webhook.",
   "notificationTargetsStale": "Guardado, pero no se pudo actualizar la lista.",
-  "notificationTargetsNativeDescription": "Añade y gestiona destinos de webhook",
   "notificationTargetsUnavailable": "Los destinos de webhook no están disponibles para esta cuenta.",
   "notificationTargetsAccountChanged": "La cuenta ha cambiado. Cierra esto y vuelve a abrir el destino.",
   "notificationTargetNewTitle": "Nuevo destino",
@@ -3507,9 +3498,9 @@
   "noteSessionChangedNotice": "La cuenta con la sesión iniciada ha cambiado, así que esta nota no se guardó.",
   "noteNoAccess": "Ya no tienes acceso a esta nota.",
   "noteShare": "Compartir nota",
-  "folderShareSettings": "Ajustes para compartir",
-  "chatShareAudience": "Audiencia",
-  "chatShareAudienceDescription": "Elige quién puede abrir el chat compartido",
+  "folderShareSettings": "Compartir carpeta",
+  "chatShareAudience": "Quién tiene acceso",
+  "chatShareAudienceDescription": "Elige quién puede abrir este chat",
   "resourceSharingSaved": "Uso compartido actualizado",
   "resourceSharingFiltered": "Guardado. El servidor solo mantuvo una parte del acceso que elegiste.",
   "resourceSharingSessionChanged": "La cuenta con la sesión iniciada ha cambiado, así que no se guardó nada. Cierra esto y vuelve a abrirlo.",
@@ -3517,12 +3508,7 @@
   "resourceSharingMissing": "Este elemento ya no existe.",
   "resourceSharingLoadFailed": "No se pudo cargar quién tiene acceso.",
   "resourceSharingSaveFailed": "No se pudo guardar el acceso. Inténtalo de nuevo.",
-  "resourceAudienceLabel": "Audiencia",
-  "resourceAudiencePrivate": "Privado",
-  "resourceAudiencePublic": "Público",
-  "resourceAudienceOpen": "Abierto",
   "resourceAudiencePrivateHint": "Solo las personas y los grupos de abajo pueden abrirlo.",
-  "resourceAudiencePublicHint": "Todos los usuarios de este servidor pueden abrirlo.",
   "resourceAudienceOpenHint": "Cualquiera con el enlace puede verlo.",
   "channelMembersSearchHint": "Buscar miembros",
   "channelMembersEmpty": "No se encontraron miembros.",
@@ -3536,8 +3522,8 @@
   "channelMembersChangeFailed": "No se pudieron actualizar los miembros. Inténtalo de nuevo.",
   "channelMembersChangeDenied": "El servidor no permitió este cambio.",
   "channelMembersChangeNotPermitted": "No puedes gestionar los miembros de este canal.",
-  "chatBranchContinueFromResponse": "Continuar desde esta respuesta",
-  "chatBranchForkChat": "Bifurcar el chat desde aquí",
+  "chatBranchContinueFromResponse": "Continuar desde aquí",
+  "chatBranchForkChat": "Bifurcar en un chat nuevo",
   "chatBranchSwitcherSemantics": "Mensaje editado, versión {position} de {total}. Mostrar todas las versiones.",
   "@chatBranchSwitcherSemantics": {
     "placeholders": {
@@ -3559,7 +3545,7 @@
       }
     }
   },
-  "chatBranchVersionCurrent": "Rama actual",
+  "chatBranchVersionCurrent": "Visible ahora",
   "chatBranchSelectedNotice": "Continuando desde la versión {position} de {total}",
   "@chatBranchSelectedNotice": {
     "placeholders": {
@@ -3571,19 +3557,19 @@
       }
     }
   },
-  "chatBranchWaitForResponse": "Espera a que termine esta respuesta",
+  "chatBranchWaitForResponse": "Espera a que termine esta respuesta.",
   "chatBranchUnavailable": "Las ramas de este chat no se pueden cambiar aquí.",
   "chatBranchOwnerChanged": "La cuenta con la sesión iniciada cambió, así que no se modificó nada.",
   "chatBranchMessageMissing": "Esa versión ya no está disponible.",
   "chatForkOffline": "Conéctate a internet para bifurcar este chat.",
-  "chatForkForbidden": "Tu cuenta no tiene permiso para bifurcar chats.",
+  "chatForkForbidden": "Tu cuenta no puede bifurcar chats.",
   "chatForkSourceMissing": "El servidor ya no tiene este chat.",
-  "chatForkUnsupported": "Este servidor no admite bifurcar chats.",
+  "chatForkUnsupported": "Este servidor no puede bifurcar chats.",
   "chatForkFailed": "No se pudo bifurcar este chat. Inténtalo de nuevo.",
   "codeInterpreter": "Intérprete de código",
   "codeInterpreterDescription": "Ejecuta código en el servidor para analizar datos y crear archivos.",
   "codeInterpreterBrowserEngine": "Este servidor ejecuta el código en el navegador, algo que Conduit no puede hacer.",
-  "codeInterpreterUnavailable": "El intérprete de código no está disponible para este servidor, cuenta o modelo.",
+  "codeInterpreterUnavailable": "No disponible para este servidor, cuenta o modelo.",
   "folderProjectSettings": "Ajustes del proyecto",
   "folderProjectSettingsDescription": "Valores predeterminados para los chats nuevos de esta carpeta. El servidor aplica sus conocimientos y el prompt del sistema a cada chat de la carpeta.",
   "folderProjectModels": "Modelos predeterminados",
@@ -3592,9 +3578,8 @@
   "folderProjectNoModels": "Sin modelo predeterminado. Los chats nuevos usan tu modelo predeterminado.",
   "folderProjectAddKnowledge": "Añadir conocimientos",
   "folderProjectAddModel": "Añadir modelo",
-  "folderProjectAddSelected": "Añadir",
   "folderProjectNothingToAdd": "No queda nada por añadir.",
-  "folderProjectNotAvailable": "No disponible",
+  "folderProjectNotAvailable": "No disponible: los chats nuevos lo omiten",
   "folderProjectMoveUp": "Subir {name}",
   "folderProjectRemove": "Quitar {name}",
   "folderProjectKindCollection": "Base de conocimientos",
@@ -3608,7 +3593,6 @@
   "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTasksTitle": "Tareas programadas",
   "scheduledTasksDescription": "Tu servidor de Open WebUI ejecuta estas tareas según su propio calendario, incluso cuando este teléfono está sin conexión.",
-  "scheduledTasksNeedsAdvanced": "Activa Avanzado en Ajustes para gestionar las tareas programadas. Las tareas que ya están en el servidor siguen ejecutándose.",
   "scheduledTasksUnavailable": "Las tareas programadas no están disponibles para esta cuenta en este servidor.",
   "scheduledTasksSearchHint": "Buscar tareas",
   "scheduledTasksFilterAll": "Todas",
@@ -3656,7 +3640,7 @@
   "scheduledTaskAdvancedSchedule": "Programación avanzada",
   "scheduledTaskRruleLabel": "Regla de repetición",
   "scheduledTaskRruleKept": "Esta programación usa una regla que los controles no pueden editar. Se mantiene tal cual a menos que la cambies.",
-  "scheduledTaskTimezoneNote": "Las horas siguen la zona horaria de tu cuenta de Open WebUI, que establece la app web, y no necesariamente la de este dispositivo. El servidor decide cuándo se realiza cada ejecución.",
+  "scheduledTaskTimezoneNote": "Las horas usan la zona horaria de tu cuenta de Open WebUI, que puede ser distinta de la de este dispositivo.",
   "scheduledTaskActiveLabel": "Activa",
   "scheduledTaskDestinationLabel": "El resultado va a",
   "scheduledTaskDestinationChat": "Chat nuevo",
@@ -3689,7 +3673,7 @@
   "scheduledTaskViewChannel": "Ver canal",
   "scheduledTaskOpenResultFailed": "No se pudo abrir ese resultado.",
   "scheduledTaskDelete": "Eliminar tarea",
-  "scheduledTaskDeleteConfirm": "¿Eliminar {name}? El servidor dejará de ejecutarla y se borrará su historial.",
+  "scheduledTaskDeleteConfirm": "{name} dejará de ejecutarse en el servidor y se eliminará su historial de ejecuciones.",
   "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTaskChangeFailed": "No se pudo modificar esta tarea.",
   "scheduledTaskTerminalKept": "Hay un terminal asociado a esta tarea. Se conserva al editar.",
@@ -3698,22 +3682,18 @@
   "queuedDraftsTitle": "Mensajes en cola",
   "queuedDraftsCount": "{count, plural, one{{count} mensaje en cola} other{{count} mensajes en cola}}",
   "queuedDraftsSessionNote": "Los mensajes en cola solo se conservan mientras Conduit esté abierto. Cuando termine la respuesta, se envían juntos como un solo mensaje.",
-  "queuedDraftSendNow": "Enviar ahora",
+  "queuedDraftSendNow": "Detener y enviar",
   "queuedDraftUploading": "Esperando a que termine de subirse un archivo",
-  "queuedDraftFileFailed": "No se subió un archivo. Quítalo para enviar este mensaje.",
+  "queuedDraftFileFailed": "No se subió un archivo. Reinténtalo o quítalo.",
   "queuedDraftsSendFailed": "No se pudieron enviar los mensajes en cola. Siguen en cola.",
   "queuedDraftsSending": "Enviando los mensajes en cola…",
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Calendario",
-  "calendarDescription": "Tu calendario de Open WebUI. Los eventos están en el servidor y se muestran en la zona horaria de este dispositivo.",
   "calendarUnavailable": "El calendario no está disponible para esta cuenta en este servidor.",
-  "calendarTimezoneNote": "Las horas se muestran en la zona horaria de este dispositivo. El servidor expande los eventos repetidos en la zona horaria de tu cuenta.",
+  "calendarTimezoneNote": "Las horas se muestran en la zona horaria de este dispositivo.",
   "calendarRangeLabel": "{start} – {end}",
   "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
-  "calendarEarlier": "Anteriores",
-  "calendarLater": "Posteriores",
   "calendarToday": "Hoy",
-  "calendarAllCalendars": "Todos los calendarios",
   "calendarEmpty": "No hay eventos en este periodo.",
   "calendarLoadFailed": "No se pudo cargar el calendario.",
   "calendarStale": "Es posible que el calendario esté desactualizado.",
@@ -3727,13 +3707,7 @@
   "calendarScheduledRunFailed": "Ejecución de tarea fallida",
   "calendarScheduledEntryReadOnly": "Las tareas programadas se gestionan desde la página Tareas programadas, no como eventos.",
   "calendarEventDetailTitle": "Evento",
-  "calendarEventCalendar": "Calendario: {name}",
-  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
-  "calendarEventOrganizer": "Organizado por {name}",
-  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
   "calendarEventSeriesNote": "Este evento se repite. Los cambios y la eliminación se aplican a toda la serie.",
-  "calendarEventInvitedCount": "Invitados: {count}",
-  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarRsvpPrompt": "Tu respuesta",
   "calendarRsvpAccepted": "Asistiré",
   "calendarRsvpTentative": "Quizá",
@@ -3763,7 +3737,7 @@
   "calendarFieldStartTime": "Hora de inicio",
   "calendarFieldEnds": "Termina",
   "calendarFieldEndTime": "Hora de fin",
-  "calendarAddEnd": "Añadir un fin",
+  "calendarAddEnd": "Añadir hora de fin",
   "calendarFieldRepeat": "Repetir",
   "calendarRepeatNone": "No se repite",
   "calendarRepeatDaily": "Diariamente",
@@ -3816,9 +3790,8 @@
       }
     }
   },
-  "chatDataControlsUnavailable": "El control de datos requiere tener Avanzado activado y una cuenta de Open WebUI con la sesión iniciada.",
-  "chatDataControlsMediaNote": "Una copia de seguridad contiene el historial de chats, los ajustes y las referencias a archivos adjuntos guardados en el servidor. Los archivos e imágenes adjuntos en sí no se incluyen.",
-  "chatDataControlsLocalOnly": "Solo en este dispositivo: {count}",
+  "chatDataControlsMediaNote": "Una exportación contiene el historial de chats, los ajustes y las referencias a archivos adjuntos guardados en el servidor. Los archivos e imágenes adjuntos en sí no se incluyen.",
+  "chatDataControlsLocalOnly": "{count, plural, =1{1 chat solo está en este dispositivo} other{{count} chats solo están en este dispositivo}}",
   "@chatDataControlsLocalOnly": {
     "placeholders": {
       "count": {
@@ -3826,7 +3799,7 @@
       }
     }
   },
-  "chatDataControlsUnsent": "Con cambios que el servidor no ha recibido: {count}",
+  "chatDataControlsUnsent": "{count, plural, =1{1 chat tiene cambios que el servidor no ha recibido} other{{count} chats tienen cambios que el servidor no ha recibido}}",
   "@chatDataControlsUnsent": {
     "placeholders": {
       "count": {
@@ -3834,10 +3807,10 @@
       }
     }
   },
-  "chatDataControlsUnsyncedNote": "Una copia de seguridad del servidor los omite hasta que se envíen.",
+  "chatDataControlsUnsyncedNote": "Una exportación los omite hasta que se envíen.",
   "chatDataControlsSyncNow": "Sincronizar ahora",
   "chatDataControlsSyncing": "Sincronizando…",
-  "chatDataControlsBackupSection": "Copia de seguridad y restauración",
+  "chatDataControlsBackupSection": "Exportar e importar",
   "chatDataControlsManageSection": "Todos los chats",
   "chatDataControlsExportLibrary": "Exportar todos los chats",
   "chatDataControlsImport": "Importar chats",
@@ -3853,7 +3826,7 @@
       }
     }
   },
-  "chatDataControlsExportReady": "Copia de seguridad lista. Chats guardados: {count}",
+  "chatDataControlsExportReady": "Exportación lista. Chats guardados: {count}",
   "@chatDataControlsExportReady": {
     "placeholders": {
       "count": {
@@ -3861,10 +3834,10 @@
       }
     }
   },
-  "chatDataControlsExportEmpty": "El servidor no tiene chats de los que hacer copia de seguridad.",
-  "chatDataControlsExportFailed": "No se guardó la copia de seguridad. La exportación se interrumpió o está incompleta.",
+  "chatDataControlsExportEmpty": "El servidor no tiene chats para exportar.",
+  "chatDataControlsExportFailed": "No se guardó nada. La exportación se interrumpió o está incompleta.",
   "chatDataControlsExportStopped": "Exportación detenida. No se guardó nada.",
-  "chatDataControlsExportConfirmTitle": "¿Hacer copia de seguridad de la copia del servidor?",
+  "chatDataControlsExportConfirmTitle": "¿Exportar la copia del servidor?",
   "chatDataControlsExportConfirmMessage": "Esto guarda los chats de {account} almacenados en {server}. No se incluyen los chats que solo existen en este dispositivo ni los cambios que el servidor no ha recibido.",
   "@chatDataControlsExportConfirmMessage": {
     "placeholders": {
@@ -3876,7 +3849,7 @@
       }
     }
   },
-  "chatDataControlsExportAction": "Crear copia",
+  "chatDataControlsExportAction": "Exportar",
   "chatDataControlsImportConfirmTitle": "¿Importar estos chats?",
   "chatDataControlsImportConfirmMessage": "¿Añadir los chats del archivo a {account} en {server}? Chats: {chats}. Mensajes: {messages}. Los chats que ya existen no se reemplazan; al importar se añaden copias.",
   "@chatDataControlsImportConfirmMessage": {
@@ -3952,10 +3925,8 @@
       }
     }
   },
-  "chatDataControlsDiscardAndDelete": "Descartar y eliminar",
   "chatDataControlsResponseRunning": "Una respuesta sigue en curso. Detenla e inténtalo de nuevo.",
   "chatDataControlsLocalChanged": "Un chat que solo estaba en este dispositivo llegó al servidor durante la espera. No se cambió nada. Revísalo e inténtalo de nuevo.",
-  "chatDataControlsDone": "Hecho.",
   "chatDataControlsRefused": "El servidor no pudo hacerlo. No cambió nada.",
   "chatDataControlsUnknown": "El servidor no respondió, así que se desconoce el resultado. Revisa tus chats; repetirlo es seguro.",
   "chatDataControlsOwnerChanged": "La cuenta con la sesión iniciada ha cambiado. No se hizo nada.",
@@ -3986,14 +3957,14 @@
   "chatComparisonSlotFailed": "Error",
   "chatMergedResponseTitle": "Respuesta combinada",
   "chatCompareModelsAction": "Comparar modelos",
-  "chatCompareModelsDescription": "Envía este mensaje a dos modelos y compara sus respuestas.",
-  "chatCompareNeedsMessage": "Escribe primero un mensaje y luego compara modelos.",
+  "chatCompareModelsDescription": "Envía a dos modelos y compara las respuestas.",
+  "chatCompareNeedsMessage": "Escribe primero un mensaje",
   "chatCompareFirstModel": "Primer modelo",
   "chatCompareSecondModel": "Segundo modelo",
   "chatCompareChooseModel": "Elegir un modelo",
   "chatCompareStart": "Comparar",
   "chatCompareErrorUnavailable": "Comparar modelos no está disponible en este chat.",
-  "chatCompareErrorModelUnavailable": "No disponible en este servidor: {models}.",
+  "chatCompareErrorModelUnavailable": "{count, plural, =1{{models} no está disponible en este servidor.} other{{models} no están disponibles en este servidor.}}",
   "@chatCompareErrorModelUnavailable": {
     "placeholders": {
       "models": {
@@ -4001,7 +3972,7 @@
       }
     }
   },
-  "chatCompareErrorVision": "Sin compatibilidad con imágenes: {models}. Quita la imagen o elige otros modelos.",
+  "chatCompareErrorVision": "{count, plural, =1{{models} no puede leer imágenes. Quita la imagen o elige otro modelo.} other{{models} no pueden leer imágenes. Quita la imagen o elige otros modelos.}}",
   "@chatCompareErrorVision": {
     "placeholders": {
       "models": {
@@ -4009,7 +3980,7 @@
       }
     }
   },
-  "chatCompareErrorTerminal": "Sin compatibilidad con el terminal seleccionado: {models}. Desactiva el terminal o elige otros modelos.",
+  "chatCompareErrorTerminal": "{count, plural, =1{{models} no puede usar el terminal seleccionado. Desactiva el terminal o elige otro modelo.} other{{models} no pueden usar el terminal seleccionado. Desactiva el terminal o elige otros modelos.}}",
   "@chatCompareErrorTerminal": {
     "placeholders": {
       "models": {
@@ -4017,7 +3988,7 @@
       }
     }
   },
-  "chatCompareErrorInterpreter": "Sin compatibilidad con el intérprete de código: {models}. Desactívalo o elige otros modelos.",
+  "chatCompareErrorInterpreter": "{count, plural, =1{{models} no puede ejecutar el intérprete de código. Desactívalo o elige otro modelo.} other{{models} no pueden ejecutar el intérprete de código. Desactívalo o elige otros modelos.}}",
   "@chatCompareErrorInterpreter": {
     "placeholders": {
       "models": {
@@ -4025,7 +3996,7 @@
       }
     }
   },
-  "chatCompareErrorEffortOverride": "Este chat guarda un esfuerzo de razonamiento que no pueden usar: {models}. Quítalo en los ajustes del chat o elige otros modelos.",
+  "chatCompareErrorEffortOverride": "{count, plural, =1{Este chat guarda un esfuerzo de razonamiento que {models} no puede usar. Quítalo en los ajustes del chat o elige otro modelo.} other{Este chat guarda un esfuerzo de razonamiento que {models} no pueden usar. Quítalo en los ajustes del chat o elige otros modelos.}}",
   "@chatCompareErrorEffortOverride": {
     "placeholders": {
       "models": {
@@ -4041,11 +4012,103 @@
   "chatMergeErrorNotMergeable": "Todas las respuestas deben terminar con algo de texto antes de poder combinarse.",
   "chatMergeErrorOwnerChanged": "La cuenta o el chat cambió, así que se detuvo la combinación.",
   "chatComparisonStopAnswerAction": "Detener esta respuesta",
-  "chatMergeChooseDescription": "Elige las respuestas que quieres combinar. Selecciona al menos dos; las respuestas originales se mantienen como están.",
+  "chatMergeChooseDescription": "Elige las respuestas que quieres combinar. Selecciona al menos dos; las originales se mantienen como están.",
   "folderProjectComparisonFallbackNotice": "No se pueden usar todos los modelos guardados de este proyecto, así que el chat empieza con menos. Una comparación usa exactamente dos.",
   "advancedFeaturesFooter": "Añade comparación de modelos, ajustes por chat, ajustes de herramientas, tareas programadas, conexiones personales, webhooks y controles de datos. Desactivarlo solo los oculta; lo que ya esté configurado sigue funcionando.",
   "profileAdvancedFooter": "Se muestra porque Avanzado está activado en Ajustes > Chat.",
   "advancedRequiredTitle": "Parte de Avanzado",
   "advancedRequiredMessage": "{feature} es una función de Avanzado. Activa Avanzado para usarla. Lo que ya esté configurado sigue funcionando.",
-  "advancedTurnOn": "Activar Avanzado"
+  "advancedTurnOn": "Activar Avanzado",
+  "promptOverridesTitle": "Sobrescrituras de prompts",
+  "chatSettingsStopHint": "Tu predeterminado (separado por comas)",
+  "chatSettingsUseYourDefault": "Usar tu predeterminado",
+  "personalToolSettingsSaved": "Ajustes de herramientas guardados",
+  "personalToolSettingsLoadFailed": "No se pudieron cargar los ajustes de herramientas.",
+  "personalToolSettingsSaveFailed": "No se pudieron guardar los ajustes de herramientas.",
+  "scheduledTaskDeleteTitle": "¿Eliminar la tarea programada?",
+  "scheduledTaskRunning": "Ejecutando…",
+  "scheduledTaskRunFinished": "Ejecución terminada.",
+  "scheduledTaskRunFailedNotice": "La ejecución falló. Consulta el Historial para ver los detalles.",
+  "scheduledTaskLastRunFailed": "La última ejecución falló",
+  "scheduledTaskRruleRuns": "Se ejecuta: {summary}",
+  "scheduledTaskFolderSearchHint": "Buscar carpetas",
+  "scheduledTasksEmptyHint": "Haz que un modelo siga tus instrucciones según una programación, como un resumen de noticias por la mañana.",
+  "scheduledTasksShowAll": "Mostrar todas las tareas",
+  "personalConnectionsEmptyToolServersHint": "Añade un servidor de herramientas OpenAPI para usar sus herramientas en tus chats.",
+  "personalConnectionsEmptyTerminalsHint": "Añade un servidor de terminal que los modelos puedan usar desde tus chats.",
+  "chatCompareModelPair": "{first} y {second}",
+  "chatDataControlsNoAccount": "Inicia sesión en una cuenta de Open WebUI para gestionar sus chats.",
+  "chatDataControlsAccountChanged": "La cuenta cambió. Vuelve atrás y abre de nuevo Controles de datos.",
+  "chatDataControlsArchiveAllConfirm": "Archivar todo",
+  "chatDataControlsUnarchiveAllConfirm": "Desarchivar todo",
+  "chatDataControlsUnshareAllConfirm": "Quitar enlaces",
+  "chatDataControlsDeleteAllConfirm": "Eliminar todos los chats",
+  "chatDataControlsDiscardAndDeleteConfirm": "Descartar y eliminar todos los chats",
+  "chatDataControlsDeleteFooter": "Elimina todos los chats de {account} de {server}. Los chats que solo están en este dispositivo se conservan.",
+  "chatDataControlsImporting": "{count, plural, =1{Importando 1 chat…} other{Importando {count} chats…}}",
+  "chatDataControlsImportFooter": "Importar añade copias. Nunca sustituye los chats que ya están en el servidor.",
+  "nativeSheetOptionUnavailable": "Esa opción no está disponible ahora mismo.",
+  "nativeWebhookDestinationsCount": "{count, plural, =0{Ninguno} =1{1 destino} other{{count} destinos}}",
+  "chatBranchForkOpened": "Se abrió un chat nuevo desde aquí",
+  "queuedDraftStopFailed": "No se pudo detener la respuesta actual. Tu mensaje sigue en cola.",
+  "queuedDraftRemoved": "Quitado de la cola",
+  "queuedDraftUndo": "Deshacer",
+  "chatExportPreparing": "Preparando la exportación…",
+  "chatStopResponseFailed": "No se pudo detener esta respuesta.",
+  "calendarStartsAt": "Empieza: {time}",
+  "calendarEndsAt": "Termina: {time}",
+  "calendarDayToday": "Hoy · {date}",
+  "calendarDayTomorrow": "Mañana · {date}",
+  "calendarPreviousDays": "{count, plural, =1{Día anterior} other{{count} días anteriores}}",
+  "calendarNextDays": "{count, plural, =1{Día siguiente} other{{count} días siguientes}}",
+  "calendarRemoveEnd": "Quitar la hora de fin",
+  "calendarEventReadOnlyNotInvited": "No puedes modificar este evento.",
+  "calendarFieldOrganizer": "Organizador",
+  "calendarColorName": "{color, select, blue{Azul} green{Verde} amber{Ámbar} red{Rojo} purple{Morado} teal{Turquesa} other{Color}}",
+  "calendarVisibilityFooter": "Se muestran los eventos de los calendarios marcados. Toca un calendario para mostrar u ocultar sus eventos.",
+  "personalizationMemoryTypeUserDescription": "Una preferencia, un dato o una instrucción sobre ti.",
+  "personalizationMemoryTypeContextDescription": "Contexto que tener en cuenta en futuros chats.",
+  "personalizationMemoryTypeUnknown": "Este recuerdo tiene un tipo que esta app no reconoce. Se mantiene igual salvo que elijas uno.",
+  "personalizationMemoryAccountChanged": "La cuenta cambió. Cierra esto y vuelve a abrir el recuerdo.",
+  "notificationTargetDeliveryAwayDescription": "Solo mientras no estás usando Open WebUI.",
+  "notificationTargetDeliveryAlwaysDescription": "Siempre, incluso mientras estás activo.",
+  "notificationTargetTestNeedsSave": "Guarda los cambios para probarlos.",
+  "notificationTargetNameHelper": "No se puede cambiar después. Déjalo en blanco para usar el host de la URL.",
+  "notificationTargetIdLabel": "Nombre",
+  "codeInterpreterTurnOff": "Desactivar",
+  "libraryShareTitle": "Compartir",
+  "libraryGeneralAccess": "Acceso general",
+  "libraryAccessOnlyPeopleAdded": "Solo las personas añadidas",
+  "libraryAccessEveryoneOnServer": "Todos en este servidor",
+  "libraryAccessAnyoneWithLink": "Cualquiera con el enlace",
+  "libraryAccessEveryoneHint": "Cualquiera con una cuenta en este servidor puede verlo.",
+  "libraryAccessLinkNotAllowed": "No tienes permiso para compartir mediante enlace.",
+  "libraryAccessCanView": "Puede ver",
+  "libraryAccessLevelFor": "Acceso de {name}",
+  "libraryAccessRemovePrincipal": "Quitar a {name}",
+  "libraryAccessUnknownPerson": "Persona desconocida",
+  "libraryAccessUnknownGroup": "Grupo desconocido",
+  "libraryAccessOwner": "Propietario",
+  "libraryAccessOwnerOnlyNotice": "Solo el propietario y las personas que pueden editar pueden cambiar quién tiene acceso.",
+  "libraryAccessAccountCantShare": "Tu cuenta no puede compartir esto.",
+  "libraryAccessPartialSave": "Guardado, pero no se pudo dar acceso a {names}.",
+  "libraryAccessDone": "Listo",
+  "libraryAccessSummaryOnlyYou": "Solo tú",
+  "libraryAccessSummaryShared": "{count, plural, =1{Compartido con 1 persona o grupo} other{Compartido con {count} personas o grupos}}",
+  "libraryPickerAddCount": "{count, plural, =0{Añadir} other{Añadir ({count})}}",
+  "libraryPickerHasAccess": "Tiene acceso",
+  "libraryPickerAlreadyMember": "Ya es miembro",
+  "libraryPickerSearchGroups": "Buscar grupos",
+  "libraryChannelRemoveTitle": "¿Quitar a {name}?",
+  "libraryChannelRemoveMessage": "Ya no verá este canal ni sus mensajes.",
+  "libraryChannelRemoveConfirm": "Quitar",
+  "libraryChannelMemberRemoved": "Se quitó a {name}",
+  "libraryChannelMembersAdded": "Miembros añadidos",
+  "libraryNoteSharedBy": "Compartida por {name}. Puedes ver esta nota, pero no editarla.",
+  "libraryNoteOpen": "Abrir",
+  "chatDataControlsArchivedAll": "Todos los chats archivados.",
+  "chatDataControlsUnarchivedAll": "Todos los chats desarchivados.",
+  "chatDataControlsUnsharedAll": "Se quitaron todos los enlaces compartidos.",
+  "chatDataControlsDeletedAll": "Todos los chats eliminados.",
+  "notificationTargetMakeDefaultNeedsSave": "Guarda los cambios para establecerlo como predeterminado."
 }

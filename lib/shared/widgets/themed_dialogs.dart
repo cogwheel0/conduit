@@ -84,6 +84,8 @@ class ThemedDialogs {
                 title: effectiveCancelText,
                 sfSymbol: 'xmark',
                 dismissOnSelect: true,
+                // Answers the question here; no chevron, since nothing opens.
+                showsDisclosure: false,
                 actionId: 'cancel',
               ),
               NativeSheetItemConfig(
@@ -92,6 +94,7 @@ class ThemedDialogs {
                 sfSymbol: isDestructive ? 'trash' : 'checkmark',
                 destructive: isDestructive,
                 dismissOnSelect: true,
+                showsDisclosure: false,
                 actionId: 'confirm',
               ),
             ],

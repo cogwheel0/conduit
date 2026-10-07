@@ -985,7 +985,7 @@
   "chatSettingsSystemPrompt": "Системный промпт",
   "chatSettingsSystemPromptEmptyNote": "Пустой промпт не отправляет системный промпт вообще, даже если у вас есть промпт по умолчанию. Выберите «Наследовать», чтобы использовать его.",
   "chatSettingsParameters": "Параметры",
-  "chatSettingsInherit": "Наследовать",
+  "chatSettingsInherit": "Ваше по умолчанию",
   "chatSettingsModelDefault": "По умолчанию модели",
   "chatSettingsCustom": "Свой",
   "chatSettingsResetAll": "Сбросить всё",
@@ -1063,7 +1063,6 @@
   "personalConnectionsSpecInvalid": "Введите корректный документ JSON OpenAPI.",
   "personalConnectionsSelectionCleared": "Удалено из этого чата, потому что подключение изменилось: {names}",
   "personalConnectionsTerminalOneActive": "Включение одного терминала выключает остальные.",
-  "personalConnectionsNeedsAdvanced": "Включите «Расширенные» в настройках чата, чтобы управлять личными подключениями.",
   "personalConnectionsNoAccount": "Войдите в учётную запись Open WebUI, чтобы управлять личными подключениями.",
   "chatSaved": "Чат сохранён в истории",
   "chatSaveFailed": "Не удалось сохранить чат",
@@ -1320,12 +1319,9 @@
   "clearAllMemoriesDescription": "Это навсегда удалит все сохраненные воспоминания для вашей учетной записи.",
   "noMemoriesSaved": "Сохраненных воспоминаний пока нет.",
   "memoryUpdatedAt": "Обновлено {formattedTime}",
-  "advancedPromptOverrides": "Расширенные переопределения промптов",
   "advancedPromptOverridesDescription": "Переопределения промптов моделей находятся в разделе App & Chat.",
   "audioSettingsTitle": "Аудио",
   "audioSettingsSubtitle": "Речь в текст и текст в речь",
-  "appAndChat": "Приложение и чат",
-  "appAndChatSubtitle": "Тема, язык, поведение чата и расширенные переопределения",
   "accountSettingsTitle": "Учетная запись",
   "accountSettingsSubtitle": "Данные профиля и управление паролем",
   "accountDetails": "Данные учетной записи",
@@ -1976,8 +1972,6 @@
   "workspaceEditorComingSoon": "Этот редактор появится в следующем обновлении рабочей области.",
   "workspaceSearchHint": "Поиск по ресурсам рабочей области",
   "workspaceLoadMore": "Загрузить еще",
-  "workspaceAccessTitle": "Доступ и совместное использование",
-  "workspaceAccessSharingDisabled": "Совместный доступ выключен, ресурс доступен только для чтения.",
   "workspaceAccessPublicDisabled": "У вас нет разрешения делать этот ресурс общедоступным.",
   "workspaceAccessPeopleHeading": "Пользователи и группы",
   "workspaceAccessUsersDisabled": "Доступ для отдельных пользователей отключен; разрешены только группы.",
@@ -1987,8 +1981,6 @@
   "workspaceAccessAddUsers": "Добавить пользователей",
   "workspaceAccessGroupsDisabled": "Предоставление доступа группам отключено; можно делиться только с отдельными пользователями.",
   "workspaceAccessGrantsDisabled": "У вас нет прав предоставлять доступ пользователям или группам. Существующий доступ сохраняется.",
-  "workspaceAccessVisibilityLabel": "Общий доступ",
-  "workspaceAccessVisibilityDescription": "Любой пользователь на этом сервере может просматривать этот ресурс.",
   "workspaceAccessGroupBadge": "Группа",
   "workspaceAccessUserBadge": "Пользователь",
   "workspaceAccessCanEdit": "Может редактировать",
@@ -3443,7 +3435,6 @@
   "notificationTargetsEmpty": "Адресов webhook пока нет.",
   "notificationTargetsLoadFailed": "Не удалось загрузить адреса webhook.",
   "notificationTargetsStale": "Сохранено, но не удалось обновить список.",
-  "notificationTargetsNativeDescription": "Добавление и управление адресами webhook",
   "notificationTargetsUnavailable": "Адреса webhook недоступны для этого аккаунта.",
   "notificationTargetsAccountChanged": "Аккаунт изменился. Закройте это окно и снова откройте адрес.",
   "notificationTargetNewTitle": "Новый адрес",
@@ -3545,9 +3536,9 @@
   "noteSessionChangedNotice": "Аккаунт, в который выполнен вход, изменился, поэтому заметка не была сохранена.",
   "noteNoAccess": "У вас больше нет доступа к этой заметке.",
   "noteShare": "Поделиться заметкой",
-  "folderShareSettings": "Настройки доступа",
-  "chatShareAudience": "Аудитория",
-  "chatShareAudienceDescription": "Выберите, кто может открыть общий чат",
+  "folderShareSettings": "Поделиться папкой",
+  "chatShareAudience": "У кого есть доступ",
+  "chatShareAudienceDescription": "Выберите, кто может открыть этот чат",
   "resourceSharingSaved": "Параметры доступа обновлены",
   "resourceSharingFiltered": "Сохранено. Сервер оставил только часть выбранного доступа.",
   "resourceSharingSessionChanged": "Аккаунт, в который выполнен вход, изменился, поэтому ничего не сохранено. Закройте это окно и откройте его снова.",
@@ -3555,12 +3546,7 @@
   "resourceSharingMissing": "Этот элемент больше не существует.",
   "resourceSharingLoadFailed": "Не удалось загрузить список тех, у кого есть доступ.",
   "resourceSharingSaveFailed": "Не удалось сохранить доступ. Повторите попытку.",
-  "resourceAudienceLabel": "Аудитория",
-  "resourceAudiencePrivate": "Приватно",
-  "resourceAudiencePublic": "Для всех на сервере",
-  "resourceAudienceOpen": "По ссылке",
   "resourceAudiencePrivateHint": "Открыть могут только перечисленные ниже пользователи и группы.",
-  "resourceAudiencePublicHint": "Открыть может любой пользователь этого сервера.",
   "resourceAudienceOpenHint": "Просмотреть может любой, у кого есть ссылка.",
   "channelMembersSearchHint": "Поиск участников",
   "channelMembersEmpty": "Участники не найдены.",
@@ -3574,8 +3560,8 @@
   "channelMembersChangeFailed": "Не удалось обновить список участников. Повторите попытку.",
   "channelMembersChangeDenied": "Сервер не разрешил это изменение.",
   "channelMembersChangeNotPermitted": "У вас нет прав управлять участниками этого канала.",
-  "chatBranchContinueFromResponse": "Продолжить с этого ответа",
-  "chatBranchForkChat": "Создать ветку чата отсюда",
+  "chatBranchContinueFromResponse": "Продолжить отсюда",
+  "chatBranchForkChat": "Ветка в новом чате",
   "chatBranchSwitcherSemantics": "Изменённое сообщение, версия {position} из {total}. Показать все версии.",
   "@chatBranchSwitcherSemantics": {
     "placeholders": {
@@ -3597,7 +3583,7 @@
       }
     }
   },
-  "chatBranchVersionCurrent": "Текущая ветка",
+  "chatBranchVersionCurrent": "Показана сейчас",
   "chatBranchSelectedNotice": "Продолжение с версии {position} из {total}",
   "@chatBranchSelectedNotice": {
     "placeholders": {
@@ -3609,19 +3595,19 @@
       }
     }
   },
-  "chatBranchWaitForResponse": "Дождитесь завершения этого ответа",
+  "chatBranchWaitForResponse": "Дождитесь завершения этого ответа.",
   "chatBranchUnavailable": "Ветки этого чата нельзя изменить здесь.",
   "chatBranchOwnerChanged": "Вошедший аккаунт изменился, поэтому ничего не было изменено.",
   "chatBranchMessageMissing": "Эта версия больше недоступна.",
   "chatForkOffline": "Подключитесь к интернету, чтобы создать ветку этого чата.",
-  "chatForkForbidden": "Вашему аккаунту нельзя создавать ветки чатов.",
+  "chatForkForbidden": "Ваша учётная запись не может создавать ветки чатов.",
   "chatForkSourceMissing": "На сервере больше нет этого чата.",
-  "chatForkUnsupported": "Этот сервер не поддерживает создание веток чатов.",
+  "chatForkUnsupported": "Этот сервер не может создавать ветки чатов.",
   "chatForkFailed": "Не удалось создать ветку этого чата. Попробуйте ещё раз.",
   "codeInterpreter": "Интерпретатор кода",
   "codeInterpreterDescription": "Запускайте код на сервере, чтобы анализировать данные и создавать файлы.",
   "codeInterpreterBrowserEngine": "Этот сервер выполняет код в браузере, а Conduit этого не умеет.",
-  "codeInterpreterUnavailable": "Интерпретатор кода недоступен для этого сервера, учётной записи или модели.",
+  "codeInterpreterUnavailable": "Недоступно для этого сервера, учётной записи или модели.",
   "folderProjectSettings": "Настройки проекта",
   "folderProjectSettingsDescription": "Параметры по умолчанию для новых чатов в этой папке. Сервер применяет её знания и системный промпт к каждому чату в ней.",
   "folderProjectModels": "Модели по умолчанию",
@@ -3630,9 +3616,8 @@
   "folderProjectNoModels": "Модели по умолчанию нет. Новые чаты используют вашу модель по умолчанию.",
   "folderProjectAddKnowledge": "Добавить знания",
   "folderProjectAddModel": "Добавить модель",
-  "folderProjectAddSelected": "Добавить",
   "folderProjectNothingToAdd": "Добавлять больше нечего.",
-  "folderProjectNotAvailable": "Недоступно",
+  "folderProjectNotAvailable": "Недоступно — новые чаты пропустят это",
   "folderProjectMoveUp": "Переместить {name} вверх",
   "folderProjectRemove": "Удалить {name}",
   "folderProjectKindCollection": "База знаний",
@@ -3646,7 +3631,6 @@
   "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTasksTitle": "Запланированные задачи",
   "scheduledTasksDescription": "Ваш сервер Open WebUI выполняет эти задачи по собственному расписанию, даже когда этот телефон не в сети.",
-  "scheduledTasksNeedsAdvanced": "Включите «Расширенные» в настройках, чтобы управлять запланированными задачами. Задачи, уже находящиеся на сервере, продолжают выполняться.",
   "scheduledTasksUnavailable": "Запланированные задачи недоступны для этого аккаунта на этом сервере.",
   "scheduledTasksSearchHint": "Поиск задач",
   "scheduledTasksFilterAll": "Все",
@@ -3694,7 +3678,7 @@
   "scheduledTaskAdvancedSchedule": "Расширенное расписание",
   "scheduledTaskRruleLabel": "Правило повторения",
   "scheduledTaskRruleKept": "Это расписание использует правило, которое нельзя изменить с помощью этих элементов управления. Оно останется прежним, пока вы его не измените.",
-  "scheduledTaskTimezoneNote": "Время определяется часовым поясом вашего аккаунта Open WebUI, который задаётся в веб-приложении, а не обязательно этим устройством. Когда именно произойдёт каждый запуск, решает сервер.",
+  "scheduledTaskTimezoneNote": "Время указано в часовом поясе вашей учётной записи Open WebUI, который может отличаться от пояса этого устройства.",
   "scheduledTaskActiveLabel": "Активна",
   "scheduledTaskDestinationLabel": "Результат отправляется в",
   "scheduledTaskDestinationChat": "Новый чат",
@@ -3727,7 +3711,7 @@
   "scheduledTaskViewChannel": "Открыть канал",
   "scheduledTaskOpenResultFailed": "Не удалось открыть этот результат.",
   "scheduledTaskDelete": "Удалить задачу",
-  "scheduledTaskDeleteConfirm": "Удалить «{name}»? Сервер перестанет её выполнять, а её история будет удалена.",
+  "scheduledTaskDeleteConfirm": "Задача «{name}» больше не будет выполняться на сервере, а её история запусков будет удалена.",
   "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
   "scheduledTaskChangeFailed": "Не удалось изменить эту задачу.",
   "scheduledTaskTerminalKept": "К этой задаче подключён терминал. При редактировании он сохраняется.",
@@ -3736,22 +3720,18 @@
   "queuedDraftsTitle": "Сообщения в очереди",
   "queuedDraftsCount": "{count, plural, one{{count} сообщение в очереди} few{{count} сообщения в очереди} many{{count} сообщений в очереди} other{{count} сообщения в очереди}}",
   "queuedDraftsSessionNote": "Сообщения в очереди хранятся, только пока Conduit открыт. Когда ответ завершится, они будут отправлены вместе как одно сообщение.",
-  "queuedDraftSendNow": "Отправить сейчас",
+  "queuedDraftSendNow": "Остановить и отправить",
   "queuedDraftUploading": "Ожидание загрузки файла",
-  "queuedDraftFileFailed": "Файл не загрузился. Удалите его, чтобы отправить это сообщение.",
+  "queuedDraftFileFailed": "Файл не загрузился. Повторите попытку или удалите его.",
   "queuedDraftsSendFailed": "Не удалось отправить сообщения из очереди. Они остаются в очереди.",
   "queuedDraftsSending": "Отправка сообщений из очереди…",
   "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarTitle": "Календарь",
-  "calendarDescription": "Ваш календарь Open WebUI. События хранятся на сервере и показываются в часовом поясе этого устройства.",
   "calendarUnavailable": "Календарь недоступен для этого аккаунта на этом сервере.",
-  "calendarTimezoneNote": "Время показывается в часовом поясе этого устройства. Повторяющиеся события разворачиваются сервером в часовом поясе вашего аккаунта.",
+  "calendarTimezoneNote": "Время показывается в часовом поясе этого устройства.",
   "calendarRangeLabel": "{start} – {end}",
   "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
-  "calendarEarlier": "Раньше",
-  "calendarLater": "Позже",
   "calendarToday": "Сегодня",
-  "calendarAllCalendars": "Все календари",
   "calendarEmpty": "В этом периоде нет событий.",
   "calendarLoadFailed": "Не удалось загрузить календарь.",
   "calendarStale": "Календарь может быть устаревшим.",
@@ -3765,13 +3745,7 @@
   "calendarScheduledRunFailed": "Запуск задачи завершился ошибкой",
   "calendarScheduledEntryReadOnly": "Запланированными задачами управляют на странице «Запланированные задачи», а не как событиями.",
   "calendarEventDetailTitle": "Событие",
-  "calendarEventCalendar": "Календарь: {name}",
-  "@calendarEventCalendar": {"placeholders": {"name": {"type": "String"}}},
-  "calendarEventOrganizer": "Организатор: {name}",
-  "@calendarEventOrganizer": {"placeholders": {"name": {"type": "String"}}},
   "calendarEventSeriesNote": "Это событие повторяется. Изменения и удаление применяются ко всей серии.",
-  "calendarEventInvitedCount": "Приглашено: {count}",
-  "@calendarEventInvitedCount": {"placeholders": {"count": {"type": "int"}}},
   "calendarRsvpPrompt": "Ваш ответ",
   "calendarRsvpAccepted": "Пойду",
   "calendarRsvpTentative": "Возможно",
@@ -3801,7 +3775,7 @@
   "calendarFieldStartTime": "Время начала",
   "calendarFieldEnds": "Окончание",
   "calendarFieldEndTime": "Время окончания",
-  "calendarAddEnd": "Добавить окончание",
+  "calendarAddEnd": "Добавить время окончания",
   "calendarFieldRepeat": "Повтор",
   "calendarRepeatNone": "Не повторяется",
   "calendarRepeatDaily": "Ежедневно",
@@ -3854,9 +3828,8 @@
       }
     }
   },
-  "chatDataControlsUnavailable": "Для управления данными нужно включить «Расширенные» и войти в аккаунт Open WebUI.",
-  "chatDataControlsMediaNote": "Резервная копия содержит историю чатов, настройки и ссылки на вложения, сохранённые на сервере. Сами прикреплённые файлы и изображения в неё не входят.",
-  "chatDataControlsLocalOnly": "Только на этом устройстве: {count}",
+  "chatDataControlsMediaNote": "Экспорт содержит историю чатов, настройки и ссылки на вложения, сохранённые на сервере. Сами прикреплённые файлы и изображения в него не входят.",
+  "chatDataControlsLocalOnly": "{count, plural, one{{count} чат есть только на этом устройстве} few{{count} чата есть только на этом устройстве} many{{count} чатов есть только на этом устройстве} other{{count} чата есть только на этом устройстве}}",
   "@chatDataControlsLocalOnly": {
     "placeholders": {
       "count": {
@@ -3864,7 +3837,7 @@
       }
     }
   },
-  "chatDataControlsUnsent": "С изменениями, которые сервер не получил: {count}",
+  "chatDataControlsUnsent": "{count, plural, one{В {count} чате есть изменения, которые сервер не получил} few{В {count} чатах есть изменения, которые сервер не получил} many{В {count} чатах есть изменения, которые сервер не получил} other{В {count} чата есть изменения, которые сервер не получил}}",
   "@chatDataControlsUnsent": {
     "placeholders": {
       "count": {
@@ -3872,10 +3845,10 @@
       }
     }
   },
-  "chatDataControlsUnsyncedNote": "Резервная копия сервера не включает их, пока они не отправлены.",
+  "chatDataControlsUnsyncedNote": "Экспорт не включает их, пока они не отправлены.",
   "chatDataControlsSyncNow": "Синхронизировать сейчас",
   "chatDataControlsSyncing": "Синхронизация…",
-  "chatDataControlsBackupSection": "Резервное копирование и восстановление",
+  "chatDataControlsBackupSection": "Экспорт и импорт",
   "chatDataControlsManageSection": "Все чаты",
   "chatDataControlsExportLibrary": "Экспортировать все чаты",
   "chatDataControlsImport": "Импортировать чаты",
@@ -3891,7 +3864,7 @@
       }
     }
   },
-  "chatDataControlsExportReady": "Резервная копия готова. Сохранено чатов: {count}",
+  "chatDataControlsExportReady": "Экспорт готов. Сохранено чатов: {count}",
   "@chatDataControlsExportReady": {
     "placeholders": {
       "count": {
@@ -3899,10 +3872,10 @@
       }
     }
   },
-  "chatDataControlsExportEmpty": "На сервере нет чатов для резервного копирования.",
-  "chatDataControlsExportFailed": "Резервная копия не сохранена. Экспорт был прерван или неполон.",
+  "chatDataControlsExportEmpty": "На сервере нет чатов для экспорта.",
+  "chatDataControlsExportFailed": "Ничего не сохранено. Экспорт был прерван или неполон.",
   "chatDataControlsExportStopped": "Экспорт остановлен. Ничего не сохранено.",
-  "chatDataControlsExportConfirmTitle": "Создать резервную копию данных с сервера?",
+  "chatDataControlsExportConfirmTitle": "Экспортировать данные с сервера?",
   "chatDataControlsExportConfirmMessage": "Будут сохранены чаты аккаунта {account}, хранящиеся на сервере {server}. Чаты, существующие только на этом устройстве, и изменения, которые сервер не получил, не включаются.",
   "@chatDataControlsExportConfirmMessage": {
     "placeholders": {
@@ -3914,7 +3887,7 @@
       }
     }
   },
-  "chatDataControlsExportAction": "Создать копию",
+  "chatDataControlsExportAction": "Экспортировать",
   "chatDataControlsImportConfirmTitle": "Импортировать эти чаты?",
   "chatDataControlsImportConfirmMessage": "Добавить чаты из файла в аккаунт {account} на сервере {server}? Чатов: {chats}. Сообщений: {messages}. Уже существующие чаты не заменяются; при импорте добавляются копии.",
   "@chatDataControlsImportConfirmMessage": {
@@ -3990,10 +3963,8 @@
       }
     }
   },
-  "chatDataControlsDiscardAndDelete": "Отбросить и удалить",
   "chatDataControlsResponseRunning": "Ответ ещё формируется. Остановите его и повторите попытку.",
   "chatDataControlsLocalChanged": "Пока шло ожидание, чат, существовавший только на этом устройстве, попал на сервер. Ничего не изменено. Проверьте и повторите попытку.",
-  "chatDataControlsDone": "Готово.",
   "chatDataControlsRefused": "Сервер не смог это выполнить. Ничего не изменено.",
   "chatDataControlsUnknown": "Сервер не ответил, поэтому результат неизвестен. Проверьте свои чаты; повторное выполнение безопасно.",
   "chatDataControlsOwnerChanged": "Аккаунт, в который выполнен вход, изменился. Ничего не выполнено.",
@@ -4024,14 +3995,14 @@
   "chatComparisonSlotFailed": "Ошибка",
   "chatMergedResponseTitle": "Объединённый ответ",
   "chatCompareModelsAction": "Сравнить модели",
-  "chatCompareModelsDescription": "Отправить это сообщение двум моделям и сравнить их ответы.",
-  "chatCompareNeedsMessage": "Сначала введите сообщение, затем сравните модели.",
+  "chatCompareModelsDescription": "Отправить двум моделям и сравнить ответы.",
+  "chatCompareNeedsMessage": "Сначала введите сообщение",
   "chatCompareFirstModel": "Первая модель",
   "chatCompareSecondModel": "Вторая модель",
   "chatCompareChooseModel": "Выберите модель",
   "chatCompareStart": "Сравнить",
   "chatCompareErrorUnavailable": "Сравнение моделей недоступно в этом чате.",
-  "chatCompareErrorModelUnavailable": "Недоступно на этом сервере: {models}.",
+  "chatCompareErrorModelUnavailable": "{count, plural, =1{Модель {models} недоступна на этом сервере.} other{Модели {models} недоступны на этом сервере.}}",
   "@chatCompareErrorModelUnavailable": {
     "placeholders": {
       "models": {
@@ -4039,7 +4010,7 @@
       }
     }
   },
-  "chatCompareErrorVision": "Не умеют читать изображения: {models}. Удалите изображение или выберите другие модели.",
+  "chatCompareErrorVision": "{count, plural, =1{Модель {models} не умеет читать изображения. Удалите изображение или выберите другую модель.} other{Модели {models} не умеют читать изображения. Удалите изображение или выберите другие модели.}}",
   "@chatCompareErrorVision": {
     "placeholders": {
       "models": {
@@ -4047,7 +4018,7 @@
       }
     }
   },
-  "chatCompareErrorTerminal": "Не могут использовать выбранный терминал: {models}. Отключите терминал или выберите другие модели.",
+  "chatCompareErrorTerminal": "{count, plural, =1{Модель {models} не может использовать выбранный терминал. Отключите терминал или выберите другую модель.} other{Модели {models} не могут использовать выбранный терминал. Отключите терминал или выберите другие модели.}}",
   "@chatCompareErrorTerminal": {
     "placeholders": {
       "models": {
@@ -4055,7 +4026,7 @@
       }
     }
   },
-  "chatCompareErrorInterpreter": "Не могут запускать интерпретатор кода: {models}. Отключите его или выберите другие модели.",
+  "chatCompareErrorInterpreter": "{count, plural, =1{Модель {models} не может запускать интерпретатор кода. Отключите его или выберите другую модель.} other{Модели {models} не могут запускать интерпретатор кода. Отключите его или выберите другие модели.}}",
   "@chatCompareErrorInterpreter": {
     "placeholders": {
       "models": {
@@ -4063,7 +4034,7 @@
       }
     }
   },
-  "chatCompareErrorEffortOverride": "В этом чате сохранён уровень рассуждений, который не могут использовать: {models}. Удалите его в настройках чата или выберите другие модели.",
+  "chatCompareErrorEffortOverride": "{count, plural, =1{В этом чате сохранён уровень рассуждений, который модель {models} не может использовать. Удалите его в настройках чата или выберите другую модель.} other{В этом чате сохранён уровень рассуждений, который модели {models} не могут использовать. Удалите его в настройках чата или выберите другие модели.}}",
   "@chatCompareErrorEffortOverride": {
     "placeholders": {
       "models": {
@@ -4085,5 +4056,97 @@
   "profileAdvancedFooter": "Показано, потому что в Настройки > Чат включён режим «Расширенные».",
   "advancedRequiredTitle": "Часть расширенных функций",
   "advancedRequiredMessage": "{feature} относится к расширенным функциям. Включите «Расширенные», чтобы пользоваться этим. Всё уже настроенное продолжает работать.",
-  "advancedTurnOn": "Включить расширенные"
+  "advancedTurnOn": "Включить расширенные",
+  "promptOverridesTitle": "Переопределения промптов",
+  "chatSettingsStopHint": "Ваше по умолчанию (через запятую)",
+  "chatSettingsUseYourDefault": "Использовать ваше значение по умолчанию",
+  "personalToolSettingsSaved": "Настройки инструментов сохранены",
+  "personalToolSettingsLoadFailed": "Не удалось загрузить настройки инструментов.",
+  "personalToolSettingsSaveFailed": "Не удалось сохранить настройки инструментов.",
+  "scheduledTaskDeleteTitle": "Удалить запланированную задачу?",
+  "scheduledTaskRunning": "Выполняется…",
+  "scheduledTaskRunFinished": "Запуск завершён.",
+  "scheduledTaskRunFailedNotice": "Запуск не удался. Подробности смотрите в истории.",
+  "scheduledTaskLastRunFailed": "Последний запуск не удался",
+  "scheduledTaskRruleRuns": "Запуск: {summary}",
+  "scheduledTaskFolderSearchHint": "Поиск папок",
+  "scheduledTasksEmptyHint": "Пусть модель выполняет ваши инструкции по расписанию, например готовит утреннюю сводку новостей.",
+  "scheduledTasksShowAll": "Показать все задачи",
+  "personalConnectionsEmptyToolServersHint": "Добавьте сервер инструментов OpenAPI, чтобы использовать его инструменты в чатах.",
+  "personalConnectionsEmptyTerminalsHint": "Добавьте сервер терминала, которым модели смогут пользоваться из ваших чатов.",
+  "chatCompareModelPair": "{first} и {second}",
+  "chatDataControlsNoAccount": "Войдите в аккаунт Open WebUI, чтобы управлять его чатами.",
+  "chatDataControlsAccountChanged": "Аккаунт изменился. Вернитесь назад и снова откройте «Управление данными».",
+  "chatDataControlsArchiveAllConfirm": "Архивировать все",
+  "chatDataControlsUnarchiveAllConfirm": "Разархивировать все",
+  "chatDataControlsUnshareAllConfirm": "Удалить ссылки",
+  "chatDataControlsDeleteAllConfirm": "Удалить все чаты",
+  "chatDataControlsDiscardAndDeleteConfirm": "Отбросить и удалить все чаты",
+  "chatDataControlsDeleteFooter": "Удаляет все чаты {account} с сервера {server}. Чаты, которые есть только на этом устройстве, сохраняются.",
+  "chatDataControlsImporting": "{count, plural, one{Импорт {count} чата…} few{Импорт {count} чатов…} many{Импорт {count} чатов…} other{Импорт {count} чата…}}",
+  "chatDataControlsImportFooter": "Импорт добавляет копии. Он никогда не заменяет чаты, которые уже есть на сервере.",
+  "nativeSheetOptionUnavailable": "Этот параметр сейчас недоступен.",
+  "nativeWebhookDestinationsCount": "{count, plural, =0{Нет} one{{count} адрес} few{{count} адреса} many{{count} адресов} other{{count} адреса}}",
+  "chatBranchForkOpened": "Открыт новый чат отсюда",
+  "queuedDraftStopFailed": "Не удалось остановить текущий ответ. Ваше сообщение по-прежнему в очереди.",
+  "queuedDraftRemoved": "Удалено из очереди",
+  "queuedDraftUndo": "Отменить",
+  "chatExportPreparing": "Подготовка экспорта…",
+  "chatStopResponseFailed": "Не удалось остановить этот ответ.",
+  "calendarStartsAt": "Начало в {time}",
+  "calendarEndsAt": "Окончание в {time}",
+  "calendarDayToday": "Сегодня · {date}",
+  "calendarDayTomorrow": "Завтра · {date}",
+  "calendarPreviousDays": "{count, plural, one{Предыдущий {count} день} few{Предыдущие {count} дня} many{Предыдущие {count} дней} other{Предыдущие {count} дня}}",
+  "calendarNextDays": "{count, plural, one{Следующий {count} день} few{Следующие {count} дня} many{Следующие {count} дней} other{Следующие {count} дня}}",
+  "calendarRemoveEnd": "Убрать время окончания",
+  "calendarEventReadOnlyNotInvited": "Вы не можете изменить это событие.",
+  "calendarFieldOrganizer": "Организатор",
+  "calendarColorName": "{color, select, blue{Синий} green{Зелёный} amber{Янтарный} red{Красный} purple{Фиолетовый} teal{Бирюзовый} other{Цвет}}",
+  "calendarVisibilityFooter": "Показываются события из отмеченных календарей. Нажмите на календарь, чтобы показать или скрыть его события.",
+  "personalizationMemoryTypeUserDescription": "Предпочтение, факт или указание о вас.",
+  "personalizationMemoryTypeContextDescription": "Контекст, который нужно учитывать в будущих чатах.",
+  "personalizationMemoryTypeUnknown": "У этого воспоминания тип, который приложение не распознаёт. Он сохранится, пока вы не выберете другой.",
+  "personalizationMemoryAccountChanged": "Аккаунт изменился. Закройте это окно и снова откройте воспоминание.",
+  "notificationTargetDeliveryAwayDescription": "Только когда вы не пользуетесь Open WebUI.",
+  "notificationTargetDeliveryAlwaysDescription": "Каждый раз, даже когда вы активны.",
+  "notificationTargetTestNeedsSave": "Сохраните изменения, чтобы проверить их.",
+  "notificationTargetNameHelper": "Нельзя изменить позже. Оставьте пустым, чтобы использовать хост из URL.",
+  "notificationTargetIdLabel": "Название",
+  "codeInterpreterTurnOff": "Выключить",
+  "libraryShareTitle": "Поделиться",
+  "libraryGeneralAccess": "Общий доступ",
+  "libraryAccessOnlyPeopleAdded": "Только добавленные люди",
+  "libraryAccessEveryoneOnServer": "Все на этом сервере",
+  "libraryAccessAnyoneWithLink": "Все, у кого есть ссылка",
+  "libraryAccessEveryoneHint": "Любой, у кого есть аккаунт на этом сервере, может это просматривать.",
+  "libraryAccessLinkNotAllowed": "У вас нет прав делиться по ссылке.",
+  "libraryAccessCanView": "Может просматривать",
+  "libraryAccessLevelFor": "Доступ для {name}",
+  "libraryAccessRemovePrincipal": "Удалить {name}",
+  "libraryAccessUnknownPerson": "Неизвестный пользователь",
+  "libraryAccessUnknownGroup": "Неизвестная группа",
+  "libraryAccessOwner": "Владелец",
+  "libraryAccessOwnerOnlyNotice": "Изменять доступ могут только владелец и те, у кого есть право редактирования.",
+  "libraryAccessAccountCantShare": "Ваш аккаунт не может делиться этим.",
+  "libraryAccessPartialSave": "Сохранено, но не удалось дать доступ: {names}.",
+  "libraryAccessDone": "Готово",
+  "libraryAccessSummaryOnlyYou": "Только вы",
+  "libraryAccessSummaryShared": "{count, plural, one{Доступно {count} человеку или группе} few{Доступно {count} людям или группам} many{Доступно {count} людям или группам} other{Доступно {count} людям или группам}}",
+  "libraryPickerAddCount": "{count, plural, =0{Добавить} other{Добавить ({count})}}",
+  "libraryPickerHasAccess": "Есть доступ",
+  "libraryPickerAlreadyMember": "Уже участник",
+  "libraryPickerSearchGroups": "Поиск групп",
+  "libraryChannelRemoveTitle": "Удалить {name}?",
+  "libraryChannelRemoveMessage": "Этот человек больше не будет видеть канал и его сообщения.",
+  "libraryChannelRemoveConfirm": "Удалить",
+  "libraryChannelMemberRemoved": "{name}: удалён(а)",
+  "libraryChannelMembersAdded": "Участники добавлены",
+  "libraryNoteSharedBy": "Поделился(-ась) {name}. Вы можете просматривать эту заметку, но не изменять её.",
+  "libraryNoteOpen": "Открыть",
+  "chatDataControlsArchivedAll": "Все чаты заархивированы.",
+  "chatDataControlsUnarchivedAll": "Все чаты извлечены из архива.",
+  "chatDataControlsUnsharedAll": "Все ссылки для общего доступа удалены.",
+  "chatDataControlsDeletedAll": "Все чаты удалены.",
+  "notificationTargetMakeDefaultNeedsSave": "Сохраните изменения, чтобы сделать это основным."
 }

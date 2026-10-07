@@ -1125,12 +1125,14 @@ class ConduitLoadingIndicator extends StatelessWidget {
         SizedBox(
           width: size,
           height: size,
-          child: CircularProgressIndicator(
-            strokeWidth: isCompact ? 2 : 3,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              context.conduitTheme.buttonPrimary,
-            ),
-          ),
+          child: context.usesCupertinoChrome
+              ? CupertinoActivityIndicator(radius: size / 2)
+              : CircularProgressIndicator(
+                  strokeWidth: isCompact ? 2 : 3,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    context.conduitTheme.buttonPrimary,
+                  ),
+                ),
         ),
         if (message != null) ...[
           SizedBox(height: isCompact ? Spacing.sm : Spacing.md),
@@ -1311,44 +1313,45 @@ class ConduitChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: isCompact ? Spacing.sm : Spacing.md,
-          vertical: isCompact ? Spacing.xs : Spacing.sm,
-        ),
-        decoration: BoxDecoration(
+    final chip = Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isCompact ? Spacing.sm : Spacing.md,
+        vertical: isCompact ? Spacing.xs : Spacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? context.conduitTheme.buttonPrimary.withValues(
+                alpha: Alpha.highlight,
+              )
+            : context.conduitTheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(AppBorderRadius.chip),
+        border: Border.all(
           color: isSelected
               ? context.conduitTheme.buttonPrimary.withValues(
-                  alpha: Alpha.highlight,
+                  alpha: Alpha.standard,
                 )
-              : context.conduitTheme.surfaceContainer,
-          borderRadius: BorderRadius.circular(AppBorderRadius.chip),
-          border: Border.all(
-            color: isSelected
-                ? context.conduitTheme.buttonPrimary.withValues(
-                    alpha: Alpha.standard,
-                  )
-                : context.conduitTheme.cardBorder,
-            width: BorderWidth.standard,
-          ),
+              : context.conduitTheme.cardBorder,
+          width: BorderWidth.standard,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(
-                icon,
-                size: isCompact ? IconSize.xs : IconSize.small,
-                color: isSelected
-                    ? context.conduitTheme.buttonPrimary
-                    : context.conduitTheme.iconSecondary,
-              ),
-              SizedBox(width: Spacing.iconSpacing),
-            ],
-            Text(
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(
+              icon,
+              size: isCompact ? IconSize.xs : IconSize.small,
+              color: isSelected
+                  ? context.conduitTheme.buttonPrimary
+                  : context.conduitTheme.iconSecondary,
+            ),
+            SizedBox(width: Spacing.iconSpacing),
+          ],
+          Flexible(
+            child: Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppTypography.small.copyWith(
                 color: isSelected
                     ? context.conduitTheme.buttonPrimary
@@ -1356,6 +1359,28 @@ class ConduitChip extends StatelessWidget {
                 fontWeight: FontWeight.w500,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+    // The pill keeps its height; the area that takes the tap grows to the
+    // minimum touch target around it. The passthrough fit hands the chip the
+    // same width constraints as before, so a chip filling an Expanded still
+    // fills it and one in a Wrap still hugs its label.
+    return Semantics(
+      container: true,
+      button: true,
+      selected: isSelected,
+      enabled: onTap != null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Stack(
+          alignment: Alignment.center,
+          fit: StackFit.passthrough,
+          children: [
+            const SizedBox(height: TouchTarget.minimum),
+            chip,
           ],
         ),
       ),
