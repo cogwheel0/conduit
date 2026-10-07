@@ -4,11 +4,12 @@ import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -58,24 +59,33 @@ class ServerAddressesPage extends ConsumerWidget {
             title: l10n.accountsServerAddresses,
             footer: l10n.accountsServerAddressesHelp,
             children: [
-              ReorderableListView(
+              ReorderableList(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                buildDefaultDragHandles: false,
                 onReorderItem: (from, to) =>
                     _reorder(context, server, from, to),
-                children: [
-                  for (final (index, endpoint) in server.endpoints.indexed)
-                    _AddressRow(
-                      key: ValueKey(endpoint.id),
-                      index: index,
-                      server: server,
-                      endpoint: endpoint,
-                      inUse:
-                          route.serverId == server.id &&
-                          route.endpointId == endpoint.id,
-                    ),
-                ],
+                itemCount: server.endpoints.length,
+                itemBuilder: (context, index) {
+                  final endpoint = server.endpoints[index];
+                  return _AddressRow(
+                    key: ValueKey(endpoint.id),
+                    index: index,
+                    server: server,
+                    endpoint: endpoint,
+                    inUse:
+                        route.serverId == server.id &&
+                        route.endpointId == endpoint.id,
+                  );
+                },
+                // The lifted row keeps the section's surface while it moves.
+                proxyDecorator: (child, index, animation) => DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: context.conduitTheme.groupedSurface,
+                    borderRadius: BorderRadius.circular(AppBorderRadius.md),
+                    boxShadow: context.conduitTheme.popoverShadows,
+                  ),
+                  child: child,
+                ),
               ),
             ],
           ),
@@ -211,17 +221,17 @@ class _AddressRow extends StatelessWidget {
               ),
             ),
           if (server.endpoints.length > 1)
-            IconButton(
+            AdaptiveButton.icon(
               key: Key('server-address-remove-${endpoint.id}'),
-              tooltip: l10n.accountsRemoveAddress,
-              icon: Icon(
-                UiUtils.platformIcon(
-                  ios: CupertinoIcons.minus_circle,
-                  android: Icons.remove_circle_outline,
-                ),
-                color: theme.error,
-                size: IconSize.medium,
+              semanticLabel: l10n.accountsRemoveAddress,
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.minus_circle,
+                android: Icons.remove_circle_outline,
               ),
+              iconColor: theme.error,
+              style: AdaptiveButtonStyle.plain,
+              // A row of a scrolling list: no native view per row.
+              useNative: false,
               onPressed: () => _remove(context),
             ),
           ReorderableDragStartListener(
