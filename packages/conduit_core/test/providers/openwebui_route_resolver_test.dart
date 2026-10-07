@@ -30,7 +30,8 @@ const _public = 'https://chat.example.com';
 void main() {
   late Directory tempDir;
   late WorkerManager workerManager;
-  late OptimizedStorageService storage;
+  late _GatedStorage storage;
+  late ProviderContainer container;
   late Map<String, bool> answers;
   late List<String> probed;
   var replyInProgress = false;
@@ -41,7 +42,7 @@ void main() {
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
     workerManager = WorkerManager(maxConcurrentTasks: 1);
-    storage = OptimizedStorageService(
+    storage = _GatedStorage(
       secureStorage: InMemorySecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: await Hive.openBox<dynamic>(HiveBoxNames.preferences),
@@ -84,7 +85,7 @@ void main() {
   });
 
   Future<OpenWebUiRouteResolver> resolver() async {
-    final container = ProviderContainer(
+    container = ProviderContainer(
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(storage),
         openWebUiRouteProbeProvider.overrideWithValue((route) async {
@@ -105,6 +106,13 @@ void main() {
 
   Future<String> routeInUse() async =>
       (await storage.getServerConfigsStrict()).single.url;
+
+  Future<void> until(bool Function() condition) async {
+    for (var turn = 0; turn < 100 && !condition(); turn++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    check(condition()).isTrue();
+  }
 
   test('uses the first route in order that answers', () async {
     answers = {_lan: false, _tailscale: true, _public: true};
@@ -183,6 +191,25 @@ void main() {
     check(routes.state.endpointId).equals(server.endpoints.first.id);
   });
 
+  test('a check overtaken by a newer one still moves the client', () async {
+    final routes = await resolver();
+    check((await container.read(serverConfigsProvider.future)).single.url)
+        .equals(_lan);
+    answers = {_lan: false, _tailscale: true, _public: true};
+    final gate = storage.gate = Completer<void>();
+
+    final first = routes.resolve(reason: 'first');
+    await until(() => storage.selectCalls == 1);
+    final second = routes.resolve(reason: 'second');
+    await until(() => storage.selectCalls == 2);
+    gate.complete();
+    await first;
+    await second;
+
+    check((await container.read(serverConfigsProvider.future)).single.url)
+        .equals(_tailscale);
+  });
+
   test('a route probe carries that route, not the one in use', () async {
     answers = {_lan: true};
     final routes = await resolver();
@@ -192,4 +219,23 @@ void main() {
 
     check(probed.toSet()).deepEquals({_lan, _tailscale, _public});
   });
+}
+
+/// Holds route selections at a gate, so two checks can overlap there.
+final class _GatedStorage extends OptimizedStorageService {
+  _GatedStorage({
+    required super.secureStorage,
+    required super.boxes,
+    required super.workerManager,
+  });
+
+  Completer<void>? gate;
+  var selectCalls = 0;
+
+  @override
+  Future<bool> selectEndpoint(String serverId, String endpointId) async {
+    selectCalls++;
+    await gate?.future;
+    return super.selectEndpoint(serverId, endpointId);
+  }
 }

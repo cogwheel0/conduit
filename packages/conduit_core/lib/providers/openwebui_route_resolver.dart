@@ -214,6 +214,10 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
           return;
         }
         final changed = await storage.selectEndpoint(server.id, chosen.id);
+        // Even when a newer check has started: one that picks the same route
+        // finds it already selected and leaves the configs alone, which would
+        // keep the client on the old URL.
+        if (changed && ref.mounted) ref.invalidate(serverConfigsProvider);
         if (!_owns(generation)) return;
         if (changed) {
           DebugLogger.log(
@@ -224,7 +228,6 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
               'position': server.endpoints.indexOf(chosen),
             },
           );
-          ref.invalidate(serverConfigsProvider);
         }
       }
       state = OpenWebUiRouteStatus(serverId: server.id, endpointId: chosen.id);
