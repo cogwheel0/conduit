@@ -123,21 +123,32 @@ Future<void> signOutOfSavedAccount(
 /// [serverId], or on a new one.
 ///
 /// The router keeps a signed-in user away from sign-in pages unless an
-/// account is being added, and it decides that as the page is pushed, so the
-/// addition begins here rather than in the page.
-Future<void> openAddAccount(
-  BuildContext context,
-  WidgetRef ref, {
-  String? serverId,
-}) async {
-  final addition = ref.read(accountAdditionOriginProvider.notifier);
-  final from = ref.read(settledActiveAccountIdProvider);
-  addition.begin(from);
+/// account is being added, and it decides that as the page opens, so the
+/// addition begins here; the page ends it when it goes. The page becomes
+/// the router's location rather than being pushed: the router redirects
+/// from its location, so over chat a finished sign-in would stay on screen,
+/// and the new account's first, signed-out attempt would replace the stack.
+void openAddAccount(BuildContext context, WidgetRef ref, {String? serverId}) {
+  ref
+      .read(accountAdditionOriginProvider.notifier)
+      .begin(ref.read(settledActiveAccountIdProvider));
+  context.goNamed(RouteNames.addServer, extra: serverId);
+}
+
+/// Drops the added account whose sign-in never finished, which makes the
+/// account it was added from active again, and returns to chat.
+Future<void> abandonAddedAccount(BuildContext context, WidgetRef ref) async {
   try {
-    await context.pushNamed(RouteNames.addServer, extra: serverId);
-  } finally {
-    addition.end(from);
+    await ref.read(openWebUiAccountsControllerProvider).abandonPendingSignIn();
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'abandon-added-account-failed',
+      scope: 'auth/accounts',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
+  if (context.mounted) context.go(Routes.chat);
 }
 
 /// Asks where to add an account -- a saved server or a new one -- and opens
@@ -155,7 +166,7 @@ Future<void> showAddAccountSheet(BuildContext context, WidgetRef ref) async {
   }
   if (!context.mounted) return;
   if (servers.isEmpty) {
-    await openAddAccount(context, ref);
+    openAddAccount(context, ref);
     return;
   }
 
@@ -203,9 +214,5 @@ Future<void> showAddAccountSheet(BuildContext context, WidgetRef ref) async {
     ),
   );
   if (choice == null || !context.mounted) return;
-  await openAddAccount(
-    context,
-    ref,
-    serverId: choice.isEmpty ? null : choice,
-  );
+  openAddAccount(context, ref, serverId: choice.isEmpty ? null : choice);
 }

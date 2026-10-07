@@ -44,6 +44,8 @@ class AdaptiveAuthHarness {
     this.authActions,
     this.savedUsername,
     this.addingAccountFrom,
+    this.abandonablePendingSignIn = false,
+    this.accountsController,
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer(
       (_) async => savedUsername == null ? null : {'username': savedUsername!},
@@ -95,6 +97,13 @@ class AdaptiveAuthHarness {
 
   /// The account another one is being added from, if one is.
   final String? addingAccountFrom;
+
+  /// Whether the active account is an added one whose sign-in never
+  /// finished, which sign-in pages offer to drop.
+  final bool abandonablePendingSignIn;
+
+  /// Replaces the account actions, so a test sees which it asked for.
+  final OpenWebUiAccountsController? accountsController;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
@@ -157,6 +166,12 @@ class AdaptiveAuthHarness {
         if (addingAccountFrom != null)
           accountAdditionOriginProvider.overrideWith(
             () => _AddingAccountFrom(addingAccountFrom!),
+          ),
+        if (abandonablePendingSignIn)
+          pendingSignInAbandonableProvider.overrideWith((_) async => true),
+        if (accountsController != null)
+          openWebUiAccountsControllerProvider.overrideWithValue(
+            accountsController!,
           ),
         activeServerProvider.overrideWith((_) async => server),
         appleOnDeviceStatusProvider.overrideWith(

@@ -16,6 +16,7 @@ import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../profile/widgets/account_actions.dart' show abandonAddedAccount;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -352,13 +353,16 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// Back to server setup, except while adding another account: then back
   /// to where that began, or -- once this sign-in has become the active
   /// account -- Cancel, which drops it and returns to the previous account.
-  UtilityBackNavigation _backNavigation(AppLocalizations l10n) {
+  UtilityBackNavigation _backNavigation(
+    AppLocalizations l10n, {
+    required bool abandonable,
+  }) {
     const key = ValueKey<String>('authentication-back-button');
-    if (ref.watch(pendingSignInAbandonableProvider).value ?? false) {
+    if (abandonable) {
       return UtilityBackNavigation(
         label: l10n.cancel,
         buttonKey: key,
-        onPressed: _abandonAddedAccount,
+        onPressed: () => abandonAddedAccount(context, ref),
       );
     }
     if (ref.watch(accountAdditionOriginProvider) != null && context.canPop()) {
@@ -373,20 +377,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       buttonKey: key,
       onPressed: () => context.go(Routes.serverConnection),
     );
-  }
-
-  Future<void> _abandonAddedAccount() async {
-    try {
-      await ref.read(openWebUiAccountsControllerProvider).abandonPendingSignIn();
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'abandon-added-account-failed',
-        scope: 'auth/accounts',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-    if (mounted) context.go(Routes.chat);
   }
 
   Future<void> _saveServerConfig(ServerConfig config) async {
@@ -470,22 +460,32 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     });
 
     final l10n = AppLocalizations.of(context)!;
+    final abandonable =
+        ref.watch(pendingSignInAbandonableProvider).value ?? false;
 
-    return UtilityPageScaffold.auth(
-      title: l10n.signIn,
-      backNavigation: _backNavigation(l10n),
-      bottomAction: _buildSignInButton(),
-      body: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(),
-            const SizedBox(height: Spacing.xl),
-            _buildAuthMethodSection(),
-            const SizedBox(height: Spacing.xl),
-            _buildAuthForm(),
-          ],
+    // The system back and the edge swipe leave as Cancel does, so they cannot
+    // leave an added account that never signed in as the active one.
+    return PopScope(
+      canPop: !abandonable,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) abandonAddedAccount(context, ref);
+      },
+      child: UtilityPageScaffold.auth(
+        title: l10n.signIn,
+        backNavigation: _backNavigation(l10n, abandonable: abandonable),
+        bottomAction: _buildSignInButton(),
+        body: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(),
+              const SizedBox(height: Spacing.xl),
+              _buildAuthMethodSection(),
+              const SizedBox(height: Spacing.xl),
+              _buildAuthForm(),
+            ],
+          ),
         ),
       ),
     );

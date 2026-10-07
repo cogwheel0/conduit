@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit/platform/webview_cookie_helper.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
@@ -527,6 +530,35 @@ void main() {
     await harness.unmount(tester);
   });
 
+  // Cancel was the only way off the page that dropped the added account; the
+  // system back and the edge swipe left it active and signed out.
+  testWidgets('system back drops an added account that never signed in', (
+    tester,
+  ) async {
+    final accounts = _RecordingAccountsController();
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      abandonablePendingSignIn: true,
+      accountsController: accounts,
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(harness.build(initialLocation: Routes.chat));
+    await tester.pumpAndSettle();
+    unawaited(harness.router.pushNamed<void>(RouteNames.authentication));
+    await tester.pumpAndSettle();
+    expect(find.byType(AuthenticationPage), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    check(accounts.abandons).equals(1);
+    expect(find.byType(AuthenticationPage), findsNothing);
+    expect(find.byKey(const ValueKey<String>('chat')), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
+
   testWidgets('sign-in hides unsupported saved server addresses', (
     tester,
   ) async {
@@ -566,5 +598,17 @@ class _RejectingAuthActions extends Fake implements AuthActions {
   }) async {
     ldapAttempts.add((username, password));
     return false;
+  }
+}
+
+/// Records each request to drop an added account that never signed in.
+class _RecordingAccountsController extends Fake
+    implements OpenWebUiAccountsController {
+  int abandons = 0;
+
+  @override
+  Future<bool> abandonPendingSignIn() async {
+    abandons++;
+    return true;
   }
 }

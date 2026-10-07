@@ -23,7 +23,10 @@ import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
-    show AccountAdditionOrigin, accountAdditionOriginProvider;
+    show
+        AccountAdditionOrigin,
+        accountAdditionOriginProvider,
+        pendingSignInAbandonableProvider;
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -43,6 +46,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../../profile/widgets/account_actions.dart' show abandonAddedAccount;
 
 const int _maxConnectionProviderDetailCharacters = 300;
 const int _maxConnectionErrorCharacters = 640;
@@ -287,7 +291,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     super.initState();
     _urlController.addListener(_resetTransientAttempt);
     if (widget.addingAccount) {
-      // openAddAccount began the addition before pushing this page, which the
+      // openAddAccount began the addition before opening this page, which the
       // router needs; the page only ends it when it goes.
       _accountAddition = ref.read(accountAdditionOriginProvider.notifier);
       _accountAdditionFrom = ref.read(settledActiveAccountIdProvider);
@@ -1207,43 +1211,60 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Widget build(BuildContext context) {
     final reviewerMode = ref.watch(reviewerModeProvider);
     final l10n = AppLocalizations.of(context)!;
+    final abandonable =
+        widget.addingAccount &&
+        (ref.watch(pendingSignInAbandonableProvider).value ?? false);
 
-    return UtilityPageScaffold.auth(
-      title: l10n.backendChooserOpenWebUITitle,
-      onTitleLongPress: _toggleReviewerMode,
-      backNavigation: UtilityBackNavigation(
-        label: l10n.back,
-        buttonKey: const ValueKey<String>('server-connection-back-button'),
-        // Users adding Open WebUI next to a working Apple, Direct, or Hermes
-        // backend came from chat; only first-time setup returns to the
-        // backend chooser. Adding another account goes back where it began.
-        onPressed: () {
-          if (widget.addingAccount && context.canPop()) {
-            context.pop();
-            return;
-          }
-          context.go(
-            widget.addingAccount ||
-                    ref.read(accountlessPrimaryBackendUsableProvider)
-                ? Routes.chat
-                : Routes.backendChooser,
-          );
-        },
-      ),
-      bottomAction: _buildConnectButton(),
-      body: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (reviewerMode) ...[
-              _buildReviewerModeSection(),
-              const SizedBox(height: Spacing.xl),
+    // Adding an account is the router's location, with nothing beneath it to
+    // pop to, so the system back does what Back does rather than leave the app.
+    return PopScope(
+      canPop: !widget.addingAccount,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goBack(abandonable: abandonable);
+      },
+      child: UtilityPageScaffold.auth(
+        title: l10n.backendChooserOpenWebUITitle,
+        onTitleLongPress: _toggleReviewerMode,
+        backNavigation: UtilityBackNavigation(
+          label: l10n.back,
+          buttonKey: const ValueKey<String>('server-connection-back-button'),
+          onPressed: () => _goBack(abandonable: abandonable),
+        ),
+        bottomAction: _buildConnectButton(),
+        body: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (reviewerMode) ...[
+                _buildReviewerModeSection(),
+                const SizedBox(height: Spacing.xl),
+              ],
+              _buildServerForm(),
             ],
-            _buildServerForm(),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  /// Users adding Open WebUI next to a working Apple, Direct, or Hermes
+  /// backend came from chat; only first-time setup returns to the backend
+  /// chooser. Adding another account goes back to chat too, first dropping
+  /// the added account if its sign-in began and never finished.
+  void _goBack({required bool abandonable}) {
+    if (abandonable) {
+      abandonAddedAccount(context, ref);
+      return;
+    }
+    if (widget.addingAccount && context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go(
+      widget.addingAccount || ref.read(accountlessPrimaryBackendUsableProvider)
+          ? Routes.chat
+          : Routes.backendChooser,
     );
   }
 
