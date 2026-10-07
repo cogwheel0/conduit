@@ -4,6 +4,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
@@ -41,8 +42,12 @@ class AdaptiveAuthHarness {
     this.applePccStatus,
     this.accountlessBackendUsable = false,
     this.authActions,
+    this.savedUsername,
+    this.addingAccountFrom,
   }) {
-    when(() => _storage.getSavedCredentials()).thenAnswer((_) async => null);
+    when(() => _storage.getSavedCredentials()).thenAnswer(
+      (_) async => savedUsername == null ? null : {'username': savedUsername!},
+    );
     when(() => _storage.getAuthTokenStrict()).thenAnswer((_) async => '');
     when(() => _storage.getSavedCredentialsStrict())
         .thenAnswer((_) async => null);
@@ -84,6 +89,12 @@ class AdaptiveAuthHarness {
 
   /// Replaces the sign-in actions, so a test controls the outcome of an attempt.
   final AuthActions? authActions;
+
+  /// The username of the sign-in saved on the device, if any.
+  final String? savedUsername;
+
+  /// The account another one is being added from, if one is.
+  final String? addingAccountFrom;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
@@ -143,6 +154,10 @@ class AdaptiveAuthHarness {
           accountlessBackendUsable,
         ),
         optimizedStorageServiceProvider.overrideWithValue(_storage),
+        if (addingAccountFrom != null)
+          accountAdditionOriginProvider.overrideWith(
+            () => _AddingAccountFrom(addingAccountFrom!),
+          ),
         activeServerProvider.overrideWith((_) async => server),
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => appleOnDeviceStatus ?? _unavailableAppleStatus(),
@@ -188,6 +203,15 @@ class AdaptiveAuthHarness {
     ErrorWidget.builder = _previousErrorWidgetBuilder;
     FlutterError.onError = _previousFlutterOnError;
   }
+}
+
+final class _AddingAccountFrom extends AccountAdditionOrigin {
+  _AddingAccountFrom(this.accountId);
+
+  final String accountId;
+
+  @override
+  String? build() => accountId;
 }
 
 PlatformPccStatus _unavailableAppleStatus() => PlatformPccStatus(

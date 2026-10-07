@@ -254,6 +254,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Future<void> _loadSavedCredentials() async {
+    // While another account is added, the saved sign-in is the one of the
+    // account it was added from, not of the one being signed in to.
+    if (ref.read(accountAdditionOriginProvider) != null) return;
     final storage = ref.read(optimizedStorageServiceProvider);
     final savedCredentials = await storage.getSavedCredentials();
     if (mounted && savedCredentials != null) {

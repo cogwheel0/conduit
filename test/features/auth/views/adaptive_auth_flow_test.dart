@@ -491,6 +491,42 @@ void main() {
     await harness.unmount(tester);
   });
 
+  testWidgets('sign-in fills in the saved username', (tester) async {
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      savedUsername: 'ada@example.com',
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('ada@example.com'), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
+
+  testWidgets('adding an account does not fill in the username of the one '
+      'it was added from', (tester) async {
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      savedUsername: 'ada@example.com',
+      addingAccountFrom: 'ada-account',
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('ada@example.com'), findsNothing);
+
+    await harness.unmount(tester);
+  });
+
   testWidgets('sign-in hides unsupported saved server addresses', (
     tester,
   ) async {
