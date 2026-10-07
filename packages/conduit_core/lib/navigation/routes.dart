@@ -10,6 +10,9 @@ class Routes {
   static const String login = '/login';
   static const String backendChooser = '/backend-chooser';
   static const String serverConnection = '/server-connection';
+
+  /// Adding another Open WebUI account while signed in to one.
+  static const String addServer = '/add-server';
   static const String connectionIssue = '/connection-issue';
   static const String authentication = '/authentication';
   static const String ssoAuth = '/sso-auth';
@@ -18,6 +21,7 @@ class Routes {
   static const String personalization = '/profile/personalization';
   static const String audioSettings = '/profile/audio';
   static const String accountSettings = '/profile/account';
+  static const String accounts = '/profile/accounts';
   static const String notificationSettings = '/profile/notifications';
   static const String appearanceSettings = '/profile/appearance';
   static const String chatSettings = '/profile/chat';
@@ -60,6 +64,7 @@ class RouteNames {
   static const String login = 'login';
   static const String backendChooser = 'backend-chooser';
   static const String serverConnection = 'server-connection';
+  static const String addServer = 'add-server';
   static const String connectionIssue = 'connection-issue';
   static const String authentication = 'authentication';
   static const String ssoAuth = 'sso-auth';
@@ -68,6 +73,7 @@ class RouteNames {
   static const String personalization = 'personalization';
   static const String audioSettings = 'audio-settings';
   static const String accountSettings = 'account-settings';
+  static const String accounts = 'accounts';
   static const String notificationSettings = 'notification-settings';
   static const String appearanceSettings = 'appearance-settings';
   static const String chatSettings = 'chat-settings';

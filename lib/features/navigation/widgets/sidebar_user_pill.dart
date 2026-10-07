@@ -56,6 +56,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 import 'sidebar_tab_registry.dart';
+import '../../../core/utils/account_display.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -710,6 +711,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       l10n,
       account: rootAccount,
       visibility: visibility,
+      otherAccounts: otherSavedAccountsForNativeSheet(
+        ref.read(openWebUiAccountsProvider).value,
+        l10n,
+      ),
     );
     final supportItems = buildNativeSupportItems(l10n);
     // The native sheet lays itself out from [sections]; the flat lists are

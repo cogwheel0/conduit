@@ -8,6 +8,7 @@ import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -25,6 +26,7 @@ final List<ProviderListenable<Object?>> routeRedirectDependencies = [
   // Hermes-only routing: re-evaluate when the preferred backend changes or
   // the Hermes config becomes usable (secrets finish loading).
   preferredBackendProvider,
+  accountAdditionOriginProvider,
   hermesConfigProvider,
   hermesSecretsLoadingProvider,
   effectiveDirectConnectionProfilesProvider,
@@ -127,7 +129,8 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
   // the accountless fallback below strand a completed sign-in on that page.
   if (authState == AuthNavigationState.authenticated &&
       isAuthLocation(location) &&
-      location != Routes.connectionIssue) {
+      location != Routes.connectionIssue &&
+      !_isAddingAccountFromActive(read)) {
     return Routes.chat;
   }
 
@@ -253,6 +256,7 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
     // Exception: allow staying on server connection, authentication,
     // proxy auth, and SSO pages during the connection/auth flow.
     if (location == Routes.serverConnection ||
+        location == Routes.addServer ||
         location == Routes.authentication ||
         location == Routes.proxyAuth ||
         location == Routes.ssoAuth ||
@@ -296,6 +300,12 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
       // Otherwise show connection issue page for recoverable auth errors
       return location == Routes.connectionIssue ? null : Routes.connectionIssue;
     case AuthNavigationState.authenticated:
+      // Adding another account passes through sign-in screens while the
+      // current one is still signed in. Stay until the new account is the
+      // active one; then this rule no longer applies and chat takes over.
+      if (isAuthLocation(location) && _isAddingAccountFromActive(read)) {
+        return null;
+      }
       // Avoid unnecessary redirects if already on a non-auth route
       if (isAuthLocation(location) ||
           location == Routes.splash ||
@@ -329,8 +339,19 @@ String? _workspaceRedirect(String location, ProviderRead read) {
   return null;
 }
 
+/// Whether another account is being added and the account it began from is
+/// still the active one. Signing in to the new account makes it active,
+/// which ends this, and ordinary routing lands it in chat.
+bool _isAddingAccountFromActive(ProviderRead read) {
+  final origin = read(accountAdditionOriginProvider);
+  return origin != null &&
+      origin.isNotEmpty &&
+      origin == read(activeServerProvider).value?.id;
+}
+
 bool isAuthLocation(String location) {
   return location == Routes.serverConnection ||
+      location == Routes.addServer ||
       location == Routes.login ||
       location == Routes.authentication ||
       location == Routes.connectionIssue ||

@@ -11,6 +11,7 @@ import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -33,8 +34,10 @@ ProviderRead _reader({
   bool hermesSecretsLoading = false,
   bool accountless = false,
   List<DirectConnectionProfile> directProfiles = const [],
+  String? addingAccountFrom,
 }) {
   final values = <ProviderListenable<Object?>, Object?>{
+    accountAdditionOriginProvider: addingAccountFrom,
     reviewerModeProvider: reviewerMode,
     activeServerProvider: activeServer,
     authNavigationStateProvider: auth,
@@ -72,6 +75,41 @@ void main() {
           .equals(Routes.chat);
       check(resolveRouteRedirect(Routes.splash, read)).equals(Routes.chat);
       check(resolveRouteRedirect(Routes.chat, read)).isNull();
+    });
+
+    group('adding another account', () {
+      test('stays in the sign-in flow while the first account is active', () {
+        final read = _reader(addingAccountFrom: _server.id);
+
+        check(resolveRouteRedirect(Routes.addServer, read)).isNull();
+        check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+        check(resolveRouteRedirect(Routes.proxyAuth, read)).isNull();
+        check(resolveRouteRedirect(Routes.ssoAuth, read)).isNull();
+      });
+
+      test('lands in chat once the new account is the active one', () {
+        final read = _reader(addingAccountFrom: 'the-account-it-began-from');
+
+        check(resolveRouteRedirect(Routes.authentication, read))
+            .equals(Routes.chat);
+        check(resolveRouteRedirect(Routes.addServer, read)).equals(Routes.chat);
+      });
+
+      test('outside the flow an add-server visit goes to chat', () {
+        final read = _reader();
+
+        check(resolveRouteRedirect(Routes.addServer, read)).equals(Routes.chat);
+      });
+
+      test('the new account, signed out, stays on its sign-in', () {
+        final read = _reader(
+          auth: AuthNavigationState.needsLogin,
+          addingAccountFrom: 'the-account-it-began-from',
+        );
+
+        check(resolveRouteRedirect(Routes.addServer, read)).isNull();
+        check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+      });
     });
 
     test('a signed-out session is sent to authentication', () {

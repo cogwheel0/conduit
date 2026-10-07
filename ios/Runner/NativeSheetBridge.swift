@@ -1129,6 +1129,10 @@ let nativeSheetProfileMenuDetailId = "profile-menu"
 /// for while this sheet still holds it.
 func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
     actionId == "memory-editor-new" || actionId.hasPrefix("memory-editor:")
+        // Switching, adding or signing out of an account can ask a question
+        // in a sheet of its own, which cannot present over this one.
+        || actionId == "account-switch" || actionId == "account-add"
+        || actionId == "account-sign-out"
 }
 
 final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {

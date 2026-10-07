@@ -7606,5 +7606,40 @@
   "chatDataControlsUnarchivedAll": "Przywrócono wszystkie czaty z archiwum.",
   "chatDataControlsUnsharedAll": "Usunięto wszystkie linki udostępniania.",
   "chatDataControlsDeletedAll": "Usunięto wszystkie czaty.",
-  "notificationTargetMakeDefaultNeedsSave": "Zapisz zmiany, aby ustawić to jako domyślne."
+  "notificationTargetMakeDefaultNeedsSave": "Zapisz zmiany, aby ustawić to jako domyślne.",
+  "accountsTitle": "Konta",
+  "accountsAddAccount": "Dodaj konto",
+  "accountsManage": "Zarządzaj kontami",
+  "accountsSignedOut": "Wylogowano",
+  "accountsActive": "Aktywne",
+  "accountsAddAccountTitle": "Dodaj konto",
+  "accountsAddAccountMessage": "Zaloguj się na inne konto na zapisanym serwerze lub połącz się z nowym.",
+  "accountsNewServer": "Nowy serwer",
+  "accountsAddOnThisServer": "Dodaj konto na tym serwerze",
+  "accountsSwitch": "Przełącz",
+  "accountsSignOutOf": "Wyloguj się z konta {name}",
+  "@accountsSignOutOf": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "accountsSignOutConfirmTitle": "Wylogować się z konta {name}?",
+  "@accountsSignOutConfirmTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "accountsSignOutConfirmMessage": "Konto i zapisane przez nie czaty zostaną usunięte z tego urządzenia. Twoje pozostałe konta będą nadal zalogowane.",
+  "accountsSignOutAll": "Wyloguj się ze wszystkich kont",
+  "accountsReplyInProgressTitle": "Odpowiedź jest nadal generowana",
+  "accountsSwitchStopsReply": "Przełączenie konta ją zatrzyma.",
+  "accountsSignOutStopsReply": "Wylogowanie ją zatrzyma.",
+  "accountsSwitchAnyway": "Przełącz mimo to",
+  "accountsSignOutAnyway": "Wyloguj się mimo to"
 }

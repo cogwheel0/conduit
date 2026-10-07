@@ -29,6 +29,7 @@ import '../../features/channels/views/channel_page.dart';
 import '../../features/notes/views/note_editor_page.dart';
 import '../../features/profile/views/about_page.dart';
 import '../../features/profile/views/account_settings_page.dart';
+import '../../features/profile/views/manage_accounts_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
@@ -198,6 +199,17 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           _buildPlatformPage(state: state, child: const ServerConnectionPage()),
     ),
     GoRoute(
+      path: Routes.addServer,
+      name: RouteNames.addServer,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: ServerConnectionPage(
+          addingAccount: true,
+          serverId: state.extra is String ? state.extra as String : null,
+        ),
+      ),
+    ),
+    GoRoute(
       path: Routes.connectionIssue,
       name: RouteNames.connectionIssue,
       pageBuilder: (context, state) =>
@@ -280,6 +292,12 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.accountSettings,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const AccountSettingsPage()),
+    ),
+    GoRoute(
+      path: Routes.accounts,
+      name: RouteNames.accounts,
+      pageBuilder: (context, state) =>
+          _buildPlatformPage(state: state, child: const ManageAccountsPage()),
     ),
     GoRoute(
       path: Routes.appearanceSettings,

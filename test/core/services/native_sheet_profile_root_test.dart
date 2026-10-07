@@ -44,6 +44,7 @@ void main() {
 
       expect(_ids(sections), [
         [NativeSheetRoutes.profile],
+        [nativeAccountAddActionId],
         [
           NativeSheetRoutes.appearance,
           NativeSheetRoutes.chats,
@@ -66,7 +67,7 @@ void main() {
         [nativeSignOutActionId],
         ['buy-me-a-coffee', 'github-sponsors'],
       ]);
-      final advanced = sections[4];
+      final advanced = sections[5];
       expect(advanced.title, _l10n.advancedFeatures);
       expect(advanced.footer, _l10n.profileAdvancedFooter);
       expect(sections.last.title, _l10n.supportConduit);
@@ -107,11 +108,67 @@ void main() {
       expect(ids, isNot(contains(NativeSheetRoutes.calendar)));
       expect(ids, isNot(contains(NativeSheetRoutes.workspace)));
       expect(ids, isNot(contains(NativeSheetRoutes.scheduledTasks)));
-      // Only the support title remains as a section heading.
+      // Only the accounts and support titles remain as section headings.
       expect(
         sections.where((section) => section.title != null).map((s) => s.title),
-        [_l10n.supportConduit],
+        [_l10n.accountsTitle, _l10n.supportConduit],
       );
+    });
+
+    test('other saved accounts are a tap away, with one sign-out each', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: const NativeProfileRootVisibility(),
+        otherAccounts: const [
+          NativeProfileRootSavedAccount(
+            id: 'work',
+            displayName: 'Ada at work',
+            detail: 'ada@work.example · Work',
+          ),
+        ],
+      );
+
+      final accounts = sections[1];
+      expect(accounts.title, _l10n.accountsTitle);
+      expect(
+        [for (final item in accounts.items) item.actionId],
+        [
+          nativeAccountSwitchActionId,
+          nativeAccountAddActionId,
+          nativeAccountManageActionId,
+        ],
+      );
+      final work = accounts.items.first;
+      expect(work.title, 'Ada at work');
+      expect(work.subtitle, 'ada@work.example · Work');
+      expect(work.actionValue, 'work');
+      expect(work.dismissOnSelect, isTrue);
+
+      final signOut = _ids(sections)
+          .firstWhere((ids) => ids.contains(nativeSignOutActionId));
+      expect(signOut, [nativeAccountSignOutActionId, nativeSignOutActionId]);
+      expect(
+        _item(sections, nativeAccountSignOutActionId).title,
+        _l10n.accountsSignOutOf('Ada'),
+      );
+      expect(
+        _item(sections, nativeSignOutActionId).title,
+        _l10n.accountsSignOutAll,
+      );
+    });
+
+    test('with one account, signing out is what it always was', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: const NativeProfileRootVisibility(),
+      );
+
+      final ids = _ids(sections).expand((ids) => ids).toList();
+      expect(ids, isNot(contains(nativeAccountSignOutActionId)));
+      expect(ids, isNot(contains(nativeAccountManageActionId)));
+      expect(_item(sections, nativeSignOutActionId).title, _l10n.signOut);
     });
 
     test('without an Open WebUI account the account rows give way to '

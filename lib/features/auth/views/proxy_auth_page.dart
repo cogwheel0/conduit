@@ -86,7 +86,16 @@ class ProxyAuthConfig {
   /// Optional callback when proxy authentication completes successfully.
   final VoidCallback? onAuthComplete;
 
-  const ProxyAuthConfig({required this.serverConfig, this.onAuthComplete});
+  /// Start from an empty browser session instead of reusing the proxy
+  /// session already in it. Adding another account needs this: the stored
+  /// session would sign straight back in as the current user.
+  final bool freshSession;
+
+  const ProxyAuthConfig({
+    required this.serverConfig,
+    this.onAuthComplete,
+    this.freshSession = false,
+  });
 }
 
 /// Returns whether the proxy auth page should complete and pop.
@@ -633,11 +642,17 @@ class _ProxyAuthPageState extends ConsumerState<ProxyAuthPage> {
       scope: 'auth/proxy',
     );
 
-    // Don't clear cookies - preserve any existing proxy session. Do wait for
-    // a logout purge that was already requested before this flow so that purge
-    // cannot erase cookies/storage after the new WebView starts loading.
-    final webViewDataReady =
+    // Don't clear cookies - preserve any existing proxy session, unless this
+    // sign-in is for another account. Do wait for a logout purge that was
+    // already requested before this flow so that purge cannot erase
+    // cookies/storage after the new WebView starts loading.
+    var webViewDataReady =
         await WebViewCookieHelper.ensurePendingLogoutDataCleared();
+    if (webViewDataReady && widget.config.freshSession) {
+      webViewDataReady =
+          await WebViewCookieHelper.clearCookies() &&
+          await WebViewCookieHelper.clearWebsiteData();
+    }
     if (!mounted) return;
     if (!webViewDataReady) {
       setState(() {

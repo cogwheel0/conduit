@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import '../../../shared/services/input_validation_service.dart';
@@ -345,6 +346,46 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     }
   }
 
+  /// Back to server setup, except while adding another account: then back
+  /// to where that began, or -- once this sign-in has become the active
+  /// account -- Cancel, which drops it and returns to the previous account.
+  UtilityBackNavigation _backNavigation(AppLocalizations l10n) {
+    const key = ValueKey<String>('authentication-back-button');
+    if (ref.watch(pendingSignInAbandonableProvider).value ?? false) {
+      return UtilityBackNavigation(
+        label: l10n.cancel,
+        buttonKey: key,
+        onPressed: _abandonAddedAccount,
+      );
+    }
+    if (ref.watch(accountAdditionOriginProvider) != null && context.canPop()) {
+      return UtilityBackNavigation(
+        label: l10n.back,
+        buttonKey: key,
+        onPressed: () => context.pop(),
+      );
+    }
+    return UtilityBackNavigation(
+      label: l10n.backToServerSetup,
+      buttonKey: key,
+      onPressed: () => context.go(Routes.serverConnection),
+    );
+  }
+
+  Future<void> _abandonAddedAccount() async {
+    try {
+      await ref.read(openWebUiAccountsControllerProvider).abandonPendingSignIn();
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'abandon-added-account-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    if (mounted) context.go(Routes.chat);
+  }
+
   Future<void> _saveServerConfig(ServerConfig config) async {
     await ref
         .read(authStateManagerProvider.notifier)
@@ -429,11 +470,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     return UtilityPageScaffold.auth(
       title: l10n.signIn,
-      backNavigation: UtilityBackNavigation(
-        label: l10n.backToServerSetup,
-        buttonKey: const ValueKey<String>('authentication-back-button'),
-        onPressed: () => context.go(Routes.serverConnection),
-      ),
+      backNavigation: _backNavigation(l10n),
       bottomAction: _buildSignInButton(),
       body: Form(
         key: _formKey,

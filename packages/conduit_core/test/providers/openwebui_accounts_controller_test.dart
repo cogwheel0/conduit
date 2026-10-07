@@ -16,10 +16,11 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
-final class _Storage implements OptimizedStorageService {
+final class _LastAccountStorage implements OptimizedStorageService {
   String? active = 'a';
 
   /// Once set, reading the active account fails with it.
@@ -36,16 +37,15 @@ final class _Storage implements OptimizedStorageService {
       throw UnimplementedError(invocation.memberName.toString());
 }
 
-/// Moves [_Storage.active] as the real account changes would.
-final class _Auth extends AuthStateManager {
-  _Auth(this.storage, {this.duringSignOut});
+/// Moves [_LastAccountStorage.active] as the real account changes would.
+final class _LastAccountAuth extends AuthStateManager {
+  _LastAccountAuth(this.storage, {this.duringSignOut});
 
-  final _Storage storage;
+  final _LastAccountStorage storage;
 
   /// Runs while the sign-out waits on the server.
   final FutureOr<void> Function()? duringSignOut;
   final switches = <String>[];
-  final signedOut = <String>[];
 
   @override
   Future<AuthState> build() async =>
@@ -53,7 +53,6 @@ final class _Auth extends AuthStateManager {
 
   @override
   Future<bool> signOutAccount(String accountId, {String? thenActivate}) async {
-    signedOut.add(accountId);
     await duringSignOut?.call();
     if (storage.active == accountId) storage.active = thenActivate;
     return false;
@@ -117,12 +116,12 @@ final class _HeldRegistryStorage implements OptimizedStorageService {
       throw UnimplementedError(invocation.memberName.toString());
 }
 
-final class _Hermes extends HermesConfigController {
+final class _EmptyHermes extends HermesConfigController {
   @override
   HermesConfig build() => const HermesConfig();
 }
 
-OpenWebUiAccountEntry _entry(
+OpenWebUiAccountEntry _accountEntry(
   String id, {
   bool hasSession = true,
   OpenWebUiAccountSummary? summary,
@@ -144,14 +143,16 @@ OpenWebUiAccountEntry _entry(
 /// synchronously and resolving to [direct] once awaited.
 Future<PreferredBackend> _signOutOfLastAccount(
   Future<List<DirectConnectionProfile>> Function() direct, {
-  _Storage? storage,
+  _LastAccountStorage? storage,
 }) async {
-  final accountStorage = storage ?? _Storage();
+  final accountStorage = storage ?? _LastAccountStorage();
   final container = ProviderContainer(
     overrides: [
       optimizedStorageServiceProvider.overrideWithValue(accountStorage),
-      authStateManagerProvider.overrideWith(() => _Auth(accountStorage)),
-      hermesConfigProvider.overrideWith(_Hermes.new),
+      authStateManagerProvider.overrideWith(
+        () => _LastAccountAuth(accountStorage),
+      ),
+      hermesConfigProvider.overrideWith(_EmptyHermes.new),
       openWebUiAccountsProvider.overrideWith((ref) async => const []),
       accountChangeReplyGuardProvider.overrideWithValue(() => false),
       effectiveDirectConnectionProfilesProvider.overrideWithValue(
@@ -168,147 +169,246 @@ Future<PreferredBackend> _signOutOfLastAccount(
   return container.read(preferredBackendProvider);
 }
 
+/// The decisions the account controller makes before asking auth to act:
+/// whether a reply may be cut off, which account takes over, and which
+/// sign-ins may be abandoned.
 void main() {
+  late _Storage storage;
+  late _RecordingAuth auth;
+  var replyInProgress = false;
+  var repliesStopped = 0;
+  var activeId = 'a';
+  var accounts = <OpenWebUiAccountEntry>[];
+
+  final server = OpenWebUiServer(
+    id: 's',
+    name: 'Home',
+    endpoints: [OpenWebUiEndpoint(id: 'e', url: 'https://chat.example')],
+  );
+
+  OpenWebUiAccountEntry entry(
+    String id, {
+    String? userId,
+    bool hasSession = true,
+    DateTime? lastUsedAt,
+  }) => OpenWebUiAccountEntry(
+    account: OpenWebUiAccount(id: id, serverId: 's', userId: userId ?? id),
+    server: server,
+    summary: OpenWebUiAccountSummary(lastUsedAt: lastUsedAt),
+    isActive: id == activeId,
+    hasSession: hasSession,
+  );
+
+  ProviderContainer container() {
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => auth),
+        openWebUiAccountsProvider.overrideWith((ref) async => accounts),
+        accountChangeReplyGuardProvider.overrideWithValue(
+          () => replyInProgress,
+        ),
+        accountChangeStopRepliesProvider.overrideWithValue(
+          () => repliesStopped++,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    return container;
+  }
+
   setUp(() async {
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
+    storage = _Storage();
+    auth = _RecordingAuth();
+    replyInProgress = false;
+    repliesStopped = 0;
+    activeId = 'a';
+    accounts = [];
+    when(
+      () => storage.getEffectiveActiveServerId(),
+    ).thenAnswer((_) async => activeId);
   });
 
   tearDown(PreferencesStore.debugReset);
 
-  test(
-    'signing out of the last account waits for Direct profiles still loading',
-    () async {
-      final profile = DirectConnectionProfile(
-        id: 'profile',
-        name: 'Provider',
-        adapterKey: kOpenAiCompatibleAdapterKey,
-        baseUrl: 'https://provider.example/v1',
-      );
-      check(profile.isUsable).isTrue();
+  group('switching', () {
+    test('will not cut off a reply unless told to', () async {
+      replyInProgress = true;
+      final controller = container().read(openWebUiAccountsControllerProvider);
 
-      check(await _signOutOfLastAccount(() async => [profile]))
-          .equals(PreferredBackend.direct);
-    },
-  );
+      check(await controller.switchTo('b'))
+          .equals(OpenWebUiAccountChangeResult.blockedByActiveReply);
+      check(auth.switchedTo).isEmpty();
 
-  test('Direct profiles that fail to load count as no Direct', () async {
-    check(await _signOutOfLastAccount(() async => throw StateError('locked')))
-        .equals(PreferredBackend.unset);
+      check(await controller.switchTo('b', force: true))
+          .equals(OpenWebUiAccountChangeResult.done);
+      check(repliesStopped).equals(1);
+      check(auth.switchedTo).deepEquals(['b']);
+    });
+
+    test('reports an account that needs a sign-in', () async {
+      auth.signedInAfterSwitch = false;
+      final controller = container().read(openWebUiAccountsControllerProvider);
+
+      check(await controller.switchTo('b'))
+          .equals(OpenWebUiAccountChangeResult.needsSignIn);
+    });
+
+    test('does nothing for the account already active', () async {
+      final controller = container().read(openWebUiAccountsControllerProvider);
+
+      check(await controller.switchTo('a'))
+          .equals(OpenWebUiAccountChangeResult.alreadyActive);
+      check(auth.switchedTo).isEmpty();
+    });
   });
 
-  test('an account a sign-in makes active while Direct profiles load keeps '
-      'Open WebUI', () async {
-    final storage = _Storage();
+  group('signing out of the active account', () {
+    test('hands over to the most recent account still signed in', () async {
+      accounts = [
+        entry('a'),
+        entry('older', lastUsedAt: DateTime(2026, 1, 1)),
+        entry('signed-out', hasSession: false, lastUsedAt: DateTime(2026, 9)),
+        entry('newer', lastUsedAt: DateTime(2026, 6, 1)),
+      ];
+      final controller = container().read(openWebUiAccountsControllerProvider);
 
-    final preferred = await _signOutOfLastAccount(() async {
-      storage.active = 'c';
-      return const [];
-    }, storage: storage);
+      await controller.signOut('a');
 
-    check(preferred).equals(PreferredBackend.unset);
-    check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+      check(auth.signedOut).deepEquals([('a', 'newer')]);
+    });
+
+    test('of an inactive account touches nothing else', () async {
+      accounts = [entry('a'), entry('b')];
+      replyInProgress = true;
+      final controller = container().read(openWebUiAccountsControllerProvider);
+
+      check(await controller.signOut('b'))
+          .equals(OpenWebUiAccountChangeResult.done);
+      // A takes over only if a sign-in makes B active meanwhile.
+      check(auth.signedOut).deepEquals([('b', 'a')]);
+      check(repliesStopped).equals(0);
+    });
   });
 
-  test('an inactive account is signed out of when the others cannot be read',
+  group('abandoning a sign-in', () {
+    test('drops an added account that never signed in', () async {
+      accounts = [
+        entry('a', hasSession: false).withUser(null),
+        entry('b', lastUsedAt: DateTime(2026, 9)),
+      ];
+      final container_ = container();
+
+      check(await container_.read(pendingSignInAbandonableProvider.future))
+          .isTrue();
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isTrue();
+      check(auth.signedOut).deepEquals([('a', 'b')]);
+    });
+
+    test('keeps an account that has signed in before', () async {
+      accounts = [entry('a', hasSession: false), entry('b')];
+      final container_ = container();
+
+      check(await container_.read(pendingSignInAbandonableProvider.future))
+          .isFalse();
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isFalse();
+      check(auth.signedOut).isEmpty();
+    });
+
+    test('keeps it when there is nowhere to go back to', () async {
+      accounts = [
+        entry('a', hasSession: false).withUser(null),
+        entry('b', hasSession: false),
+      ];
+      final container_ = container();
+
+      check(await container_.read(pendingSignInAbandonableProvider.future))
+          .isFalse();
+    });
+  });
+
+  group('with no account left', () {
+    test(
+      'signing out of the last account waits for Direct profiles still loading',
       () async {
-    final storage = _Storage();
-    final auth = _Auth(storage);
-    final container = ProviderContainer(
-      overrides: [
-        optimizedStorageServiceProvider.overrideWithValue(storage),
-        authStateManagerProvider.overrideWith(() => auth),
-        hermesConfigProvider.overrideWith(_Hermes.new),
-        openWebUiAccountsProvider.overrideWith(
-          (ref) async => throw StateError('locked'),
-        ),
-        accountChangeReplyGuardProvider.overrideWithValue(() => false),
-      ],
+        final profile = DirectConnectionProfile(
+          id: 'profile',
+          name: 'Provider',
+          adapterKey: kOpenAiCompatibleAdapterKey,
+          baseUrl: 'https://provider.example/v1',
+        );
+        check(profile.isUsable).isTrue();
+
+        check(await _signOutOfLastAccount(() async => [profile]))
+            .equals(PreferredBackend.direct);
+      },
     );
-    addTearDown(container.dispose);
 
-    await container.read(openWebUiAccountsControllerProvider).signOut('b');
+    test('Direct profiles that fail to load count as no Direct', () async {
+      check(await _signOutOfLastAccount(() async => throw StateError('locked')))
+          .equals(PreferredBackend.unset);
+    });
 
-    check(auth.signedOut).deepEquals(['b']);
+    test('an account a sign-in makes active while Direct profiles load keeps '
+        'Open WebUI', () async {
+      final storage = _LastAccountStorage();
+
+      final preferred = await _signOutOfLastAccount(() async {
+        storage.active = 'c';
+        return const [];
+      }, storage: storage);
+
+      check(preferred).equals(PreferredBackend.unset);
+      check(
+        PreferencesStore.getString(PreferenceKeys.preferredBackend),
+      ).isNull();
+    });
   });
 
-  test('choosing the account in use while it is signed out goes to auth',
+  test('a duplicate account whose merge fails is not merged again and again',
       () async {
-    final storage = _Storage();
-    final auth = _Auth(storage);
-    var listed = 0;
-    final container = ProviderContainer(
-      overrides: [
-        optimizedStorageServiceProvider.overrideWithValue(storage),
-        authStateManagerProvider.overrideWith(() => auth),
-        hermesConfigProvider.overrideWith(_Hermes.new),
-        openWebUiAccountsProvider.overrideWith((ref) async {
-          listed++;
-          return const [];
-        }),
-        accountChangeReplyGuardProvider.overrideWithValue(() => false),
-      ],
-    );
-    addTearDown(container.dispose);
-    await container.read(authStateManagerProvider.future);
-    // The accounts list as shown before, the account signed out.
-    await container.read(openWebUiAccountsProvider.future);
-
-    final result = await container
-        .read(openWebUiAccountsControllerProvider)
-        .switchTo('a');
-
-    // Auth can take up a session the account still has in its vault.
-    check(auth.switches).deepEquals(['a']);
-    check(result).equals(OpenWebUiAccountChangeResult.done);
-    // And the accounts list is read again, showing it signed in.
-    await container.read(openWebUiAccountsProvider.future);
-    check(listed).equals(2);
-  });
-
-  test('a sign-out that cannot read the account in use afterwards changes '
-      'nothing more', () async {
-    final storage = _Storage();
-    final container = ProviderContainer(
-      overrides: [
-        optimizedStorageServiceProvider.overrideWithValue(storage),
-        authStateManagerProvider.overrideWith(
-          () => _Auth(
-            storage,
-            duringSignOut: () => storage.readError = StateError('locked'),
+    const userA = User(id: 'user-a', username: 'a', email: 'a@x', role: 'user');
+    final storage = _HeldRegistryStorage(
+      OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 's',
+            name: 'Chat',
+            endpoints: [OpenWebUiEndpoint(id: 'e', url: 'https://chat.example')],
           ),
-        ),
-        hermesConfigProvider.overrideWith(_Hermes.new),
-        openWebUiAccountsProvider.overrideWith((ref) async => const []),
-        accountChangeReplyGuardProvider.overrideWithValue(() => false),
+        ],
+        accounts: [
+          OpenWebUiAccount(id: 'a', serverId: 's', userId: 'user-a'),
+          OpenWebUiAccount(id: 'added', serverId: 's'),
+        ],
+      ),
+    )..release.complete();
+    final auth = _SigningInAuth()..mergeFails = true;
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => auth),
       ],
     );
     addTearDown(container.dispose);
+    container.read(openWebUiDuplicateAccountReconcilerProvider);
+    await container.read(authStateManagerProvider.future);
 
-    final result = await container
-        .read(openWebUiAccountsControllerProvider)
-        .signOut('a');
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'added');
+    auth.signIn('token', userA);
+    await pumpEventQueue();
 
-    check(result).equals(OpenWebUiAccountChangeResult.needsSignIn);
-    check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
-  });
-
-  test('the backend stays when the account in use cannot be read before '
-      'falling back', () async {
-    final storage = _Storage();
-    final profile = DirectConnectionProfile(
-      id: 'profile',
-      name: 'Provider',
-      adapterKey: kOpenAiCompatibleAdapterKey,
-      baseUrl: 'https://provider.example/v1',
-    );
-
-    await _signOutOfLastAccount(() async {
-      storage.readError = StateError('locked');
-      return [profile];
-    }, storage: storage);
-
-    check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+    check(auth.merges).deepEquals([('a', 'added')]);
   });
 
   test('a sign-in published while another is reconciled is still folded '
@@ -354,54 +454,97 @@ void main() {
     check(auth.merges).deepEquals([('b', 'added-2')]);
   });
 
-  test('a duplicate account whose merge fails is not merged again and again',
+  test('choosing the account in use while it is signed out goes to auth',
       () async {
-    const userA = User(id: 'user-a', username: 'a', email: 'a@x', role: 'user');
-    final storage = _HeldRegistryStorage(
-      OpenWebUiRegistry(
-        servers: [
-          OpenWebUiServer(
-            id: 's',
-            name: 'Chat',
-            endpoints: [OpenWebUiEndpoint(id: 'e', url: 'https://chat.example')],
-          ),
-        ],
-        accounts: [
-          OpenWebUiAccount(id: 'a', serverId: 's', userId: 'user-a'),
-          OpenWebUiAccount(id: 'added', serverId: 's'),
-        ],
-      ),
-    )..release.complete();
-    final auth = _SigningInAuth()..mergeFails = true;
+    final storage = _LastAccountStorage();
+    final auth = _LastAccountAuth(storage);
+    var listed = 0;
     final container = ProviderContainer(
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(storage),
         authStateManagerProvider.overrideWith(() => auth),
+        hermesConfigProvider.overrideWith(_EmptyHermes.new),
+        openWebUiAccountsProvider.overrideWith((ref) async {
+          listed++;
+          return const [];
+        }),
+        accountChangeReplyGuardProvider.overrideWithValue(() => false),
       ],
     );
     addTearDown(container.dispose);
-    container.read(openWebUiDuplicateAccountReconcilerProvider);
     await container.read(authStateManagerProvider.future);
+    // The accounts list as shown before, the account signed out.
+    await container.read(openWebUiAccountsProvider.future);
 
-    await PreferencesStore.put(PreferenceKeys.activeServerId, 'added');
-    auth.signIn('token', userA);
-    await pumpEventQueue();
+    final result = await container
+        .read(openWebUiAccountsControllerProvider)
+        .switchTo('a');
 
-    check(auth.merges).deepEquals([('a', 'added')]);
+    // Auth can take up a session the account still has in its vault.
+    check(auth.switches).deepEquals(['a']);
+    check(result).equals(OpenWebUiAccountChangeResult.done);
+    // And the accounts list is read again, showing it signed in.
+    await container.read(openWebUiAccountsProvider.future);
+    check(listed).equals(2);
   });
 
-  test('leaving an addition goes back to the account signed in to last', () async {
-    final storage = _Storage()..active = 'old';
+  test('a sign-out that cannot read the account in use afterwards changes '
+      'nothing more', () async {
+    final storage = _LastAccountStorage();
     final container = ProviderContainer(
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(storage),
-        authStateManagerProvider.overrideWith(() => _Auth(storage)),
-        hermesConfigProvider.overrideWith(_Hermes.new),
+        authStateManagerProvider.overrideWith(
+          () => _LastAccountAuth(
+            storage,
+            duringSignOut: () => storage.readError = StateError('locked'),
+          ),
+        ),
+        hermesConfigProvider.overrideWith(_EmptyHermes.new),
+        openWebUiAccountsProvider.overrideWith((ref) async => const []),
+        accountChangeReplyGuardProvider.overrideWithValue(() => false),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final result = await container
+        .read(openWebUiAccountsControllerProvider)
+        .signOut('a');
+
+    check(result).equals(OpenWebUiAccountChangeResult.needsSignIn);
+    check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+  });
+
+  test('the backend stays when the account in use cannot be read before '
+      'falling back', () async {
+    final storage = _LastAccountStorage();
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+    );
+
+    await _signOutOfLastAccount(() async {
+      storage.readError = StateError('locked');
+      return [profile];
+    }, storage: storage);
+
+    check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+  });
+
+  test('leaving an addition goes back to the account signed in to last', () async {
+    final storage = _LastAccountStorage()..active = 'old';
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => _LastAccountAuth(storage)),
+        hermesConfigProvider.overrideWith(_EmptyHermes.new),
         openWebUiAccountsProvider.overrideWith((ref) async {
           final summaries = ref.watch(openWebUiAccountSummariesProvider);
           return [
             for (final id in ['old', 'a', 'b', 'c'])
-              _entry(id, hasSession: id != 'c', summary: summaries[id]),
+              _accountEntry(id, hasSession: id != 'c', summary: summaries[id]),
           ];
         }),
         accountChangeReplyGuardProvider.overrideWithValue(() => false),
@@ -433,25 +576,25 @@ void main() {
   });
 
   group('with several accounts', () {
-    late _Storage storage;
-    late _Auth auth;
+    late _LastAccountStorage storage;
+    late _LastAccountAuth auth;
     late ProviderContainer container;
     late List<String?> hostChanges;
 
     void start({FutureOr<void> Function()? duringSignOut}) {
-      storage = _Storage();
-      auth = _Auth(storage, duringSignOut: duringSignOut);
+      storage = _LastAccountStorage();
+      auth = _LastAccountAuth(storage, duringSignOut: duringSignOut);
       hostChanges = [];
       container = ProviderContainer(
         overrides: [
           optimizedStorageServiceProvider.overrideWithValue(storage),
           authStateManagerProvider.overrideWith(() => auth),
-          hermesConfigProvider.overrideWith(_Hermes.new),
+          hermesConfigProvider.overrideWith(_EmptyHermes.new),
           openWebUiAccountsProvider.overrideWith(
             (ref) async => [
-              _entry('a'),
-              _entry('b'),
-              _entry('c', hasSession: false),
+              _accountEntry('a'),
+              _accountEntry('b'),
+              _accountEntry('c', hasSession: false),
             ],
           ),
           accountChangeReplyGuardProvider.overrideWithValue(() => false),
@@ -492,4 +635,38 @@ void main() {
       check(auth.switches).deepEquals(['c']);
     });
   });
+}
+
+extension on OpenWebUiAccountEntry {
+  OpenWebUiAccountEntry withUser(String? userId) => OpenWebUiAccountEntry(
+    account: account.copyWith(userId: userId),
+    server: server,
+    summary: summary,
+    isActive: isActive,
+    hasSession: hasSession,
+  );
+}
+
+final class _Storage extends Mock implements OptimizedStorageService {}
+
+final class _RecordingAuth extends AuthStateManager {
+  final switchedTo = <String>[];
+  final signedOut = <(String, String?)>[];
+  bool signedInAfterSwitch = true;
+
+  @override
+  Future<AuthState> build() async =>
+      const AuthState(status: AuthStatus.unauthenticated);
+
+  @override
+  Future<bool> switchToAccount(String accountId) async {
+    switchedTo.add(accountId);
+    return signedInAfterSwitch;
+  }
+
+  @override
+  Future<bool> signOutAccount(String accountId, {String? thenActivate}) async {
+    signedOut.add((accountId, thenActivate));
+    return thenActivate != null;
+  }
 }

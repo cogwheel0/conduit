@@ -651,6 +651,18 @@ class RunnerTests: XCTestCase {
     )
   }
 
+  func testNativeSheetAccountQuestionsWaitForTheSheetToLeave() {
+    // Switching, adding or signing out of an account may ask in a sheet of
+    // its own; managing accounts only opens a page under the sheet.
+    for actionId in ["account-switch", "account-add", "account-sign-out"] {
+      XCTAssertTrue(
+        nativeSheetSelectionWaitsForDismiss(actionId: actionId),
+        actionId
+      )
+    }
+    XCTAssertFalse(nativeSheetSelectionWaitsForDismiss(actionId: "account-manage"))
+  }
+
   func testNativeSheetRootPatchUsesTheReservedProfileMenuId() {
     XCTAssertEqual(nativeSheetProfileMenuDetailId, "profile-menu")
   }

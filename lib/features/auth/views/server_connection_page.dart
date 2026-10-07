@@ -22,6 +22,8 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show AccountAdditionOrigin, accountAdditionOriginProvider;
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -223,7 +225,20 @@ Object? _serverConnectionResponseErrorDetail(Object? data) => switch (data) {
 };
 
 class ServerConnectionPage extends ConsumerStatefulWidget {
-  const ServerConnectionPage({super.key});
+  const ServerConnectionPage({
+    super.key,
+    this.addingAccount = false,
+    this.serverId,
+  });
+
+  /// Connecting to sign in to another account while one is signed in. The
+  /// form starts empty -- or from [serverId]'s saved route -- rather than
+  /// from the active account, and proxy sign-in starts from a clean browser
+  /// session so it cannot sign straight back in as the current user.
+  final bool addingAccount;
+
+  /// The saved server another account is being added on, when there is one.
+  final String? serverId;
 
   @override
   ConsumerState<ServerConnectionPage> createState() =>
@@ -264,11 +279,51 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       _headerKeyController.text.trim().isNotEmpty &&
       _headerValueController.text.trim().isNotEmpty;
 
+  AccountAdditionOrigin? _accountAddition;
+  String? _accountAdditionFrom;
+
   @override
   void initState() {
     super.initState();
     _urlController.addListener(_resetTransientAttempt);
-    _prefillFromState();
+    if (widget.addingAccount) {
+      _accountAddition = ref.read(accountAdditionOriginProvider.notifier);
+      _accountAdditionFrom = ref.read(settledActiveAccountIdProvider);
+      _accountAddition!.begin(_accountAdditionFrom);
+      _prefillFromSavedServer();
+    } else {
+      _prefillFromState();
+    }
+  }
+
+  Future<void> _prefillFromSavedServer() async {
+    final serverId = widget.serverId;
+    if (serverId == null) return;
+    final registry = await ref
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    final endpoint = registry.server(serverId)?.endpoints.first;
+    if (!mounted || endpoint == null) return;
+    setState(() {
+      _urlController.text = endpoint.url;
+      _customHeaders
+        ..clear()
+        ..addAll(endpoint.customHeaders);
+      _showAdvancedSettings =
+          endpoint.allowSelfSignedCertificates ||
+          endpoint.customHeaders.isNotEmpty ||
+          (!kIsWeb && endpoint.mtlsPrivateKeyPem != null);
+      _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
+      _mtlsCertificateChainPem = kIsWeb
+          ? null
+          : endpoint.mtlsCertificateChainPem;
+      _mtlsCertificateLabel = kIsWeb ? null : endpoint.mtlsCertificateLabel;
+      _mtlsPrivateKeyPem = kIsWeb ? null : endpoint.mtlsPrivateKeyPem;
+      _mtlsPrivateKeyLabel = kIsWeb ? null : endpoint.mtlsPrivateKeyLabel;
+      _mtlsPrivateKeyPasswordController.text = kIsWeb
+          ? ''
+          : (endpoint.mtlsPrivateKeyPassword ?? '');
+    });
   }
 
   void _resetTransientAttempt() {
@@ -303,6 +358,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   @override
   void dispose() {
+    final accountAddition = _accountAddition;
+    if (accountAddition != null) {
+      final from = _accountAdditionFrom;
+      // Not while the tree is unmounting: Riverpod forbids changing provider
+      // state from a widget lifecycle callback.
+      Future.microtask(() => accountAddition.end(from));
+    }
     _urlController.removeListener(_resetTransientAttempt);
     _urlController.dispose();
     _headerKeyController.dispose();
@@ -484,7 +546,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
 
     // Show proxy auth page
-    final proxyConfig = ProxyAuthConfig(serverConfig: tempConfig);
+    final proxyConfig = ProxyAuthConfig(
+      serverConfig: tempConfig,
+      freshSession: widget.addingAccount,
+    );
 
     if (!mounted) return;
 
@@ -1150,12 +1215,19 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         buttonKey: const ValueKey<String>('server-connection-back-button'),
         // Users adding Open WebUI next to a working Apple, Direct, or Hermes
         // backend came from chat; only first-time setup returns to the
-        // backend chooser.
-        onPressed: () => context.go(
-          ref.read(accountlessPrimaryBackendUsableProvider)
-              ? Routes.chat
-              : Routes.backendChooser,
-        ),
+        // backend chooser. Adding another account goes back where it began.
+        onPressed: () {
+          if (widget.addingAccount && context.canPop()) {
+            context.pop();
+            return;
+          }
+          context.go(
+            widget.addingAccount ||
+                    ref.read(accountlessPrimaryBackendUsableProvider)
+                ? Routes.chat
+                : Routes.backendChooser,
+          );
+        },
       ),
       bottomAction: _buildConnectButton(),
       body: Form(

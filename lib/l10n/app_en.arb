@@ -8303,5 +8303,93 @@
   "notificationTargetMakeDefaultNeedsSave": "Save your changes to make this the default.",
   "@notificationTargetMakeDefaultNeedsSave": {
     "description": "Shown under the dimmed 'Make default' action in the webhook destination editor while the form has unsaved edits. Making a destination the default closes the editor, so the edits must be saved first."
+  },
+  "accountsTitle": "Accounts",
+  "@accountsTitle": {
+    "description": "Heading of the list of saved Open WebUI accounts on the profile page and of the page that manages them."
+  },
+  "accountsAddAccount": "Add account",
+  "@accountsAddAccount": {
+    "description": "Row and button that starts signing in to another Open WebUI account, on a saved server or a new one."
+  },
+  "accountsManage": "Manage accounts",
+  "@accountsManage": {
+    "description": "Row on the profile page that opens the page listing every saved Open WebUI account, grouped by server."
+  },
+  "accountsSignedOut": "Signed out",
+  "@accountsSignedOut": {
+    "description": "Status shown under a saved Open WebUI account that has no session: switching to it asks for a sign-in."
+  },
+  "accountsActive": "Active",
+  "@accountsActive": {
+    "description": "Accessibility label for the checkmark next to the Open WebUI account the app is currently using."
+  },
+  "accountsAddAccountTitle": "Add an account",
+  "@accountsAddAccountTitle": {
+    "description": "Title of the sheet that asks where to add another Open WebUI account: on a saved server or on a new one."
+  },
+  "accountsAddAccountMessage": "Sign in to another account on a saved server, or connect to a new one.",
+  "@accountsAddAccountMessage": {
+    "description": "Explanation in the sheet that asks where to add another Open WebUI account."
+  },
+  "accountsNewServer": "New server",
+  "@accountsNewServer": {
+    "description": "Option in the add-account sheet that connects to an Open WebUI server that is not saved yet."
+  },
+  "accountsAddOnThisServer": "Add account on this server",
+  "@accountsAddOnThisServer": {
+    "description": "Row under a saved Open WebUI server on the accounts page that starts signing in to another account on it."
+  },
+  "accountsSwitch": "Switch",
+  "@accountsSwitch": {
+    "description": "Action that makes the chosen saved Open WebUI account the one the app uses."
+  },
+  "accountsSignOutOf": "Sign out of {name}",
+  "@accountsSignOutOf": {
+    "description": "Destructive row that signs out of one saved Open WebUI account and removes it from this device. {name} is the account's display name.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "accountsSignOutConfirmTitle": "Sign out of {name}?",
+  "@accountsSignOutConfirmTitle": {
+    "description": "Title of the confirmation before signing out of one Open WebUI account. {name} is the account's display name.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "accountsSignOutConfirmMessage": "This removes the account and the chats it saved on this device. Your other accounts stay signed in.",
+  "@accountsSignOutConfirmMessage": {
+    "description": "Body of the confirmation before signing out of one Open WebUI account while others remain saved."
+  },
+  "accountsSignOutAll": "Sign out of all accounts",
+  "@accountsSignOutAll": {
+    "description": "Destructive row that signs out of every saved account and clears the app's data, as signing out did before several accounts could be saved."
+  },
+  "accountsReplyInProgressTitle": "A reply is still being written",
+  "@accountsReplyInProgressTitle": {
+    "description": "Title of the confirmation shown when leaving the current account would stop a reply that is still streaming."
+  },
+  "accountsSwitchStopsReply": "Switching accounts stops it.",
+  "@accountsSwitchStopsReply": {
+    "description": "Body of the confirmation shown before switching accounts while a reply is still streaming."
+  },
+  "accountsSignOutStopsReply": "Signing out stops it.",
+  "@accountsSignOutStopsReply": {
+    "description": "Body of the confirmation shown before signing out of the current account while a reply is still streaming."
+  },
+  "accountsSwitchAnyway": "Switch anyway",
+  "@accountsSwitchAnyway": {
+    "description": "Confirms switching accounts even though it stops the reply that is still streaming."
+  },
+  "accountsSignOutAnyway": "Sign out anyway",
+  "@accountsSignOutAnyway": {
+    "description": "Confirms signing out of the current account even though it stops the reply that is still streaming."
   }
 }
