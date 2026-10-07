@@ -502,7 +502,12 @@ class _DirectMcpSection extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(l10n.directMcpLoadFailed),
-                TextButton(onPressed: onRetry, child: Text(l10n.retry)),
+                AdaptiveButton.child(
+                  style: AdaptiveButtonStyle.plain,
+                  useSmoothRectangleBorder: false,
+                  onPressed: onRetry,
+                  child: Text(l10n.retry),
+                ),
               ],
             ),
           )

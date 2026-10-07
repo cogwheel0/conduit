@@ -806,12 +806,6 @@ exceptions:
     owner: direct-connections
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/direct_connections/views/direct_connections_page.dart
-    symbol: "TextButton"
-    count: 1
-    owner: direct-connections
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/direct_connections/views/direct_mcp_content_sheet.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
@@ -1203,18 +1197,6 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/navigation/views/folder_page.dart
-    symbol: "CircularProgressIndicator"
-    count: 1
-    owner: navigation
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/navigation/views/splash_launcher_page.dart
-    package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: navigation
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/navigation/views/splash_launcher_page.dart
     symbol: "CircularProgressIndicator"
     count: 1
     owner: navigation
