@@ -5,6 +5,9 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
@@ -802,6 +805,61 @@ void main() {
 
       check(alpha.existsSync()).isFalse();
       check(beta.existsSync()).isFalse();
+    });
+
+    test('a pending wipe finishes before its account\'s database reopens', () async {
+      PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+      await PreferencesStore.ensureInitialized();
+      addTearDown(PreferencesStore.debugReset);
+      final alpha = fileFor(DatabaseManager.fileNameFor('alpha'))
+        ..writeAsStringSync('signed out');
+      // A full sign-out could not delete it.
+      await manager.recordPendingWipe({DatabaseManager.fileNameFor('alpha')});
+
+      // Signed in to again in the same run: the file goes first.
+      final attempt = manager.openForServerIdIfReady('alpha');
+      check(attempt).isA<DatabaseOpenDeferred>();
+      check(() => manager.openForServerId('alpha')).throws<StateError>();
+      await (attempt as DatabaseOpenDeferred).retryAfter;
+      check(alpha.existsSync()).isFalse();
+      check(
+        PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).isFalse();
+      final reopened = manager.openForServerIdIfReady('alpha');
+      final database = (reopened as DatabaseOpenReady).database;
+      await database.customStatement('CREATE TABLE queued (body TEXT)');
+      await manager.closeActive();
+
+      // The next start keeps what the account wrote since.
+      final restarted = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) =>
+            AppDatabase(NativeDatabase(fileFor(fileName))),
+      )..resumePendingWipe();
+      await restarted.finishPendingWipe();
+      check(alpha.existsSync()).isTrue();
+      check(
+        restarted.openForServerIdIfReady('alpha'),
+      ).isA<DatabaseOpenReady>();
+      await restarted.closeActive();
+    });
+
+    test('a wipe a newer sign-out recorded is kept', () async {
+      PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+      await PreferencesStore.ensureInitialized();
+      addTearDown(PreferencesStore.debugReset);
+      await manager.recordPendingWipe({DatabaseManager.fileNameFor('alpha')});
+
+      final finishing = manager.finishPendingWipe();
+      await manager.recordPendingWipe(null);
+      await finishing;
+
+      check(
+        PreferencesStore.getString(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).equals('*');
+      final attempt = manager.openForServerIdIfReady('beta');
+      check(attempt).isA<DatabaseOpenDeferred>();
+      await (attempt as DatabaseOpenDeferred).retryAfter;
     });
   });
 

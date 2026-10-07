@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
@@ -122,47 +121,16 @@ DatabaseManager databaseManager(Ref ref) {
   );
   // Every account database opens through this manager, so starting here
   // finishes an earlier sign-out's deletion before any of them can open.
-  final pending = PreferencesStore.getString(
-    PreferenceKeys.pendingAccountDatabaseWipe,
-  );
-  if (pending != null) {
-    unawaited(
-      _finishPendingAccountDatabaseWipe(
-        manager,
-        only: pendingAccountDatabaseWipeFiles(pending),
-      ),
-    );
+  if (PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe)) {
+    manager.resumePendingWipe();
+    unawaited(_finishPendingAccountDatabaseWipe(manager));
   }
   return manager;
 }
 
-/// The value a failed full sign-out records: the database files it left
-/// behind, or every file when it could not list them.
-String pendingAccountDatabaseWipeValue(Set<String>? files) =>
-    files == null ? '*' : jsonEncode(files.toList()..sort());
-
-/// The files a pending wipe deletes; null for all of them. Only those listed
-/// go, so an account signed in to after the failed sign-out keeps its data.
-Set<String>? pendingAccountDatabaseWipeFiles(String value) {
-  if (value == '*') return null;
+Future<void> _finishPendingAccountDatabaseWipe(DatabaseManager manager) async {
   try {
-    return {for (final name in jsonDecode(value) as List) name as String};
-  } catch (_) {
-    return null;
-  }
-}
-
-Future<void> _finishPendingAccountDatabaseWipe(
-  DatabaseManager manager, {
-  required Set<String>? only,
-}) async {
-  try {
-    await manager.deleteAllServerDatabases(only: only);
-    await PreferencesStore.putChecked(
-      PreferenceKeys.pendingAccountDatabaseWipe,
-      null,
-      bypassAppDataClearBarrier: true,
-    );
+    await manager.finishPendingWipe();
     DebugLogger.info('pending-wipe-finished', scope: 'db/manager');
   } catch (error, stackTrace) {
     // The flag stays, so the next start tries again.

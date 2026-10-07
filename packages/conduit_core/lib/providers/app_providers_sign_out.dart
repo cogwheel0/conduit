@@ -232,11 +232,9 @@ extension on SignOutCoordinator {
       leftover = await _ref.read(openWebUiDatabaseFilesProvider)();
     } catch (_) {}
     try {
-      await PreferencesStore.putChecked(
-        PreferenceKeys.pendingAccountDatabaseWipe,
-        pendingAccountDatabaseWipeValue(leftover),
-        bypassAppDataClearBarrier: true,
-      );
+      // Kept closed in this run too: an account signed in to again here has
+      // the same file, and would lose what it wrote at the next start.
+      await _ref.read(databaseManagerProvider).recordPendingWipe(leftover);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'sign-out-pending-database-wipe-failed',
