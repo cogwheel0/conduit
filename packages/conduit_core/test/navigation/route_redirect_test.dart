@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -58,6 +60,24 @@ ProviderRead _reader({
     }
     return values[provider] as T;
   };
+}
+
+/// The active server as it reads while it is fetched again: still the one
+/// already known, and loading.
+Future<AsyncValue<ServerConfig?>> _refreshing(ServerConfig server) async {
+  final refetch = Completer<ServerConfig?>();
+  var builds = 0;
+  final provider = FutureProvider<ServerConfig?>(
+    (ref) => builds++ == 0 ? Future.value(server) : refetch.future,
+  );
+  final container = ProviderContainer();
+  addTearDown(container.dispose);
+  await container.read(provider.future);
+  container.invalidate(provider);
+  final refreshing = container.read(provider);
+  check(refreshing.isLoading).isTrue();
+  check(refreshing.value).equals(server);
+  return refreshing;
 }
 
 void main() {
@@ -171,6 +191,17 @@ void main() {
           .equals(Routes.connectionIssue);
       check(resolveRouteRedirect(Routes.connectionIssue, read)).isNull();
     });
+
+    test(
+      'a refresh of the active server keeps the user where they are',
+      () async {
+        // Saving one of its addresses, or moving to another, fetches it again.
+        final read = _reader(activeServer: await _refreshing(_server));
+
+        check(resolveRouteRedirect(Routes.profile, read)).isNull();
+        check(resolveRouteRedirect(Routes.chat, read)).isNull();
+      },
+    );
 
     test('a failed or loading server lookup does not strand the user', () {
       final failed = _reader(

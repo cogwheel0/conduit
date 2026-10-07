@@ -142,7 +142,11 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
     return null;
   }
 
-  if (activeServerAsync.isLoading) {
+  // A refresh of the server already known keeps the user where they are:
+  // re-reading its addresses, or moving to another of them, does not change
+  // whose app this is, and an account change shows its own loading through
+  // auth. Only a first lookup holds the splash.
+  if (activeServerAsync.isLoading && !activeServerAsync.hasValue) {
     // Avoid redirect loops: do not override explicit auth routes while loading
     if (isAuthLocation(location)) return null;
     if (prefersDirect && !directUsable) {
@@ -198,7 +202,7 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
     return location == Routes.connectionIssue ? null : Routes.connectionIssue;
   }
 
-  final activeServer = activeServerAsync.asData?.value;
+  final activeServer = activeServerAsync.value;
   final hasActiveServer = activeServer != null;
   // A preferred Direct backend is usable only while at least one validated,
   // enabled profile has resolved. With an authenticated OpenWebUI session we
