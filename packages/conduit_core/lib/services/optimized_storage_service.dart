@@ -558,10 +558,26 @@ class OptimizedStorageService {
   /// storage failure into absence. A confirmed null is cached; failures retry
   /// once and then propagate so bootstrap cannot silently disable auto-login.
   Future<Map<String, String>?> getSavedCredentialsStrict() {
-    return _authStateLock.synchronized(
-      () => _retrySecureStorageRead(
+    return _authStateLock.synchronized(() async {
+      await _settleRegistryMigrationUnlocked();
+      return _retrySecureStorageRead(
         _getSavedCredentialsStrictUnlocked,
         scope: 'storage/optimized/credentials',
+      );
+    });
+  }
+
+  /// Runs the registry migration, when it is still due, before a saved
+  /// sign-in is read. The migration moves a sign-in whose account collapsed
+  /// into another; read before it, the sign-in names an account the
+  /// migration then drops, and the silent sign-in started from it finds no
+  /// server. Call with [_authStateLock] held and [_serverConfigsLock] not.
+  Future<void> _settleRegistryMigrationUnlocked() async {
+    if (_registryMigrationSettled) return;
+    await _serverConfigsLock.synchronized(
+      () => _retrySecureStorageRead(
+        _registryForWriteUnlocked,
+        scope: 'storage/optimized/server-configs',
       ),
     );
   }
@@ -569,6 +585,7 @@ class OptimizedStorageService {
   Future<Map<String, String>?> _getSavedCredentialsUnlocked() async {
     if (_savedCredentialsReadSuppressed) return null;
     try {
+      await _settleRegistryMigrationUnlocked();
       final credentials = await _retrySecureStorageRead(
         _getSavedCredentialsStrictUnlocked,
         scope: 'storage/optimized/credentials',

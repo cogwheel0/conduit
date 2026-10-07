@@ -183,6 +183,33 @@ void main() {
     check(await newStorage().getSavedCredentialsStrict()).isNull();
   });
 
+  test('a sign-in read before any server list names the kept account', () async {
+    seedLegacy([
+      server('active', url: 'https://chat.example.com'),
+      server('owner', url: 'https://chat.example.com'),
+    ]);
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'active');
+    secureStore.values[_credentialsKey] = jsonEncode({
+      'serverId': 'owner',
+      'username': 'u',
+      'password': 'p',
+    });
+    const markers = PreferencesOpenWebUiAccountOwnerMarkerStore();
+    for (final id in ['active', 'owner']) {
+      await markers.write(id, (tokenFingerprint: 'fp-$id', userId: 'user-1'));
+    }
+    final storage = newStorage();
+
+    // A cold start without a token reads the sign-in first, then looks up
+    // the server it names.
+    final saved = await storage.getSavedCredentialsStrict();
+
+    check(saved).isNotNull()['serverId'].equals('active');
+    check(
+      await storage.captureSavedServerSessionOwnership(saved!['serverId']!),
+    ).isNotNull();
+  });
+
   test('a lone config without an active id is kept as the fallback', () async {
     seedLegacy([server('only')]);
 
