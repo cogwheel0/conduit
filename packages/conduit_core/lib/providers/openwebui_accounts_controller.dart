@@ -75,10 +75,26 @@ final class OpenWebUiAccountsController {
 
   final Ref _ref;
 
+  /// The account change last started. Each starts once the one before it
+  /// has finished: a switch landing while a sign-out waits on its server
+  /// would leave the sign-out acting on an active account it read before.
+  Future<void> _lastChange = Future<void>.value();
+
+  Future<T> _afterLastChange<T>(Future<T> Function() change) {
+    final result = _lastChange.then((_) => change());
+    _lastChange = result.then<void>((_) {}, onError: (_, _) {});
+    return result;
+  }
+
   /// Makes [accountId] the active account.
   Future<OpenWebUiAccountChangeResult> switchTo(
     String accountId, {
     bool force = false,
+  }) => _afterLastChange(() => _switchTo(accountId, force: force));
+
+  Future<OpenWebUiAccountChangeResult> _switchTo(
+    String accountId, {
+    required bool force,
   }) async {
     if (await _activeAccountId() == accountId) {
       return OpenWebUiAccountChangeResult.alreadyActive;
@@ -107,26 +123,41 @@ final class OpenWebUiAccountsController {
   Future<OpenWebUiAccountChangeResult> signOut(
     String accountId, {
     bool force = false,
+  }) => _afterLastChange(() => _signOut(accountId, force: force));
+
+  Future<OpenWebUiAccountChangeResult> _signOut(
+    String accountId, {
+    required bool force,
   }) async {
     final activeId = await _activeAccountId();
     final isActive = activeId == accountId;
     if (isActive && !_mayLeaveActiveAccount(force)) {
       return OpenWebUiAccountChangeResult.blockedByActiveReply;
     }
-    final next = isActive ? await _nextAccountAfter(accountId) : null;
+    // Picked even for an account that is not active: a sign-in can make it
+    // active while its server is asked to end the session, and it is then
+    // signed out of as the active account.
+    final next = await _nextAccountAfter(accountId);
     final signedIn = await _ref
         .read(authStateManagerProvider.notifier)
         .signOutAccount(accountId, thenActivate: next);
-    if (next != null) {
-      await _ref.read(openWebUiAccountSummariesProvider.notifier).touch(next);
+    // Read again: the sign-out waited on the server, and what is active now
+    // is what it left, or what a sign-in made active meanwhile.
+    final now = await _activeAccountId();
+    if (now == activeId) {
+      _ref.invalidate(openWebUiAccountsProvider);
+      return OpenWebUiAccountChangeResult.done;
     }
-    if (isActive) {
-      if (next == null) await _fallBackWithoutOpenWebUi();
+    if (now == null) {
+      await _fallBackWithoutOpenWebUi();
+      _afterActiveAccountChanged(null);
+    } else if (now == next) {
+      await _ref.read(openWebUiAccountSummariesProvider.notifier).touch(next!);
       _afterActiveAccountChanged(next);
     } else {
+      // Another account became active on its own; it is left alone.
       _ref.invalidate(openWebUiAccountsProvider);
     }
-    if (!isActive) return OpenWebUiAccountChangeResult.done;
     return signedIn
         ? OpenWebUiAccountChangeResult.done
         : OpenWebUiAccountChangeResult.needsSignIn;
@@ -137,7 +168,13 @@ final class OpenWebUiAccountsController {
   /// A new account is added with the server's current route and made active,
   /// signed out, so the sign-in screen opens for it. The account that was
   /// active stays signed in, in the vault. Returns the new account's id.
-  Future<String?> beginAddAccount(String serverId, {bool force = false}) async {
+  Future<String?> beginAddAccount(String serverId, {bool force = false}) =>
+      _afterLastChange(() => _beginAddAccount(serverId, force: force));
+
+  Future<String?> _beginAddAccount(
+    String serverId, {
+    required bool force,
+  }) async {
     if (!_mayLeaveActiveAccount(force)) return null;
     final storage = _ref.read(optimizedStorageServiceProvider);
     final registry = await storage.getOpenWebUiRegistryStrict();
@@ -201,29 +238,31 @@ final class OpenWebUiAccountsController {
   }
 
   Future<void> _fallBackWithoutOpenWebUi() async {
-    final preferred = _ref.read(preferredBackendProvider.notifier);
-    if (_ref.read(hermesConfigProvider).isUsable) {
-      await preferred.set(PreferredBackend.hermes);
-      return;
+    var fallback = PreferredBackend.hermes;
+    if (!_ref.read(hermesConfigProvider).isUsable) {
+      // The synchronous view can still be loading with no value, which would
+      // send a user who has usable Direct profiles back to backend selection.
+      var hasUsableDirect = false;
+      try {
+        final direct = await _ref.read(
+          effectiveDirectConnectionProfilesFutureProvider.future,
+        );
+        hasUsableDirect = direct.any((profile) => profile.isUsable);
+      } catch (error) {
+        DebugLogger.warning(
+          'direct-profiles-unavailable',
+          scope: 'auth/accounts',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+      fallback = hasUsableDirect
+          ? PreferredBackend.direct
+          : PreferredBackend.unset;
     }
-    // The synchronous view can still be loading with no value, which would
-    // send a user who has usable Direct profiles back to backend selection.
-    var hasUsableDirect = false;
-    try {
-      final direct = await _ref.read(
-        effectiveDirectConnectionProfilesFutureProvider.future,
-      );
-      hasUsableDirect = direct.any((profile) => profile.isUsable);
-    } catch (error) {
-      DebugLogger.warning(
-        'direct-profiles-unavailable',
-        scope: 'auth/accounts',
-        data: {'errorType': error.runtimeType.toString()},
-      );
-    }
-    await preferred.set(
-      hasUsableDirect ? PreferredBackend.direct : PreferredBackend.unset,
-    );
+    // A sign-in can have made an account active while this waited; the app
+    // stays on Open WebUI then.
+    if (await _activeAccountId() != null) return;
+    await _ref.read(preferredBackendProvider.notifier).set(fallback);
   }
 
   void _afterActiveAccountChanged(String? accountId) {

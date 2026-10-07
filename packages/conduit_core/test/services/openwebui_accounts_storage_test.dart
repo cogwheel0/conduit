@@ -122,6 +122,21 @@ void main() {
       },
     );
 
+    test('a switch to an account no longer saved is refused', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('a');
+      // A sign-out queued ahead of the switch removed it.
+      await storage.removeAccount('b');
+
+      await check(
+        storage.switchActiveServer(fromServerId: 'a', toServerId: 'b'),
+      ).throws<StateError>();
+
+      check(PreferencesStore.getString(PreferenceKeys.activeServerId))
+          .equals('a');
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+    });
+
     test('a saved sign-in alone is enough to come back to', () async {
       await storage.saveServerConfigs([account('a'), account('b')]);
       await storage.setActiveServerId('a');

@@ -430,8 +430,17 @@ class OptimizedStorageService {
       // active, which may be flagged active or the only one saved rather than
       // named by the active id. Checked against the stricter id, a caller
       // could pass none, skip the stash and lose that account's session.
-      final activeId = await _serverConfigsLock.synchronized(
-        _effectiveActiveServerIdUnlocked,
+      final (activeId, isSaved) = await _serverConfigsLock.synchronized(
+        () async {
+          final configs = await _getServerConfigsStrictRetryingUnlocked();
+          return (
+            _effectiveActiveServerId(
+              configs: configs,
+              rawActiveServerId: _readActiveServerIdState().rawServerId,
+            ),
+            configs.any((config) => config.id == toServerId),
+          );
+        },
       );
       final callerIsCurrent =
           activeId == fromServerId ||
@@ -440,6 +449,11 @@ class OptimizedStorageService {
           (fromServerId == null && activeId == toServerId);
       if (!callerIsCurrent) {
         throw StateError('The active account changed before the switch.');
+      }
+      // A switch queued behind a sign-out can name the account it removed.
+      // Making that active would leave an active id that names nothing.
+      if (!isSaved) {
+        throw StateError('The account to switch to is not saved.');
       }
       final from = activeId;
 
