@@ -173,13 +173,15 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     if (!_baselineReady) return false;
     final l10n = AppLocalizations.of(context)!;
     final saved = await _controller.save(_saved(), messages: _messages(l10n));
-    if (saved) await _refreshStored();
+    // A save still completes after the page closes; there is nothing to reload.
+    if (saved && mounted) await _refreshStored();
     return saved;
   }
 
   /// Reloads the stored baseline after an inactive connection was saved or
   /// its stored state changed.
   Future<void> _refreshStored() async {
+    if (!mounted) return;
     final id = _controller.connectionId;
     final reload = ++_storedReloads;
     if (id == null || _editsActive) {

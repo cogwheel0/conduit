@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
@@ -273,6 +274,39 @@ void main() {
     ).equals('refresh-1');
   });
 
+  testWidgets('a save that finishes after the editor closes is harmless', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final persisted = Completer<void>();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(secrets),
+          hermesConnectionGatewayProvider.overrideWithValue(
+            _RecordingGateway(persistGate: persisted.future),
+          ),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: HermesSettingsPage(connectionId: _work),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('hermes-save-button')));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+    persisted.complete();
+    await tester.pumpAndSettle();
+
+    check(tester.takeException()).isNull();
+  });
+
   test('initials come from the first two words of a name', () {
     check(hermesConnectionInitials('Home Lab')).equals('HL');
     check(hermesConnectionInitials('research')).equals('RE');
@@ -292,6 +326,10 @@ HermesDesktopCredentials _nativeCredentials(String refreshToken) =>
     );
 
 final class _RecordingGateway implements HermesConnectionGateway {
+  _RecordingGateway({this.persistGate});
+
+  /// When set, saves wait for it.
+  final Future<void>? persistGate;
   final List<HermesConfig> probed = <HermesConfig>[];
 
   @override
@@ -301,8 +339,10 @@ final class _RecordingGateway implements HermesConnectionGateway {
   }
 
   @override
-  Future<String?> persist(HermesConnectionDraft draft) async =>
-      draft.config.connectionId;
+  Future<String?> persist(HermesConnectionDraft draft) async {
+    await persistGate;
+    return draft.config.connectionId;
+  }
 
   @override
   Future<void> commitOnboarding(
