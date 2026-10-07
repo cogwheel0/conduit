@@ -974,6 +974,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
             .clearForOrigin(previousBaseUrl);
         if (!cleared) {
           try {
+            // As on the way in, the endpoint goes before the credentials
+            // change, so neither a restart nor a concurrent read pairs the
+            // replacement server with the restored credentials.
+            await _writeProfiles(
+              _replacing(nextProfile.copyWith(baseUrl: '')),
+            );
             await _persistSecretsAtomically(
               connectionId: connectionId,
               previous: nextCredentials,

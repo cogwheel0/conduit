@@ -728,6 +728,71 @@ void main() {
     }
 
     test(
+      'a read during a rolled-back save never pairs the new address with '
+      'the old secrets',
+      () async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://alpha.example'),
+          _profile(_b, 'Beta', 'https://beta.example'),
+        ], active: _a);
+        final secrets = _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        });
+        // The dashboard sign-out of the old address fails, so the save that
+        // moved Beta to another server is undone.
+        final cookies = _GatedCookieJar();
+        final container = await _ready(secrets, cookies: cookies);
+        addTearDown(container.dispose);
+        final controller = container.read(hermesConfigProvider.notifier);
+
+        final saving = controller.saveConnection(
+          connectionId: _b,
+          baseUrl: 'https://gamma.example',
+          apiKeyChanged: true,
+          apiKey: 'gamma-key',
+        );
+        await cookies.called.future;
+
+        // An editor opens Beta while it points at the new server.
+        final keyRead = Completer<void>();
+        secrets.heldReads['hermes_api_key_v1:$_b'] = keyRead.future;
+        final opening = controller.savedConnectionConfig(_b);
+        await pumpEventQueue();
+
+        // The rollback stops just before Beta's old address is written back.
+        final restoring = Completer<void>();
+        final restored = Completer<void>();
+        PreferencesStore.debugOverride(
+          PreferencesStore.instance,
+          writeInterceptor: (_, key, value) async {
+            if (key == PreferenceKeys.hermesConnections &&
+                '$value'.contains('https://beta.example') &&
+                !restoring.isCompleted) {
+              restoring.complete();
+              await restored.future;
+            }
+            return null;
+          },
+        );
+        cookies.release.complete(false);
+        await restoring.future;
+        keyRead.complete();
+        final opened = await opening;
+        restored.complete();
+        await check(saving).throws<StateError>();
+
+        // The old key with the new address would send it to another server.
+        if (opened.apiKey == 'beta-key') {
+          check(opened.baseUrl).not((it) => it.equals('https://gamma.example'));
+        }
+        check(
+          (await controller.savedConnectionConfig(_b)).baseUrl,
+        ).equals('https://beta.example');
+      },
+    );
+
+    test(
       'a read during a save never pairs the old address with new secrets',
       () async {
         _seedConnections([
@@ -1159,5 +1224,18 @@ final class _RecordingCookieJar extends NullCookieJarPort {
   Future<bool> clearForOrigin(String origin) async {
     clearedOrigins.add(origin);
     return clears;
+  }
+}
+
+final class _GatedCookieJar extends NullCookieJarPort {
+  final Completer<void> called = Completer<void>();
+
+  /// What [clearForOrigin] reports, once it is completed.
+  final Completer<bool> release = Completer<bool>();
+
+  @override
+  Future<bool> clearForOrigin(String origin) {
+    if (!called.isCompleted) called.complete();
+    return release.future;
   }
 }
