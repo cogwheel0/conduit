@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
+import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -251,6 +253,30 @@ void main() {
     check(shown.notificationsEnabled).isTrue();
     check(shown.notificationSound).isFalse();
     check(shown.notificationSoundAlways).isTrue();
+  });
+
+  test('a signed-out account\'s summary stays gone when another account '
+      'is used', () async {
+    final container = ProviderContainer(
+      overrides: [
+        settledActiveAccountIdProvider.overrideWith(_SettledOnA.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    final summaries = container.read(
+      openWebUiAccountSummariesProvider.notifier,
+    );
+    await summaries.touch('a');
+    await summaries.touch('b');
+
+    await container.read(openWebUiAccountPrivateDataClearProvider)('a');
+    // B is used again before anything reloads the summaries.
+    await summaries.touch('b');
+
+    final stored = PreferencesStore.getString(
+      PreferenceKeys.openWebUiAccountSummaries,
+    );
+    check((jsonDecode(stored!) as Map).keys).deepEquals(['b']);
   });
 
   test('a saved server voice is read back for its account', () async {

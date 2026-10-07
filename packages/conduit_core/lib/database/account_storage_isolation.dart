@@ -128,7 +128,15 @@ typedef OpenWebUiAccountPrivateDataClear =
 /// of that account, never while it is active.
 final openWebUiAccountPrivateDataClearProvider =
     Provider<OpenWebUiAccountPrivateDataClear>(
-      (ref) => (accountId) => clearOpenWebUiAccountPreferences(accountId),
+      (ref) => (accountId) async {
+        // Its summary goes through the notifier first: a summary written for
+        // another account meanwhile saves the notifier's whole list, which
+        // would otherwise still hold this one and bring it back.
+        await ref
+            .read(openWebUiAccountSummariesProvider.notifier)
+            .forget(accountId);
+        await clearOpenWebUiAccountPreferences(accountId);
+      },
     );
 
 /// Fail-closed ownership barrier for the account-scoped OpenWebUI databases.
