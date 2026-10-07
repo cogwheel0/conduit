@@ -121,19 +121,11 @@ abstract class _ApiServiceBase {
       ),
     );
 
-    // 3. Error handling interceptor (transforms errors to standardized format)
-    _dio.interceptors.add(
-      ApiErrorInterceptor(
-        // Was Flutter's kDebugMode; the core cannot reach Flutter, and
-        // `dart.vm.product` is the same signal without it.
-        logErrors: !const bool.fromEnvironment('dart.vm.product'),
-        throwApiErrors: true, // Transform DioExceptions to include ApiError
-      ),
-    );
-
-    // 4. Success pings to relax offline detection. ApiService also supports
-    // absolute image/CDN URLs, so only the configured server origin is allowed
-    // to influence that server's health state.
+    // 3. Success pings to relax offline detection, and requests that could
+    // not reach the server. ApiService also supports absolute image/CDN URLs,
+    // so only the configured server origin is allowed to influence that
+    // server's health state. Ahead of the error handler: it rejects with its
+    // own error, which ends the chain for interceptors after it.
     final connectivityOrigin = Uri.tryParse(serverConfig.url);
     _dio.interceptors.add(
       InterceptorsWrapper(
@@ -168,6 +160,16 @@ abstract class _ApiServiceBase {
           }
           handler.next(error);
         },
+      ),
+    );
+
+    // 4. Error handling interceptor (transforms errors to standardized format)
+    _dio.interceptors.add(
+      ApiErrorInterceptor(
+        // Was Flutter's kDebugMode; the core cannot reach Flutter, and
+        // `dart.vm.product` is the same signal without it.
+        logErrors: !const bool.fromEnvironment('dart.vm.product'),
+        throwApiErrors: true, // Transform DioExceptions to include ApiError
       ),
     );
   }
