@@ -1,8 +1,6 @@
-import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -72,9 +70,10 @@ class ManageAccountsPage extends ConsumerWidget {
                   android: Icons.person_add_alt,
                 ),
               ),
-              onTap: () => context.pushNamed(
-                RouteNames.addServer,
-                extra: group.first.server.id,
+              onTap: () => openAddAccount(
+                context,
+                ref,
+                serverId: group.first.server.id,
               ),
             ),
           ],
@@ -93,7 +92,7 @@ class ManageAccountsPage extends ConsumerWidget {
                 android: Icons.add_circle_outline,
               ),
             ),
-            onTap: () => context.pushNamed(RouteNames.addServer),
+            onTap: () => openAddAccount(context, ref),
           ),
         ],
       ),

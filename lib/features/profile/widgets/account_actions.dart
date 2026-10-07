@@ -119,6 +119,27 @@ Future<void> signOutOfSavedAccount(
   }
 }
 
+/// Opens the connection page to add an account on the saved server
+/// [serverId], or on a new one.
+///
+/// The router keeps a signed-in user away from sign-in pages unless an
+/// account is being added, and it decides that as the page is pushed, so the
+/// addition begins here rather than in the page.
+Future<void> openAddAccount(
+  BuildContext context,
+  WidgetRef ref, {
+  String? serverId,
+}) async {
+  final addition = ref.read(accountAdditionOriginProvider.notifier);
+  final from = ref.read(settledActiveAccountIdProvider);
+  addition.begin(from);
+  try {
+    await context.pushNamed(RouteNames.addServer, extra: serverId);
+  } finally {
+    addition.end(from);
+  }
+}
+
 /// Asks where to add an account -- a saved server or a new one -- and opens
 /// the connection page for it.
 Future<void> showAddAccountSheet(BuildContext context, WidgetRef ref) async {
@@ -134,7 +155,7 @@ Future<void> showAddAccountSheet(BuildContext context, WidgetRef ref) async {
   }
   if (!context.mounted) return;
   if (servers.isEmpty) {
-    await context.pushNamed(RouteNames.addServer);
+    await openAddAccount(context, ref);
     return;
   }
 
@@ -182,8 +203,9 @@ Future<void> showAddAccountSheet(BuildContext context, WidgetRef ref) async {
     ),
   );
   if (choice == null || !context.mounted) return;
-  await context.pushNamed(
-    RouteNames.addServer,
-    extra: choice.isEmpty ? null : choice,
+  await openAddAccount(
+    context,
+    ref,
+    serverId: choice.isEmpty ? null : choice,
   );
 }

@@ -287,9 +287,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     super.initState();
     _urlController.addListener(_resetTransientAttempt);
     if (widget.addingAccount) {
+      // openAddAccount began the addition before pushing this page, which the
+      // router needs; the page only ends it when it goes.
       _accountAddition = ref.read(accountAdditionOriginProvider.notifier);
       _accountAdditionFrom = ref.read(settledActiveAccountIdProvider);
-      _accountAddition!.begin(_accountAdditionFrom);
       _prefillFromSavedServer();
     } else {
       _prefillFromState();
