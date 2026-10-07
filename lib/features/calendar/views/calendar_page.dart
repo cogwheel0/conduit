@@ -1,7 +1,6 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
@@ -16,10 +15,13 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../navigation/providers/conversation_selection_provider.dart';
 import 'calendar_calendars_sheet.dart';
+import 'calendar_color_dot.dart';
 import 'calendar_event_editor.dart';
 import 'calendar_event_sheet.dart';
 import 'calendar_format.dart';
@@ -78,32 +80,56 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
     }
   }
 
+  /// The range last asked for, so the range bar stays when moving to it
+  /// failed and there is no agenda to read it from.
+  CalendarRange? _requested;
+
+  /// Whether a move to another range is loading.
+  bool _paging = false;
+
+  /// Counts moves to another range, so only the latest one clears [_paging].
+  int _pageRequests = 0;
+
   CalendarAgenda get _notifier => ref.read(calendarAgendaProvider.notifier);
 
   /// The account is captured here, on the action, before anything is awaited.
-  Future<void> _refresh({CalendarRange? range, Set<String>? filter}) async {
+  Future<void> _refresh({CalendarRange? range}) async {
     final owner = _notifier.captureOwner();
     if (owner == null) return;
-    await _notifier.refresh(owner: owner, range: range, filter: filter);
+    await _notifier.refresh(owner: owner, range: range);
   }
 
-  Future<void> _shift(CalendarRange range, int days) => _refresh(
-    range: range.shifted(days, zone: ref.read(calendarZoneProvider)),
-  );
+  /// Moves the agenda to [range], showing progress in the range bar.
+  Future<void> _page(CalendarRange range) async {
+    final request = ++_pageRequests;
+    setState(() {
+      _requested = range;
+      _paging = true;
+    });
+    try {
+      await _refresh(range: range);
+    } finally {
+      // An earlier move that ends while a later one loads leaves the
+      // progress showing.
+      if (mounted && request == _pageRequests) {
+        setState(() => _paging = false);
+      }
+    }
+  }
+
+  Future<void> _shift(CalendarRange range, int days) =>
+      _page(range.shifted(days, zone: ref.read(calendarZoneProvider)));
+
+  CalendarWallTime _todayIn(CalendarZone zone) {
+    final now = ref.read(calendarClockProvider)().toUtc();
+    return wallTimeAt(now.microsecondsSinceEpoch * 1000, zone).dateOnly;
+  }
 
   Future<void> _today() {
     final zone = ref.read(calendarZoneProvider);
-    final now = ref.read(calendarClockProvider)().toUtc();
-    final today = wallTimeAt(now.microsecondsSinceEpoch * 1000, zone);
-    return _refresh(
-      range: CalendarRange.days(today, calendarAgendaDays, zone: zone),
+    return _page(
+      CalendarRange.days(_todayIn(zone), calendarAgendaDays, zone: zone),
     );
-  }
-
-  Future<void> _toggleCalendar(CalendarAgendaData data, String id) {
-    final next = {...data.filter};
-    if (!next.remove(id)) next.add(id);
-    return _refresh(filter: next);
   }
 
   Future<void> _add(CalendarAgendaData data) async {
@@ -193,83 +219,98 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
     final zone = ref.watch(calendarZoneProvider);
+    ref.watch(calendarClockProvider);
     final state = ref.watch(calendarAgendaProvider);
     final data = state.asData?.value;
+    final range = data?.range ?? _requested;
+    final today = _todayIn(zone);
 
     return UtilityPageScaffold.settings(
       title: l10n.calendarTitle,
-      children: [
-        Text(
-          l10n.calendarDescription,
-          style: AppTypography.bodySmallStyle.copyWith(
-            color: theme.textSecondary,
-          ),
+      trailing: AdaptiveTooltip(
+        message: l10n.calendarAddEvent,
+        child: ConduitAdaptiveAppBarIconButton(
+          key: const Key('calendar-add-event'),
+          icon: context.usesCupertinoChrome ? CupertinoIcons.add : Icons.add,
+          semanticLabel: l10n.calendarAddEvent,
+          onPressed: data == null ? null : () => _add(data),
         ),
-        const SizedBox(height: Spacing.md),
-        if (data != null) ...[
+      ),
+      children: [
+        if (range != null) ...[
           _RangeBar(
-            data: data,
-            onEarlier: () => _shift(data.range, -calendarAgendaDays),
-            onLater: () => _shift(data.range, calendarAgendaDays),
-            onToday: _today,
+            range: range,
+            today: today,
+            paging: _paging,
+            onEarlier: () => _shift(range, -calendarAgendaDays),
+            onLater: () => _shift(range, calendarAgendaDays),
+            onToday: range.firstDay.sameDate(today) ? null : _today,
           ),
-          const SizedBox(height: Spacing.sm),
-          if (data.calendars.length > 1) ...[
-            _CalendarFilter(
-              data: data,
-              onToggle: (id) => _toggleCalendar(data, id),
-              onClear: () => _refresh(filter: const <String>{}),
+          const SizedBox(height: Spacing.md),
+        ],
+        if (data == null && state.isLoading)
+          const Padding(
+            padding: EdgeInsets.all(Spacing.md),
+            child: Center(child: ConduitLoadingIndicator(isCompact: true)),
+          )
+        else if (data == null)
+          InsetGroupedList(
+            children: [
+              _NoticeRow(
+                key: const Key('calendar-retry'),
+                title: l10n.calendarLoadFailed,
+                action: l10n.retry,
+                onTap: _refresh,
+              ),
+            ],
+          )
+        else ...[
+          if (data.stale) ...[
+            InsetGroupedList(
+              children: [
+                _NoticeRow(
+                  key: const Key('calendar-stale'),
+                  title: l10n.calendarStale,
+                  action: l10n.retry,
+                  onTap: _refresh,
+                ),
+              ],
             ),
             const SizedBox(height: Spacing.md),
           ],
-        ],
-        InsetGroupedList(
-          children: [
-            if (data == null && state.isLoading)
-              const Padding(
-                padding: EdgeInsets.all(Spacing.md),
-                child: Center(child: ConduitLoadingIndicator(isCompact: true)),
-              )
-            else if (data == null)
-              UtilityRow(
-                key: const Key('calendar-retry'),
-                title: l10n.calendarLoadFailed,
-                subtitle: l10n.retry,
-                onTap: _refresh,
-              )
-            else if (data.items.isEmpty)
-              UtilityRow(
-                key: const Key('calendar-empty'),
-                title: l10n.calendarEmpty,
-                enabled: false,
-              ),
-            if (data?.stale ?? false)
-              UtilityRow(
-                key: const Key('calendar-stale'),
-                title: l10n.calendarStale,
-                subtitle: l10n.retry,
-                onTap: _refresh,
-              ),
-          ],
-        ),
-        if (data != null && data.items.isNotEmpty)
-          ..._days(context, l10n, data, zone),
-        const SizedBox(height: Spacing.md),
-        InsetGroupedList(
-          children: [
-            UtilityRow(
-              key: const Key('calendar-add-event'),
-              title: l10n.calendarAddEvent,
-              leading: Icon(
-                UiUtils.platformIcon(
-                  ios: CupertinoIcons.add_circled,
-                  android: Icons.add_circle_outline,
+          if (data.items.isEmpty)
+            InsetGroupedSection(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                excludeFromSemantics: true,
+                onTap: () => _add(data),
+                child: ConduitEmptyState(
+                  key: const Key('calendar-empty'),
+                  isCompact: true,
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.calendar,
+                    android: Icons.event_available_outlined,
+                  ),
+                  title: l10n.calendarEmpty,
+                  message: '',
+                  action: ConduitButton(
+                    key: const Key('calendar-empty-add'),
+                    text: l10n.calendarAddEvent,
+                    isCompact: true,
+                    isSecondary: true,
+                    onPressed: () => _add(data),
+                  ),
                 ),
               ),
-              onTap: data == null ? null : () => _add(data),
-            ),
+            )
+          else
+            ..._days(context, l10n, data, zone, today),
+        ],
+        const SizedBox(height: Spacing.lg),
+        InsetGroupedList(
+          footer: l10n.calendarTimezoneNote,
+          children: [
             UtilityRow(
               key: const Key('calendar-manage-calendars'),
               title: l10n.calendarManageCalendars,
@@ -290,12 +331,6 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
             ),
           ],
         ),
-        const SizedBox(height: Spacing.sm),
-        Text(
-          l10n.calendarTimezoneNote,
-          key: const Key('calendar-timezone-note'),
-          style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-        ),
       ],
     );
   }
@@ -306,8 +341,8 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
     AppLocalizations l10n,
     CalendarAgendaData data,
     CalendarZone zone,
+    CalendarWallTime today,
   ) {
-    final theme = context.conduitTheme;
     final byDay = <CalendarWallTime, List<CalendarAgendaItem>>{};
     for (final item in data.items) {
       final span = switch (item) {
@@ -327,16 +362,23 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
     }
     final days = byDay.keys.toList()..sort();
     final calendarsById = {for (final c in data.calendars) c.id: c};
+    final scheduledCalendar = data.calendars
+        .where((c) => c.isVirtual)
+        .firstOrNull;
     return [
-      for (final day in days) ...[
-        Padding(
-          padding: const EdgeInsets.only(top: Spacing.sm, bottom: Spacing.xs),
-          child: Text(
-            formatCalendarDay(context, day),
-            key: Key('calendar-day-${day.dateOnly}'),
-            style: theme.label?.copyWith(color: theme.textSecondary),
+      for (final (index, day) in days.indexed) ...[
+        if (index > 0) const SizedBox(height: Spacing.md),
+        _DayHeader(
+          key: Key('calendar-day-${day.dateOnly}'),
+          label: formatCalendarDayHeading(
+            context,
+            l10n,
+            day: day,
+            today: today,
           ),
+          isToday: day.sameDate(today),
         ),
+        const SizedBox(height: Spacing.sm),
         InsetGroupedList(
           children: [
             for (final item in byDay[day]!)
@@ -346,15 +388,9 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
                 day: day,
                 zone: zone,
                 access: data.access,
-                color: switch (item) {
-                  CalendarEventModel() =>
-                    parseCalendarColor(item.color) ??
-                        parseCalendarColor(
-                          calendarsById[item.calendarId]?.color,
-                        ),
-                  ScheduledTaskCalendarEntry() => parseCalendarColor(
-                    data.calendars.where((c) => c.isVirtual).firstOrNull?.color,
-                  ),
+                calendar: switch (item) {
+                  CalendarEventModel() => calendarsById[item.calendarId],
+                  ScheduledTaskCalendarEntry() => scheduledCalendar,
                 },
                 onTap: () => _open(item),
               ),
@@ -365,95 +401,162 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
   }
 }
 
+/// The heading over one day's events, set like an inset group's title. Today's
+/// stands out in the accent colour.
+class _DayHeader extends StatelessWidget {
+  const _DayHeader({super.key, required this.label, required this.isToday});
+
+  final String label;
+  final bool isToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final native = context.usesCupertinoChrome;
+    final base = native
+        ? AppTypography.bodySmallStyle
+        : AppTypography.labelMediumStyle;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
+      child: Semantics(
+        header: true,
+        child: Text(
+          label,
+          style: base.copyWith(
+            color: isToday ? theme.buttonPrimary : theme.textSecondary,
+            fontWeight: isToday || !native ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A row that says something went wrong and offers to try again.
+class _NoticeRow extends StatelessWidget {
+  const _NoticeRow({
+    super.key,
+    required this.title,
+    required this.action,
+    required this.onTap,
+  });
+
+  final String title;
+  final String action;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return UtilityRow(
+      title: title,
+      semanticLabel: '$title. $action',
+      leading: Icon(
+        UiUtils.platformIcon(
+          ios: CupertinoIcons.exclamationmark_circle,
+          android: Icons.error_outline,
+        ),
+        color: theme.warning,
+      ),
+      status: Text(
+        action,
+        style: theme.bodyMedium?.copyWith(
+          color: theme.buttonPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      onTap: onTap,
+    );
+  }
+}
+
+/// The agenda's days, with chevrons to move a page back or forward and a way
+/// back to today.
 class _RangeBar extends StatelessWidget {
   const _RangeBar({
-    required this.data,
+    required this.range,
+    required this.today,
+    required this.paging,
     required this.onEarlier,
     required this.onLater,
     required this.onToday,
   });
 
-  final CalendarAgendaData data;
+  final CalendarRange range;
+  final CalendarWallTime today;
+  final bool paging;
   final VoidCallback onEarlier;
   final VoidCallback onLater;
-  final VoidCallback onToday;
+
+  /// Null when the agenda already starts today.
+  final VoidCallback? onToday;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final locale = Localizations.localeOf(context).toString();
-    final format = DateFormat.MMMd(locale);
-    final last = data.range.endDay.addDays(-1);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Text(
-          l10n.calendarRangeLabel(
-            format.format(data.range.firstDay.fields),
-            format.format(last.fields),
+        ConduitIconButton(
+          key: const Key('calendar-earlier'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.chevron_left,
+            android: Icons.chevron_left,
           ),
-          key: const Key('calendar-range'),
-          style: theme.headingSmall,
+          tooltip: l10n.calendarPreviousDays(range.dayCount),
+          iconColor: theme.buttonPrimary,
+          isCompact: true,
+          onPressed: onEarlier,
         ),
-        const SizedBox(height: Spacing.sm),
-        Wrap(
-          spacing: Spacing.sm,
-          runSpacing: Spacing.sm,
-          children: [
-            ConduitChip(
-              key: const Key('calendar-earlier'),
-              label: l10n.calendarEarlier,
-              onTap: onEarlier,
-            ),
-            ConduitChip(
-              key: const Key('calendar-today'),
-              label: l10n.calendarToday,
-              onTap: onToday,
-            ),
-            ConduitChip(
-              key: const Key('calendar-later'),
-              label: l10n.calendarLater,
-              onTap: onLater,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _CalendarFilter extends StatelessWidget {
-  const _CalendarFilter({
-    required this.data,
-    required this.onToggle,
-    required this.onClear,
-  });
-
-  final CalendarAgendaData data;
-  final ValueChanged<String> onToggle;
-  final VoidCallback onClear;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Wrap(
-      spacing: Spacing.sm,
-      runSpacing: Spacing.sm,
-      children: [
-        ConduitChip(
-          key: const Key('calendar-filter-all'),
-          label: l10n.calendarAllCalendars,
-          isSelected: data.filter.isEmpty,
-          onTap: onClear,
-        ),
-        for (final calendar in data.calendars)
-          ConduitChip(
-            key: Key('calendar-filter-${calendar.id}'),
-            label: calendar.name,
-            isSelected: data.filter.contains(calendar.id),
-            onTap: () => onToggle(calendar.id),
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Flexible(
+                child: Semantics(
+                  header: true,
+                  liveRegion: true,
+                  child: Text(
+                    formatCalendarRange(
+                      context,
+                      l10n,
+                      range: range,
+                      today: today,
+                    ),
+                    key: const Key('calendar-range'),
+                    style: theme.headingSmall,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+              if (paging) ...[
+                const SizedBox(width: Spacing.sm),
+                const ConduitLoadingIndicator(
+                  key: Key('calendar-paging'),
+                  size: IconSize.sm,
+                  isCompact: true,
+                ),
+              ],
+            ],
           ),
+        ),
+        ConduitIconButton(
+          key: const Key('calendar-later'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.chevron_right,
+            android: Icons.chevron_right,
+          ),
+          tooltip: l10n.calendarNextDays(range.dayCount),
+          iconColor: theme.buttonPrimary,
+          isCompact: true,
+          onPressed: onLater,
+        ),
+        ConduitTextButton(
+          key: const Key('calendar-today'),
+          text: l10n.calendarToday,
+          isPrimary: true,
+          onPressed: onToday,
+        ),
       ],
     );
   }
@@ -466,7 +569,7 @@ class _ItemRow extends StatelessWidget {
     required this.day,
     required this.zone,
     required this.access,
-    required this.color,
+    required this.calendar,
     required this.onTap,
   });
 
@@ -474,34 +577,33 @@ class _ItemRow extends StatelessWidget {
   final CalendarWallTime day;
   final CalendarZone zone;
   final CalendarAccess? access;
-  final Color? color;
+
+  /// The calendar the item is in, when the account can see it.
+  final CalendarModel? calendar;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final dot = Padding(
-      padding: const EdgeInsets.only(right: Spacing.xs),
-      child: Icon(Icons.circle, size: 12, color: color ?? theme.textSecondary),
-    );
     switch (item) {
       case final CalendarEventModel event:
-        // An all-day or multi-day event reads as all day on the days between
-        // its first and last, where a clock time would be wrong.
-        final span = daySpan(
-          startNs: event.startAtNs,
-          endNs: event.endAtNs,
-          zone: zone,
+        final dot = CalendarColorDot(
+          color:
+              parseCalendarColor(event.color) ??
+              parseCalendarColor(calendar?.color),
         );
-        final spansDays = !span.first.sameDate(span.last);
+        final title = event.title.isEmpty
+            ? l10n.calendarUntitledEvent
+            : event.title;
         final time = formatCalendarRowTime(
           context,
           l10n,
           startNs: event.startAtNs,
           endNs: event.endAtNs,
-          allDay: event.allDay || (spansDays && !day.sameDate(span.first)),
+          allDay: event.allDay,
           zone: zone,
+          day: day,
         );
         final answer = access?.ownAnswer(event);
         final invited = access?.canRsvp(event) == true;
@@ -511,7 +613,7 @@ class _ItemRow extends StatelessWidget {
           if (event.isRecurring) l10n.calendarRepeatsMarker,
         ].join(' · ');
         return UtilityRow(
-          title: event.title.isEmpty ? l10n.calendarUntitledEvent : event.title,
+          title: title,
           subtitle: subtitle,
           subtitleMaxLines: 2,
           leading: dot,
@@ -521,7 +623,14 @@ class _ItemRow extends StatelessWidget {
                   style: theme.bodySmall?.copyWith(color: theme.textSecondary),
                 )
               : null,
-          semanticLabel: '${event.title}. $subtitle',
+          semanticLabel: [
+            title,
+            time,
+            ?event.location,
+            ?calendar?.name,
+            if (event.isRecurring) l10n.calendarRepeatsMarker,
+            if (invited) rsvpLabel(l10n, answer),
+          ].join('. '),
           showChevron: true,
           onTap: onTap,
         );
@@ -538,13 +647,14 @@ class _ItemRow extends StatelessWidget {
           endNs: null,
           allDay: false,
           zone: zone,
+          day: day,
         );
         return UtilityRow(
           title: entry.title,
           subtitle: '$time · $label',
           subtitleMaxLines: 2,
-          leading: dot,
-          semanticLabel: '${entry.title}. $time. $label',
+          leading: CalendarColorDot(color: parseCalendarColor(calendar?.color)),
+          semanticLabel: [entry.title, time, label, ?calendar?.name].join('. '),
           showChevron: entry.automationId != null,
           onTap: entry.automationId == null ? null : onTap,
         );

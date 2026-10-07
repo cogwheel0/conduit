@@ -14,23 +14,105 @@ import '../../../shared/widgets/themed_sheets.dart';
 /// screen, or whatever the keyboard leaves below the status bar. The native iOS
 /// presenter gives its content no Material ancestor, which the controls inside
 /// need.
-class CalendarSheetFrame extends StatelessWidget {
+///
+/// [child] scrolls; [footer], when given, stays pinned below it so a sheet's
+/// actions and errors are always in reach.
+class CalendarSheetFrame extends StatefulWidget {
   const CalendarSheetFrame({
     super.key,
     required this.title,
     required this.child,
+    this.footer,
     this.onClose,
+    this.holdDismiss = false,
   });
 
   final String title;
   final Widget child;
 
+  /// Pinned under [child], outside its scroll view.
+  final Widget? footer;
+
   /// Overrides what the close button does; by default it pops the sheet.
   final VoidCallback? onClose;
 
+  /// Keeps a swipe down from dismissing the sheet, as for a form with unsaved
+  /// edits. The sheet resists the swipe and, when it is let go far or fast
+  /// enough, the close action runs instead so it can ask first. A `PopScope`
+  /// cannot do this on its own: the route's drag dismissal pops directly.
+  final bool holdDismiss;
+
   // The handle's margins and bar, plus the surface's top and bottom padding.
+  static const _handleBarHeight = Spacing.xs;
   static const _surfaceChrome =
-      Spacing.sm + 4 + Spacing.md + Spacing.sm + Spacing.modalPadding;
+      Spacing.sm +
+      _handleBarHeight +
+      Spacing.md +
+      Spacing.sm +
+      Spacing.modalPadding;
+
+  @override
+  State<CalendarSheetFrame> createState() => _CalendarSheetFrameState();
+}
+
+class _CalendarSheetFrameState extends State<CalendarSheetFrame>
+    with SingleTickerProviderStateMixin {
+  /// A held swipe this far down, or flung this fast, asks to close.
+  static const _closeDistance = 80.0;
+  static const _closeVelocity = 700.0;
+
+  late final AnimationController _settle = AnimationController(vsync: this)
+    ..addListener(() => setState(() {}));
+
+  /// How far the finger has gone down during a held swipe.
+  double _drag = 0;
+
+  /// Where the surface was when a held swipe was let go.
+  double _releasedAt = 0;
+
+  @override
+  void dispose() {
+    _settle.dispose();
+    super.dispose();
+  }
+
+  void _close() {
+    final onClose = widget.onClose;
+    if (onClose != null) {
+      onClose();
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  /// The surface follows the finger with more and more resistance, so it
+  /// reads as held rather than stuck.
+  double _resisted(double drag) {
+    const constant = 0.55;
+    final dimension = MediaQuery.sizeOf(context).height;
+    if (drag <= 0 || dimension <= 0) return 0;
+    return (drag * dimension * constant) / (dimension + constant * drag);
+  }
+
+  double get _offset => _settle.isAnimating
+      ? _releasedAt * (1 - _settle.value)
+      : _resisted(_drag);
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    _settle.stop();
+    setState(() => _drag = math.max(0, _drag + (details.primaryDelta ?? 0)));
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    final asks =
+        _drag > _closeDistance ||
+        (details.primaryVelocity ?? 0) > _closeVelocity;
+    _releasedAt = _resisted(_drag);
+    _drag = 0;
+    _settle.duration = context.motionDuration(AnimationDuration.fast);
+    _settle.forward(from: 0);
+    if (asks) _close();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,10 +130,11 @@ class CalendarSheetFrame extends StatelessWidget {
         keyboard -
         statusBar -
         bottomSafe -
-        _surfaceChrome -
+        CalendarSheetFrame._surfaceChrome -
         Spacing.sm;
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
+    final footer = widget.footer;
+    final frame = AnimatedPadding(
+      duration: context.motionDuration(AnimationDuration.fast),
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(bottom: keyboard),
       child: ConduitModalSheetSurface(
@@ -68,25 +151,39 @@ class CalendarSheetFrame extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        title,
-                        style: theme.headingSmall,
-                        overflow: TextOverflow.ellipsis,
+                      child: Semantics(
+                        header: true,
+                        child: Text(
+                          widget.title,
+                          style: theme.headingSmall,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
-                    SheetCloseButton(
-                      tooltip: l10n.close,
-                      onPressed: onClose ?? () => Navigator.of(context).pop(),
-                    ),
+                    SheetCloseButton(tooltip: l10n.close, onPressed: _close),
                   ],
                 ),
                 const SizedBox(height: Spacing.sm),
-                Flexible(child: child),
+                Flexible(child: widget.child),
+                if (footer != null) ...[
+                  const SizedBox(height: Spacing.md),
+                  footer,
+                ],
               ],
             ),
           ),
         ),
       ),
+    );
+    // The detector and the offset stay in the tree whether or not a swipe is
+    // held, so a form turning dirty keeps its fields and their focus. Without
+    // callbacks the detector takes no drags and the route's own swipe works.
+    final hold = widget.holdDismiss;
+    return GestureDetector(
+      onVerticalDragUpdate: hold ? _onDragUpdate : null,
+      onVerticalDragEnd: hold ? _onDragEnd : null,
+      onVerticalDragCancel: hold ? () => setState(() => _drag = 0) : null,
+      child: Transform.translate(offset: Offset(0, _offset), child: frame),
     );
   }
 }

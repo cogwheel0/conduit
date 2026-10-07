@@ -1,3 +1,4 @@
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -11,6 +12,9 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
+import '../../../shared/widgets/utility_components.dart';
+import '../../profile/widgets/adaptive_segmented_selector.dart';
+import 'calendar_color_dot.dart';
 import 'calendar_event_editor.dart';
 import 'calendar_format.dart';
 import 'calendar_sheet_frame.dart';
@@ -69,6 +73,10 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
   CalendarEventModel? _fresh;
   CalendarRsvp? _answer;
   bool _busy = false;
+
+  /// Which action [_busy] is for, so only its control shows progress.
+  bool _responding = false;
+  bool _deleting = false;
   String? _error;
 
   CalendarAgenda get _notifier => ref.read(calendarAgendaProvider.notifier);
@@ -123,11 +131,16 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
     if (owner != null) _notifier.refresh(owner: owner);
   }
 
+  /// Sends [status] as the account's answer. The choice shows at once and
+  /// goes back to the previous answer if the server refuses it.
   Future<void> _respond(CalendarRsvp status) async {
     if (_busy) return;
     final l10n = AppLocalizations.of(context)!;
+    final previous = _answer;
     setState(() {
       _busy = true;
+      _responding = true;
+      _answer = status;
       _error = null;
     });
     try {
@@ -139,16 +152,22 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
       if (mounted) setState(() => _answer = stored);
     } catch (error) {
       if (mounted) {
-        setState(
-          () => _error = calendarErrorText(
+        setState(() {
+          _answer = previous;
+          _error = calendarErrorText(
             l10n,
             error,
             fallback: l10n.calendarRsvpFailed,
-          ),
-        );
+          );
+        });
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _responding = false;
+        });
+      }
     }
   }
 
@@ -196,8 +215,8 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
           ? l10n.calendarEventDeleteSeries
           : l10n.calendarEventDelete,
       message: _event.isRecurring
-          ? l10n.calendarEventDeleteSeriesConfirm(_event.title)
-          : l10n.calendarEventDeleteConfirm(_event.title),
+          ? l10n.calendarEventDeleteSeriesConfirm(_title(l10n))
+          : l10n.calendarEventDeleteConfirm(_title(l10n)),
       confirmText: _event.isRecurring
           ? l10n.calendarEventDeleteSeries
           : l10n.calendarEventDelete,
@@ -206,6 +225,7 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
     if (!confirmed || !mounted) return;
     setState(() {
       _busy = true;
+      _deleting = true;
       _error = null;
     });
     try {
@@ -224,7 +244,12 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
         );
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _deleting = false;
+        });
+      }
     }
   }
 
@@ -240,23 +265,137 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
         .where((c) => c.id == _event.calendarId)
         .firstOrNull;
     final shown = _fresh ?? _event;
+    final loading = _detail == _Detail.loading;
     final canEdit =
         access != null &&
         access.canEdit(_event, calendars) &&
         _detail != _Detail.denied &&
         _detail != _Detail.gone &&
-        _detail != _Detail.loading;
+        !loading;
     final invited = access?.canRsvp(shown) ?? false;
     final answer = _answer ?? access?.ownAnswer(shown);
     final repeat = CalendarRepeat.fromRule(_event.rrule);
+    final valueStyle = theme.bodyMedium?.copyWith(color: theme.textSecondary);
+
+    Widget value(String text, {Widget? leading}) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (leading != null) ...[leading, const SizedBox(width: Spacing.xs)],
+        Flexible(
+          child: Text(text, overflow: TextOverflow.ellipsis, style: valueStyle),
+        ),
+      ],
+    );
+
+    final details = <Widget>[
+      if (calendar != null)
+        UtilityRow(
+          key: const Key('calendar-event-calendar'),
+          title: l10n.calendarFieldCalendar,
+          semanticLabel: '${l10n.calendarFieldCalendar}. ${calendar.name}',
+          status: value(
+            calendar.name,
+            leading: CalendarColorDot(
+              color: parseCalendarColor(calendar.color),
+            ),
+          ),
+        ),
+      if (_event.isRecurring)
+        UtilityRow(
+          key: const Key('calendar-event-repeat'),
+          title: l10n.calendarFieldRepeat,
+          semanticLabel:
+              '${l10n.calendarFieldRepeat}. ${repeatLabel(l10n, repeat)}',
+          status: value(repeatLabel(l10n, repeat)),
+        ),
+      if (_event.organizerName case final organizer?)
+        UtilityRow(
+          key: const Key('calendar-event-organizer'),
+          title: l10n.calendarFieldOrganizer,
+          semanticLabel: '${l10n.calendarFieldOrganizer}. $organizer',
+          status: value(organizer),
+        ),
+      if (shown.attendees.isNotEmpty)
+        UtilityRow(
+          key: const Key('calendar-event-invited'),
+          title: l10n.calendarFieldAttendees,
+          semanticLabel:
+              '${l10n.calendarFieldAttendees}. ${shown.attendees.length}',
+          status: value('${shown.attendees.length}'),
+        ),
+    ];
+
+    final notice = _detail == _Detail.gone
+        ? Text(
+            l10n.calendarEventGone,
+            key: const Key('calendar-event-gone'),
+            style: theme.bodySmall?.copyWith(color: theme.error),
+          )
+        : !canEdit && !loading
+        ? Text(
+            invited
+                ? l10n.calendarEventReadOnly
+                : l10n.calendarEventReadOnlyNotInvited,
+            key: const Key('calendar-event-read-only'),
+            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+          )
+        : null;
+
+    final footer = <Widget>[
+      if (_error case final message?)
+        Text(
+          message,
+          key: const Key('calendar-event-error'),
+          style: theme.bodySmall?.copyWith(color: theme.error),
+        ),
+      if (loading)
+        const Center(
+          key: Key('calendar-event-loading'),
+          child: ConduitLoadingIndicator(isCompact: true),
+        )
+      else if (canEdit) ...[
+        ConduitButton(
+          key: const Key('calendar-event-edit'),
+          text: _event.isRecurring
+              ? l10n.calendarEventEditSeries
+              : l10n.calendarEventEdit,
+          isFullWidth: true,
+          isLoading: _busy && !_deleting,
+          onPressed: _busy ? null : _edit,
+        ),
+        ConduitButton(
+          key: const Key('calendar-event-delete'),
+          text: _event.isRecurring
+              ? l10n.calendarEventDeleteSeries
+              : l10n.calendarEventDelete,
+          isDestructive: true,
+          isSecondary: true,
+          isFullWidth: true,
+          isLoading: _deleting,
+          onPressed: _busy ? null : _delete,
+        ),
+      ],
+    ];
 
     return CalendarSheetFrame(
       title: l10n.calendarEventDetailTitle,
+      footer: footer.isEmpty
+          ? null
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < footer.length; i++) ...[
+                  if (i > 0) const SizedBox(height: Spacing.sm),
+                  footer[i],
+                ],
+              ],
+            ),
       child: ListView(
         shrinkWrap: true,
         children: [
           Text(
-            _event.title.isEmpty ? l10n.calendarUntitledEvent : _event.title,
+            _title(l10n),
             key: const Key('calendar-event-title'),
             style: theme.headingMedium,
           ),
@@ -275,122 +414,87 @@ class _CalendarEventSheetState extends ConsumerState<CalendarEventSheet> {
           ),
           if (_event.location case final location?) ...[
             const SizedBox(height: Spacing.xs),
-            Text(location, key: const Key('calendar-event-location')),
+            Text(
+              location,
+              key: const Key('calendar-event-location'),
+              style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
+            ),
+          ],
+          if (details.isNotEmpty) ...[
+            const SizedBox(height: Spacing.md),
+            InsetGroupedList(
+              footer: _event.isRecurring ? l10n.calendarEventSeriesNote : null,
+              children: details,
+            ),
           ],
           if (_event.description case final description?) ...[
             const SizedBox(height: Spacing.md),
-            Text(description, key: const Key('calendar-event-description')),
-          ],
-          const SizedBox(height: Spacing.md),
-          if (calendar != null)
-            Text(
-              l10n.calendarEventCalendar(calendar.name),
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          if (_event.organizerName case final organizer?)
-            Text(
-              l10n.calendarEventOrganizer(organizer),
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          if (_event.isRecurring) ...[
-            Text(
-              repeat == CalendarRepeat.custom
-                  ? l10n.calendarRepeatCustom
-                  : repeatLabel(l10n, repeat),
-              key: const Key('calendar-event-repeat'),
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-            const SizedBox(height: Spacing.xs),
-            Text(
-              l10n.calendarEventSeriesNote,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+            InsetGroupedSection(
+              title: l10n.calendarFieldDescription,
+              child: Text(
+                description,
+                key: const Key('calendar-event-description'),
+                style: theme.bodyMedium?.copyWith(color: theme.textPrimary),
+              ),
             ),
           ],
-          if (shown.attendees.isNotEmpty)
-            Text(
-              l10n.calendarEventInvitedCount(shown.attendees.length),
-              key: const Key('calendar-event-invited'),
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
           if (invited) ...[
-            const SizedBox(height: Spacing.lg),
-            Text(
-              l10n.calendarRsvpPrompt,
-              style: theme.label?.copyWith(color: theme.textSecondary),
-            ),
-            const SizedBox(height: Spacing.xs),
-            Wrap(
-              spacing: Spacing.sm,
-              runSpacing: Spacing.sm,
-              children: [
-                for (final status in const [
-                  CalendarRsvp.accepted,
-                  CalendarRsvp.tentative,
-                  CalendarRsvp.declined,
-                ])
-                  ConduitChip(
-                    key: Key('calendar-rsvp-${status.wire}'),
-                    label: rsvpLabel(l10n, status),
-                    isSelected: answer == status,
-                    onTap: _busy ? null : () => _respond(status),
-                  ),
-              ],
-            ),
-          ],
-          if (_detail == _Detail.gone) ...[
-            const SizedBox(height: Spacing.md),
-            Text(
-              l10n.calendarEventGone,
-              key: const Key('calendar-event-gone'),
-              style: theme.bodySmall?.copyWith(color: theme.error),
-            ),
-          ] else if (!canEdit && _detail != _Detail.loading) ...[
-            const SizedBox(height: Spacing.md),
-            Text(
-              l10n.calendarEventReadOnly,
-              key: const Key('calendar-event-read-only'),
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          ],
-          if (_error case final message?) ...[
-            const SizedBox(height: Spacing.md),
-            Text(
-              message,
-              key: const Key('calendar-event-error'),
-              style: theme.bodySmall?.copyWith(color: theme.error),
-            ),
-          ],
-          if (canEdit) ...[
             const SizedBox(height: Spacing.lg),
             Row(
               children: [
                 Expanded(
-                  child: ConduitButton(
-                    key: const Key('calendar-event-delete'),
-                    text: _event.isRecurring
-                        ? l10n.calendarEventDeleteSeries
-                        : l10n.calendarEventDelete,
-                    isDestructive: true,
-                    isSecondary: true,
-                    onPressed: _busy ? null : _delete,
+                  child: Semantics(
+                    header: true,
+                    child: Text(
+                      l10n.calendarRsvpPrompt,
+                      style: theme.label?.copyWith(color: theme.textSecondary),
+                    ),
                   ),
                 ),
-                const SizedBox(width: Spacing.sm),
-                Expanded(
-                  child: ConduitButton(
-                    key: const Key('calendar-event-edit'),
-                    text: _event.isRecurring
-                        ? l10n.calendarEventEditSeries
-                        : l10n.calendarEventEdit,
-                    isLoading: _busy,
-                    onPressed: _busy ? null : _edit,
+                if (_responding)
+                  const ConduitLoadingIndicator(
+                    key: Key('calendar-rsvp-sending'),
+                    size: IconSize.sm,
+                    isCompact: true,
                   ),
-                ),
               ],
             ),
+            const SizedBox(height: Spacing.sm),
+            // Held still while an answer is sending, with the choice still
+            // shown, so a tap neither clicks nor queues another.
+            IgnorePointer(
+              ignoring: _busy,
+              child: SizedBox(
+                width: double.infinity,
+                child: AdaptiveSegmentedSelector<CalendarRsvp>(
+                  key: const Key('calendar-rsvp'),
+                  value: answer ?? CalendarRsvp.pending,
+                  showIcons: false,
+                  onChanged: _respond,
+                  options: [
+                    for (final status in const [
+                      CalendarRsvp.accepted,
+                      CalendarRsvp.tentative,
+                      CalendarRsvp.declined,
+                    ])
+                      (
+                        value: status,
+                        label: rsvpLabel(l10n, status),
+                        cupertinoIcon: CupertinoIcons.circle,
+                        materialIcon: Icons.circle_outlined,
+                        enabled: true,
+                      ),
+                  ],
+                ),
+              ),
+            ),
           ],
+          if (notice != null) ...[const SizedBox(height: Spacing.md), notice],
         ],
       ),
     );
   }
+
+  String _title(AppLocalizations l10n) =>
+      _event.title.isEmpty ? l10n.calendarUntitledEvent : _event.title;
 }
