@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
@@ -177,6 +178,37 @@ void main() {
       check(await secrets.read(key: 'hermes_api_key_v1:$id'))
           .equals('legacy-key');
       check(await secrets.read(key: 'hermes_api_key_v1')).isNull();
+    });
+
+    test('an app-data wipe waits for a secret copy in flight', () async {
+      seedLegacyPreferences();
+      final secrets = _Secrets(legacySecrets());
+      final apiKeyRead = Completer<void>();
+      secrets.heldReads['hermes_api_key_v1'] = apiKeyRead.future;
+      final container = ProviderContainer(
+        overrides: [secureStorageProvider.overrideWithValue(secrets)],
+      );
+      addTearDown(container.dispose);
+      container.read(hermesConfigProvider);
+      await pumpEventQueue();
+
+      var blocked = false;
+      final barrier = container
+          .read(hermesConfigProvider.notifier)
+          .blockMutationsForAppDataClear()
+          .then((_) => blocked = true);
+      await pumpEventQueue();
+      check(blocked).isFalse();
+
+      apiKeyRead.complete();
+      await barrier;
+      // The copy stopped at its next write rather than racing the wipe.
+      check(
+        (await secrets.readAll()).keys,
+      ).not((it) => it.any((key) => key.startsWith('hermes_api_key_v1:')));
+      await secrets.deleteAll();
+      await pumpEventQueue();
+      check(await secrets.readAll()).isEmpty();
     });
 
     test(
@@ -700,11 +732,15 @@ final class _Secrets extends InMemorySecureKeyValueStore {
 
   final Set<String> failReadPrefixes = <String>{};
 
+  /// Reads of these exact keys wait for their future.
+  final Map<String, Future<void>> heldReads = <String, Future<void>>{};
+
   @override
-  Future<String?> read({required String key}) {
+  Future<String?> read({required String key}) async {
     if (failReadPrefixes.any(key.startsWith)) {
       throw StateError('secure storage unavailable');
     }
+    await heldReads[key];
     return super.read(key: key);
   }
 

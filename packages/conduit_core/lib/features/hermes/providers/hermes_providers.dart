@@ -325,11 +325,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
     if (migrated == null) {
       if (HermesConnectionStore.hasLegacyKeys() &&
           HermesConnectionStore.readDocument() != null) {
+        _throwIfMigrationBlocked();
         await _deleteLegacyPreferences();
       }
       return;
     }
+    _throwIfMigrationBlocked();
     await HermesConnectionStore.writeActiveId(migrated.id);
+    _throwIfMigrationBlocked();
     await HermesConnectionStore.writeDocument(
       HermesConnectionsDocument(
         connections: [migrated],
@@ -340,7 +343,17 @@ class HermesConfigController extends Notifier<HermesConfig> {
       _pendingLegacyMigration = null;
     }
     DebugLogger.log('legacy-connection-migrated', scope: 'hermes/connections');
+    _throwIfMigrationBlocked();
     await _deleteLegacyPreferences();
+  }
+
+  /// The legacy migration writes outside the mutation queue, so an app-data
+  /// wipe cannot drain it; it stops at its next write instead, leaving the
+  /// legacy values for the wipe or a later retry.
+  void _throwIfMigrationBlocked() {
+    if (_mutationsBlocked) {
+      throw StateError('Hermes changes are unavailable while signing out.');
+    }
   }
 
   Future<void> _deleteLegacyPreferences() async {
@@ -384,15 +397,18 @@ class HermesConfigController extends Notifier<HermesConfig> {
       final legacy = await _secure.readLegacyHermesSecret(kind);
       if (legacy == null) continue;
       if (ownerExists) {
+        _throwIfMigrationBlocked();
         await _secure.writeHermesSecret(kind, owner, legacy);
         final copied = await _secure.readHermesSecret(kind, owner);
         if (copied != legacy) {
           throw StateError('Hermes credentials could not be migrated.');
         }
       }
+      _throwIfMigrationBlocked();
       await _secure.deleteLegacyHermesSecret(kind);
     }
     if (_legacySecretsOwner != owner) return;
+    _throwIfMigrationBlocked();
     _legacySecretsOwner = null;
     try {
       await _writeProfiles(_profiles);
@@ -1308,8 +1324,17 @@ class HermesConfigController extends Notifier<HermesConfig> {
     _appDataClearBlocked = true;
     _runAdmissionBlocked = true;
     _secretLoadEpoch++;
+    // A load in flight may be migrating legacy secrets outside the mutation
+    // queue. It stops at its next write; wait for that so nothing it writes
+    // lands after the wipe. Loads report their own errors.
+    final hydration = _secretsHydration;
     _secretsHydration = Future<void>.value();
     _connectionMutationEpoch++;
+    await hydration;
+    await _legacySecretMigration?.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
     await _mutationQueue;
     _runAdmissionBlocked = true;
     await _cancelActiveRuns();
