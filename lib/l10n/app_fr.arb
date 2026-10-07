@@ -1218,7 +1218,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "Supprime le lien actuel pour que vous puissiez en créer un nouveau.",
+  "shareChatDeleteAndCreate": "Le lien actuel est supprimé pour que vous puissiez en créer un nouveau.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },

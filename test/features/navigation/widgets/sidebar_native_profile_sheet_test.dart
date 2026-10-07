@@ -66,6 +66,10 @@ class _Profiles extends AccountProfile {
   Completer<AccountMetadata?>? pending;
   var refreshes = 0;
 
+  /// Keeps a failed request in the state and returns normally, as the real
+  /// [AccountProfile.refresh] does with `AsyncValue.guard`.
+  var storesErrors = false;
+
   @override
   Future<AccountMetadata?> build() async => _cached;
 
@@ -74,6 +78,10 @@ class _Profiles extends AccountProfile {
     refreshes++;
     final next = pending = Completer<AccountMetadata?>();
     state = const AsyncLoading();
+    if (storesErrors) {
+      state = await AsyncValue.guard(() => next.future);
+      return;
+    }
     state = AsyncData(await next.future);
   }
 }
@@ -290,6 +298,26 @@ void main() {
   testWidgets('a failed refresh fills in the Profile page from the cached '
       'copy', (tester) async {
     final harness = await _pump(tester, cached: _profile(bio: 'Old'));
+
+    await _tapAvatar(tester);
+    harness.profiles.pending!.completeError(StateError('offline'));
+    await tester.pump();
+    await tester.pump();
+
+    check(harness.profileUpdates).isEmpty();
+    final profilePage = harness.patches.singleWhere(
+      (patch) => patch.detailId == NativeSheetRoutes.profile,
+    );
+    final about = [
+      for (final section in profilePage.sections) ...section.items,
+    ].singleWhere((item) => item.id == 'profile-about');
+    check(about.subtitle).equals('Old');
+  });
+
+  testWidgets('a refresh that keeps its failure in the provider fills in the '
+      'Profile page from the cached copy', (tester) async {
+    final harness = await _pump(tester, cached: _profile(bio: 'Old'));
+    harness.profiles.storesErrors = true;
 
     await _tapAvatar(tester);
     harness.profiles.pending!.completeError(StateError('offline'));

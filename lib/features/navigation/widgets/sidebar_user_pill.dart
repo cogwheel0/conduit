@@ -618,10 +618,12 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ref.read(currentUserProvider2)?.id != userId) {
       return;
     }
-    final fresh = refreshed
-        ? ref.read(accountProfileProvider).asData?.value
-        : null;
-    if (refreshed && (fresh == null || fresh.id != shown.id)) return;
+    // `refresh` keeps a request failure in the provider's state rather than
+    // throwing, so an error or a missing value counts as a failed refresh too:
+    // the page then fills in from the cached copy instead of loading forever.
+    final state = ref.read(accountProfileProvider);
+    final fresh = refreshed && !state.hasError ? state.asData?.value : null;
+    if (fresh != null && fresh.id != shown.id) return;
     final bridge = NativeSheetBridge.instance;
     final profile = fresh ?? shown;
     if (fresh != null && nativeProfileSheetFieldsDiffer(shown, fresh)) {
