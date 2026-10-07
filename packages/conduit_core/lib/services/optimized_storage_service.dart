@@ -69,6 +69,15 @@ final class _StagedAuthAttemptSuperseded implements Exception {
   const _StagedAuthAttemptSuperseded();
 }
 
+/// What the vault slots a commit wrote or deleted held before it did, by
+/// account id; null for a slot that was empty. A rollback puts back exactly
+/// this, so an account that merely shared the commit's vault keeps its
+/// session.
+final class _VaultUndo {
+  final Map<String, String?> tokens = <String, String?>{};
+  final Map<String, String?> credentials = <String, String?>{};
+}
+
 /// Signals that a staged session could not be returned to a known durable
 /// server/token pair after its forward commit had started.
 ///
@@ -412,13 +421,32 @@ class OptimizedStorageService {
     required String toServerId,
   }) {
     return _authStateLock.synchronized(() async {
+      // The caller read the active account before taking the lock. If another
+      // account operation moved it since, the live session belongs to that
+      // account, and filing it under [fromServerId] would hand one account's
+      // bearer to another. A failed read refuses the switch too.
+      final activeId = await _serverConfigsLock.synchronized(
+        () => _resolveValidatedActiveServerIdUnlocked(
+          rawServerId: _readActiveServerIdState().rawServerId,
+        ),
+      );
+      final callerIsCurrent =
+          activeId == fromServerId ||
+          // A first connection: the one saved server already counts as active
+          // by storage's own fallback, which is the no-op case below.
+          (fromServerId == null && activeId == toServerId);
+      if (!callerIsCurrent) {
+        throw StateError('The active account changed before the switch.');
+      }
+      final from = activeId;
+
       // Switching to the server already active must not disturb anything.
       // Without this the vault lookup below finds nothing -- correctly, since
       // this server's session is in the live slot, not the vault -- and the
       // "no session" branch deletes the very token that was live. Signing the
       // user out for re-selecting the server they are on is a quiet enough
       // failure that only a test asking for it would find it.
-      if (fromServerId == toServerId) {
+      if (from == toServerId) {
         final live = await _retrySecureStorageRead(
           () => _getAuthTokenStrictUnlocked(bypassReadSuppression: true),
           scope: 'storage/optimized/token-switch-noop',
@@ -426,11 +454,11 @@ class OptimizedStorageService {
         return live != null && live.isNotEmpty;
       }
 
-      if (fromServerId != null) {
+      if (from != null) {
         // Copy before clearing, so the worst case is a session in two places
         // rather than one lost to a crash mid-switch. The adopt below removes
         // the vault copy, reconciling it.
-        await _stashLiveSessionUnlocked(fromServerId);
+        await _stashLiveSessionUnlocked(from);
         // The live sign-in belongs to the account being left. Drop it before
         // the active id moves, so a crash here cannot leave it live under
         // the new account.
@@ -531,13 +559,13 @@ class OptimizedStorageService {
 
   /// Before a commit replaces the live slots for [targetAccountId], files
   /// what they hold for any other account in that account's vault, so signing
-  /// in to one account never signs another out. Returns the accounts whose
-  /// vault was written, for a rollback to undo.
-  Future<Set<String>> _stashForeignSessionUnlocked({
+  /// in to one account never signs another out. Each vault slot it writes is
+  /// recorded in [undo] first, for a rollback to restore.
+  Future<void> _stashForeignSessionUnlocked({
     required String targetAccountId,
     required String? previousActiveId,
+    required _VaultUndo undo,
   }) async {
-    final stashed = <String>{};
     if (previousActiveId != null &&
         previousActiveId != targetAccountId &&
         !_authTokenReadSuppressed) {
@@ -546,8 +574,8 @@ class OptimizedStorageService {
         scope: 'storage/optimized/token-stash',
       );
       if (token != null && token.isNotEmpty) {
+        await _rememberVaultedTokenUnlocked(undo, previousActiveId);
         await _secureCredentialStorage.saveServerToken(previousActiveId, token);
-        stashed.add(previousActiveId);
       }
     }
     if (!_savedCredentialsReadSuppressed) {
@@ -560,30 +588,84 @@ class OptimizedStorageService {
           payload.isNotEmpty &&
           owner != null &&
           owner != targetAccountId) {
+        await _rememberVaultedCredentialsUnlocked(undo, owner);
         await _secureCredentialStorage.saveServerCredentialsPayload(
           owner,
           payload,
         );
-        stashed.add(owner);
       }
     }
-    return stashed;
   }
 
-  /// Undoes [_stashForeignSessionUnlocked] after a failed commit. The live
-  /// slots are restored by the rollback itself; leaving the copies would put
-  /// one session in two places.
-  Future<void> _discardStashedSessionsUnlocked(Set<String> accountIds) async {
-    for (final accountId in accountIds) {
+  /// Drops [accountId]'s vaulted session, recording it in [undo] first.
+  Future<void> _deleteVaultedSessionUndoablyUnlocked(
+    String accountId,
+    _VaultUndo undo,
+  ) async {
+    await _rememberVaultedTokenUnlocked(undo, accountId);
+    await _rememberVaultedCredentialsUnlocked(undo, accountId);
+    await _deleteVaultedSessionUnlocked(accountId);
+  }
+
+  /// Records what [accountId]'s vaulted token is before the first change.
+  /// A failed read throws: a slot that could not be read must not be
+  /// restored as empty.
+  Future<void> _rememberVaultedTokenUnlocked(
+    _VaultUndo undo,
+    String accountId,
+  ) async {
+    if (undo.tokens.containsKey(accountId)) return;
+    undo.tokens[accountId] = await _retrySecureStorageRead(
+      () => _secureCredentialStorage.getServerToken(accountId),
+      scope: 'storage/optimized/vault-undo',
+    );
+  }
+
+  Future<void> _rememberVaultedCredentialsUnlocked(
+    _VaultUndo undo,
+    String accountId,
+  ) async {
+    if (undo.credentials.containsKey(accountId)) return;
+    undo.credentials[accountId] = await _retrySecureStorageRead(
+      () => _secureCredentialStorage.getServerCredentialsPayload(accountId),
+      scope: 'storage/optimized/vault-undo',
+    );
+  }
+
+  /// Undoes a failed commit's vault writes and deletions. The live slots are
+  /// restored by the rollback itself; a stash copy left behind would put one
+  /// session in two places, and a deletion left standing would sign an
+  /// account out for an attempt that never happened.
+  Future<void> _restoreVaultUnlocked(_VaultUndo undo) async {
+    Future<void> restore(Future<void> Function() write) async {
       try {
-        await _deleteVaultedSessionUnlocked(accountId);
+        await write();
       } catch (error) {
         DebugLogger.warning(
-          'stashed-session-discard-failed',
+          'vault-restore-failed',
           scope: 'storage/optimized',
           data: {'errorType': error.runtimeType.toString()},
         );
       }
+    }
+
+    for (final MapEntry(key: accountId, value: prior) in undo.tokens.entries) {
+      await restore(
+        () => prior == null || prior.isEmpty
+            ? _secureCredentialStorage.deleteServerToken(accountId)
+            : _secureCredentialStorage.saveServerToken(accountId, prior),
+      );
+    }
+    for (final MapEntry(key: accountId, value: prior)
+        in undo.credentials.entries) {
+      await restore(
+        () => prior == null || prior.isEmpty
+            ? _secureCredentialStorage.deleteServerCredentials(accountId)
+            : _secureCredentialStorage.saveServerCredentialsPayload(
+                accountId,
+                prior,
+              ),
+      );
     }
   }
 
@@ -1086,20 +1168,22 @@ class OptimizedStorageService {
 
         final previousStage = _stagedServerConfigCandidate;
         var persistenceStarted = false;
-        final stashedAccountIds = <String>{};
+        final vaultUndo = _VaultUndo();
         try {
           persistenceStarted = true;
           if (previousActiveId != selected.id) {
-            stashedAccountIds.addAll(
-              await _stashForeignSessionUnlocked(
-                targetAccountId: selected.id,
-                previousActiveId: previousActiveId,
-              ),
+            await _stashForeignSessionUnlocked(
+              targetAccountId: selected.id,
+              previousActiveId: previousActiveId,
+              undo: vaultUndo,
             );
             if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
           }
           if (vaulted.contains(selected.id)) {
-            await _deleteVaultedSessionUnlocked(selected.id);
+            await _deleteVaultedSessionUndoablyUnlocked(
+              selected.id,
+              vaultUndo,
+            );
             if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
           }
 
@@ -1129,7 +1213,7 @@ class OptimizedStorageService {
           return true;
         } on _StagedAuthAttemptSuperseded catch (commitError) {
           if (persistenceStarted) {
-            await _discardStashedSessionsUnlocked(stashedAccountIds);
+            await _restoreVaultUnlocked(vaultUndo);
             try {
               await _restoreServerSessionUnlocked(
                 registry: previousRegistry,
@@ -1158,7 +1242,7 @@ class OptimizedStorageService {
           return false;
         } catch (commitError, commitStackTrace) {
           if (persistenceStarted) {
-            await _discardStashedSessionsUnlocked(stashedAccountIds);
+            await _restoreVaultUnlocked(vaultUndo);
             try {
               if (commitError is ServerConfigSessionRollbackException) {
                 await _restoreTokenlessSanitizedServerSessionUnlocked(
@@ -1398,17 +1482,16 @@ class OptimizedStorageService {
         var configsWritten = false;
         var activeIdWritten = false;
         var credentialsWritten = false;
-        final stashedAccountIds = <String>{};
+        final vaultUndo = _VaultUndo();
         try {
           persistenceStarted = true;
-          stashedAccountIds.addAll(
-            await _stashForeignSessionUnlocked(
-              targetAccountId: targetConfig.id,
-              previousActiveId: _effectiveActiveServerId(
-                configs: previousConfigs,
-                rawActiveServerId: previousActiveServerId,
-              ),
+          await _stashForeignSessionUnlocked(
+            targetAccountId: targetConfig.id,
+            previousActiveId: _effectiveActiveServerId(
+              configs: previousConfigs,
+              rawActiveServerId: previousActiveServerId,
             ),
+            undo: vaultUndo,
           );
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
 
@@ -1456,7 +1539,7 @@ class OptimizedStorageService {
           return true;
         } on _StagedAuthAttemptSuperseded catch (commitError) {
           if (persistenceStarted) {
-            await _discardStashedSessionsUnlocked(stashedAccountIds);
+            await _restoreVaultUnlocked(vaultUndo);
             try {
               await _restoreServerSessionUnlocked(
                 registry: previousRegistry,
@@ -1486,7 +1569,7 @@ class OptimizedStorageService {
           return false;
         } catch (commitError, commitStackTrace) {
           if (persistenceStarted) {
-            await _discardStashedSessionsUnlocked(stashedAccountIds);
+            await _restoreVaultUnlocked(vaultUndo);
             try {
               if (commitError is ServerConfigSessionRollbackException) {
                 // The non-secret logout fence itself could not be restored.
@@ -1721,7 +1804,7 @@ class OptimizedStorageService {
         String? previousCredentialsPayload;
         var previousCredentialsReadSuppressed = false;
         var persistenceStarted = false;
-        final stashedAccountIds = <String>{};
+        final vaultUndo = _VaultUndo();
         try {
           // This strict snapshot occurs inside the auth lock and before the
           // first write. A transient Keychain failure must abort the commit,
@@ -1739,11 +1822,10 @@ class OptimizedStorageService {
           persistenceStarted = true;
           // The previous account stays signed in: its session moves to its
           // vault before the live slots are handed to the candidate.
-          stashedAccountIds.addAll(
-            await _stashForeignSessionUnlocked(
-              targetAccountId: candidate.id,
-              previousActiveId: staged.baselineActiveServerId,
-            ),
+          await _stashForeignSessionUnlocked(
+            targetAccountId: candidate.id,
+            previousActiveId: staged.baselineActiveServerId,
+            undo: vaultUndo,
           );
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
 
@@ -1784,7 +1866,7 @@ class OptimizedStorageService {
           return true;
         } on _StagedAuthAttemptSuperseded catch (commitError) {
           if (persistenceStarted) {
-            await _discardStashedSessionsUnlocked(stashedAccountIds);
+            await _restoreVaultUnlocked(vaultUndo);
             try {
               await _restoreStagedServerConfigSessionUnlocked(
                 staged: staged,
@@ -1812,7 +1894,7 @@ class OptimizedStorageService {
           return false;
         } catch (commitError, commitStackTrace) {
           if (persistenceStarted) {
-            await _discardStashedSessionsUnlocked(stashedAccountIds);
+            await _restoreVaultUnlocked(vaultUndo);
             try {
               if (commitError is ServerConfigSessionRollbackException) {
                 await _restoreTokenlessSanitizedServerSessionUnlocked(

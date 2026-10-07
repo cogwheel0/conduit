@@ -101,6 +101,27 @@ void main() {
       check(await vaultedCredentials('a')).isNull();
     });
 
+    test(
+      'a switch from an account that is no longer active is refused',
+      () async {
+        await storage.saveServerConfigs([
+          account('a'),
+          account('b'),
+          account('c'),
+        ]);
+        await signIn('a');
+
+        // The caller last saw B active; A has taken over since.
+        await check(
+          storage.switchActiveServer(fromServerId: 'b', toServerId: 'c'),
+        ).throws<StateError>();
+
+        check(await storage.getActiveServerId()).equals('a');
+        check(await storage.getAuthTokenStrict()).equals('token-a');
+        check(await vaultedToken('b')).isNull();
+      },
+    );
+
     test('a saved sign-in alone is enough to come back to', () async {
       await storage.saveServerConfigs([account('a'), account('b')]);
       await storage.setActiveServerId('a');
@@ -198,15 +219,84 @@ void main() {
       final committed = await storage.commitExistingServerSession(
         ownership: ownership!,
         token: 'token-b',
-        canCommit: () => ++checks < 4,
+        // Four checks pass before persistence starts; the fifth, right after
+        // the old session was filed away, fails.
+        canCommit: () => ++checks < 5,
         publish: () {},
       );
 
       check(committed).isFalse();
+      check(checks).equals(5);
       check(await storage.getActiveServerId()).equals('a');
       check(await storage.getAuthTokenStrict()).equals('token-a');
       check(await vaultedToken('a')).isNull();
     });
+
+    test('a failed commit puts back what the vault held before', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      // C signed in once and was left: its session sits in its vault.
+      await signIn('c', password: 'pw-c-old');
+      check(
+        await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a'),
+      ).isFalse();
+      await storage.saveAuthToken('token-a');
+      // A saved sign-in from before accounts existed names C while A is
+      // active, so a commit files it under C, over C's older copy.
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c-new',
+      );
+      final ownership = await storage.captureSavedServerSessionOwnership('b');
+      var checks = 0;
+
+      final committed = await storage.commitExistingServerSession(
+        ownership: ownership!,
+        token: 'token-b',
+        canCommit: () => ++checks < 5,
+        publish: () {},
+      );
+
+      check(committed).isFalse();
+      // Not signed out by an attempt that never happened.
+      check(await vaultedToken('c')).equals('token-c');
+      check((await vaultedCredentials('c'))?['password']).equals('pw-c-old');
+    });
+
+    test(
+      'a fresh sign-in that does not finish keeps the vaulted session',
+      () async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        await signIn('b', password: 'pw-b');
+        check(
+          await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a'),
+        ).isFalse();
+        await storage.saveAuthToken('token-a');
+        var checks = 0;
+
+        // Signing in to B afresh sets aside B's vaulted session; the attempt is
+        // then superseded before it publishes.
+        final selected = await storage.selectUnauthenticatedServerConfig(
+          account('b'),
+          // Five checks pass before persistence starts and one after the old
+          // session is filed away; the seventh, right after B's vaulted
+          // session is set aside, fails.
+          canCommit: () => ++checks < 7,
+          publish: () {},
+        );
+
+        check(selected).isFalse();
+        check(checks).equals(7);
+        check(await storage.getActiveServerId()).equals('a');
+        check(await storage.getAuthTokenStrict()).equals('token-a');
+        check(await vaultedToken('b')).equals('token-b');
+        check((await vaultedCredentials('b'))?['password']).equals('pw-b');
+      },
+    );
   });
 
   group('removing an account', () {
