@@ -200,10 +200,19 @@ final class HermesPendingDecisionStore {
     final records = _read();
     final identity =
         '${connectionId ?? ''}\u0000$origin\u0000$stored\u0000$request';
+    // A record written before saved connections existed is this same request.
+    // The connection adopts it, keeping its choices, instead of listing the
+    // request twice.
+    final legacyIdentity = connectionId == null
+        ? null
+        : '\u0000$origin\u0000$stored\u0000$request';
     HermesPendingDesktopDecision? previous;
+    HermesPendingDesktopDecision? legacy;
     for (final candidate in records) {
       if (candidate.identity == identity) previous = candidate;
+      if (candidate.identity == legacyIdentity) legacy = candidate;
     }
+    previous ??= legacy;
     final sanitizedChoices = _sanitizeChoices(choices)
         .map((choice) => _sanitizePrompt(choice, sensitiveValues))
         .whereType<String>()
@@ -238,7 +247,11 @@ final class HermesPendingDecisionStore {
               : multiSelect),
     );
     records
-      ..removeWhere((candidate) => candidate.identity == record.identity)
+      ..removeWhere(
+        (candidate) =>
+            candidate.identity == record.identity ||
+            candidate.identity == legacyIdentity,
+      )
       ..add(record);
     await _write(records);
   });

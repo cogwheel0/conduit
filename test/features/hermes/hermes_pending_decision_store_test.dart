@@ -262,4 +262,37 @@ void main() {
       remaining.map((record) => record.requestId),
     ).deepEquals(['request-second']);
   });
+
+  test('a connection adopts its request recorded before the upgrade', () async {
+    const origin = 'https://hermes.example:443';
+    const connection = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    await HermesPendingDecisionStore.upsert(
+      origin: origin,
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      choices: const ['alpha', 'beta'],
+      multiSelect: true,
+    );
+    // The same request, refreshed by the saved connection after the upgrade.
+    await HermesPendingDecisionStore.upsert(
+      origin: origin,
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      connectionId: connection,
+    );
+
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: origin,
+      storedSessionId: 'stored-1',
+      connectionId: connection,
+    );
+    check(records).length.equals(1);
+    check(records.single.connectionId).equals(connection);
+    check(records.single.choices).deepEquals(const ['alpha', 'beta']);
+    check(records.single.multiSelect).isTrue();
+  });
 }
