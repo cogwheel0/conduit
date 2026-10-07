@@ -130,6 +130,7 @@ class ServerChatBulkScope {
     required this.serverChats,
     required this.unsyncedEdits,
     required this.queuedResponses,
+    required this.chatsWithUnsentWork,
     required this.runningResponses,
     required this.pendingDeletes,
     required this.localOnlyChatIds,
@@ -143,6 +144,10 @@ class ServerChatBulkScope {
 
   /// Reached chats with a response queued, parked or running.
   final int queuedResponses;
+
+  /// Reached chats with either, each counted once: a chat with both an
+  /// unsent edit and a queued response is one chat.
+  final int chatsWithUnsentWork;
 
   /// Of [queuedResponses], those whose request is in flight now.
   final int runningResponses;
@@ -1445,6 +1450,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         serverChats: serverChats,
         unsyncedEdits: unsynced.length,
         queuedResponses: queued.length,
+        chatsWithUnsentWork: {...unsynced, ...queued}.length,
         runningResponses: running.length,
         pendingDeletes: pendingDeletes,
         localOnlyChatIds: [for (final row in localRows) row.read<String>('id')],

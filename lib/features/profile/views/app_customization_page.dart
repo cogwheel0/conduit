@@ -109,6 +109,10 @@ class AppCustomizationPage extends ConsumerWidget {
           _sectionGap,
           _buildSystemPromptsSection(context, ref),
         ],
+        // Advanced stays last and on its own: it changes what the rest of
+        // the app shows, not how chats behave.
+        _sectionGap,
+        _buildAdvancedSection(context, ref, settings),
       ],
       AppCustomizationSection.dataConnection => <Widget>[
         _buildDataConnectionSection(context, ref, settings),
@@ -423,6 +427,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.sendOnEnter,
           subtitle: l10n.sendOnEnterDescription,
+          toggled: settings.sendOnEnter,
           trailing: AdaptiveSwitch(
             value: settings.sendOnEnter,
             onChanged: (value) =>
@@ -442,6 +447,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.temporaryChatByDefault,
           subtitle: l10n.temporaryChatByDefaultDescription,
+          toggled: settings.temporaryChatByDefault,
           trailing: AdaptiveSwitch(
             value: settings.temporaryChatByDefault,
             onChanged: (value) => ref
@@ -462,6 +468,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.citationShowTitles,
           subtitle: l10n.citationShowTitlesDescription,
+          toggled: settings.citationShowTitles,
           trailing: AdaptiveSwitch(
             value: settings.citationShowTitles,
             onChanged: (value) => ref
@@ -487,25 +494,40 @@ class AppCustomizationPage extends ConsumerWidget {
                 _showAndroidAssistantTriggerSheet(context, ref, settings),
           ),
         ],
-        const SizedBox(height: Spacing.sm),
-        CustomizationTile(
+      ],
+    );
+  }
+
+  Widget _buildAdvancedSection(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    final enabled = settings.advancedFeaturesEnabled;
+    void setEnabled(bool value) => ref
+        .read(appSettingsProvider.notifier)
+        .setAdvancedFeaturesEnabled(value);
+    return InsetGroupedList(
+      key: const Key('chat-settings-advanced-section'),
+      footer: l10n.advancedFeaturesFooter,
+      children: [
+        UtilityRow(
+          key: const Key('chat-settings-advanced-toggle'),
           leading: _buildIconBadge(
             context,
-            Icons.tune_rounded,
-            color: theme.buttonPrimary,
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.gear_alt,
+              android: Icons.settings_suggest_outlined,
+            ),
+            color: context.conduitTheme.buttonPrimary,
           ),
           title: l10n.advancedFeatures,
           subtitle: l10n.advancedFeaturesDescription,
-          trailing: AdaptiveSwitch(
-            value: settings.advancedFeaturesEnabled,
-            onChanged: (value) => ref
-                .read(appSettingsProvider.notifier)
-                .setAdvancedFeaturesEnabled(value),
-          ),
-          showChevron: false,
-          onTap: () => ref
-              .read(appSettingsProvider.notifier)
-              .setAdvancedFeaturesEnabled(!settings.advancedFeaturesEnabled),
+          subtitleMaxLines: 2,
+          toggled: enabled,
+          trailing: AdaptiveSwitch(value: enabled, onChanged: setEnabled),
+          onTap: () => setEnabled(!enabled),
         ),
       ],
     );
@@ -574,6 +596,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.disableHapticsWhileStreaming,
           subtitle: l10n.disableHapticsWhileStreamingDescription,
+          toggled: settings.disableHapticsWhileStreaming,
           trailing: AdaptiveSwitch(
             value: settings.disableHapticsWhileStreaming,
             onChanged: (value) => ref
@@ -598,7 +621,7 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SettingsSectionHeader(title: l10n.advancedPromptOverrides),
+        SettingsSectionHeader(title: l10n.promptOverridesTitle),
         const SizedBox(height: Spacing.sm),
         ExpandableCard(
           title: l10n.modelSystemPrompts,

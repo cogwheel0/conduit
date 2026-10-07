@@ -67,6 +67,41 @@ void main() {
     expect(opened(), 1);
   });
 
+  testWidgets('Data controls sits in the titled Advanced group', (
+    tester,
+  ) async {
+    await pumpProfile(tester, visible: true);
+    final group = find.byKey(const Key('settings-advanced-group'));
+    await tester.scrollUntilVisible(group, 300);
+
+    expect(find.descendant(of: group, matching: entry), findsOneWidget);
+    expect(
+      find.descendant(of: group, matching: find.text('Advanced')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: group,
+        matching: find.text('Shown because Advanced is on in Settings > Chat.'),
+      ),
+      findsOneWidget,
+    );
+    // After the connection rows, before About.
+    expect(
+      tester.getTopLeft(group).dy,
+      greaterThan(tester.getTopLeft(find.text('Direct Connections')).dy),
+    );
+  });
+
+  testWidgets('no Advanced group is left behind without its rows', (
+    tester,
+  ) async {
+    await pumpProfile(tester, visible: false);
+    await tester.scrollUntilVisible(find.text('Direct Connections'), 300);
+
+    expect(find.byKey(const Key('settings-advanced-group')), findsNothing);
+  });
+
   testWidgets('Profile hides Data controls when the entry is not visible', (
     tester,
   ) async {

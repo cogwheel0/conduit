@@ -864,5 +864,20 @@ void main() {
       check(scope.queuedResponses).equals(0);
       check(scope.localOnlyChatIds).deepEquals(['local:l1', 'local:l2']);
     });
+
+    test('counts a chat with an unsent edit and a queued response '
+        'once', () async {
+      await seed('s1', _branchedBlob());
+      await makeDirty('s1');
+      await queueResponse('s1');
+      await seed('s2', _branchedBlob());
+      await queueResponse('s2');
+
+      final scope = await service().scope();
+
+      check(scope.unsyncedEdits).equals(1);
+      check(scope.queuedResponses).equals(2);
+      check(scope.chatsWithUnsentWork).equals(2);
+    });
   });
 }

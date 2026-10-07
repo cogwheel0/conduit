@@ -43,7 +43,7 @@ void main() {
     expect(find.text('Chat'), findsWidgets);
     expect(find.text('Send with Enter'), findsOneWidget);
     expect(find.text('Start temporary chats'), findsOneWidget);
-    expect(find.text('Advanced prompt overrides'), findsNothing);
+    expect(find.text('Prompt overrides'), findsNothing);
     expect(find.text('App Language'), findsNothing);
     expect(find.text('Transport mode'), findsNothing);
   });
@@ -73,11 +73,53 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.text('Advanced prompt overrides'),
-      300,
+    await tester.scrollUntilVisible(find.text('Prompt overrides'), 300);
+    expect(find.text('Prompt overrides'), findsOneWidget);
+  });
+
+  testWidgets('Advanced is the last section, on its own, with a footer', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _sectionHarness(AppCustomizationSection.chat, hasOpenWebUiAccount: true),
     );
-    expect(find.text('Advanced prompt overrides'), findsOneWidget);
+    await tester.pumpAndSettle();
+
+    final section = find.byKey(const Key('chat-settings-advanced-section'));
+    await tester.scrollUntilVisible(section, 300);
+    expect(
+      find.descendant(
+        of: section,
+        matching: find.byKey(const Key('chat-settings-advanced-toggle')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: section,
+        matching: find.textContaining('Turning it off only hides them'),
+      ),
+      findsOneWidget,
+    );
+    // Below everything else on the page, prompt overrides included.
+    expect(
+      tester.getTopLeft(section).dy,
+      greaterThan(tester.getTopLeft(find.text('Prompt overrides')).dy),
+    );
+  });
+
+  testWidgets('switch rows announce their state', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(_sectionHarness(AppCustomizationSection.chat));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSemantics(
+        find.byKey(const Key('chat-settings-advanced-toggle')),
+      ),
+      isSemantics(hasToggledState: true, isToggled: false),
+    );
+    semantics.dispose();
   });
 
   testWidgets('Chat toggles the persisted Advanced preference', (tester) async {
@@ -92,14 +134,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Send with Enter'), findsOneWidget);
-    expect(find.text('Show additional chat tools and settings.'), findsOne);
     expect(
       PreferencesStore.get<bool>(PreferenceKeys.advancedFeaturesEnabled),
       isNot(true),
     );
 
-    await tester.scrollUntilVisible(find.text('Advanced'), 300);
-    await tester.tap(find.text('Advanced'));
+    final toggle = find.byKey(const Key('chat-settings-advanced-toggle'));
+    await tester.scrollUntilVisible(toggle, 300);
+    await tester.tap(toggle);
     await tester.pumpAndSettle();
 
     expect(
