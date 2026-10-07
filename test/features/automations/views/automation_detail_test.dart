@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:conduit/features/automations/views/scheduled_task_detail_page.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -34,7 +37,14 @@ void main() {
 
       expect(find.text('Morning digest'), findsWidgets);
       expect(find.text('Summarize the news'), findsOneWidget);
-      expect(find.text('gpt-4o'), findsOneWidget);
+      // The model is named as the account's model list names it.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-model-row')),
+          matching: find.text('GPT-4o'),
+        ),
+        findsOneWidget,
+      );
       // Both runs come from the server's next_runs, not a local calculation.
       expect(
         find.byKey(const Key('scheduled-task-next-run-1791320967000000001')),
@@ -131,8 +141,74 @@ void main() {
     });
   });
 
+  group('layout', () {
+    testWidgets('Edit is in the toolbar, and Delete comes last, after History', (
+      tester,
+    ) async {
+      await _open(tester, runs: [runJson('r1')]);
+
+      final edit = find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byKey(const Key('scheduled-task-edit')),
+      );
+      expect(edit, findsOneWidget);
+      final run = tester.getRect(find.byKey(const Key('scheduled-task-run')));
+      final history = tester.getRect(find.text('History'));
+      final delete = tester.getRect(
+        find.byKey(const Key('scheduled-task-delete')),
+      );
+      expect(run.top, lessThan(history.top));
+      expect(delete.top, greaterThan(history.top));
+
+      await tester.tap(edit);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('scheduled-task-save')), findsOneWidget);
+    });
+
+    testWidgets('the switch moves at once and waits for the server', (
+      tester,
+    ) async {
+      final session = await _open(tester);
+      final hold = session.wire.hold('POST', '/api/v1/automations/a/toggle');
+
+      await tester.tap(find.byKey(const Key('scheduled-task-active-switch')));
+      await reach(tester, hold);
+
+      final pending = tester.widget<AdaptiveSwitch>(
+        find.byKey(const Key('scheduled-task-active-switch')),
+      );
+      expect(pending.value, isFalse);
+      expect(pending.onChanged, isNull);
+
+      hold.release();
+      await tester.pumpAndSettle();
+      final settled = tester.widget<AdaptiveSwitch>(
+        find.byKey(const Key('scheduled-task-active-switch')),
+      );
+      expect(settled.value, isFalse);
+      expect(settled.onChanged, isNotNull);
+    });
+
+    testWidgets('a refused switch goes back', (tester) async {
+      final session = await _open(tester);
+      session.wire.rejectWrites = (status: 403, detail: 'No');
+
+      await tester.tap(find.byKey(const Key('scheduled-task-active-switch')));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<AdaptiveSwitch>(
+              find.byKey(const Key('scheduled-task-active-switch')),
+            )
+            .value,
+        isTrue,
+      );
+    });
+  });
+
   group('run now', () {
-    testWidgets('is one request, reported as requested rather than done', (
+    testWidgets('is one request, then waits for the run to show in History', (
       tester,
     ) async {
       final session = await _open(tester);
@@ -147,25 +223,215 @@ void main() {
         session.wire.runRequests.single.uri.path,
         '/api/v1/automations/a/run',
       );
-      expect(
-        find.byKey(const Key('scheduled-task-run-notice')),
-        findsOneWidget,
+      expect(find.text('Running…'), findsOneWidget);
+      // Run now cannot be pressed again while the first run is awaited.
+      final run = tester.widget<UtilityRow>(
+        find.byKey(const Key('scheduled-task-run')),
       );
-      expect(find.textContaining('Run requested'), findsOneWidget);
+      expect(run.onTap, isNull);
       // No run is invented: history shows only what the server recorded.
       expect(find.text('No runs yet.'), findsOneWidget);
-      expect(find.text('Succeeded'), findsNothing);
 
-      // The server records the outcome later, and history is read again once.
+      // A read before the server records anything keeps waiting.
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pump();
+      expect(session.wire.where('GET', '/runs'), hasLength(1));
+      expect(find.text('Running…'), findsOneWidget);
+
+      // The server records the outcome, and the next read finds it.
       session.wire.runs['a'] = [runJson('r1', chatId: 'chat-1')];
-      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(scheduledTaskRunPollInterval);
       await tester.pumpAndSettle();
 
-      // The log was cleared before the press, so the one history read here is
-      // the single follow-up, not a repeated run.
+      expect(find.text('Run finished.'), findsOneWidget);
+      expect(find.byKey(const Key('scheduled-task-run-r1')), findsOneWidget);
+      expect(
+        tester
+            .widget<UtilityRow>(find.byKey(const Key('scheduled-task-run')))
+            .onTap,
+        isNotNull,
+      );
+
+      // Watching stopped once the run showed, and nothing ran again.
+      await tester.pump(scheduledTaskRunPollInterval * 3);
+      expect(session.wire.where('GET', '/runs'), hasLength(2));
       expect(session.wire.runRequests, hasLength(1));
-      expect(session.wire.where('GET', '/runs'), hasLength(1));
-      expect(find.textContaining('Succeeded'), findsOneWidget);
+    });
+
+    testWidgets('a run already in History is not taken for the new one', (
+      tester,
+    ) async {
+      final session = await _open(
+        tester,
+        runs: [runJson('old', createdAt: 1000)],
+      );
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await tester.pump();
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pump();
+      expect(find.text('Running…'), findsOneWidget);
+
+      session.wire.runs['a'] = [
+        runJson('new', status: 'error', error: 'Model not found'),
+        runJson('old', createdAt: 1000),
+      ];
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('The run failed. See History for details.'),
+        findsOneWidget,
+      );
+      expect(find.text('Model not found'), findsOneWidget);
+    });
+
+    testWidgets('the Last run row shows the run Run now found', (
+      tester,
+    ) async {
+      final session = await _open(
+        tester,
+        runs: [runJson('old', createdAt: 1790000000000000000)],
+      );
+      String lastRun() => tester
+          .widget<UtilityRow>(find.byKey(const Key('scheduled-task-last-run')))
+          .title;
+      final before = lastRun();
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      session.wire.runs['a'] = [
+        runJson('new', status: 'error', error: 'Model not found'),
+        runJson('old', createdAt: 1790000000000000000),
+      ];
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('The run failed. See History for details.'),
+        findsOneWidget,
+      );
+      final newRunTime = tester
+          .widget<UtilityRow>(find.byKey(const Key('scheduled-task-run-new')))
+          .title;
+      expect(lastRun(), isNot(before));
+      expect(lastRun(), contains(newRunTime));
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-last-run')),
+          matching: find.byKey(const ValueKey<String>('run-failed')),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a run older than the task\'s last run, or without a time, is '
+        'not taken for the new one', (tester) async {
+      final task = taskJson('a', name: 'Morning digest')
+        ..['last_run_at'] = 1790000000000000000;
+      final session = await _open(tester, tasks: [task]);
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      // History lags behind the task: it lists an untimed run and one from
+      // before the task's last run, neither of them the one asked for.
+      session.wire.runs['a'] = [
+        runJson('untimed')..['created_at'] = null,
+        runJson('older', createdAt: 1780000000000000000),
+      ];
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pump();
+      expect(find.text('Running…'), findsOneWidget);
+
+      session.wire.runs['a'] = [
+        runJson('new'),
+        ...session.wire.runs['a']!,
+      ];
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pumpAndSettle();
+      expect(find.text('Run finished.'), findsOneWidget);
+    });
+
+    testWidgets('a slow first History read does not drop the run Run now '
+        'found', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        tasks: [taskJson('a', name: 'Morning digest')],
+        configureWire: (wire) => wire.runs['a'] = const [],
+      );
+      final hold = session.wire.hold('GET', '/api/v1/automations/a/runs');
+      unawaited(session.router.push<void>('/profile/scheduled-tasks/a'));
+      await reach(tester, hold);
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      session.wire.runs['a'] = [runJson('r1', chatId: 'chat-1')];
+      await tester.pump(scheduledTaskRunPollInterval);
+      await tester.pump();
+      expect(find.text('Run finished.'), findsOneWidget);
+      expect(find.byKey(const Key('scheduled-task-run-r1')), findsOneWidget);
+
+      // The first read, answered before the run, lands last.
+      hold.release();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('scheduled-task-run-r1')), findsOneWidget);
+      expect(find.text('No runs yet.'), findsNothing);
+    });
+
+    testWidgets('stops watching after about two minutes and says where the '
+        'result will show', (tester) async {
+      final session = await _open(tester);
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await tester.pump();
+      for (var i = 0; i < scheduledTaskRunPollLimit; i++) {
+        await tester.pump(scheduledTaskRunPollInterval);
+      }
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Run requested'), findsOneWidget);
+      expect(find.text('Running…'), findsNothing);
+      final reads = session.wire.where('GET', '/runs').length;
+      await tester.pump(scheduledTaskRunPollInterval * 3);
+      expect(session.wire.where('GET', '/runs'), hasLength(reads));
+    });
+
+    testWidgets('stops watching when the page closes', (tester) async {
+      final session = await _open(tester);
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      session.router.pop();
+      await tester.pumpAndSettle();
+      final reads = session.wire.where('GET', '/runs').length;
+
+      await tester.pump(scheduledTaskRunPollInterval * 3);
+      expect(session.wire.where('GET', '/runs'), hasLength(reads));
+    });
+
+    testWidgets('stops watching when the account changes', (tester) async {
+      final session = await _open(tester);
+
+      await tester.tap(find.byKey(const Key('scheduled-task-run')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      session.switchAccount();
+      await tester.pump();
+      session.wire.requests.clear();
+
+      await tester.pump(scheduledTaskRunPollInterval * 3);
+      await tester.pumpAndSettle();
+
+      expect(session.wire.where('GET', '/runs'), isEmpty);
+      expect(find.text('Running…'), findsNothing);
+      expect(
+        find.text('The account changed. Reopen scheduled tasks to continue.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a refused run shows the server\'s reason', (tester) async {
@@ -191,11 +457,39 @@ void main() {
         ],
       );
 
-      expect(find.byKey(const Key('scheduled-task-run-r2')), findsOneWidget);
-      expect(find.textContaining('Succeeded'), findsOneWidget);
-      expect(find.textContaining('Failed'), findsOneWidget);
-      expect(find.text('Model not found'), findsOneWidget);
+      // Each row leads with its outcome, says it in words to assistive
+      // technology, and shows an error under the time.
+      final succeeded = find.byKey(const Key('scheduled-task-run-r2'));
+      final failed = find.byKey(const Key('scheduled-task-run-r1'));
+      expect(
+        find.descendant(
+          of: succeeded,
+          matching: find.byKey(const ValueKey('run-succeeded')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: failed,
+          matching: find.byKey(const ValueKey('run-failed')),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.getSemantics(succeeded).label, startsWith('Succeeded. '));
+      expect(tester.getSemantics(failed).label, startsWith('Failed. '));
+      expect(
+        find.descendant(of: failed, matching: find.text('Model not found')),
+        findsOneWidget,
+      );
       expect(find.text('View chat'), findsOneWidget);
+      // The last run on the definition shows its outcome too.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-last-run')),
+          matching: find.byKey(const ValueKey('run-succeeded')),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('pages by offset until a short page', (tester) async {
@@ -415,7 +709,7 @@ void main() {
       final hold = session.wire.hold('DELETE', '$taskPath/delete');
       await tester.tap(find.byKey(const Key('scheduled-task-delete')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(TextButton, 'Delete task'));
+      await tester.tap(find.widgetWithText(TextButton, 'Delete'));
 
       await switchWhileHeld(tester, session, hold);
 
@@ -432,7 +726,7 @@ void main() {
       final hold = session.wire.hold('DELETE', '$taskPath/delete');
       await tester.tap(find.byKey(const Key('scheduled-task-delete')));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(TextButton, 'Delete task'));
+      await tester.tap(find.widgetWithText(TextButton, 'Delete'));
       await reach(tester, hold);
       unawaited(session.router.push<void>('/profile/scheduled-tasks'));
       await tester.pumpAndSettle();
@@ -454,9 +748,17 @@ void main() {
 
       await tester.tap(find.byKey(const Key('scheduled-task-delete')));
       await tester.pumpAndSettle();
+      expect(find.text('Delete scheduled task?'), findsOneWidget);
+      expect(
+        find.text(
+          'Morning digest will stop running on the server, and its run '
+          'history will be removed.',
+        ),
+        findsOneWidget,
+      );
       expect(session.wire.writes, isEmpty);
 
-      await tester.tap(find.widgetWithText(TextButton, 'Delete task'));
+      await tester.tap(find.widgetWithText(TextButton, 'Delete'));
       await tester.pumpAndSettle();
 
       expect(session.wire.writes.map((r) => '${r.method} ${r.uri.path}'), [

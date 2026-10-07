@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/adaptive_selection_sheet.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
@@ -37,6 +39,32 @@ Future<void> _save(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// One segment of the schedule (`scheduled-task-kind`) or destination
+/// (`scheduled-task-target`) control, by its label.
+Finder _segment(String control, String label) => find.descendant(
+  of: find.byKey(Key(control)),
+  matching: find.text(label),
+);
+
+/// Brings [finder] into the lazily built form and onto the screen.
+Future<void> _reveal(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      finder,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+  }
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _choose(WidgetTester tester, String control, String label) async {
+  await _reveal(tester, _segment(control, label));
+  await tester.tap(_segment(control, label));
+  await tester.pumpAndSettle();
+}
+
 Map<String, dynamic> _body(AutomationWire wire, String suffix) =>
     wire.where('POST', suffix).single.data as Map<String, dynamic>;
 
@@ -50,19 +78,38 @@ void main() {
         location: '/profile/scheduled-tasks/new',
       );
 
-      await _save(tester);
-      expect(find.text('Enter a name.'), findsOneWidget);
+      // Nothing is flagged before the first try.
+      expect(find.text('Enter a name.'), findsNothing);
 
-      await tester.enterText(find.byKey(const Key('scheduled-task-name')), 'n');
       await _save(tester);
-      expect(find.text('Enter instructions.'), findsOneWidget);
-
-      await tester.enterText(
-        find.byKey(const Key('scheduled-task-prompt')),
-        'p',
+      // Every issue shows at once, each on its own field.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-name')),
+          matching: find.text('Enter a name.'),
+        ),
+        findsOneWidget,
       );
-      await _save(tester);
-      expect(find.text('Choose a model.'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-prompt')),
+          matching: find.text('Enter instructions.'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-model')),
+          matching: find.text('Choose a model.'),
+        ),
+        findsOneWidget,
+      );
+
+      // An issue goes away as soon as it is fixed, without another Save.
+      await tester.enterText(find.byKey(const Key('scheduled-task-name')), 'n');
+      await tester.pump();
+      expect(find.text('Enter a name.'), findsNothing);
+      expect(find.text('Enter instructions.'), findsOneWidget);
 
       expect(session.wire.writes, isEmpty);
     });
@@ -124,8 +171,7 @@ void main() {
       await tester.tap(find.byKey(const Key('scheduled-task-option-claude')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('scheduled-task-kind-once')));
-      await tester.pumpAndSettle();
+      await _choose(tester, 'scheduled-task-kind', 'Once');
       await _save(tester);
 
       final data = _body(session.wire, '/create')['data'] as Map;
@@ -139,10 +185,12 @@ void main() {
       await pumpAutomations(tester, location: '/profile/scheduled-tasks/new');
 
       expect(
-        find.byKey(const Key('scheduled-task-timezone-note')),
+        find.text(
+          "Times use your Open WebUI account's time zone, which may differ "
+          'from this device.',
+        ),
         findsOneWidget,
       );
-      expect(find.textContaining('account time zone'), findsOneWidget);
     });
   });
 
@@ -184,6 +232,42 @@ void main() {
       final stored = session.wire.tasks.single;
       expect((stored['data'] as Map)['terminal'], isNotNull);
       expect(stored['meta'], {'system_prompt': 'Be brief', 'temperature': 0.2});
+    });
+
+    testWidgets('the schedule and destination stay selected while saving', (
+      tester,
+    ) async {
+      final session = await _edit(tester);
+      Set<T> selected<T>(String control) => tester
+          .widget<SegmentedButton<T>>(
+            find.descendant(
+              of: find.byKey(Key(control)),
+              matching: find.byType(SegmentedButton<T>),
+            ),
+          )
+          .selected;
+      await tester.enterText(
+        find.byKey(const Key('scheduled-task-name')),
+        'Renamed',
+      );
+      await tester.pump();
+      final hold = session.wire.hold('POST', '/api/v1/automations/a/update');
+      await tester.tap(find.byKey(const Key('scheduled-task-save')));
+      await reach(tester, hold);
+
+      expect(selected<String>('scheduled-task-kind'), {'daily'});
+      expect(selected<bool>('scheduled-task-target'), {false});
+      // Held still: a tap changes nothing while the save runs.
+      await tester.tap(_segment('scheduled-task-kind', 'Weekly'));
+      await tester.pump();
+      expect(selected<String>('scheduled-task-kind'), {'daily'});
+
+      hold.release();
+      await tester.pumpAndSettle();
+      expect(
+        (_body(session.wire, '/update')['data'] as Map)['rrule'],
+        'RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0',
+      );
     });
 
     testWidgets('Save is off until something changes', (tester) async {
@@ -271,8 +355,7 @@ void main() {
     ) async {
       final session = await _edit(tester, task: taskJson('a', rrule: monthly));
 
-      await tester.tap(find.byKey(const Key('scheduled-task-kind-daily')));
-      await tester.pumpAndSettle();
+      await _choose(tester, 'scheduled-task-kind', 'Daily');
       await _save(tester);
 
       expect(
@@ -483,14 +566,50 @@ void main() {
       expect(session.router.state.uri.path, '/profile/scheduled-tasks');
     });
 
+    testWidgets('a created task whose page could not open is edited by the '
+        'next Save, not created again', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        location: '/profile/scheduled-tasks/new',
+      );
+      await tester.enterText(field('scheduled-task-name'), 'n');
+      await tester.enterText(field('scheduled-task-prompt'), 'p');
+      await tester.tap(find.byKey(const Key('scheduled-task-model')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('scheduled-task-option-claude')));
+      await tester.pumpAndSettle();
+      await tester.pump();
+      final hold = session.wire.hold('POST', '/api/v1/automations/create');
+      await tester.tap(find.byKey(const Key('scheduled-task-save')));
+      await reach(tester, hold);
+      unawaited(session.router.push<void>('/profile/scheduled-tasks'));
+      await tester.pumpAndSettle();
+      hold.release();
+      await tester.pumpAndSettle();
+      session.router.pop();
+      await tester.pumpAndSettle();
+
+      // Back on the form, which now holds the created task.
+      expect(session.router.state.uri.path, '/profile/scheduled-tasks/new');
+      await tester.enterText(field('scheduled-task-name'), 'renamed');
+      await _save(tester);
+
+      expect(session.wire.where('POST', '/create'), hasLength(1));
+      expect(
+        session.wire.where('POST', '/api/v1/automations/new-1/update'),
+        hasLength(1),
+      );
+      expect(session.wire.tasks.first['id'], 'new-1');
+      expect(session.wire.tasks.first['name'], 'renamed');
+    });
+
     testWidgets('a channel write check does not choose a channel for the new '
         'account', (tester) async {
       final session = await _edit(
         tester,
         channels: const [Channel(id: 'c1', name: 'general')],
       );
-      await tester.tap(find.byKey(const Key('scheduled-task-target-channel')));
-      await tester.pumpAndSettle();
+      await _choose(tester, 'scheduled-task-target', 'Channel');
       await tester.tap(find.byKey(const Key('scheduled-task-channel')));
       await tester.pumpAndSettle();
       final hold = session.wire.hold('GET', '/api/v1/channels/c1');
@@ -628,11 +747,20 @@ void main() {
         expect(option('m17').hitTestable(), findsOneWidget);
 
         // The choice comes back, and Save is reachable once the keyboard is
-        // down.
+        // down: in the toolbar on iOS, at the end of the form elsewhere.
         await tester.tap(option('m17'));
         lowerKeyboard(tester);
         await tester.pumpAndSettle();
         expect(find.text('Model 17'), findsOneWidget);
+        if (native) {
+          // This harness keeps Material chrome while iOS 26 is simulated, and
+          // iOS puts Save in a toolbar only Cupertino chrome draws, so the
+          // save itself is checked with the Material presenter.
+          expect(tester.takeException(), isNull);
+          // Let the native presenter's own timers run out.
+          await tester.pump(const Duration(seconds: 5));
+          return;
+        }
         await tester.scrollUntilVisible(
           find.byKey(const Key('scheduled-task-save')),
           200,
@@ -671,7 +799,7 @@ void main() {
       expect(tester.getRect(option('m39')).bottom, lessThanOrEqualTo(844 - 34));
     });
 
-    for (final scale in [1.0, 1.5]) {
+    for (final scale in [1.0, 1.5, 2.0]) {
       testWidgets(
         'the schedule and destination choices fit at ${scale}x text',
         (tester) async {
@@ -680,23 +808,26 @@ void main() {
           addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
           await tester.pumpAndSettle();
 
-          for (final kind in ['once', 'daily', 'weekly']) {
-            final chip = find.byKey(Key('scheduled-task-kind-$kind'));
-            await tester.ensureVisible(chip);
-            expect(chip.hitTestable(), findsOneWidget, reason: kind);
-            expect(tester.getRect(chip).right, lessThanOrEqualTo(390));
+          for (final kind in ['Once', 'Daily', 'Weekly']) {
+            final segment = _segment('scheduled-task-kind', kind);
+            await _reveal(tester, segment);
+            expect(segment.hitTestable(), findsOneWidget, reason: kind);
+            expect(tester.getRect(segment).right, lessThanOrEqualTo(390));
           }
-          await tester.tap(find.byKey(const Key('scheduled-task-kind-weekly')));
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const Key('scheduled-task-day-MO')),
-            findsOneWidget,
-          );
-          for (final target in ['chat', 'channel']) {
-            final chip = find.byKey(Key('scheduled-task-target-$target'));
-            await tester.ensureVisible(chip);
-            await tester.pumpAndSettle();
-            expect(chip.hitTestable(), findsOneWidget, reason: target);
+          await _choose(tester, 'scheduled-task-kind', 'Weekly');
+          // Seven toggles share the row, each at least a touch target tall.
+          for (final code in ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']) {
+            final day = find.byKey(Key('scheduled-task-day-$code'));
+            await _reveal(tester, day);
+            expect(day.hitTestable(), findsOneWidget, reason: code);
+            final rect = tester.getRect(day);
+            expect(rect.height, greaterThanOrEqualTo(44), reason: code);
+            expect(rect.right, lessThanOrEqualTo(390), reason: code);
+          }
+          for (final target in ['New chat', 'Channel']) {
+            final segment = _segment('scheduled-task-target', target);
+            await _reveal(tester, segment);
+            expect(segment.hitTestable(), findsOneWidget, reason: target);
           }
           // An overflow is reported as an exception, not as a failed finder.
           expect(tester.takeException(), isNull);
@@ -805,8 +936,7 @@ void main() {
         channels: const [Channel(id: 'g1', name: 'team', type: 'group')],
       );
 
-      await tester.tap(find.byKey(const Key('scheduled-task-target-channel')));
-      await tester.pumpAndSettle();
+      await _choose(tester, 'scheduled-task-target', 'Channel');
       await tester.tap(find.byKey(const Key('scheduled-task-channel')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('scheduled-task-option-g1')));
@@ -833,8 +963,7 @@ void main() {
       );
       session.wire.channelWrite = false;
 
-      await tester.tap(find.byKey(const Key('scheduled-task-target-channel')));
-      await tester.pumpAndSettle();
+      await _choose(tester, 'scheduled-task-target', 'Channel');
       await tester.tap(find.byKey(const Key('scheduled-task-channel')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('scheduled-task-option-c1')));
@@ -853,8 +982,7 @@ void main() {
       WidgetTester tester,
       AutomationSession session,
     ) async {
-      await tester.tap(find.byKey(const Key('scheduled-task-target-channel')));
-      await tester.pumpAndSettle();
+      await _choose(tester, 'scheduled-task-target', 'Channel');
       await tester.tap(find.byKey(const Key('scheduled-task-channel')));
       await tester.pumpAndSettle();
       final hold = session.wire.hold('GET', '/api/v1/channels/c1');
@@ -880,8 +1008,7 @@ void main() {
         find.byKey(const Key('scheduled-task-prompt')),
         'A new prompt',
       );
-      await tester.tap(find.byKey(const Key('scheduled-task-kind-weekly')));
-      await tester.pumpAndSettle();
+      await _choose(tester, 'scheduled-task-kind', 'Weekly');
       hold.release();
       await tester.pumpAndSettle();
       expect(find.text('#general'), findsOneWidget);
@@ -909,7 +1036,7 @@ void main() {
       );
       final hold = await chooseWithWriteCheckPending(tester, session);
 
-      await tester.tap(find.byKey(const Key('scheduled-task-target-chat')));
+      await tester.tap(_segment('scheduled-task-target', 'New chat'));
       await tester.enterText(
         find.byKey(const Key('scheduled-task-name')),
         'Renamed',
@@ -928,13 +1055,275 @@ void main() {
     ) async {
       final session = await _edit(tester);
 
-      await tester.tap(find.byKey(const Key('scheduled-task-target-channel')));
-      await tester.pumpAndSettle();
+      await _choose(tester, 'scheduled-task-target', 'Channel');
       await _save(tester);
 
       expect(find.text('Choose a channel.'), findsOneWidget);
       expect(session.wire.writes, isEmpty);
     });
+  });
+
+  group('leaving with unsaved edits', () {
+    testWidgets('Cancel on an untouched new task leaves without asking', (
+      tester,
+    ) async {
+      await pumpAutomations(
+        tester,
+        location: '/profile/scheduled-tasks/new',
+      );
+
+      await _reveal(tester, find.byKey(const Key('scheduled-task-cancel')));
+      await tester.tap(find.byKey(const Key('scheduled-task-cancel')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(find.byKey(const Key('scheduled-task-name')), findsNothing);
+    });
+
+    testWidgets('Cancel asks before throwing an edit away', (tester) async {
+      final session = await _edit(tester);
+      await tester.enterText(
+        find.byKey(const Key('scheduled-task-name')),
+        'Renamed',
+      );
+      await tester.pump();
+
+      await _reveal(tester, find.byKey(const Key('scheduled-task-cancel')));
+      await tester.tap(find.byKey(const Key('scheduled-task-cancel')));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard changes?'), findsOneWidget);
+
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(session.router.state.uri.path, _editA);
+      expect(find.text('Renamed'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('scheduled-task-cancel')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('scheduled-task-name')), findsNothing);
+      expect(session.wire.writes, isEmpty);
+    });
+
+    testWidgets('going back asks too', (tester) async {
+      await pumpAutomations(
+        tester,
+        location: '/profile/scheduled-tasks/new',
+      );
+      await tester.enterText(find.byKey(const Key('scheduled-task-name')), 'n');
+      await tester.pump();
+
+      final navigator = tester.state<NavigatorState>(
+        find.byType(Navigator).last,
+      );
+      unawaited(navigator.maybePop());
+      await tester.pumpAndSettle();
+      expect(find.text('Discard changes?'), findsOneWidget);
+
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('scheduled-task-name')), findsNothing);
+    });
+
+    testWidgets('a saved edit leaves without asking', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        location: '/profile/scheduled-tasks/a',
+        tasks: [taskJson('a', name: 'Morning digest')],
+        configureWire: (wire) => wire.runs['a'] = const [],
+      );
+      await tester.tap(find.byKey(const Key('scheduled-task-edit')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('scheduled-task-name')),
+        'Renamed',
+      );
+      await _save(tester);
+
+      expect(find.text('Discard changes?'), findsNothing);
+      expect(session.router.state.uri.path, '/profile/scheduled-tasks/a');
+      // The detail reread the task after the editor closed.
+      expect(find.text('Renamed'), findsWidgets);
+    });
+  });
+
+  group('weekdays', () {
+    testWidgets('each day is a toggle named in full for assistive technology', (
+      tester,
+    ) async {
+      await _edit(tester, task: taskJson('a', rrule: _weekly));
+      final semantics = tester.ensureSemantics();
+
+      final monday = find.byKey(const Key('scheduled-task-day-MO'));
+      final tuesday = find.byKey(const Key('scheduled-task-day-TU'));
+      await _reveal(tester, monday);
+      expect(
+        tester.getSemantics(monday),
+        matchesSemantics(
+          label: 'Monday',
+          isButton: true,
+          hasSelectedState: true,
+          isSelected: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasTapAction: true,
+        ),
+      );
+      expect(
+        tester.getSemantics(tuesday),
+        matchesSemantics(
+          label: 'Tuesday',
+          isButton: true,
+          hasSelectedState: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasTapAction: true,
+        ),
+      );
+      expect(find.text('Days'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('a weekly task with no day says so under the days', (
+      tester,
+    ) async {
+      await _edit(tester, task: taskJson('a', rrule: _weekly));
+      await _reveal(tester, find.byKey(const Key('scheduled-task-day-MO')));
+      await tester.tap(find.byKey(const Key('scheduled-task-day-MO')));
+      await tester.pumpAndSettle();
+      await _save(tester);
+
+      expect(find.text('Complete the schedule.'), findsOneWidget);
+      // Choosing a day clears it at once.
+      await tester.tap(find.byKey(const Key('scheduled-task-day-FR')));
+      await tester.pumpAndSettle();
+      expect(find.text('Complete the schedule.'), findsNothing);
+    });
+  });
+
+  group('the recurrence rule', () {
+    Finder ruleField() => find.descendant(
+      of: find.byKey(const Key('scheduled-task-rrule')),
+      matching: find.byType(TextField),
+    );
+
+    testWidgets('is typed without smart punctuation or suggestions, and '
+        'says what it runs as it is typed', (tester) async {
+      await _edit(tester);
+      await _reveal(tester, find.byKey(const Key('scheduled-task-advanced')));
+      await tester.tap(find.byKey(const Key('scheduled-task-advanced')));
+      await tester.pumpAndSettle();
+
+      final field = tester.widget<TextField>(ruleField());
+      expect(field.autocorrect, isFalse);
+      expect(field.enableSuggestions, isFalse);
+      expect(field.smartQuotesType, SmartQuotesType.disabled);
+      expect(field.smartDashesType, SmartDashesType.disabled);
+      expect(field.style?.fontFamily, isNotNull);
+      expect(find.textContaining('Runs: Daily at'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('scheduled-task-rrule')),
+        'RRULE:FREQ=MONTHLY;BYMONTHDAY=1',
+      );
+      await tester.pump();
+      expect(find.text('Runs: Custom schedule'), findsOneWidget);
+    });
+
+    testWidgets('an emptied rule is flagged on the field', (tester) async {
+      final session = await _edit(tester);
+      await _reveal(tester, find.byKey(const Key('scheduled-task-advanced')));
+      await tester.tap(find.byKey(const Key('scheduled-task-advanced')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('scheduled-task-rrule')), '');
+      await _save(tester);
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-task-rrule')),
+          matching: find.text('Complete the schedule.'),
+        ),
+        findsOneWidget,
+      );
+      expect(session.wire.writes, isEmpty);
+    });
+  });
+
+  group('pickers', () {
+    testWidgets('the model picker searches models, marks the current one and '
+        'says when nothing matches', (tester) async {
+      await _edit(tester);
+
+      await tester.tap(find.byKey(const Key('scheduled-task-model')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Search models...'), findsOneWidget);
+      final current = tester.widget<AdaptiveSelectionTile>(
+        find.byKey(const Key('scheduled-task-option-gpt-4o')),
+      );
+      expect(current.selected, isTrue);
+      expect(
+        tester
+            .widget<AdaptiveSelectionTile>(
+              find.byKey(const Key('scheduled-task-option-claude')),
+            )
+            .selected,
+        isFalse,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('scheduled-task-option-search')),
+        'zzz',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('scheduled-task-option-empty')),
+        findsOneWidget,
+      );
+      expect(find.text('No results'), findsOneWidget);
+    });
+
+    testWidgets('the folder picker searches folders', (tester) async {
+      await _edit(tester, folders: [Folder(id: 'f1', name: 'Reports')]);
+
+      await _reveal(tester, find.byKey(const Key('scheduled-task-folder')));
+      await tester.tap(find.byKey(const Key('scheduled-task-folder')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Search folders'), findsOneWidget);
+      // No folder is the current choice.
+      expect(
+        tester
+            .widget<AdaptiveSelectionTile>(
+              find.byKey(const Key('scheduled-task-option-')),
+            )
+            .selected,
+        isTrue,
+      );
+    });
+  });
+
+  testWidgets('a server refusal shows in a banner, not on a field', (
+    tester,
+  ) async {
+    final session = await _edit(tester);
+    session.wire.rejectWrites = (status: 400, detail: 'Nope');
+    await tester.enterText(
+      find.byKey(const Key('scheduled-task-name')),
+      'Renamed',
+    );
+    await _save(tester);
+
+    expect(find.text('Nope'), findsOneWidget);
+    expect(
+      tester
+          .widget<UtilityStatusBanner>(
+            find.byKey(const Key('scheduled-task-error')),
+          )
+          .tone,
+      UtilityStatusTone.error,
+    );
   });
 }
 

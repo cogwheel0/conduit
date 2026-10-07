@@ -67,3 +67,16 @@ String personalConnectionProbeText(
 /// readable name shows as a generic tool server.
 String personalSelectionNoticeText(AppLocalizations l10n, List<String> names) =>
     names.map((name) => name.isEmpty ? l10n.toolServer : name).join(', ');
+
+/// [url] as a list shows it: scheme, host, port and path only, so a key or
+/// token written into the query or user info is not put on screen.
+String personalConnectionPublicEndpoint(String url) {
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null || uri.host.isEmpty) return url;
+  return Uri(
+    scheme: uri.scheme,
+    host: uri.host,
+    port: uri.hasPort ? uri.port : null,
+    path: uri.path,
+  ).toString();
+}

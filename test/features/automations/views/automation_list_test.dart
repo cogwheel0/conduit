@@ -1,8 +1,15 @@
+import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
+import 'package:conduit_core/features/automations/providers/automation_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'automation_harness.dart';
+
+Finder _filter(String label) => find.descendant(
+  of: find.byKey(const Key('scheduled-tasks-filter')),
+  matching: find.text(label),
+);
 
 void main() {
   group('who sees the page', () {
@@ -18,6 +25,13 @@ void main() {
         find.byKey(const Key('scheduled-tasks-needs-advanced')),
         findsOneWidget,
       );
+      // The shared Advanced page names the feature and offers to turn it on.
+      expect(find.byKey(const Key('advanced-required')), findsOneWidget);
+      expect(
+        find.byKey(const Key('advanced-required-turn-on')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Scheduled tasks'), findsWidgets);
       expect(find.text('Digest'), findsNothing);
       expect(session.wire.requests, isEmpty);
     });
@@ -93,13 +107,22 @@ void main() {
       expect(session.wire.writes, isEmpty);
     });
 
-    testWidgets('an empty account says so', (tester) async {
+    testWidgets('an empty account is invited to add a task', (tester) async {
       await pumpAutomations(tester, tasks: []);
 
       expect(find.text('No scheduled tasks yet.'), findsOneWidget);
+      // The empty list is the way in, so there is no second add row.
+      expect(find.byKey(const Key('scheduled-tasks-add')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('scheduled-tasks-empty')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('New scheduled task'), findsWidgets);
+      expect(find.byKey(const Key('scheduled-task-save')), findsOneWidget);
     });
 
-    testWidgets('a search is sent when submitted', (tester) async {
+    testWidgets('a search is sent once typing pauses, and clearing it shows '
+        'everything again', (tester) async {
       final session = await pumpAutomations(
         tester,
         tasks: [
@@ -111,9 +134,16 @@ void main() {
 
       await tester.enterText(
         find.byKey(const Key('scheduled-tasks-search')),
+        'rep',
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.enterText(
+        find.byKey(const Key('scheduled-tasks-search')),
         'report',
       );
-      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(session.wire.where('GET', '/list'), isEmpty);
+      await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
 
       expect(session.wire.where('GET', '/list').single.uri.queryParameters, {
@@ -122,6 +152,46 @@ void main() {
       });
       expect(find.text('Weekly report'), findsOneWidget);
       expect(find.text('Morning digest'), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('scheduled-tasks-search')),
+        '',
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Weekly report'), findsOneWidget);
+      expect(find.text('Morning digest'), findsOneWidget);
+    });
+
+    testWidgets('a search that matches nothing offers the whole list', (
+      tester,
+    ) async {
+      await pumpAutomations(
+        tester,
+        tasks: [taskJson('a', name: 'Morning digest')],
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('scheduled-tasks-search')),
+        'nothing like it',
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.text('No tasks match.'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('scheduled-tasks-show-all')));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Morning digest'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-tasks-search')),
+          matching: find.text('nothing like it'),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('a status filter is the server\'s, not a local one', (
@@ -136,7 +206,7 @@ void main() {
       );
       session.wire.requests.clear();
 
-      await tester.tap(find.byKey(const Key('scheduled-tasks-filter-paused')));
+      await tester.tap(_filter('Paused'));
       await tester.pumpAndSettle();
 
       expect(session.wire.where('GET', '/list').single.uri.queryParameters, {
@@ -196,6 +266,107 @@ void main() {
 
       expect(find.byKey(const Key('scheduled-task-save')), findsOneWidget);
       expect(find.text('New scheduled task'), findsWidgets);
+    });
+
+    testWidgets('a chosen filter shows at once, with progress until the '
+        'server answers', (tester) async {
+      final session = await pumpAutomations(
+        tester,
+        tasks: [
+          taskJson('a', name: 'Morning digest'),
+          taskJson('b', name: 'Weekly report', active: false),
+        ],
+      );
+      final hold = session.wire.hold('GET', '/api/v1/automations/list');
+
+      await tester.tap(_filter('Paused'));
+      await reach(tester, hold);
+
+      final selector = tester.widget<AdaptiveSegmentedSelector<Object>>(
+        find.descendant(
+          of: find.byKey(const Key('scheduled-tasks-filter')),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is AdaptiveSegmentedSelector,
+          ),
+        ),
+      );
+      expect(selector.value, AutomationStatusFilter.paused);
+      expect(find.byKey(const Key('scheduled-tasks-loading')), findsOneWidget);
+      // The rows on screen answered the old filter, so they are not shown.
+      expect(find.text('Morning digest'), findsNothing);
+
+      hold.release();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('scheduled-tasks-loading')), findsNothing);
+      expect(find.text('Weekly report'), findsOneWidget);
+    });
+
+    testWidgets('a task whose last run failed says so in the list', (
+      tester,
+    ) async {
+      await pumpAutomations(
+        tester,
+        tasks: [
+          {
+            ...taskJson('a', name: 'Morning digest'),
+            'last_run': runJson('r1', status: 'error', error: 'x'),
+          },
+          {...taskJson('b', name: 'Weekly report'), 'last_run': runJson('r2')},
+        ],
+      );
+
+      expect(
+        find.byKey(const Key('scheduled-task-row-failed-a')),
+        findsOneWidget,
+      );
+      expect(find.text('Last run failed'), findsOneWidget);
+      expect(find.byKey(const Key('scheduled-task-row-failed-b')), findsNothing);
+      expect(
+        tester.getSemantics(find.byKey(const Key('scheduled-task-row-a'))).label,
+        contains('Last run failed'),
+      );
+    });
+
+    testWidgets('a rule the controls cannot describe is named, not printed', (
+      tester,
+    ) async {
+      await pumpAutomations(
+        tester,
+        tasks: [
+          taskJson(
+            'a',
+            name: 'Monthly',
+            rrule: 'RRULE:FREQ=MONTHLY;BYMONTHDAY=15;BYHOUR=9;BYMINUTE=0',
+          ),
+        ],
+      );
+
+      final row = find.byKey(const Key('scheduled-task-row-a'));
+      expect(
+        find.descendant(
+          of: row,
+          matching: find.textContaining('Custom schedule'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: row, matching: find.textContaining('FREQ=')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('the filter fits a 360pt phone at large text', (tester) async {
+      await pumpAutomations(tester);
+      tester.view.physicalSize = const Size(360, 1600);
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpAndSettle();
+
+      for (final label in ['All', 'Active', 'Paused']) {
+        expect(_filter(label).hitTestable(), findsOneWidget, reason: label);
+        expect(tester.getRect(_filter(label)).right, lessThanOrEqualTo(360));
+      }
+      expect(tester.takeException(), isNull);
     });
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,9 +12,11 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
+import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/advanced_required_state.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import 'personal_connection_messages.dart';
@@ -23,11 +27,22 @@ import 'personal_connection_messages.dart';
 /// The screen belongs to the Advanced disclosure and to the server's own rule
 /// for who may keep personal connections. Existing selections in chat keep
 /// working whether or not it is reachable.
-class PersonalConnectionsPage extends ConsumerWidget {
+class PersonalConnectionsPage extends ConsumerStatefulWidget {
   const PersonalConnectionsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PersonalConnectionsPage> createState() =>
+      _PersonalConnectionsPageState();
+}
+
+class _PersonalConnectionsPageState
+    extends ConsumerState<PersonalConnectionsPage> {
+  /// Switches moved by the user and not yet answered by the server, by kind
+  /// and identity, with the state each was moved to.
+  final Map<(PersonalConnectionKind, String), bool> _pending = {};
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final advanced = ref.watch(
       appSettingsProvider.select(
@@ -37,16 +52,20 @@ class PersonalConnectionsPage extends ConsumerWidget {
     final access = ref.watch(personalConnectionsAccessProvider);
 
     if (!advanced) {
-      return _Unavailable(
+      return UtilityPageScaffold.settings(
         key: const Key('personal-connections-needs-advanced'),
-        message: l10n.personalConnectionsNeedsAdvanced,
+        title: l10n.personalConnectionsTitle,
+        children: [
+          AdvancedRequiredState(feature: l10n.personalConnectionsTitle),
+        ],
       );
     }
     final block = access.block;
     if (block != null) {
-      return _Unavailable(
+      return UtilityPageScaffold.settings(
         key: const Key('personal-connections-unavailable'),
-        message: personalConnectionsBlockText(l10n, block),
+        title: l10n.personalConnectionsTitle,
+        children: [Text(personalConnectionsBlockText(l10n, block))],
       );
     }
 
@@ -55,7 +74,7 @@ class PersonalConnectionsPage extends ConsumerWidget {
       title: l10n.personalConnectionsTitle,
       children: connections.when(
         loading: () => const [
-          Center(child: CircularProgressIndicator.adaptive()),
+          Center(child: ConduitLoadingIndicator(isCompact: true)),
         ],
         error: (_, _) => [
           Text(l10n.personalConnectionsLoadFailed),
@@ -67,15 +86,14 @@ class PersonalConnectionsPage extends ConsumerWidget {
           ),
         ],
         data: (snapshot) => snapshot == null
-            ? const [Center(child: CircularProgressIndicator.adaptive())]
-            : _content(context, ref, l10n, snapshot),
+            ? const [Center(child: ConduitLoadingIndicator(isCompact: true))]
+            : _content(context, l10n, snapshot),
       ),
     );
   }
 
   List<Widget> _content(
     BuildContext context,
-    WidgetRef ref,
     AppLocalizations l10n,
     PersonalConnectionsSnapshot snapshot,
   ) {
@@ -99,34 +117,33 @@ class PersonalConnectionsPage extends ConsumerWidget {
       ),
       if (cleared.isNotEmpty) ...[
         const SizedBox(height: Spacing.md),
-        InsetGroupedSection(
+        InsetGroupedList(
           key: const Key('personal-connections-cleared'),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  l10n.personalConnectionsSelectionCleared(
-                    personalSelectionNoticeText(l10n, cleared),
-                  ),
-                ),
+          useNativeSurface: PlatformInfo.isIOS,
+          children: [
+            UtilityRow(
+              title: l10n.personalConnectionsSelectionCleared(
+                personalSelectionNoticeText(l10n, cleared),
               ),
-              TextButton(
+              trailing: ConduitButton(
+                text: l10n.ok,
+                isSecondary: true,
+                isCompact: true,
                 onPressed: () =>
                     ref.read(personalSelectionNoticeProvider.notifier).clear(),
-                child: Text(l10n.ok),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ],
       const SizedBox(height: Spacing.lg),
       _section(
         context,
-        ref,
         l10n,
         kind: PersonalConnectionKind.toolServer,
         title: l10n.toolServers,
         emptyText: l10n.personalConnectionsEmptyToolServers,
+        emptyHint: l10n.personalConnectionsEmptyToolServersHint,
         addLabel: l10n.personalConnectionsAddToolServer,
         entries: snapshot.toolServers,
         owner: snapshot.session,
@@ -134,11 +151,11 @@ class PersonalConnectionsPage extends ConsumerWidget {
       const SizedBox(height: Spacing.lg),
       _section(
         context,
-        ref,
         l10n,
         kind: PersonalConnectionKind.terminal,
         title: l10n.personalConnectionsTerminals,
         emptyText: l10n.personalConnectionsEmptyTerminals,
+        emptyHint: l10n.personalConnectionsEmptyTerminalsHint,
         addLabel: l10n.personalConnectionsAddTerminal,
         entries: snapshot.terminals,
         owner: snapshot.session,
@@ -149,113 +166,142 @@ class PersonalConnectionsPage extends ConsumerWidget {
     ];
   }
 
+  void _add(PersonalConnectionKind kind) => context.pushNamed(
+    RouteNames.personalConnectionEditor,
+    pathParameters: {
+      'kind': personalConnectionKindRouteValue(kind),
+      'identity': personalConnectionNewRouteValue,
+    },
+  );
+
   Widget _section(
     BuildContext context,
-    WidgetRef ref,
     AppLocalizations l10n, {
     required PersonalConnectionKind kind,
     required String title,
     required String emptyText,
+    required String emptyHint,
     required String addLabel,
     required List<PersonalConnectionEntry> entries,
     required PersonalConnectionsSession owner,
     String? footer,
   }) {
+    final theme = context.conduitTheme;
     final isTool = kind == PersonalConnectionKind.toolServer;
     final prefix = isTool ? 'personal-tool' : 'personal-terminal';
+    final addIcon = UiUtils.platformIcon(
+      ios: CupertinoIcons.add_circled,
+      android: Icons.add_circle_outline,
+    );
     return InsetGroupedList(
       title: title,
       footer: footer,
+      useNativeSurface: PlatformInfo.isIOS,
       children: [
         if (entries.isEmpty)
-          UtilityRow(title: emptyText, enabled: false)
-        else
-          for (final entry in entries)
-            UtilityRow(
-              key: Key('$prefix-${entry.identity}'),
-              title: entry.displayName,
-              subtitle: entry.editable
-                  ? entry.url
-                  : l10n.personalConnectionsUnsupported,
-              subtitleMaxLines: entry.editable ? 1 : 3,
-              showChevron: true,
-              preserveTrailingSemantics: true,
-              onTap: () => context.pushNamed(
-                RouteNames.personalConnectionEditor,
-                pathParameters: {
-                  'kind': personalConnectionKindRouteValue(kind),
-                  'identity': entry.identity,
-                },
-              ),
-              trailing: AdaptiveSwitch(
-                key: Key('$prefix-switch-${entry.identity}'),
-                value: entry.enabled,
-                semanticLabel: entry.displayName,
-                onChanged: (value) =>
-                    _setEnabled(context, ref, l10n, owner, entry, value),
-              ),
+          // The empty list is itself the way to add the first entry.
+          UtilityRow(
+            key: Key('$prefix-add'),
+            title: emptyText,
+            subtitle: emptyHint,
+            titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+            trailing: Icon(
+              addIcon,
+              color: theme.buttonPrimary,
+              size: IconSize.medium,
             ),
-        UtilityRow(
-          key: Key('$prefix-add'),
-          title: addLabel,
-          leading: Icon(
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.add_circled,
-              android: Icons.add_circle_outline,
-            ),
+            semanticLabel: '$addLabel. $emptyHint',
+            onTap: () => _add(kind),
+          )
+        else ...[
+          for (final entry in entries) _entryRow(l10n, prefix, owner, entry),
+          UtilityRow(
+            key: Key('$prefix-add'),
+            title: addLabel,
+            foregroundColor: theme.buttonPrimary,
+            leading: Icon(addIcon, color: theme.buttonPrimary),
+            onTap: () => _add(kind),
           ),
-          onTap: () => context.pushNamed(
-            RouteNames.personalConnectionEditor,
-            pathParameters: {
-              'kind': personalConnectionKindRouteValue(kind),
-              'identity': personalConnectionNewRouteValue,
-            },
-          ),
-        ),
+        ],
       ],
     );
   }
 
+  Widget _entryRow(
+    AppLocalizations l10n,
+    String prefix,
+    PersonalConnectionsSession owner,
+    PersonalConnectionEntry entry,
+  ) {
+    final pending = _pending[(entry.kind, entry.identity)];
+    return UtilityRow(
+      key: Key('$prefix-${entry.identity}'),
+      title: entry.displayName,
+      subtitle: entry.editable
+          ? personalConnectionPublicEndpoint(entry.url)
+          : l10n.personalConnectionsUnsupported,
+      subtitleMaxLines: entry.editable ? 1 : 3,
+      showChevron: true,
+      preserveTrailingSemantics: true,
+      onTap: () => context.pushNamed(
+        RouteNames.personalConnectionEditor,
+        pathParameters: {
+          'kind': personalConnectionKindRouteValue(entry.kind),
+          'identity': entry.identity,
+        },
+      ),
+      status: pending == null
+          ? null
+          : const ConduitLoadingIndicator(size: IconSize.small, isCompact: true),
+      trailing: AdaptiveSwitch(
+        key: Key('$prefix-switch-${entry.identity}'),
+        value: pending ?? entry.enabled,
+        semanticLabel: entry.displayName,
+        onChanged: pending != null
+            ? null
+            : (value) => _setEnabled(l10n, owner, entry, value),
+      ),
+    );
+  }
+
+  /// Moves the switch at once and saves. A refusal puts it back and says why.
   Future<void> _setEnabled(
-    BuildContext context,
-    WidgetRef ref,
     AppLocalizations l10n,
     PersonalConnectionsSession owner,
     PersonalConnectionEntry entry,
     bool value,
   ) async {
+    final key = (entry.kind, entry.identity);
+    setState(() => _pending[key] = value);
     // The row belongs to the list it was drawn from; a switch drawn for an
     // account that has since gone is refused, not applied to the new one.
     try {
-      await ref
+      final outcome = await ref
           .read(personalConnectionsProvider.notifier)
           .save(
             owner,
             entry.kind,
             SetPersonalConnectionEnabled(entry.identity, value),
           );
+      if (!mounted) return;
+      setState(() => _pending.remove(key));
+      if (outcome.stale) {
+        UiUtils.showMessage(
+          context,
+          l10n.personalConnectionsSavedForPreviousAccount,
+        );
+      } else if (PlatformInfo.isIOS) {
+        // Android's switch already clicked when it moved.
+        unawaited(ConduitHaptics.success());
+      }
     } catch (error) {
-      if (!context.mounted) return;
+      if (!mounted) return;
+      setState(() => _pending.remove(key));
       UiUtils.showMessage(
         context,
         personalConnectionSaveError(l10n, error),
         isError: true,
       );
     }
-  }
-}
-
-class _Unavailable extends StatelessWidget {
-  const _Unavailable({super.key, required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return UtilityPageScaffold.settings(
-      title: l10n.personalConnectionsTitle,
-      children: [Text(message)],
-    );
   }
 }
