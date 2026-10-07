@@ -9,6 +9,7 @@ import 'package:conduit_core/conduit_core.dart';
 const _credentialsKey = 'user_credentials_v2';
 const _authTokenKey = 'auth_token_v2';
 const _serverConfigsKey = 'server_configs_v2';
+const _registryKey = 'openwebui_registry_v1';
 const _hermesApiKey = 'hermes_api_key_v1';
 const _hermesSessionKey = 'hermes_session_key_v1';
 
@@ -279,12 +280,20 @@ void main() {
   });
 
   group('server configs', () {
-    test('saveServerConfigs round-trips the saved JSON', () async {
-      const configsJson = '[{"id":"a"}]';
+    test('saveOpenWebUiRegistry round-trips the saved JSON', () async {
+      const registryJson = '{"version":1,"servers":[],"accounts":[]}';
 
-      await storage.saveServerConfigs(configsJson);
+      await storage.saveOpenWebUiRegistry(registryJson);
 
-      expect(await storage.getServerConfigs(), configsJson);
+      expect(await storage.getOpenWebUiRegistry(), registryJson);
+      expect(fake.store[_registryKey], registryJson);
+    });
+
+    test('getOpenWebUiRegistry throws on read error', () async {
+      fake.store[_registryKey] = '{}';
+      fake.failReadsFor.add(_registryKey);
+
+      await expectLater(storage.getOpenWebUiRegistry(), throwsStateError);
     });
 
     test('getServerConfigs throws on read error', () async {
@@ -292,6 +301,16 @@ void main() {
       fake.failReadsFor.add(_serverConfigsKey);
 
       await expectLater(storage.getServerConfigs(), throwsStateError);
+    });
+
+    test('deleteLegacyServerConfigs removes only the legacy list', () async {
+      fake.store[_serverConfigsKey] = '[{"id":"a"}]';
+      fake.store[_registryKey] = '{}';
+
+      await storage.deleteLegacyServerConfigs();
+
+      expect(fake.store.containsKey(_serverConfigsKey), isFalse);
+      expect(fake.store[_registryKey], '{}');
     });
   });
 

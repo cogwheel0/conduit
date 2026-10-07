@@ -5,8 +5,10 @@ import 'package:hive_ce/hive.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:conduit_core/conduit_core.dart';
 
+import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -211,6 +213,7 @@ class OptimizedStorageService {
   static const String _authTokenKey = 'auth_token_v3';
   static const String _activeServerIdKey = PreferenceKeys.activeServerId;
   static const String _serverConfigsCacheKey = 'server_configs_v1';
+  static const String _registryCacheKey = 'openwebui_registry_v1';
   static const String _themeModeKey = PreferenceKeys.themeMode;
   static const String _themePaletteKey = PreferenceKeys.themePalette;
   static const String _localeCodeKey = PreferenceKeys.localeCode;
@@ -959,17 +962,22 @@ class OptimizedStorageService {
     );
   }
 
+  /// Saves [configs] as the complete account list.
+  ///
+  /// The registry is the stored form; [configs] are folded into it by
+  /// [OpenWebUiRegistry.mergeServerConfigs], which keeps every account's
+  /// server, its other endpoints and its proven user while applying the
+  /// edits the configs carry.
   Future<void> _saveServerConfigsUnlocked(
     List<ServerConfig> configs, {
     bool authorizeReads = true,
   }) async {
     try {
-      final jsonString = jsonEncode(configs.map((c) => c.toJson()).toList());
-      await _secureCredentialStorage.saveServerConfigs(jsonString);
-      if (authorizeReads) _serverConfigsReadSuppressed = false;
-      _serverOwnershipRevision++;
-      _cacheManager.invalidate(_activeServerIdKey);
-      _cacheServerConfigs(configs);
+      final base = await _registryForWriteUnlocked();
+      await _saveRegistryUnlocked(
+        base.mergeServerConfigs(configs),
+        authorizeReads: authorizeReads,
+      );
       DebugLogger.log(
         'Server configs saved (${configs.length} entries)',
         scope: 'storage/optimized',
@@ -1317,25 +1325,8 @@ class OptimizedStorageService {
         stored.mtlsPrivateKeyPassword == next.mtlsPrivateKeyPassword;
   }
 
-  String _normalizedServerIdentityUrl(String value) {
-    final trimmed = value.trim();
-    final parsed = Uri.tryParse(trimmed);
-    if (parsed == null || !parsed.hasScheme || parsed.host.isEmpty) {
-      return trimmed;
-    }
-    var path = parsed.path;
-    while (path.length > 1 && path.endsWith('/')) {
-      path = path.substring(0, path.length - 1);
-    }
-    if (path == '/') path = '';
-    return parsed
-        .replace(
-          scheme: parsed.scheme.toLowerCase(),
-          host: parsed.host.toLowerCase(),
-          path: path,
-        )
-        .toString();
-  }
+  String _normalizedServerIdentityUrl(String value) =>
+      openWebUiServerIdentityUrl(value);
 
   bool _sameStringMap(Map<String, String> left, Map<String, String> right) {
     if (left.length != right.length) return false;
@@ -1844,23 +1835,126 @@ class OptimizedStorageService {
       }
     }
 
-    final jsonString = await _secureCredentialStorage.getServerConfigs();
-    if (jsonString == null) {
-      if (!bypassReadSuppression) {
-        _cacheServerConfigs(const <ServerConfig>[]);
-      }
-      return const [];
+    final registry = await _getRegistryStrictUnlocked(
+      bypassReadSuppression: bypassReadSuppression,
+    );
+    return registry.projectAll();
+  }
+
+  Future<OpenWebUiRegistry> _getRegistryStrictUnlocked({
+    bool bypassReadSuppression = false,
+  }) async {
+    if (_serverConfigsReadSuppressed && !bypassReadSuppression) {
+      return OpenWebUiRegistry.empty;
     }
-    if (jsonString.isEmpty) {
-      throw const FormatException('Server configs payload was empty');
+    if (!bypassReadSuppression) {
+      final (hit: hasCachedRegistry, value: cachedRegistry) = _cacheManager
+          .lookup<OpenWebUiRegistry>(_registryCacheKey);
+      if (hasCachedRegistry && cachedRegistry != null) return cachedRegistry;
+    }
+    final registry = await _readRegistryFromStorageUnlocked();
+    if (!bypassReadSuppression) _cacheRegistry(registry);
+    return registry;
+  }
+
+  /// The registry a config write folds into: the last one written by this
+  /// process, or the stored one. Read fences do not apply; a write must build
+  /// on what is durable, not on what reads are currently allowed to see.
+  Future<OpenWebUiRegistry> _registryForWriteUnlocked() async {
+    final (hit: hasCachedRegistry, value: cachedRegistry) = _cacheManager
+        .lookup<OpenWebUiRegistry>(_registryCacheKey);
+    if (hasCachedRegistry && cachedRegistry != null) return cachedRegistry;
+    return _readRegistryFromStorageUnlocked();
+  }
+
+  Future<void> _saveRegistryUnlocked(
+    OpenWebUiRegistry registry, {
+    bool authorizeReads = true,
+  }) async {
+    await _secureCredentialStorage.saveOpenWebUiRegistry(registry.encode());
+    if (authorizeReads) _serverConfigsReadSuppressed = false;
+    _serverOwnershipRevision++;
+    _cacheManager.invalidate(_activeServerIdKey);
+    _cacheRegistry(registry);
+  }
+
+  Future<OpenWebUiRegistry> _readRegistryFromStorageUnlocked() async {
+    final stored = await _secureCredentialStorage.getOpenWebUiRegistry();
+    if (stored != null) {
+      if (stored.isEmpty) {
+        throw const FormatException('Open WebUI registry payload was empty');
+      }
+      return OpenWebUiRegistry.decode(stored);
     }
 
-    final decoded = jsonDecode(jsonString) as List<dynamic>;
+    final legacy = await _secureCredentialStorage.getServerConfigs();
+    if (legacy == null) return OpenWebUiRegistry.empty;
+    if (legacy.isEmpty) {
+      throw const FormatException('Server configs payload was empty');
+    }
+    final decoded = jsonDecode(legacy) as List<dynamic>;
     final configs = decoded
         .map((item) => ServerConfig.fromJson(item))
         .toList(growable: false);
-    if (!bypassReadSuppression) _cacheServerConfigs(configs);
-    return configs;
+    return _migrateLegacyServerConfigsUnlocked(configs);
+  }
+
+  /// Replaces the one-server config list with the registry, once.
+  ///
+  /// Every read happens before the first write, and any failure propagates
+  /// before anything is written: a Keychain that is still locked at launch
+  /// must not turn into "no servers". The registry is written and read back
+  /// before the legacy list is deleted, so a crash at any point leaves one of
+  /// the two intact, and the registry wins whenever it exists. One-way: an
+  /// older build afterwards finds no saved server and asks to sign in.
+  Future<OpenWebUiRegistry> _migrateLegacyServerConfigsUnlocked(
+    List<ServerConfig> configs,
+  ) async {
+    final activeId = _effectiveActiveServerId(
+      configs: configs,
+      rawActiveServerId: _rawStoredActiveServerId(bypassReadSuppression: true),
+    );
+    final credentialOwner = _savedCredentialsServerId(
+      await _secureCredentialStorage.getSavedCredentialsPayloadStrict(),
+    );
+    final vaulted = await _secureCredentialStorage.vaultedServerIds();
+    const markers = PreferencesOpenWebUiAccountOwnerMarkerStore();
+    final registry = OpenWebUiRegistry.fromLegacyServerConfigs(
+      configs,
+      priority: <String>[?activeId, ?credentialOwner, ...vaulted],
+      userIdFor: (accountId) => markers.read(accountId)?.userId,
+    );
+
+    final encoded = registry.encode();
+    await _secureCredentialStorage.saveOpenWebUiRegistry(encoded);
+    final written = await _secureCredentialStorage.getOpenWebUiRegistry();
+    if (written != encoded) {
+      try {
+        await _secureCredentialStorage.deleteOpenWebUiRegistry();
+      } catch (_) {}
+      throw StateError('Open WebUI registry could not be verified');
+    }
+    try {
+      await _secureCredentialStorage.deleteLegacyServerConfigs();
+    } catch (error) {
+      // The registry is authoritative from here on; the stale list is never
+      // read again while it exists.
+      DebugLogger.warning(
+        'legacy-server-configs-delete-failed',
+        scope: 'storage/optimized/registry',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    DebugLogger.info(
+      'registry-migrated',
+      scope: 'storage/optimized/registry',
+      data: {
+        'legacyConfigs': configs.length,
+        'accounts': registry.accounts.length,
+        'servers': registry.servers.length,
+      },
+    );
+    return registry;
   }
 
   Future<List<ServerConfig>>
@@ -2685,7 +2779,7 @@ class OptimizedStorageService {
         false,
         ttl: _credentialsFlagTtl,
       );
-      _cacheServerConfigs(const <ServerConfig>[]);
+      _cacheRegistry(OpenWebUiRegistry.empty);
       _cacheActiveServerId(null);
     }
 
@@ -2711,7 +2805,6 @@ class OptimizedStorageService {
       if (configsRestored && activeIdRestored) {
         _serverConfigsReadSuppressed = false;
         _activeServerIdReadSuppressed = false;
-        _cacheServerConfigs(retainedServerConfigs);
         _cacheActiveServerId(retainedActiveServerId);
       } else {
         _serverConfigsReadSuppressed = true;
@@ -2838,8 +2931,10 @@ class OptimizedStorageService {
     return null;
   }
 
-  void _cacheServerConfigs(List<ServerConfig> configs) {
+  void _cacheRegistry(OpenWebUiRegistry registry) {
+    final configs = registry.projectAll();
     _cacheManager.write('server_config_count', configs.length);
+    _cacheManager.write(_registryCacheKey, registry, ttl: _serverConfigsTtl);
     _cacheManager.write(
       _serverConfigsCacheKey,
       List<ServerConfig>.unmodifiable(configs),

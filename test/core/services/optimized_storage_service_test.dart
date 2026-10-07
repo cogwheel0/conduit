@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/socket_transport_availability.dart';
 import 'package:conduit_core/models/user.dart';
@@ -172,13 +173,13 @@ void main() {
   test('validated active server id reuses cached server configs across repeated lookups', () async {
     await saveServerConfigs(['server-a']);
     await storage.setActiveServerId('server-a');
-    final readsAfterSetup = secureStorageReadCounts['server_configs_v2'] ?? 0;
+    final readsAfterSetup = secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
 
     expect(await storage.getActiveServerId(), 'server-a');
     expect(await storage.getActiveServerId(), 'server-a');
     expect(await storage.getActiveServerId(), 'server-a');
 
-    expect(secureStorageReadCounts['server_configs_v2'] ?? 0, readsAfterSetup);
+    expect(secureStorageReadCounts['openwebui_registry_v1'] ?? 0, readsAfterSetup);
   });
 
   test('server config read failures are not cached as an empty list', () async {
@@ -194,16 +195,16 @@ void main() {
       workerManager: workerManager,
     );
 
-    secureStorageReadErrors['server_configs_v2'] = PlatformException(
+    secureStorageReadErrors['openwebui_registry_v1'] = PlatformException(
       code: 'read-failed',
       message: 'transient secure storage failure',
     );
     final readsBeforeFailures =
-        secureStorageReadCounts['server_configs_v2'] ?? 0;
+        secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
 
     expect(await storage.getServerConfigs(), isEmpty);
     expect(
-      secureStorageReadCounts['server_configs_v2'],
+      secureStorageReadCounts['openwebui_registry_v1'],
       readsBeforeFailures + 2,
     );
 
@@ -212,17 +213,17 @@ void main() {
       throwsA(isA<PlatformException>()),
     );
     expect(
-      secureStorageReadCounts['server_configs_v2'],
+      secureStorageReadCounts['openwebui_registry_v1'],
       readsBeforeFailures + 3,
     );
 
-    secureStorageReadErrors.remove('server_configs_v2');
+    secureStorageReadErrors.remove('openwebui_registry_v1');
 
     final configs = await storage.getServerConfigs();
 
     expect(configs.map((config) => config.id), ['server-a']);
     expect(
-      secureStorageReadCounts['server_configs_v2'],
+      secureStorageReadCounts['openwebui_registry_v1'],
       readsBeforeFailures + 4,
     );
   });
@@ -239,11 +240,11 @@ void main() {
       ),
       workerManager: workerManager,
     );
-    secureStorageReadErrors['server_configs_v2'] = PlatformException(
+    secureStorageReadErrors['openwebui_registry_v1'] = PlatformException(
       code: 'read-failed',
       message: 'temporarily unavailable',
     );
-    final readsBefore = secureStorageReadCounts['server_configs_v2'] ?? 0;
+    final readsBefore = secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
     final container = ProviderContainer(
       overrides: [optimizedStorageServiceProvider.overrideWithValue(storage)],
     );
@@ -253,14 +254,14 @@ void main() {
       container.read(serverConfigsProvider.future),
       throwsA(isA<PlatformException>()),
     );
-    expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 2);
+    expect(secureStorageReadCounts['openwebui_registry_v1'], readsBefore + 2);
 
-    secureStorageReadErrors.remove('server_configs_v2');
+    secureStorageReadErrors.remove('openwebui_registry_v1');
     container.invalidate(serverConfigsProvider);
 
     final recovered = await container.read(serverConfigsProvider.future);
     expect(recovered.map((config) => config.id), ['server-a']);
-    expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 3);
+    expect(secureStorageReadCounts['openwebui_registry_v1'], readsBefore + 3);
   });
 
   test(
@@ -278,23 +279,23 @@ void main() {
         ),
         workerManager: workerManager,
       );
-      secureStorageReadErrors['server_configs_v2'] = PlatformException(
+      secureStorageReadErrors['openwebui_registry_v1'] = PlatformException(
         code: 'read-failed',
         message: 'temporarily unavailable',
       );
-      final readsBefore = secureStorageReadCounts['server_configs_v2'] ?? 0;
+      final readsBefore = secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
 
       expect(await storage.getActiveServerId(), isNull);
       expect(
         PreferencesStore.getString(PreferenceKeys.activeServerId),
         'server-a',
       );
-      expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 2);
+      expect(secureStorageReadCounts['openwebui_registry_v1'], readsBefore + 2);
 
-      secureStorageReadErrors.remove('server_configs_v2');
+      secureStorageReadErrors.remove('openwebui_registry_v1');
       expect(await storage.getActiveServerId(), 'server-a');
       expect(await storage.getActiveServerId(), 'server-a');
-      expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 3);
+      expect(secureStorageReadCounts['openwebui_registry_v1'], readsBefore + 3);
     },
   );
 
@@ -389,9 +390,9 @@ void main() {
       );
       final readEntered = Completer<void>();
       final releaseRead = Completer<void>();
-      secureStorageOperationEntered['read:server_configs_v2'] = readEntered;
-      secureStorageOperationGates['read:server_configs_v2'] = releaseRead;
-      secureStorageSnapshotReadsBeforeGate.add('read:server_configs_v2');
+      secureStorageOperationEntered['read:openwebui_registry_v1'] = readEntered;
+      secureStorageOperationGates['read:openwebui_registry_v1'] = releaseRead;
+      secureStorageSnapshotReadsBeforeGate.add('read:openwebui_registry_v1');
 
       final oldRead = storage.getServerConfigs();
       await readEntered.future;
@@ -400,9 +401,9 @@ void main() {
 
       expect(await oldRead, [oldConfig]);
       await save;
-      final readsAfterSave = secureStorageReadCounts['server_configs_v2'] ?? 0;
+      final readsAfterSave = secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
       expect(await storage.getServerConfigs(), [newConfig]);
-      expect(secureStorageReadCounts['server_configs_v2'] ?? 0, readsAfterSave);
+      expect(secureStorageReadCounts['openwebui_registry_v1'] ?? 0, readsAfterSave);
     },
   );
 
@@ -944,10 +945,10 @@ void main() {
       containsAllInOrder([
         'delete:auth_token_v2',
         'delete:user_credentials_v2',
-        'write:server_configs_v2',
+        'write:openwebui_registry_v1',
         'write:auth_token_v2',
         'delete:auth_token_v2',
-        'write:server_configs_v2',
+        'write:openwebui_registry_v1',
         'write:user_credentials_v2',
         'write:auth_token_v2',
       ]),
@@ -1033,7 +1034,7 @@ void main() {
       // then fail the second config write while rollback is restoring the
       // baseline. The rollback must remain tokenless and identify uncertainty.
       secureStorageFailureCountdowns['write:auth_token_v2'] = 1;
-      secureStorageFailureCountdowns['write:server_configs_v2'] = 2;
+      secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 2;
       var uncertaintyPublished = false;
 
       await expectLater(
@@ -1378,7 +1379,7 @@ void main() {
       requireActive: false,
     );
     secureStorageFailureCountdowns['write:auth_token_v2'] = 1;
-    secureStorageFailureCountdowns['write:server_configs_v2'] = 2;
+    secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 2;
     var poisoned = false;
 
     await expectLater(
@@ -1494,7 +1495,7 @@ void main() {
       'delete:user_credentials_v2',
     );
     final configWrite = secureStorageOperations.indexOf(
-      'write:server_configs_v2',
+      'write:openwebui_registry_v1',
     );
     expect(tokenDelete, greaterThanOrEqualTo(0));
     expect(credentialsDelete, greaterThan(tokenDelete));
@@ -1608,7 +1609,7 @@ void main() {
     ]);
     expect(
       secureStorageOperations.indexOf('delete:auth_token_v2'),
-      lessThan(secureStorageOperations.indexOf('write:server_configs_v2')),
+      lessThan(secureStorageOperations.indexOf('write:openwebui_registry_v1')),
     );
   });
 
@@ -1637,7 +1638,7 @@ void main() {
     expect(preserved.mtlsPrivateKeyPem, 'standalone-private-key');
     expect(preserved.mtlsPrivateKeyLabel, 'standalone.key');
     expect(preserved.mtlsPrivateKeyPassword, 'standalone-password');
-    expect(secureStorageOperations, isNot(contains('write:server_configs_v2')));
+    expect(secureStorageOperations, isNot(contains('write:openwebui_registry_v1')));
   });
 
   test(
@@ -1675,7 +1676,8 @@ void main() {
     'stripping a stored legacy apiKey on save keeps the active session',
     () async {
       // Simulate a config persisted by a pre-hardening build that still
-      // carries the legacy apiKey bearer field.
+      // carries the legacy apiKey bearer field, in the one-server list the
+      // registry replaces.
       final legacy = _serverConfig('server-a')
           .copyWith(apiKey: 'legacy-bearer', isActive: true);
       secureStorageValues['server_configs_v2'] = jsonEncode([legacy.toJson()]);
@@ -2331,7 +2333,7 @@ void main() {
       await PreferencesStore.putChecked(PreferenceKeys.themeMode, 'dark');
       secureStorageValues['hermes_api_key_v1'] = 'hermes-secret';
       secureStorageValues['direct_connection_profiles_v1'] = 'direct-profiles';
-      secureStorageReadErrors['server_configs_v2'] = PlatformException(
+      secureStorageReadErrors['openwebui_registry_v1'] = PlatformException(
         code: 'snapshot-read-failed',
       );
 
@@ -2371,7 +2373,7 @@ void main() {
       secureStorageOperations.clear();
       secureStorageFailureCountdowns['delete:auth_token_v2'] = 1;
       secureStorageFailureCountdowns['delete:user_credentials_v2'] = 1;
-      secureStorageFailureCountdowns['write:server_configs_v2'] = 1;
+      secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 1;
       secureStorageFailureCountdowns['deleteAll:null'] = 1;
 
       Object? caught;
@@ -2386,7 +2388,7 @@ void main() {
           .has((error) => error.message, 'message')
           .equals('delete:auth_token_v2');
       check(secureStorageOperations).contains('delete:user_credentials_v2');
-      check(secureStorageOperations).contains('write:server_configs_v2');
+      check(secureStorageOperations).contains('write:openwebui_registry_v1');
       check(secureStorageOperations).contains('deleteAll:null');
       check(secureStorageValues).containsKey('auth_token_v2');
       check(secureStorageValues).containsKey('user_credentials_v2');
@@ -2395,10 +2397,7 @@ void main() {
       check(await storage.getServerConfigs()).isEmpty();
       check(await storage.getActiveServerId()).isNull();
 
-      final storedConfigs = jsonDecode(
-        secureStorageValues['server_configs_v2']!,
-      ) as List<dynamic>;
-      final storedConfig = ServerConfig.fromJson(storedConfigs.single);
+      final storedConfig = _storedServerConfigs(secureStorageValues).single;
       check(storedConfig.apiKey).isNull();
       check(
         storedConfig.customHeaders.keys
@@ -2440,7 +2439,7 @@ void main() {
     );
     secureStorageFailureCountdowns['delete:auth_token_v2'] = 1;
     secureStorageFailureCountdowns['delete:user_credentials_v2'] = 1;
-    secureStorageFailureCountdowns['write:server_configs_v2'] = 1;
+    secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 1;
     secureStorageFailureCountdowns['deleteAll:null'] = 1;
 
     await expectLater(storage.clearAll(), throwsA(isA<PlatformException>()));
@@ -2463,9 +2462,7 @@ void main() {
     // A later cleanup pass must bypass both the suppression flag and the
     // negative cache so it can sanitize the retained platform payload.
     await storage.clearAuthData();
-    final scrubbedConfigs =
-        jsonDecode(secureStorageValues['server_configs_v2']!) as List<dynamic>;
-    final scrubbedConfig = ServerConfig.fromJson(scrubbedConfigs.single);
+    final scrubbedConfig = _storedServerConfigs(secureStorageValues).single;
     expect(scrubbedConfig.apiKey, isNull);
     expect(
       scrubbedConfig.customHeaders.keys.any(
@@ -2602,3 +2599,9 @@ Map<String, dynamic> _conversationJson(String id) {
 ServerConfig _serverConfig(String id) {
   return ServerConfig(id: id, name: id, url: 'https://$id.example.com');
 }
+
+/// The accounts persisted in the secure registry, as the configs the app sees.
+List<ServerConfig> _storedServerConfigs(Map<String, String> secureValues) =>
+    OpenWebUiRegistry.decode(
+      secureValues['openwebui_registry_v1']!,
+    ).projectAll();

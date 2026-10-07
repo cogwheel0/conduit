@@ -21,7 +21,11 @@ class SecureCredentialStorage {
   final SecureKeyValueStore _secureStorage;
 
   static const String _credentialsKey = 'user_credentials_v2';
+
+  /// The one-server layout's config list. Read once, to build the registry,
+  /// then deleted.
   static const String _serverConfigsKey = 'server_configs_v2';
+  static const String _openWebUiRegistryKey = 'openwebui_registry_v1';
   static const String _authTokenKey = 'auth_token_v2';
   static const String _hermesApiKeyKey = 'hermes_api_key_v1';
   static const String _hermesSessionKeyKey = 'hermes_session_key_v1';
@@ -628,13 +632,18 @@ class SecureCredentialStorage {
     return List<int>.unmodifiable(persisted);
   }
 
-  /// Save server configurations securely
-  Future<void> saveServerConfigs(String configsJson) async {
+  /// Persists the saved Open WebUI servers and accounts. The document holds
+  /// custom headers, captured proxy cookies and mTLS keys, so it never goes
+  /// to preferences.
+  Future<void> saveOpenWebUiRegistry(String registryJson) async {
     try {
-      await _secureStorage.write(key: _serverConfigsKey, value: configsJson);
+      await _secureStorage.write(
+        key: _openWebUiRegistryKey,
+        value: registryJson,
+      );
     } catch (e) {
       DebugLogger.error(
-        'save-configs-failed',
+        'save-registry-failed',
         scope: 'credentials/server-configs',
         error: e,
       );
@@ -642,7 +651,29 @@ class SecureCredentialStorage {
     }
   }
 
-  /// Get server configurations
+  /// Reads the Open WebUI registry. A platform failure propagates: it is not
+  /// evidence that no server is saved.
+  Future<String?> getOpenWebUiRegistry() async {
+    try {
+      return await _secureStorage.read(key: _openWebUiRegistryKey);
+    } catch (e) {
+      DebugLogger.error(
+        'read-registry-failed',
+        scope: 'credentials/server-configs',
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> deleteOpenWebUiRegistry() =>
+      _secureStorage.delete(key: _openWebUiRegistryKey);
+
+  /// Removes the one-server config list once the registry has replaced it.
+  Future<void> deleteLegacyServerConfigs() =>
+      _secureStorage.delete(key: _serverConfigsKey);
+
+  /// Get the one-server layout's config list, if it is still stored.
   Future<String?> getServerConfigs() async {
     try {
       final storedConfigs = await _secureStorage.read(key: _serverConfigsKey);
