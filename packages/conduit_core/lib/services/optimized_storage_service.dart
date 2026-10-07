@@ -1065,19 +1065,12 @@ class OptimizedStorageService {
         if (credentialOwnershipChanged) {
           await _deleteSavedCredentialsUnlocked();
         }
-        // The same holds for sessions kept aside: an inactive account whose
-        // server moved, through its own edit or another account's on the
-        // same server, must not take its old bearer to the new origin.
-        for (final current in currentConfigs) {
-          if (current.id == currentActiveId) continue;
-          final next = nextConfigs
-              .where((config) => config.id == current.id)
-              .firstOrNull;
-          if (next == null ||
-              !_hasSameServerSessionOwnershipIdentity(current, next)) {
-            await _deleteVaultedSessionUnlocked(current.id);
-          }
-        }
+        // The same holds for sessions kept aside.
+        await _dropVaultedSessionsOfMovedAccountsUnlocked(
+          current: currentConfigs,
+          next: nextConfigs,
+          skip: currentActiveId,
+        );
         await _saveServerConfigsUnlocked(sanitizedConfigs);
         if (rawActiveServerId != nextActiveId) {
           await _writeActiveServerIdWithoutConfigSync(nextActiveId);
@@ -1088,6 +1081,35 @@ class OptimizedStorageService {
         _stagedServerConfigCandidate = null;
       }),
     );
+  }
+
+  /// Drops the session kept aside for each account in [current] whose
+  /// server moves in [next] -- through its own edit or another account's on
+  /// the same server -- or that [next] no longer has: it must not take its
+  /// old bearer to the new origin. [next] is what the save will store, not
+  /// what was passed to it, since accounts on one server share its endpoint.
+  /// [skip] keeps its vault; [undo] records what went, for a rollback.
+  Future<void> _dropVaultedSessionsOfMovedAccountsUnlocked({
+    required List<ServerConfig> current,
+    required List<ServerConfig> next,
+    String? skip,
+    _VaultUndo? undo,
+  }) async {
+    for (final account in current) {
+      if (account.id == skip) continue;
+      final moved = next
+          .where((config) => config.id == account.id)
+          .firstOrNull;
+      if (moved != null &&
+          _hasSameServerSessionOwnershipIdentity(account, moved)) {
+        continue;
+      }
+      if (undo == null) {
+        await _deleteVaultedSessionUnlocked(account.id);
+      } else {
+        await _deleteVaultedSessionUndoablyUnlocked(account.id, undo);
+      }
+    }
   }
 
   String? _savedCredentialsServerId(String? payload) {
@@ -1265,6 +1287,14 @@ class OptimizedStorageService {
             );
             if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
           }
+          // Selecting an account with its server edited moves every account
+          // on that server, the one just filed away included.
+          await _dropVaultedSessionsOfMovedAccountsUnlocked(
+            current: registry.projectAll(),
+            next: registry.mergeServerConfigs(nextConfigs).projectAll(),
+            skip: selected.id,
+            undo: vaultUndo,
+          );
 
           await _deleteAuthTokenUnlocked();
           if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
@@ -1907,6 +1937,15 @@ class OptimizedStorageService {
             undo: vaultUndo,
           );
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
+          // A candidate can keep a saved account's id with its server moved,
+          // which moves every account on that server.
+          await _dropVaultedSessionsOfMovedAccountsUnlocked(
+            current: previousRegistry.registry.projectAll(),
+            next: previousRegistry.registry
+                .mergeServerConfigs(committedConfigs)
+                .projectAll(),
+            undo: vaultUndo,
+          );
 
           // Never allow a crash window where the previous server's token is
           // paired with the newly-active candidate.

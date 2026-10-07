@@ -441,6 +441,61 @@ void main() {
     check(await vaultedCredentials('c')).isNull();
   });
 
+  group('a server moved by selecting an account on it', () {
+    // A and B share one server; B is signed in, filed away.
+    setUp(() async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('b', password: 'pw-b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      await storage.saveAuthToken('token-a');
+    });
+
+    final moved = account('a', url: 'https://moved.example.org');
+
+    test('for a fresh sign-in drops the sessions kept aside on it', () async {
+      await storage.selectUnauthenticatedServerConfig(moved, publish: () {});
+
+      final b = (await storage.getServerConfigs())
+          .where((config) => config.id == 'b')
+          .single;
+      check(b.url).equals('https://moved.example.org');
+      check(await vaultedToken('b')).isNull();
+      check(await vaultedCredentials('b')).isNull();
+    });
+
+    test('for a proxy sign-in drops the sessions kept aside on it', () async {
+      final staged = await storage.stageServerConfigCandidate(moved);
+
+      check(
+        await storage.commitServerConfigCandidateSession(
+          candidate: moved,
+          transactionId: staged.transactionId,
+          token: 'token-a-moved',
+          canCommit: () => true,
+          publish: () {},
+        ),
+      ).isTrue();
+
+      check(await vaultedToken('b')).isNull();
+      check(await vaultedCredentials('b')).isNull();
+      check(await storage.getAuthTokenStrict()).equals('token-a-moved');
+    });
+
+    test('a sign-in that does not finish keeps them', () async {
+      var checks = 0;
+      await storage.selectUnauthenticatedServerConfig(
+        moved,
+        // Fails once the sessions on the moved server have gone.
+        canCommit: () => ++checks < 8,
+        publish: () {},
+      );
+
+      check(await vaultedToken('b')).equals('token-b');
+      check((await vaultedCredentials('b'))?['password']).equals('pw-b');
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+    });
+  });
+
   test('signing out still clears cached user data when the account list '
       'cannot be read', () async {
     await storage.saveServerConfigs([account('a')]);
