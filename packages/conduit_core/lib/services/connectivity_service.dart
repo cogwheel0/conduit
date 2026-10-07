@@ -708,14 +708,17 @@ Future<bool> probeServerHealth(
   ServerConfig server, {
   Duration timeout = const Duration(seconds: 4),
 }) async {
-  final baseUri = ServerTlsHttpClientFactory.parseBaseUri(server.url);
-  if (baseUri == null) return false;
+  if (ServerTlsHttpClientFactory.parseBaseUri(server.url) == null) {
+    return false;
+  }
   final dio = createConnectivityHealthClient(server);
   final cancelToken = CancelToken();
   try {
+    // Relative to the client's base URL, so a server mounted under a path
+    // (https://host/owui) is asked there and not at the host's root.
     final response = await dio
-        .getUri<dynamic>(
-          baseUri.resolve('/health'),
+        .get<dynamic>(
+          '/health',
           options: Options(
             sendTimeout: timeout,
             receiveTimeout: timeout,

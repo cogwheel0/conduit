@@ -223,6 +223,38 @@ void main() {
     }, _RealHttpOverrides());
   });
 
+  group('a route probe', () {
+    /// Serves [handle] on a loopback port for the length of the test.
+    Future<String> serve(
+      Future<void> Function(HttpRequest request) handle,
+    ) async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen(handle);
+      return 'http://${InternetAddress.loopbackIPv4.address}:${server.port}';
+    }
+
+    ServerConfig route(String url) =>
+        ServerConfig(id: 'route', name: 'Route', url: url);
+
+    test('asks a server mounted under a path at that path', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final origin = await serve((request) async {
+          request.response
+            ..statusCode = request.uri.path == '/owui/health'
+                ? HttpStatus.ok
+                : HttpStatus.notFound
+            ..headers.contentType = ContentType.json
+            ..write('{"status":true}');
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route('$origin/owui'))).isTrue();
+        check(await probeServerHealth(route(origin))).isFalse();
+      }, _RealHttpOverrides());
+    });
+  });
+
   test(
     'health client normalizes a scheme-less server with the shared parser',
     () async {
