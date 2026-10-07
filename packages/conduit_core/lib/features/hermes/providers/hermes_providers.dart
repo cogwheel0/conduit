@@ -492,6 +492,11 @@ class HermesConfigController extends Notifier<HermesConfig> {
     if (connectionId != null && connectionId == state.connectionId) {
       return nativeCredentialsWriter();
     }
+    // The refresh token this writer's client holds. Two clients built from
+    // the same stored tokens can race: once one rotates them, the other's
+    // stale refresh (or its sign-out after a 401) must not overwrite them.
+    var expectedRefreshToken =
+        connection.desktopCredentials?.nativeTokens?.refreshToken;
     return (credentials) => _serializeMutation(() async {
       await _secretsHydration;
       _throwIfSecretsUnavailable();
@@ -507,7 +512,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
         secrets: await _readSecrets(connectionId),
       );
       if (!hermesDesktopConnectionMatches(stored, connection) ||
-          stored.mode != connection.mode) {
+          stored.mode != connection.mode ||
+          stored.desktopCredentials?.nativeTokens?.refreshToken !=
+              expectedRefreshToken) {
         throw StateError('Hermes connection changed before sign-in completed.');
       }
       final previous = stored.desktopCredentials;
@@ -519,6 +526,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
           accessHeaders: previous?.accessHeaders ?? const {},
         ),
       );
+      expectedRefreshToken = credentials.nativeTokens?.refreshToken;
     });
   }
 

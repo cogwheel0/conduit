@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/views/hermes_connections_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
@@ -5,8 +7,11 @@ import 'package:conduit/features/hermes/widgets/hermes_connection_switcher.dart'
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -200,6 +205,74 @@ void main() {
     check(await secrets.read(key: 'hermes_api_key_v1:$_work')).isNull();
   });
 
+  testWidgets('tests an inactive connection with its rotated tokens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(<String, Object?>{
+        PreferenceKeys.hermesEnabled: true,
+        PreferenceKeys.hermesConnections: HermesConnectionsDocument(
+          connections: const [
+            HermesConnectionProfile(
+              id: _home,
+              name: 'Home agent',
+              baseUrl: 'https://home.example',
+              documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+            ),
+            HermesConnectionProfile(
+              id: _work,
+              name: 'Work agent',
+              baseUrl: 'https://work.example',
+              mode: HermesBackendMode.desktopGateway,
+              desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+              documentTrustPrincipalId: 'bbbbbbbb-0000-4000-8000-000000000000',
+            ),
+          ],
+        ).encode(),
+        PreferenceKeys.hermesActiveConnectionId: _home,
+      }),
+    );
+    await secrets.write(
+      key: 'hermes_desktop_credentials_v1:$_work',
+      value: jsonEncode(_nativeCredentials('refresh-0').toJson()),
+    );
+    final gateway = _RecordingGateway();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureStorageProvider.overrideWithValue(secrets),
+          hermesConnectionGatewayProvider.overrideWithValue(gateway),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: HermesSettingsPage(connectionId: _work),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final notifier = ProviderScope.containerOf(
+      tester.element(find.byType(HermesSettingsPage)),
+    ).read(hermesConfigProvider.notifier);
+
+    // Listing profiles or probing from another client rotates the stored
+    // tokens after the editor loaded them.
+    final loaded = await notifier.savedConnectionConfig(_work);
+    await notifier.credentialsWriterFor(loaded)(
+      _nativeCredentials('refresh-1'),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Test connection'));
+    await tester.pumpAndSettle();
+    check(
+      gateway.probed.single.desktopCredentials?.nativeTokens?.refreshToken,
+    ).equals('refresh-1');
+  });
+
   test('initials come from the first two words of a name', () {
     check(hermesConnectionInitials('Home Lab')).equals('HL');
     check(hermesConnectionInitials('research')).equals('RE');
@@ -207,4 +280,36 @@ void main() {
     check(hermesConnectionInitials(null)).equals('HA');
     check(hermesConnectionInitials('  ')).equals('HA');
   });
+}
+
+HermesDesktopCredentials _nativeCredentials(String refreshToken) =>
+    HermesDesktopCredentials(
+      nativeTokens: HermesDesktopTokenSet(
+        accessToken: 'access-$refreshToken',
+        refreshToken: refreshToken,
+        expiresAt: DateTime.utc(2100),
+      ),
+    );
+
+final class _RecordingGateway implements HermesConnectionGateway {
+  final List<HermesConfig> probed = <HermesConfig>[];
+
+  @override
+  Future<bool> probe(HermesConfig draft) async {
+    probed.add(draft);
+    return false;
+  }
+
+  @override
+  Future<String?> persist(HermesConnectionDraft draft) async =>
+      draft.config.connectionId;
+
+  @override
+  Future<void> commitOnboarding(
+    HermesConnectionDraft draft, {
+    required bool Function() isCurrent,
+  }) async {}
+
+  @override
+  Future<String?> suggestDisplayName(HermesConfig draft) async => null;
 }

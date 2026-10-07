@@ -55,6 +55,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   /// Stored settings and secrets of an inactive connection, the baseline its
   /// drafts are built against. The active connection reads the live state.
   HermesConfig? _stored;
+  int _storedReloads = 0;
   bool _loadFailed = false;
   bool _switching = false;
 
@@ -176,9 +177,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     return saved;
   }
 
-  /// Reloads the stored baseline after an inactive connection was saved.
+  /// Reloads the stored baseline after an inactive connection was saved or
+  /// its stored state changed.
   Future<void> _refreshStored() async {
     final id = _controller.connectionId;
+    final reload = ++_storedReloads;
     if (id == null || _editsActive) {
       if (mounted) setState(() => _stored = null);
       return;
@@ -187,7 +190,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       final stored = await ref
           .read(hermesConfigProvider.notifier)
           .savedConnectionConfig(id);
-      if (mounted) setState(() => _stored = stored);
+      // Reloads can overlap and finish out of order; keep the latest read.
+      if (mounted && reload == _storedReloads) {
+        setState(() => _stored = stored);
+      }
     } catch (_) {
       // The next save rebuilds against the live state or reports the outage.
     }
@@ -294,6 +300,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       if (previous != next && !_editsActive && _stored == null) {
         unawaited(_refreshStored());
       }
+    });
+    // Probing or listing profiles can rotate an inactive connection's tokens
+    // in storage; a test or save must not send or write the spent ones.
+    ref.listen<int>(hermesConnectionsRevisionProvider, (_, _) {
+      if (!_editsActive && _stored != null) unawaited(_refreshStored());
     });
     // Rebuild when the active connection changes or its state hydrates.
     final activeConfig = ref.watch(hermesConfigProvider);

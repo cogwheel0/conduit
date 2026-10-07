@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -476,6 +478,44 @@ void main() {
       check(HermesConnectionStore.readActiveId()).equals(_a);
     });
 
+    test('a stale client cannot undo a token rotation', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example').copyWith(
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+        ),
+      ], active: _a);
+      final secrets = _Secrets({
+        'hermes_api_key_v1:$_a': 'alpha-key',
+        'hermes_desktop_credentials_v1:$_b': jsonEncode(
+          _nativeCredentials('refresh-0').toJson(),
+        ),
+      });
+      final container = await _ready(secrets);
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      Future<String?> storedRefreshToken() async {
+        final stored = await controller.savedConnectionConfig(_b);
+        return stored.desktopCredentials?.nativeTokens?.refreshToken;
+      }
+
+      // Two temporary clients built from the same stored tokens.
+      final beta = await controller.savedConnectionConfig(_b);
+      final first = controller.credentialsWriterFor(beta);
+      final second = controller.credentialsWriterFor(beta);
+
+      await first(_nativeCredentials('refresh-1'));
+      // The second client's refresh token is spent; its sign-out after the
+      // resulting 401 must not erase the rotated tokens.
+      await check(second(HermesDesktopCredentials())).throws<StateError>();
+      check(await storedRefreshToken()).equals('refresh-1');
+
+      // The client that rotated keeps persisting its own rotations.
+      await first(_nativeCredentials('refresh-2'));
+      check(await storedRefreshToken()).equals('refresh-2');
+    });
+
     test('a rename of the active connection keeps its session', () async {
       _seedConnections([
         _profile(_a, 'Alpha', 'https://alpha.example'),
@@ -542,6 +582,15 @@ void main() {
     ).isNull();
   });
 }
+
+HermesDesktopCredentials _nativeCredentials(String refreshToken) =>
+    HermesDesktopCredentials(
+      nativeTokens: HermesDesktopTokenSet(
+        accessToken: 'access-$refreshToken',
+        refreshToken: refreshToken,
+        expiresAt: DateTime.utc(2100),
+      ),
+    );
 
 String _principalFor(String id) =>
     '${id.substring(0, 8)}-0000-4000-8000-000000000000';
