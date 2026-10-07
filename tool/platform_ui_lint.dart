@@ -79,10 +79,20 @@ bool _widgetUri(String uri) {
 }
 
 // These generators own their imports. Authored files cannot opt out by comment.
-bool _generated(String path) =>
-    path.endsWith('.g.dart') ||
-    path.endsWith('.freezed.dart') ||
-    RegExp(r'^lib/l10n/app_localizations(?:_[a-z_]+)?\.dart$').hasMatch(path);
+bool _generated(String path, String absolutePath) {
+  if (RegExp(r'^lib/l10n/app_localizations(?:_[a-z_]+)?\.dart$')
+      .hasMatch(path)) {
+    return true;
+  }
+  if (!path.endsWith('.g.dart') && !path.endsWith('.freezed.dart')) {
+    return false;
+  }
+  final unit = parseString(content: File(absolutePath).readAsStringSync()).unit;
+  return unit.directives.any((directive) => directive is PartOfDirective);
+}
+
+String _repositoryPath(String path, String root) =>
+    p.relative(path, from: root).split(p.separator).join('/');
 
 Future<void> main(List<String> args) async {
   var root = Directory.current.path;
@@ -127,12 +137,14 @@ Future<void> main(List<String> args) async {
       '$baseRef:$allowlist',
     ], workingDirectory: root);
     if (previous.exitCode == 0) {
-      errors.addAll(
-        checkAllowlistGrowth(
-          previous.stdout as String,
-          file.readAsStringSync(),
-        ),
-      );
+      if (errors.isEmpty) {
+        errors.addAll(
+          checkAllowlistGrowth(
+            previous.stdout as String,
+            file.readAsStringSync(),
+          ),
+        );
+      }
     } else {
       // Only initial introduction may lack the file. An invalid ref fails.
       final validRef = Process.runSync('git', [
@@ -161,10 +173,10 @@ Future<Map<String, int>> inventoryViolations(String root) async {
           .listSync(recursive: true, followLinks: false)
           .whereType<File>()
           .where((file) {
-            final path = p.relative(file.path, from: root);
+            final path = _repositoryPath(file.path, root);
             return path.endsWith('.dart') &&
                 !path.startsWith(_seam) &&
-                !_generated(path);
+                !_generated(path, file.path);
           })
           .toList()
         ..sort((a, b) => a.path.compareTo(b.path));
@@ -173,7 +185,7 @@ Future<Map<String, int>> inventoryViolations(String root) async {
   );
   final units = <String, CompilationUnit>{};
   Set<String> widgetExports(String path, Set<String> visiting) {
-    if (p.relative(path, from: root).startsWith(_seam)) return {};
+    if (_repositoryPath(path, root).startsWith(_seam)) return {};
     if (!visiting.add(path) || !File(path).existsSync()) return {};
     final unit = units.putIfAbsent(
       path,
@@ -200,7 +212,7 @@ Future<Map<String, int>> inventoryViolations(String root) async {
 
   try {
     for (final file in files) {
-      final path = p.relative(file.path, from: root);
+      final path = _repositoryPath(file.path, root);
       void record(String kind, String value) {
         final key = '$path|$kind|$value';
         counts.update(key, (n) => n + 1, ifAbsent: () => 1);
@@ -354,7 +366,8 @@ List<String> checkAllowlist(Map<String, int> counts, String source) {
     final count = entry['count'];
     if (path is! String ||
         !path.startsWith('lib/') ||
-        p.normalize(path) != path ||
+        p.posix.normalize(path) != path ||
+        path.contains(r'\') ||
         RegExp(r'[*?\[\]]').hasMatch(path) ||
         value is! String ||
         value.isEmpty ||
