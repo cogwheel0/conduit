@@ -7,6 +7,7 @@ import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
 import 'package:conduit/features/hermes/widgets/hermes_connection_switcher.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
@@ -351,6 +352,58 @@ void main() {
       expect(retry, findsNothing);
     });
   }
+
+  testWidgets('an editor whose baseline cannot be read says so and retries', (
+    tester,
+  ) async {
+    final flaky = _FailingSecrets(
+      {
+        'hermes_api_key_v1:$_home': 'home-key',
+        'hermes_api_key_v1:$_work': 'work-key',
+      },
+      failingKey: 'hermes_api_key_v1:$_home',
+      failures: 0,
+    );
+    // Tall enough to build the whole editor, Save included.
+    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [secureStorageProvider.overrideWithValue(flaky)],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: HermesSettingsPage(connectionId: _home),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(HermesSettingsPage)),
+    );
+    final retry = find.byKey(
+      const ValueKey<String>('hermes-retry-load-connection'),
+    );
+    ConduitButton save() => tester.widget<ConduitButton>(
+      find.byKey(const ValueKey<String>('hermes-save-button')),
+    );
+    check(save().onPressed).isNotNull();
+
+    // The edited connection stops being active, and reading its stored
+    // baseline fails (reads of Hermes secrets retry once).
+    flaky.failures = 2;
+    await container.read(hermesConfigProvider.notifier).setActiveConnection(
+      _work,
+    );
+    await tester.pumpAndSettle();
+    expect(retry, findsOneWidget);
+    check(save().onPressed).isNull();
+
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(retry, findsNothing);
+    check(save().onPressed).isNotNull();
+  });
 
   test('initials come from the first two words of a name', () {
     check(hermesConnectionInitials('Home Lab')).equals('HL');

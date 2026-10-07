@@ -106,17 +106,22 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     }
   }
 
-  /// Loads an inactive connection again after reading it failed, retrying a
-  /// secure-storage outage first since it blocks every read.
+  /// Loads an inactive connection, or the stored baseline of the one being
+  /// edited, again after reading it failed, retrying a secure-storage outage
+  /// first since it blocks every read.
   Future<void> _retryLoad() async {
-    final id = widget.connectionId;
+    final id = _connectionController?.connectionId ?? widget.connectionId;
     if (id == null) return;
     setState(() => _loadFailed = false);
     if (ref.read(hermesSecretsErrorProvider) != null) {
       await ref.read(hermesConfigProvider.notifier).retrySecrets();
       if (!mounted) return;
     }
-    await _loadStored(id);
+    if (_connectionController == null) {
+      await _loadStored(id);
+    } else {
+      await _refreshStored();
+    }
   }
 
   void _handleConnectionChanged() {
@@ -197,7 +202,12 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final id = _controller.connectionId;
     final reload = ++_storedReloads;
     if (id == null || _editsActive) {
-      if (mounted) setState(() => _stored = null);
+      if (mounted) {
+        setState(() {
+          _stored = null;
+          _loadFailed = false;
+        });
+      }
       return;
     }
     try {
@@ -206,12 +216,40 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           .savedConnectionConfig(id);
       // Reloads can overlap and finish out of order; keep the latest read.
       if (mounted && reload == _storedReloads) {
-        setState(() => _stored = stored);
+        setState(() {
+          _stored = stored;
+          _loadFailed = false;
+        });
       }
-    } catch (_) {
-      // The next save rebuilds against the live state or reports the outage.
+    } catch (error) {
+      DebugLogger.warning(
+        'connection-reload-failed',
+        scope: 'hermes/connections',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      // A stale baseline still guards a save; without one, Save and Test
+      // stay off, so say why and offer to read it again.
+      if (mounted && reload == _storedReloads && _stored == null) {
+        setState(() => _loadFailed = true);
+      }
     }
   }
+
+  /// Why a connection or its stored baseline is missing, and a way to read
+  /// it again.
+  List<Widget> _loadFailure(AppLocalizations l10n) => [
+    UtilityStatusBanner(
+      message: l10n.hermesSecretsUnavailable,
+      tone: UtilityStatusTone.warning,
+    ),
+    const SizedBox(height: Spacing.md),
+    ConduitButton(
+      key: const ValueKey<String>('hermes-retry-load-connection'),
+      text: l10n.retry,
+      isSecondary: true,
+      onPressed: _retryLoad,
+    ),
+  ];
 
   /// Desktop sign-in needs the live connection: save the draft, then make
   /// this connection the active one.
@@ -295,19 +333,9 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       return UtilityPageScaffold.settings(
         title: l10n.hermesAgentSettingsTitle,
         children: [
-          if (_loadFailed) ...[
-            UtilityStatusBanner(
-              message: l10n.hermesSecretsUnavailable,
-              tone: UtilityStatusTone.warning,
-            ),
-            const SizedBox(height: Spacing.md),
-            ConduitButton(
-              key: const ValueKey<String>('hermes-retry-load-connection'),
-              text: l10n.retry,
-              isSecondary: true,
-              onPressed: _retryLoad,
-            ),
-          ] else
+          if (_loadFailed)
+            ..._loadFailure(l10n)
+          else
             const Padding(
               padding: EdgeInsets.all(Spacing.xl),
               child: Center(child: AdaptiveProgressIndicator()),
@@ -402,7 +430,13 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     );
 
     final content = <Widget>[
-      const HermesSecretsErrorBanner(),
+      // Its retry also clears a secure-storage outage, so it replaces that
+      // banner rather than repeating it.
+      if (_loadFailed && !_baselineReady) ...[
+        ..._loadFailure(l10n),
+        gap,
+      ] else
+        const HermesSecretsErrorBanner(),
       if (!widget.isOnboarding && existing && !editsActive) ...[
         InsetGroupedList(
           footer: l10n.hermesInactiveConnectionNotice,
