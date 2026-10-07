@@ -473,11 +473,22 @@ class OptimizedStorageService {
         return _adoptVaultedSessionUnlocked(toServerId);
       }
 
+      // Read what the next account has filed away before anything changes.
+      // A vault that cannot be read then refuses the switch with both
+      // accounts as they were, rather than leaving the next one active and
+      // signed out with its session still filed away, for the next switch
+      // away from it to drop.
+      var vaulted = await _readVaultedSessionUnlocked(toServerId);
       if (from != null) {
         // Copy before clearing, so the worst case is a session in two places
         // rather than one lost to a crash mid-switch. The adopt below removes
         // the vault copy, reconciling it.
-        await _stashLiveSessionUnlocked(from);
+        final filed = await _stashLiveSessionUnlocked(from);
+        // A saved sign-in from before accounts existed can name the next
+        // account; the stash has just filed it there.
+        if (filed != null && filed.owner == toServerId) {
+          vaulted = (token: vaulted.token, credentials: filed.credentials);
+        }
         // The live sign-in belongs to the account being left. Drop it before
         // the active id moves, so a crash here cannot leave it live under
         // the new account.
@@ -485,7 +496,7 @@ class OptimizedStorageService {
       }
 
       await _setActiveServerIdUnlocked(toServerId);
-      return _adoptVaultedSessionUnlocked(toServerId);
+      return _adoptVaultedSessionUnlocked(toServerId, vaulted: vaulted);
     });
   }
 
@@ -495,8 +506,11 @@ class OptimizedStorageService {
   /// A copy: the live slots are left for the caller to clear. Absent or
   /// fenced values are not copied (an entry would read as "signed in"), and
   /// any older vault copy is dropped instead, so the vault never holds a
-  /// session the live slots had already given up.
-  Future<void> _stashLiveSessionUnlocked(String accountId) async {
+  /// session the live slots had already given up. Returns the saved sign-in
+  /// it filed, with the account it was filed under.
+  Future<({String owner, String credentials})?> _stashLiveSessionUnlocked(
+    String accountId,
+  ) async {
     final token = _authTokenReadSuppressed
         ? null
         : await _retrySecureStorageRead(
@@ -530,19 +544,34 @@ class OptimizedStorageService {
         credentials.isEmpty) {
       await _secureCredentialStorage.deleteServerCredentials(accountId);
     }
+    return credentials == null || credentials.isEmpty
+        ? null
+        : (owner: credentialsOwner, credentials: credentials);
   }
+
+  /// [accountId]'s vaulted token and saved sign-in.
+  Future<({String? token, String? credentials})> _readVaultedSessionUnlocked(
+    String accountId,
+  ) async => (
+    token: await _retrySecureStorageRead(
+      () => _secureCredentialStorage.getServerToken(accountId),
+      scope: 'storage/optimized/token-adopt',
+    ),
+    credentials: await _retrySecureStorageRead(
+      () => _secureCredentialStorage.getServerCredentialsPayload(accountId),
+      scope: 'storage/optimized/credentials-adopt',
+    ),
+  );
 
   /// Moves [accountId]'s vaulted token and saved sign-in into the live slots,
   /// emptying them when it has none. Returns whether either was there.
-  Future<bool> _adoptVaultedSessionUnlocked(String accountId) async {
-    final token = await _retrySecureStorageRead(
-      () => _secureCredentialStorage.getServerToken(accountId),
-      scope: 'storage/optimized/token-adopt',
-    );
-    final credentials = await _retrySecureStorageRead(
-      () => _secureCredentialStorage.getServerCredentialsPayload(accountId),
-      scope: 'storage/optimized/credentials-adopt',
-    );
+  /// [vaulted] is what the vault held, when the caller read it already.
+  Future<bool> _adoptVaultedSessionUnlocked(
+    String accountId, {
+    ({String? token, String? credentials})? vaulted,
+  }) async {
+    final (:token, :credentials) =
+        vaulted ?? await _readVaultedSessionUnlocked(accountId);
     final hasToken = token != null && token.isNotEmpty;
     final hasCredentials = credentials != null && credentials.isNotEmpty;
 

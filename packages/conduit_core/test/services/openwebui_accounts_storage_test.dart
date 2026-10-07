@@ -201,6 +201,50 @@ void main() {
       check(await vaultedToken('b')).isNull();
     });
 
+    test('a switch whose target vault cannot be read changes nothing', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      await signIn('b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      await storage.saveAuthToken('token-a');
+      secure.unreadableKey = 'auth_token_server_v1:b';
+
+      await check(
+        storage.switchActiveServer(fromServerId: 'a', toServerId: 'b'),
+      ).throws<StateError>();
+      secure.unreadableKey = null;
+
+      check(await storage.getActiveServerId()).equals('a');
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await vaultedToken('a')).isNull();
+      // Switching on to another account files A's session, not B's.
+      await storage.switchActiveServer(fromServerId: 'a', toServerId: 'c');
+      check(await vaultedToken('b')).equals('token-b');
+    });
+
+    test('a saved sign-in naming the account switched to stays live', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('a');
+      // From before accounts existed: B's sign-in, live while A is active.
+      await storage.saveCredentials(
+        serverId: 'b',
+        username: 'user-b',
+        password: 'pw-b',
+      );
+
+      check(
+        await storage.switchActiveServer(fromServerId: 'a', toServerId: 'b'),
+      ).isTrue();
+
+      check((await storage.getSavedCredentialsStrict())?['password'])
+          .equals('pw-b');
+      check(await vaultedCredentials('b')).isNull();
+      check(await vaultedToken('a')).equals('token-a');
+    });
+
     test('lists which accounts hold a session', () async {
       await storage.saveServerConfigs([
         account('a'),
