@@ -4139,6 +4139,7 @@
   "accountsAddressName": "Nombre (opcional)",
   "accountsAddressNameHint": "Red doméstica, Tailscale…",
   "accountsAddressDifferentServer": "Esta dirección lleva a otro servidor o a otra cuenta en él.",
+  "accountsAddressNeedsSignIn": "Primero inicia sesión en una cuenta de este servidor para poder comprobar la dirección.",
   "accountsRemoveAddress": "Eliminar dirección",
   "accountsRemoveAddressMessage": "Conduit dejará de probar esta dirección. Tus cuentas seguirán con la sesión iniciada."
 }

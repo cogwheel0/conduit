@@ -8428,6 +8428,10 @@
   "@accountsAddressDifferentServer": {
     "description": "Error shown when a new address of an Open WebUI server answers as another server: the signed-in account is not recognized there."
   },
+  "accountsAddressNeedsSignIn": "Sign in to an account on this server first, so the address can be checked.",
+  "@accountsAddressNeedsSignIn": {
+    "description": "Error shown when a new address of an Open WebUI server cannot be checked: the server's accounts keep a saved sign-in but are not signed in."
+  },
   "accountsRemoveAddress": "Remove address",
   "@accountsRemoveAddress": {
     "description": "Destructive action that removes one address of an Open WebUI server."

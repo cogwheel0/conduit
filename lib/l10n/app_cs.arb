@@ -5961,6 +5961,7 @@
   "accountsAddressName": "Název (volitelné)",
   "accountsAddressNameHint": "Domácí síť, Tailscale…",
   "accountsAddressDifferentServer": "Tato adresa vede na jiný server nebo k jinému účtu na něm.",
+  "accountsAddressNeedsSignIn": "Nejprve se přihlaste k účtu na tomto serveru, aby bylo možné adresu ověřit.",
   "accountsRemoveAddress": "Odebrat adresu",
   "accountsRemoveAddressMessage": "Conduit přestane tuto adresu zkoušet. Vaše účty zůstanou přihlášené."
 }

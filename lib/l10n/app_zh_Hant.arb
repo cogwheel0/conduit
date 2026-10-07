@@ -4139,6 +4139,7 @@
   "accountsAddressName": "名稱（選填）",
   "accountsAddressNameHint": "家用網路、Tailscale…",
   "accountsAddressDifferentServer": "此位址連到的是另一台伺服器，或該伺服器上的另一個帳戶。",
+  "accountsAddressNeedsSignIn": "請先登入此伺服器上的帳戶，以便檢查該位址。",
   "accountsRemoveAddress": "移除位址",
   "accountsRemoveAddressMessage": "Conduit 將不再嘗試此位址。你的帳戶會保持登入狀態。"
 }

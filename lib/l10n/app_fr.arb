@@ -4139,6 +4139,7 @@
   "accountsAddressName": "Nom (facultatif)",
   "accountsAddressNameHint": "Réseau domestique, Tailscale…",
   "accountsAddressDifferentServer": "Cette adresse mène à un autre serveur, ou à un autre compte sur celui-ci.",
+  "accountsAddressNeedsSignIn": "Connectez-vous d'abord à un compte sur ce serveur pour que l'adresse puisse être vérifiée.",
   "accountsRemoveAddress": "Supprimer l'adresse",
   "accountsRemoveAddressMessage": "Conduit n'essaiera plus cette adresse. Vos comptes restent connectés."
 }

@@ -23,6 +23,7 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/auth/openwebui_address_check.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show openWebUiRouteResolverProvider;
@@ -364,10 +365,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// Saves [verified] -- an address that answered as an Open WebUI server --
   /// as a route to the server being edited.
   ///
-  /// When the account in use is on that server, the address must also know
-  /// it: the same user, through the new URL. Otherwise it is another server
-  /// (or another account behind the same proxy), and every account on this
-  /// one would start sending its session there. Returns whether it saved.
+  /// The address must also know the server's accounts: a token one of them
+  /// holds has to name the same user through it. Otherwise it is another
+  /// server (or another account behind the same proxy), and every account on
+  /// this one would start sending its session there. Returns whether it
+  /// saved.
   Future<bool> _saveRoute(ServerConfig verified) async {
     final l10n = AppLocalizations.of(context)!;
     final storage = ref.read(optimizedStorageServiceProvider);
@@ -381,9 +383,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         activeAccount != null &&
         activeAccount.serverId == server.id &&
         activeAccount.userId != null;
-    if (checksActiveAccount) {
-      final token = ref.read(authTokenProvider3);
-      if (token != null && token.isNotEmpty) {
+    final check = await checkOpenWebUiAddress(
+      registry: registry,
+      serverId: server.id,
+      activeAccountId: activeId,
+      liveToken: ref.read(authTokenProvider3),
+      keptTokenFor: storage.vaultedTokenFor,
+      accountsWithSession: await storage.accountIdsWithSession(),
+      userAt: (token) async {
         final probe = ApiService(
           serverConfig: verified,
           workerManager: ref.read(workerManagerProvider),
@@ -393,25 +400,22 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           final user = await probe.getCurrentUser(
             suppressAuthFailureNotification: true,
           );
-          if (user.id != activeAccount.userId) {
-            if (mounted) {
-              setState(
-                () => _connectionError = l10n.accountsAddressDifferentServer,
-              );
-            }
-            return false;
-          }
-        } catch (_) {
-          if (mounted) {
-            setState(
-              () => _connectionError = l10n.accountsAddressDifferentServer,
-            );
-          }
-          return false;
+          return user.id;
         } finally {
           probe.dispose();
         }
-      }
+      },
+    );
+    final refusal = switch (check) {
+      OpenWebUiAddressCheck.differentServer =>
+        l10n.accountsAddressDifferentServer,
+      OpenWebUiAddressCheck.needsSignIn => l10n.accountsAddressNeedsSignIn,
+      OpenWebUiAddressCheck.sameServer ||
+      OpenWebUiAddressCheck.nothingToProtect => null,
+    };
+    if (refusal != null) {
+      if (mounted) setState(() => _connectionError = refusal);
+      return false;
     }
 
     final label = _routeLabelController.text.trim();

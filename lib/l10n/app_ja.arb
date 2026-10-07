@@ -5655,6 +5655,7 @@
   "accountsAddressName": "名前（任意）",
   "accountsAddressNameHint": "自宅ネットワーク、Tailscale…",
   "accountsAddressDifferentServer": "このアドレスは別のサーバー、またはそのサーバー上の別のアカウントにつながります。",
+  "accountsAddressNeedsSignIn": "アドレスを確認できるよう、先にこのサーバーのアカウントにサインインしてください。",
   "accountsRemoveAddress": "アドレスを削除",
   "accountsRemoveAddressMessage": "Conduit はこのアドレスを試さなくなります。アカウントはサインインしたままです。"
 }

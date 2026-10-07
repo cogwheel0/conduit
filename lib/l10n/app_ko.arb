@@ -3911,6 +3911,7 @@
   "accountsAddressName": "이름(선택 사항)",
   "accountsAddressNameHint": "홈 네트워크, Tailscale…",
   "accountsAddressDifferentServer": "이 주소는 다른 서버 또는 해당 서버의 다른 계정으로 연결됩니다.",
+  "accountsAddressNeedsSignIn": "주소를 확인할 수 있도록 먼저 이 서버의 계정에 로그인하세요.",
   "accountsRemoveAddress": "주소 제거",
   "accountsRemoveAddressMessage": "Conduit이 더 이상 이 주소를 시도하지 않습니다. 계정은 로그인 상태로 유지됩니다."
 }

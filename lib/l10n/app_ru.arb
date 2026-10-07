@@ -4177,6 +4177,7 @@
   "accountsAddressName": "Название (необязательно)",
   "accountsAddressNameHint": "Домашняя сеть, Tailscale…",
   "accountsAddressDifferentServer": "Этот адрес ведёт на другой сервер или к другому аккаунту на нём.",
+  "accountsAddressNeedsSignIn": "Сначала войдите в аккаунт на этом сервере, чтобы адрес можно было проверить.",
   "accountsRemoveAddress": "Удалить адрес",
   "accountsRemoveAddressMessage": "Conduit перестанет пробовать этот адрес. Вход в ваши аккаунты сохранится."
 }

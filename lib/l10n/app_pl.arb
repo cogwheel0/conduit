@@ -7651,6 +7651,7 @@
   "accountsAddressName": "Nazwa (opcjonalnie)",
   "accountsAddressNameHint": "Sieć domowa, Tailscale…",
   "accountsAddressDifferentServer": "Ten adres prowadzi do innego serwera lub do innego konta na nim.",
+  "accountsAddressNeedsSignIn": "Najpierw zaloguj się na konto na tym serwerze, aby można było sprawdzić adres.",
   "accountsRemoveAddress": "Usuń adres",
   "accountsRemoveAddressMessage": "Conduit przestanie próbować tego adresu. Twoje konta będą nadal zalogowane."
 }

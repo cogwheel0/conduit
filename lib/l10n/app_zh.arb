@@ -4139,6 +4139,7 @@
   "accountsAddressName": "名称（可选）",
   "accountsAddressNameHint": "家庭网络、Tailscale…",
   "accountsAddressDifferentServer": "此地址指向另一台服务器，或该服务器上的另一个账户。",
+  "accountsAddressNeedsSignIn": "请先登录此服务器上的账户，以便检查该地址。",
   "accountsRemoveAddress": "移除地址",
   "accountsRemoveAddressMessage": "Conduit 将不再尝试此地址。你的账户将保持登录状态。"
 }

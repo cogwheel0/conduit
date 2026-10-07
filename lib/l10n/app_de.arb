@@ -4139,6 +4139,7 @@
   "accountsAddressName": "Name (optional)",
   "accountsAddressNameHint": "Heimnetz, Tailscale…",
   "accountsAddressDifferentServer": "Diese Adresse führt zu einem anderen Server oder zu einem anderen Konto darauf.",
+  "accountsAddressNeedsSignIn": "Melde dich zuerst bei einem Konto auf diesem Server an, damit die Adresse geprüft werden kann.",
   "accountsRemoveAddress": "Adresse entfernen",
   "accountsRemoveAddressMessage": "Conduit versucht diese Adresse nicht mehr. Deine Konten bleiben angemeldet."
 }

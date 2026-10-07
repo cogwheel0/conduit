@@ -4139,6 +4139,7 @@
   "accountsAddressName": "Naam (optioneel)",
   "accountsAddressNameHint": "Thuisnetwerk, Tailscale…",
   "accountsAddressDifferentServer": "Dit adres leidt naar een andere server, of naar een ander account daarop.",
+  "accountsAddressNeedsSignIn": "Log eerst in op een account op deze server, zodat het adres kan worden gecontroleerd.",
   "accountsRemoveAddress": "Adres verwijderen",
   "accountsRemoveAddressMessage": "Conduit probeert dit adres niet meer. Je accounts blijven ingelogd."
 }
