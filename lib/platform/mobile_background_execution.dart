@@ -21,8 +21,10 @@ class MobileBackgroundExecution implements BackgroundExecutionPort {
   @override
   Future<void> begin(List<String> streamIds) async {
     if (!_supported) return;
+    // The streams this port keeps alive are chat replies being written.
     await BackgroundStreamingHandler.instance.startBackgroundExecution(
       streamIds,
+      isReply: true,
     );
   }
 

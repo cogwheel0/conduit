@@ -383,7 +383,7 @@ void main() {
               try {
                 return ref.read(isChatStreamingProvider) ||
                     ref.read(localChatGenerationActiveProvider) ||
-                    BackgroundStreamingHandler.instance.hasActiveStreams;
+                    BackgroundStreamingHandler.instance.hasActiveReplyStreams;
               } catch (_) {
                 return false;
               }
