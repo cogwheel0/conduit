@@ -1463,8 +1463,9 @@ void main() {
 
       check(await storage.getAuthTokenStrict()).equals('token-a');
       check(await vaultedToken('b')).equals('token-b');
+      // Still on the route it was using; the route resolver moves it.
       check((await storage.getServerConfigs()).first.url)
-          .equals('http://10.0.0.2:3000');
+          .equals('https://chat.example.com');
     });
 
     test('a sign-in validated on one route cannot commit on another', () async {

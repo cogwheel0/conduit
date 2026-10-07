@@ -191,6 +191,29 @@ void main() {
     check(routes.state.endpointId).equals(server.endpoints.first.id);
   });
 
+  test('reordering keeps the route in use until a check moves it', () async {
+    answers = {_lan: true, _tailscale: true, _public: true};
+    final routes = await resolver();
+    final server = (await storage.getOpenWebUiRegistryStrict()).servers.single;
+
+    await storage.saveServer(
+      OpenWebUiServer(
+        id: server.id,
+        name: server.name,
+        endpoints: server.endpoints.reversed.toList(),
+      ),
+    );
+    check(await routeInUse()).equals(_lan);
+
+    replyInProgress = true;
+    await routes.resolve(reason: 'routes-edited');
+    check(await routeInUse()).equals(_lan);
+
+    replyInProgress = false;
+    await routes.resolve(reason: 'routes-edited');
+    check(await routeInUse()).equals(_public);
+  });
+
   test('a check overtaken by a newer one still moves the client', () async {
     final routes = await resolver();
     check((await container.read(serverConfigsProvider.future)).single.url)

@@ -2441,20 +2441,26 @@ class OptimizedStorageService {
       _stagedServerConfigCandidate = null;
       _cacheManager.invalidate(_activeServerIdKey);
       _cacheRegistry(registry);
-      try {
-        await PreferencesStore.put(
-          PreferenceKeys.openWebUiEndpointHint,
-          jsonEncode(selection),
-        );
-      } catch (error) {
-        DebugLogger.warning(
-          'endpoint-hint-write-failed',
-          scope: 'storage/optimized/registry',
-          data: {'errorType': error.runtimeType.toString()},
-        );
-      }
+      await _writeEndpointHint();
       return true;
     });
+  }
+
+  /// Remembers the routes in use for the next launch. Only a hint: losing it
+  /// costs a cold start one round of probes.
+  Future<void> _writeEndpointHint() async {
+    try {
+      await PreferencesStore.put(
+        PreferenceKeys.openWebUiEndpointHint,
+        jsonEncode(_endpointSelection()),
+      );
+    } catch (error) {
+      DebugLogger.warning(
+        'endpoint-hint-write-failed',
+        scope: 'storage/optimized/registry',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
   }
 
   /// Saves [server]'s name and routes: added, removed, reordered or edited.
@@ -2462,7 +2468,8 @@ class OptimizedStorageService {
   /// Accounts keep their sessions. Adding a route is the user saying this
   /// URL reaches the same server; the caller checks that before saving. A
   /// removed route takes its captured proxy cookies with it, and so does a
-  /// route edited to another origin or client identity. A removed route that
+  /// route edited to another origin or client identity. The route in use
+  /// stays in use, wherever it moves in the order, and a removed route that
   /// was in use gives way to the first remaining one.
   Future<void> saveServer(OpenWebUiServer server) {
     if (server.endpoints.isEmpty) {
@@ -2505,17 +2512,29 @@ class OptimizedStorageService {
         );
         final selection = _endpointSelection();
         final previous = selection[server.id];
-        if (previous != null && !routes.contains(previous)) {
+        // With nothing selected the first route is used, so a reorder would
+        // move the client at once, cutting off a reply the route resolver
+        // waits for. Pin the route in use instead; the resolver's check
+        // after the edit moves it when it should.
+        final inUse = stored.selectedEndpoint(previous).id;
+        if (routes.contains(inUse)) {
+          selection[server.id] = inUse;
+        } else {
           selection.remove(server.id);
         }
         try {
           await _saveRegistryUnlocked(next);
         } catch (_) {
           // The stored routes are unchanged; so is the one in use.
-          if (previous != null) selection[server.id] = previous;
+          if (previous == null) {
+            selection.remove(server.id);
+          } else {
+            selection[server.id] = previous;
+          }
           rethrow;
         }
         _stagedServerConfigCandidate = null;
+        await _writeEndpointHint();
       }),
     );
   }
