@@ -2393,7 +2393,8 @@ class OptimizedStorageService {
   /// sign-in candidate, whose baseline was read on the previous route, is
   /// dropped for the same reason.
   Future<bool> selectEndpoint(String serverId, String endpointId) {
-    return _serverConfigsLock.synchronized(() async {
+    // Its read can run the migration too.
+    return _synchronizedServerConfigsRead(() async {
       final registry = await _registryForWriteUnlocked();
       final server = registry.server(serverId);
       if (server == null || server.endpoint(endpointId) == null) return false;

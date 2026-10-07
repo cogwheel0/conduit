@@ -189,6 +189,10 @@ void main() {
   )>[
     ('registry read', (storage) => storage.getOpenWebUiRegistryStrict()),
     ('user binding', (storage) => storage.bindAccountUser('active', 'user-1')),
+    (
+      'route selection',
+      (storage) => storage.selectEndpoint('server:active', 'endpoint:active'),
+    ),
   ]) {
     test('a sign-in deleted while a $name migrates stays deleted', () async {
       seedLegacy([
