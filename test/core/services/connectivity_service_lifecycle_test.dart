@@ -253,6 +253,20 @@ void main() {
         check(await probeServerHealth(route(origin))).isFalse();
       }, _RealHttpOverrides());
     });
+
+    test('does not count a web page answering 200 as the server', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final portal = await serve((request) async {
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.html
+            ..write('<html><body>Sign in to continue</body></html>');
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route(portal))).isFalse();
+      }, _RealHttpOverrides());
+    });
   });
 
   test(

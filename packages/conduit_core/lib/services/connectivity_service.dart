@@ -703,7 +703,8 @@ Dio createConnectivityHealthClient(
 ///
 /// For choosing between the routes to one server: a route answers or it does
 /// not. Redirects count as not answering, for the reason the health client
-/// refuses them.
+/// refuses them, and so does a web page: a proxy's sign-in page or a captive
+/// portal answers 200 with HTML, where Open WebUI answers with JSON.
 Future<bool> probeServerHealth(
   ServerConfig server, {
   Duration timeout = const Duration(seconds: 4),
@@ -728,7 +729,9 @@ Future<bool> probeServerHealth(
           cancelToken: cancelToken,
         )
         .timeout(timeout);
-    return response.statusCode == 200;
+    final contentType = response.headers.value(Headers.contentTypeHeader);
+    return response.statusCode == 200 &&
+        !(contentType?.toLowerCase().contains('text/html') ?? false);
   } catch (_) {
     if (!cancelToken.isCancelled) cancelToken.cancel('Route probe ended');
     return false;
