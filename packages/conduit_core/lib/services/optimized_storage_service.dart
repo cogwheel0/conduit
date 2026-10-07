@@ -640,11 +640,15 @@ class OptimizedStorageService {
     Future<void> restore(Future<void> Function() write) async {
       try {
         await write();
-      } catch (error) {
-        DebugLogger.warning(
+      } catch (error, stackTrace) {
+        // The live session was restored; only an account kept aside may now
+        // read as signed out. That is not worth signing the user out of the
+        // live one, which the rollback-uncertain path would.
+        DebugLogger.error(
           'vault-restore-failed',
           scope: 'storage/optimized',
-          data: {'errorType': error.runtimeType.toString()},
+          error: error,
+          stackTrace: stackTrace,
         );
       }
     }
@@ -998,6 +1002,19 @@ class OptimizedStorageService {
         if (activeOwnershipChanged) await _deleteAuthTokenUnlocked();
         if (credentialOwnershipChanged) {
           await _deleteSavedCredentialsUnlocked();
+        }
+        // The same holds for sessions kept aside: an inactive account whose
+        // server moved, through its own edit or another account's on the
+        // same server, must not take its old bearer to the new origin.
+        for (final current in currentConfigs) {
+          if (current.id == currentActiveId) continue;
+          final next = nextConfigs
+              .where((config) => config.id == current.id)
+              .firstOrNull;
+          if (next == null ||
+              !_hasSameServerSessionOwnershipIdentity(current, next)) {
+            await _deleteVaultedSessionUnlocked(current.id);
+          }
         }
         await _saveServerConfigsUnlocked(sanitizedConfigs);
         if (rawActiveServerId != nextActiveId) {
@@ -2255,7 +2272,10 @@ class OptimizedStorageService {
         final remaining = [
           for (final config in configs)
             if (config.id != accountId)
-              config.copyWith(isActive: wasActive && config.id == next),
+              config.copyWith(
+                // Removing an inactive account leaves the active one active.
+                isActive: wasActive ? config.id == next : config.isActive,
+              ),
         ];
         if (remaining.length != configs.length || wasActive) {
           await _saveServerConfigsUnlocked(remaining);
@@ -3245,15 +3265,18 @@ class OptimizedStorageService {
     await _serverConfigsLock.synchronized(() async {
       await attempt(_deleteAuthTokenUnlocked);
       await attempt(_deleteSavedCredentialsUnlocked);
-      final configs =
-          await _getServerConfigsStrictUnlockedBypassingSuppression();
-      final activeId = _effectiveActiveServerId(
-        configs: configs,
-        rawActiveServerId: _rawStoredActiveServerId(
-          bypassReadSuppression: true,
-        ),
-      );
-      if (activeId != null) {
+      // Like every step here, a failed read is recorded and the rest still
+      // runs: the staged candidate and the cached user data go regardless.
+      await attempt(() async {
+        final configs =
+            await _getServerConfigsStrictUnlockedBypassingSuppression();
+        final activeId = _effectiveActiveServerId(
+          configs: configs,
+          rawActiveServerId: _rawStoredActiveServerId(
+            bypassReadSuppression: true,
+          ),
+        );
+        if (activeId == null) return;
         await attempt(() => _deleteVaultedSessionUnlocked(activeId));
         await attempt(() async {
           var changed = false;
@@ -3272,7 +3295,7 @@ class OptimizedStorageService {
             await _saveServerConfigsUnlocked(sanitized, authorizeReads: false);
           }
         });
-      }
+      });
       _stagedServerConfigCandidate = null;
     });
     await attempt(_clearUserScopedCacheEntries);

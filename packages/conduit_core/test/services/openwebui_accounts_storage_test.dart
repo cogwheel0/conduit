@@ -299,7 +299,60 @@ void main() {
     );
   });
 
+  test('a server moved by another account\'s edit drops sessions kept aside',
+      () async {
+    // Three accounts on one server; c is signed in but not active.
+    await storage.saveServerConfigs([account('a'), account('b'), account('c')]);
+    await signIn('c', password: 'pw-c');
+    check(
+      await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a'),
+    ).isFalse();
+    final configs = await storage.getServerConfigs();
+
+    // An edit through b moves the shared endpoint.
+    await storage.saveServerConfigs([
+      for (final config in configs)
+        config.id == 'b'
+            ? config.copyWith(url: 'https://elsewhere.example.org')
+            : config,
+    ]);
+
+    check(await vaultedToken('c')).isNull();
+    check(await vaultedCredentials('c')).isNull();
+  });
+
+  test('signing out still clears cached user data when the account list '
+      'cannot be read', () async {
+    await storage.saveServerConfigs([account('a')]);
+    await signIn('a');
+    final caches = Hive.box<dynamic>(HiveBoxNames.caches);
+    await caches.put(HiveStoreKeys.localUser, 'cached user a');
+    // Served from the cache until it expires; the read below must fail.
+    storage.clearCache();
+    secure.unreadableKey = 'openwebui_registry_v1';
+
+    await check(
+      storage.clearActiveAccountAuthDataIf(canClear: () => true),
+    ).throws<StateError>();
+
+    check(await storage.getAuthTokenStrict()).isNull();
+    check(caches.get(HiveStoreKeys.localUser)).isNull();
+  });
+
   group('removing an account', () {
+    test('removing an inactive one leaves the active one marked active', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('a');
+
+      await storage.removeAccount('b');
+
+      check(
+        (await storage.getServerConfigs()).map(
+          (config) => (config.id, config.isActive),
+        ),
+      ).deepEquals([('a', true)]);
+    });
+
     test('an inactive one loses its vault and its record', () async {
       await storage.saveServerConfigs([
         account('a'),
@@ -461,13 +514,21 @@ void main() {
   });
 }
 
-/// Refuses writes to [refusedKey] once it is set, as a locked Keychain does.
+/// Refuses writes to [refusedKey], and reads of [unreadableKey], once set,
+/// as a locked Keychain does.
 final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedKey;
+  String? unreadableKey;
 
   @override
   Future<void> write({required String key, required String? value}) {
     if (key == refusedKey) throw StateError('keychain refused $key');
     return super.write(key: key, value: value);
+  }
+
+  @override
+  Future<String?> read({required String key}) {
+    if (key == unreadableKey) throw StateError('keychain locked');
+    return super.read(key: key);
   }
 }
