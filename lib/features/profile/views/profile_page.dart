@@ -151,6 +151,11 @@ class ProfilePage extends ConsumerWidget {
     // Until the saved accounts are read, or when they cannot be, there may be
     // several, and signing out signs out of every one: say so.
     final severalAccounts = !accountsAsync.hasValue || accounts.length > 1;
+    // The other saved accounts stay a tap away while the active one has no
+    // session -- it expired, or a switch left it signed out -- and Hermes or
+    // Direct keeps this page open.
+    final showAccounts =
+        hasOpenWebUiAccount || accounts.any((entry) => !entry.isActive);
     return ListView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -165,6 +170,8 @@ class ProfilePage extends ConsumerWidget {
         if (hasOpenWebUiAccount) ...[
           _buildProfileHeader(context, userData, api),
           const SizedBox(height: Spacing.lg),
+        ],
+        if (showAccounts) ...[
           _buildAccountsSection(
             context,
             ref,

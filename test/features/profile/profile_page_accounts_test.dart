@@ -12,6 +12,7 @@ import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -72,11 +73,18 @@ final class _RecordingController implements OpenWebUiAccountsController {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+final class _DirectPrimary extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.direct;
+}
+
 void main() {
   Future<_RecordingController> pumpProfile(
     WidgetTester tester,
     List<OpenWebUiAccountEntry> accounts, {
     Object? accountsError,
+    User? user = _alex,
+    bool directPrimary = false,
   }) async {
     final controller = _RecordingController();
     final workerManager = WorkerManager();
@@ -90,8 +98,10 @@ void main() {
       ProviderScope(
         retry: (_, _) => null,
         overrides: [
-          currentUserProvider2.overrideWithValue(_alex),
-          currentUserProvider.overrideWith((ref) async => _alex),
+          currentUserProvider2.overrideWithValue(user),
+          currentUserProvider.overrideWith((ref) async => user),
+          if (directPrimary)
+            preferredBackendProvider.overrideWith(_DirectPrimary.new),
           isAuthLoadingProvider2.overrideWithValue(false),
           apiServiceProvider.overrideWithValue(
             ApiService(
@@ -195,5 +205,35 @@ void main() {
     check(
       find.byKey(const Key('settings-sign-out-account')).evaluate(),
     ).isEmpty();
+  });
+
+  // An expired session clears the current user. Next to a usable Direct or
+  // Hermes backend this page stays open, and the other accounts went with
+  // the profile header.
+  testWidgets('with the active account signed out, the other accounts are '
+      'still a tap away', (tester) async {
+    final controller = await pumpProfile(
+      tester,
+      [
+        _entry(
+          'alex-home',
+          _home,
+          name: 'Alex',
+          isActive: true,
+          hasSession: false,
+        ),
+        _entry('alex-work', _work, name: 'Alex (work)', email: 'alex@work'),
+      ],
+      user: null,
+      directPrimary: true,
+    );
+
+    check(
+      find.byKey(const Key('settings-accounts-group')).evaluate(),
+    ).isNotEmpty();
+    check(find.text('Manage accounts').evaluate()).isNotEmpty();
+    await tester.tap(find.text('Alex (work)'));
+    await tester.pumpAndSettle();
+    check(controller.switched).deepEquals(['alex-work']);
   });
 }

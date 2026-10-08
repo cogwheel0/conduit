@@ -247,6 +247,37 @@ void main() {
     });
   });
 
+  // An expired session clears the current user. Next to a usable Hermes or
+  // Direct backend Settings stays open, and the other accounts went with
+  // the profile row.
+  test('with the active account signed out, the other accounts are still a '
+      'tap away', () {
+    final sections = buildNativeProfileRootSections(
+      _l10n,
+      account: null,
+      visibility: const NativeProfileRootVisibility(),
+      otherAccounts: const [
+        NativeProfileRootSavedAccount(
+          id: 'work',
+          displayName: 'Ada at work',
+          detail: 'ada@work.example · Work',
+        ),
+      ],
+    );
+
+    final accounts = sections.first;
+    check(accounts.title).equals(_l10n.accountsTitle);
+    check([for (final item in accounts.items) item.actionId]).deepEquals([
+      nativeAccountSwitchActionId,
+      nativeAccountAddActionId,
+      nativeAccountManageActionId,
+    ]);
+    check(accounts.items.first.actionValue).equals('work');
+    final ids = _ids(sections).expand((ids) => ids);
+    check(ids.contains(NativeSheetRoutes.profile)).isFalse();
+    check(ids.contains(nativeSignOutActionId)).isFalse();
+  });
+
   test('About rows that open Flutter pages close the sheet with a chevron', () {
     final items = buildNativeAboutItems(_l10n, appVersion: '1.0');
 

@@ -44,6 +44,9 @@ bool isHermesOnlyAppLocation(String location) =>
 bool _isAccountlessBackendLocation(String location) {
   return location == Routes.chat ||
       location == Routes.profile ||
+      // The saved accounts are on the device: switching to one still
+      // signed in needs no session on the active account.
+      location == Routes.accounts ||
       location == Routes.audioSettings ||
       location == Routes.appearanceSettings ||
       location == Routes.chatSettings ||

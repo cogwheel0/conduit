@@ -197,6 +197,40 @@ void main() {
       check(resolveRouteRedirect(Routes.authentication, read)).isNull();
     });
 
+    // An expired session leaves the saved accounts on the device, and the
+    // profile offers Manage accounts next to a usable Hermes or Direct
+    // backend. The router sent that to chat.
+    test('Manage accounts opens with the active account signed out next to '
+        'a usable accountless backend', () {
+      final hermes = _reader(
+        auth: AuthNavigationState.needsLogin,
+        preferred: PreferredBackend.hermes,
+        hermes: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          apiKey: 'key',
+        ),
+        accountless: true,
+      );
+      final direct = _reader(
+        auth: AuthNavigationState.needsLogin,
+        preferred: PreferredBackend.direct,
+        accountless: true,
+        directProfiles: [
+          DirectConnectionProfile(
+            id: 'direct',
+            name: 'Direct',
+            adapterKey: kOpenAiCompatibleAdapterKey,
+            baseUrl: 'https://api.example/v1',
+            apiKey: 'key',
+          ),
+        ],
+      );
+
+      check(resolveRouteRedirect(Routes.accounts, hermes)).isNull();
+      check(resolveRouteRedirect(Routes.accounts, direct)).isNull();
+    });
+
     group('the Hermes MCP page', () {
       const gateway = HermesConfig(
         enabled: true,

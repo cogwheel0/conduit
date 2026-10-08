@@ -306,7 +306,10 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   ];
   return [
     if (profileItem != null) NativeSheetSectionConfig(items: [profileItem]),
-    if (hasAccount)
+    // The other saved accounts stay a tap away while the active one has no
+    // session -- it expired, or a switch left it signed out -- and Hermes or
+    // Direct keeps Settings open.
+    if (hasAccount || hasOtherAccounts)
       NativeSheetSectionConfig(title: l10n.accountsTitle, items: accountItems),
     NativeSheetSectionConfig(items: appItems),
     if (placeItems.isNotEmpty) NativeSheetSectionConfig(items: placeItems),
