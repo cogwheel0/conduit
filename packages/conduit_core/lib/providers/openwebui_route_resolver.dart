@@ -152,10 +152,17 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   /// one has, or with no server to reach.
   String? _inUseOrigin;
 
+  /// A check moved the route in use, and the session has not been checked
+  /// on it since; see [_recheckSession].
+  bool _recheckOwed = false;
+
   @override
   OpenWebUiRouteStatus build() {
     ref.listen<String?>(settledActiveAccountIdProvider, (previous, next) {
-      if (previous != next) _schedule('account');
+      if (previous == next) return;
+      // The move owed a check to the account it was made for.
+      _recheckOwed = false;
+      _schedule('account');
     });
     // Requests failing to reach the server mean the route in use may have
     // gone, and a proxy turning them away means its session there expired.
@@ -267,6 +274,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       final server = account == null ? null : registry.server(account.serverId);
       if (account == null || server == null) {
         _inUseOrigin = null;
+        _recheckOwed = false;
         state = const OpenWebUiRouteStatus();
         return;
       }
@@ -280,6 +288,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
           serverId: server.id,
           endpointId: current.id,
         );
+        if (_recheckOwed) _recheckSession();
         return;
       }
 
@@ -337,7 +346,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         // keep the client on the old URL and the session left unchecked.
         if (changed && ref.mounted) {
           ref.invalidate(serverConfigsProvider);
-          _recheckSession();
+          _recheckOwed = true;
         }
         if (!_owns(generation)) return;
         _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(chosen.url));
@@ -353,6 +362,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         }
       }
       state = OpenWebUiRouteStatus(serverId: server.id, endpointId: chosen.id);
+      if (_recheckOwed) _recheckSession();
     } catch (error, stackTrace) {
       if (!_owns(generation)) return;
       DebugLogger.error(
@@ -376,10 +386,18 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   /// on the route left shows a connection issue, and nothing would look at
   /// the session again until Retry; auth checks it on the route moved to,
   /// once for the move. Not in the background, nor while a reply is being
-  /// written.
+  /// written: the check is owed until then, since no later check moves to
+  /// that route again. Coming back checks the routes, and a reply waits for
+  /// the next check.
   void _recheckSession() {
     try {
-      if (_inBackground || ref.read(accountChangeReplyGuardProvider)()) return;
+      if (_inBackground) return;
+      if (ref.read(accountChangeReplyGuardProvider)()) {
+        _retry?.cancel();
+        _retry = Timer(_retryDelay, () => _schedule('recheck'));
+        return;
+      }
+      _recheckOwed = false;
       if (ref.read(authStateManagerProvider).value?.status !=
           AuthStatus.error) {
         return;

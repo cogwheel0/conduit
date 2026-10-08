@@ -432,7 +432,7 @@ void main() {
       check(auth.rechecks).equals(1);
     });
 
-    test('is not checked again while a reply is being written', () async {
+    test('is checked again once the reply being written ends', () async {
       auth = _Auth(AuthStatus.error);
       answers = {_lan: true, _tailscale: false, _public: true};
       final routes = await resolver();
@@ -444,9 +444,17 @@ void main() {
 
       check(await routeInUse()).equals(_public);
       check(auth.rechecks).equals(0);
+      check(routes.retryPending).isTrue();
+
+      // The route in use stays; the check that runs then still asks.
+      replyInProgress = false;
+      await routes.resolve();
+      check(auth.rechecks).equals(1);
+      await routes.resolve();
+      check(auth.rechecks).equals(1);
     });
 
-    test('is not checked again in the background', () async {
+    test('is checked again once the app comes back', () async {
       auth = _Auth(AuthStatus.error);
       answers = {_lan: true, _tailscale: false, _public: true};
       final routes = await resolver();
@@ -463,6 +471,9 @@ void main() {
 
       check(await routeInUse()).equals(_public);
       check(auth.rechecks).equals(0);
+
+      lifecycle.emit(AppLifecyclePhase.resumed);
+      await until(() => auth.rechecks == 1);
     });
   });
 
