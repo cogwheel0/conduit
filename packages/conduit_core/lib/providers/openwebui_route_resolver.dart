@@ -287,9 +287,15 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         endpointId: current.id,
         checking: true,
       );
+      // A proxy turning requests away from the route in use can still let
+      // its health check through; for the check that started, that route
+      // does not answer.
       final probes = [
         for (final route in server.endpoints)
-          _answers(registry, account, server, route),
+          if (reason == 'rejected' && route.id == current.id)
+            Future<bool>.value(false)
+          else
+            _answers(registry, account, server, route),
       ];
       final chosen = await _firstAnswering(server.endpoints, probes);
       if (!_owns(generation)) return;

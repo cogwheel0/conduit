@@ -379,6 +379,35 @@ void main() {
     check(await routeInUse()).equals(_tailscale);
   });
 
+  // The proxy can let the health check through and refuse only the requests
+  // its expired session should carry.
+  group('a proxy refusing a route that passes its health check', () {
+    test('moves to another route that answers', () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      check(await routeInUse()).equals(_lan);
+
+      ConnectivityService.reportRouteRejected(Uri.parse(_lan));
+
+      await until(() => routes.state.endpointId == 'public');
+      check(await routeInUse()).equals(_public);
+    });
+
+    test('moves even while a reply is being written', () async {
+      answers = {_lan: false, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      answers[_tailscale] = true;
+      replyInProgress = true;
+
+      ConnectivityService.reportRouteRejected(Uri.parse(_public));
+
+      await until(() => routes.state.endpointId == 'tailscale');
+      check(await routeInUse()).equals(_tailscale);
+    });
+  });
+
   group('in the background', () {
     // Every route, every 30 seconds, while nothing answers.
     test('a check waiting to run again stops', () async {
