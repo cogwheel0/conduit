@@ -103,9 +103,12 @@ class AccountAdditionOrigin extends Notifier<String?> {
 }
 
 /// Whether the active account is a sign-in started for an added account that
-/// can be left: it never signed in, and another account is still signed in
-/// to go back to. Sign-in screens offer Cancel instead of Back then.
+/// can be left: an addition is in progress, the account never signed in, and
+/// another account is still signed in to go back to. Sign-in screens offer
+/// Cancel instead of Back then. Never signed in is not enough on its own: an
+/// account carried over from before accounts existed may not know its user.
 final pendingSignInAbandonableProvider = FutureProvider<bool>((ref) async {
+  if (ref.watch(accountAdditionOriginProvider) == null) return false;
   final entries = await ref.watch(openWebUiAccountsProvider.future);
   final active = entries.where((entry) => entry.isActive).firstOrNull;
   if (active == null || active.account.userId != null || active.hasSession) {
@@ -258,6 +261,10 @@ class OpenWebUiAccountsController {
       _afterLastChange(_abandonPendingSignIn);
 
   Future<bool> _abandonPendingSignIn() async {
+    // Only an addition's own sign-in is left: an account carried over from
+    // before accounts existed can look the same, and leaving it would delete
+    // its data.
+    if (_ref.read(accountAdditionOriginProvider) == null) return false;
     // The cached list can trail a sign-in that just finished; auth cannot.
     if (_signedIn()) return false;
     final activeId = await _activeAccountId();

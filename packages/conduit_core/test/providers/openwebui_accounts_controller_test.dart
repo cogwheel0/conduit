@@ -302,6 +302,7 @@ void main() {
         entry('b', lastUsedAt: DateTime(2026, 9)),
       ];
       final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
 
       check(await container_.read(pendingSignInAbandonableProvider.future))
           .isTrue();
@@ -311,6 +312,26 @@ void main() {
             .abandonPendingSignIn(),
       ).isTrue();
       check(auth.signedOut).deepEquals([('a', 'b')]);
+    });
+
+    test('leaves an account carried over without a known user alone',
+        () async {
+      // Migrated from before accounts existed, with no owner on record: it
+      // looks like an unfinished addition, but none is in progress.
+      accounts = [
+        entry('a', hasSession: false).withUser(null),
+        entry('b', lastUsedAt: DateTime(2026, 9)),
+      ];
+      final container_ = container();
+
+      check(await container_.read(pendingSignInAbandonableProvider.future))
+          .isFalse();
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isFalse();
+      check(auth.signedOut).isEmpty();
     });
 
     test('keeps an added account whose sign-in finishes meanwhile', () async {
@@ -325,6 +346,7 @@ void main() {
         return activeId;
       });
       final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
       await container_.read(authStateManagerProvider.future);
 
       check(
@@ -684,6 +706,7 @@ void main() {
     test('leaving an addition while a sign-in lands elsewhere leaves that '
         'alone', () async {
       start(duringSignOut: () => storage.active = 'elsewhere');
+      container.read(accountAdditionOriginProvider.notifier).begin('a');
       storage.active = 'c';
 
       check(
@@ -700,6 +723,7 @@ void main() {
     test('leaving an addition waits for a change in progress', () async {
       final serverAsked = Completer<void>();
       start(duringSignOut: () => serverAsked.future);
+      container.read(accountAdditionOriginProvider.notifier).begin('a');
       storage.active = 'c';
       final controller = container.read(openWebUiAccountsControllerProvider);
 
@@ -751,6 +775,7 @@ void main() {
           ),
         );
     // Another addition starts from B, and is cancelled before signing in.
+    container.read(accountAdditionOriginProvider.notifier).begin('b');
     storage.active = 'c';
 
     check(await controller.abandonPendingSignIn()).isTrue();
