@@ -120,6 +120,18 @@ final openWebUiAccountUserBindProvider = Provider<OpenWebUiAccountUserBind>(
   (ref) => ref.watch(optimizedStorageServiceProvider).bindAccountUser,
 );
 
+typedef OpenWebUiSavedAccountIds = Future<Set<String>> Function();
+
+/// The ids of the accounts storage keeps. Strict: a failed read throws.
+final openWebUiSavedAccountIdsProvider = Provider<OpenWebUiSavedAccountIds>(
+  (ref) => () async {
+    final registry = await ref
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    return {for (final account in registry.accounts) account.id};
+  },
+);
+
 typedef OpenWebUiActiveAccountRecord = Future<void> Function(String accountId);
 
 /// Keeps a certified account's id as the active one when storage counts it
@@ -177,6 +189,8 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   @override
   void build() {
     ref.onDispose(() => _disposed = true);
+    // Outside the build: it reads storage, and purges through this notifier.
+    Future<void>.microtask(_resumePendingPurges);
     ref.listen<bool>(openWebUiCachedAccountOwnerMismatchProvider, (
       _,
       mismatch,
@@ -409,25 +423,48 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       ref.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
     }
     final certificationGeneration = _certificationGeneration;
-    try {
-      final ownerMarker = ref
-          .read(openWebUiAccountOwnerMarkerStoreProvider)
-          .read(accountId);
-      final ownerUserId = ownerMarker?.userId.trim();
-      if (ownerMarker != null &&
-          ownerUserId != null &&
-          ownerUserId.isNotEmpty) {
-        await HermesMixedSessionBindingTrustStore.forgetStorageAccount(
-          HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
-            serverId: accountId,
-            userId: ownerUserId,
-            tokenFingerprint: ownerMarker.tokenFingerprint,
-          ),
-        );
+    // Recorded first: the account is already gone from the list the user
+    // could sign out of it again from, so a step that fails is left for the
+    // next start. Each step is tried even when one before it fails.
+    await _recordPendingPurge(accountId);
+    Object? firstError;
+    StackTrace? firstStackTrace;
+    Future<void> attempt(Future<void> Function() step) async {
+      try {
+        await step();
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
       }
-      await ref.read(openWebUiDatabasePurgeProvider)(accountId);
-      await _removeOwnerMarker(accountId);
-      await ref.read(openWebUiAccountPrivateDataClearProvider)(accountId);
+    }
+
+    try {
+      await attempt(() async {
+        final ownerMarker = ref
+            .read(openWebUiAccountOwnerMarkerStoreProvider)
+            .read(accountId);
+        final ownerUserId = ownerMarker?.userId.trim();
+        if (ownerMarker != null &&
+            ownerUserId != null &&
+            ownerUserId.isNotEmpty) {
+          await HermesMixedSessionBindingTrustStore.forgetStorageAccount(
+            HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
+              serverId: accountId,
+              userId: ownerUserId,
+              tokenFingerprint: ownerMarker.tokenFingerprint,
+            ),
+          );
+        }
+      });
+      await attempt(() => ref.read(openWebUiDatabasePurgeProvider)(accountId));
+      await attempt(() => _removeOwnerMarker(accountId));
+      await attempt(
+        () => ref.read(openWebUiAccountPrivateDataClearProvider)(accountId),
+      );
+      if (firstError != null) {
+        Error.throwWithStackTrace(firstError!, firstStackTrace!);
+      }
+      await _forgetPendingPurge(accountId);
       DebugLogger.log(
         'account-database-purged',
         scope: 'auth/storage-isolation',
@@ -442,6 +479,77 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
               OpenWebUiDatabaseAccessPhase.purging) {
         ref.read(openWebUiDatabaseAccessProvider.notifier).reenterBootstrap();
       }
+    }
+  }
+
+  /// Finishes the purges an earlier run recorded and did not finish, of
+  /// accounts storage no longer keeps. One still kept was never removed, and
+  /// keeps its data.
+  Future<void> _resumePendingPurges() async {
+    if (_disposed || !PreferencesStore.isReady) return;
+    final pending = PreferencesStore.getStringList(
+      PreferenceKeys.pendingAccountPurges,
+    );
+    if (pending == null || pending.isEmpty) return;
+    try {
+      final saved = await ref.read(openWebUiSavedAccountIdsProvider)();
+      for (final accountId in pending) {
+        if (_disposed) return;
+        if (saved.contains(accountId)) {
+          await _forgetPendingPurge(accountId);
+        } else {
+          await purgeAccount(accountId);
+        }
+      }
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'pending-account-purge-failed',
+        scope: 'auth/storage-isolation',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _recordPendingPurge(String accountId) async {
+    try {
+      final pending =
+          PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges) ??
+          const <String>[];
+      if (pending.contains(accountId)) return;
+      await PreferencesStore.putChecked(PreferenceKeys.pendingAccountPurges, [
+        ...pending,
+        accountId,
+      ]);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'pending-account-purge-record-failed',
+        scope: 'auth/storage-isolation',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  Future<void> _forgetPendingPurge(String accountId) async {
+    try {
+      final pending = PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountPurges,
+      );
+      if (pending == null || !pending.contains(accountId)) return;
+      final rest = [...pending]..remove(accountId);
+      await PreferencesStore.putChecked(
+        PreferenceKeys.pendingAccountPurges,
+        rest.isEmpty ? null : rest,
+      );
+    } catch (error, stackTrace) {
+      // Finished already: a later start purges a gone account once more.
+      DebugLogger.error(
+        'pending-account-purge-forget-failed',
+        scope: 'auth/storage-isolation',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 

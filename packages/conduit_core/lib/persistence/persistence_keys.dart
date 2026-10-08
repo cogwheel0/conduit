@@ -55,6 +55,10 @@ final class PreferenceKeys {
   /// database. The next start deletes them before any can open.
   static const String pendingAccountDatabaseWipe =
       'pending_account_database_wipe_v1';
+
+  /// Accounts signed out of whose data could not all be removed. The next
+  /// start finishes removing what each left.
+  static const String pendingAccountPurges = 'pending_account_purges_v1';
   static const String appIntentInvocationLedger =
       'app_intent_invocation_ledger_v1';
   static const String themeMode = 'theme_mode';

@@ -2305,6 +2305,57 @@ void main() {
 
     // Settings scoped to an account read the kept id; an account active
     // only as storage counts it would read the device's meanwhile.
+    // The account is already gone from the list the user could sign out of
+    // it again from.
+    test('a purge that fails part-way runs its other steps and is kept for '
+        'the next start', () async {
+      final cleared = <String>[];
+      final harness = await _harness(
+        databasePurge: (_) async => throw StateError('Database locked'),
+        additionalOverrides: [
+          openWebUiAccountPrivateDataClearProvider.overrideWithValue(
+            (accountId) async => cleared.add(accountId),
+          ),
+        ],
+      );
+
+      await check(
+        harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .purgeAccount('signed-out'),
+      ).throws<StateError>();
+
+      check(cleared).deepEquals(['signed-out']);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNotNull().deepEquals(['signed-out']);
+    });
+
+    test('a purge left by an earlier run is finished at start', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountPurges}': ['signed-out'],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final purged = <String>[];
+      await _harness(
+        databasePurge: (accountId) async => purged.add(accountId),
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () async => {_server.id},
+          ),
+        ],
+      );
+      for (var i = 0; i < 20 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals(['signed-out']);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNull();
+    });
+
     test('certifying an account keeps it as the active account', () async {
       final kept = <String>[];
       final harness = await _harness(
