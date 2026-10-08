@@ -2418,14 +2418,24 @@ class OptimizedStorageService {
   /// against the previous route cannot commit against this one, and a staged
   /// sign-in candidate, whose baseline was read on the previous route, is
   /// dropped for the same reason.
-  Future<bool> selectEndpoint(String serverId, String endpointId) {
+  ///
+  /// With [expectedCurrentId], only while the server is still reached
+  /// through that route: a check of the routes that began on it must not
+  /// replace one a sign-in selected since.
+  Future<bool> selectEndpoint(
+    String serverId,
+    String endpointId, {
+    String? expectedCurrentId,
+  }) {
     // Its read can run the migration too.
     return _synchronizedServerConfigsRead(() async {
       final registry = await _registryForWriteUnlocked();
       final server = registry.server(serverId);
       if (server == null || server.endpoint(endpointId) == null) return false;
       final selection = _endpointSelection();
-      if (server.selectedEndpoint(selection[serverId]).id == endpointId) {
+      final current = server.selectedEndpoint(selection[serverId]).id;
+      if (current == endpointId ||
+          (expectedCurrentId != null && current != expectedCurrentId)) {
         return false;
       }
       selection[serverId] = endpointId;

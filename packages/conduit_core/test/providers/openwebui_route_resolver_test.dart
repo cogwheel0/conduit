@@ -281,6 +281,31 @@ void main() {
     check(routes.retryPending).isTrue();
   });
 
+  // A sign-in selects the address it was checked with; a check that began
+  // before it must not take the server elsewhere under it.
+  test('a check leaves a route a sign-in selected meanwhile', () async {
+    answers = {_lan: true, _tailscale: true, _public: true};
+    final routes = await resolver();
+    await routes.resolve();
+    final serverId = (await storage.getOpenWebUiRegistryStrict())
+        .servers
+        .single
+        .id;
+    answers = {_lan: false, _tailscale: true, _public: true};
+    final held = storage.gate = Completer<void>();
+    final checking = routes.resolve();
+    await until(() => storage.selectCalls > 0);
+
+    // The sign-in takes the address it was checked with.
+    signingIn = true;
+    check(await storage.selectNow(serverId, 'public')).isTrue();
+    held.complete();
+    await checking;
+    await settle();
+
+    check(await routeInUse()).equals(_public);
+  });
+
   test('a check overtaken by a newer one still moves the client', () async {
     final routes = await resolver();
     check((await container.read(serverConfigsProvider.future)).single.url)
@@ -914,9 +939,21 @@ final class _GatedStorage extends OptimizedStorageService {
   }
 
   @override
-  Future<bool> selectEndpoint(String serverId, String endpointId) async {
+  Future<bool> selectEndpoint(
+    String serverId,
+    String endpointId, {
+    String? expectedCurrentId,
+  }) async {
     selectCalls++;
     await gate?.future;
-    return super.selectEndpoint(serverId, endpointId);
+    return super.selectEndpoint(
+      serverId,
+      endpointId,
+      expectedCurrentId: expectedCurrentId,
+    );
   }
+
+  /// Selects [endpointId] past [gate], as a sign-in does.
+  Future<bool> selectNow(String serverId, String endpointId) =>
+      super.selectEndpoint(serverId, endpointId);
 }

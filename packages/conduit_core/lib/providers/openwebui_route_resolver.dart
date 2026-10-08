@@ -409,7 +409,11 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
           }
           return;
         }
-        final changed = await storage.selectEndpoint(server.id, chosen.id);
+        final changed = await storage.selectEndpoint(
+          server.id,
+          chosen.id,
+          expectedCurrentId: current.id,
+        );
         // Even when a newer check has started: one that picks the same route
         // finds it already selected and leaves the configs alone, which would
         // keep the client on the old URL and the session left unchecked.
@@ -418,6 +422,16 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
           _recheckOwed = true;
         }
         if (!_owns(generation)) return;
+        // Another route was selected since this check began -- by a
+        // sign-in, on the address it was checked with. It stands; the routes
+        // are checked again from it.
+        if (!changed &&
+            server.selectedEndpoint(storage.endpointSelection[server.id]).id !=
+                chosen.id) {
+          state = state.copyWith(checking: false);
+          _schedule('selection-moved');
+          return;
+        }
         _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(chosen.url));
         _inUseRouteId = chosen.id;
         if (changed) {
