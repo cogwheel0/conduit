@@ -404,8 +404,9 @@ void main() {
       check(sentOver).deepEquals([app.serverConfig]);
     });
 
-    // A file can be a page of its own; an API answer read as bytes or a
-    // stream cannot.
+    // The same address: as without the upgrade, a file can be a page of its
+    // own, and Open WebUI's web app answers an endpoint an older server
+    // does not have.
     group('a page after an upgrade to HTTPS', () {
       late ApiService plain;
 
@@ -434,13 +435,10 @@ void main() {
         check(rejected).isEmpty();
       });
 
-      test('read as a stream is reported', () async {
-        await plain.dio.get<dynamic>(
-          '/api/v1/chats/all',
-          options: Options(responseType: ResponseType.stream),
-        );
+      test('answering an API request is not reported', () async {
+        await plain.dio.get<dynamic>('/api/v1/models/base');
 
-        check(rejected).deepEquals([Uri.parse('http://chat.example')]);
+        check(rejected).isEmpty();
       });
     });
 

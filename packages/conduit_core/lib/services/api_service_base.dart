@@ -5,10 +5,12 @@ part of 'api_service.dart';
 ///
 /// Open WebUI answers its API with JSON, its refusals included. A proxy
 /// asking for a sign-in answers with a redirect the client does not follow,
-/// with a page it redirected to on the same address, or with a page refusing
-/// access -- as [ApiService.checkHealthWithProxyDetection] tells one. A page
-/// answered without a redirect is left out: Open WebUI's web app answers an
-/// address it does not know, as an older server does a newer endpoint.
+/// with a page it redirected to elsewhere on the same address, or with a
+/// page refusing access -- as [ApiService.checkHealthWithProxyDetection]
+/// tells one. A page answered without a redirect is left out: Open WebUI's
+/// web app answers an address it does not know, as an older server does a
+/// newer endpoint. So is one after a redirect that kept its path, up to
+/// HTTPS say: that is the same address, and a file's content can be a page.
 void _reportProxyRefusal(
   Response<dynamic> response,
   Uri? server,
@@ -36,15 +38,12 @@ void _reportProxyRefusal(
       (publicHealthRedirectStatusCodes.contains(status) &&
           options.extra[_redirectIsAnswerKey] != true) ||
       (page && (status == 401 || status == 403)) ||
-      // Not a file downloaded after a redirect that kept its path -- up to
-      // HTTPS, say: it can be a page of its own. One taken elsewhere, to a
-      // sign-in, is the proxy's.
+      // Taken elsewhere, to a sign-in.
       (page &&
           status >= 200 &&
           status < 300 &&
           isSameOriginRedirectReplay(options) &&
-          (options.extra[_contentMayBePageKey] != true ||
-              !_samePath(sameOriginRedirectStart(options), options.uri)));
+          !_samePath(sameOriginRedirectStart(options), options.uri));
   if (!refused) return;
   options.extra[_proxyRefusalReportedKey] = true;
   ConnectivityService.reportRouteRejected(server, connection: connection);
@@ -63,9 +62,6 @@ const _transportFailureReportedKey = 'conduit.transportFailureReported';
 
 /// Set on a request whose answer can be a redirect Open WebUI sends itself.
 const _redirectIsAnswerKey = 'conduit.redirectIsAnswer';
-
-/// Set on a request for a file's own content, which can be a web page.
-const _contentMayBePageKey = 'conduit.contentMayBePage';
 
 abstract class _ApiServiceBase {
   // Declared here, implemented by the family mixins applied over this base.
