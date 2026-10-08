@@ -1207,6 +1207,79 @@ void main() {
     check(restored.user).equals(user);
   });
 
+  test('a session accepted on a route moved away from meanwhile keeps the '
+      'connection issue', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    addTearDown(PreferencesStore.debugReset);
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
+    when(
+      () => storage.captureServerSessionOwnership(
+        validatedConfig: any(named: 'validatedConfig'),
+        requireActive: true,
+      ),
+    ).thenAnswer(
+      (_) async =>
+          (revision: 1, serverConfig: previousConfig, requireActive: true),
+    );
+    when(
+      () => storage.commitExistingServerSession(
+        ownership: any(named: 'ownership'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        rememberedCredentials: any(named: 'rememberedCredentials'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      await publish();
+      return true;
+    });
+    final moved = _SuccessfulAuthApi();
+    final api = _SuccessfulAuthApi();
+    var inUse = api;
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWith((ref) => inUse),
+        activeServerProvider.overrideWith((ref) async => previousConfig),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(api.dispose);
+    addTearDown(moved.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    final notifier = container.read(authStateManagerProvider.notifier);
+    check(await notifier.login('user', 'password')).isTrue();
+    notifier.onAuthIssue();
+
+    final gate = api.currentUserGate = Completer<void>();
+    final asked = api.currentUserCalls;
+    final recheck = notifier.recheckSessionAfterRouteChange();
+    while (api.currentUserCalls == asked) {
+      await pumpEventQueue();
+    }
+    // The server moves on to another address while the first is asked.
+    inUse = moved;
+    container.invalidate(apiServiceProvider);
+    gate.complete();
+
+    check(await recheck).isFalse();
+    final kept = container.read(authStateManagerProvider).requireValue;
+    check(kept.status).equals(AuthStatus.error);
+    check(kept.token).equals(token);
+  });
+
   test(
     'successful refresh carries newer session ownership past delayed logout',
     () async {
@@ -3475,6 +3548,7 @@ final class _SuccessfulAuthApi extends ApiService {
   Object? loginFailure;
   Object? currentUserFailure;
   int currentUserCalls = 0;
+  Completer<void>? currentUserGate;
   String loginToken = 'validated-proxy-token';
 
   @override
@@ -3503,6 +3577,7 @@ final class _SuccessfulAuthApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     currentUserCalls++;
+    if (currentUserGate case final gate?) await gate.future;
     if (currentUserFailure case final failure?) throw failure;
     return const User(
       id: 'user',

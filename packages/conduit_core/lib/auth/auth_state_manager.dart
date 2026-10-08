@@ -3129,7 +3129,13 @@ class AuthStateManager extends _$AuthStateManager {
         suppressAuthFailureNotification: true,
         authSnapshot: api.captureAuthSnapshot(),
       );
-      if (!stillKept() || accepted.id != user.id) return false;
+      // An address moved to meanwhile has not been asked: the answer speaks
+      // only for the client that got it.
+      if (!stillKept() ||
+          !identical(ref.read(apiServiceProvider), api) ||
+          accepted.id != user.id) {
+        return false;
+      }
       _recordValidatedIdentity(token, accepted);
       _update(
         (current) => current.copyWith(
