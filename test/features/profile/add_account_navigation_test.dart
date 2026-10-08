@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
@@ -54,11 +55,16 @@ void main() {
   late AuthNavigationState auth;
   late bool abandonable;
   late _MergingAuth signIns;
+  late _RegistryStorage storage;
+  // What the connection page handed sign-in, when it got that far.
+  late Object? authFlow;
 
   setUp(() {
     active = _active;
     auth = AuthNavigationState.authenticated;
     abandonable = false;
+    storage = _RegistryStorage();
+    authFlow = null;
     accounts = _RecordingAccountsController();
     // Folding the added account into the one it was added from leaves that
     // one active.
@@ -72,7 +78,7 @@ void main() {
         ),
         openWebUiAccountsControllerProvider.overrideWithValue(accounts),
         authStateManagerProvider.overrideWith(() => signIns),
-        optimizedStorageServiceProvider.overrideWithValue(_RegistryStorage()),
+        optimizedStorageServiceProvider.overrideWithValue(storage),
       ],
     );
     // The state the real policy sees; besides the addition, only the active
@@ -104,22 +110,36 @@ void main() {
         GoRoute(
           path: Routes.chat,
           builder: (context, state) => Consumer(
-            builder: (context, ref, _) => TextButton(
-              onPressed: () => openAddAccount(context, ref),
-              child: const Text('add account'),
+            builder: (context, ref, _) => Column(
+              children: [
+                TextButton(
+                  onPressed: () => openAddAccount(context, ref),
+                  child: const Text('add account'),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      openAddAccount(context, ref, serverId: 'home'),
+                  child: const Text('add account on Home'),
+                ),
+              ],
             ),
           ),
         ),
         GoRoute(
           path: Routes.addServer,
           name: RouteNames.addServer,
-          builder: (context, state) =>
-              const ServerConnectionPage(addingAccount: true),
+          builder: (context, state) => ServerConnectionPage(
+            addingAccount: true,
+            serverId: state.extra as String?,
+          ),
         ),
         GoRoute(
           path: Routes.authentication,
           name: RouteNames.authentication,
-          builder: (context, state) => const Text('sign in'),
+          builder: (context, state) {
+            authFlow = state.extra;
+            return const Text('sign in');
+          },
         ),
       ],
     );
@@ -130,7 +150,10 @@ void main() {
     container.dispose();
   });
 
-  Future<void> openAddAccountFromChat(WidgetTester tester) async {
+  Future<void> openAddAccountFromChat(
+    WidgetTester tester, {
+    String button = 'add account',
+  }) async {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -141,7 +164,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('add account'));
+    await tester.tap(find.text(button));
     await tester.pumpAndSettle();
   }
 
@@ -260,7 +283,62 @@ void main() {
     check(accounts.abandons).equals(1);
     check(find.text('add account').evaluate()).isNotEmpty();
   });
+
+  // The connection page fills in a saved server's route but named the new
+  // account's connection after the host, and saving it renamed the server
+  // to that for every account on it.
+  testWidgets('adding an account on a saved server keeps its name', (
+    tester,
+  ) async {
+    // The binding blocks real HTTP; the server answers on loopback.
+    final previousOverrides = HttpOverrides.current;
+    HttpOverrides.global = _RealHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previousOverrides);
+    final server = (await tester.runAsync(
+      () => HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+    ))!;
+    addTearDown(() => tester.runAsync(() => server.close(force: true)));
+    server.listen((request) {
+      final body = switch (request.uri.path) {
+        '/health' => '{"status":true}',
+        '/api/config' =>
+          '{"status":true,"version":"0.6.0","name":"Open WebUI",'
+              '"features":{}}',
+        _ => null,
+      };
+      request.response
+        ..statusCode = body == null ? HttpStatus.notFound : HttpStatus.ok
+        ..headers.contentType = ContentType.json
+        ..write(body ?? '{}');
+      unawaited(request.response.close());
+    });
+    storage.url = 'http://127.0.0.1:${server.port}';
+
+    await openAddAccountFromChat(tester, button: 'add account on Home');
+    expect(find.text(storage.url), findsOneWidget);
+    await tester.tap(find.text('Connect'));
+    for (var i = 0; i < 100 && authFlow == null; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await tester.pumpAndSettle();
+
+    final saved = (authFlow! as AuthFlowConfig).serverConfig;
+    check(saved.name).equals('Home');
+    // Saving it next to the accounts already on the server leaves the
+    // server's name as it was.
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    final merged = registry.mergeServerConfigs([
+      ...registry.projectAll(),
+      saved,
+    ]);
+    check(merged.servers.map((server) => server.name)).deepEquals(['Home']);
+  });
 }
+
+class _RealHttpOverrides extends HttpOverrides {}
 
 const _activeUser = User(
   id: 'user-a',
@@ -272,6 +350,9 @@ const _activeUser = User(
 /// Account A, which the addition began from, and the added account B, both
 /// on the same server.
 class _RegistryStorage extends Fake implements OptimizedStorageService {
+  /// Where the saved server is.
+  String url = 'https://owui.example';
+
   @override
   Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async =>
       OpenWebUiRegistry(
@@ -279,9 +360,7 @@ class _RegistryStorage extends Fake implements OptimizedStorageService {
           OpenWebUiServer(
             id: 'home',
             name: 'Home',
-            endpoints: [
-              OpenWebUiEndpoint(id: 'home-url', url: 'https://owui.example'),
-            ],
+            endpoints: [OpenWebUiEndpoint(id: 'home-url', url: url)],
           ),
         ],
         accounts: [

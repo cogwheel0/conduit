@@ -17,7 +17,7 @@ import '../../../platform/webview_cookie_helper.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/openwebui_registry.dart'
-    show OpenWebUiRegistry;
+    show OpenWebUiRegistry, OpenWebUiServer, openWebUiServerIdentityUrl;
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
@@ -289,6 +289,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   AccountAdditionOrigin? _accountAddition;
   String? _accountAdditionFrom;
 
+  /// The saved server the form was filled in from, when it was.
+  OpenWebUiServer? _savedServer;
+
   @override
   void initState() {
     super.initState();
@@ -326,8 +329,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       });
       return;
     }
-    final endpoint = registry.server(serverId)?.endpoints.first;
+    final server = registry.server(serverId);
+    final endpoint = server?.endpoints.first;
     if (!mounted || endpoint == null) return;
+    _savedServer = server;
     setState(() {
       _urlController.text = endpoint.url;
       _customHeaders
@@ -446,7 +451,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
       final tempConfig = ServerConfig(
         id: const Uuid().v4(),
-        name: _deriveServerNameFromUrl(url),
+        name: _serverNameFor(url),
         url: url,
         customHeaders: Map<String, String>.from(_customHeaders),
         isActive: true,
@@ -964,6 +969,22 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       if (num == null || num < 0 || num > 255) return false;
     }
     return true;
+  }
+
+  /// The saved server's own name while the form still reaches it: saving an
+  /// added account's connection renames the server it joins after it, for
+  /// every account on that server. Otherwise the address's host.
+  String _serverNameFor(String url) {
+    final saved = _savedServer;
+    final identity = openWebUiServerIdentityUrl(url);
+    if (saved != null &&
+        saved.name.trim().isNotEmpty &&
+        saved.endpoints.any(
+          (endpoint) => openWebUiServerIdentityUrl(endpoint.url) == identity,
+        )) {
+      return saved.name;
+    }
+    return _deriveServerNameFromUrl(url);
   }
 
   String _deriveServerNameFromUrl(String url) {
