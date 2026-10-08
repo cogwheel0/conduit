@@ -300,8 +300,9 @@ checkSavedServerAddress(
 /// The address and its cookie are saved together: saved without it, an
 /// address behind a proxy would be refused. When the cookie cannot be kept
 /// nothing is saved, and the address in use stays where it was; a failure is
-/// rethrown for the editor to report. Returns false when storage declined
-/// the cookie, a sign-out having revoked cookies since [sessionRevision].
+/// rethrown for the editor to report. Returns false when there is no
+/// [cookieOwner] to keep the cookie for, or storage declined it, a sign-out
+/// having revoked cookies since [sessionRevision].
 @visibleForTesting
 Future<bool> saveCheckedAddress(
   ProviderContainer container, {
@@ -318,15 +319,17 @@ Future<bool> saveCheckedAddress(
   List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) =>
       withEditedRoute(endpoints, route, adding: adding);
   final bool saved;
-  if (cookieOwner != null && headers.keys.any(isCapturedSessionHeader)) {
-    saved = await storage.editServerEndpointsWithSession(
-      serverId,
-      edit,
-      accountId: cookieOwner,
-      routeId: route.id,
-      headers: headers,
-      sessionRevision: sessionRevision,
-    );
+  if (headers.keys.any(isCapturedSessionHeader)) {
+    saved =
+        cookieOwner != null &&
+        await storage.editServerEndpointsWithSession(
+          serverId,
+          edit,
+          accountId: cookieOwner,
+          routeId: route.id,
+          headers: headers,
+          sessionRevision: sessionRevision,
+        );
   } else {
     await storage.editServerEndpoints(serverId, edit);
     saved = true;
@@ -341,6 +344,28 @@ Future<bool> saveCheckedAddress(
         .routesEdited(serverId, endpointId: route.id),
   );
   return true;
+}
+
+/// The account of [serverId] a proxy sign-in on one of its addresses is kept
+/// for: the one whose session proved the address, else -- with nothing to
+/// prove -- the active account when it is one of the server's, else the
+/// server's only account. None when it could be any of several.
+///
+/// Accounts still being signed in to are not counted: none is a user yet.
+@visibleForTesting
+String? addressCookieOwner(
+  OpenWebUiRegistry registry, {
+  required String serverId,
+  required String? provedBy,
+  required String? activeAccountId,
+}) {
+  if (provedBy != null) return provedBy;
+  final accounts = [
+    for (final account in registry.accountsOn(serverId))
+      if (account.userId != null) account.id,
+  ];
+  if (accounts.contains(activeAccountId)) return activeAccountId;
+  return accounts.length == 1 ? accounts.single : null;
 }
 
 class ServerConnectionPage extends ConsumerStatefulWidget {
@@ -550,13 +575,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       },
     );
     final (result: check, :provedBy) = found;
-    final activeAccount = activeAccountId == null
-        ? null
-        : registry.account(activeAccountId);
-    final checksActiveAccount =
-        activeAccount != null &&
-        activeAccount.serverId == server.id &&
-        activeAccount.userId != null;
     if (check != OpenWebUiAddressCheck.sameServer &&
         check != OpenWebUiAddressCheck.nothingToProtect) {
       final refusal = switch (check) {
@@ -592,14 +610,26 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     // address the server's accounts use stays as it was.
     if (!mounted) return false;
     // A proxy sign-in on this address belongs to the account whose session
-    // proved it, which need not be the active one; with nothing to prove, to
-    // the active account when it is on this server.
+    // proved it, which need not be the active one.
+    final cookieOwner = addressCookieOwner(
+      registry,
+      serverId: server.id,
+      provedBy: provedBy,
+      activeAccountId: activeAccountId,
+    );
+    if (cookieOwner == null &&
+        verified.customHeaders.keys.any(isCapturedSessionHeader)) {
+      // Kept for none of them, the address would be saved for the proxy to
+      // refuse. Once one of them is signed in to, it is that one's.
+      setState(() => _connectionError = l10n.accountsAddressNeedsSignIn);
+      return false;
+    }
     final cookieKept = await saveCheckedAddress(
       container,
       serverId: server.id,
       route: route,
       adding: widget.endpointId == null,
-      cookieOwner: provedBy ?? (checksActiveAccount ? activeAccount.id : null),
+      cookieOwner: cookieOwner,
       headers: verified.customHeaders,
       sessionRevision: sessionRevision,
     );

@@ -365,6 +365,102 @@ void main() {
     check(_Routes.reasons).isEmpty();
   });
 
+  // Saved without its cookie, the address would be refused by its proxy,
+  // while the editor closed as though it worked.
+  test('an address whose cookie is for no account is not saved', () async {
+    await storage.saveServerConfigs([
+      const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+    ]);
+    final server = (await storage.getOpenWebUiRegistryStrict()).servers.single;
+
+    final kept = await saveCheckedAddress(
+      container,
+      serverId: server.id,
+      route: OpenWebUiEndpoint(
+        id: server.endpoints.single.id,
+        url: 'https://moved.example',
+      ),
+      adding: false,
+      cookieOwner: null,
+      headers: const {'Cookie': 'proxy=1'},
+      sessionRevision: storage.sessionRevocationRevision,
+    );
+
+    check(kept).isFalse();
+    final stored = await storage.getOpenWebUiRegistryStrict();
+    check(stored.servers.single.endpoints.single.url)
+        .equals('https://chat.example');
+    check(_Routes.reasons).isEmpty();
+  });
+
+  group('the account a proxy sign-in on an address is kept for', () {
+    final chat = OpenWebUiServer(
+      id: 'chat',
+      name: 'Chat',
+      endpoints: [OpenWebUiEndpoint(id: 'route', url: 'https://chat.example')],
+    );
+    final other = OpenWebUiServer(
+      id: 'other',
+      name: 'Other',
+      endpoints: [OpenWebUiEndpoint(id: 'elsewhere', url: 'https://o.test')],
+    );
+    OpenWebUiRegistry registryWith(List<OpenWebUiAccount> accounts) =>
+        OpenWebUiRegistry(servers: [chat, other], accounts: accounts);
+    String? ownerOf(
+      OpenWebUiRegistry registry, {
+      String? provedBy,
+      String? active,
+    }) => addressCookieOwner(
+      registry,
+      serverId: chat.id,
+      provedBy: provedBy,
+      activeAccountId: active,
+    );
+
+    test('is the one whose session proved the address', () {
+      final registry = registryWith([
+        OpenWebUiAccount(id: 'a', serverId: 'chat', userId: 'user-a'),
+        OpenWebUiAccount(id: 'b', serverId: 'chat', userId: 'user-b'),
+      ]);
+      check(ownerOf(registry, provedBy: 'b', active: 'a')).equals('b');
+    });
+
+    test('is the active account when it is the server\'s', () {
+      final registry = registryWith([
+        OpenWebUiAccount(id: 'a', serverId: 'chat', userId: 'user-a'),
+        OpenWebUiAccount(id: 'b', serverId: 'chat', userId: 'user-b'),
+      ]);
+      check(ownerOf(registry, active: 'b')).equals('b');
+    });
+
+    // Another server active, and nothing of this one's to prove it with.
+    test('is the server\'s only account while another is active', () {
+      final registry = registryWith([
+        OpenWebUiAccount(id: 'a', serverId: 'chat', userId: 'user-a'),
+        OpenWebUiAccount(id: 'pending', serverId: 'chat'),
+        OpenWebUiAccount(id: 'o', serverId: 'other', userId: 'user-o'),
+      ]);
+      check(ownerOf(registry, active: 'o')).equals('a');
+      check(ownerOf(registry)).equals('a');
+    });
+
+    test('is none when it could be any of several', () {
+      final registry = registryWith([
+        OpenWebUiAccount(id: 'a', serverId: 'chat', userId: 'user-a'),
+        OpenWebUiAccount(id: 'b', serverId: 'chat', userId: 'user-b'),
+        OpenWebUiAccount(id: 'o', serverId: 'other', userId: 'user-o'),
+      ]);
+      check(ownerOf(registry, active: 'o')).isNull();
+    });
+
+    test('is none for an account still being signed in to', () {
+      final registry = registryWith([
+        OpenWebUiAccount(id: 'pending', serverId: 'chat'),
+      ]);
+      check(ownerOf(registry, active: 'pending')).isNull();
+    });
+  });
+
   // A sign-out since the address was first contacted revoked the cookie;
   // the editor says so rather than close as though the address was saved.
   test('an address whose cookie was revoked is not saved', () async {
