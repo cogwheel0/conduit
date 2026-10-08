@@ -404,32 +404,44 @@ void main() {
       check(sentOver).deepEquals([app.serverConfig]);
     });
 
-    // A file can be a page of its own.
-    test('not a file downloaded as a page after an upgrade to HTTPS',
-        () async {
-      final workerManager = WorkerManager(worker: const InlineWorkerPort());
-      final plain = ApiService(
-        serverConfig: const ServerConfig(
-          id: 'server',
-          name: 'Server',
-          url: 'http://chat.example',
-        ),
-        workerManager: workerManager,
-        reportsRouteRefusals: true,
-      );
-      addTearDown(() {
-        plain.dispose();
-        workerManager.dispose();
+    // A file can be a page of its own; an API answer read as bytes or a
+    // stream cannot.
+    group('a page after an upgrade to HTTPS', () {
+      late ApiService plain;
+
+      setUp(() {
+        final workerManager = WorkerManager(worker: const InlineWorkerPort());
+        plain = ApiService(
+          serverConfig: const ServerConfig(
+            id: 'server',
+            name: 'Server',
+            url: 'http://chat.example',
+          ),
+          workerManager: workerManager,
+          reportsRouteRefusals: true,
+        );
+        addTearDown(() {
+          plain.dispose();
+          workerManager.dispose();
+        });
+        plain.updateAuthToken('session-token');
+        plain.dio.httpClientAdapter = _UpgradingToPage();
       });
-      plain.updateAuthToken('session-token');
-      plain.dio.httpClientAdapter = _UpgradingToPage();
 
-      await plain.dio.get<dynamic>(
-        '/api/v1/files/file/content',
-        options: Options(responseType: ResponseType.bytes),
-      );
+      test('downloading a file is not reported', () async {
+        await plain.getFileContent('file');
 
-      check(rejected).isEmpty();
+        check(rejected).isEmpty();
+      });
+
+      test('read as a stream is reported', () async {
+        await plain.dio.get<dynamic>(
+          '/api/v1/chats/all',
+          options: Options(responseType: ResponseType.stream),
+        );
+
+        check(rejected).deepEquals([Uri.parse('http://chat.example')]);
+      });
     });
 
     test('on an address the server upgraded to HTTPS is reported', () async {

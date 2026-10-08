@@ -36,12 +36,12 @@ void _reportProxyRefusal(
       (publicHealthRedirectStatusCodes.contains(status) &&
           options.extra[_redirectIsAnswerKey] != true) ||
       (page && (status == 401 || status == 403)) ||
-      // An API answer only: a file downloaded after a followed redirect can
-      // be a page of its own.
+      // Not a file downloaded after a followed redirect: it can be a page
+      // of its own.
       (page &&
           status >= 200 &&
           status < 300 &&
-          options.responseType == ResponseType.json &&
+          options.extra[_contentMayBePageKey] != true &&
           isSameOriginRedirectReplay(options));
   if (!refused) return;
   options.extra[_proxyRefusalReportedKey] = true;
@@ -54,6 +54,9 @@ const _transportFailureReportedKey = 'conduit.transportFailureReported';
 
 /// Set on a request whose answer can be a redirect Open WebUI sends itself.
 const _redirectIsAnswerKey = 'conduit.redirectIsAnswer';
+
+/// Set on a request for a file's own content, which can be a web page.
+const _contentMayBePageKey = 'conduit.contentMayBePage';
 
 abstract class _ApiServiceBase {
   // Declared here, implemented by the family mixins applied over this base.

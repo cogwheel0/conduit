@@ -26,7 +26,10 @@ mixin _FilesApi on _ApiServiceBase {
       final response = await _dio.get<ResponseBody>(
         '/api/v1/files/$fileId/content',
         options: _withAuthSnapshot(
-          Options(responseType: ResponseType.stream),
+          Options(
+            responseType: ResponseType.stream,
+            extra: {_contentMayBePageKey: true},
+          ),
           authSnapshot,
         ),
         cancelToken: requestCancelToken,
