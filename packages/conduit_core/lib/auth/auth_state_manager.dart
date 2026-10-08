@@ -1274,8 +1274,7 @@ class AuthStateManager extends _$AuthStateManager {
               );
       }
 
-      await _accountStorageIsolation.purgeAccount(accountId);
-      ref.read(openWebUiAccountSummariesProvider.notifier).reload();
+      await _purgeRemovedAccount(accountId);
       return signedIn;
     } finally {
       _activeLogoutOperations--;
@@ -1342,9 +1341,26 @@ class AuthStateManager extends _$AuthStateManager {
     // switch, or the target signed out of. The source then still exists, and
     // may be the active account; its data stays.
     if (!merged) return false;
-    await _accountStorageIsolation.purgeAccount(sourceAccountId);
-    ref.read(openWebUiAccountSummariesProvider.notifier).reload();
+    await _purgeRemovedAccount(sourceAccountId);
     return true;
+  }
+
+  /// Deletes the local data of [accountId], which storage has just removed.
+  ///
+  /// The removal has happened by now, so a purge that fails does not turn
+  /// it into an error: its record, written before the removal, has the next
+  /// start finish it.
+  Future<void> _purgeRemovedAccount(String accountId) async {
+    try {
+      await _accountStorageIsolation.purgeAccount(accountId);
+    } catch (error, stackTrace) {
+      _logAuthenticationFailure(
+        'account-data-purge-failed',
+        error,
+        stackTrace: stackTrace,
+      );
+    }
+    ref.read(openWebUiAccountSummariesProvider.notifier).reload();
   }
 
   /// Starts an account boundary: auth tokenless and loading, the storage

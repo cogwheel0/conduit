@@ -411,6 +411,21 @@ void main() {
       check((await vaultedCredentials('b'))?['password']).equals('pw-b');
     });
 
+    // Chosen from a list read before another sign-out removed it.
+    test('removing the active account for one since removed leaves none '
+        'active', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('a');
+
+      check(await storage.removeAccount('a', thenActivate: 'gone')).isFalse();
+
+      check(await storage.getActiveServerId()).isNull();
+      check(PreferencesStore.getString(PreferenceKeys.activeServerId))
+          .not((it) => it.equals('gone'));
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['b']);
+    });
+
     test('a failed commit leaves no copy behind in the vault', () async {
       await storage.saveServerConfigs([account('a'), account('b')]);
       await signIn('a');

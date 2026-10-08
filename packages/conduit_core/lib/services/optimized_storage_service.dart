@@ -2482,7 +2482,12 @@ class OptimizedStorageService {
             ) ==
             accountId;
         if (wasActive && onlyIfInactive) return null;
-        final next = thenActivate != null && thenActivate != accountId
+        // One removed since the caller chose it is none: an active id that
+        // named it would name no account.
+        final next =
+            thenActivate != null &&
+                thenActivate != accountId &&
+                configs.any((config) => config.id == thenActivate)
             ? thenActivate
             : null;
         // Read before anything changes: once this account is gone, a read

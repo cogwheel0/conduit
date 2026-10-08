@@ -467,6 +467,102 @@ void main() {
     ).equals(_tokenA);
   });
 
+  // The account is gone by then; its purge is recorded for the next start.
+  test('a sign-out whose purge fails still signs out', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation()
+      ..purgeError = StateError('Database locked');
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    var active = 'account-a';
+    when(() => storage.getActiveServerId()).thenAnswer((_) async => active);
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => active);
+    when(
+      () => storage.removeAccount(
+        'account-a',
+        thenActivate: any(named: 'thenActivate'),
+      ),
+    ).thenAnswer((_) async {
+      active = 'account-b';
+      return false;
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    final signedIn = await container
+        .read(authStateManagerProvider.notifier)
+        .signOutAccount('account-a', thenActivate: 'account-b');
+
+    check(signedIn).isFalse();
+    check(isolation.purged).deepEquals(['account-a']);
+  });
+
+  test('a merge whose purge fails is still a merge', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation()
+      ..purgeError = StateError('Database locked');
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.mergeActiveAccountInto(
+        'account-b',
+        expectedSourceAccountId: 'account-a',
+        expectedToken: any(named: 'expectedToken'),
+      ),
+    ).thenAnswer((_) async => true);
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    final merged = await container
+        .read(authStateManagerProvider.notifier)
+        .mergeActiveAccountInto(
+          'account-b',
+          expectedSourceAccountId: 'account-a',
+        );
+
+    check(merged).isTrue();
+    check(isolation.purged).deepEquals(['account-a']);
+  });
+
   test('a merge whose purge cannot be recorded does not happen', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation()..refusesRecord = true;
@@ -951,6 +1047,7 @@ final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
   final purgedKeepingRecord = <String>[];
   final recorded = <String>[];
   bool refusesRecord = false;
+  Object? purgeError;
 
   @override
   Future<void> recordAccountPurge(String accountId) async {
@@ -959,10 +1056,10 @@ final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
   }
 
   @override
-  Future<void> purgeAccount(
-    String accountId, {
-    bool keepsRecord = false,
-  }) async => (keepsRecord ? purgedKeepingRecord : purged).add(accountId);
+  Future<void> purgeAccount(String accountId, {bool keepsRecord = false}) async {
+    (keepsRecord ? purgedKeepingRecord : purged).add(accountId);
+    if (purgeError case final error?) throw error;
+  }
 
   /// Follows auth as the real barrier does, so auth telling it about a switch
   /// runs against the same provider graph as in the app.
