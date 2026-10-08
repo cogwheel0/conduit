@@ -71,6 +71,10 @@ final class _Auth extends AuthStateManager {
 final class _SigningInAuth extends AuthStateManager {
   final merges = <(String, String)>[];
 
+  /// What a merge does: fold, or fail and put the session back. It fails a
+  /// few times at most, so merging without end shows as a count, not a hang.
+  bool mergeFails = false;
+
   @override
   Future<AuthState> build() async =>
       const AuthState(status: AuthStatus.unauthenticated);
@@ -85,7 +89,12 @@ final class _SigningInAuth extends AuthStateManager {
     required String expectedSourceAccountId,
   }) async {
     merges.add((targetAccountId, expectedSourceAccountId));
-    return true;
+    if (!mergeFails || merges.length > 3) return true;
+    // Storage refused; the session is put back, and published again.
+    final current = state.requireValue;
+    state = const AsyncData(AuthState(status: AuthStatus.loading));
+    state = AsyncData(current);
+    return false;
   }
 }
 
@@ -342,6 +351,42 @@ void main() {
     await pumpEventQueue();
 
     check(auth.merges).deepEquals([('b', 'added-2')]);
+  });
+
+  test('a duplicate account whose merge fails is not merged again and again',
+      () async {
+    const userA = User(id: 'user-a', username: 'a', email: 'a@x', role: 'user');
+    final storage = _HeldRegistryStorage(
+      OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 's',
+            name: 'Chat',
+            endpoints: [OpenWebUiEndpoint(id: 'e', url: 'https://chat.example')],
+          ),
+        ],
+        accounts: [
+          OpenWebUiAccount(id: 'a', serverId: 's', userId: 'user-a'),
+          OpenWebUiAccount(id: 'added', serverId: 's'),
+        ],
+      ),
+    )..release.complete();
+    final auth = _SigningInAuth()..mergeFails = true;
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => auth),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiDuplicateAccountReconcilerProvider);
+    await container.read(authStateManagerProvider.future);
+
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'added');
+    auth.signIn('token', userA);
+    await pumpEventQueue();
+
+    check(auth.merges).deepEquals([('a', 'added')]);
   });
 
   test('leaving an addition goes back to the account signed in to last', () async {

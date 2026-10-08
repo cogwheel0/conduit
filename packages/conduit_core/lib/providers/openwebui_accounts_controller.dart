@@ -342,10 +342,20 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
   // A sign-in published while another was being reconciled. Checked once
   // that one is done: it would otherwise stay a duplicate for good.
   ({AuthState auth, String sessionAccountId})? deferred;
+  // The sign-in being reconciled, and the last one whose merge failed. A
+  // failed merge puts the session back, publishing it again; taken for a
+  // new sign-in, it would be merged again, and fail again, without end.
+  String? current;
+  String? failed;
+  String key(AuthState auth, String sessionAccountId) =>
+      '$sessionAccountId\u0000${auth.token}';
 
   Future<void> reconcile(AuthState auth, String sessionAccountId) async {
     final user = auth.user!;
+    final attempt = key(auth, sessionAccountId);
+    var done = false;
     reconciling = true;
+    current = attempt;
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
       final registry = await storage.getOpenWebUiRegistryStrict();
@@ -367,13 +377,18 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
             existing.id,
             expectedSourceAccountId: sessionAccountId,
           );
-      if (!merged) return;
+      if (!merged) {
+        failed = attempt;
+        return;
+      }
+      done = true;
       await ref
           .read(openWebUiAccountSummariesProvider.notifier)
           .touch(existing.id);
       ref.invalidate(openWebUiAccountsProvider);
       ref.read(hostActiveAccountChangedProvider)(existing.id);
     } catch (error, stackTrace) {
+      failed = attempt;
       DebugLogger.error(
         'duplicate-account-merge-failed',
         scope: 'auth/accounts',
@@ -381,6 +396,8 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
         stackTrace: stackTrace,
       );
     } finally {
+      if (done) failed = null;
+      current = null;
       reconciling = false;
       final next = deferred;
       deferred = null;
@@ -409,6 +426,8 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
       PreferenceKeys.activeServerId,
     );
     if (sessionAccountId == null || sessionAccountId.isEmpty) return;
+    final published = key(auth, sessionAccountId);
+    if (published == current || published == failed) return;
     if (reconciling) {
       deferred = (auth: auth, sessionAccountId: sessionAccountId);
       return;
