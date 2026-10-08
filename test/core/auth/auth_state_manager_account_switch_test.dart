@@ -44,7 +44,12 @@ const _tokenB = 'eyJhbGciOiJIUzI1NiJ9.eyJpZCI6ImIifQ.signature-for-account-b';
 /// token A. So auth goes tokenless, and the storage barrier is told, before
 /// storage moves the active id.
 void main() {
-  setUpAll(() => registerFallbackValue(_userA));
+  setUpAll(() {
+    registerFallbackValue(_userA);
+    registerFallbackValue(
+      const ServerConfig(id: 'fallback', name: 'F', url: 'https://f.example'),
+    );
+  });
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({
@@ -606,6 +611,65 @@ void main() {
       ),
     );
     check(isolation.purged).isEmpty();
+  });
+
+  // The addition a server was saved for ended as it was published: storage
+  // puts the previous account's session back and reports it declined.
+  test('a server selection storage puts back shows the previous account '
+      'again', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.selectUnauthenticatedServerConfig(
+        any(),
+        publish: any(named: 'publish'),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      await publish();
+      return false;
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    await container
+        .read(authStateManagerProvider.notifier)
+        .selectUnauthenticatedServerConfig(
+          const ServerConfig(
+            id: 'account-new',
+            name: 'New',
+            url: 'https://new.example',
+          ),
+        );
+
+    final after = container.read(authStateManagerProvider).requireValue;
+    check(after.token).equals(_tokenA);
+    check(after.isAuthenticated).isTrue();
   });
 
   test('a merge storage declines deletes nothing', () async {
