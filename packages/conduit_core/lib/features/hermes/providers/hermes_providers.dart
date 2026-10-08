@@ -1139,8 +1139,8 @@ class HermesConfigController extends Notifier<HermesConfig> {
         final wasActive = state.connectionId == connectionId;
 
         Future<void> commit() async {
-          // Reads that can fail come before the cookies are cleared, so such
-          // a failure leaves the connection signed in to its dashboard.
+          // Reads that can fail come first, so such a failure changes
+          // nothing.
           HermesConnectionProfile? replacement;
           var replacementSecrets = const _HermesCredentialSnapshot();
           if (wasActive) {
@@ -1149,18 +1149,21 @@ class HermesConfigController extends Notifier<HermesConfig> {
               replacementSecrets = await _readSecrets(replacement.id);
             }
           }
-          // Cleared while the connection still exists, so a failure keeps it
-          // instead of leaving its dashboard session signed in behind a
-          // deletion that reported success. A connection sharing the origin
-          // still uses that session. A write failing after this keeps the
-          // connection signed out, and the deletion still reports the error.
-          if (connectionOrigin(target.baseUrl) != null &&
-              !_originSharedByAnotherConnection(target.baseUrl, connectionId) &&
-              !await ref
-                  .read(cookieJarProvider)
-                  .clearForOrigin(target.baseUrl)) {
-            throw StateError('Hermes dashboard cookies could not be cleared.');
+          final kept = _profiles;
+          // The connection survives, so keep it the active one as well.
+          Future<void> keepActive() async {
+            if (!wasActive) return;
+            try {
+              await HermesConnectionStore.writeActiveId(connectionId);
+            } catch (error) {
+              DebugLogger.warning(
+                'active-connection-restore-failed',
+                scope: 'hermes/connections',
+                data: {'errorType': error.runtimeType.toString()},
+              );
+            }
           }
+
           if (wasActive) {
             // Repoint the runtime first: an active id must never name a
             // profile that is gone, and if the document write below fails the
@@ -1170,19 +1173,43 @@ class HermesConfigController extends Notifier<HermesConfig> {
           try {
             await _writeProfiles(remaining);
           } catch (_) {
-            // The connection survives, so keep it the active one as well.
-            if (wasActive) {
+            await keepActive();
+            rethrow;
+          }
+          // Cleared once the connection is gone from the list, so a write that
+          // fails above leaves it signed in to its dashboard. A clear that
+          // fails puts the connection back, still signed in, rather than
+          // report a deletion that left its dashboard session behind. A
+          // connection sharing the origin still uses that session.
+          if (connectionOrigin(target.baseUrl) != null &&
+              !_originSharedByAnotherConnection(target.baseUrl, connectionId)) {
+            Object? clearError;
+            StackTrace? clearStackTrace;
+            var cleared = false;
+            try {
+              cleared = await ref
+                  .read(cookieJarProvider)
+                  .clearForOrigin(target.baseUrl);
+            } catch (error, stackTrace) {
+              clearError = error;
+              clearStackTrace = stackTrace;
+            }
+            if (!cleared) {
               try {
-                await HermesConnectionStore.writeActiveId(connectionId);
+                await _writeProfiles(kept);
               } catch (error) {
                 DebugLogger.warning(
-                  'active-connection-restore-failed',
+                  'deleted-connection-restore-failed',
                   scope: 'hermes/connections',
                   data: {'errorType': error.runtimeType.toString()},
                 );
               }
+              await keepActive();
+              if (clearError != null) {
+                Error.throwWithStackTrace(clearError, clearStackTrace!);
+              }
+              throw StateError('Hermes dashboard cookies could not be cleared.');
             }
-            rethrow;
           }
           if (wasActive) {
             if (replacement == null) {
