@@ -240,7 +240,10 @@ class OpenWebUiAccountsController {
   /// Only an account that never signed in -- no proven user, no session --
   /// is dropped, and only when another account can take over: the most
   /// recently used one that is still signed in. Returns whether it did.
-  Future<bool> abandonPendingSignIn() async {
+  Future<bool> abandonPendingSignIn() =>
+      _afterLastChange(_abandonPendingSignIn);
+
+  Future<bool> _abandonPendingSignIn() async {
     final activeId = await _activeAccountId();
     if (activeId == null) return false;
     final entries = await _ref.read(openWebUiAccountsProvider.future);
@@ -256,8 +259,14 @@ class OpenWebUiAccountsController {
     await _ref
         .read(authStateManagerProvider.notifier)
         .signOutAccount(activeId, thenActivate: next);
-    await _ref.read(openWebUiAccountSummariesProvider.notifier).touch(next);
-    _afterActiveAccountChanged(next);
+    // Read again, as a sign-out does: a sign-in can make another account
+    // active while the server is asked, and that one is left alone.
+    if (await _activeAccountId() == next) {
+      await _ref.read(openWebUiAccountSummariesProvider.notifier).touch(next);
+      _afterActiveAccountChanged(next);
+    } else {
+      _ref.invalidate(openWebUiAccountsProvider);
+    }
     return true;
   }
 

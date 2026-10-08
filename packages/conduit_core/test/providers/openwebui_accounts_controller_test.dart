@@ -46,6 +46,7 @@ final class _LastAccountAuth extends AuthStateManager {
   /// Runs while the sign-out waits on the server.
   final FutureOr<void> Function()? duringSignOut;
   final switches = <String>[];
+  final signedOut = <String>[];
 
   @override
   Future<AuthState> build() async =>
@@ -53,6 +54,7 @@ final class _LastAccountAuth extends AuthStateManager {
 
   @override
   Future<bool> signOutAccount(String accountId, {String? thenActivate}) async {
+    signedOut.add(accountId);
     await duringSignOut?.call();
     if (storage.active == accountId) storage.active = thenActivate;
     return false;
@@ -454,6 +456,28 @@ void main() {
     check(auth.merges).deepEquals([('b', 'added-2')]);
   });
 
+  test('an inactive account is signed out of when the others cannot be read',
+      () async {
+    final storage = _LastAccountStorage();
+    final auth = _LastAccountAuth(storage);
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => auth),
+        hermesConfigProvider.overrideWith(_EmptyHermes.new),
+        openWebUiAccountsProvider.overrideWith(
+          (ref) async => throw StateError('locked'),
+        ),
+        accountChangeReplyGuardProvider.overrideWithValue(() => false),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(openWebUiAccountsControllerProvider).signOut('b');
+
+    check(auth.signedOut).deepEquals(['b']);
+  });
+
   test('choosing the account in use while it is signed out goes to auth',
       () async {
     final storage = _LastAccountStorage();
@@ -634,6 +658,81 @@ void main() {
       check(await switching).equals(OpenWebUiAccountChangeResult.done);
       check(auth.switches).deepEquals(['c']);
     });
+
+    test('leaving an addition while a sign-in lands elsewhere leaves that '
+        'alone', () async {
+      start(duringSignOut: () => storage.active = 'elsewhere');
+      storage.active = 'c';
+
+      check(
+        await container
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isTrue();
+
+      check(storage.active).equals('elsewhere');
+      check(hostChanges).isEmpty();
+      check(container.read(openWebUiAccountSummariesProvider)).isEmpty();
+    });
+
+    test('leaving an addition waits for a change in progress', () async {
+      final serverAsked = Completer<void>();
+      start(duringSignOut: () => serverAsked.future);
+      storage.active = 'c';
+      final controller = container.read(openWebUiAccountsControllerProvider);
+
+      final signingOut = controller.signOut('a');
+      final leaving = controller.abandonPendingSignIn();
+      await pumpEventQueue();
+
+      check(auth.signedOut).deepEquals(['a']);
+      serverAsked.complete();
+      await signingOut;
+      check(await leaving).isTrue();
+      check(auth.signedOut).deepEquals(['a', 'c']);
+    });
+  });
+
+  test('cancelling an addition goes back to the account signed in to last', () async {
+    final storage = _LastAccountStorage()..active = 'old';
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => _LastAccountAuth(storage)),
+        hermesConfigProvider.overrideWith(_EmptyHermes.new),
+        openWebUiAccountsProvider.overrideWith((ref) async {
+          final summaries = ref.watch(openWebUiAccountSummariesProvider);
+          return [
+            for (final id in ['old', 'a', 'b', 'c'])
+              _accountEntry(id, hasSession: id != 'c', summary: summaries[id]),
+          ];
+        }),
+        accountChangeReplyGuardProvider.overrideWithValue(() => false),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(openWebUiAccountsControllerProvider);
+
+    await controller.switchTo('a');
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    // B is added and signed in to: its account is certified for its user.
+    storage.active = 'b';
+    await container
+        .read(openWebUiAccountSummariesProvider.notifier)
+        .recordUser(
+          'b',
+          const User(
+            id: 'user-b',
+            username: 'b',
+            email: 'b@example.test',
+            role: 'user',
+          ),
+        );
+    // Another addition starts from B, and is cancelled before signing in.
+    storage.active = 'c';
+
+    check(await controller.abandonPendingSignIn()).isTrue();
+    check(storage.active).equals('b');
   });
 }
 
