@@ -329,8 +329,13 @@ void main() {
     await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
     await activate('a');
 
+    await SettingsService.setOpenRouterImageGenerationModel('image-model');
+
     // Nothing for the image model to fall back to or be copied back from.
     await SettingsService.setOpenRouterImageGenerationModel(null);
+    check(
+      (await SettingsService.loadSettings()).openRouterImageGenerationModel,
+    ).isNull();
   });
 
   test('a write lands under the account active when it started', () async {
