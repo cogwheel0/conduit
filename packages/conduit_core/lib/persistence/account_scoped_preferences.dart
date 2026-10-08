@@ -80,27 +80,47 @@ String scopedPreferenceWriteKey(String baseKey) {
 /// tries again; one that finishes leaves it to the flag.
 String? _deviceSettingsCopyClaim;
 
+/// The copy under way, shared by every call made for its account meanwhile.
+Future<void>? _deviceSettingsCopyRunning;
+
 /// Held as the claim once the account the device settings were being copied
 /// to is removed without the copy marked done: no account takes them over.
 const _deviceSettingsGone = '';
 
 /// Forgets the copy's claim, which lives as long as the process does.
 @visibleForTesting
-void debugResetDeviceSettingsCopy() => _deviceSettingsCopyClaim = null;
+void debugResetDeviceSettingsCopy() {
+  _deviceSettingsCopyClaim = null;
+  _deviceSettingsCopyRunning = null;
+}
 
 /// Copies the device-wide values of [accountScopedPreferenceKeys] into
 /// [accountId], once, the first time an account is active after per-account
 /// settings arrived. The device-wide values stay as the fallback used when
 /// no Open WebUI account is active.
-Future<void> migrateDeviceSettingsIntoAccount(String accountId) async {
+Future<void> migrateDeviceSettingsIntoAccount(String accountId) {
   if (!PreferencesStore.isReady ||
       PreferencesStore.getBool(PreferenceKeys.accountScopedSettingsMigrated) ==
           true) {
-    return;
+    return Future<void>.value();
   }
   final claim = _deviceSettingsCopyClaim;
-  if (claim != null && claim != accountId) return;
+  if (claim != null && claim != accountId) return Future<void>.value();
+  // The copy already under way for this account is the one to wait for:
+  // two would each take the other finishing for the account's removal.
+  final running = _deviceSettingsCopyRunning;
+  if (running != null) return running;
   _deviceSettingsCopyClaim = accountId;
+  final copy = _copyDeviceSettings(accountId);
+  _deviceSettingsCopyRunning = copy;
+  return copy.whenComplete(() {
+    if (identical(_deviceSettingsCopyRunning, copy)) {
+      _deviceSettingsCopyRunning = null;
+    }
+  });
+}
+
+Future<void> _copyDeviceSettings(String accountId) async {
   // An account removed while this runs ends the copy. What was written for
   // it goes too: its own clear may have run before those writes landed.
   final written = <String>[];

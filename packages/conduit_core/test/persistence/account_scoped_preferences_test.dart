@@ -245,6 +245,36 @@ void main() {
     check(await SettingsService.getDefaultModel()).isNull();
   });
 
+  test('a settings copy asked for again while it runs keeps what it copied',
+      () async {
+    final paused = Completer<void>();
+    final resume = Completer<void>();
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async {
+        if (key == onA && !paused.isCompleted) {
+          paused.complete();
+          await resume.future;
+        }
+        return null;
+      },
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+
+    final first = migrateDeviceSettingsIntoAccount('a');
+    await paused.future;
+    // Switching to B and back to A certifies A again mid-copy; a copy of its
+    // own would finish while the first one still waits on a write.
+    final second = migrateDeviceSettingsIntoAccount('a');
+    await pumpEventQueue();
+    resume.complete();
+    await first;
+    await second;
+
+    check(PreferencesStore.getRaw(onA)).equals('pre-upgrade');
+  });
+
   test('a write lands under the account active when it started', () async {
     await PreferencesStore.put(
       PreferenceKeys.accountScopedSettingsMigrated,
