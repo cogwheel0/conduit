@@ -630,9 +630,11 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     }
   }
 
+  /// With [strict], a record that cannot be cleared throws.
   Future<void> _forgetPendingPurge(
     String accountId, {
     String ledger = PreferenceKeys.pendingAccountPurges,
+    bool strict = false,
   }) async {
     try {
       final pending = PreferencesStore.getStringList(ledger);
@@ -647,6 +649,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         error: error,
         stackTrace: stackTrace,
       );
+      if (strict) rethrow;
     }
   }
 
@@ -848,9 +851,12 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         await ref.read(openWebUiDatabasePurgeProvider)(serverId);
         await _removeOwnerMarker(serverId);
         // Whatever a logout that kept the account left is gone now too.
+        // Cleared before the database opens, or this fails: a record left
+        // would have the next start delete what is written to it from now.
         await _forgetPendingPurge(
           serverId,
           ledger: PreferenceKeys.pendingAccountDataPurges,
+          strict: true,
         );
         lastError = null;
         break;

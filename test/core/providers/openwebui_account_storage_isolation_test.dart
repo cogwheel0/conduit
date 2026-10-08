@@ -2475,6 +2475,46 @@ void main() {
           .equals(_server.id);
     });
 
+    // Opened with the record still there, its new chats would go at the next
+    // start.
+    test('an account whose logout record cannot be cleared stays closed',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_server.id],
+      });
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async =>
+            key == PreferenceKeys.pendingAccountDataPurges ? false : null,
+      );
+      addTearDown(PreferencesStore.debugReset);
+      final purged = <String>[];
+      final harness = await _harness(
+        expectInitiallyOpen: false,
+        databasePurge: (accountId) async => purged.add(accountId),
+        additionalOverrides: [
+          // The start's own retry stays out of the way.
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => Completer<Set<String>>().future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        await isolation.settled;
+      }
+
+      check(purged).isNotEmpty();
+      check(
+        harness.container.read(openWebUiCertifiedDatabaseServerProvider),
+      ).isNull();
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .not((it) => it.equals(OpenWebUiDatabaseAccessPhase.open));
+    });
+
     test('a session ending mid-purge keeps the files closed', () async {
       final releasePurge = Completer<void>();
       final purged = <String>[];
