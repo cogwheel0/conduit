@@ -272,6 +272,19 @@ void main() {
 
       check(await storage.accountIdsWithSession()).deepEquals({'a', 'b'});
     });
+
+    test('lists a saved sign-in under the account it names', () async {
+      await storage.saveServerConfigs([account('a'), account('c')]);
+      await storage.setActiveServerId('a');
+      // From before accounts existed: C's sign-in, live while A is active.
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c',
+      );
+
+      check(await storage.accountIdsWithSession()).deepEquals({'c'});
+    });
   });
 
   group('adding an account', () {
@@ -556,6 +569,28 @@ void main() {
     check((await vaultedCredentials('c'))?['password']).equals('pw-c');
     check(await storage.getSavedCredentialsStrict()).isNull();
     check(await storage.getAuthTokenStrict()).isNull();
+  });
+
+  test('signing out keeps a saved sign-in for another account it could not '
+      'file', () async {
+    await storage.saveServerConfigs([account('a'), account('c')]);
+    await signIn('a');
+    await storage.saveCredentials(
+      serverId: 'c',
+      username: 'user-c',
+      password: 'pw-c',
+    );
+    secure.refusedKey = 'user_credentials_server_v1:c';
+
+    await check(
+      storage.clearActiveAccountAuthDataIf(canClear: () => true),
+    ).throws<Object>();
+
+    secure.refusedKey = null;
+    // Still where it was, for the next commit to file.
+    final live = await secure.read(key: 'user_credentials_v2');
+    check((jsonDecode(live!) as Map)['serverId']).equals('c');
+    check(await secure.read(key: 'auth_token_v2')).isNull();
   });
 
   group('removing an account', () {

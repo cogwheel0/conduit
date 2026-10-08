@@ -69,6 +69,17 @@ final class _StagedAuthAttemptSuperseded implements Exception {
   const _StagedAuthAttemptSuperseded();
 }
 
+/// A saved sign-in, live for another account, that could not be filed
+/// under that account.
+final class _ForeignSignInNotFiled implements Exception {
+  const _ForeignSignInNotFiled(this.error);
+
+  final Object error;
+
+  @override
+  String toString() => 'Saved sign-in not filed under its account: $error';
+}
+
 /// What the vault slots a commit wrote or deleted held before it did, by
 /// account id; null for a slot that was empty. A rollback puts back exactly
 /// this, so an account that merely shared the commit's vault keeps its
@@ -682,7 +693,14 @@ class OptimizedStorageService {
         !configs.any((config) => config.id == owner)) {
       return null;
     }
-    await _secureCredentialStorage.saveServerCredentialsPayload(owner, payload);
+    try {
+      await _secureCredentialStorage.saveServerCredentialsPayload(
+        owner,
+        payload,
+      );
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(_ForeignSignInNotFiled(error), stackTrace);
+    }
     return (owner: owner, credentials: payload);
   }
 
@@ -2368,9 +2386,11 @@ class OptimizedStorageService {
               ? null
               : await _secureCredentialStorage
                     .getSavedCredentialsPayloadStrict();
-          if ((token?.isNotEmpty ?? false) ||
-              (credentials?.isNotEmpty ?? false)) {
-            ids.add(active);
+          if (token?.isNotEmpty ?? false) ids.add(active);
+          // A saved sign-in names its own account. From before accounts
+          // existed, that can be another one than the active.
+          if (credentials?.isNotEmpty ?? false) {
+            ids.add(_savedCredentialsServerId(credentials) ?? active);
           }
         }
         return ids;
@@ -3534,13 +3554,21 @@ class OptimizedStorageService {
 
       // A saved sign-in the live slots hold for another account is filed
       // under it first, so that account is not signed out with this one.
+      // One that could not be filed stays where it is: it is not this
+      // account's to delete, and the next commit files it.
+      var foreignSignInKept = false;
       await attempt(() async {
         final (configs, activeId) = await activeAccount();
         if (activeId == null) return;
-        await _fileForeignSavedCredentialsUnlocked(activeId, configs);
+        try {
+          await _fileForeignSavedCredentialsUnlocked(activeId, configs);
+        } on _ForeignSignInNotFiled {
+          foreignSignInKept = true;
+          rethrow;
+        }
       });
       await attempt(_deleteAuthTokenUnlocked);
-      await attempt(_deleteSavedCredentialsUnlocked);
+      if (!foreignSignInKept) await attempt(_deleteSavedCredentialsUnlocked);
       // Like every step here, a failed read is recorded and the rest still
       // runs: the staged candidate and the cached user data go regardless.
       await attempt(() async {
