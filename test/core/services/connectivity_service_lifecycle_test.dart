@@ -300,6 +300,38 @@ void main() {
       }, _RealHttpOverrides());
     });
 
+    // Each redirect started a full timeout of its own.
+    test('gives its redirects only the time it has left', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final origin = await serve((request) async {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          final next = switch (request.uri.path) {
+            '/health' => '/a',
+            '/a' => '/b',
+            _ => null,
+          };
+          if (next != null) {
+            request.response
+              ..statusCode = HttpStatus.temporaryRedirect
+              ..headers.set(HttpHeaders.locationHeader, next);
+          } else {
+            request.response
+              ..statusCode = HttpStatus.ok
+              ..headers.contentType = ContentType.json
+              ..write('{"status":true}');
+          }
+          await request.response.close();
+        });
+
+        check(
+          await probeServerHealth(
+            route(origin),
+            timeout: const Duration(milliseconds: 700),
+          ),
+        ).isFalse();
+      }, _RealHttpOverrides());
+    });
+
     test('does not count a redirect to a sign-in page as the server', () async {
       await HttpOverrides.runWithHttpOverrides(() async {
         final proxy = await serve((request) async {

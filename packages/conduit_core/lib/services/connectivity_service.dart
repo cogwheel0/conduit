@@ -784,6 +784,9 @@ Future<bool> probeServerHealth(
       followRedirects: false,
       validateStatus: (status) => status != null && status < 500,
     );
+    // One deadline for the probe, its redirects included: a route checked
+    // alongside others must not hold the answer up beyond it.
+    final deadline = DateTime.now().add(timeout);
     var response = await dio
         .get<dynamic>('/health', options: options, cancelToken: cancelToken)
         .timeout(timeout);
@@ -802,9 +805,15 @@ Future<bool> probeServerHealth(
       if (target == null || !isCredentialSafeRedirectTarget(from, target)) {
         return false;
       }
+      final left = deadline.difference(DateTime.now());
+      if (left <= Duration.zero) return false;
       response = await dio
-          .getUri<dynamic>(target, options: options, cancelToken: cancelToken)
-          .timeout(timeout);
+          .getUri<dynamic>(
+            target,
+            options: options.copyWith(sendTimeout: left, receiveTimeout: left),
+            cancelToken: cancelToken,
+          )
+          .timeout(left);
     }
     return response.statusCode == 200 && !answeredWithWebPage(response.headers);
   } catch (_) {
