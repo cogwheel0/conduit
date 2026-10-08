@@ -425,7 +425,9 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     final certificationGeneration = _certificationGeneration;
     // Recorded first: the account is already gone from the list the user
     // could sign out of it again from, so a step that fails is left for the
-    // next start. Each step is tried even when one before it fails.
+    // next start. Each step is tried even when one before it fails. A record
+    // that cannot be written does not stop them: stopping would leave all of
+    // the data behind, with no record to retry it from either.
     await _recordPendingPurge(accountId);
     Object? firstError;
     StackTrace? firstStackTrace;
