@@ -199,11 +199,14 @@ final class _RiverpodHermesConnectionGateway
     final previousBackend = _ref.read(preferredBackendProvider);
     final preferredBackend = _ref.read(preferredBackendProvider.notifier);
 
+    // The connection onboarding saved. Not whichever is active at rollback:
+    // a switch elsewhere meanwhile must not get that connection deleted.
+    String? created;
     Future<void> restoreConnection() async {
       if (previousActiveId == null) {
         // Onboarding created the first connection; remove it again.
-        final created = _ref.read(hermesConfigProvider).connectionId;
-        if (created != null) await notifier.deleteConnection(created);
+        final id = created;
+        if (id != null) await notifier.deleteConnection(id);
         return;
       }
       await notifier.saveConnection(
@@ -238,7 +241,7 @@ final class _RiverpodHermesConnectionGateway
 
     await runHermesOnboardingCommit(
       isCurrent: isCurrent,
-      persist: () => persist(target),
+      persist: () async => created = await persist(target),
       enable: () => notifier.setEnabled(true),
       ensureSessionKey: target.config.mode == HermesBackendMode.responsesApi
           ? notifier.ensureSessionKey
