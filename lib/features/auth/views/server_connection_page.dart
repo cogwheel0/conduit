@@ -771,9 +771,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   ) async {
     // Committing makes the new account the active one. While another account
     // is added, that leaves the one it was added from and stops a reply still
-    // being written there, so ask first.
-    if (ref.read(accountAdditionOriginProvider) != null &&
-        !await confirmLeavingActiveAccount(context, ref)) {
+    // being written there, so ask first. Left while the commit is slow, the
+    // addition ends, and so must the commit: the account it was added from
+    // stays active.
+    final addition = ref.read(accountAdditionOriginProvider) == null
+        ? null
+        : ref.read(accountAdditionOriginProvider.notifier).stillInProgress();
+    if (addition != null && !await confirmLeavingActiveAccount(context, ref)) {
       return;
     }
     if (!mounted) return;
@@ -783,6 +787,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         serverConfig: serverConfig,
         token: token,
         user: validatedUser,
+        canCommit: addition,
       );
 
       if (!mounted) return;

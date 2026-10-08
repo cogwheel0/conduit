@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -3096,6 +3098,121 @@ void main() {
     check(settled.token).isNull();
     check(settled.user).isNull();
     check(settled.isLoading).isFalse();
+  });
+
+  // A trusted-proxy sign-in for an added account commits it as the active
+  // one. Left while that commit waited on storage, the addition ended, but
+  // the commit went on to make the new account active after the user left.
+  test('a proxy sign-in for an addition left mid-commit keeps the account it '
+      'was added from', () async {
+    const addedToken = 'added-proxy-token';
+    const addedUser = User(
+      id: 'added-user',
+      username: 'added',
+      email: 'added@example.test',
+      role: 'user',
+    );
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    for (final signedIn in [user, addedUser]) {
+      when(
+        () => storage.saveLocalUserWithAvatar(
+          signedIn,
+          avatarUrl: any(named: 'avatarUrl'),
+        ),
+      ).thenAnswer((_) async {});
+    }
+    var stageCall = 40;
+    when(() => storage.stageServerConfigCandidate(any())).thenAnswer(
+      (_) async => (
+        configs: const [previousConfig],
+        activeServerId: previousConfig.id,
+        transactionId: ++stageCall,
+      ),
+    );
+    when(
+      () => storage.discardServerConfigCandidate(
+        candidate: any(named: 'candidate'),
+        transactionId: any(named: 'transactionId'),
+      ),
+    ).thenAnswer((_) async => true);
+    final addedCommitEntered = Completer<void>();
+    final releaseAddedCommit = Completer<void>();
+    final published = <String>[];
+    when(
+      () => storage.commitServerConfigCandidateSession(
+        candidate: any(named: 'candidate'),
+        transactionId: any(named: 'transactionId'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final committing =
+          invocation.namedArguments[#candidate] as ServerConfig;
+      final canCommit =
+          invocation.namedArguments[#canCommit] as bool Function();
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      if (committing.id == candidate.id) {
+        addedCommitEntered.complete();
+        await releaseAddedCommit.future;
+      }
+      // As the storage does: a commit no longer owned leaves the account
+      // active before it as it was.
+      if (!canCommit()) return false;
+      await publish();
+      published.add(committing.id);
+      return true;
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    // The account the addition begins from is signed in.
+    check(
+      await container
+          .read(authStateManagerProvider.notifier)
+          .commitPrevalidatedProxySession(
+            serverConfig: previousConfig,
+            token: token,
+            user: user,
+          ),
+    ).isTrue();
+
+    final addition = container.read(accountAdditionOriginProvider.notifier)
+      ..begin(previousConfig.id);
+    final adding = container
+        .read(authActionsProvider)
+        .commitPrevalidatedProxySession(
+          serverConfig: candidate,
+          token: addedToken,
+          user: addedUser,
+          canCommit: addition.stillInProgress(),
+        );
+    await addedCommitEntered.future;
+    // The user leaves the connection page, which ends the addition.
+    addition.end(previousConfig.id);
+    releaseAddedCommit.complete();
+
+    check(await adding).isFalse();
+    check(published).deepEquals([previousConfig.id]);
+    final auth = container.read(authStateManagerProvider).requireValue;
+    check(auth.status).equals(AuthStatus.authenticated);
+    check(auth.token).equals(token);
+    check(auth.user).equals(user);
+    check(auth.isLoading).isFalse();
   });
 }
 

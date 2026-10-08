@@ -1634,10 +1634,15 @@ class AuthStateManager extends _$AuthStateManager {
   /// server config is written. The config, active-server id, and token are
   /// committed as one revision-owned attempt; a persistence failure restores
   /// the previous config/session, while a newer auth attempt always wins.
+  ///
+  /// [canCommit] lets the caller withdraw the commit while it is saved: once
+  /// it says no, the account active before stays active, as it does when a
+  /// newer auth attempt begins.
   Future<bool> commitPrevalidatedProxySession({
     required ServerConfig serverConfig,
     required String token,
     required User user,
+    bool Function()? canCommit,
   }) async {
     final tokenStr = token.trim();
     if (tokenStr.isEmpty) {
@@ -1669,6 +1674,8 @@ class AuthStateManager extends _$AuthStateManager {
         : currentState;
     final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
     final attemptRevision = _beginAuthAttempt();
+    bool superseded() =>
+        _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
     _update(
       (current) => current.copyWith(
         status: AuthStatus.loading,
@@ -1680,10 +1687,10 @@ class AuthStateManager extends _$AuthStateManager {
     final storage = ref.read(optimizedStorageServiceProvider);
     ServerConfigCandidateSnapshot? candidateSnapshot;
     try {
-      if (_authAttemptSuperseded(attemptRevision)) return false;
+      if (superseded()) return false;
       final snapshot = await storage.stageServerConfigCandidate(serverConfig);
       candidateSnapshot = snapshot;
-      if (_authAttemptSuperseded(attemptRevision)) {
+      if (superseded()) {
         await _restorePrevalidatedProxyConfig(
           storage: storage,
           candidate: serverConfig,
@@ -1696,13 +1703,13 @@ class AuthStateManager extends _$AuthStateManager {
         storage: storage,
         token: tokenStr,
         user: user,
-        canCommit: () => !_authAttemptSuperseded(attemptRevision),
+        canCommit: () => !superseded(),
         commitPersistenceAndPublish: ({required publish}) {
           return storage.commitServerConfigCandidateSession(
             candidate: serverConfig,
             transactionId: snapshot.transactionId,
             token: tokenStr,
-            canCommit: () => !_authAttemptSuperseded(attemptRevision),
+            canCommit: () => !superseded(),
             publish: () async {
               await publish();
               ref.invalidate(serverConfigsProvider);
