@@ -1029,6 +1029,35 @@ void main() {
       check(await storage.getAuthTokenStrict()).equals('token-a');
     });
 
+    test('is refused once a saved sign-in has reached it', () async {
+      await addPendingFromSignedIn();
+      await storage.saveCredentials(
+        serverId: 'a',
+        username: 'user-a',
+        password: 'pw-a',
+      );
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      await checkKept();
+      check((await storage.getSavedCredentialsStrict())?['password'])
+          .equals('pw-a');
+    });
+
+    // As a switch that failed part-way leaves it: active, its session still
+    // in its vault.
+    test('is refused while a session of its own is in its vault', () async {
+      await addPendingFromSignedIn();
+      await secure.write(key: 'auth_token_server_v1:a', value: 'token-a');
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      await checkKept();
+      check(await vaultedToken('a')).equals('token-a');
+    });
+
     test('is refused once its user is known', () async {
       await addPendingFromSignedIn();
       await storage.bindAccountUser('a', 'user-a');
