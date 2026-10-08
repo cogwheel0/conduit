@@ -304,9 +304,23 @@ class OpenWebUiAccountsController {
     // Not signed out of: it has no session for its server to end, and asking
     // would leave a window for one to land and be revoked. Storage checks
     // once more as it removes the account, and refuses one a sign-in reached.
-    final left = await _ref
-        .read(authStateManagerProvider.notifier)
-        .abandonPendingAccount(activeId, thenActivate: next);
+    final bool left;
+    try {
+      left = await _ref
+          .read(authStateManagerProvider.notifier)
+          .abandonPendingAccount(activeId, thenActivate: next);
+    } catch (error, stackTrace) {
+      // What storage did is not known: the list is read again, as when it
+      // refuses, and the caller hears only that the account was not left.
+      DebugLogger.error(
+        'abandon-pending-sign-in-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _ref.invalidate(openWebUiAccountsProvider);
+      return false;
+    }
     if (!left) {
       _ref.invalidate(openWebUiAccountsProvider);
       return false;

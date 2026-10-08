@@ -428,6 +428,38 @@ void main() {
       check(container_.read(openWebUiAccountSummariesProvider)).isEmpty();
     });
 
+    test('that fails reads the accounts again and reports it was not left',
+        () async {
+      accounts = [
+        entry('a', hasSession: false).withUser(null),
+        entry('b', lastUsedAt: DateTime(2026, 9)),
+      ];
+      auth.duringAbandon = () => throw StateError('Keychain unavailable');
+      var listed = 0;
+      final container_ = ProviderContainer(
+        overrides: [
+          optimizedStorageServiceProvider.overrideWithValue(storage),
+          authStateManagerProvider.overrideWith(() => auth),
+          openWebUiAccountsProvider.overrideWith((ref) async {
+            listed++;
+            return accounts;
+          }),
+        ],
+      );
+      addTearDown(container_.dispose);
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
+      await container_.read(openWebUiAccountsProvider.future);
+      final before = listed;
+
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isFalse();
+      await container_.read(openWebUiAccountsProvider.future);
+      check(listed).isGreaterThan(before);
+    });
+
     test('keeps an account that has signed in before', () async {
       accounts = [entry('a', hasSession: false), entry('b')];
       final container_ = container();
