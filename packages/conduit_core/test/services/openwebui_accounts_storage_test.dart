@@ -959,6 +959,22 @@ void main() {
           .deepEquals(['b']);
     });
 
+    test('stays when the next account\'s session cannot be read', () async {
+      await addPendingFromSignedIn();
+      secure.unreadableKey = 'auth_token_server_v1:b';
+
+      // Gone first, it could not be cancelled again to try once more.
+      await check(
+        storage.removePendingAccount('a', thenActivate: 'b'),
+      ).throws<StateError>();
+
+      secure.unreadableKey = null;
+      await checkKept();
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .equals(true);
+      check(await storage.getAuthTokenStrict()).equals('token-b');
+    });
+
     test('is refused once a sign-in has reached it', () async {
       await addPendingFromSignedIn();
       await storage.saveAuthToken('token-a');
