@@ -2421,11 +2421,13 @@ class OptimizedStorageService {
   ///
   /// With [expectedCurrentId], only while the server is still reached
   /// through that route: a check of the routes that began on it must not
-  /// replace one a sign-in selected since.
+  /// replace one a sign-in selected since. With [canCommit], only while it
+  /// still allows the change, asked as it is made.
   Future<bool> selectEndpoint(
     String serverId,
     String endpointId, {
     String? expectedCurrentId,
+    bool Function()? canCommit,
   }) {
     // Its read can run the migration too.
     return _synchronizedServerConfigsRead(() async {
@@ -2435,7 +2437,8 @@ class OptimizedStorageService {
       final selection = _endpointSelection();
       final current = server.selectedEndpoint(selection[serverId]).id;
       if (current == endpointId ||
-          (expectedCurrentId != null && current != expectedCurrentId)) {
+          (expectedCurrentId != null && current != expectedCurrentId) ||
+          (canCommit != null && !canCommit())) {
         return false;
       }
       selection[serverId] = endpointId;

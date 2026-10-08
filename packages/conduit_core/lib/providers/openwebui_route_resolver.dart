@@ -400,9 +400,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         final currentStillAnswers =
             upgrade && await probes[server.endpoints.indexOf(current)];
         if (!_owns(generation)) return;
-        if (currentStillAnswers &&
-            (ref.read(accountChangeReplyGuardProvider)() ||
-                ref.read(openWebUiSignInPendingProvider)())) {
+        if (currentStillAnswers && _upgradeHeldBack()) {
           state = state.copyWith(checking: false, noneAnswered: false);
           if (!_inBackground) {
             _retry = Timer(_retryDelay, () => _schedule('deferred'));
@@ -413,6 +411,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
           server.id,
           chosen.id,
           expectedCurrentId: current.id,
+          // Asked again as the selection is made: a reply or a sign-in can
+          // begin while it waits for storage.
+          canCommit: currentStillAnswers ? () => !_upgradeHeldBack() : null,
         );
         // Even when a newer check has started: one that picks the same route
         // finds it already selected and leaves the configs alone, which would
@@ -422,14 +423,24 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
           _recheckOwed = true;
         }
         if (!_owns(generation)) return;
-        // Another route was selected since this check began -- by a
-        // sign-in, on the address it was checked with. It stands; the routes
-        // are checked again from it.
-        if (!changed &&
-            server.selectedEndpoint(storage.endpointSelection[server.id]).id !=
-                chosen.id) {
+        final selectedNow = server
+            .selectedEndpoint(storage.endpointSelection[server.id])
+            .id;
+        if (!changed && selectedNow != chosen.id) {
           state = state.copyWith(checking: false);
-          _schedule('selection-moved');
+          if (selectedNow == current.id) {
+            // Held back as it was made: put off as an upgrade held back
+            // before is.
+            if (!_inBackground) {
+              _retry?.cancel();
+              _retry = Timer(_retryDelay, () => _schedule('deferred'));
+            }
+          } else {
+            // Another route was selected since this check began -- by a
+            // sign-in, on the address it was checked with. It stands; the
+            // routes are checked again from it.
+            _schedule('selection-moved');
+          }
           return;
         }
         _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(chosen.url));
@@ -465,6 +476,13 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   }
 
   bool _owns(int generation) => ref.mounted && generation == _generation;
+
+  /// Whether moving up to a better route waits: while a reply is being
+  /// written, which the move would cut off, or while the active account is
+  /// being signed in to, on the client the move would rebuild.
+  bool _upgradeHeldBack() =>
+      ref.read(accountChangeReplyGuardProvider)() ||
+      ref.read(openWebUiSignInPendingProvider)();
 
   /// A proxy session was signed in to again: the refusals remembered were
   /// of the session it replaced.

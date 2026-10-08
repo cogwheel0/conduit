@@ -191,6 +191,26 @@ void main() {
   });
 
   // Moving would rebuild the client the sign-in is being checked on.
+  // The guard was asked before the selection waited for storage.
+  test('a better route waits for a reply that begins as it is selected',
+      () async {
+    answers = {_lan: false, _tailscale: false, _public: true};
+    final routes = await resolver();
+    await routes.resolve();
+    answers[_lan] = true;
+    final held = storage.gate = Completer<void>();
+    storage.selectCalls = 0;
+    final checking = routes.resolve();
+    await until(() => storage.selectCalls > 0);
+
+    replyInProgress = true;
+    held.complete();
+    await checking;
+
+    check(await routeInUse()).equals(_public);
+    check(routes.retryPending).isTrue();
+  });
+
   test('a better route waits while the active account signs in', () async {
     answers = {_lan: false, _tailscale: false, _public: true};
     final routes = await resolver();
@@ -957,6 +977,7 @@ final class _GatedStorage extends OptimizedStorageService {
     String serverId,
     String endpointId, {
     String? expectedCurrentId,
+    bool Function()? canCommit,
   }) async {
     selectCalls++;
     await gate?.future;
@@ -964,6 +985,7 @@ final class _GatedStorage extends OptimizedStorageService {
       serverId,
       endpointId,
       expectedCurrentId: expectedCurrentId,
+      canCommit: canCommit,
     );
   }
 
