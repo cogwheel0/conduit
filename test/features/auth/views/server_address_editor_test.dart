@@ -290,6 +290,37 @@ void main() {
     );
   });
 
+  test('an address is saved with the cookie it was checked with', () async {
+    await storage.saveServerConfigs([
+      const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+    ]);
+    await storage.setActiveServerId('a');
+    final server = (await storage.getOpenWebUiRegistryStrict()).servers.single;
+    final route = OpenWebUiEndpoint(
+      id: server.endpoints.single.id,
+      url: 'https://moved.example',
+    );
+
+    final kept = await saveCheckedAddress(
+      container,
+      serverId: server.id,
+      route: route,
+      adding: false,
+      cookieOwner: 'a',
+      headers: const {'X-Gate': 'g', 'Cookie': 'proxy=1'},
+      sessionRevision: storage.sessionRevocationRevision,
+    );
+
+    check(kept).isTrue();
+    final stored = await storage.getOpenWebUiRegistryStrict();
+    check(stored.servers.single.endpoints.single.url)
+        .equals('https://moved.example');
+    check(stored.account('a')!.capturedHeaders).deepEquals({
+      route.id: {'Cookie': 'proxy=1'},
+    });
+    check(_Routes.reasons).deepEquals(['routes-edited']);
+  });
+
   // Saved without it, an address behind a proxy would be refused, with no
   // other to fall back to; the clients and the addresses shown stay put too.
   test('an address whose cookie cannot be kept is not saved', () async {
