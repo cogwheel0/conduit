@@ -309,6 +309,27 @@ void main() {
     check(find.text('add account').evaluate()).isNotEmpty();
   });
 
+  testWidgets('Back pressed again while it waits drops the account once', (
+    tester,
+  ) async {
+    await openAddAccountFromChat(tester);
+    final answer = abandonableAnswer = Completer<bool>();
+    container.invalidate(pendingSignInAbandonableProvider);
+    await tester.pump();
+    final back = find.byKey(
+      const ValueKey<String>('server-connection-back-button'),
+    );
+
+    await tester.tap(back);
+    await tester.pump();
+    await tester.tap(back);
+    await tester.pump();
+    answer.complete(true);
+    await tester.pumpAndSettle();
+
+    check(accounts.abandons).equals(1);
+  });
+
   testWidgets('an address typed while the saved server is read stays', (
     tester,
   ) async {

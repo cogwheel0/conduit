@@ -1316,11 +1316,25 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     );
   }
 
+  /// Back waits to know whether the added account can be dropped; a press
+  /// meanwhile, of the button or the system's back, is the same Back.
+  bool _goingBack = false;
+
   /// Users adding Open WebUI next to a working Apple, Direct, or Hermes
   /// backend came from chat; only first-time setup returns to the backend
   /// chooser. Adding another account goes back to chat too, first dropping
   /// the added account if its sign-in began and never finished.
   Future<void> _goBack() async {
+    if (_goingBack) return;
+    _goingBack = true;
+    try {
+      await _leave();
+    } finally {
+      _goingBack = false;
+    }
+  }
+
+  Future<void> _leave() async {
     if (widget.addingAccount) {
       // Asked as it settles, not as last shown: back from the sign-in page,
       // the added account has just become active, and the answer for it may
