@@ -784,6 +784,22 @@ void main() {
         check(await storedRefreshToken()).equals('refresh-1');
       });
 
+      test('a replaced client\'s rotation rebuilds the current one', () async {
+        final retired = live();
+        await controller.setEnabled(false);
+        await controller.setEnabled(true);
+        final current = live();
+        check(identical(current, retired)).isFalse();
+
+        await retired.onCredentialsChanged!(_nativeCredentials('refresh-1'));
+
+        final rebuilt = live();
+        check(identical(rebuilt, current)).isFalse();
+        check(
+          rebuilt.config.desktopCredentials?.nativeTokens?.refreshToken,
+        ).equals('refresh-1');
+      });
+
       test('keeps its rotation when it lands after a switch away', () async {
         final client = live();
         await controller.setActiveConnection(_b);

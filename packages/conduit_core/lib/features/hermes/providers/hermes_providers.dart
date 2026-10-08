@@ -146,6 +146,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
   bool _durableLogoutFenceBlocked = false;
   HermesConfig? _configBeforeAppDataClear;
   int _connectionMutationEpoch = 0;
+
+  /// Counts the live Desktop clients built; the newest is the live one.
+  int _liveClientGeneration = 0;
   int _secretLoadEpoch = 0;
 
   bool get _mutationsBlocked =>
@@ -506,13 +509,15 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// server already issued. The write is rejected once [connection]'s
   /// endpoint, auth, or credentials change.
   ///
-  /// [live] marks the writer of the live client itself. Any other writer that
-  /// replaces the active connection's tokens rebuilds the live client, which
-  /// would otherwise go on with the replaced ones.
+  /// [live] marks the writer of a live client being built. Any other writer
+  /// that replaces the active connection's tokens, including that of a live
+  /// client since replaced, rebuilds the live client, which would otherwise
+  /// go on with the replaced ones.
   HermesDesktopCredentialsWriter credentialsWriterFor(
     HermesConfig connection, {
     bool live = false,
   }) {
+    final generation = live ? ++_liveClientGeneration : null;
     final connectionId = connection.connectionId;
     // The refresh token this writer's client holds. Two clients built from
     // the same stored tokens can race: once one rotates them, the other's
@@ -552,7 +557,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
       if (active) {
         state = _withState(desktopCredentials: next);
         // Through the container: the live client watches this notifier.
-        if (!live) ref.container.invalidate(hermesApiServiceProvider);
+        if (generation != _liveClientGeneration) {
+          ref.container.invalidate(hermesApiServiceProvider);
+        }
       }
       expectedRefreshToken = credentials.nativeTokens?.refreshToken;
     });
