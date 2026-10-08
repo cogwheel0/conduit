@@ -39,16 +39,19 @@ String serverDisplayName(OpenWebUiServer server) {
   return host == null || host.isEmpty ? url : host;
 }
 
-/// The other saved accounts, as rows of the native Settings root.
-List<NativeProfileRootSavedAccount> otherSavedAccountsForNativeSheet(
+/// The other saved accounts, as rows of the native Settings root; null while
+/// [accounts] are unknown (not read yet, or failed to read).
+List<NativeProfileRootSavedAccount>? otherSavedAccountsForNativeSheet(
   List<OpenWebUiAccountEntry>? accounts,
   AppLocalizations l10n,
-) => [
-  for (final entry in accounts ?? const <OpenWebUiAccountEntry>[])
-    if (!entry.isActive)
-      NativeProfileRootSavedAccount(
-        id: entry.id,
-        displayName: accountDisplayName(entry, l10n),
-        detail: accountDetailLine(entry, l10n),
-      ),
-];
+) => accounts == null
+    ? null
+    : [
+        for (final entry in accounts)
+          if (!entry.isActive)
+            NativeProfileRootSavedAccount(
+              id: entry.id,
+              displayName: accountDisplayName(entry, l10n),
+              detail: accountDetailLine(entry, l10n),
+            ),
+      ];

@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/core/router/app_router.dart'
     show usesNoTransitionForNativeSheet;
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -185,6 +186,26 @@ void main() {
       );
       expect(request.routeName, RouteNames.accounts);
       expect(usesNoTransitionForNativeSheet(request.extra), isTrue);
+    });
+
+    // The sheet reads the saved accounts as it opens. When that read failed
+    // or ran late, the row said "Sign out" while it signed out of every
+    // account.
+    test('with the other accounts unknown, signing out says it signs out '
+        'of all of them', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: const NativeProfileRootVisibility(),
+        otherAccounts: null,
+      );
+
+      check([for (final item in sections[1].items) item.actionId])
+          .deepEquals([nativeAccountAddActionId, nativeAccountManageActionId]);
+      check(_item(sections, nativeSignOutActionId).title)
+          .equals(_l10n.accountsSignOutAll);
+      final ids = _ids(sections).expand((ids) => ids);
+      check(ids.contains(nativeAccountSignOutActionId)).isFalse();
     });
 
     test('with one account, signing out is what it always was', () {

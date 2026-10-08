@@ -159,17 +159,24 @@ class NativeProfileRootSavedAccount {
 ///
 /// Pure, so the open sheet can be rebuilt with the same rows when a setting
 /// it depends on (Advanced) changes while it is up.
+///
+/// [otherAccounts] is null when the saved accounts could not be read in
+/// time. There may be several then, and signing out signs out of every one,
+/// so the sign-out row says so; only the accounts known are listed.
 List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   AppLocalizations l10n, {
   required NativeProfileRootAccount? account,
   required NativeProfileRootVisibility visibility,
-  List<NativeProfileRootSavedAccount> otherAccounts =
+  List<NativeProfileRootSavedAccount>? otherAccounts =
       const <NativeProfileRootSavedAccount>[],
 }) {
   final hasAccount = account != null;
-  final severalAccounts = otherAccounts.isNotEmpty;
+  final knownOtherAccounts =
+      otherAccounts ?? const <NativeProfileRootSavedAccount>[];
+  final hasOtherAccounts = knownOtherAccounts.isNotEmpty;
+  final severalAccounts = otherAccounts == null || hasOtherAccounts;
   final accountItems = <NativeSheetItemConfig>[
-    for (final other in otherAccounts)
+    for (final other in knownOtherAccounts)
       NativeSheetItemConfig(
         id: '$nativeAccountSwitchActionId:${other.id}',
         title: other.displayName,
@@ -324,7 +331,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         items: [
           // With one account, signing out is what it always was. With
           // several, sign out of this one, or of every account at once.
-          if (severalAccounts)
+          if (hasOtherAccounts)
             NativeSheetItemConfig(
               id: nativeAccountSignOutActionId,
               title: l10n.accountsSignOutOf(account.displayName),

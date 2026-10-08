@@ -145,10 +145,12 @@ class ProfilePage extends ConsumerWidget {
       directPrimary: directPrimary,
       hasOpenWebUiAccount: hasOpenWebUiAccount,
     );
-    final accounts =
-        ref.watch(openWebUiAccountsProvider).value ??
-        const <OpenWebUiAccountEntry>[];
+    final accountsAsync = ref.watch(openWebUiAccountsProvider);
+    final accounts = accountsAsync.value ?? const <OpenWebUiAccountEntry>[];
     final activeAccount = accounts.where((entry) => entry.isActive).firstOrNull;
+    // Until the saved accounts are read, or when they cannot be, there may be
+    // several, and signing out signs out of every one: say so.
+    final severalAccounts = !accountsAsync.hasValue || accounts.length > 1;
     return ListView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -163,7 +165,12 @@ class ProfilePage extends ConsumerWidget {
         if (hasOpenWebUiAccount) ...[
           _buildProfileHeader(context, userData, api),
           const SizedBox(height: Spacing.lg),
-          _buildAccountsSection(context, ref, accounts),
+          _buildAccountsSection(
+            context,
+            ref,
+            accounts,
+            showManage: severalAccounts,
+          ),
           const SizedBox(height: Spacing.lg),
         ],
         ...items,
@@ -177,7 +184,7 @@ class ProfilePage extends ConsumerWidget {
               // several, sign out of this one, or of every account at once.
               if (accounts.length > 1 && activeAccount != null)
                 _buildSignOutOfAccountOption(context, ref, activeAccount),
-              _buildSignOutOption(context, ref, all: accounts.length > 1),
+              _buildSignOutOption(context, ref, all: severalAccounts),
             ],
           ),
       ],
@@ -540,8 +547,9 @@ class ProfilePage extends ConsumerWidget {
   Widget _buildAccountsSection(
     BuildContext context,
     WidgetRef ref,
-    List<OpenWebUiAccountEntry> accounts,
-  ) {
+    List<OpenWebUiAccountEntry> accounts, {
+    required bool showManage,
+  }) {
     final l10n = AppLocalizations.of(context)!;
     return InsetGroupedList(
       key: const Key('settings-accounts-group'),
@@ -566,7 +574,7 @@ class ProfilePage extends ConsumerWidget {
           title: l10n.accountsAddAccount,
           onTap: () => showAddAccountSheet(context, ref),
         ),
-        if (accounts.length > 1)
+        if (showManage)
           _buildAccountOption(
             context,
             key: const Key('settings-manage-accounts'),

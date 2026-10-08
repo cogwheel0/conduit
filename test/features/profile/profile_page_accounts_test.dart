@@ -1,3 +1,4 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/features/profile/views/profile_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -74,8 +75,9 @@ final class _RecordingController implements OpenWebUiAccountsController {
 void main() {
   Future<_RecordingController> pumpProfile(
     WidgetTester tester,
-    List<OpenWebUiAccountEntry> accounts,
-  ) async {
+    List<OpenWebUiAccountEntry> accounts, {
+    Object? accountsError,
+  }) async {
     final controller = _RecordingController();
     final workerManager = WorkerManager();
     addTearDown(workerManager.dispose);
@@ -86,6 +88,7 @@ void main() {
     addTearDown(router.dispose);
     await tester.pumpWidget(
       ProviderScope(
+        retry: (_, _) => null,
         overrides: [
           currentUserProvider2.overrideWithValue(_alex),
           currentUserProvider.overrideWith((ref) async => _alex),
@@ -105,7 +108,10 @@ void main() {
           personalConnectionsEntryVisibleProvider.overrideWithValue(false),
           scheduledTasksEntryVisibleProvider.overrideWithValue(false),
           chatDataControlsEntryVisibleProvider.overrideWithValue(false),
-          openWebUiAccountsProvider.overrideWith((ref) async => accounts),
+          openWebUiAccountsProvider.overrideWith((ref) async {
+            if (accountsError != null) throw accountsError;
+            return accounts;
+          }),
           openWebUiAccountsControllerProvider.overrideWithValue(controller),
         ],
         child: MaterialApp.router(
@@ -173,5 +179,21 @@ void main() {
     expect(find.byKey(const Key('settings-sign-out')), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
     expect(find.byKey(const Key('settings-sign-out-account')), findsNothing);
+  });
+
+  // Signing out signs out of every saved account. With the list unread, the
+  // row said "Sign out" as though there were only this one.
+  testWidgets('with the saved accounts unreadable, sign out says it signs '
+      'out of all of them', (tester) async {
+    await pumpProfile(tester, const [], accountsError: StateError('locked'));
+
+    check(find.text('Manage accounts').evaluate()).isNotEmpty();
+    await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
+    await tester.pumpAndSettle();
+    check(find.text('Sign out of all accounts').evaluate()).isNotEmpty();
+    check(find.text('Sign out').evaluate()).isEmpty();
+    check(
+      find.byKey(const Key('settings-sign-out-account')).evaluate(),
+    ).isEmpty();
   });
 }
