@@ -366,6 +366,51 @@ void main() {
       check((await vaultedCredentials('a'))?['password']).equals('pw-a');
     });
 
+    // Before accounts existed, a saved sign-in could outlive a server change
+    // and name another account while this one is active.
+    test('signing in afresh to the active account files another account\'s '
+        'saved sign-in under it', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('a');
+      await storage.saveCredentials(
+        serverId: 'b',
+        username: 'user-b',
+        password: 'pw-b',
+      );
+
+      final selected = await storage.selectUnauthenticatedServerConfig(
+        account('a'),
+        publish: () {},
+      );
+
+      check(selected).isTrue();
+      check((await vaultedCredentials('b'))?['password']).equals('pw-b');
+      check(await storage.getSavedCredentialsStrict()).isNull();
+    });
+
+    test('choosing the active account takes up its kept session when the '
+        'saved sign-in is another account\'s', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('a');
+      // A switch that failed part-way: A active, its session in its vault.
+      await storage.switchActiveServer(fromServerId: 'a', toServerId: 'b');
+      await storage.setActiveServerId('a');
+      await storage.saveCredentials(
+        serverId: 'b',
+        username: 'user-b',
+        password: 'pw-b',
+      );
+      check(await vaultedToken('a')).equals('token-a');
+
+      check(
+        await storage.switchActiveServer(fromServerId: 'a', toServerId: 'a'),
+      ).isTrue();
+
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await vaultedToken('a')).isNull();
+      check((await vaultedCredentials('b'))?['password']).equals('pw-b');
+    });
+
     test('a failed commit leaves no copy behind in the vault', () async {
       await storage.saveServerConfigs([account('a'), account('b')]);
       await signIn('a');
@@ -1070,6 +1115,36 @@ void main() {
       check(await storage.getSavedCredentialsStrict()).isNull();
       check(await vaultedToken('existing')).equals('token-existing');
     });
+
+    // Left naming the target while the source is active, the saved sign-in
+    // would be filed under the target the next time the session moves.
+    test('a merge whose saved sign-in cannot be put back ends the live '
+        'session', () async {
+      await signedInAsNewOverExisting();
+      var accountsRefused = false;
+      secure.beforeWrite = (key) {
+        if (key == 'openwebui_registry_v1') {
+          accountsRefused = true;
+          throw StateError('keychain refused $key');
+        }
+        // Nor, after that, can the sign-in be put back.
+        if (accountsRefused && key == 'user_credentials_v2') {
+          throw StateError('keychain refused $key');
+        }
+      };
+
+      await check(
+        storage.mergeActiveAccountInto(
+          'existing',
+          expectedSourceAccountId: 'new',
+        ),
+      ).throws<ServerConfigSessionRollbackException>();
+      secure.beforeWrite = null;
+
+      check(await storage.getAuthTokenStrict()).isNull();
+      check(await storage.getSavedCredentialsStrict()).isNull();
+      check(await vaultedToken('existing')).equals('token-existing');
+    });
   });
 
   test('signing out of the active account leaves the others', () async {
@@ -1135,6 +1210,9 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? unreadableKey;
   bool refusesDeleteAll = false;
 
+  /// Runs before each write, and refuses it by throwing.
+  void Function(String key)? beforeWrite;
+
   @override
   Future<void> deleteAll() {
     if (refusesDeleteAll) throw StateError('keychain refused to clear');
@@ -1143,6 +1221,7 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
 
   @override
   Future<void> write({required String key, required String? value}) {
+    beforeWrite?.call(key);
     if (key == refusedKey) throw StateError('keychain refused $key');
     if (key == refusedOnceKey) {
       refusedOnceKey = null;

@@ -304,6 +304,24 @@ class OptimizedStorageService {
     return read();
   }
 
+  /// Runs [write], and once more when it fails, as [_retrySecureStorageRead]
+  /// does for a read. A second failure throws.
+  Future<void> _retrySecureStorageWrite(
+    Future<void> Function() write, {
+    required String scope,
+  }) async {
+    try {
+      return await write();
+    } catch (error) {
+      DebugLogger.warning(
+        'secure-write-retrying',
+        scope: scope,
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    return write();
+  }
+
   // ---------------------------------------------------------------------------
   // Auth token APIs (secure storage + in-memory cache)
   // ---------------------------------------------------------------------------
@@ -441,18 +459,18 @@ class OptimizedStorageService {
       // active, which may be flagged active or the only one saved rather than
       // named by the active id. Checked against the stricter id, a caller
       // could pass none, skip the stash and lose that account's session.
-      final (activeId, isSaved) = await _serverConfigsLock.synchronized(
-        () async {
-          final configs = await _getServerConfigsStrictRetryingUnlocked();
-          return (
-            _effectiveActiveServerId(
-              configs: configs,
-              rawActiveServerId: _readActiveServerIdState().rawServerId,
-            ),
-            configs.any((config) => config.id == toServerId),
-          );
-        },
-      );
+      final (activeId, isSaved, configs) = await _serverConfigsLock
+          .synchronized(() async {
+            final configs = await _getServerConfigsStrictRetryingUnlocked();
+            return (
+              _effectiveActiveServerId(
+                configs: configs,
+                rawActiveServerId: _readActiveServerIdState().rawServerId,
+              ),
+              configs.any((config) => config.id == toServerId),
+              configs,
+            );
+          });
       final callerIsCurrent =
           activeId == fromServerId ||
           // A first connection: the one saved server already counts as active
@@ -491,7 +509,16 @@ class OptimizedStorageService {
                 _secureCredentialStorage.getSavedCredentialsPayloadStrict,
                 scope: 'storage/optimized/credentials-switch-noop',
               );
-        if (credentials != null && credentials.isNotEmpty) return true;
+        if (credentials != null && credentials.isNotEmpty) {
+          if ((_savedCredentialsServerId(credentials) ?? toServerId) ==
+              toServerId) {
+            return true;
+          }
+          // A saved sign-in from before accounts existed can name another
+          // account. It is not this one's session; filed under its own, it
+          // is not lost when this one's is taken up below.
+          await _fileForeignSavedCredentialsUnlocked(toServerId, configs);
+        }
         // Nothing live, but the account may have been left active with its
         // session still in the vault, by a switch that failed part-way. Take
         // it up rather than leave it for the next switch away to drop.
@@ -753,25 +780,22 @@ class OptimizedStorageService {
   /// account out for an attempt that never happened.
   Future<void> _restoreVaultUnlocked(_VaultUndo undo) async {
     Future<void> restore(Future<void> Function() write) async {
-      for (var attempt = 1; ; attempt++) {
-        try {
-          await write();
-          return;
-        } catch (error, stackTrace) {
-          // Keychain access can fail briefly, as for a read: tried again
-          // once. Then it is left. The live session was restored; only an
-          // account kept aside may now read as signed out, as the account
-          // list then shows it. That is not worth signing the user out of
-          // the live one, which the rollback-uncertain path would.
-          if (attempt < 2) continue;
-          DebugLogger.error(
-            'vault-restore-failed',
-            scope: 'storage/optimized',
-            error: error,
-            stackTrace: stackTrace,
-          );
-          return;
-        }
+      try {
+        await _retrySecureStorageWrite(
+          write,
+          scope: 'storage/optimized/vault-restore',
+        );
+      } catch (error, stackTrace) {
+        // The live session was restored; only an account kept aside may now
+        // read as signed out, as the account list then shows it. That is
+        // not worth signing the user out of the live one, which the
+        // rollback-uncertain path would.
+        DebugLogger.error(
+          'vault-restore-failed',
+          scope: 'storage/optimized',
+          error: error,
+          stackTrace: stackTrace,
+        );
       }
     }
 
@@ -1317,9 +1341,15 @@ class OptimizedStorageService {
             (previousToken != null && previousToken.isNotEmpty) ||
             (previousCredentialsPayload != null &&
                 previousCredentialsPayload.isNotEmpty);
+        // A saved sign-in from before accounts existed can name another
+        // account than the active one; that account has it behind it.
+        final liveSignInOwner = _savedCredentialsServerId(
+          previousCredentialsPayload,
+        );
         bool abandoned(ServerConfig candidate) =>
             registry.account(candidate.id)?.userId == null &&
             !vaulted.contains(candidate.id) &&
+            candidate.id != liveSignInOwner &&
             (candidate.id != previousActiveId || !previousHasLiveSession);
         final nextConfigs = <ServerConfig>[
           for (final existing in previousConfigs)
@@ -1333,14 +1363,15 @@ class OptimizedStorageService {
         final vaultUndo = _VaultUndo();
         try {
           persistenceStarted = true;
-          if (previousActiveId != selected.id) {
-            await _stashForeignSessionUnlocked(
-              targetAccountId: selected.id,
-              previousActiveId: previousActiveId,
-              undo: vaultUndo,
-            );
-            if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
-          }
+          // Even when re-selecting the active account: the saved sign-in
+          // can be another account's, from before accounts existed. The
+          // account's own session is not filed; it is signed in to afresh.
+          await _stashForeignSessionUnlocked(
+            targetAccountId: selected.id,
+            previousActiveId: previousActiveId,
+            undo: vaultUndo,
+          );
+          if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
           if (vaulted.contains(selected.id)) {
             await _deleteVaultedSessionUndoablyUnlocked(
               selected.id,
@@ -2661,6 +2692,30 @@ class OptimizedStorageService {
           registryWritten = true;
           await _writeActiveServerIdWithoutConfigSync(target.id);
         } catch (error, stackTrace) {
+          // Whose the live session is cannot be told any more. End it rather
+          // than leave it with an account it may not belong to.
+          Future<Never> endLiveSession(
+            Object rollbackError,
+            StackTrace rollbackStackTrace,
+          ) async {
+            for (final delete in [
+              _deleteAuthTokenUnlocked,
+              _deleteSavedCredentialsUnlocked,
+            ]) {
+              try {
+                await delete();
+              } catch (_) {}
+            }
+            await _restoreVaultUnlocked(vaultUndo);
+            Error.throwWithStackTrace(
+              ServerConfigSessionRollbackException(
+                commitError: error,
+                rollbackError: rollbackError,
+              ),
+              rollbackStackTrace,
+            );
+          }
+
           // The source stays the active account with its session; the target
           // keeps the one it had. The accounts and the active id go back
           // first: the live session belongs to whichever account they name.
@@ -2673,35 +2728,25 @@ class OptimizedStorageService {
                 await _writeActiveServerIdWithoutConfigSync(rawActiveId);
               }
             } catch (rollbackError, rollbackStackTrace) {
-              // Whose the live session is cannot be told any more. End it
-              // rather than leave it with an account it may not belong to.
-              for (final delete in [
-                _deleteAuthTokenUnlocked,
-                _deleteSavedCredentialsUnlocked,
-              ]) {
-                try {
-                  await delete();
-                } catch (_) {}
-              }
-              await _restoreVaultUnlocked(vaultUndo);
-              Error.throwWithStackTrace(
-                ServerConfigSessionRollbackException(
-                  commitError: error,
-                  rollbackError: rollbackError,
+              await endLiveSession(rollbackError, rollbackStackTrace);
+            }
+          }
+          final original = rewrittenCredentialsFrom;
+          if (original != null) {
+            // Left naming the target, the saved sign-in would be filed under
+            // it the next time the source's session moves.
+            try {
+              await _retrySecureStorageWrite(
+                () => _secureCredentialStorage.restoreSavedCredentialsPayload(
+                  original,
                 ),
-                rollbackStackTrace,
+                scope: 'storage/optimized/merge-rollback',
               );
+            } catch (rollbackError, rollbackStackTrace) {
+              await endLiveSession(rollbackError, rollbackStackTrace);
             }
           }
           await _restoreVaultUnlocked(vaultUndo);
-          final original = rewrittenCredentialsFrom;
-          if (original != null) {
-            try {
-              await _secureCredentialStorage.restoreSavedCredentialsPayload(
-                original,
-              );
-            } catch (_) {}
-          }
           Error.throwWithStackTrace(error, stackTrace);
         }
         _stagedServerConfigCandidate = null;
