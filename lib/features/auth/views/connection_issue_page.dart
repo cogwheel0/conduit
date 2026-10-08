@@ -10,6 +10,7 @@ import 'package:conduit_core/auth/auth_state_manager.dart';
 import '../../../platform/webview_cookie_helper.dart';
 
 import 'package:conduit_core/auth/proxy_session.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
@@ -32,6 +33,22 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
+
+/// The route a renewed proxy session of [account] is saved to: the one its
+/// projection was read from, found by the connection it carries as saving
+/// it does, though the app may since have selected another.
+@visibleForTesting
+String? renewedProxyRouteId(
+  OpenWebUiRegistry registry,
+  ServerConfig account, {
+  required Map<String, String> selection,
+}) {
+  final saved = registry.account(account.id);
+  final server = saved == null ? null : registry.server(saved.serverId);
+  return server
+      ?.routeForConnection(account, selectedEndpointId: selection[server.id])
+      .id;
+}
 
 class ConnectionIssuePage extends ConsumerStatefulWidget {
   const ConnectionIssuePage({super.key});
@@ -164,9 +181,6 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
     ServerConfig activeServer,
     AppLocalizations l10n,
   ) async {
-    // The route [activeServer] was read from, which the cookies are saved
-    // to; the app can move to another while the sign-in is open.
-    final renewedRoute = ref.read(openWebUiRouteResolverProvider).endpointId;
     final result = await context.pushNamed<ProxyAuthResult>(
       RouteNames.proxyAuth,
       extra: ProxyAuthConfig(serverConfig: activeServer),
@@ -193,6 +207,13 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
       );
       final storage = ref.read(optimizedStorageServiceProvider);
       final configs = await storage.getServerConfigsStrict();
+      // Where the save below files the cookies; the app can have moved to
+      // another route while the sign-in was open.
+      final renewedRoute = renewedProxyRouteId(
+        await storage.getOpenWebUiRegistryStrict(),
+        activeServer,
+        selection: storage.endpointSelection,
+      );
       // Same server identity: the storage layer keeps the account session
       // when only custom headers change.
       await storage.saveServerConfigs([
