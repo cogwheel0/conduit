@@ -193,6 +193,29 @@ void main() {
       });
     }
 
+    test('with a page sent with its content type twice is reported, and '
+        'the request keeps its own error', () async {
+      api.dio.httpClientAdapter = _Proxy({
+        '/api/v1/auths/': () => ResponseBody.fromString(
+          '<html><body>Sign in</body></html>',
+          HttpStatus.unauthorized,
+          headers: {
+            Headers.contentTypeHeader: [
+              'text/html; charset=utf-8',
+              'text/html',
+            ],
+          },
+        ),
+      });
+
+      await check(api.dio.get<dynamic>('/api/v1/auths/')).throws<DioException>(
+        (error) => error
+            .has((error) => error.response?.statusCode, 'status')
+            .equals(HttpStatus.unauthorized),
+      );
+      check(rejected).deepEquals([Uri.parse(server)]);
+    });
+
     test('on an address the server upgraded to HTTPS is reported', () async {
       final workerManager = WorkerManager(worker: const InlineWorkerPort());
       final plain = ApiService(

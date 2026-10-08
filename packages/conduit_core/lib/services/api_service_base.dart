@@ -23,12 +23,10 @@ void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
     return;
   }
   final status = response.statusCode ?? 0;
-  final page =
-      response.headers
-          .value(Headers.contentTypeHeader)
-          ?.toLowerCase()
-          .contains('text/html') ??
-      false;
+  // Read as a list: a response can repeat the header, and asking for its
+  // single value then throws.
+  final page = (response.headers[Headers.contentTypeHeader] ?? const [])
+      .any((type) => type.toLowerCase().contains('text/html'));
   final refused =
       publicHealthRedirectStatusCodes.contains(status) ||
       (page && (status == 401 || status == 403)) ||
@@ -194,7 +192,10 @@ abstract class _ApiServiceBase {
         onError: (error, handler) {
           final response = error.response;
           if (response != null) {
-            _reportProxyRefusal(response, connectivityOrigin);
+            // Reporting must not replace the request's own error.
+            try {
+              _reportProxyRefusal(response, connectivityOrigin);
+            } catch (_) {}
           }
           if (error.response == null &&
               requestUsesServerConnectivityOrigin(
