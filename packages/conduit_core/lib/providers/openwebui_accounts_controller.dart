@@ -327,7 +327,21 @@ class OpenWebUiAccountsController {
     }
     // Read again, as a sign-out does: a sign-in can make another account
     // active while auth settles, and that one is left alone.
-    if (await _activeAccountId() == next) {
+    final String? now;
+    try {
+      now = await _activeAccountId();
+    } catch (error, stackTrace) {
+      // Left already: the list, read again, shows what is active.
+      DebugLogger.error(
+        'abandon-active-read-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _ref.invalidate(openWebUiAccountsProvider);
+      return true;
+    }
+    if (now == next) {
       await _ref.read(openWebUiAccountSummariesProvider.notifier).touch(next);
       _afterActiveAccountChanged(next);
     } else {

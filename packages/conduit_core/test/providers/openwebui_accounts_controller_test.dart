@@ -460,6 +460,30 @@ void main() {
       check(listed).isGreaterThan(before);
     });
 
+    test('that succeeds reports the account left though the account in use '
+        'cannot be read after', () async {
+      accounts = [
+        entry('a', hasSession: false).withUser(null),
+        entry('b', lastUsedAt: DateTime(2026, 9)),
+      ];
+      var reads = 0;
+      // The third read comes once storage has removed the account.
+      when(() => storage.getEffectiveActiveServerId()).thenAnswer((_) async {
+        if (++reads == 3) throw StateError('Keychain locked');
+        return activeId;
+      });
+      final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
+      await container_.read(authStateManagerProvider.future);
+
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isTrue();
+      check(auth.abandoned).deepEquals([('a', 'b')]);
+    });
+
     test('keeps an account that has signed in before', () async {
       accounts = [entry('a', hasSession: false), entry('b')];
       final container_ = container();
