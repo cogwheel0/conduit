@@ -146,8 +146,19 @@ final class OpenWebUiAccountsController {
     }
     // Picked even for an account that is not active: a sign-in can make it
     // active while its server is asked to end the session, and it is then
-    // signed out of as the active account.
-    final next = await _nextAccountAfter(accountId);
+    // signed out of as the active account. For one that is not, picking is
+    // best effort: removing it needs no other account's session.
+    String? next;
+    try {
+      next = await _nextAccountAfter(accountId);
+    } catch (error) {
+      if (isActive) rethrow;
+      DebugLogger.warning(
+        'next-account-read-failed',
+        scope: 'auth/accounts',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
     final signedIn = await _ref
         .read(authStateManagerProvider.notifier)
         .signOutAccount(accountId, thenActivate: next);

@@ -45,6 +45,7 @@ final class _Auth extends AuthStateManager {
   /// Runs while the sign-out waits on the server.
   final FutureOr<void> Function()? duringSignOut;
   final switches = <String>[];
+  final signedOut = <String>[];
 
   @override
   Future<AuthState> build() async =>
@@ -52,6 +53,7 @@ final class _Auth extends AuthStateManager {
 
   @override
   Future<bool> signOutAccount(String accountId, {String? thenActivate}) async {
+    signedOut.add(accountId);
     await duringSignOut?.call();
     if (storage.active == accountId) storage.active = thenActivate;
     return false;
@@ -156,6 +158,28 @@ void main() {
 
     check(preferred).equals(PreferredBackend.unset);
     check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+  });
+
+  test('an inactive account is signed out of when the others cannot be read',
+      () async {
+    final storage = _Storage();
+    final auth = _Auth(storage);
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => auth),
+        hermesConfigProvider.overrideWith(_Hermes.new),
+        openWebUiAccountsProvider.overrideWith(
+          (ref) async => throw StateError('locked'),
+        ),
+        accountChangeReplyGuardProvider.overrideWithValue(() => false),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(openWebUiAccountsControllerProvider).signOut('b');
+
+    check(auth.signedOut).deepEquals(['b']);
   });
 
   test('choosing the account in use while it is signed out goes to auth',
