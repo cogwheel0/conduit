@@ -10,8 +10,14 @@ part of 'api_service.dart';
 /// answered without a redirect is left out: Open WebUI's web app answers an
 /// address it does not know, as an older server does a newer endpoint.
 void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
+  final options = response.requestOptions;
+  // A replay's refusal passes here inside the replay and again on the way
+  // out of the request it replays; it is one refusal.
+  if (options.extra[_proxyRefusalReportedKey] == true) return;
+  // A replay is judged by where it started: an upgrade to HTTPS on the same
+  // host is still the server's own address.
   if (!requestUsesServerConnectivityOrigin(
-    response.requestOptions.uri,
+    sameOriginRedirectStart(options),
     server,
   )) {
     return;
@@ -29,9 +35,13 @@ void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
       (page &&
           status >= 200 &&
           status < 300 &&
-          isSameOriginRedirectReplay(response.requestOptions));
-  if (refused) ConnectivityService.reportRouteRejected(server);
+          isSameOriginRedirectReplay(options));
+  if (!refused) return;
+  options.extra[_proxyRefusalReportedKey] = true;
+  ConnectivityService.reportRouteRejected(server);
 }
+
+const _proxyRefusalReportedKey = 'conduit.proxyRefusalReported';
 
 abstract class _ApiServiceBase {
   // Declared here, implemented by the family mixins applied over this base.

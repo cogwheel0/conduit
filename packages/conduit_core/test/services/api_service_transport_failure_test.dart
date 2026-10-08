@@ -51,6 +51,22 @@ final class _Proxy implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// Upgrades a plain-HTTP request to HTTPS on the same host, where the proxy
+/// refuses it with its sign-in page.
+final class _UpgradingProxy implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => options.uri.scheme == 'http'
+      ? _redirect(options.uri.replace(scheme: 'https').toString())
+      : _page(HttpStatus.unauthorized);
+
+  @override
+  void close({bool force = false}) {}
+}
+
 ResponseBody _page(int status) => ResponseBody.fromString(
   '<html><body>Sign in</body></html>',
   status,
@@ -176,6 +192,32 @@ void main() {
         check(unreachable).isEmpty();
       });
     }
+
+    test('on an address the server upgraded to HTTPS is reported', () async {
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
+      final plain = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'http://chat.example',
+        ),
+        workerManager: workerManager,
+      );
+      addTearDown(() {
+        plain.dispose();
+        workerManager.dispose();
+      });
+      plain.updateAuthToken('session-token');
+      plain.dio.httpClientAdapter = _UpgradingProxy();
+
+      try {
+        await plain.dio.get<dynamic>('/api/v1/auths/');
+      } on DioException {
+        // Refused; only what was reported matters here.
+      }
+
+      check(rejected).deepEquals([Uri.parse('http://chat.example')]);
+    });
 
     for (final (what, url, answers) in <(String, String, _Answers)>[
       (
