@@ -1263,16 +1263,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Widget build(BuildContext context) {
     final reviewerMode = ref.watch(reviewerModeProvider);
     final l10n = AppLocalizations.of(context)!;
-    final abandonable =
-        widget.addingAccount &&
-        (ref.watch(pendingSignInAbandonableProvider).value ?? false);
+    // Kept current for Back, which waits for it.
+    if (widget.addingAccount) ref.watch(pendingSignInAbandonableProvider);
 
     // Adding an account is the router's location, with nothing beneath it to
     // pop to, so the system back does what Back does rather than leave the app.
     return PopScope(
       canPop: !widget.addingAccount,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _goBack(abandonable: abandonable);
+        if (!didPop) _goBack();
       },
       child: UtilityPageScaffold.auth(
         title: l10n.backendChooserOpenWebUITitle,
@@ -1280,7 +1279,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         backNavigation: UtilityBackNavigation(
           label: l10n.back,
           buttonKey: const ValueKey<String>('server-connection-back-button'),
-          onPressed: () => _goBack(abandonable: abandonable),
+          onPressed: _goBack,
         ),
         bottomAction: _buildConnectButton(),
         body: Form(
@@ -1304,11 +1303,21 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// backend came from chat; only first-time setup returns to the backend
   /// chooser. Adding another account goes back to chat too, first dropping
   /// the added account if its sign-in began and never finished.
-  void _goBack({required bool abandonable}) {
-    if (abandonable) {
-      abandonAddedAccount(context, ref);
-      return;
+  Future<void> _goBack() async {
+    if (widget.addingAccount) {
+      // Asked as it settles, not as last shown: back from the sign-in page,
+      // the added account has just become active, and the answer for it may
+      // still be on its way. Plain Back would leave that account active.
+      final abandonable = await ref
+          .read(pendingSignInAbandonableProvider.future)
+          .catchError((Object _) => false);
+      if (!mounted) return;
+      if (abandonable) {
+        await abandonAddedAccount(context, ref);
+        return;
+      }
     }
+    if (!mounted) return;
     if (widget.addingAccount && context.canPop()) {
       context.pop();
       return;

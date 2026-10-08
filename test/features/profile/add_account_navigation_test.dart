@@ -54,6 +54,8 @@ void main() {
   late ServerConfig active;
   late AuthNavigationState auth;
   late bool abandonable;
+  // Holds the answer back while set, as a reload of it does.
+  Completer<bool>? abandonableAnswer;
   late _MergingAuth signIns;
   late _RegistryStorage storage;
   // What the connection page handed sign-in, when it got that far.
@@ -63,6 +65,7 @@ void main() {
     active = _active;
     auth = AuthNavigationState.authenticated;
     abandonable = false;
+    abandonableAnswer = null;
     storage = _RegistryStorage();
     authFlow = null;
     accounts = _RecordingAccountsController();
@@ -74,7 +77,7 @@ void main() {
         activeServerProvider.overrideWithValue(const AsyncData(_active)),
         reviewerModeProvider.overrideWithValue(false),
         pendingSignInAbandonableProvider.overrideWith(
-          (ref) async => abandonable,
+          (ref) async => await abandonableAnswer?.future ?? abandonable,
         ),
         openWebUiAccountsControllerProvider.overrideWithValue(accounts),
         authStateManagerProvider.overrideWith(() => signIns),
@@ -278,6 +281,28 @@ void main() {
     await openAddAccountFromChat(tester);
 
     await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    check(accounts.abandons).equals(1);
+    check(find.text('add account').evaluate()).isNotEmpty();
+  });
+
+  // Back from the sign-in page, the added account has just become active and
+  // whether it can be dropped is still being worked out. Taking the answer
+  // shown before left that account active, signed out.
+  testWidgets('Back waits to know whether the added account can be dropped', (
+    tester,
+  ) async {
+    await openAddAccountFromChat(tester);
+    final answer = abandonableAnswer = Completer<bool>();
+    container.invalidate(pendingSignInAbandonableProvider);
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('server-connection-back-button')),
+    );
+    await tester.pump();
+    answer.complete(true);
     await tester.pumpAndSettle();
 
     check(accounts.abandons).equals(1);
