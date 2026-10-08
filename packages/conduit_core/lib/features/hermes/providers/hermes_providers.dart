@@ -512,7 +512,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// [live] marks the writer of a live client being built. Any other writer
   /// that replaces the active connection's tokens, including that of a live
   /// client since replaced, rebuilds the live client, which would otherwise
-  /// go on with the replaced ones.
+  /// go on with the replaced ones, once no reply is streaming through it.
   HermesDesktopCredentialsWriter credentialsWriterFor(
     HermesConfig connection, {
     bool live = false,
@@ -556,12 +556,24 @@ class HermesConfigController extends Notifier<HermesConfig> {
       await _persistDesktopCredentials(connectionId, next);
       if (active) {
         state = _withState(desktopCredentials: next);
-        // Through the container: the live client watches this notifier.
-        if (generation != _liveClientGeneration) {
-          ref.container.invalidate(hermesApiServiceProvider);
-        }
+        if (generation != _liveClientGeneration) _rebuildLiveClientWhenIdle();
       }
       expectedRefreshToken = credentials.nativeTokens?.refreshToken;
+    });
+  }
+
+  /// Rebuilds the live client so it takes the stored tokens, but only once
+  /// no reply is streaming: closing it mid-reply would freeze that reply.
+  void _rebuildLiveClientWhenIdle() {
+    final generation = _liveClientGeneration;
+    ref.read(hermesRunRegistryProvider).whenIdle(() {
+      // Outside the caller's frame, and skipped when a client built since
+      // already took the stored tokens. Through the container: the live
+      // client watches this notifier.
+      scheduleMicrotask(() {
+        if (!ref.mounted || generation != _liveClientGeneration) return;
+        ref.container.invalidate(hermesApiServiceProvider);
+      });
     });
   }
 
@@ -2667,6 +2679,28 @@ HermesRunKey legacyHermesRunKey(String assistantMessageId) => (
 ///
 class HermesRunRegistry {
   final Map<HermesRunKey, _ActiveRun> _runs = {};
+  final List<void Function()> _whenIdle = [];
+
+  /// Calls [callback] once no run is active: now, or when the last one ends.
+  void whenIdle(void Function() callback) {
+    if (_runs.isEmpty) {
+      callback();
+    } else {
+      _whenIdle.add(callback);
+    }
+  }
+
+  void _notifyIfIdle() {
+    if (_runs.isNotEmpty || _whenIdle.isEmpty) return;
+    final callbacks = List.of(_whenIdle);
+    _whenIdle.clear();
+    for (final callback in callbacks) {
+      _observeHermesRegistryCleanup(
+        () async => callback(),
+        message: 'idle-callback-failed',
+      );
+    }
+  }
 
   CancelToken registerPending(
     HermesRunKey key, {
@@ -2904,7 +2938,9 @@ class HermesRunRegistry {
   Future<void>? cancel(HermesRunKey key) {
     final run = _runs.remove(key);
     if (run == null) return null;
-    return _cancelDetached(run);
+    final stopped = _cancelDetached(run);
+    _notifyIfIdle();
+    return stopped;
   }
 
   /// Cancels [key] only when it still belongs to [cancelToken]. This is the
@@ -2917,7 +2953,9 @@ class HermesRunRegistry {
     final run = _runs[key];
     if (run == null || !identical(run.cancelToken, cancelToken)) return null;
     _runs.remove(key);
-    return _cancelDetached(run);
+    final stopped = _cancelDetached(run);
+    _notifyIfIdle();
+    return stopped;
   }
 
   /// Cancels the run for the visible conversation without falling back to an
@@ -2990,6 +3028,7 @@ class HermesRunRegistry {
     if (run == null || !identical(run.cancelToken, cancelToken)) return false;
     _runs.remove(key);
     _reportCleanupSettled(run);
+    _notifyIfIdle();
     return true;
   }
 

@@ -764,9 +764,35 @@ void main() {
         await controller.credentialsWriterFor(
           container.read(hermesConfigProvider),
         )(_nativeCredentials('refresh-1'));
+        await pumpEventQueue();
 
         final after = live();
         check(identical(after, before)).isFalse();
+        check(
+          after.config.desktopCredentials?.nativeTokens?.refreshToken,
+        ).equals('refresh-1');
+      });
+
+      test('takes rotated tokens only once no reply is streaming', () async {
+        final streaming = live();
+        final registry = container.read(hermesRunRegistryProvider);
+        final key = hermesRunKey(
+          ownerConversationId: 'chat',
+          assistantMessageId: 'reply',
+        );
+        final token = registry.registerPending(key, onCancelled: () {});
+
+        await controller.credentialsWriterFor(
+          container.read(hermesConfigProvider),
+        )(_nativeCredentials('refresh-1'));
+        await pumpEventQueue();
+        // Closing it now would freeze the reply.
+        check(identical(live(), streaming)).isTrue();
+
+        registry.complete(key, cancelToken: token);
+        await pumpEventQueue();
+        final after = live();
+        check(identical(after, streaming)).isFalse();
         check(
           after.config.desktopCredentials?.nativeTokens?.refreshToken,
         ).equals('refresh-1');
@@ -792,6 +818,7 @@ void main() {
         check(identical(current, retired)).isFalse();
 
         await retired.onCredentialsChanged!(_nativeCredentials('refresh-1'));
+        await pumpEventQueue();
 
         final rebuilt = live();
         check(identical(rebuilt, current)).isFalse();
