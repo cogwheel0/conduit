@@ -179,6 +179,8 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   bool _initialAuthDecisionComplete = false;
   bool _purgeRequired = false;
   bool _purgeRunning = false;
+  // Whose files the running purge is deleting.
+  String? _purgeRunningFor;
   bool _disposed = false;
   String? _cleanServerId;
   int _purgeGeneration = 0;
@@ -297,7 +299,10 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     try {
       // None while it re-resolves: its previous value can be the account
       // being left, and an identity judged against that one's marker purges.
-      final id = ref.read(activeServerProvider).asData?.value?.id;
+      // A refresh keeps that value as data, so loading is what tells.
+      final active = ref.read(activeServerProvider);
+      if (active.isLoading) return null;
+      final id = active.asData?.value?.id;
       return id == null || id.isEmpty ? null : id;
     } catch (_) {
       return null;
@@ -444,6 +449,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       ref.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
       // A sign-in landing meanwhile waits for it, as for any purge.
       _purgeRunning = true;
+      _purgeRunningFor = accountId;
       gateGeneration = ++_purgeGeneration;
     }
     final certificationGeneration = _certificationGeneration;
@@ -586,7 +592,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
           );
           continue;
         }
-        if (_purgeRunning) continue;
+        if (_purgeRunning && _purgeRunningFor == accountId) continue;
         if (saved.contains(accountId)) {
           await purgeAccount(accountId, keepsRecord: true);
         } else {
@@ -773,8 +779,9 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   /// and the account just left must never be mistaken for the one to purge.
   String? _currentServerId() {
     try {
-      final active = ref.read(activeServerProvider).asData?.value?.id;
-      if (active != null && active.isNotEmpty) return active;
+      final active = ref.read(activeServerProvider);
+      final id = active.isLoading ? null : active.asData?.value?.id;
+      if (id != null && id.isNotEmpty) return id;
     } catch (_) {}
     final stored = PreferencesStore.getString(PreferenceKeys.activeServerId);
     if (stored != null && stored.isNotEmpty) return stored;
@@ -798,6 +805,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     }
 
     _purgeRunning = true;
+    _purgeRunningFor = serverId;
     final generation = ++_purgeGeneration;
     _settled = _runPurge(
       serverId: serverId,
