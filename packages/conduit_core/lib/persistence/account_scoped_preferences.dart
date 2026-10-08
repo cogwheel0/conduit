@@ -78,6 +78,10 @@ String scopedPreferenceWriteKey(String baseKey) {
 /// tries again; one that finishes leaves it to the flag.
 String? _deviceSettingsCopyClaim;
 
+/// Held as the claim once the account the device settings were being copied
+/// to is removed without the copy marked done: no account takes them over.
+const _deviceSettingsGone = '';
+
 /// Copies the device-wide values of [accountScopedPreferenceKeys] into
 /// [accountId], once, the first time an account is active after per-account
 /// settings arrived. The device-wide values stay as the fallback used when
@@ -123,15 +127,25 @@ Future<void> migrateDeviceSettingsIntoAccount(String accountId) async {
 /// its socket transport options, its cached feature flags and its summary.
 Future<void> clearOpenWebUiAccountPreferences(String accountId) async {
   if (!PreferencesStore.isReady) return;
+  Object? markError;
+  StackTrace? markStackTrace;
   if (_deviceSettingsCopyClaim == accountId) {
     // The device settings were being copied to this account, the first in
     // use after the upgrade, which they belonged to. They go with it rather
-    // than pass to the next account, which starts from the defaults.
-    await PreferencesStore.putChecked(
-      PreferenceKeys.accountScopedSettingsMigrated,
-      true,
-    );
-    _deviceSettingsCopyClaim = null;
+    // than pass to the next account, which starts from the defaults. Until
+    // that is marked, no account takes them over in this run.
+    _deviceSettingsCopyClaim = _deviceSettingsGone;
+    try {
+      await PreferencesStore.putChecked(
+        PreferenceKeys.accountScopedSettingsMigrated,
+        true,
+      );
+      _deviceSettingsCopyClaim = null;
+    } catch (error, stackTrace) {
+      // Reported once the account's own settings are gone too.
+      markError = error;
+      markStackTrace = stackTrace;
+    }
   }
   final suffix = '$_accountScopeSeparator${_encodedAccountId(accountId)}';
   for (final key in PreferencesStore.keys().toList(growable: false)) {
@@ -188,4 +202,5 @@ Future<void> clearOpenWebUiAccountPreferences(String accountId) async {
       await PreferencesStore.remove(PreferenceKeys.openWebUiAccountSummaries);
     }
   }
+  if (markError != null) Error.throwWithStackTrace(markError, markStackTrace!);
 }

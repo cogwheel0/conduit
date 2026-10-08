@@ -188,6 +188,41 @@ void main() {
     check(PreferencesStore.containsKey(onA)).isFalse();
   });
 
+  test('an account whose settings copy cannot be marked done is still cleared',
+      () async {
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    final pinnedOnA = accountScopedPreferenceKey(
+      PreferenceKeys.pinnedModels,
+      'a',
+    );
+    var refuseMark = false;
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async {
+        if (key == onA) return false;
+        if (key == PreferenceKeys.accountScopedSettingsMigrated && refuseMark) {
+          return false;
+        }
+        return null;
+      },
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+    await PreferencesStore.put(pinnedOnA, <String>['model']);
+    await check(migrateDeviceSettingsIntoAccount('a')).throws<StateError>();
+
+    refuseMark = true;
+    await check(clearOpenWebUiAccountPreferences('a')).throws<StateError>();
+
+    // A's own settings went regardless, and B does not take A's over.
+    check(PreferencesStore.containsKey(pinnedOnA)).isFalse();
+    await migrateDeviceSettingsIntoAccount('b');
+    check(
+      PreferencesStore.containsKey(
+        accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'b'),
+      ),
+    ).isFalse();
+  });
+
   test('a write lands under the account active when it started', () async {
     await PreferencesStore.put(
       PreferenceKeys.accountScopedSettingsMigrated,
