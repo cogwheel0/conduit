@@ -124,6 +124,26 @@ void main() {
     ).isFalse();
   });
 
+  test('a device setting that fails to copy is copied again', () async {
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    var refuse = true;
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async =>
+          key == onA && refuse ? false : null,
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+
+    await check(migrateDeviceSettingsIntoAccount('a')).throws<StateError>();
+    check(
+      PreferencesStore.getBool(PreferenceKeys.accountScopedSettingsMigrated),
+    ).not((it) => it.equals(true));
+
+    refuse = false;
+    await migrateDeviceSettingsIntoAccount('a');
+    check(PreferencesStore.getRaw(onA)).equals('pre-upgrade');
+  });
+
   test('a write lands under the account active when it started', () async {
     await PreferencesStore.put(
       PreferenceKeys.accountScopedSettingsMigrated,

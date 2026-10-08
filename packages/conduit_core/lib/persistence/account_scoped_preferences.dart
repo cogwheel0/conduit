@@ -95,9 +95,11 @@ Future<void> migrateDeviceSettingsIntoAccount(String accountId) async {
     final scoped = accountScopedPreferenceKey(key, accountId);
     if (PreferencesStore.containsKey(scoped)) continue;
     final value = PreferencesStore.getRaw(key);
-    if (value != null) await PreferencesStore.put(scoped, value);
+    // Checked: a copy that did not land must not be marked done, or the
+    // account would stop reading the device value it never received.
+    if (value != null) await PreferencesStore.putChecked(scoped, value);
   }
-  await PreferencesStore.put(
+  await PreferencesStore.putChecked(
     PreferenceKeys.accountScopedSettingsMigrated,
     true,
   );
