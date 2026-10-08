@@ -1188,6 +1188,11 @@ class AuthStateManager extends _$AuthStateManager {
     _activeLogoutOperations++;
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
+      // Before anything is removed: once the account is gone, only this
+      // record leads a later start back to data its purge fails to delete.
+      // One that cannot be written stops the sign-out here, with the account
+      // still there to sign out of again.
+      await _accountStorageIsolation.recordAccountPurge(accountId);
       Future<bool> isActive() async {
         String? activeId;
         try {
@@ -1307,6 +1312,19 @@ class AuthStateManager extends _$AuthStateManager {
         _authAttemptRevision != revision) {
       return false;
     }
+    // As for a sign-out, recorded before the source goes. Unrecorded, the
+    // merge does not happen, and the source stays an account of its own.
+    try {
+      await _accountStorageIsolation.recordAccountPurge(sourceAccountId);
+    } catch (error, stackTrace) {
+      _logAuthenticationFailure(
+        'account-merge-purge-record-failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
+    if (!ref.mounted || _authAttemptRevision != revision) return false;
 
     final attemptRevision = _enterAccountBoundary();
     final bool merged;

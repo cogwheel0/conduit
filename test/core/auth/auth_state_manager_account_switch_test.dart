@@ -416,6 +416,103 @@ void main() {
     check(after.token).equals(_tokenA);
   });
 
+  // Removed first, the account would be gone with nothing left to retry a
+  // failed purge from: not from the list, nor from the next start.
+  test('a sign-out whose purge cannot be recorded removes nothing', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation()..refusesRecord = true;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    await check(
+      container
+          .read(authStateManagerProvider.notifier)
+          .signOutAccount('account-a'),
+    ).throws<StateError>();
+
+    verifyNever(
+      () => storage.removeAccount(
+        any(),
+        thenActivate: any(named: 'thenActivate'),
+      ),
+    );
+    verifyNever(() => storage.removeInactiveAccount(any()));
+    check(isolation.purged).isEmpty();
+    check(
+      container.read(authStateManagerProvider).requireValue.token,
+    ).equals(_tokenA);
+  });
+
+  test('a merge whose purge cannot be recorded does not happen', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation()..refusesRecord = true;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    final merged = await container
+        .read(authStateManagerProvider.notifier)
+        .mergeActiveAccountInto(
+          'account-b',
+          expectedSourceAccountId: 'account-a',
+        );
+
+    check(merged).isFalse();
+    verifyNever(
+      () => storage.mergeActiveAccountInto(
+        any(),
+        expectedSourceAccountId: any(named: 'expectedSourceAccountId'),
+        expectedToken: any(named: 'expectedToken'),
+      ),
+    );
+    check(isolation.purged).isEmpty();
+  });
+
   test('a merge storage declines deletes nothing', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();
@@ -792,6 +889,14 @@ final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
   int switches = 0;
   final purged = <String>[];
   final purgedKeepingRecord = <String>[];
+  final recorded = <String>[];
+  bool refusesRecord = false;
+
+  @override
+  Future<void> recordAccountPurge(String accountId) async {
+    if (refusesRecord) throw StateError('preferences refused');
+    recorded.add(accountId);
+  }
 
   @override
   Future<void> purgeAccount(

@@ -2712,6 +2712,35 @@ void main() {
       ).isNull();
     });
 
+    test('a purge recorded before its account goes is kept for the next '
+        'start, and one that cannot be is refused', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      var refuse = false;
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async =>
+            refuse && key == PreferenceKeys.pendingAccountPurges
+            ? false
+            : null,
+      );
+      addTearDown(PreferencesStore.debugReset);
+      final harness = await _harness();
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      await isolation.recordAccountPurge(_serverTwo.id);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNotNull().deepEquals([_serverTwo.id]);
+
+      refuse = true;
+      await check(isolation.recordAccountPurge('third')).throws<Object>();
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNotNull().deepEquals([_serverTwo.id]);
+    });
+
     // The sign-in at start purges what the logout left; the retry, reading
     // its list from before, must not purge the database opened since.
     test('a logout purge already finished at start is not retried', () async {

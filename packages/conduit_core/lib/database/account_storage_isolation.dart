@@ -453,13 +453,13 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       gateGeneration = ++_purgeGeneration;
     }
     final certificationGeneration = _certificationGeneration;
-    // Recorded first: the account is already gone from the list the user
-    // could sign out of it again from, so a step that fails is left for the
-    // next start. Each step is tried even when one before it fails. A record
-    // that cannot be written does not stop them: stopping would leave all of
-    // the data behind, with no record to retry it from either. A kept
-    // account's is recorded apart; until it is cleared, no sign-in to it
-    // reopens what is left.
+    // Recorded first, so a step that fails is left for the next start. A
+    // sign-out has recorded it already, before removing the account
+    // ([recordAccountPurge]). Each step is tried even when one before it
+    // fails. A record that cannot be written here does not stop them:
+    // stopping would leave all of the data behind, with no record to retry
+    // it from either. A kept account's is recorded apart; until it is
+    // cleared, no sign-in to it reopens what is left.
     final ledger = keepsRecord
         ? PreferenceKeys.pendingAccountDataPurges
         : PreferenceKeys.pendingAccountPurges;
@@ -619,15 +619,28 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     );
   }
 
+  /// Records that [accountId]'s data is to be purged, for storage to remove
+  /// the account after. Once it is gone, this record is all that leads a
+  /// later start back to what [purgeAccount] fails to delete; so it throws
+  /// when the record cannot be written, and the account is not removed.
+  Future<void> recordAccountPurge(String accountId) =>
+      _writePendingPurge(accountId, ledger: PreferenceKeys.pendingAccountPurges);
+
+  Future<void> _writePendingPurge(
+    String accountId, {
+    required String ledger,
+  }) async {
+    final pending = PreferencesStore.getStringList(ledger) ?? const <String>[];
+    if (pending.contains(accountId)) return;
+    await PreferencesStore.putChecked(ledger, [...pending, accountId]);
+  }
+
   Future<void> _recordPendingPurge(
     String accountId, {
     String ledger = PreferenceKeys.pendingAccountPurges,
   }) async {
     try {
-      final pending =
-          PreferencesStore.getStringList(ledger) ?? const <String>[];
-      if (pending.contains(accountId)) return;
-      await PreferencesStore.putChecked(ledger, [...pending, accountId]);
+      await _writePendingPurge(accountId, ledger: ledger);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'pending-account-purge-record-failed',
