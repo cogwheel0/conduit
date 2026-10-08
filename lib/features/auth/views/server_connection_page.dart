@@ -234,6 +234,52 @@ Object? _serverConnectionResponseErrorDetail(Object? data) => switch (data) {
   _ => null,
 };
 
+/// Saves [route], an address of the server [serverId] that has just been
+/// checked -- in place of the address of its id, or as a new one when
+/// [adding] -- and keeps the proxy cookie in [headers] for [cookieOwner], the
+/// account whose session proved it (see
+/// [OptimizedStorageService.saveEndpointSessionHeaders]).
+///
+/// The address is saved first. Whatever then becomes of the cookie, the
+/// clients, the addresses shown and the route in use follow what was saved;
+/// a failure to keep the cookie is rethrown for the editor to report.
+@visibleForTesting
+Future<void> saveCheckedAddress(
+  ProviderContainer container, {
+  required String serverId,
+  required OpenWebUiEndpoint route,
+  required bool adding,
+  required String? cookieOwner,
+  required Map<String, String> headers,
+  required int sessionRevision,
+}) async {
+  final storage = container.read(optimizedStorageServiceProvider);
+  // Onto the routes as stored now, not as read before the check, which can
+  // take a while; an address removed meanwhile stays removed.
+  await storage.editServerEndpoints(
+    serverId,
+    (endpoints) => withEditedRoute(endpoints, route, adding: adding),
+  );
+  try {
+    if (cookieOwner != null && headers.keys.any(isCapturedSessionHeader)) {
+      await storage.saveEndpointSessionHeaders(
+        accountId: cookieOwner,
+        route: route,
+        headers: headers,
+        sessionRevision: sessionRevision,
+      );
+    }
+  } finally {
+    container.invalidate(serverConfigsProvider);
+    container.invalidate(openWebUiAccountsProvider);
+    unawaited(
+      container
+          .read(openWebUiRouteResolverProvider.notifier)
+          .resolve(reason: 'routes-edited'),
+    );
+  }
+}
+
 class ServerConnectionPage extends ConsumerStatefulWidget {
   const ServerConnectionPage({
     super.key,
@@ -302,6 +348,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// Ends the account addition this page was opened for, as it goes.
   void Function()? _endAccountAddition;
   final TextEditingController _routeLabelController = TextEditingController();
+
+  /// The id an address added here is saved under. One per editor, so saving
+  /// again after a save that stored the address and then failed edits it
+  /// rather than adding it twice.
+  final String _addedEndpointId = const Uuid().v4();
 
   bool get _editingRoutes => widget.routesOfServerId != null;
 
@@ -442,7 +493,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
     final label = _routeLabelController.text.trim();
     final route = OpenWebUiEndpoint(
-      id: widget.endpointId ?? const Uuid().v4(),
+      id: widget.endpointId ?? _addedEndpointId,
       url: verified.url,
       label: label.isEmpty ? null : label,
       customHeaders: {
@@ -456,33 +507,17 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       mtlsPrivateKeyLabel: verified.mtlsPrivateKeyLabel,
       mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
     );
-    // Onto the routes as stored now, not as read before the check, which can
-    // take a while; an address removed meanwhile stays removed.
-    await storage.editServerEndpoints(
-      server.id,
-      (endpoints) =>
-          withEditedRoute(endpoints, route, adding: widget.endpointId == null),
-    );
     // A proxy sign-in on this address belongs to the account whose session
     // proved it, which need not be the active one; with nothing to prove, to
     // the active account when it is on this server.
-    final cookieOwner =
-        provedBy ?? (checksActiveAccount ? activeAccount.id : null);
-    if (cookieOwner != null &&
-        verified.customHeaders.keys.any(isCapturedSessionHeader)) {
-      await storage.saveEndpointSessionHeaders(
-        accountId: cookieOwner,
-        route: route,
-        headers: verified.customHeaders,
-        sessionRevision: sessionRevision,
-      );
-    }
-    container.invalidate(serverConfigsProvider);
-    container.invalidate(openWebUiAccountsProvider);
-    unawaited(
-      container
-          .read(openWebUiRouteResolverProvider.notifier)
-          .resolve(reason: 'routes-edited'),
+    await saveCheckedAddress(
+      container,
+      serverId: server.id,
+      route: route,
+      adding: widget.endpointId == null,
+      cookieOwner: provedBy ?? (checksActiveAccount ? activeAccount.id : null),
+      headers: verified.customHeaders,
+      sessionRevision: sessionRevision,
     );
     if (mounted) {
       ConduitHaptics.success();
