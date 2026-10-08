@@ -237,8 +237,11 @@ abstract class _ApiServiceBase {
             }
             // Not once retired: a request it let finish went out with the
             // session it held, which may since have been replaced.
+            // Here too for a request that takes every status as an answer,
+            // a chat completion among them.
             if (_reportsRouteRefusals && !_disposed) {
               _reportProxyRefusal(response, connectivityOrigin, serverConfig);
+              _reportGatewayFailure(response, connectivityOrigin);
             }
           } catch (_) {}
           handler.next(response);

@@ -303,6 +303,26 @@ void main() {
       });
     }
 
+    test('with a gateway error is reported for a request taking every '
+        'status as its answer', () async {
+      final gateways = <Uri>[];
+      final subscription = ConnectivityService.gatewayFailures.listen(
+        gateways.add,
+      );
+      addTearDown(subscription.cancel);
+      api.dio.httpClientAdapter = _Proxy({
+        '/api/chat/completions': () => _page(HttpStatus.badGateway),
+      });
+
+      // As a chat completion asks.
+      await api.dio.post<dynamic>(
+        '/api/chat/completions',
+        options: Options(validateStatus: (status) => status != null),
+      );
+
+      check(gateways).deepEquals([Uri.parse(server)]);
+    });
+
     test('with a page sent with its content type twice is reported, and '
         'the request keeps its own error', () async {
       api.dio.httpClientAdapter = _Proxy({
