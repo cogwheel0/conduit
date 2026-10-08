@@ -997,6 +997,18 @@ void main() {
       check((await vaultedCredentials('c'))?['password']).equals('pw-c');
     });
 
+    test('is refused once the account to hand over to is gone', () async {
+      await addPendingFromSignedIn();
+      await storage.removeInactiveAccount('b');
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      check(await storage.getActiveServerId()).equals('a');
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['a']);
+    });
+
     test('is refused once a sign-in has reached it', () async {
       await addPendingFromSignedIn();
       await storage.saveAuthToken('token-a');

@@ -2541,6 +2541,8 @@ class OptimizedStorageService {
         if (wasActive && onlyIfInactive) return null;
         if (onlyIfPending) {
           if (!wasActive) return null;
+          // The account to hand over to may have been removed meanwhile.
+          if (!configs.any((config) => config.id == thenActivate)) return null;
           final registry = await _getRegistryStrictUnlocked(
             bypassReadSuppression: true,
           );
