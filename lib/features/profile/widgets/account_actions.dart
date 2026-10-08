@@ -92,6 +92,7 @@ Future<bool> confirmLeavingActiveAccount(
   context,
   ref.read,
   guard: accountChangeReplyGuardProvider,
+  stop: accountChangeStopRepliesProvider,
   confirm: () => _confirmSwitchStopsReply(context),
 );
 
@@ -108,6 +109,7 @@ Future<bool> confirmChangingAddressInUse(
   // Only the replies arriving through the address: a Direct or Hermes one
   // runs on.
   guard: addressChangeReplyGuardProvider,
+  stop: addressChangeStopRepliesProvider,
   confirm: () {
     final l10n = AppLocalizations.of(context)!;
     return ThemedDialogs.confirm(
@@ -124,12 +126,13 @@ Future<bool> _mayStopReply(
   BuildContext context,
   T Function<T>(ProviderListenable<T> provider) read, {
   required ProviderListenable<bool Function()> guard,
+  required ProviderListenable<void Function()> stop,
   required Future<bool> Function() confirm,
 }) async {
   if (!read(guard)()) return true;
   if (!await confirm() || !context.mounted) return false;
   try {
-    read(accountChangeStopRepliesProvider)();
+    read(stop)();
   } catch (error, stackTrace) {
     DebugLogger.error(
       'account-change-stop-replies-failed',

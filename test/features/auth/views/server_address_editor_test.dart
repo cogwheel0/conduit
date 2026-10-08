@@ -258,7 +258,7 @@ void main() {
           ),
         ),
         addressChangeReplyGuardProvider.overrideWithValue(() => true),
-        accountChangeStopRepliesProvider.overrideWithValue(() => stops++),
+        addressChangeStopRepliesProvider.overrideWithValue(() => stops++),
       ],
     );
     addTearDown(replying.dispose);

@@ -116,7 +116,7 @@ void main() {
           addressChangeReplyGuardProvider.overrideWithValue(
             () => replyInProgress,
           ),
-          accountChangeStopRepliesProvider.overrideWithValue(
+          addressChangeStopRepliesProvider.overrideWithValue(
             onStopReplies ?? () {},
           ),
         ],

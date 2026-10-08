@@ -19,7 +19,8 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         isChatStreamingProvider,
         localChatGenerationActiveProvider,
-        stopGenerationProvider;
+        stopGenerationProvider,
+        stopOpenWebUiMainResponse;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -71,6 +72,13 @@ final addressChangeReplyGuardProvider = Provider<bool Function()>((ref) {
       return false;
     }
   };
+});
+
+/// Stops the reply [addressChangeReplyGuardProvider] reported, once the user
+/// has agreed to change the address anyway: the open chat's Open WebUI one,
+/// and no Direct, Hermes or on-device run.
+final addressChangeStopRepliesProvider = Provider<void Function()>((ref) {
+  return () => unawaited(stopOpenWebUiMainResponse(ref));
 });
 
 /// Stops the replies [accountChangeReplyGuardProvider] reported, once the
