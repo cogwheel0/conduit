@@ -796,7 +796,17 @@ void main() {
     check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
   });
 
-  test('leaving an addition goes back to the account signed in to last', () async {
+  // Old, then A, then B: B was signed in to last. Another addition is then
+  // begun from B, and left before it signs in; leaving it either way lands
+  // back on B.
+  Future<
+    ({
+      _LastAccountStorage storage,
+      ProviderContainer container,
+      OpenWebUiAccountsController controller,
+    })
+  >
+  signedInToBLast() async {
     final storage = _LastAccountStorage()..active = 'old';
     final container = ProviderContainer(
       overrides: [
@@ -831,6 +841,11 @@ void main() {
             role: 'user',
           ),
         );
+    return (storage: storage, container: container, controller: controller);
+  }
+
+  test('leaving an addition goes back to the account signed in to last', () async {
+    final (:storage, container: _, :controller) = await signedInToBLast();
     // Another addition starts from B, and is left before signing in.
     storage.active = 'c';
     await controller.signOut('c');
@@ -943,40 +958,7 @@ void main() {
   });
 
   test('cancelling an addition goes back to the account signed in to last', () async {
-    final storage = _LastAccountStorage()..active = 'old';
-    final container = ProviderContainer(
-      overrides: [
-        optimizedStorageServiceProvider.overrideWithValue(storage),
-        authStateManagerProvider.overrideWith(() => _LastAccountAuth(storage)),
-        hermesConfigProvider.overrideWith(_EmptyHermes.new),
-        openWebUiAccountsProvider.overrideWith((ref) async {
-          final summaries = ref.watch(openWebUiAccountSummariesProvider);
-          return [
-            for (final id in ['old', 'a', 'b', 'c'])
-              _accountEntry(id, hasSession: id != 'c', summary: summaries[id]),
-          ];
-        }),
-        accountChangeReplyGuardProvider.overrideWithValue(() => false),
-      ],
-    );
-    addTearDown(container.dispose);
-    final controller = container.read(openWebUiAccountsControllerProvider);
-
-    await controller.switchTo('a');
-    await Future<void>.delayed(const Duration(milliseconds: 1));
-    // B is added and signed in to: its account is certified for its user.
-    storage.active = 'b';
-    await container
-        .read(openWebUiAccountSummariesProvider.notifier)
-        .recordUser(
-          'b',
-          const User(
-            id: 'user-b',
-            username: 'b',
-            email: 'b@example.test',
-            role: 'user',
-          ),
-        );
+    final (:storage, :container, :controller) = await signedInToBLast();
     // Another addition starts from B, and is cancelled before signing in.
     container.read(accountAdditionOriginProvider.notifier).begin('b');
     storage.active = 'c';
