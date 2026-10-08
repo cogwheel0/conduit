@@ -75,6 +75,22 @@ final class _Held implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// Upgrades a plain-HTTP request to HTTPS on the same host, where it is
+/// answered with a page.
+final class _UpgradingToPage implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => options.uri.scheme == 'http'
+      ? _redirect(options.uri.replace(scheme: 'https').toString())
+      : _page(HttpStatus.ok);
+
+  @override
+  void close({bool force = false}) {}
+}
+
 /// Upgrades a plain-HTTP request to HTTPS on the same host, where nothing
 /// answers.
 final class _UpgradingToNothing implements HttpClientAdapter {
@@ -386,6 +402,34 @@ void main() {
       check(rejected).deepEquals([Uri.parse(server)]);
       // With the connection it was sent over, for the route it came from.
       check(sentOver).deepEquals([app.serverConfig]);
+    });
+
+    // A file can be a page of its own.
+    test('not a file downloaded as a page after an upgrade to HTTPS',
+        () async {
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
+      final plain = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'http://chat.example',
+        ),
+        workerManager: workerManager,
+        reportsRouteRefusals: true,
+      );
+      addTearDown(() {
+        plain.dispose();
+        workerManager.dispose();
+      });
+      plain.updateAuthToken('session-token');
+      plain.dio.httpClientAdapter = _UpgradingToPage();
+
+      await plain.dio.get<dynamic>(
+        '/api/v1/files/file/content',
+        options: Options(responseType: ResponseType.bytes),
+      );
+
+      check(rejected).isEmpty();
     });
 
     test('on an address the server upgraded to HTTPS is reported', () async {

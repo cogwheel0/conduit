@@ -36,9 +36,12 @@ void _reportProxyRefusal(
       (publicHealthRedirectStatusCodes.contains(status) &&
           options.extra[_redirectIsAnswerKey] != true) ||
       (page && (status == 401 || status == 403)) ||
+      // An API answer only: a file downloaded after a followed redirect can
+      // be a page of its own.
       (page &&
           status >= 200 &&
           status < 300 &&
+          options.responseType == ResponseType.json &&
           isSameOriginRedirectReplay(options));
   if (!refused) return;
   options.extra[_proxyRefusalReportedKey] = true;
