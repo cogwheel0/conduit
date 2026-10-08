@@ -626,6 +626,47 @@ void main() {
           .deepEquals(['b']);
     });
 
+    test('the active one hands a saved sign-in naming the next account to it',
+        () async {
+      await storage.saveServerConfigs([account('a'), account('c')]);
+      await signIn('c', password: 'pw-c-old');
+      await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a');
+      await storage.saveAuthToken('token-a');
+      // From before accounts existed: C's sign-in, live while A is active.
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c-new',
+      );
+
+      check(await storage.removeAccount('a', thenActivate: 'c')).isTrue();
+
+      check(await storage.getAuthTokenStrict()).equals('token-c');
+      check((await storage.getSavedCredentialsStrict())?['password'])
+          .equals('pw-c-new');
+      check(await vaultedCredentials('c')).isNull();
+    });
+
+    test('the active one stays when the next one\'s session cannot be read',
+        () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('b', password: 'pw-b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      await storage.saveAuthToken('token-a');
+      secure.unreadableKey = 'auth_token_server_v1:b';
+
+      await check(
+        storage.removeAccount('a', thenActivate: 'b'),
+      ).throws<StateError>();
+
+      secure.unreadableKey = null;
+      check(await storage.getActiveServerId()).equals('a');
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await vaultedToken('b')).equals('token-b');
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['a', 'b']);
+    });
+
     test('removing an inactive one declines once it is active', () async {
       await storage.saveServerConfigs([
         account('a'),

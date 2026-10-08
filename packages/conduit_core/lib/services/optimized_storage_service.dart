@@ -662,12 +662,14 @@ class OptimizedStorageService {
   /// Before the live slots are emptied for [accountId], files a saved
   /// sign-in they hold for another saved account under that account, as a
   /// switch would. Before accounts existed one could outlive a server change,
-  /// and the account it names is still signed in.
-  Future<void> _fileForeignSavedCredentialsUnlocked(
+  /// and the account it names is still signed in. Returns what it filed,
+  /// with the account it was filed under.
+  Future<({String owner, String credentials})?>
+  _fileForeignSavedCredentialsUnlocked(
     String accountId,
     Iterable<ServerConfig> configs,
   ) async {
-    if (_savedCredentialsReadSuppressed) return;
+    if (_savedCredentialsReadSuppressed) return null;
     final payload = await _retrySecureStorageRead(
       _secureCredentialStorage.getSavedCredentialsPayloadStrict,
       scope: 'storage/optimized/credentials-stash',
@@ -678,9 +680,10 @@ class OptimizedStorageService {
         owner == null ||
         owner == accountId ||
         !configs.any((config) => config.id == owner)) {
-      return;
+      return null;
     }
     await _secureCredentialStorage.saveServerCredentialsPayload(owner, payload);
+    return (owner: owner, credentials: payload);
   }
 
   /// Drops [accountId]'s vaulted session, recording it in [undo] first.
@@ -2413,17 +2416,32 @@ class OptimizedStorageService {
             ) ==
             accountId;
         if (wasActive && onlyIfInactive) return null;
+        final next = thenActivate != null && thenActivate != accountId
+            ? thenActivate
+            : null;
+        // Read before anything changes: once this account is gone, a read
+        // that fails could not be retried from it.
+        var nextSession = wasActive && next != null
+            ? await _readVaultedSessionUnlocked(next)
+            : null;
         if (wasActive) {
-          await _fileForeignSavedCredentialsUnlocked(accountId, configs);
+          final filed = await _fileForeignSavedCredentialsUnlocked(
+            accountId,
+            configs,
+          );
+          if (nextSession != null && filed?.owner == next) {
+            // Filed under the account taking over, which takes it up.
+            nextSession = (
+              token: nextSession.token,
+              credentials: filed!.credentials,
+            );
+          }
           await _deleteAuthTokenUnlocked();
           await _deleteSavedCredentialsUnlocked();
         }
         await _deleteVaultedSessionUnlocked(accountId);
         _stagedServerConfigCandidate = null;
 
-        final next = thenActivate != null && thenActivate != accountId
-            ? thenActivate
-            : null;
         final remaining = [
           for (final config in configs)
             if (config.id != accountId)
@@ -2438,7 +2456,7 @@ class OptimizedStorageService {
         if (!wasActive) return false;
         await _writeActiveServerIdWithoutConfigSync(next);
         if (next == null) return false;
-        return _adoptVaultedSessionUnlocked(next);
+        return _adoptVaultedSessionUnlocked(next, vaulted: nextSession);
       }),
     );
   }
