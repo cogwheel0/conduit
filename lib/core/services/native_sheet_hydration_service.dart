@@ -255,6 +255,8 @@ class NativeSheetHydrationService {
     // avatar updates for the selector that is already visible.
     if (!_modelSelectorPresentation.tryBegin()) return null;
     int? hydrationGeneration;
+    ProviderSubscription<AsyncValue<ServerModelReasoningEffort>>?
+    effortSubscription;
     try {
       final api = _ref.read(apiServiceProvider);
       final container = ProviderScope.containerOf(context, listen: false);
@@ -291,6 +293,12 @@ class NativeSheetHydrationService {
       Future<ServerModelReasoningEffort>? effortHydration;
       var effortHydrated = effortModel == null;
       if (effortModel != null) {
+        // Native has no Flutter watcher. Keep the completed probe available
+        // while the sheet is open so a pick passes the setter's policy check.
+        effortSubscription = _ref.listen(
+          serverModelReasoningEffortProvider(effortModel),
+          (_, _) {},
+        );
         final effortAsync = _ref.read(
           serverModelReasoningEffortProvider(effortModel),
         );
@@ -549,6 +557,7 @@ class NativeSheetHydrationService {
       if (hydrationGeneration != null) {
         _modelSelectorHydration.finish(hydrationGeneration);
       }
+      effortSubscription?.close();
       _modelSelectorPresentation.finish();
     }
   }
