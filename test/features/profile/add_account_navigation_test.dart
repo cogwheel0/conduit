@@ -11,13 +11,19 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/navigation/route_redirect.dart';
 import 'package:conduit_core/navigation/routes.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -47,12 +53,16 @@ void main() {
   late ServerConfig active;
   late AuthNavigationState auth;
   late bool abandonable;
+  late _MergingAuth signIns;
 
   setUp(() {
     active = _active;
     auth = AuthNavigationState.authenticated;
     abandonable = false;
     accounts = _RecordingAccountsController();
+    // Folding the added account into the one it was added from leaves that
+    // one active.
+    signIns = _MergingAuth(onMerge: () => active = _active);
     container = ProviderContainer(
       overrides: [
         activeServerProvider.overrideWithValue(const AsyncData(_active)),
@@ -61,6 +71,8 @@ void main() {
           (ref) async => abandonable,
         ),
         openWebUiAccountsControllerProvider.overrideWithValue(accounts),
+        authStateManagerProvider.overrideWith(() => signIns),
+        optimizedStorageServiceProvider.overrideWithValue(_RegistryStorage()),
       ],
     );
     // The state the real policy sees; besides the addition, only the active
@@ -172,6 +184,38 @@ void main() {
     check(container.read(accountAdditionOriginProvider)).isNull();
   });
 
+  // Signing in as the user the addition began from folds the new account
+  // back into that one. With it active again, the router took the addition
+  // for still running and kept the finished sign-in on screen.
+  testWidgets('leaves the sign-in pages for chat when the sign-in lands '
+      'back in the account it was added from', (tester) async {
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore({PreferenceKeys.activeServerId: _added.id}),
+    );
+    addTearDown(PreferencesStore.debugReset);
+    container.read(openWebUiDuplicateAccountReconcilerProvider);
+    await openAddAccountFromChat(tester);
+    unawaited(router.pushNamed<void>(RouteNames.authentication));
+    await tester.pumpAndSettle();
+    // The first attempt makes the new account active, signed out.
+    active = _added;
+    auth = AuthNavigationState.needsLogin;
+    router.refresh();
+    await tester.pumpAndSettle();
+
+    auth = AuthNavigationState.authenticated;
+    signIns.signIn(_activeUser);
+    await tester.pumpAndSettle();
+    check(active).equals(_active);
+    router.refresh();
+    await tester.pumpAndSettle();
+
+    check(find.text('add account').evaluate()).isNotEmpty();
+    expect(connectionPage, findsNothing);
+    expect(find.text('sign in', skipOffstage: false), findsNothing);
+    check(container.read(accountAdditionOriginProvider)).isNull();
+  });
+
   // The first attempt makes the new account active before it signs in.
   // Redirecting from chat sent that to a fresh sign-in page instead, and
   // threw away the page the attempt was running on.
@@ -216,6 +260,65 @@ void main() {
     check(accounts.abandons).equals(1);
     check(find.text('add account').evaluate()).isNotEmpty();
   });
+}
+
+const _activeUser = User(
+  id: 'user-a',
+  username: 'ada',
+  email: 'ada@example.test',
+  role: 'user',
+);
+
+/// Account A, which the addition began from, and the added account B, both
+/// on the same server.
+class _RegistryStorage extends Fake implements OptimizedStorageService {
+  @override
+  Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async =>
+      OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 'home',
+            name: 'Home',
+            endpoints: [
+              OpenWebUiEndpoint(id: 'home-url', url: 'https://owui.example'),
+            ],
+          ),
+        ],
+        accounts: [
+          OpenWebUiAccount(
+            id: _active.id,
+            serverId: 'home',
+            userId: _activeUser.id,
+          ),
+          OpenWebUiAccount(id: _added.id, serverId: 'home', isActive: true),
+        ],
+      );
+}
+
+/// Signs in when told to, and folds the active account into another as the
+/// real merge does.
+class _MergingAuth extends AuthStateManager {
+  _MergingAuth({required this.onMerge});
+
+  final void Function() onMerge;
+
+  @override
+  Future<AuthState> build() async =>
+      const AuthState(status: AuthStatus.unauthenticated);
+
+  void signIn(User user) => state = AsyncData(
+    AuthState(status: AuthStatus.authenticated, token: 'token', user: user),
+  );
+
+  @override
+  Future<bool> mergeActiveAccountInto(
+    String targetAccountId, {
+    required String expectedSourceAccountId,
+    String? expectedToken,
+  }) async {
+    onMerge();
+    return true;
+  }
 }
 
 /// Records each request to drop an added account that never signed in.

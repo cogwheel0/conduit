@@ -410,6 +410,11 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
         return;
       }
       done = true;
+      // An addition signed in as the user of the account it began from lands
+      // back in that account. The sign-in is done, but with that account
+      // active again the router took the addition for still running and
+      // kept the finished sign-in on screen.
+      ref.read(accountAdditionOriginProvider.notifier).end(existing.id);
       await ref
           .read(openWebUiAccountSummariesProvider.notifier)
           .touch(existing.id);
