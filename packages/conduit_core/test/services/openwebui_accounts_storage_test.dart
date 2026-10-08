@@ -647,6 +647,27 @@ void main() {
           .deepEquals(['existing']);
     });
 
+    test('does nothing when a newer session has committed since', () async {
+      await storage.saveServerConfigs([account('existing'), account('new')]);
+      await signIn('existing');
+      await storage.switchActiveServer(
+        fromServerId: 'existing',
+        toServerId: 'new',
+      );
+      await storage.saveAuthToken('newer-token');
+
+      final merged = await storage.mergeActiveAccountInto(
+        'existing',
+        expectedSourceAccountId: 'new',
+        expectedToken: 'checked-token',
+      );
+
+      check(merged).isFalse();
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['existing', 'new']);
+      check(await storage.getAuthTokenStrict()).equals('newer-token');
+    });
+
     test('does nothing when another account has since become active', () async {
       await storage.saveServerConfigs([account('existing'), account('new')]);
       await signIn('existing');

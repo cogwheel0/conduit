@@ -1293,12 +1293,18 @@ class AuthStateManager extends _$AuthStateManager {
   Future<bool> mergeActiveAccountInto(
     String targetAccountId, {
     required String expectedSourceAccountId,
+    String? expectedToken,
   }) async {
     final storage = ref.read(optimizedStorageServiceProvider);
+    // Taken before anything is awaited: a sign-in started meanwhile owns
+    // what comes next, and the boundary below would cancel it.
+    final revision = _authAttemptRevision;
     final sourceAccountId = await storage.getActiveServerId();
     if (sourceAccountId == null ||
         sourceAccountId != expectedSourceAccountId ||
-        sourceAccountId == targetAccountId) {
+        sourceAccountId == targetAccountId ||
+        !ref.mounted ||
+        _authAttemptRevision != revision) {
       return false;
     }
 
@@ -1308,6 +1314,7 @@ class AuthStateManager extends _$AuthStateManager {
       merged = await storage.mergeActiveAccountInto(
         targetAccountId,
         expectedSourceAccountId: expectedSourceAccountId,
+        expectedToken: expectedToken,
       );
     } finally {
       _invalidateServerProviders();

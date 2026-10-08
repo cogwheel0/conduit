@@ -376,6 +376,7 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
           .mergeActiveAccountInto(
             existing.id,
             expectedSourceAccountId: sessionAccountId,
+            expectedToken: auth.token,
           );
       if (!merged) {
         failed = attempt;

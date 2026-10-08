@@ -2436,9 +2436,16 @@ class OptimizedStorageService {
   Future<bool> mergeActiveAccountInto(
     String targetAccountId, {
     required String expectedSourceAccountId,
+    String? expectedToken,
   }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
+        // The session checked to be the target's user, and no newer one
+        // committed since: a merge moves the live session to the target.
+        if (expectedToken != null &&
+            await _getAuthTokenUnlocked() != expectedToken) {
+          return false;
+        }
         final previousRegistry = await _snapshotRegistryUnlocked();
         final registry = previousRegistry.registry;
         final rawActiveId = _rawStoredActiveServerId(

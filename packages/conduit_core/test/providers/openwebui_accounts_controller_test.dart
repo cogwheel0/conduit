@@ -87,6 +87,7 @@ final class _SigningInAuth extends AuthStateManager {
   Future<bool> mergeActiveAccountInto(
     String targetAccountId, {
     required String expectedSourceAccountId,
+    String? expectedToken,
   }) async {
     merges.add((targetAccountId, expectedSourceAccountId));
     if (!mergeFails || merges.length > 3) return true;

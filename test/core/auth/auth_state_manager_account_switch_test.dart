@@ -436,6 +436,7 @@ void main() {
       () => storage.mergeActiveAccountInto(
         'account-b',
         expectedSourceAccountId: 'account-a',
+        expectedToken: any(named: 'expectedToken'),
       ),
     ).thenAnswer((_) async => false);
 
@@ -459,6 +460,64 @@ void main() {
         );
 
     check(merged).isFalse();
+    check(isolation.purged).isEmpty();
+  });
+
+  test('a merge leaves a sign-in started while it looks for the account '
+      'alone', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    late final ProviderContainer container;
+    Future<void>? newer;
+    var looked = false;
+    // A sign-in starts while the merge reads the account in use.
+    when(() => storage.getActiveServerId()).thenAnswer((_) async {
+      if (!looked) {
+        looked = true;
+        newer = container.read(authStateManagerProvider.notifier).refresh();
+      }
+      return 'account-a';
+    });
+
+    container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+    looked = false;
+
+    final merged = await container
+        .read(authStateManagerProvider.notifier)
+        .mergeActiveAccountInto(
+          'account-b',
+          expectedSourceAccountId: 'account-a',
+        );
+    await newer;
+
+    check(merged).isFalse();
+    verifyNever(
+      () => storage.mergeActiveAccountInto(
+        any(),
+        expectedSourceAccountId: any(named: 'expectedSourceAccountId'),
+        expectedToken: any(named: 'expectedToken'),
+      ),
+    );
     check(isolation.purged).isEmpty();
   });
 
