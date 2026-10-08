@@ -2215,6 +2215,58 @@ void main() {
       check(clearedWhileActive).not((it) => it.contains(_serverTwo.id));
     });
 
+    // After a password change: the account stays, so it can be signed in to
+    // again while its files are still being deleted.
+    test('a sign-in landing while a kept account is purged waits for it',
+        () async {
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async {
+          purged.add(serverId);
+          await releasePurge.future;
+        },
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+
+      final purge = isolation.purgeAccount(_server.id, keepsRecord: true);
+      for (var i = 0; i < 5 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(purged).deepEquals([_server.id]);
+      // The logout ends the session; a sign-in follows while the files go.
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await Future<void>.delayed(Duration.zero);
+      harness.auth.publish(_authenticated('token-a', _userA));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.purging);
+      check(
+        harness.container.read(openWebUiCertifiedDatabaseServerProvider),
+      ).isNull();
+
+      releasePurge.complete();
+      await purge;
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+    });
+
     test('a session ending mid-purge keeps the files closed', () async {
       final releasePurge = Completer<void>();
       final purged = <String>[];

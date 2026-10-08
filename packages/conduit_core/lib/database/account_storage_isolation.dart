@@ -415,9 +415,13 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   /// before the account's next sign-in opens one.
   Future<void> purgeAccount(String accountId, {bool keepsRecord = false}) async {
     if (_disposed) return;
-    final stillOpen =
+    // Kept closed while its files go: one still open, or one kept, which can
+    // be signed in to again meanwhile.
+    final gated =
+        keepsRecord ||
         ref.read(openWebUiCertifiedDatabaseServerProvider) == accountId;
-    if (stillOpen) {
+    int? gateGeneration;
+    if (gated) {
       if (_purgeRunning) {
         // Whatever that purge was for, this account's files are going now;
         // its completion must not go on to certify or purge anything else.
@@ -426,6 +430,9 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       }
       _closeAtAccountBoundary(reason: 'account-signed-out');
       ref.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
+      // A sign-in landing meanwhile waits for it, as for any purge.
+      _purgeRunning = true;
+      gateGeneration = ++_purgeGeneration;
     }
     final certificationGeneration = _certificationGeneration;
     // Recorded first: the account is already gone from the list the user
@@ -483,15 +490,24 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         scope: 'auth/storage-isolation',
       );
     } finally {
+      // Unless a switch has taken over since.
+      final ownsGate =
+          gateGeneration != null &&
+          !_disposed &&
+          gateGeneration == _purgeGeneration;
+      if (ownsGate) _purgeRunning = false;
       // Back to judging the next identity as a cold start would, unless a
       // boundary or another account's certification has decided since.
-      if (stillOpen &&
+      if (gated &&
           !_disposed &&
           _certificationGeneration == certificationGeneration &&
           ref.read(openWebUiDatabaseAccessProvider) ==
               OpenWebUiDatabaseAccessPhase.purging) {
         ref.read(openWebUiDatabaseAccessProvider.notifier).reenterBootstrap();
       }
+      // A sign-in that landed meanwhile waited, as one landing during any
+      // purge does, and is certified the same way once this one is done.
+      if (ownsGate) _ensurePurge(reason: 'after-account-purge');
     }
   }
 
