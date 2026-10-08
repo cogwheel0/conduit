@@ -371,7 +371,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// server (or another account behind the same proxy), and every account on
   /// this one would start sending its session there. Returns whether it
   /// saved.
-  Future<bool> _saveRoute(ServerConfig verified) async {
+  ///
+  /// [sessionRevision] is [OptimizedStorageService.sessionRevocationRevision]
+  /// as it was before the address was first contacted: a proxy cookie
+  /// captured for it is not kept once a sign-out has revoked cookies since.
+  Future<bool> _saveRoute(ServerConfig verified, int sessionRevision) async {
     final l10n = AppLocalizations.of(context)!;
     // The editor can be left while this runs, and the widget's ref is gone
     // with it; what follows a save must still run.
@@ -471,8 +475,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         verified.customHeaders.keys.any(isCapturedSessionHeader)) {
       await storage.saveEndpointSessionHeaders(
         accountId: cookieOwner,
-        endpointId: route.id,
+        route: route,
         headers: verified.customHeaders,
+        sessionRevision: sessionRevision,
       );
     }
     container.invalidate(serverConfigsProvider);
@@ -619,6 +624,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _connectToServer() async {
     if (_isConnecting) return;
     final l10n = AppLocalizations.of(context)!;
+    // Before anything is awaited: a sign-out from here on, during the checks
+    // or the proxy sign-in, revokes whatever cookie they capture. Only an
+    // address being edited keeps one.
+    final sessionRevision = _editingRoutes
+        ? ref.read(optimizedStorageServiceProvider).sessionRevocationRevision
+        : 0;
 
     DebugLogger.log('Connect button pressed', scope: 'auth/connection');
 
@@ -709,7 +720,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         );
         api.dispose();
         connectionApi = null;
-        await _handleProxyAuth(tempConfig, workerManager);
+        await _handleProxyAuth(tempConfig, workerManager, sessionRevision);
         return;
       }
 
@@ -740,7 +751,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       }
 
       if (_editingRoutes) {
-        await _saveRoute(tempConfig);
+        await _saveRoute(tempConfig, sessionRevision);
         return;
       }
 
@@ -794,6 +805,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _handleProxyAuth(
     ServerConfig tempConfig,
     WorkerManager workerManager,
+    int sessionRevision,
   ) async {
     // Check if WebView is supported
     if (!isWebViewSupported) {
@@ -930,7 +942,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       }
 
       if (_editingRoutes) {
-        if (!await _saveRoute(configWithCookies) && mounted) {
+        if (!await _saveRoute(configWithCookies, sessionRevision) && mounted) {
           setState(() => _isConnecting = false);
         }
         return;

@@ -1431,6 +1431,18 @@ void main() {
   });
 
   group('routes to a server', () {
+    /// Keeps [cookie] for [accountId] on [server]'s `proxy` route.
+    Future<bool> keepCookie(
+      OpenWebUiServer server,
+      String accountId,
+      String cookie,
+    ) => storage.saveEndpointSessionHeaders(
+      accountId: accountId,
+      route: server.endpoint('proxy')!,
+      headers: {'Cookie': cookie},
+      sessionRevision: storage.sessionRevocationRevision,
+    );
+
     Future<OpenWebUiServer> addRoute(String id, String url) async {
       final server =
           (await storage.getOpenWebUiRegistryStrict()).servers.single;
@@ -1686,11 +1698,14 @@ void main() {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('proxy', 'https://proxy.example.com');
 
-      await storage.saveEndpointSessionHeaders(
-        accountId: 'a',
-        endpointId: 'proxy',
-        headers: const {'Cookie': 'authelia=1', 'X-Other': 'dropped'},
-      );
+      check(
+        await storage.saveEndpointSessionHeaders(
+          accountId: 'a',
+          route: server.endpoint('proxy')!,
+          headers: const {'Cookie': 'authelia=1', 'X-Other': 'dropped'},
+          sessionRevision: storage.sessionRevocationRevision,
+        ),
+      ).isTrue();
 
       check((await storage.getServerConfigs()).single.customHeaders).isEmpty();
       await storage.selectEndpoint(server.id, 'proxy');
@@ -1703,11 +1718,7 @@ void main() {
         await storage.saveServerConfigs([account('a'), account('b')]);
         final server = await addRoute('proxy', 'https://proxy.example.com');
         for (final id in ['a', 'b']) {
-          await storage.saveEndpointSessionHeaders(
-            accountId: id,
-            endpointId: 'proxy',
-            headers: {'Cookie': 'session=$id'},
-          );
+          await keepCookie(server, id, 'session=$id');
         }
         return server;
       }
@@ -1759,6 +1770,33 @@ void main() {
         check(configs.map((config) => config.customHeaders['Cookie']))
             .deepEquals(['session=a', 'session=b']);
       });
+
+      // Another save of the same address moved it while this one was
+      // being checked.
+      test('to another host keeps a cookie proved before off it', () async {
+        final server = await cookiesOnProxy();
+        final revision = storage.sessionRevocationRevision;
+
+        await editProxy(
+          server,
+          (proxy) =>
+              OpenWebUiEndpoint(id: proxy.id, url: 'https://elsewhere.example'),
+        );
+        check(
+          await storage.saveEndpointSessionHeaders(
+            accountId: 'a',
+            route: server.endpoint('proxy')!,
+            headers: const {'Cookie': 'late'},
+            sessionRevision: revision,
+          ),
+        ).isFalse();
+
+        final config = (await storage.getServerConfigs()).firstWhere(
+          (config) => config.id == 'a',
+        );
+        check(config.url).equals('https://elsewhere.example');
+        check(config.customHeaders).isEmpty();
+      });
     });
 
     test('edits made from the same list both land', () async {
@@ -1807,14 +1845,45 @@ void main() {
         await storage.saveServerConfigs([account('a'), account('b')]);
         final server = await addRoute('proxy', 'https://proxy.example.com');
         for (final id in ['a', 'b']) {
-          await storage.saveEndpointSessionHeaders(
-            accountId: id,
-            endpointId: 'proxy',
-            headers: {'Cookie': 'session=$id'},
-          );
+          await keepCookie(server, id, 'session=$id');
         }
         await signIn('a');
         return server;
+      }
+
+      // An address check that outlasts the sign-out would otherwise put the
+      // cookie it captured back.
+      for (final (whom, signOut) in <(String, Future<void> Function())>[
+        (
+          'the active account',
+          () => storage.clearActiveAccountAuthDataIf(canClear: () => true),
+        ),
+        ('every account', () => storage.clearAuthData()),
+        (
+          'every account, keeping server details',
+          () => storage.clearAllIf(
+            canClear: () => true,
+            preserveServerDetails: true,
+          ),
+        ),
+      ]) {
+        test('of $whom keeps a proxy cookie proved before it out', () async {
+          final server = await cookiesOnProxy();
+          final revision = storage.sessionRevocationRevision;
+
+          await signOut();
+          check(
+            await storage.saveEndpointSessionHeaders(
+              accountId: 'a',
+              route: server.endpoint('proxy')!,
+              headers: const {'Cookie': 'late'},
+              sessionRevision: revision,
+            ),
+          ).isFalse();
+
+          final registry = await storage.getOpenWebUiRegistryStrict();
+          check(registry.account('a')!.capturedHeaders).isEmpty();
+        });
       }
 
       test('of every account clears cookies on routes not in use', () async {
@@ -1864,6 +1933,33 @@ void main() {
         for (final account in registry.accounts) {
           check(account.capturedHeaders).isEmpty();
         }
+      });
+
+      test('a rollback failing closed keeps a proxy cookie proved before it '
+          'out', () async {
+        final server = await cookiesOnProxy();
+        final revision = storage.sessionRevocationRevision;
+
+        await check(
+          storage.selectUnauthenticatedServerConfig(
+            account('c', url: 'https://other.example.com'),
+            publish: () {
+              secure.failNextRegistryWrite = true;
+              throw StateError('publish failed');
+            },
+          ),
+        ).throws<ServerConfigSessionRollbackException>();
+        check(
+          await storage.saveEndpointSessionHeaders(
+            accountId: 'a',
+            route: server.endpoint('proxy')!,
+            headers: const {'Cookie': 'late'},
+            sessionRevision: revision,
+          ),
+        ).isFalse();
+
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        check(registry.account('a')!.capturedHeaders).isEmpty();
       });
     });
 

@@ -235,6 +235,11 @@ class OptimizedStorageService {
   /// so it holds [_authStateLock] as well.
   bool _registryMigrationSettled = false;
   int _serverOwnershipRevision = 0;
+
+  /// Moves when a sign-out has revoked captured proxy cookies; see
+  /// [sessionRevocationRevision]. Not [_serverOwnershipRevision], which an
+  /// address being saved or chosen moves too.
+  int _sessionRevocationRevision = 0;
   int _nextServerConfigCandidateTransactionId = 0;
   _StagedServerConfigCandidate? _stagedServerConfigCandidate;
 
@@ -2320,6 +2325,7 @@ class OptimizedStorageService {
     );
     // If that restore failed, whatever the commit wrote is still there.
     if (restoreConfigs) await attempt(_scrubServerConfigAuthArtifactsUnlocked);
+    _sessionRevocationRevision++;
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -2585,20 +2591,51 @@ class OptimizedStorageService {
     await _writeEndpointHint();
   }
 
+  /// Counts the sign-outs that revoked captured proxy cookies.
+  ///
+  /// A cookie captured to check an address is saved after the check, which
+  /// can outlast a sign-out. Read this before capturing it and pass it to
+  /// [saveEndpointSessionHeaders], which then refuses a cookie captured
+  /// before a sign-out finished. It moves when the sign-out ends, so a read
+  /// while one is still running sees it move too.
+  int get sessionRevocationRevision => _sessionRevocationRevision;
+
   /// Keeps the session headers a proxy sign-in captured for [accountId] on
-  /// one of its server's routes.
-  Future<void> saveEndpointSessionHeaders({
+  /// [route], one of its server's routes as just saved. Returns whether it
+  /// kept them.
+  ///
+  /// It keeps nothing once a sign-out has revoked cookies since
+  /// [sessionRevision] was read (see [sessionRevocationRevision]), or once
+  /// the route stored under [route]'s id no longer reaches the origin and
+  /// client identity the cookie was issued for: another save of the same
+  /// address moved it, and the cookie must not follow it there.
+  Future<bool> saveEndpointSessionHeaders({
     required String accountId,
-    required String endpointId,
+    required OpenWebUiEndpoint route,
     required Map<String, String> headers,
+    required int sessionRevision,
   }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
+        if (sessionRevision != _sessionRevocationRevision) {
+          DebugLogger.info(
+            'endpoint-cookie-dropped-after-sign-out',
+            scope: 'storage/optimized/registry',
+          );
+          return false;
+        }
         final registry = await _registryForWriteUnlocked();
         final account = registry.account(accountId);
-        if (account == null ||
-            registry.server(account.serverId)?.endpoint(endpointId) == null) {
-          return;
+        final stored = account == null
+            ? null
+            : registry.server(account.serverId)?.endpoint(route.id);
+        if (account == null || stored == null) return false;
+        if (!stored.sameSessionOwner(route)) {
+          DebugLogger.info(
+            'endpoint-cookie-dropped-after-address-moved',
+            scope: 'storage/optimized/registry',
+          );
+          return false;
         }
         final captured = {
           for (final entry in headers.entries)
@@ -2609,11 +2646,12 @@ class OptimizedStorageService {
             account.copyWith(
               capturedHeaders: {
                 ...account.capturedHeaders,
-                endpointId: captured,
+                route.id: captured,
               },
             ),
           ),
         );
+        return true;
       }),
     );
   }
@@ -4052,6 +4090,8 @@ class OptimizedStorageService {
       _stagedServerConfigCandidate = null;
     });
     await attempt(_clearUserScopedCacheEntries);
+    // Every step above is attempted, so this runs however they went.
+    _sessionRevocationRevision++;
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -4105,6 +4145,7 @@ class OptimizedStorageService {
       _stagedServerConfigCandidate = null;
     });
     await attempt(_clearUserScopedCacheEntries);
+    _sessionRevocationRevision++;
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -4308,6 +4349,7 @@ class OptimizedStorageService {
       }
     }
 
+    _sessionRevocationRevision++;
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
