@@ -61,7 +61,12 @@ class ServerAddressesPage extends ConsumerWidget {
               UtilityRow(
                 key: const Key('server-addresses-retry'),
                 title: l10n.retry,
-                onTap: () => ref.invalidate(openWebUiAccountsProvider),
+                // The saved servers first: the accounts are read from them,
+                // and would read the failed result again.
+                onTap: () {
+                  ref.invalidate(serverConfigsProvider);
+                  ref.invalidate(openWebUiAccountsProvider);
+                },
               ),
             ],
           ),

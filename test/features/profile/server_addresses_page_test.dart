@@ -5,6 +5,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
@@ -70,7 +71,7 @@ void main() {
   Future<void> pumpPage(
     WidgetTester tester, {
     OpenWebUiServer? server,
-    Future<List<OpenWebUiAccountEntry>> Function()? readAccounts,
+    Future<List<ServerConfig>> Function()? readConfigs,
   }) async {
     final shown = server ?? _server;
     stored = [...shown.endpoints];
@@ -89,19 +90,25 @@ void main() {
       ProviderScope(
         overrides: [
           optimizedStorageServiceProvider.overrideWithValue(storage),
-          openWebUiAccountsProvider.overrideWith(
-            (ref) async =>
-                await readAccounts?.call() ??
-                [
-                  OpenWebUiAccountEntry(
-                    account: OpenWebUiAccount(id: 'a', serverId: 'home'),
-                    server: shown,
-                    summary: const OpenWebUiAccountSummary(),
-                    isActive: true,
-                    hasSession: true,
-                  ),
-                ],
-          ),
+          if (readConfigs != null)
+            serverConfigsProvider.overrideWith((ref) => readConfigs()),
+          // Read from the saved servers, as the real list is: account A is
+          // listed only while they hold it.
+          openWebUiAccountsProvider.overrideWith((ref) async {
+            final configs = readConfigs == null
+                ? null
+                : await ref.watch(serverConfigsProvider.future);
+            return [
+              if (configs == null || configs.any((config) => config.id == 'a'))
+                OpenWebUiAccountEntry(
+                  account: OpenWebUiAccount(id: 'a', serverId: 'home'),
+                  server: shown,
+                  summary: const OpenWebUiAccountSummary(),
+                  isActive: true,
+                  hasSession: true,
+                ),
+            ];
+          }),
           openWebUiRouteResolverProvider.overrideWith(_Routes.new),
         ],
         child: MaterialApp(
@@ -135,9 +142,12 @@ void main() {
     var reads = 0;
     await pumpPage(
       tester,
-      readAccounts: () async {
-        reads++;
-        throw StateError('Keychain locked');
+      readConfigs: () async {
+        // Unlocked by the time the user retries.
+        if (reads++ == 0) throw StateError('Keychain locked');
+        return const [
+          ServerConfig(id: 'a', name: 'Home', url: 'http://10.0.0.2:3000'),
+        ];
       },
     );
 
@@ -149,6 +159,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(reads, 2);
+    expect(find.text('LAN'), findsOneWidget);
   });
 
   testWidgets('lists the addresses in order and marks the one in use', (
