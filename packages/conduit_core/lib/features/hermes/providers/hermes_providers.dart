@@ -147,6 +147,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
   HermesConfig? _configBeforeAppDataClear;
   int _connectionMutationEpoch = 0;
 
+  /// How many times each saved connection, by id, has been signed out of.
+  /// [credentialsWriterFor] ignores [_connectionMutationEpoch], so that a
+  /// refresh still lands after a switch; a sign-in it carries must not land
+  /// after the user signed out.
+  final Map<String, int> _desktopSignOuts = <String, int>{};
+
   /// Counts the live Desktop clients built; the newest is the live one.
   int _liveClientGeneration = 0;
   int _secretLoadEpoch = 0;
@@ -524,11 +530,16 @@ class HermesConfigController extends Notifier<HermesConfig> {
     // stale refresh (or its sign-out after a 401) must not overwrite them.
     var expectedRefreshToken =
         connection.desktopCredentials?.nativeTokens?.refreshToken;
+    // Signed out with no tokens, as a sign-in starts, the refresh token
+    // expected and the one stored after a sign-out are both none.
+    final signOuts = _desktopSignOuts[connectionId] ?? 0;
     return (credentials) => _serializeMutation(() async {
       await _secretsHydration;
       _throwIfSecretsUnavailable();
       final profile = _profile(connectionId);
-      if (connectionId == null || profile == null) {
+      if (connectionId == null ||
+          profile == null ||
+          (_desktopSignOuts[connectionId] ?? 0) != signOuts) {
         throw StateError('Hermes connection changed before sign-in completed.');
       }
       final active = connectionId == state.connectionId;
@@ -582,6 +593,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
     _throwIfSecretsUnavailable();
     final connectionId = state.connectionId;
     if (connectionId == null) return;
+    // First: a sign-in finishing meanwhile queues its save behind this.
+    _desktopSignOuts.update(
+      connectionId,
+      (count) => count + 1,
+      ifAbsent: () => 1,
+    );
     await _withRunAdmissionBlocked(() async {
       await _cancelActiveRuns();
       // An explicit sign-out clears the origin's dashboard cookies even when

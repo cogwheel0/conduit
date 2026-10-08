@@ -157,6 +157,38 @@ void main() {
     },
   );
 
+  // The live client's writer still takes a refresh after a switch, so the
+  // connection epoch does not revoke it; a sign-out must.
+  test('a live client sign-in finishing during sign-out is not saved',
+      () async {
+    final storage = FlutterSecureKeyValueStore();
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    await controller.saveConnection(
+      baseUrl: 'https://one.example/v1',
+      mode: HermesBackendMode.desktopGateway,
+      desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+    );
+    final writeCredentials = controller.credentialsWriterFor(
+      container.read(hermesConfigProvider),
+      live: true,
+    );
+
+    final signOut = controller.signOutDesktop();
+    final rejected = expectLater(
+      writeCredentials(_nativeCredentials('late')),
+      throwsStateError,
+    );
+    await signOut;
+    await rejected;
+
+    check(
+      container.read(hermesConfigProvider).desktopCredentials?.nativeTokens,
+    ).isNull();
+    check(await storage.read(key: _desktopKey)).isNull();
+  });
+
   for (final revocation in [
     'gateway replacement',
     'sign-out',
