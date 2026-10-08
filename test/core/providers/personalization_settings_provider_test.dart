@@ -37,6 +37,30 @@ void main() {
     });
     tearDown(PreferencesStore.debugReset);
 
+    // Storage can count the only account active with no id stored for it.
+    test('a settings read keeps its pins with no active account stored',
+        () async {
+      await PreferencesStore.put(PreferenceKeys.activeServerId, null);
+      final api = _PinnedModelsApiService(delaySettingsReads: true);
+      addTearDown(api.dispose);
+      final container = _container(
+        api: api,
+        appSettings: const AppSettings(),
+        activeServer: _serverConfig,
+      );
+      addTearDown(container.dispose);
+      await container.read(activeServerProvider.future);
+
+      final read = container.read(personalizationSettingsProvider.future);
+      await api.waitForSettingsReadCount(1);
+      api.completeSettingsRead(0, ['server-a-pin']);
+      await read;
+      await _flushMicrotasks();
+
+      check(container.read(appSettingsProvider).pinnedModels)
+          .deepEquals(['server-a-pin']);
+    });
+
     // A switch stores the next account before the API client is rebuilt.
     test('a settings read finishing as the account changes keeps its pins '
         'with its account', () async {

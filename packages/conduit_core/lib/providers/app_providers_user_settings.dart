@@ -354,10 +354,14 @@ class PersonalizationSettings extends _$PersonalizationSettings {
     unawaited(
       Future<void>.microtask(() async {
         // A switch since would file them under the next account: a write
-        // lands under the account active when it starts.
-        if (!ref.mounted || currentPreferenceAccountId() != accountId) {
-          return;
-        }
+        // lands under the account stored as active when it starts. With none
+        // stored it lands device-wide, which the account in use reads until
+        // its own copy is made.
+        if (!ref.mounted) return;
+        final landsUnder =
+            currentPreferenceAccountId() ??
+            ref.read(activeServerProvider).asData?.value?.id;
+        if (landsUnder != accountId) return;
         await ref.read(appSettingsProvider.notifier).setPinnedModels(modelIds);
       }),
     );
