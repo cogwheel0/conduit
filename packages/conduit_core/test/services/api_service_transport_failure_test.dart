@@ -54,6 +54,28 @@ final class _Proxy implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// Upgrades a plain-HTTP request to HTTPS on the same host, where nothing
+/// answers.
+final class _UpgradingToNothing implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.uri.scheme == 'http') {
+      return _redirect(options.uri.replace(scheme: 'https').toString());
+    }
+    throw DioException.connectionError(
+      requestOptions: options,
+      reason: 'Connection refused',
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 /// Upgrades a plain-HTTP request to HTTPS on the same host, where the proxy
 /// refuses it with its sign-in page.
 final class _UpgradingProxy implements HttpClientAdapter {
@@ -122,6 +144,32 @@ void main() {
     await check(api.getCurrentUser()).throws<DioException>();
 
     check(reported).deepEquals([Uri.parse('http://10.0.0.2:3000')]);
+  });
+
+  test('a request upgraded to HTTPS that cannot reach the server is '
+      'reported for its address', () async {
+    final workerManager = WorkerManager(worker: const InlineWorkerPort());
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'server',
+        name: 'Server',
+        url: 'http://chat.example',
+      ),
+      workerManager: workerManager,
+    );
+    api.dio.httpClientAdapter = _UpgradingToNothing();
+    api.updateAuthToken('session-token');
+    final reported = <Uri>[];
+    final reports = ConnectivityService.transportFailures.listen(reported.add);
+    addTearDown(() async {
+      await reports.cancel();
+      api.dispose();
+      workerManager.dispose();
+    });
+
+    await check(api.dio.get<dynamic>('/api/v1/auths/')).throws<DioException>();
+
+    check(reported).deepEquals([Uri.parse('http://chat.example')]);
   });
 
   group('a proxy turning a request away', () {

@@ -50,6 +50,8 @@ void _reportProxyRefusal(
 
 const _proxyRefusalReportedKey = 'conduit.proxyRefusalReported';
 
+const _transportFailureReportedKey = 'conduit.transportFailureReported';
+
 /// Set on a request whose answer can be a redirect Open WebUI sends itself.
 const _redirectIsAnswerKey = 'conduit.redirectIsAnswer';
 
@@ -220,9 +222,15 @@ abstract class _ApiServiceBase {
               _reportProxyRefusal(response, connectivityOrigin, serverConfig);
             } catch (_) {}
           }
+          // Judged by where a replay started, as a refusal is: an upgrade to
+          // HTTPS on the same host is still the server's own address. A
+          // replay's failure passes here inside the replay and again on the
+          // way out of the request it replays; it is one failure.
           if (error.response == null &&
+              error.requestOptions.extra[_transportFailureReportedKey] !=
+                  true &&
               requestUsesServerConnectivityOrigin(
-                error.requestOptions.uri,
+                sameOriginRedirectStart(error.requestOptions),
                 connectivityOrigin,
               ) &&
               (error.type == DioExceptionType.connectionTimeout ||
@@ -230,6 +238,7 @@ abstract class _ApiServiceBase {
                   error.type == DioExceptionType.receiveTimeout ||
                   error.type == DioExceptionType.connectionError ||
                   error.type == DioExceptionType.unknown)) {
+            error.requestOptions.extra[_transportFailureReportedKey] = true;
             ConnectivityService.reportTransportFailure(connectivityOrigin);
           }
           handler.next(error);
