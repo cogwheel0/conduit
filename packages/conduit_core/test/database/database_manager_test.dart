@@ -844,6 +844,30 @@ void main() {
       await restarted.closeActive();
     });
 
+    test(
+      'a wipe whose record cannot be cleared keeps its files closed',
+      () async {
+        PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+        await PreferencesStore.ensureInitialized();
+        addTearDown(PreferencesStore.debugReset);
+        await manager.recordPendingWipe({DatabaseManager.fileNameFor('alpha')});
+        PreferencesStore.debugOverride(
+          PreferencesStore.instance,
+          writeInterceptor: (_, key, value) async =>
+              key == PreferenceKeys.pendingAccountDatabaseWipe && value == null
+              ? false
+              : null,
+        );
+
+        await check(manager.finishPendingWipe()).throws<StateError>();
+
+        // Opened now, what the account writes would go at the next start.
+        check(
+          manager.openForServerIdIfReady('alpha'),
+        ).isA<DatabaseOpenDeferred>();
+      },
+    );
+
     test('a wipe a newer sign-out recorded is kept', () async {
       PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
       await PreferencesStore.ensureInitialized();

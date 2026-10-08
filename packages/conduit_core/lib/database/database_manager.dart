@@ -546,7 +546,6 @@ class DatabaseManager {
       final recorded = PreferencesStore.getString(key);
       try {
         await deleteAllServerDatabases(only: pending.files);
-        if (identical(_pendingWipe, pending)) _pendingWipe = null;
         if (recorded != null) {
           await PreferencesStore.putCheckedIf(
             key,
@@ -555,6 +554,9 @@ class DatabaseManager {
             bypassAppDataClearBarrier: true,
           );
         }
+        // The files open again only once the record is gone: one left
+        // behind would delete at the next start what they hold from now on.
+        if (identical(_pendingWipe, pending)) _pendingWipe = null;
       } finally {
         _pendingWipeFinish = null;
       }
