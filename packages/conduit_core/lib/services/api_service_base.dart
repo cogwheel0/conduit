@@ -27,10 +27,7 @@ void _reportProxyRefusal(
     return;
   }
   final status = response.statusCode ?? 0;
-  // Read as a list: a response can repeat the header, and asking for its
-  // single value then throws.
-  final page = (response.headers[Headers.contentTypeHeader] ?? const [])
-      .any((type) => type.toLowerCase().contains('text/html'));
+  final page = answeredWithWebPage(response.headers);
   final refused =
       // Unless the request takes a redirect as its answer: Open WebUI
       // redirects an image it has no copy of to its default image. Accepting

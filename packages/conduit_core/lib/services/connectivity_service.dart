@@ -728,6 +728,15 @@ Dio createConnectivityHealthClient(
   return dio;
 }
 
+/// Whether [headers] say the answer is a web page -- a proxy's sign-in, a
+/// captive portal -- where Open WebUI answers its API with JSON. Read as a
+/// list: a response can repeat the header, and asking for its single value
+/// then throws.
+bool answeredWithWebPage(Headers headers) =>
+    (headers[Headers.contentTypeHeader] ?? const <String>[]).any(
+      (type) => type.toLowerCase().contains('text/html'),
+    );
+
 /// Whether [server] answers its health check within [timeout], over exactly
 /// the URL, headers and TLS settings it carries.
 ///
@@ -767,9 +776,7 @@ Future<bool> probeServerHealth(
           cancelToken: cancelToken,
         )
         .timeout(timeout);
-    final contentType = response.headers.value(Headers.contentTypeHeader);
-    return response.statusCode == 200 &&
-        !(contentType?.toLowerCase().contains('text/html') ?? false);
+    return response.statusCode == 200 && !answeredWithWebPage(response.headers);
   } catch (_) {
     if (!cancelToken.isCancelled) cancelToken.cancel('Route probe ended');
     return false;

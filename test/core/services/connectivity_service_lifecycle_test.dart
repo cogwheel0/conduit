@@ -268,6 +268,28 @@ void main() {
       }, _RealHttpOverrides());
     });
 
+    // A response can repeat its content type; asking for its single value
+    // then throws, and a working server would count as not answering.
+    test('reads a repeated content type', () {
+      check(
+        answeredWithWebPage(
+          Headers.fromMap({
+            Headers.contentTypeHeader: [
+              Headers.jsonContentType,
+              Headers.jsonContentType,
+            ],
+          }),
+        ),
+      ).isFalse();
+      check(
+        answeredWithWebPage(
+          Headers.fromMap({
+            Headers.contentTypeHeader: [Headers.jsonContentType, 'text/html'],
+          }),
+        ),
+      ).isTrue();
+    });
+
     test('keeps a proxy cookie off while logout fences it', () async {
       await HttpOverrides.runWithHttpOverrides(() async {
         final cookies = <String?>[];
