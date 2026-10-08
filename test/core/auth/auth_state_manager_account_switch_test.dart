@@ -769,6 +769,55 @@ void main() {
     check(after.token).equals(_tokenA);
   });
 
+  test('leaving an added account whose purge cannot be recorded removes '
+      'nothing', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation()..refusesRecord = true;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    await check(
+      container
+          .read(authStateManagerProvider.notifier)
+          .abandonPendingAccount('account-a', thenActivate: 'account-b'),
+    ).throws<StateError>();
+
+    verifyNever(
+      () => storage.removePendingAccount(
+        any(),
+        thenActivate: any(named: 'thenActivate'),
+      ),
+    );
+    check(isolation.switches).equals(0);
+    check(
+      container.read(authStateManagerProvider).requireValue.token,
+    ).equals(_tokenA);
+  });
+
   test('a merge leaves a sign-in started while it looks for the account '
       'alone', () async {
     final storage = _Storage();
