@@ -1021,6 +1021,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         scope: 'auth/connection',
       );
 
+      // What the proxy sign-in captured, kept out of any error shown.
+      final proxySensitiveValues = <String>[
+        ...updatedHeaders.values,
+        ...?result.cookies?.values,
+        if ((result.jwtToken ?? '').isNotEmpty) result.jwtToken!,
+      ];
       final BackendConfig? backendConfig;
       try {
         backendConfig = await apiWithCookies.verifyAndGetConfig();
@@ -1031,11 +1037,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           data: {'errorType': error.runtimeType.toString()},
         );
         if (mounted) {
-          final proxySensitiveValues = <String>[
-            ...updatedHeaders.values,
-            ...?result.cookies?.values,
-            if ((result.jwtToken ?? '').isNotEmpty) result.jwtToken!,
-          ];
           setState(() {
             _connectionError = _formatConnectionError(
               error,
@@ -1059,9 +1060,29 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       }
 
       if (_editingRoutes) {
-        if (!await _saveRoute(configWithCookies, sessionRevision) && mounted) {
-          setState(() => _isConnecting = false);
+        final bool saved;
+        try {
+          saved = await _saveRoute(configWithCookies, sessionRevision);
+        } catch (error) {
+          // Here, not in the caller's handler: that one knows only the
+          // headers from before the proxy sign-in.
+          DebugLogger.error(
+            'proxy-route-save-error',
+            scope: 'auth/connection',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+          if (mounted) {
+            setState(() {
+              _connectionError = _formatConnectionError(
+                error,
+                sensitiveValues: proxySensitiveValues,
+              );
+              _isConnecting = false;
+            });
+          }
+          return;
         }
+        if (!saved && mounted) setState(() => _isConnecting = false);
         return;
       }
 
