@@ -2453,8 +2453,10 @@ class OptimizedStorageService {
     final server = account == null ? null : registry.server(account.serverId);
     if (server == null) return;
     final selection = _endpointSelection();
-    final route = server.routeFor(
-      config.url,
+    // Not by URL alone: routes can share one, and differ in headers or
+    // client certificate.
+    final route = server.routeForConnection(
+      config,
       selectedEndpointId: selection[server.id],
     );
     if (route.id == server.selectedEndpoint(selection[server.id]).id) return;

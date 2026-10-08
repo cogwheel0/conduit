@@ -1617,6 +1617,50 @@ void main() {
               .customHeaders,
         ).deepEquals({'Cookie': 'p=1'});
       });
+
+      // Kept on the route in use for sharing its URL, the account reached
+      // the server with that route's headers and without its cookie, and
+      // sign-in refused it.
+      test('with the URL of the one in use reaches that route', () async {
+        await storage.saveServerConfigs([account('a')]);
+        await signIn('a');
+        final server =
+            (await storage.getOpenWebUiRegistryStrict()).servers.single;
+        await storage.saveServer(
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [
+              ...server.endpoints,
+              OpenWebUiEndpoint(
+                id: 'tenant',
+                url: server.endpoints.single.url,
+                customHeaders: const {'X-Tenant': 'b'},
+              ),
+            ],
+          ),
+        );
+        final candidate = ServerConfig(
+          id: 'new',
+          name: 'Chat',
+          url: server.endpoints.single.url,
+          customHeaders: const {'X-Tenant': 'b', 'Cookie': 'p=1'},
+        );
+
+        check(
+          await storage.selectUnauthenticatedServerConfig(
+            candidate,
+            publish: () {},
+          ),
+        ).isTrue();
+
+        check(storage.endpointSelection).deepEquals({server.id: 'tenant'});
+        check(
+          (await storage.getServerConfigs())
+              .firstWhere((config) => config.id == 'new')
+              .customHeaders,
+        ).deepEquals({'X-Tenant': 'b', 'Cookie': 'p=1'});
+      });
     });
 
     test('a sign-in validated on one route cannot commit on another', () async {

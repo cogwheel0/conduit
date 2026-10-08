@@ -216,6 +216,24 @@ final class OpenWebUiServer {
     return sameUrl.firstOrNull ?? selected;
   }
 
+  /// The route [config], an account saved for a sign-in, reaches this
+  /// server through.
+  ///
+  /// Routes can share a URL and differ in headers or client certificate.
+  /// [routeFor] its URL when that route has the whole of [config]'s
+  /// connection; else the first route that does, which is the one an
+  /// account joining the server through [config] is filed under
+  /// ([OpenWebUiRegistry.mergeServerConfigs]); else [routeFor] its URL.
+  OpenWebUiEndpoint routeForConnection(
+    ServerConfig config, {
+    String? selectedEndpointId,
+  }) {
+    final byUrl = routeFor(config.url, selectedEndpointId: selectedEndpointId);
+    final connection = _splitConfig(config).connection;
+    if (byUrl.sameConnection(connection)) return byUrl;
+    return _endpointWithConnection(endpoints, connection) ?? byUrl;
+  }
+
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'name': name,
@@ -713,11 +731,23 @@ const Object _unset = Object();
   OpenWebUiEndpoint connection,
 ) {
   for (final draft in drafts) {
-    for (final endpoint in draft.currentEndpoints) {
-      if (endpoint.sameConnection(connection)) {
-        return (draft: draft, endpointId: endpoint.id);
-      }
-    }
+    final endpoint = _endpointWithConnection(
+      draft.currentEndpoints,
+      connection,
+    );
+    if (endpoint != null) return (draft: draft, endpointId: endpoint.id);
+  }
+  return null;
+}
+
+/// The first of [endpoints] that reaches its server exactly as
+/// [connection] does.
+OpenWebUiEndpoint? _endpointWithConnection(
+  Iterable<OpenWebUiEndpoint> endpoints,
+  OpenWebUiEndpoint connection,
+) {
+  for (final endpoint in endpoints) {
+    if (endpoint.sameConnection(connection)) return endpoint;
   }
   return null;
 }
