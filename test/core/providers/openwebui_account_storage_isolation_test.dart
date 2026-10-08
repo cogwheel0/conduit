@@ -2267,6 +2267,55 @@ void main() {
           .equals(_server.id);
     });
 
+    // A proxy sign-in can make another account active without announcing
+    // the switch.
+    test('another account signing in while a kept account is purged keeps '
+        'its data', () async {
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async {
+          purged.add(serverId);
+          if (serverId == _server.id) await releasePurge.future;
+        },
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+
+      final purge = isolation.purgeAccount(_server.id, keepsRecord: true);
+      for (var i = 0; i < 5 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await PreferencesStore.put(PreferenceKeys.activeServerId, _serverTwo.id);
+      harness.serverSelection.set(_serverTwo);
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      releasePurge.complete();
+      await purge;
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+
+      check(purged).deepEquals([_server.id]);
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+    });
+
     test('a session ending mid-purge keeps the files closed', () async {
       final releasePurge = Completer<void>();
       final purged = <String>[];

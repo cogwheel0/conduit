@@ -505,9 +505,18 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
               OpenWebUiDatabaseAccessPhase.purging) {
         ref.read(openWebUiDatabaseAccessProvider.notifier).reenterBootstrap();
       }
-      // A sign-in that landed meanwhile waited, as one landing during any
-      // purge does, and is certified the same way once this one is done.
-      if (ownsGate) _ensurePurge(reason: 'after-account-purge');
+      if (ownsGate) {
+        // What the gate asked of the next identity was this purge, now done.
+        _purgeRequired = false;
+        final waiting = _pendingIdentity;
+        if (waiting != null) {
+          // A sign-in that landed meanwhile waited. Judge it as a cold start
+          // would, by its own account's owner marker: it can be another
+          // account's, whose data is its own.
+          _closeAtAccountBoundary(reason: 'after-account-purge');
+          _onAuthenticated(waiting);
+        }
+      }
     }
   }
 
