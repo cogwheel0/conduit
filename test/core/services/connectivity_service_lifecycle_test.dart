@@ -254,6 +254,73 @@ void main() {
       }, _RealHttpOverrides());
     });
 
+    // As the API client follows it: a trailing slash, a canonical path, or
+    // an upgrade to HTTPS on the same host.
+    test('follows a redirect on the same address', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final origin = await serve((request) async {
+          if (request.uri.path == '/health') {
+            request.response
+              ..statusCode = HttpStatus.temporaryRedirect
+              ..headers.set(HttpHeaders.locationHeader, '/health/');
+          } else {
+            request.response
+              ..statusCode = request.uri.path == '/health/'
+                  ? HttpStatus.ok
+                  : HttpStatus.notFound
+              ..headers.contentType = ContentType.json
+              ..write('{"status":true}');
+          }
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route(origin))).isTrue();
+      }, _RealHttpOverrides());
+    });
+
+    test('does not count a redirect to a sign-in page as the server', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final proxy = await serve((request) async {
+          if (request.uri.path == '/health') {
+            request.response
+              ..statusCode = HttpStatus.found
+              ..headers.set(HttpHeaders.locationHeader, '/login');
+          } else {
+            request.response
+              ..statusCode = HttpStatus.ok
+              ..headers.contentType = ContentType.html
+              ..write('<html><body>Sign in</body></html>');
+          }
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route(proxy))).isFalse();
+      }, _RealHttpOverrides());
+    });
+
+    test('does not follow a redirect to another address', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final requests = <String>[];
+        final elsewhere = await serve((request) async {
+          requests.add(request.uri.path);
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.json
+            ..write('{"status":true}');
+          await request.response.close();
+        });
+        final proxy = await serve((request) async {
+          request.response
+            ..statusCode = HttpStatus.found
+            ..headers.set(HttpHeaders.locationHeader, '$elsewhere/health');
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route(proxy))).isFalse();
+        check(requests).isEmpty();
+      }, _RealHttpOverrides());
+    });
+
     test('does not count a web page answering 200 as the server', () async {
       await HttpOverrides.runWithHttpOverrides(() async {
         final portal = await serve((request) async {

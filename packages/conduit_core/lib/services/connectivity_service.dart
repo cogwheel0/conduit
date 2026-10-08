@@ -10,6 +10,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit_core/models/server_config.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/same_origin_redirect_interceptor.dart'
+    show isCredentialSafeRedirectTarget;
 
 import 'package:conduit_core/providers/app_providers.dart';
 
@@ -728,6 +730,9 @@ Dio createConnectivityHealthClient(
   return dio;
 }
 
+const int _probeRedirectLimit = 3;
+const Set<int> _probeRedirectStatusCodes = {301, 302, 303, 307, 308};
+
 /// Whether [headers] say the answer is a web page -- a proxy's sign-in, a
 /// captive portal -- where Open WebUI answers its API with JSON. Read as a
 /// list: a response can repeat the header, and asking for its single value
@@ -741,9 +746,11 @@ bool answeredWithWebPage(Headers headers) =>
 /// the URL, headers and TLS settings it carries.
 ///
 /// For choosing between the routes to one server: a route answers or it does
-/// not. Redirects count as not answering, for the reason the health client
-/// refuses them, and so does a web page: a proxy's sign-in page or a captive
-/// portal answers 200 with HTML, where Open WebUI answers with JSON.
+/// not. A redirect is followed only where the API client would follow it --
+/// on the same host and port, or up to HTTPS on that host -- and counts as
+/// not answering anywhere else, for the reason the health client refuses
+/// redirects. A web page does not answer either: a proxy's sign-in page or a
+/// captive portal answers 200 with HTML, where Open WebUI answers with JSON.
 ///
 /// [suppressCustomCookieHeader] is the incomplete-logout fence, as for
 /// [createConnectivityHealthClient]: while it holds, a captured proxy cookie
@@ -764,18 +771,34 @@ Future<bool> probeServerHealth(
   try {
     // Relative to the client's base URL, so a server mounted under a path
     // (https://host/owui) is asked there and not at the host's root.
-    final response = await dio
-        .get<dynamic>(
-          '/health',
-          options: Options(
-            sendTimeout: timeout,
-            receiveTimeout: timeout,
-            followRedirects: false,
-            validateStatus: (status) => status != null && status < 500,
-          ),
-          cancelToken: cancelToken,
-        )
+    final options = Options(
+      sendTimeout: timeout,
+      receiveTimeout: timeout,
+      followRedirects: false,
+      validateStatus: (status) => status != null && status < 500,
+    );
+    var response = await dio
+        .get<dynamic>('/health', options: options, cancelToken: cancelToken)
         .timeout(timeout);
+    for (
+      var hop = 0;
+      hop < _probeRedirectLimit &&
+          _probeRedirectStatusCodes.contains(response.statusCode);
+      hop++
+    ) {
+      final from = response.requestOptions.uri;
+      final location =
+          (response.headers['location'] ?? const <String>[])
+              .firstOrNull;
+      final to = location == null ? null : Uri.tryParse(location);
+      final target = to == null ? null : from.resolveUri(to);
+      if (target == null || !isCredentialSafeRedirectTarget(from, target)) {
+        return false;
+      }
+      response = await dio
+          .getUri<dynamic>(target, options: options, cancelToken: cancelToken)
+          .timeout(timeout);
+    }
     return response.statusCode == 200 && !answeredWithWebPage(response.headers);
   } catch (_) {
     if (!cancelToken.isCancelled) cancelToken.cancel('Route probe ended');
