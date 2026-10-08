@@ -3199,10 +3199,18 @@ class AuthStateManager extends _$AuthStateManager {
     final logoutAuthSnapshot = logoutApi?.captureAuthSnapshot();
     final logoutToken = logoutApi?.authToken;
     // The plain logout deletes the account's chats, as logout always has.
-    // Its record and settings stay, to sign in to again.
+    // Its record and settings stay, to sign in to again. Read now, with
+    // nothing awaited: the account in use, else the one stored as active
+    // while that is still loading.
+    final storedActiveId = PreferencesStore.getString(
+      PreferenceKeys.activeServerId,
+    );
     final loggedOutAccountId = clearAllAppData
         ? null
-        : ref.read(activeServerProvider).asData?.value?.id;
+        : ref.read(activeServerProvider).asData?.value?.id ??
+              (storedActiveId == null || storedActiveId.isEmpty
+                  ? null
+                  : storedActiveId);
     final attemptRevision = _beginAuthAttempt();
     _update(
       (current) =>

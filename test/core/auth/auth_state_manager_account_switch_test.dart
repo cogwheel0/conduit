@@ -576,6 +576,55 @@ void main() {
     verifyNever(() => storage.removeAccount(any()));
   });
 
+  test('the plain logout deletes the chats of the account stored as active '
+      'while the one in use loads', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.clearActiveAccountAuthDataIf(
+        canClear: any(named: 'canClear'),
+      ),
+    ).thenAnswer(
+      (invocation) async =>
+          (invocation.namedArguments[#canClear] as bool Function())(),
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        // Still loading when the logout starts.
+        activeServerProvider.overrideWith(
+          (ref) => Completer<ServerConfig?>().future,
+        ),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    await container.read(authStateManagerProvider.notifier).logout();
+
+    check(isolation.purgedKeepingRecord).deepEquals(['account-a']);
+    check(isolation.purged).isEmpty();
+    verifyNever(() => storage.removeAccount(any()));
+  });
+
   test('a sign-out overtaken by a switch leaves the account now in use', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();
