@@ -289,5 +289,22 @@ void main() {
 
       check(rejected).isEmpty();
     });
+
+    // A chat request accepts every status only to read an error's body.
+    test('a request accepting any status for its error is still reported',
+        () async {
+      api.dio.httpClientAdapter = _Proxy({
+        '/api/chat/completions': () => _redirect('https://sso.example/login'),
+      });
+
+      await api.dio.post<dynamic>(
+        '/api/chat/completions',
+        options: Options(
+          validateStatus: (status) => status != null && status < 600,
+        ),
+      );
+
+      check(rejected).deepEquals([Uri.parse(server)]);
+    });
   });
 }

@@ -29,9 +29,11 @@ void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
       .any((type) => type.toLowerCase().contains('text/html'));
   final refused =
       // Unless the request takes a redirect as its answer: Open WebUI
-      // redirects an image it has no copy of to its default image.
+      // redirects an image it has no copy of to its default image. Accepting
+      // a redirect's status is not enough -- some requests accept every
+      // status only to read an error's body.
       (publicHealthRedirectStatusCodes.contains(status) &&
-          !options.validateStatus(status)) ||
+          options.extra[_redirectIsAnswerKey] != true) ||
       (page && (status == 401 || status == 403)) ||
       (page &&
           status >= 200 &&
@@ -43,6 +45,9 @@ void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
 }
 
 const _proxyRefusalReportedKey = 'conduit.proxyRefusalReported';
+
+/// Set on a request whose answer can be a redirect Open WebUI sends itself.
+const _redirectIsAnswerKey = 'conduit.redirectIsAnswer';
 
 abstract class _ApiServiceBase {
   // Declared here, implemented by the family mixins applied over this base.
