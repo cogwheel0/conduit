@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
@@ -14,13 +16,15 @@ import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:hive_ce/hive.dart';
 
-/// The address editor: saving an address of a saved server once it has
-/// been checked.
+/// The address editor: opening an address of a saved server, checking it,
+/// and saving it once checked.
 void main() {
   late Directory tempDir;
   late WorkerManager workerManager;
+  late _LockableSecureStore secure;
   late _CookieRefusingStorage storage;
   late ProviderContainer container;
 
@@ -30,8 +34,9 @@ void main() {
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
     workerManager = WorkerManager(maxConcurrentTasks: 1);
+    secure = _LockableSecureStore();
     storage = _CookieRefusingStorage(
-      secureStorage: InMemorySecureKeyValueStore(),
+      secureStorage: secure,
       boxes: HiveBoxes(
         preferences: await Hive.openBox<dynamic>(HiveBoxNames.preferences),
         caches: await Hive.openBox<dynamic>(HiveBoxNames.caches),
@@ -57,6 +62,32 @@ void main() {
     PreferencesStore.debugReset();
     await Hive.close();
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  });
+
+  // Nothing awaited the read, so its failure reached only the zone and the
+  // form sat empty without a word.
+  testWidgets('editing an address says when the saved server cannot be read', (
+    tester,
+  ) async {
+    secure.locked = true;
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ServerConnectionPage(routesOfServerId: 'home', endpointId: 'e'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
   });
 
   // Otherwise the address in use is saved somewhere new while the client
@@ -117,6 +148,20 @@ void main() {
 
     check(api.cookieCustomHeaderSuppressed).isTrue();
   });
+}
+
+/// Refuses to read the saved servers while [locked], as a locked Keychain
+/// does.
+final class _LockableSecureStore extends InMemorySecureKeyValueStore {
+  var locked = false;
+
+  @override
+  Future<String?> read({required String key}) {
+    if (locked && key == 'openwebui_registry_v1') {
+      throw StateError('The keychain is locked.');
+    }
+    return super.read(key: key);
+  }
 }
 
 /// Fails to keep a proxy cookie, as a Keychain refusing a write does.

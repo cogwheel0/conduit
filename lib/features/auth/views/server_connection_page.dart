@@ -403,9 +403,25 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _prefillFromRoute() async {
     final endpointId = widget.endpointId;
     if (endpointId == null) return;
-    final registry = await ref
-        .read(optimizedStorageServiceProvider)
-        .getOpenWebUiRegistryStrict();
+    final OpenWebUiRegistry registry;
+    try {
+      registry = await ref
+          .read(optimizedStorageServiceProvider)
+          .getOpenWebUiRegistryStrict();
+    } catch (error, stackTrace) {
+      // Nothing awaits this; say why the form starts empty.
+      DebugLogger.error(
+        'route-edit-prefill-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      setState(() {
+        _connectionError = AppLocalizations.of(context)!.errorMessage;
+      });
+      return;
+    }
     final endpoint = registry
         .server(widget.routesOfServerId!)
         ?.endpoint(endpointId);
