@@ -600,11 +600,10 @@ class OptimizedStorageService {
     final hasToken = token != null && token.isNotEmpty;
     final hasCredentials = credentials != null && credentials.isNotEmpty;
 
-    if (hasToken) {
-      await _saveAuthTokenUnlocked(token);
-    } else {
-      await _deleteAuthTokenUnlocked();
-    }
+    // The saved sign-in first. With the token taken up and the sign-in not,
+    // the account would be signed in with its sign-in fenced, and the next
+    // switch away would drop the copy still in its vault. Without the token,
+    // choosing the account again takes up both.
     if (hasCredentials) {
       await _secureCredentialStorage.restoreSavedCredentialsPayload(
         credentials,
@@ -613,6 +612,11 @@ class OptimizedStorageService {
       _cacheManager.write('has_credentials', true, ttl: _credentialsFlagTtl);
     } else {
       await _deleteSavedCredentialsUnlocked();
+    }
+    if (hasToken) {
+      await _saveAuthTokenUnlocked(token);
+    } else {
+      await _deleteAuthTokenUnlocked();
     }
 
     // A session lives in exactly one place. A stale vault copy is how a

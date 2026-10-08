@@ -260,6 +260,29 @@ void main() {
       check(await vaultedToken('a')).equals('token-a');
     });
 
+    test('a switch that fails taking up the saved sign-in keeps it filed',
+        () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('b', password: 'pw-b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      await storage.saveAuthToken('token-a');
+      secure.refusedOnceKey = 'user_credentials_v2';
+
+      await check(
+        storage.switchActiveServer(fromServerId: 'a', toServerId: 'b'),
+      ).throws<StateError>();
+
+      // Chosen again, it takes up its session; leaving it files it again.
+      check(
+        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'b'),
+      ).isTrue();
+      check(await storage.getAuthTokenStrict()).equals('token-b');
+      check((await storage.getSavedCredentialsStrict())?['password'])
+          .equals('pw-b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      check((await vaultedCredentials('b'))?['password']).equals('pw-b');
+    });
+
     test('lists which accounts hold a session', () async {
       await storage.saveServerConfigs([
         account('a'),
