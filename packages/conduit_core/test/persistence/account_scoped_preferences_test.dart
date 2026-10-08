@@ -537,6 +537,39 @@ void main() {
     check((jsonDecode(stored!) as Map).keys).deepEquals(['b']);
   });
 
+  test("a signed-out account's summary that cannot be removed is reported",
+      () async {
+    // As SharedPreferences fails a write: what it shows changes, and the
+    // write to disk reports failure.
+    var refuse = false;
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (preferences, key, value) async {
+        if (!refuse || key != PreferenceKeys.openWebUiAccountSummaries) {
+          return null;
+        }
+        await preferences.setString(key, value! as String);
+        return false;
+      },
+    );
+    final container = ProviderContainer(
+      overrides: [
+        settledActiveAccountIdProvider.overrideWith(_SettledOnA.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    final summaries = container.read(
+      openWebUiAccountSummariesProvider.notifier,
+    );
+    await summaries.touch('a');
+    await summaries.touch('b');
+    refuse = true;
+
+    await check(
+      container.read(openWebUiAccountPrivateDataClearProvider)('a'),
+    ).throws<StateError>();
+  });
+
   test('a saved server voice is read back for its account', () async {
     await PreferencesStore.put(
       PreferenceKeys.accountScopedSettingsMigrated,

@@ -118,7 +118,9 @@ class OpenWebUiAccountSummaries
     if (!state.containsKey(accountId)) return;
     final next = Map.of(state)..remove(accountId);
     state = Map.unmodifiable(next);
-    await _persist(next);
+    // Checked, and its failure the caller's: a summary left on disk keeps a
+    // signed-out account's name and email behind a sign-out that worked.
+    await _persist(next, checked: true);
   }
 
   /// Reloads from preferences, after something outside this notifier (a full
@@ -134,15 +136,25 @@ class OpenWebUiAccountSummaries
     await _persist(next);
   }
 
-  Future<void> _persist(Map<String, OpenWebUiAccountSummary> summaries) async {
+  Future<void> _persist(
+    Map<String, OpenWebUiAccountSummary> summaries, {
+    bool checked = false,
+  }) async {
     if (!PreferencesStore.isReady) return;
+    final value = jsonEncode({
+      for (final entry in summaries.entries) entry.key: entry.value.toJson(),
+    });
+    if (checked) {
+      await PreferencesStore.putChecked(
+        PreferenceKeys.openWebUiAccountSummaries,
+        value,
+      );
+      return;
+    }
     try {
       await PreferencesStore.put(
         PreferenceKeys.openWebUiAccountSummaries,
-        jsonEncode({
-          for (final entry in summaries.entries)
-            entry.key: entry.value.toJson(),
-        }),
+        value,
       );
     } catch (error) {
       DebugLogger.warning(
