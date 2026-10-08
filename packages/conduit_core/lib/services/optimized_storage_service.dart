@@ -2708,6 +2708,14 @@ class OptimizedStorageService {
   }
 
   Future<void> _scrubServerConfigAuthArtifactsUnlocked() async {
+    // After a wipe whose delete failed, the old registry is still stored,
+    // cookies and all. What the wipe meant to leave goes over it: a copy
+    // with only its secrets taken out would keep what the wipe removed.
+    final leftByWipe = _registryLeftByWipe;
+    if (leftByWipe != null) {
+      await _saveRegistryUnlocked(leftByWipe, authorizeReads: false);
+      return;
+    }
     final configs = await _getServerConfigsStrictUnlockedBypassingSuppression();
     var changed = false;
     final sanitized = configs

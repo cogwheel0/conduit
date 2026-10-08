@@ -2617,18 +2617,15 @@ void main() {
     expect(await storage.getServerConfigsStrict(), isEmpty);
     expect(await storage.getActiveServerId(), isNull);
 
-    // A later cleanup pass must bypass both the suppression flag and the
-    // negative cache so it can sanitize the retained platform payload.
+    // A later cleanup pass finishes the wipe: what it meant to leave, here
+    // nothing, replaces the platform payload it could not delete, cookie
+    // and all, rather than a copy with only the secrets taken out.
     await storage.clearAuthData();
-    final scrubbedConfig = _storedServerConfigs(secureStorageValues).single;
-    expect(scrubbedConfig.apiKey, isNull);
-    expect(
-      scrubbedConfig.customHeaders.keys.any(
-        (name) => name.toLowerCase() == 'cookie',
-      ),
-      isFalse,
+    final scrubbed = OpenWebUiRegistry.decode(
+      secureStorageValues['openwebui_registry_v1']!,
     );
-    expect(scrubbedConfig.customHeaders, isEmpty);
+    expect(scrubbed.accounts, isEmpty);
+    expect(scrubbed.servers, isEmpty);
     expect(await storage.getServerConfigsStrict(), isEmpty);
 
     final replacement = _serverConfig('server-b').copyWith(isActive: true);
