@@ -103,15 +103,20 @@ class AccountAdditionOrigin extends Notifier<String?> {
 }
 
 /// Whether the active account is a sign-in started for an added account that
-/// can be left: an addition is in progress, the account never signed in, and
-/// another account is still signed in to go back to. Sign-in screens offer
-/// Cancel instead of Back then. Never signed in is not enough on its own: an
-/// account carried over from before accounts existed may not know its user.
+/// can be left: an addition is in progress, the account is not the one it
+/// began from, it never signed in, and another account is still signed in to
+/// go back to. Sign-in screens offer Cancel instead of Back then. Never
+/// signed in is not enough on its own: an account carried over from before
+/// accounts existed may not know its user, and be the one adding began from.
 final pendingSignInAbandonableProvider = FutureProvider<bool>((ref) async {
-  if (ref.watch(accountAdditionOriginProvider) == null) return false;
+  final origin = ref.watch(accountAdditionOriginProvider);
+  if (origin == null) return false;
   final entries = await ref.watch(openWebUiAccountsProvider.future);
   final active = entries.where((entry) => entry.isActive).firstOrNull;
-  if (active == null || active.account.userId != null || active.hasSession) {
+  if (active == null ||
+      active.id == origin ||
+      active.account.userId != null ||
+      active.hasSession) {
     return false;
   }
   return entries.any((entry) => !entry.isActive && entry.hasSession);
@@ -263,12 +268,14 @@ class OpenWebUiAccountsController {
   Future<bool> _abandonPendingSignIn() async {
     // Only an addition's own sign-in is left: an account carried over from
     // before accounts existed can look the same, and leaving it would delete
-    // its data.
-    if (_ref.read(accountAdditionOriginProvider) == null) return false;
+    // its data. So can the account the addition began from, until the new
+    // one is made active.
+    final origin = _ref.read(accountAdditionOriginProvider);
+    if (origin == null) return false;
     // The cached list can trail a sign-in that just finished; auth cannot.
     if (_signedIn()) return false;
     final activeId = await _activeAccountId();
-    if (activeId == null) return false;
+    if (activeId == null || activeId == origin) return false;
     final entries = await _ref.read(openWebUiAccountsProvider.future);
     final active = entries.where((entry) => entry.id == activeId).firstOrNull;
     if (active == null || active.account.userId != null || active.hasSession) {

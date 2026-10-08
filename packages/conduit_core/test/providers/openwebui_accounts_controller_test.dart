@@ -352,6 +352,27 @@ void main() {
       check(auth.abandoned).isEmpty();
     });
 
+    test('leaves the account the addition began from alone', () async {
+      // Carried over without a known user and signed out, beside a Direct or
+      // Hermes backend: it is active as adding begins, before any new
+      // account is.
+      accounts = [
+        entry('a', hasSession: false).withUser(null),
+        entry('b', lastUsedAt: DateTime(2026, 9)),
+      ];
+      final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('a');
+
+      check(await container_.read(pendingSignInAbandonableProvider.future))
+          .isFalse();
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isFalse();
+      check(auth.abandoned).isEmpty();
+    });
+
     test('keeps an added account whose sign-in finishes meanwhile', () async {
       accounts = [
         entry('a', hasSession: false).withUser(null),
