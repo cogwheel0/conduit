@@ -2650,6 +2650,118 @@ void main() {
     expect(await storage.getActiveServerId(), replacement.id);
   });
 
+  // The old registry is still stored when the wipe's delete fails. A write
+  // building on it once the empty one had left the cache brought back what
+  // the wipe removed: here, the user the account was proven to belong to.
+  test('a write after a failed wipe builds on what the wipe left, however '
+      'long after', () async {
+    storage = OptimizedStorageService(
+      secureStorage: FlutterSecureKeyValueStore(),
+      boxes: HiveBoxes(
+        preferences: preferences,
+        caches: caches,
+        attachmentQueue: attachmentQueue,
+        metadata: metadata,
+      ),
+      workerManager: workerManager,
+      cacheManager: CacheManager(maxEntries: 1),
+      authTokenCacheTtl: Duration.zero,
+      serverIdCacheTtl: Duration.zero,
+      serverConfigsCacheTtl: Duration.zero,
+      credentialsFlagCacheTtl: Duration.zero,
+    );
+    secureStorageValues['openwebui_registry_v1'] = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(id: 'route', url: 'https://chat.example'),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          userId: 'user-a',
+          isActive: true,
+        ),
+      ],
+    ).encode();
+    secureStorageFailureCountdowns['deleteAll:null'] = 1;
+
+    await expectLater(storage.clearAll(), throwsA(isA<PlatformException>()));
+    check(secureStorageValues).containsKey('openwebui_registry_v1');
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    storage.clearCache();
+
+    await storage.saveServerConfigs([
+      const ServerConfig(
+        id: 'account-a',
+        name: 'Chat',
+        url: 'https://chat.example',
+        isActive: true,
+      ),
+    ]);
+
+    final stored = OpenWebUiRegistry.decode(
+      secureStorageValues['openwebui_registry_v1']!,
+    );
+    check(stored.account('account-a')).isNotNull().has(
+      (account) => account.userId,
+      'userId',
+    ).isNull();
+  });
+
+  test('a write after a failed wipe that kept server details builds on '
+      'those details', () async {
+    secureStorageValues['openwebui_registry_v1'] = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(
+              id: 'route',
+              url: 'https://chat.example',
+              label: 'Home',
+            ),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          isActive: true,
+        ),
+      ],
+    ).encode();
+    // The old registry stays, and the details kept are not written back.
+    secureStorageFailureCountdowns['deleteAll:null'] = 1;
+    secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 1;
+
+    await expectLater(
+      storage.clearAllIf(canClear: () => true, preserveServerDetails: true),
+      throwsA(isA<PlatformException>()),
+    );
+    storage.clearCache();
+    await storage.saveServerConfigs([
+      const ServerConfig(
+        id: 'account-a',
+        name: 'Chat',
+        url: 'https://chat.example',
+        isActive: true,
+      ),
+    ]);
+
+    final stored = OpenWebUiRegistry.decode(
+      secureStorageValues['openwebui_registry_v1']!,
+    );
+    check(stored.servers.single.endpoints.single.label).equals('Home');
+  });
+
   test('clearAll queued behind a session commit cannot be followed by token resurrection', () async {
     final previous = _serverConfig('server-a').copyWith(isActive: true);
     final target = _serverConfig('server-b');

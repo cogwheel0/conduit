@@ -225,6 +225,11 @@ class OptimizedStorageService {
   bool _serverConfigsReadSuppressed = false;
   bool _activeServerIdReadSuppressed = false;
 
+  // What the last full wipe meant to leave stored, until a registry write
+  // lands; see [_registryForWriteUnlocked]. Not a cache entry: it must not
+  // expire while the old registry may still be stored.
+  OpenWebUiRegistry? _registryLeftByWipe;
+
   static const String _authTokenKey = 'auth_token_v3';
   static const String _activeServerIdKey = PreferenceKeys.activeServerId;
   static const String _serverConfigsCacheKey = 'server_configs_v1';
@@ -1943,11 +1948,14 @@ class OptimizedStorageService {
   /// process, or the stored one. Read fences do not apply; a write must build
   /// on what is durable, not on what reads are currently allowed to see.
   ///
-  /// After a full wipe the last one written is the empty registry the wipe
-  /// meant to leave, even when the platform delete failed and the old one is
-  /// still stored. A later write builds on that, so it cannot bring back the
+  /// After a full wipe it is the registry the wipe meant to leave -- empty,
+  /// or the server details it kept -- even when the platform delete failed
+  /// and the old one is still stored. Until a registry write lands, a write
+  /// builds on that, however long it takes, so it cannot bring back the
   /// accounts, routes or cookies the wipe was removing.
   Future<OpenWebUiRegistry> _registryForWriteUnlocked() async {
+    final leftByWipe = _registryLeftByWipe;
+    if (leftByWipe != null) return leftByWipe;
     final (hit: hasCachedRegistry, value: cachedRegistry) = _cacheManager
         .lookup<OpenWebUiRegistry>(_registryCacheKey);
     if (hasCachedRegistry && cachedRegistry != null) return cachedRegistry;
@@ -1971,6 +1979,7 @@ class OptimizedStorageService {
     bool authorizeReads = true,
   }) async {
     await _secureCredentialStorage.saveOpenWebUiRegistry(registry.encode());
+    _registryLeftByWipe = null;
     _registryMigrationSettled = true;
     if (authorizeReads) _serverConfigsReadSuppressed = false;
     _serverOwnershipRevision++;
@@ -2902,6 +2911,7 @@ class OptimizedStorageService {
         ttl: _credentialsFlagTtl,
       );
       _cacheRegistry(OpenWebUiRegistry.empty);
+      _registryLeftByWipe = retainedRegistry;
       _cacheActiveServerId(null);
     }
 
