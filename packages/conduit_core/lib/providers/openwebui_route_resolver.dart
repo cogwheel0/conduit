@@ -161,9 +161,11 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   /// one has, or with no server to reach.
   String? _inUseOrigin;
 
-  /// The id of that route, and the server it belongs to.
+  /// The id of that route, the server it belongs to, and the account it is
+  /// in use for.
   String? _inUseRouteId;
   OpenWebUiServer? _inUseServer;
+  String? _inUseAccountId;
 
   /// Routes a proxy turned the active account's requests away from, by id,
   /// and when. Their health check can still pass, so for [_refusedFor] no
@@ -185,6 +187,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       // The move owed a check to the account it was made for.
       _recheckOwed = false;
       _refused.clear();
+      // Before the check this starts: a refusal still on its way to the
+      // account left is not this account's.
+      _inUseAccountId = next;
       _schedule('account');
     });
     // Requests failing to reach the server mean the route in use may have
@@ -203,6 +208,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       if (reason == 'rejected') {
         final route = _inUseRouteId;
         final server = _inUseServer;
+        // A proxy session is one account's: a request still out for the
+        // account left can be refused once another is active on its route.
+        if (connection != null && connection.id != _inUseAccountId) return;
         // Routes can share a URL and differ in headers or client identity:
         // a request still out on the route a check left can be refused once
         // another with its URL is in use, or on the route in use before an
@@ -317,6 +325,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         _inUseOrigin = null;
         _inUseRouteId = null;
         _inUseServer = null;
+        _inUseAccountId = null;
         _recheckOwed = false;
         state = const OpenWebUiRouteStatus();
         return;
@@ -328,6 +337,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(current.url));
       _inUseRouteId = current.id;
       _inUseServer = server;
+      _inUseAccountId = account.id;
       if (server.endpoints.length < 2) {
         state = OpenWebUiRouteStatus(
           serverId: server.id,

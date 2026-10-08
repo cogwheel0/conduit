@@ -450,6 +450,27 @@ void main() {
       check(await routeInUse()).equals(_public);
     });
 
+    // A proxy session is one account's: a request still out for an account
+    // left can be refused once another is active on its route.
+    test("is not charged another account's refusal", () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+
+      ConnectivityService.reportRouteRejected(
+        Uri.parse(_lan),
+        connection: const ServerConfig(
+          id: 'account-left',
+          name: 'Home',
+          url: _lan,
+        ),
+      );
+      await settle();
+      await routes.resolve(reason: 'resumed');
+
+      check(await routeInUse()).equals(_lan);
+    });
+
     // Routes to one server can share a URL and differ in headers. A request
     // still out on the one a check left can be refused once the other is
     // in use; the one in use was not refused.
