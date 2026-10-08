@@ -722,6 +722,66 @@ void main() {
     verifyNever(() => storage.removeAccount(any()));
   });
 
+  // A switch invalidates the account in use, which keeps the one it left
+  // as its value until the next resolves.
+  test('the plain logout deletes the chats of the account stored as active '
+      'while the one in use refreshes', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-b');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-b');
+    when(
+      () => storage.clearActiveAccountAuthDataIf(
+        canClear: any(named: 'canClear'),
+      ),
+    ).thenAnswer(
+      (invocation) async =>
+          (invocation.namedArguments[#canClear] as bool Function())(),
+    );
+    var selected = const ServerConfig(
+      id: 'account-a',
+      name: 'A',
+      url: 'https://a.example',
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => selected),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+    await container.read(activeServerProvider.future);
+
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'account-b');
+    selected = const ServerConfig(
+      id: 'account-b',
+      name: 'B',
+      url: 'https://b.example',
+    );
+    container.invalidate(activeServerProvider);
+    check(container.read(activeServerProvider).value?.id).equals('account-a');
+    await container.read(authStateManagerProvider.notifier).logout();
+
+    check(isolation.purgedKeepingRecord).deepEquals(['account-b']);
+  });
+
   test('a sign-out overtaken by a switch leaves the account now in use', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();

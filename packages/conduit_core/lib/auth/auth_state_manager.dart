@@ -3219,13 +3219,15 @@ class AuthStateManager extends _$AuthStateManager {
     // The plain logout deletes the account's chats, as logout always has.
     // Its record and settings stay, to sign in to again. Read now, with
     // nothing awaited: the account in use, else the one stored as active
-    // while that is still loading.
+    // while that is still loading. A refresh keeps the account it is leaving
+    // as its value until then, so loading is what tells.
     final storedActiveId = PreferencesStore.getString(
       PreferenceKeys.activeServerId,
     );
+    final activeServer = ref.read(activeServerProvider);
     final loggedOutAccountId = clearAllAppData
         ? null
-        : ref.read(activeServerProvider).asData?.value?.id ??
+        : (activeServer.isLoading ? null : activeServer.asData?.value?.id) ??
               (storedActiveId == null || storedActiveId.isEmpty
                   ? null
                   : storedActiveId);
