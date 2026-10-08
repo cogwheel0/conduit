@@ -867,6 +867,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         throw Exception(l10n.serverNotOpenWebUI);
       }
 
+      // Left while the address was checked: the save works through this
+      // page, and it is gone.
+      if (!mounted) return;
       if (_editingRoutes) {
         await _saveRoute(tempConfig, sessionRevision);
         return;
@@ -1059,6 +1062,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         return;
       }
 
+      if (!mounted) return;
       if (_editingRoutes) {
         final bool saved;
         try {
