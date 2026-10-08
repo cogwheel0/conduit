@@ -1942,6 +1942,11 @@ class OptimizedStorageService {
   /// The registry a config write folds into: the last one written by this
   /// process, or the stored one. Read fences do not apply; a write must build
   /// on what is durable, not on what reads are currently allowed to see.
+  ///
+  /// After a full wipe the last one written is the empty registry the wipe
+  /// meant to leave, even when the platform delete failed and the old one is
+  /// still stored. A later write builds on that, so it cannot bring back the
+  /// accounts, routes or cookies the wipe was removing.
   Future<OpenWebUiRegistry> _registryForWriteUnlocked() async {
     final (hit: hasCachedRegistry, value: cachedRegistry) = _cacheManager
         .lookup<OpenWebUiRegistry>(_registryCacheKey);
