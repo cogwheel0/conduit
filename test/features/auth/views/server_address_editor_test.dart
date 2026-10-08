@@ -4,6 +4,8 @@ import 'package:checks/checks.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit_core/auth/openwebui_address_check.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
@@ -163,6 +165,47 @@ void main() {
     check(kept).isFalse();
     check(await shown()).equals('https://moved.example');
     check(_Routes.reasons).deepEquals(['routes-edited']);
+  });
+
+  // The only account saved is active with no id kept for it. Looked for
+  // among inactive accounts, it had no session, and a valid address was
+  // refused as needing a sign-in.
+  test('the only account checks an address with its live session', () async {
+    await storage.saveServerConfigs([
+      const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+    ]);
+    await storage.setActiveServerId(null);
+    await storage.bindAccountUser('a', 'user-a');
+    await storage.saveAuthToken('live-a');
+    check(await storage.getActiveServerId()).isNull();
+    final signedIn = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        openWebUiRouteResolverProvider.overrideWith(_Routes.new),
+        authTokenProvider3.overrideWithValue('live-a'),
+      ],
+    );
+    addTearDown(signedIn.dispose);
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    final sent = <String>[];
+
+    final (:found, :activeAccountId) = await checkSavedServerAddress(
+      signedIn,
+      registry: registry,
+      serverId: registry.servers.single.id,
+      address: 'https://chat.example',
+      confirmSendingSession: (_) async => true,
+      userAt: (accountId, token) async {
+        sent.add(token);
+        if (token != 'live-a') throw StateError('401');
+        return 'user-a';
+      },
+    );
+
+    check(found.result).equals(OpenWebUiAddressCheck.sameServer);
+    check(sent).deepEquals(['live-a']);
+    check(found.provedBy).equals('a');
+    check(activeAccountId).equals('a');
   });
 
   // An address being edited is checked with the cookie kept there, and the

@@ -257,6 +257,40 @@ ApiService buildAddressCheckApi(
   ),
 );
 
+/// Checks that [address] reaches the saved server [serverId]
+/// ([checkOpenWebUiAddress]) with its accounts' sessions: the live one of
+/// the active account and those kept for the others.
+///
+/// Active as storage counts it, which keeps no id for an account only
+/// flagged active or the only one saved; its session is the live one, not
+/// one kept for an inactive account. Returns what the check found and that
+/// account's id. Throws when storage cannot be read.
+@visibleForTesting
+Future<({OpenWebUiAddressCheckResult found, String? activeAccountId})>
+checkSavedServerAddress(
+  ProviderContainer container, {
+  required OpenWebUiRegistry registry,
+  required String serverId,
+  required String address,
+  required Future<bool> Function(Uri address) confirmSendingSession,
+  required Future<String> Function(String accountId, String token) userAt,
+}) async {
+  final storage = container.read(optimizedStorageServiceProvider);
+  final activeAccountId = await storage.getEffectiveActiveServerId();
+  final found = await checkOpenWebUiAddress(
+    registry: registry,
+    serverId: serverId,
+    address: address,
+    activeAccountId: activeAccountId,
+    liveToken: container.read(authTokenProvider3),
+    keptTokenFor: storage.vaultedTokenFor,
+    accountsWithSession: await storage.accountIdsWithSession(),
+    confirmSendingSession: confirmSendingSession,
+    userAt: userAt,
+  );
+  return (found: found, activeAccountId: activeAccountId);
+}
+
 /// Saves [route], an address of the server [serverId] that has just been
 /// checked -- in place of the address of its id, or as a new one when
 /// [adding] -- and keeps the proxy cookie in [headers] for [cookieOwner], the
@@ -478,20 +512,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final server = registry.server(widget.routesOfServerId!);
     if (server == null) throw StateError('That server is no longer saved.');
 
-    final activeId = await storage.getActiveServerId();
-    final activeAccount = activeId == null ? null : registry.account(activeId);
-    final checksActiveAccount =
-        activeAccount != null &&
-        activeAccount.serverId == server.id &&
-        activeAccount.userId != null;
-    final (result: check, :provedBy) = await checkOpenWebUiAddress(
+    final (:found, :activeAccountId) = await checkSavedServerAddress(
+      container,
       registry: registry,
       serverId: server.id,
       address: verified.url,
-      activeAccountId: activeId,
-      liveToken: container.read(authTokenProvider3),
-      keptTokenFor: storage.vaultedTokenFor,
-      accountsWithSession: await storage.accountIdsWithSession(),
       confirmSendingSession: (address) async {
         if (!mounted) return false;
         return ThemedDialogs.confirm(
@@ -518,6 +543,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         }
       },
     );
+    final (result: check, :provedBy) = found;
+    final activeAccount = activeAccountId == null
+        ? null
+        : registry.account(activeAccountId);
+    final checksActiveAccount =
+        activeAccount != null &&
+        activeAccount.serverId == server.id &&
+        activeAccount.userId != null;
     if (check != OpenWebUiAddressCheck.sameServer &&
         check != OpenWebUiAddressCheck.nothingToProtect) {
       final refusal = switch (check) {
@@ -583,7 +616,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     if (serverId == null || widget.endpointId == null) return draft;
     final storage = ref.read(optimizedStorageServiceProvider);
     final registry = await storage.getOpenWebUiRegistryStrict();
-    final activeId = await storage.getActiveServerId();
+    // As storage counts it, as the check of the address does.
+    final activeId = await storage.getEffectiveActiveServerId();
     return _withKeptCookie(draft, registry, [
       ?activeId,
       for (final account in registry.accountsOn(serverId)) account.id,
