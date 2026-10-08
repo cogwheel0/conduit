@@ -215,8 +215,12 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         // refused once the client in use would not be.
         if (connection != null) {
           if (connection.id != _inUseAccountId) return;
-          final inUse = ref.read(activeServerProvider).value;
-          if (inUse != null && !_sameClientConnection(connection, inUse)) {
+          // Told apart only against the client as it is built once settled:
+          // while it is being rebuilt, the refusal can be the replaced
+          // one's. One that stands is refused again on its next request.
+          final inUse = ref.read(activeServerProvider);
+          final client = inUse.isLoading ? null : inUse.value;
+          if (client == null || !_sameClientConnection(connection, client)) {
             return;
           }
         }

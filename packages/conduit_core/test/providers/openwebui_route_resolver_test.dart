@@ -538,6 +538,8 @@ void main() {
         answers = {_lan: true, _public: true};
         final routes = await resolver();
         await routes.resolve();
+        // What the app's client is built from, as in the app.
+        await container.read(activeServerProvider.future);
         return routes;
       }
 
@@ -566,6 +568,23 @@ void main() {
           connection: direct.copyWith(
             customHeaders: const {'X-Before-Edit': '1'},
           ),
+        );
+        await settle();
+        await routes.resolve(reason: 'resumed');
+
+        check(routes.state.endpointId).equals(inUse);
+      });
+
+      // The client is being rebuilt: the refusal can be the replaced one's.
+      test('is not charged a refusal while the client is rebuilt', () async {
+        final routes = await twoRoutesOnOneUrl();
+        final inUse = routes.state.endpointId;
+        container.invalidate(activeServerProvider);
+        check(container.read(activeServerProvider).isLoading).isTrue();
+
+        ConnectivityService.reportRouteRejected(
+          Uri.parse(_lan),
+          connection: direct,
         );
         await settle();
         await routes.resolve(reason: 'resumed');
