@@ -1065,11 +1065,12 @@ class OptimizedStorageService {
         if (credentialOwnershipChanged) {
           await _deleteSavedCredentialsUnlocked();
         }
-        // The same holds for sessions kept aside.
+        // The same holds for sessions kept aside, the active account's
+        // included: a switch that failed part-way can leave its session in
+        // the vault, where selecting it again takes that session up.
         await _dropVaultedSessionsOfMovedAccountsUnlocked(
           current: currentConfigs,
           next: nextConfigs,
-          skip: currentActiveId,
         );
         await _saveServerConfigsUnlocked(sanitizedConfigs);
         if (rawActiveServerId != nextActiveId) {

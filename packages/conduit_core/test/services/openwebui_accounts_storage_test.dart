@@ -441,6 +441,21 @@ void main() {
     check(await vaultedCredentials('c')).isNull();
   });
 
+  // A switch that failed part-way can leave the active account's own session
+  // in the vault, where selecting the account again takes it up.
+  test('moving the active account drops the session it has kept aside',
+      () async {
+    await storage.saveServerConfigs([account('a')]);
+    await storage.setActiveServerId('a');
+    await secure.write(key: 'auth_token_server_v1:a', value: 'stale-a');
+
+    await storage.saveServerConfigs([
+      account('a', url: 'https://elsewhere.example.org'),
+    ]);
+
+    check(await vaultedToken('a')).isNull();
+  });
+
   group('a server moved by selecting an account on it', () {
     // A and B share one server; B is signed in, filed away.
     setUp(() async {
