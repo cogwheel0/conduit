@@ -295,13 +295,13 @@ checkSavedServerAddress(
 /// checked -- in place of the address of its id, or as a new one when
 /// [adding] -- and keeps the proxy cookie in [headers] for [cookieOwner], the
 /// account whose session proved it (see
-/// [OptimizedStorageService.saveEndpointSessionHeaders]).
+/// [OptimizedStorageService.editServerEndpointsWithSession]).
 ///
-/// The address is saved first. Whatever then becomes of the cookie, the
-/// clients, the addresses shown and the route in use follow what was saved;
-/// a failure to keep the cookie is rethrown for the editor to report.
-/// Returns false when storage declined the cookie: a sign-out has revoked
-/// cookies since [sessionRevision], or another save moved the address.
+/// The address and its cookie are saved together: saved without it, an
+/// address behind a proxy would be refused. When the cookie cannot be kept
+/// nothing is saved, and the address in use stays where it was; a failure is
+/// rethrown for the editor to report. Returns false when storage declined
+/// the cookie, a sign-out having revoked cookies since [sessionRevision].
 @visibleForTesting
 Future<bool> saveCheckedAddress(
   ProviderContainer container, {
@@ -315,29 +315,32 @@ Future<bool> saveCheckedAddress(
   final storage = container.read(optimizedStorageServiceProvider);
   // Onto the routes as stored now, not as read before the check, which can
   // take a while; an address removed meanwhile stays removed.
-  await storage.editServerEndpoints(
-    serverId,
-    (endpoints) => withEditedRoute(endpoints, route, adding: adding),
-  );
-  try {
-    if (cookieOwner != null && headers.keys.any(isCapturedSessionHeader)) {
-      return await storage.saveEndpointSessionHeaders(
-        accountId: cookieOwner,
-        route: route,
-        headers: headers,
-        sessionRevision: sessionRevision,
-      );
-    }
-    return true;
-  } finally {
-    container.invalidate(serverConfigsProvider);
-    container.invalidate(openWebUiAccountsProvider);
-    unawaited(
-      container
-          .read(openWebUiRouteResolverProvider.notifier)
-          .routesEdited(serverId, endpointId: route.id),
+  List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) =>
+      withEditedRoute(endpoints, route, adding: adding);
+  final bool saved;
+  if (cookieOwner != null && headers.keys.any(isCapturedSessionHeader)) {
+    saved = await storage.editServerEndpointsWithSession(
+      serverId,
+      edit,
+      accountId: cookieOwner,
+      routeId: route.id,
+      headers: headers,
+      sessionRevision: sessionRevision,
     );
+  } else {
+    await storage.editServerEndpoints(serverId, edit);
+    saved = true;
   }
+  if (!saved) return false;
+  // The clients, the addresses shown and the route in use follow it.
+  container.invalidate(serverConfigsProvider);
+  container.invalidate(openWebUiAccountsProvider);
+  unawaited(
+    container
+        .read(openWebUiRouteResolverProvider.notifier)
+        .routesEdited(serverId, endpointId: route.id),
+  );
+  return true;
 }
 
 class ServerConnectionPage extends ConsumerStatefulWidget {
@@ -601,8 +604,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       sessionRevision: sessionRevision,
     );
     if (!cookieKept) {
-      // Saved, but without the proxy sign-in that lets requests through it;
-      // signing in through the proxy again keeps a new one.
+      // Not saved: the proxy sign-in that lets requests through it was
+      // revoked; signing in through the proxy again captures a new one.
       if (mounted) setState(() => _connectionError = l10n.proxyAuthFailed);
       return false;
     }

@@ -55,6 +55,13 @@ typedef ServerSessionOwnershipSnapshot = ({
 /// exactly this: rebuilding it from the projected configs would lose what
 /// they do not carry, such as an account's proven user and the ids of its
 /// server and routes.
+/// Session headers a proxy sign-in captured for an account on one route.
+typedef _RouteSession = ({
+  String accountId,
+  String routeId,
+  Map<String, String> headers,
+});
+
 typedef _RegistrySnapshot = ({
   OpenWebUiRegistry registry,
   bool readsSuppressed,
@@ -2525,27 +2532,83 @@ class OptimizedStorageService {
     List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit,
   ) {
     return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(
+        () => _editServerEndpointsUnlocked(serverId, edit),
+      ),
+    );
+  }
+
+  /// Applies [edit] as [editServerEndpoints] does, and in the same write
+  /// keeps the session headers a proxy sign-in captured for [accountId] on
+  /// [routeId], a route the edit saves.
+  ///
+  /// A route behind a proxy is refused without its cookie, so the two are
+  /// saved together or not at all. Returns false, saving neither, once a
+  /// sign-out has revoked cookies since [sessionRevision] was read (see
+  /// [sessionRevocationRevision]), or when [accountId] is not an account of
+  /// the server.
+  Future<bool> editServerEndpointsWithSession(
+    String serverId,
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
+    required String accountId,
+    required String routeId,
+    required Map<String, String> headers,
+    required int sessionRevision,
+  }) {
+    return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
-        final stored = (await _registryForWriteUnlocked()).server(serverId);
-        if (stored == null) {
-          throw StateError('That server is no longer saved.');
+        if (sessionRevision != _sessionRevocationRevision) {
+          DebugLogger.info(
+            'endpoint-cookie-dropped-after-sign-out',
+            scope: 'storage/optimized/registry',
+          );
+          return false;
         }
-        final endpoints = edit(stored.endpoints);
-        if (endpoints.isEmpty) {
-          throw ArgumentError('A server needs at least one route.');
-        }
-        await _saveServerUnlocked(
-          OpenWebUiServer(
-            id: stored.id,
-            name: stored.name,
-            endpoints: endpoints,
+        final account = (await _registryForWriteUnlocked()).account(
+          accountId,
+        );
+        if (account == null || account.serverId != serverId) return false;
+        await _editServerEndpointsUnlocked(
+          serverId,
+          edit,
+          session: (
+            accountId: accountId,
+            routeId: routeId,
+            headers: {
+              for (final entry in headers.entries)
+                if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+            },
           ),
         );
+        return true;
       }),
     );
   }
 
-  Future<void> _saveServerUnlocked(OpenWebUiServer server) async {
+  Future<void> _editServerEndpointsUnlocked(
+    String serverId,
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
+    _RouteSession? session,
+  }) async {
+    final stored = (await _registryForWriteUnlocked()).server(serverId);
+    if (stored == null) {
+      throw StateError('That server is no longer saved.');
+    }
+    final endpoints = edit(stored.endpoints);
+    if (endpoints.isEmpty) {
+      throw ArgumentError('A server needs at least one route.');
+    }
+    await _saveServerUnlocked(
+      OpenWebUiServer(id: stored.id, name: stored.name, endpoints: endpoints),
+      session: session,
+    );
+  }
+
+  /// Saves [server], keeping [session]'s headers on its route when given.
+  Future<void> _saveServerUnlocked(
+    OpenWebUiServer server, {
+    _RouteSession? session,
+  }) async {
     final registry = await _registryForWriteUnlocked();
     final stored = registry.server(server.id);
     if (stored == null) {
@@ -2574,6 +2637,10 @@ class OptimizedStorageService {
                     for (final entry in account.capturedHeaders.entries)
                       if (keepsCookies.contains(entry.key))
                         entry.key: entry.value,
+                    if (session != null &&
+                        session.accountId == account.id &&
+                        routes.contains(session.routeId))
+                      session.routeId: session.headers,
                   },
                 )
               : account,

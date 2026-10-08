@@ -290,14 +290,14 @@ void main() {
     );
   });
 
-  // Otherwise the address in use is saved somewhere new while the client
-  // and the addresses shown stay where it was.
-  test('an address saved without its cookie still moves the client', () async {
+  // Saved without it, an address behind a proxy would be refused, with no
+  // other to fall back to; the clients and the addresses shown stay put too.
+  test('an address whose cookie cannot be kept is not saved', () async {
     await storage.saveServerConfigs([
       const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
     ]);
     await storage.setActiveServerId('a');
-    storage.keychainRefuses = true;
+    secure.refusesCookie = true;
     final server = (await storage.getOpenWebUiRegistryStrict()).servers.single;
     // What the client is built from, and what the addresses screen shows.
     Future<String> inUse() async =>
@@ -325,14 +325,18 @@ void main() {
       ),
     ).throws<StateError>();
 
-    check(await inUse()).equals('https://moved.example');
-    check(await shown()).equals('https://moved.example');
-    check(_Routes.reasons).deepEquals(['routes-edited']);
+    secure.refusesCookie = false;
+    final stored = await storage.getOpenWebUiRegistryStrict();
+    check(stored.servers.single.endpoints.single.url)
+        .equals('https://chat.example');
+    check(await inUse()).equals('https://chat.example');
+    check(await shown()).equals('https://chat.example');
+    check(_Routes.reasons).isEmpty();
   });
 
   // A sign-out since the address was first contacted revoked the cookie;
-  // the editor says so rather than close as though it was kept.
-  test('an address saved without its cookie says so', () async {
+  // the editor says so rather than close as though the address was saved.
+  test('an address whose cookie was revoked is not saved', () async {
     await storage.saveServerConfigs([
       const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
     ]);
@@ -361,8 +365,11 @@ void main() {
     );
 
     check(kept).isFalse();
-    check(await shown()).equals('https://moved.example');
-    check(_Routes.reasons).deepEquals(['routes-edited']);
+    final stored = await storage.getOpenWebUiRegistryStrict();
+    check(stored.servers.single.endpoints.single.url)
+        .equals('https://chat.example');
+    check(await shown()).equals('https://chat.example');
+    check(_Routes.reasons).isEmpty();
   });
 
   // The only account saved is active with no id kept for it. Looked for
@@ -428,9 +435,20 @@ void main() {
 }
 
 /// Refuses to read the saved servers while [locked], as a locked Keychain
-/// does.
+/// does, and to save them with a proxy cookie while [refusesCookie].
 final class _LockableSecureStore extends InMemorySecureKeyValueStore {
   var locked = false;
+  var refusesCookie = false;
+
+  @override
+  Future<void> write({required String key, required String? value}) {
+    if (refusesCookie &&
+        key == 'openwebui_registry_v1' &&
+        (value?.contains('proxy=1') ?? false)) {
+      throw StateError('Keychain unavailable');
+    }
+    return super.write(key: key, value: value);
+  }
 
   @override
   Future<String?> read({required String key}) {
@@ -441,16 +459,14 @@ final class _LockableSecureStore extends InMemorySecureKeyValueStore {
   }
 }
 
-/// Fails to keep a proxy cookie while [keychainRefuses], as a Keychain
-/// refusing a write does.
+/// Storage whose reads of the active account and the saved servers can be
+/// held.
 final class _CookieRefusingStorage extends OptimizedStorageService {
   _CookieRefusingStorage({
     required super.secureStorage,
     required super.boxes,
     required super.workerManager,
   });
-
-  var keychainRefuses = false;
 
   /// Holds a read of the active account, from the [activeReadHeldFrom]th on,
   /// while set.
@@ -471,22 +487,6 @@ final class _CookieRefusingStorage extends OptimizedStorageService {
   Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async {
     await registryHeld?.future;
     return super.getOpenWebUiRegistryStrict();
-  }
-
-  @override
-  Future<bool> saveEndpointSessionHeaders({
-    required String accountId,
-    required OpenWebUiEndpoint route,
-    required Map<String, String> headers,
-    required int sessionRevision,
-  }) async {
-    if (keychainRefuses) throw StateError('Keychain unavailable');
-    return super.saveEndpointSessionHeaders(
-      accountId: accountId,
-      route: route,
-      headers: headers,
-      sessionRevision: sessionRevision,
-    );
   }
 }
 
