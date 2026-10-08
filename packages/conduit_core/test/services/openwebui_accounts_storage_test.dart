@@ -975,6 +975,28 @@ void main() {
       check(await storage.getAuthTokenStrict()).equals('token-b');
     });
 
+    test('is not held up by a saved sign-in for another account', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      await signIn('b', password: 'pw-b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      // From before accounts existed: C's sign-in, live while A is active.
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c',
+      );
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .equals(true);
+
+      check(await storage.getActiveServerId()).equals('b');
+      check((await vaultedCredentials('c'))?['password']).equals('pw-c');
+    });
+
     test('is refused once a sign-in has reached it', () async {
       await addPendingFromSignedIn();
       await storage.saveAuthToken('token-a');
