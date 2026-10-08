@@ -952,13 +952,19 @@ void main() {
     when(() => storage.getActiveServerId()).thenAnswer((_) async => active);
     when(() => storage.getEffectiveActiveServerId())
         .thenAnswer((_) async => active);
-    when(() => storage.vaultedTokenFor('account-b'))
-        .thenAnswer((_) async => _tokenB);
-    when(() => storage.getOpenWebUiRegistryStrict()).thenAnswer(
-      (_) async => OpenWebUiRegistry.empty.mergeServerConfigs(const [
-        ServerConfig(id: 'account-a', name: 'A', url: 'https://a.example'),
-        ServerConfig(id: 'account-b', name: 'B', url: 'https://b.example'),
-      ]),
+    when(
+      () => storage.vaultedSessions(accountIds: any(named: 'accountIds')),
+    ).thenAnswer(
+      (_) async => [
+        (
+          config: const ServerConfig(
+            id: 'account-b',
+            name: 'B',
+            url: 'https://b.example',
+          ),
+          token: _tokenB,
+        ),
+      ],
     );
     when(
       () => storage.switchActiveServer(

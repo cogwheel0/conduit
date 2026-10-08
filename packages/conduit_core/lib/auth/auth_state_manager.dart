@@ -1426,14 +1426,8 @@ class AuthStateManager extends _$AuthStateManager {
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
       final activeId = await storage.getActiveServerId();
-      final registry = await storage.getOpenWebUiRegistryStrict();
-      for (final account in registry.accounts) {
-        if (account.id == activeId) continue;
-        final config = registry.project(account.id);
-        final token = await storage.vaultedTokenFor(account.id);
-        if (config != null && token != null && token.isNotEmpty) {
-          sessions.add((config: config, token: token));
-        }
+      for (final session in await storage.vaultedSessions()) {
+        if (session.config.id != activeId) sessions.add(session);
       }
     } catch (error) {
       _logAuthenticationFailure('vaulted-sessions-read-failed', error);
@@ -1456,12 +1450,13 @@ class AuthStateManager extends _$AuthStateManager {
     String accountId,
   ) async {
     try {
-      final token = await storage.vaultedTokenFor(accountId);
-      if (token == null || token.isEmpty) return;
-      final registry = await storage.getOpenWebUiRegistryStrict();
-      final config = registry.project(accountId);
-      if (config == null) return;
-      await _revokeSession(config: config, token: token);
+      // The token and where it was kept for, read together: a server edit
+      // between two reads would send the old token to its new address.
+      for (final session in await storage.vaultedSessions(
+        accountIds: {accountId},
+      )) {
+        await _revokeSession(config: session.config, token: session.token);
+      }
     } catch (error) {
       _logAuthenticationFailure('vaulted-session-revoke-failed', error);
     }

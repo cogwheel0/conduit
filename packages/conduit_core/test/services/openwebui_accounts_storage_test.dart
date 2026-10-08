@@ -426,6 +426,27 @@ void main() {
           .deepEquals(['b']);
     });
 
+    // Revoking a kept session sends its token to the server it was kept
+    // for; an edit moving that server drops the token instead.
+    test('a kept session is read with the server it was kept for, never '
+        'with where an edit moves it', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+
+      final read = storage.vaultedSessions(accountIds: {'b'});
+      final moved = storage.saveServerConfigs([
+        account('a', url: 'https://elsewhere.test'),
+        account('b', url: 'https://elsewhere.test'),
+      ]);
+      final sessions = await read;
+      await moved;
+
+      check(sessions.map((session) => (session.config.url, session.token)))
+          .deepEquals([('https://chat.example.com', 'token-b')]);
+      check(await storage.vaultedSessions(accountIds: {'b'})).isEmpty();
+    });
+
     test('a failed commit leaves no copy behind in the vault', () async {
       await storage.saveServerConfigs([account('a'), account('b')]);
       await signIn('a');

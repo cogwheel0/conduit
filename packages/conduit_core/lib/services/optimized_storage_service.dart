@@ -2409,6 +2409,39 @@ class OptimizedStorageService {
         ),
       );
 
+  /// The tokens kept in the vault for [accountIds] (every account when
+  /// null), each with the config of the server it was kept for.
+  ///
+  /// Read together, under the locks a server edit takes: an edit that moves
+  /// an account drops its token, which must never go to where the edit
+  /// points.
+  Future<List<({ServerConfig config, String token})>> vaultedSessions({
+    Set<String>? accountIds,
+  }) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        final registry = await _retrySecureStorageRead(
+          _getRegistryStrictUnlocked,
+          scope: 'storage/optimized/registry',
+        );
+        final sessions = <({ServerConfig config, String token})>[];
+        for (final account in registry.accounts) {
+          if (accountIds != null && !accountIds.contains(account.id)) continue;
+          final config = registry.project(account.id);
+          if (config == null) continue;
+          final token = await _retrySecureStorageRead(
+            () => _secureCredentialStorage.getServerToken(account.id),
+            scope: 'storage/optimized/token-vault-read',
+          );
+          if (token != null && token.isNotEmpty) {
+            sessions.add((config: config, token: token));
+          }
+        }
+        return sessions;
+      }),
+    );
+  }
+
   /// Ids of accounts holding a session somewhere: the active one when its
   /// live slots do, and every account with something vaulted.
   Future<Set<String>> accountIdsWithSession() {
