@@ -310,6 +310,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _prefillFromSavedServer() async {
     final serverId = widget.serverId;
     if (serverId == null) return;
+    // The form can be edited while the saved server is read; what the user
+    // typed then stays.
+    final untouched = _formContents();
     final OpenWebUiRegistry registry;
     try {
       registry = await ref
@@ -333,6 +336,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final endpoint = server?.endpoints.first;
     if (!mounted || endpoint == null) return;
     _savedServer = server;
+    if (_formContents() != untouched) return;
     setState(() {
       _urlController.text = endpoint.url;
       _customHeaders
@@ -354,6 +358,19 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           : (endpoint.mtlsPrivateKeyPassword ?? '');
     });
   }
+
+  /// What the connection form holds, to tell whether it has been edited.
+  Object _formContents() => (
+    _urlController.text,
+    [
+      for (final header in _customHeaders.entries)
+        '${header.key}\u0000${header.value}',
+    ].join('\u0001'),
+    _allowSelfSignedCertificates,
+    _mtlsCertificateChainPem,
+    _mtlsPrivateKeyPem,
+    _mtlsPrivateKeyPasswordController.text,
+  );
 
   void _resetTransientAttempt() {
     if (!mounted || _isConnecting) return;

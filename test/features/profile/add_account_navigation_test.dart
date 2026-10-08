@@ -309,6 +309,26 @@ void main() {
     check(find.text('add account').evaluate()).isNotEmpty();
   });
 
+  testWidgets('an address typed while the saved server is read stays', (
+    tester,
+  ) async {
+    final read = storage.registryRead = Completer<void>();
+    await openAddAccountFromChat(tester, button: 'add account on Home');
+
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('server-url-field')),
+        matching: find.byType(EditableText),
+      ),
+      'https://typed.example',
+    );
+    read.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('https://typed.example'), findsOneWidget);
+    expect(find.text(storage.url), findsNothing);
+  });
+
   // The connection page fills in a saved server's route but named the new
   // account's connection after the host, and saving it renamed the server
   // to that for every account on it.
@@ -378,25 +398,32 @@ class _RegistryStorage extends Fake implements OptimizedStorageService {
   /// Where the saved server is.
   String url = 'https://owui.example';
 
+  /// Holds a read back until completed.
+  Completer<void>? registryRead;
+
   @override
-  Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async =>
-      OpenWebUiRegistry(
-        servers: [
-          OpenWebUiServer(
-            id: 'home',
-            name: 'Home',
-            endpoints: [OpenWebUiEndpoint(id: 'home-url', url: url)],
-          ),
-        ],
-        accounts: [
-          OpenWebUiAccount(
-            id: _active.id,
-            serverId: 'home',
-            userId: _activeUser.id,
-          ),
-          OpenWebUiAccount(id: _added.id, serverId: 'home', isActive: true),
-        ],
-      );
+  Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async {
+    await registryRead?.future;
+    return _registry();
+  }
+
+  OpenWebUiRegistry _registry() => OpenWebUiRegistry(
+    servers: [
+      OpenWebUiServer(
+        id: 'home',
+        name: 'Home',
+        endpoints: [OpenWebUiEndpoint(id: 'home-url', url: url)],
+      ),
+    ],
+    accounts: [
+      OpenWebUiAccount(
+        id: _active.id,
+        serverId: 'home',
+        userId: _activeUser.id,
+      ),
+      OpenWebUiAccount(id: _added.id, serverId: 'home', isActive: true),
+    ],
+  );
 }
 
 /// Signs in when told to, and folds the active account into another as the
