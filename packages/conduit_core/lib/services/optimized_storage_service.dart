@@ -659,6 +659,30 @@ class OptimizedStorageService {
     }
   }
 
+  /// Before the live slots are emptied for [accountId], files a saved
+  /// sign-in they hold for another saved account under that account, as a
+  /// switch would. Before accounts existed one could outlive a server change,
+  /// and the account it names is still signed in.
+  Future<void> _fileForeignSavedCredentialsUnlocked(
+    String accountId,
+    Iterable<ServerConfig> configs,
+  ) async {
+    if (_savedCredentialsReadSuppressed) return;
+    final payload = await _retrySecureStorageRead(
+      _secureCredentialStorage.getSavedCredentialsPayloadStrict,
+      scope: 'storage/optimized/credentials-stash',
+    );
+    final owner = _savedCredentialsServerId(payload);
+    if (payload == null ||
+        payload.isEmpty ||
+        owner == null ||
+        owner == accountId ||
+        !configs.any((config) => config.id == owner)) {
+      return;
+    }
+    await _secureCredentialStorage.saveServerCredentialsPayload(owner, payload);
+  }
+
   /// Drops [accountId]'s vaulted session, recording it in [undo] first.
   Future<void> _deleteVaultedSessionUndoablyUnlocked(
     String accountId,
@@ -2390,6 +2414,7 @@ class OptimizedStorageService {
             accountId;
         if (wasActive && onlyIfInactive) return null;
         if (wasActive) {
+          await _fileForeignSavedCredentialsUnlocked(accountId, configs);
           await _deleteAuthTokenUnlocked();
           await _deleteSavedCredentialsUnlocked();
         }
@@ -3475,19 +3500,33 @@ class OptimizedStorageService {
     }
 
     await _serverConfigsLock.synchronized(() async {
+      Future<(List<ServerConfig>, String?)> activeAccount() async {
+        final configs =
+            await _getServerConfigsStrictUnlockedBypassingSuppression();
+        return (
+          configs,
+          _effectiveActiveServerId(
+            configs: configs,
+            rawActiveServerId: _rawStoredActiveServerId(
+              bypassReadSuppression: true,
+            ),
+          ),
+        );
+      }
+
+      // A saved sign-in the live slots hold for another account is filed
+      // under it first, so that account is not signed out with this one.
+      await attempt(() async {
+        final (configs, activeId) = await activeAccount();
+        if (activeId == null) return;
+        await _fileForeignSavedCredentialsUnlocked(activeId, configs);
+      });
       await attempt(_deleteAuthTokenUnlocked);
       await attempt(_deleteSavedCredentialsUnlocked);
       // Like every step here, a failed read is recorded and the rest still
       // runs: the staged candidate and the cached user data go regardless.
       await attempt(() async {
-        final configs =
-            await _getServerConfigsStrictUnlockedBypassingSuppression();
-        final activeId = _effectiveActiveServerId(
-          configs: configs,
-          rawActiveServerId: _rawStoredActiveServerId(
-            bypassReadSuppression: true,
-          ),
-        );
+        final (configs, activeId) = await activeAccount();
         if (activeId == null) return;
         await attempt(() => _deleteVaultedSessionUnlocked(activeId));
         await attempt(() async {

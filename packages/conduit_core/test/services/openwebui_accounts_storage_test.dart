@@ -538,7 +538,46 @@ void main() {
     check(caches.get(HiveStoreKeys.localUser)).isNull();
   });
 
+  test('signing out files a saved sign-in naming another account under it',
+      () async {
+    await storage.saveServerConfigs([account('a'), account('c')]);
+    await signIn('a');
+    // From before accounts existed: C's sign-in, live while A is active.
+    await storage.saveCredentials(
+      serverId: 'c',
+      username: 'user-c',
+      password: 'pw-c',
+    );
+
+    check(
+      await storage.clearActiveAccountAuthDataIf(canClear: () => true),
+    ).isTrue();
+
+    check((await vaultedCredentials('c'))?['password']).equals('pw-c');
+    check(await storage.getSavedCredentialsStrict()).isNull();
+    check(await storage.getAuthTokenStrict()).isNull();
+  });
+
   group('removing an account', () {
+    test('the active one files a saved sign-in naming another account under '
+        'it', () async {
+      await storage.saveServerConfigs([account('a'), account('c')]);
+      await signIn('a');
+      // From before accounts existed: C's sign-in, live while A is active.
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c',
+      );
+
+      await storage.removeAccount('a');
+
+      check((await vaultedCredentials('c'))?['password']).equals('pw-c');
+      check(await storage.getSavedCredentialsStrict()).isNull();
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['c']);
+    });
+
     test('removing an inactive one leaves the active one marked active', () async {
       await storage.saveServerConfigs([account('a'), account('b')]);
       await signIn('a');
