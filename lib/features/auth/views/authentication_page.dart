@@ -436,13 +436,26 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   /// Back, while it is prepared ends the addition and makes the account it
   /// began from active again; a sign-in then would save this user's session
   /// under that account.
+  ///
+  /// Unreadable, it is not known to be: false, which each sign-in reports as
+  /// a failure, letting the user try again.
   Future<bool> _signInTargetStillSelected() async {
     final addition = _additionInProgress;
     if (addition != null && !addition()) return false;
     final config = _serverConfig;
     if (config == null) return true;
-    final selected = await ref.read(activeServerProvider.future);
-    return mounted && authenticationServerMatchesSelection(selected, config);
+    try {
+      final selected = await ref.read(activeServerProvider.future);
+      return mounted && authenticationServerMatchesSelection(selected, config);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'sign-in-selection-read-failed',
+        scope: 'auth/page',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
   }
 
   /// Cancel: drops the added account and returns to the account it was
