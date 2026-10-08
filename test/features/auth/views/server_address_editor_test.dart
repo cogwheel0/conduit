@@ -97,6 +97,26 @@ void main() {
     check(await shown()).equals('https://moved.example');
     check(_Routes.reasons).deepEquals(['routes-edited']);
   });
+
+  // An address being edited is checked with the cookie kept there, and the
+  // check can outlast the editor into an incomplete logout.
+  test('an address check keeps a cookie off while logout fences it', () {
+    final api = buildAddressCheckApi(
+      container,
+      const ServerConfig(
+        id: 'a',
+        name: 'Chat',
+        url: 'https://chat.example',
+        customHeaders: {'Cookie': 'proxy=1'},
+      ),
+    );
+    addTearDown(api.dispose);
+    check(api.cookieCustomHeaderSuppressed).isFalse();
+
+    container.read(incompleteLogoutFenceProvider.notifier).setSuppressed(true);
+
+    check(api.cookieCustomHeaderSuppressed).isTrue();
+  });
 }
 
 /// Fails to keep a proxy cookie, as a Keychain refusing a write does.

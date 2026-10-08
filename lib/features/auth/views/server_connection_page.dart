@@ -26,7 +26,10 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/auth/openwebui_address_check.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
-    show openWebUiRouteResolverProvider, proxySignInForRouteEditingProvider;
+    show
+        logoutFenceSuppressesCookies,
+        openWebUiRouteResolverProvider,
+        proxySignInForRouteEditingProvider;
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show
         accountAdditionOriginProvider,
@@ -233,6 +236,26 @@ Object? _serverConnectionResponseErrorDetail(Object? data) => switch (data) {
   final String value => value,
   _ => null,
 };
+
+/// A client for checking an address typed into this page, through
+/// [container]'s providers.
+///
+/// An address being edited is checked with the proxy cookie the server's
+/// accounts keep there. An incomplete logout keeps that cookie off every
+/// other client, and a check can outlast the page into one.
+@visibleForTesting
+ApiService buildAddressCheckApi(
+  ProviderContainer container,
+  ServerConfig config, {
+  String? authToken,
+}) => ApiService(
+  serverConfig: config,
+  workerManager: container.read(workerManagerProvider),
+  authToken: authToken,
+  shouldSuppressCookieCustomHeader: logoutFenceSuppressesCookies(
+    container.read,
+  ),
+);
 
 /// Saves [route], an address of the server [serverId] that has just been
 /// checked -- in place of the address of its id, or as a new one when
@@ -461,9 +484,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       },
       userAt: (accountId, token) async {
         // Each account's token travels with its own proxy cookie only.
-        final probe = ApiService(
-          serverConfig: _withKeptCookie(verified, registry, [accountId]),
-          workerManager: container.read(workerManagerProvider),
+        final probe = buildAddressCheckApi(
+          container,
+          _withKeptCookie(verified, registry, [accountId]),
           authToken: token,
         );
         try {
@@ -728,9 +751,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       checkHeaders = checkConfig.customHeaders;
 
       final workerManager = ref.read(workerManagerProvider);
-      final api = ApiService(
-        serverConfig: checkConfig,
-        workerManager: workerManager,
+      final api = buildAddressCheckApi(
+        ProviderScope.containerOf(context, listen: false),
+        checkConfig,
       );
       connectionApi = api;
 

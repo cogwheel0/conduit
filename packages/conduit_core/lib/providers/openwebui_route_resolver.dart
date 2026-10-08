@@ -11,6 +11,7 @@ library;
 import 'dart:async';
 
 import 'package:meta/meta.dart';
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -74,20 +75,27 @@ final openWebUiRouteProbeProvider = Provider<OpenWebUiRouteProbe>(
         route,
         // Routes carry their captured proxy cookies; an incomplete logout
         // keeps them off every request, probes included.
-        suppressCustomCookieHeader: () {
-          try {
-            return ref.read(incompleteLogoutFenceProvider) ||
-                ref
-                    .read(incompleteLogoutFenceProvider.notifier)
-                    .desiredSuppressed;
-          } catch (_) {
-            // A probe racing provider teardown cannot safely reattach a
-            // captured proxy cookie.
-            return true;
-          }
-        },
+        suppressCustomCookieHeader: logoutFenceSuppressesCookies(ref.read),
       ),
 );
+
+/// Whether an incomplete logout keeps a proxy cookie off a request right
+/// now, as [read] finds the fence, for a client built outside the app's
+/// own that can carry a cookie a route keeps.
+///
+/// Asked on every request: the fence can rise after the client is built. A
+/// read that fails, as one racing provider teardown does, keeps the cookie
+/// off rather than reattach it.
+bool Function() logoutFenceSuppressesCookies(
+  T Function<T>(ProviderListenable<T> provider) read,
+) => () {
+  try {
+    return read(incompleteLogoutFenceProvider) ||
+        read(incompleteLogoutFenceProvider.notifier).desiredSuppressed;
+  } catch (_) {
+    return true;
+  }
+};
 
 /// Whether the active account has no session yet: it is being signed in to,
 /// or its saved session is still being restored.
