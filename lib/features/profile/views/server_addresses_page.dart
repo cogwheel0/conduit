@@ -40,9 +40,8 @@ class ServerAddressesPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final server = ref
-        .watch(openWebUiAccountsProvider)
-        .value
+    final accounts = ref.watch(openWebUiAccountsProvider);
+    final server = accounts.value
         ?.map((entry) => entry.server)
         .where((server) => server.id == serverId)
         .firstOrNull;
@@ -53,6 +52,19 @@ class ServerAddressesPage extends ConsumerWidget {
           ? l10n.accountsServerAddresses
           : serverDisplayName(server),
       children: [
+        // Unreadable, not missing: say so, and offer to read it again.
+        if (server == null && accounts.hasError)
+          InsetGroupedList(
+            key: const Key('server-addresses-unreadable'),
+            children: [
+              UtilityRow(title: l10n.errorMessage),
+              UtilityRow(
+                key: const Key('server-addresses-retry'),
+                title: l10n.retry,
+                onTap: () => ref.invalidate(openWebUiAccountsProvider),
+              ),
+            ],
+          ),
         if (server != null) ...[
           InsetGroupedList(
             key: const Key('server-addresses'),

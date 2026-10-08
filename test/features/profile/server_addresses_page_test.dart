@@ -67,7 +67,11 @@ void main() {
     return landed;
   }
 
-  Future<void> pumpPage(WidgetTester tester, {OpenWebUiServer? server}) async {
+  Future<void> pumpPage(
+    WidgetTester tester, {
+    OpenWebUiServer? server,
+    Future<List<OpenWebUiAccountEntry>> Function()? readAccounts,
+  }) async {
     final shown = server ?? _server;
     stored = [...shown.endpoints];
     // Made in the test's own zone, so pumping runs what waits on it.
@@ -86,15 +90,17 @@ void main() {
         overrides: [
           optimizedStorageServiceProvider.overrideWithValue(storage),
           openWebUiAccountsProvider.overrideWith(
-            (ref) async => [
-              OpenWebUiAccountEntry(
-                account: OpenWebUiAccount(id: 'a', serverId: 'home'),
-                server: shown,
-                summary: const OpenWebUiAccountSummary(),
-                isActive: true,
-                hasSession: true,
-              ),
-            ],
+            (ref) async =>
+                await readAccounts?.call() ??
+                [
+                  OpenWebUiAccountEntry(
+                    account: OpenWebUiAccount(id: 'a', serverId: 'home'),
+                    server: shown,
+                    summary: const OpenWebUiAccountSummary(),
+                    isActive: true,
+                    hasSession: true,
+                  ),
+                ],
           ),
           openWebUiRouteResolverProvider.overrideWith(_Routes.new),
         ],
@@ -122,6 +128,28 @@ void main() {
     await tester.tap(find.text('Remove address').last);
     await tester.pumpAndSettle();
   }
+
+  // Unreadable looked like no saved server: nothing listed, nothing said.
+  testWidgets('says when the saved servers cannot be read, and reads them '
+      'again', (tester) async {
+    var reads = 0;
+    await pumpPage(
+      tester,
+      readAccounts: () async {
+        reads++;
+        throw StateError('Keychain locked');
+      },
+    );
+
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('server-addresses-retry')));
+    await tester.pumpAndSettle();
+
+    expect(reads, 2);
+  });
 
   testWidgets('lists the addresses in order and marks the one in use', (
     tester,
