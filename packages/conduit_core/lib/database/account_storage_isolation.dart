@@ -242,10 +242,19 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     _OpenWebUiAccountIdentity right,
   ) => left.token == right.token && left.userId == right.userId;
 
+  /// Whether [accountId]'s chats are still to be deleted, by a logout that
+  /// kept the account: its owner marker may have outlived them.
+  bool _dataPurgePending(String accountId) =>
+      PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountDataPurges,
+      )?.contains(accountId) ??
+      false;
+
   bool _ownerMarkerMatches(
     String serverId,
     _OpenWebUiAccountIdentity identity,
   ) {
+    if (_dataPurgePending(serverId)) return false;
     try {
       final marker = ref
           .read(openWebUiAccountOwnerMarkerStoreProvider)
@@ -271,6 +280,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     String serverId,
     _OpenWebUiAccountIdentity identity,
   ) {
+    if (_dataPurgePending(serverId)) return false;
     try {
       return openWebUiAccountOwnerMarkerCarriesOver(
         marker: ref.read(openWebUiAccountOwnerMarkerStoreProvider).read(serverId),
@@ -415,11 +425,11 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   /// before the account's next sign-in opens one.
   Future<void> purgeAccount(String accountId, {bool keepsRecord = false}) async {
     if (_disposed) return;
-    // Kept closed while its files go: one still open, or one kept, which can
-    // be signed in to again meanwhile.
+    // Kept closed while its files go: one still open, or the active one kept,
+    // which can be signed in to again meanwhile.
     final gated =
-        keepsRecord ||
-        ref.read(openWebUiCertifiedDatabaseServerProvider) == accountId;
+        ref.read(openWebUiCertifiedDatabaseServerProvider) == accountId ||
+        (keepsRecord && _currentServerId() == accountId);
     int? gateGeneration;
     if (gated) {
       if (_purgeRunning) {
@@ -439,8 +449,13 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     // could sign out of it again from, so a step that fails is left for the
     // next start. Each step is tried even when one before it fails. A record
     // that cannot be written does not stop them: stopping would leave all of
-    // the data behind, with no record to retry it from either.
-    if (!keepsRecord) await _recordPendingPurge(accountId);
+    // the data behind, with no record to retry it from either. A kept
+    // account's is recorded apart; until it is cleared, no sign-in to it
+    // reopens what is left.
+    final ledger = keepsRecord
+        ? PreferenceKeys.pendingAccountDataPurges
+        : PreferenceKeys.pendingAccountPurges;
+    await _recordPendingPurge(accountId, ledger: ledger);
     Object? firstError;
     StackTrace? firstStackTrace;
     Future<bool> attempt(Future<void> Function() step) async {
@@ -484,7 +499,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       if (firstError != null) {
         Error.throwWithStackTrace(firstError!, firstStackTrace!);
       }
-      if (!keepsRecord) await _forgetPendingPurge(accountId);
+      await _forgetPendingPurge(accountId, ledger: ledger);
       DebugLogger.log(
         'account-database-purged',
         scope: 'auth/storage-isolation',
@@ -522,13 +537,19 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
 
   /// Finishes the purges an earlier run recorded and did not finish, of
   /// accounts storage no longer keeps. One still kept was never removed, and
-  /// keeps its data.
+  /// keeps its data. A kept account's chats a logout was deleting go, the
+  /// account and its settings staying.
   Future<void> _resumePendingPurges() async {
     if (_disposed || !PreferencesStore.isReady) return;
-    final pending = PreferencesStore.getStringList(
-      PreferenceKeys.pendingAccountPurges,
-    );
-    if (pending == null || pending.isEmpty) return;
+    final pending =
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges) ??
+        const <String>[];
+    final pendingData =
+        PreferencesStore.getStringList(
+          PreferenceKeys.pendingAccountDataPurges,
+        ) ??
+        const <String>[];
+    if (pending.isEmpty && pendingData.isEmpty) return;
     final Set<String> saved;
     try {
       saved = await ref.read(openWebUiSavedAccountIdsProvider)();
@@ -550,6 +571,22 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         _logPendingPurgeFailure(error, stackTrace);
       }
     }
+    for (final accountId in pendingData) {
+      if (_disposed) return;
+      try {
+        if (saved.contains(accountId)) {
+          await purgeAccount(accountId, keepsRecord: true);
+        } else {
+          // Removed since: its own purge covers its data.
+          await _forgetPendingPurge(
+            accountId,
+            ledger: PreferenceKeys.pendingAccountDataPurges,
+          );
+        }
+      } catch (error, stackTrace) {
+        _logPendingPurgeFailure(error, stackTrace);
+      }
+    }
   }
 
   void _logPendingPurgeFailure(Object error, StackTrace stackTrace) {
@@ -561,16 +598,15 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     );
   }
 
-  Future<void> _recordPendingPurge(String accountId) async {
+  Future<void> _recordPendingPurge(
+    String accountId, {
+    String ledger = PreferenceKeys.pendingAccountPurges,
+  }) async {
     try {
       final pending =
-          PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges) ??
-          const <String>[];
+          PreferencesStore.getStringList(ledger) ?? const <String>[];
       if (pending.contains(accountId)) return;
-      await PreferencesStore.putChecked(PreferenceKeys.pendingAccountPurges, [
-        ...pending,
-        accountId,
-      ]);
+      await PreferencesStore.putChecked(ledger, [...pending, accountId]);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'pending-account-purge-record-failed',
@@ -581,17 +617,15 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     }
   }
 
-  Future<void> _forgetPendingPurge(String accountId) async {
+  Future<void> _forgetPendingPurge(
+    String accountId, {
+    String ledger = PreferenceKeys.pendingAccountPurges,
+  }) async {
     try {
-      final pending = PreferencesStore.getStringList(
-        PreferenceKeys.pendingAccountPurges,
-      );
+      final pending = PreferencesStore.getStringList(ledger);
       if (pending == null || !pending.contains(accountId)) return;
       final rest = [...pending]..remove(accountId);
-      await PreferencesStore.putChecked(
-        PreferenceKeys.pendingAccountPurges,
-        rest.isEmpty ? null : rest,
-      );
+      await PreferencesStore.putChecked(ledger, rest.isEmpty ? null : rest);
     } catch (error, stackTrace) {
       // Finished already: a later start purges a gone account once more.
       DebugLogger.error(
@@ -800,6 +834,11 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         }
         await ref.read(openWebUiDatabasePurgeProvider)(serverId);
         await _removeOwnerMarker(serverId);
+        // Whatever a logout that kept the account left is gone now too.
+        await _forgetPendingPurge(
+          serverId,
+          ledger: PreferenceKeys.pendingAccountDataPurges,
+        );
         lastError = null;
         break;
       } catch (error, stackTrace) {

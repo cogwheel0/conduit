@@ -59,6 +59,12 @@ final class PreferenceKeys {
   /// Accounts signed out of whose data could not all be removed. The next
   /// start finishes removing what each left.
   static const String pendingAccountPurges = 'pending_account_purges_v1';
+
+  /// Accounts still saved -- signed out of by the plain logout -- whose chats
+  /// are being deleted or could not all be. Until they are gone, an owner
+  /// marker of theirs certifies nothing, and the next start retries.
+  static const String pendingAccountDataPurges =
+      'pending_account_data_purges_v1';
   static const String appIntentInvocationLedger =
       'app_intent_invocation_ledger_v1';
   static const String themeMode = 'theme_mode';

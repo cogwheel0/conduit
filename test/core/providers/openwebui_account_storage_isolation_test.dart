@@ -2316,6 +2316,96 @@ void main() {
           .equals(_serverTwo.id);
     });
 
+    // The trust write and the delete both failing leave its owner marker;
+    // trusted, it would open the chats the logout meant to delete.
+    test('a logout purge that fails keeps its chats closed to the next '
+        'sign-in', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+      var refuseTrustWrites = true;
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async =>
+            refuseTrustWrites &&
+                key == PreferenceKeys.hermesMixedSessionBindingTrust
+            ? false
+            : null,
+      );
+      addTearDown(() {
+        HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+        PreferencesStore.debugReset();
+      });
+      var failPurge = true;
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async {
+          purged.add(serverId);
+          if (failPurge) throw StateError('Database locked');
+        },
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+
+      await check(
+        isolation.purgeAccount(_server.id, keepsRecord: true),
+      ).throws<StateError>();
+      check(harness.markerStore.read(_server.id)).isNotNull();
+
+      refuseTrustWrites = false;
+      failPurge = false;
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await Future<void>.delayed(Duration.zero);
+      harness.auth.publish(_authenticated('token-a', _userA));
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+
+      // Deleted again before it opened.
+      check(purged).deepEquals([_server.id, _server.id]);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountDataPurges),
+      ).isNull();
+    });
+
+    test('a logout purge left by an earlier run is finished at start, '
+        'keeping the account', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_serverTwo.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final purged = <String>[];
+      final cleared = <String>[];
+      await _harness(
+        databasePurge: (accountId) async => purged.add(accountId),
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () async => {_server.id, _serverTwo.id},
+          ),
+          openWebUiAccountPrivateDataClearProvider.overrideWithValue(
+            (accountId) async => cleared.add(accountId),
+          ),
+        ],
+      );
+      List<String>? pending() => PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountDataPurges,
+      );
+      for (var i = 0; i < 40 && pending() != null; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_serverTwo.id]);
+      check(cleared).isEmpty();
+      check(pending()).isNull();
+    });
+
     test('a session ending mid-purge keeps the files closed', () async {
       final releasePurge = Completer<void>();
       final purged = <String>[];
