@@ -4095,7 +4095,7 @@ class OptimizedStorageService {
       // Like every step here, a failed read is recorded and the rest still
       // runs: the staged candidate and the cached user data go regardless.
       await attempt(() async {
-        final (configs, activeId) = await activeAccount();
+        final (_, activeId) = await activeAccount();
         if (activeId == null) return;
         await attempt(() => _deleteVaultedSessionUnlocked(activeId));
         await attempt(
