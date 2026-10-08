@@ -165,6 +165,8 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       if (inUse != null && ConnectivityService.originKey(uri) != inUse) {
         return;
       }
+      // Nor would it be checked; resuming checks anyway.
+      if (_inBackground) return;
       final now = DateTime.now();
       if (lastFailureCheck != null &&
           now.difference(lastFailureCheck!) < _failureCheckInterval) {
@@ -179,7 +181,13 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       if (hasInterface) _schedule('network');
     }, onError: (Object _) {});
     final lifecycle = ref.read(appLifecycleProvider).changes.listen((phase) {
-      if (phase == AppLifecyclePhase.resumed) _schedule('resumed');
+      if (phase == AppLifecyclePhase.resumed) {
+        _schedule('resumed');
+      } else if (phase.isBackground) {
+        // Nothing is checked in the background; coming back checks again.
+        _retry?.cancel();
+        _retry = null;
+      }
     }, onError: (Object _) {});
     ref.onDispose(() {
       _retry?.cancel();
@@ -193,9 +201,18 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
 
   void _schedule(String reason) {
     Future<void>.microtask(() {
-      if (ref.mounted) return resolve(reason: reason);
+      if (ref.mounted && !_inBackground) return resolve(reason: reason);
     });
   }
+
+  /// Backgrounded far enough that periodic work should stop: a check asked
+  /// for then waits for the app to come back, which checks anyway.
+  bool get _inBackground =>
+      ref.read(appLifecycleProvider).current?.isBackground ?? false;
+
+  /// Whether a check is waiting to run again.
+  @visibleForTesting
+  bool get retryPending => _retry?.isActive ?? false;
 
   /// Checks every route to the active account's server and uses the first,
   /// in the user's order, that answers.
@@ -250,7 +267,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
           data: {'reason': reason, 'routes': server.endpoints.length},
         );
         state = state.copyWith(checking: false, noneAnswered: true);
-        _retry = Timer(_retryDelay, () => _schedule('retry'));
+        if (!_inBackground) {
+          _retry = Timer(_retryDelay, () => _schedule('retry'));
+        }
         return;
       }
 
@@ -267,7 +286,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
             (ref.read(accountChangeReplyGuardProvider)() ||
                 ref.read(openWebUiSignInPendingProvider)())) {
           state = state.copyWith(checking: false, noneAnswered: false);
-          _retry = Timer(_retryDelay, () => _schedule('deferred'));
+          if (!_inBackground) {
+            _retry = Timer(_retryDelay, () => _schedule('deferred'));
+          }
           return;
         }
         final changed = await storage.selectEndpoint(server.id, chosen.id);

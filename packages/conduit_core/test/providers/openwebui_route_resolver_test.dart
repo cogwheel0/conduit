@@ -7,14 +7,17 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/testing/fake_app_lifecycle.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -40,6 +43,8 @@ void main() {
   late List<String> probed;
   var replyInProgress = false;
   var signingIn = false;
+  late FakeAppLifecycle lifecycle;
+  Completer<void>? probesAnswer;
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('route-resolver-test');
@@ -63,6 +68,8 @@ void main() {
     probed = [];
     replyInProgress = false;
     signingIn = false;
+    lifecycle = FakeAppLifecycle();
+    probesAnswer = null;
 
     await storage.saveServerConfigs([
       const ServerConfig(id: 'account', name: 'Home', url: _lan),
@@ -84,6 +91,7 @@ void main() {
   });
 
   tearDown(() async {
+    await lifecycle.dispose();
     workerManager.dispose();
     PreferencesStore.debugReset();
     await Hive.close();
@@ -96,12 +104,14 @@ void main() {
         optimizedStorageServiceProvider.overrideWithValue(storage),
         openWebUiRouteProbeProvider.overrideWithValue((route) async {
           probed.add(route.url);
+          await probesAnswer?.future;
           return answers[route.url] ?? false;
         }),
         accountChangeReplyGuardProvider.overrideWithValue(
           () => replyInProgress,
         ),
         openWebUiSignInPendingProvider.overrideWithValue(() => signingIn),
+        appLifecycleProvider.overrideWithValue(lifecycle),
       ],
     );
     addTearDown(container.dispose);
@@ -311,6 +321,81 @@ void main() {
 
       await until(() => routes.state.endpointId == 'public');
       check(await routeInUse()).equals(_public);
+    });
+  });
+
+  group('in the background', () {
+    // Every route, every 30 seconds, while nothing answers.
+    test('a check waiting to run again stops', () async {
+      final routes = await resolver();
+      await routes.resolve();
+      check(routes.retryPending).isTrue();
+
+      lifecycle.emit(AppLifecyclePhase.paused);
+
+      check(routes.retryPending).isFalse();
+    });
+
+    test('a check finishing there does not wait to run again', () async {
+      final routes = await resolver();
+      final answer = probesAnswer = Completer<void>();
+      probed.clear();
+      final checking = routes.resolve();
+      await until(() => probed.isNotEmpty);
+
+      lifecycle.emit(AppLifecyclePhase.paused);
+      answer.complete();
+      await checking;
+
+      check(routes.state.noneAnswered).isTrue();
+      check(routes.retryPending).isFalse();
+    });
+
+    test('a better route put off there waits for the app to return', () async {
+      answers = {_lan: false, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      answers[_lan] = true;
+      replyInProgress = true;
+      final answer = probesAnswer = Completer<void>();
+      probed.clear();
+      final checking = routes.resolve();
+      await until(() => probed.isNotEmpty);
+
+      lifecycle.emit(AppLifecyclePhase.paused);
+      answer.complete();
+      await checking;
+
+      check(await routeInUse()).equals(_public);
+      check(routes.retryPending).isFalse();
+    });
+
+    test('a failure there does not hold back a check after it', () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      lifecycle.emit(AppLifecyclePhase.paused);
+      ConnectivityService.reportTransportFailure(Uri.parse(_lan));
+      lifecycle.emit(AppLifecyclePhase.resumed);
+      await settle();
+
+      answers[_lan] = false;
+      ConnectivityService.reportTransportFailure(Uri.parse(_lan));
+
+      await until(() => routes.state.endpointId == 'public');
+    });
+
+    test('nothing is checked until the app comes back', () async {
+      lifecycle = FakeAppLifecycle(initial: AppLifecyclePhase.paused);
+      final routes = await resolver();
+
+      ConnectivityService.reportTransportFailure(Uri.parse(_lan));
+      await settle();
+      check(probed).isEmpty();
+
+      lifecycle.emit(AppLifecyclePhase.resumed);
+      await until(() => probed.isNotEmpty && !routes.state.checking);
+      check(routes.retryPending).isTrue();
     });
   });
 
