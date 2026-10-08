@@ -80,7 +80,11 @@ final class OpenWebUiEndpoint {
     this.mtlsPrivateKeyPem,
     this.mtlsPrivateKeyLabel,
     this.mtlsPrivateKeyPassword,
-  }) : customHeaders = Map<String, String>.unmodifiable(customHeaders);
+  }) : customHeaders = Map<String, String>.unmodifiable({
+         // Held by the account that captured it, where a sign-out finds it.
+         for (final entry in customHeaders.entries)
+           if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+       });
 
   final String id;
   final String url;

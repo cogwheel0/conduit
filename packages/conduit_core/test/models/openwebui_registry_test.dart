@@ -275,6 +275,16 @@ void main() {
     });
   });
 
+  test('an address never keeps a session header', () {
+    final route = OpenWebUiEndpoint(
+      id: 'e',
+      url: 'https://chat.example.com',
+      customHeaders: const {'X-Gate': 'g', 'cookie': 'proxy=1'},
+    );
+
+    check(route.customHeaders).deepEquals({'X-Gate': 'g'});
+  });
+
   group('fromLegacyServerConfigs', () {
     test('keeps only configs that can still reach a session', () {
       final registry = OpenWebUiRegistry.fromLegacyServerConfigs(
