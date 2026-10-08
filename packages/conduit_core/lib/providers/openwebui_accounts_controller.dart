@@ -280,14 +280,21 @@ class OpenWebUiAccountsController {
       return false;
     }
     // The sign-in can finish while the next account is chosen. Checked last,
-    // with nothing awaited between this and the sign-out starting: an
-    // account that signed in is never abandoned.
+    // with nothing awaited between this and leaving starting: an account
+    // that signed in is never abandoned.
     if (await _activeAccountId() != activeId || _signedIn()) return false;
-    await _ref
+    // Not signed out of: it has no session for its server to end, and asking
+    // would leave a window for one to land and be revoked. Storage checks
+    // once more as it removes the account, and refuses one a sign-in reached.
+    final left = await _ref
         .read(authStateManagerProvider.notifier)
-        .signOutAccount(activeId, thenActivate: next);
+        .abandonPendingAccount(activeId, thenActivate: next);
+    if (!left) {
+      _ref.invalidate(openWebUiAccountsProvider);
+      return false;
+    }
     // Read again, as a sign-out does: a sign-in can make another account
-    // active while the server is asked, and that one is left alone.
+    // active while auth settles, and that one is left alone.
     if (await _activeAccountId() == next) {
       await _ref.read(openWebUiAccountSummariesProvider.notifier).touch(next);
       _afterActiveAccountChanged(next);

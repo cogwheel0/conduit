@@ -39,14 +39,18 @@ final class _LastAccountStorage implements OptimizedStorageService {
 
 /// Moves [_LastAccountStorage.active] as the real account changes would.
 final class _LastAccountAuth extends AuthStateManager {
-  _LastAccountAuth(this.storage, {this.duringSignOut});
+  _LastAccountAuth(this.storage, {this.duringSignOut, this.duringAbandon});
 
   final _LastAccountStorage storage;
 
   /// Runs while the sign-out waits on the server.
   final FutureOr<void> Function()? duringSignOut;
+
+  /// Runs once an account left has been handed over, while auth settles.
+  final FutureOr<void> Function()? duringAbandon;
   final switches = <String>[];
   final signedOut = <String>[];
+  final abandoned = <String>[];
 
   @override
   Future<AuthState> build() async =>
@@ -58,6 +62,19 @@ final class _LastAccountAuth extends AuthStateManager {
     await duringSignOut?.call();
     if (storage.active == accountId) storage.active = thenActivate;
     return false;
+  }
+
+  @override
+  Future<bool> abandonPendingAccount(
+    String accountId, {
+    required String thenActivate,
+  }) async {
+    abandoned.add(accountId);
+    // Storage refuses an account that is no longer the active one.
+    if (storage.active != accountId) return false;
+    storage.active = thenActivate;
+    await duringAbandon?.call();
+    return true;
   }
 
   @override
@@ -311,7 +328,8 @@ void main() {
             .read(openWebUiAccountsControllerProvider)
             .abandonPendingSignIn(),
       ).isTrue();
-      check(auth.signedOut).deepEquals([('a', 'b')]);
+      check(auth.abandoned).deepEquals([('a', 'b')]);
+      check(auth.signedOut).isEmpty();
     });
 
     test('leaves an account carried over without a known user alone',
@@ -331,7 +349,7 @@ void main() {
             .read(openWebUiAccountsControllerProvider)
             .abandonPendingSignIn(),
       ).isFalse();
-      check(auth.signedOut).isEmpty();
+      check(auth.abandoned).isEmpty();
     });
 
     test('keeps an added account whose sign-in finishes meanwhile', () async {
@@ -354,7 +372,35 @@ void main() {
             .read(openWebUiAccountsControllerProvider)
             .abandonPendingSignIn(),
       ).isFalse();
+      check(auth.abandoned).isEmpty();
+    });
+
+    test('keeps an added account a sign-in reaches as it is left', () async {
+      accounts = [
+        entry('a', hasSession: false).withUser(null),
+        entry('b', lastUsedAt: DateTime(2026, 9)),
+      ];
+      // The sign-in lands after the last check; storage, removing the
+      // account, sees its session and refuses.
+      auth
+        ..duringAbandon = auth.signIn
+        ..abandonRefused = true;
+      final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
+      await container_.read(authStateManagerProvider.future);
+
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isFalse();
+      check(auth.abandoned).deepEquals([('a', 'b')]);
+      // Its session was not ended, and B was not made the account in use.
       check(auth.signedOut).isEmpty();
+      check(
+        container_.read(authStateManagerProvider).requireValue.isAuthenticated,
+      ).isTrue();
+      check(container_.read(openWebUiAccountSummariesProvider)).isEmpty();
     });
 
     test('keeps an account that has signed in before', () async {
@@ -368,7 +414,7 @@ void main() {
             .read(openWebUiAccountsControllerProvider)
             .abandonPendingSignIn(),
       ).isFalse();
-      check(auth.signedOut).isEmpty();
+      check(auth.abandoned).isEmpty();
     });
 
     test('keeps it when there is nowhere to go back to', () async {
@@ -649,9 +695,16 @@ void main() {
     late ProviderContainer container;
     late List<String?> hostChanges;
 
-    void start({FutureOr<void> Function()? duringSignOut}) {
+    void start({
+      FutureOr<void> Function()? duringSignOut,
+      FutureOr<void> Function()? duringAbandon,
+    }) {
       storage = _LastAccountStorage();
-      auth = _LastAccountAuth(storage, duringSignOut: duringSignOut);
+      auth = _LastAccountAuth(
+        storage,
+        duringSignOut: duringSignOut,
+        duringAbandon: duringAbandon,
+      );
       hostChanges = [];
       container = ProviderContainer(
         overrides: [
@@ -705,7 +758,7 @@ void main() {
 
     test('leaving an addition while a sign-in lands elsewhere leaves that '
         'alone', () async {
-      start(duringSignOut: () => storage.active = 'elsewhere');
+      start(duringAbandon: () => storage.active = 'elsewhere');
       container.read(accountAdditionOriginProvider.notifier).begin('a');
       storage.active = 'c';
 
@@ -735,7 +788,8 @@ void main() {
       serverAsked.complete();
       await signingOut;
       check(await leaving).isTrue();
-      check(auth.signedOut).deepEquals(['a', 'c']);
+      check(auth.signedOut).deepEquals(['a']);
+      check(auth.abandoned).deepEquals(['c']);
     });
   });
 
@@ -798,7 +852,15 @@ final class _Storage extends Mock implements OptimizedStorageService {}
 final class _RecordingAuth extends AuthStateManager {
   final switchedTo = <String>[];
   final signedOut = <(String, String?)>[];
+  final abandoned = <(String, String)>[];
   bool signedInAfterSwitch = true;
+
+  /// Whether storage refuses to remove the account left, as it does once a
+  /// sign-in has reached it.
+  bool abandonRefused = false;
+
+  /// Runs as an account is left, before storage decides.
+  void Function()? duringAbandon;
 
   @override
   Future<AuthState> build() async =>
@@ -814,6 +876,16 @@ final class _RecordingAuth extends AuthStateManager {
   Future<bool> signOutAccount(String accountId, {String? thenActivate}) async {
     signedOut.add((accountId, thenActivate));
     return thenActivate != null;
+  }
+
+  @override
+  Future<bool> abandonPendingAccount(
+    String accountId, {
+    required String thenActivate,
+  }) async {
+    abandoned.add((accountId, thenActivate));
+    duringAbandon?.call();
+    return !abandonRefused;
   }
 
   void signIn() => state = const AsyncData(

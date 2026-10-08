@@ -1281,6 +1281,57 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
+  /// Leaves [accountId], the active account, whose sign-in was never
+  /// finished, for [thenActivate], and forgets it on this device.
+  ///
+  /// It never signed in, so there is no session to end on its server. Storage
+  /// checks that, under the lock a sign-in commits under, as it removes the
+  /// account: one that is no longer active, or that a sign-in has reached
+  /// meanwhile, is refused and keeps its session and its data.
+  ///
+  /// Returns whether it was left.
+  Future<bool> abandonPendingAccount(
+    String accountId, {
+    required String thenActivate,
+  }) async {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    // As for a sign-out, recorded before the account goes; when it cannot
+    // be, the account stays.
+    await _accountStorageIsolation.recordAccountPurge(accountId);
+    final attemptRevision = _enterAccountBoundary();
+    final bool? hasSession;
+    try {
+      hasSession = await storage.removePendingAccount(
+        accountId,
+        thenActivate: thenActivate,
+      );
+    } catch (error, stackTrace) {
+      _logAuthenticationFailure(
+        'pending-account-abandon-failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      // Settle on whatever reached storage rather than staying in loading.
+      _invalidateServerProviders();
+      if (!_authAttemptSuperseded(attemptRevision)) await refresh();
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    if (hasSession == null) {
+      // Refused: settle back on the account, and whatever session it has.
+      _invalidateServerProviders();
+      if (!_authAttemptSuperseded(attemptRevision)) await refresh();
+      return false;
+    }
+    if (!_authAttemptSuperseded(attemptRevision)) {
+      await _settleAtAccountBoundary(
+        attemptRevision: attemptRevision,
+        hasSession: hasSession,
+      );
+    }
+    await _purgeRemovedAccount(accountId);
+    return true;
+  }
+
   /// Folds the account just signed in to into [targetAccountId], the
   /// existing account of the same user on the same server.
   ///
