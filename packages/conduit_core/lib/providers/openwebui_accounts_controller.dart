@@ -97,7 +97,17 @@ final class OpenWebUiAccountsController {
     required bool force,
   }) async {
     if (await _activeAccountId() == accountId) {
-      return OpenWebUiAccountChangeResult.alreadyActive;
+      // Signed out, it goes to auth, which takes up a session it still has.
+      final auth = _ref.read(authStateManagerProvider).asData?.value;
+      if (auth == null || auth.isAuthenticated) {
+        return OpenWebUiAccountChangeResult.alreadyActive;
+      }
+      final signedIn = await _ref
+          .read(authStateManagerProvider.notifier)
+          .switchToAccount(accountId);
+      return signedIn
+          ? OpenWebUiAccountChangeResult.done
+          : OpenWebUiAccountChangeResult.needsSignIn;
     }
     if (!_mayLeaveActiveAccount(force)) {
       return OpenWebUiAccountChangeResult.blockedByActiveReply;

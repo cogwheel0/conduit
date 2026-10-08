@@ -1115,6 +1115,19 @@ class AuthStateManager extends _$AuthStateManager {
     final storage = ref.read(optimizedStorageServiceProvider);
     final previousActiveId = await storage.getEffectiveActiveServerId();
     if (previousActiveId == accountId) {
+      // Signed out, it may still have its session in the vault, left there
+      // by a switch that failed part-way. Storage takes it up when asked to
+      // switch to the account it is on; left there, the next switch away
+      // would drop it.
+      if (!_current.isAuthenticated &&
+          await storage.switchActiveServer(
+            fromServerId: accountId,
+            toServerId: accountId,
+          )) {
+        _invalidateServerProviders();
+        await refresh();
+        return _current.isAuthenticated;
+      }
       // Already active -- which a single stored config is, by the storage
       // layer's own fallback, before anything has explicitly selected it. So
       // this branch is the *first* connect after the first add, not just a

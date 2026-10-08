@@ -126,6 +126,62 @@ void main() {
     check(after.user?.id).equals(_userB.id);
   });
 
+  test('choosing the account in use takes up a session left in its vault',
+      () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    // A switch to A failed part-way: A is active with nothing live, and its
+    // session is still in the vault.
+    String? token;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => token);
+    when(() => storage.getAuthToken()).thenAnswer((_) async => token);
+    when(() => storage.getSavedCredentials()).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.switchActiveServer(
+        fromServerId: 'account-a',
+        toServerId: 'account-a',
+      ),
+    ).thenAnswer((_) async {
+      token = _tokenA;
+      return true;
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    check((await _settledAuth(container)).isAuthenticated).isFalse();
+
+    final signedIn = await container
+        .read(authStateManagerProvider.notifier)
+        .switchToAccount('account-a');
+
+    check(signedIn).isTrue();
+    check(container.read(authStateManagerProvider).requireValue.token)
+        .equals(_tokenA);
+  });
+
   test('an account without a session settles signed out', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();

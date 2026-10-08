@@ -158,6 +158,31 @@ void main() {
     check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
   });
 
+  test('choosing the account in use while it is signed out goes to auth',
+      () async {
+    final storage = _Storage();
+    final auth = _Auth(storage);
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => auth),
+        hermesConfigProvider.overrideWith(_Hermes.new),
+        openWebUiAccountsProvider.overrideWith((ref) async => const []),
+        accountChangeReplyGuardProvider.overrideWithValue(() => false),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+
+    final result = await container
+        .read(openWebUiAccountsControllerProvider)
+        .switchTo('a');
+
+    // Auth can take up a session the account still has in its vault.
+    check(auth.switches).deepEquals(['a']);
+    check(result).equals(OpenWebUiAccountChangeResult.done);
+  });
+
   test('a sign-out that cannot read the account in use afterwards changes '
       'nothing more', () async {
     final storage = _Storage();
