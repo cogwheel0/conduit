@@ -50,6 +50,10 @@ bool _isAccountlessBackendLocation(String location) {
       // The saved accounts are on the device: switching to one still
       // signed in needs no session on the active account.
       location == Routes.accounts ||
+      // A server's addresses are on the device too, and Manage accounts
+      // opens them.
+      location == Routes.serverAddresses ||
+      location == Routes.serverAddressEditor ||
       location == Routes.audioSettings ||
       location == Routes.appearanceSettings ||
       location == Routes.chatSettings ||

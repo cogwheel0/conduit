@@ -319,6 +319,14 @@ void main() {
 
       check(resolveRouteRedirect(Routes.accounts, hermes)).isNull();
       check(resolveRouteRedirect(Routes.accounts, direct)).isNull();
+      // Manage accounts opens a server's addresses.
+      for (final location in [
+        Routes.serverAddresses,
+        Routes.serverAddressEditor,
+      ]) {
+        check(resolveRouteRedirect(location, hermes)).isNull();
+        check(resolveRouteRedirect(location, direct)).isNull();
+      }
     });
 
     group('the Hermes MCP page', () {
