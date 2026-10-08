@@ -12,6 +12,8 @@ import '../../../platform/webview_cookie_helper.dart';
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show openWebUiRouteResolverProvider;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 
@@ -196,6 +198,8 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
       ]);
       ref.invalidate(serverConfigsProvider);
       ref.invalidate(activeServerProvider);
+      // Its refusals were of the session just replaced.
+      ref.read(openWebUiRouteResolverProvider.notifier).proxySessionRenewed();
       await ref.read(activeServerProvider.future);
       if (!mounted) return;
 

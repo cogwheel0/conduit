@@ -629,6 +629,20 @@ void main() {
       });
     });
 
+    // Signed in to it again: its refusals were of the session replaced.
+    test('is taken up again once its proxy session is renewed', () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      ConnectivityService.reportRouteRejected(Uri.parse(_lan));
+      await until(() => routes.state.endpointId == 'public');
+
+      routes.proxySessionRenewed();
+      await routes.resolve(reason: 'resumed');
+
+      check(await routeInUse()).equals(_lan);
+    });
+
     test('moves even while a reply is being written', () async {
       answers = {_lan: false, _tailscale: false, _public: true};
       final routes = await resolver();

@@ -466,6 +466,10 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
 
   bool _owns(int generation) => ref.mounted && generation == _generation;
 
+  /// A proxy session was signed in to again: the refusals remembered were
+  /// of the session it replaced.
+  void proxySessionRenewed() => _refused.clear();
+
   /// Whether [reported], what a refused request went out on, is what the
   /// app's client [inUse] is built from now, its session headers included.
   static bool _sameClientConnection(
