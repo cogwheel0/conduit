@@ -266,8 +266,10 @@ ApiService buildAddressCheckApi(
 /// The address is saved first. Whatever then becomes of the cookie, the
 /// clients, the addresses shown and the route in use follow what was saved;
 /// a failure to keep the cookie is rethrown for the editor to report.
+/// Returns false when storage declined the cookie: a sign-out has revoked
+/// cookies since [sessionRevision], or another save moved the address.
 @visibleForTesting
-Future<void> saveCheckedAddress(
+Future<bool> saveCheckedAddress(
   ProviderContainer container, {
   required String serverId,
   required OpenWebUiEndpoint route,
@@ -285,13 +287,14 @@ Future<void> saveCheckedAddress(
   );
   try {
     if (cookieOwner != null && headers.keys.any(isCapturedSessionHeader)) {
-      await storage.saveEndpointSessionHeaders(
+      return await storage.saveEndpointSessionHeaders(
         accountId: cookieOwner,
         route: route,
         headers: headers,
         sessionRevision: sessionRevision,
       );
     }
+    return true;
   } finally {
     container.invalidate(serverConfigsProvider);
     container.invalidate(openWebUiAccountsProvider);
@@ -549,7 +552,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     // A proxy sign-in on this address belongs to the account whose session
     // proved it, which need not be the active one; with nothing to prove, to
     // the active account when it is on this server.
-    await saveCheckedAddress(
+    final cookieKept = await saveCheckedAddress(
       container,
       serverId: server.id,
       route: route,
@@ -558,6 +561,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       headers: verified.customHeaders,
       sessionRevision: sessionRevision,
     );
+    if (!cookieKept) {
+      // Saved, but without the proxy sign-in that lets requests through it;
+      // signing in through the proxy again keeps a new one.
+      if (mounted) setState(() => _connectionError = l10n.proxyAuthFailed);
+      return false;
+    }
     if (mounted) {
       ConduitHaptics.success();
       context.pop();

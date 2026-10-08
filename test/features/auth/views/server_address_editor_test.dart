@@ -97,6 +97,7 @@ void main() {
       const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
     ]);
     await storage.setActiveServerId('a');
+    storage.keychainRefuses = true;
     final server = (await storage.getOpenWebUiRegistryStrict()).servers.single;
     // What the client is built from, and what the addresses screen shows.
     Future<String> inUse() async =>
@@ -125,6 +126,41 @@ void main() {
     ).throws<StateError>();
 
     check(await inUse()).equals('https://moved.example');
+    check(await shown()).equals('https://moved.example');
+    check(_Routes.reasons).deepEquals(['routes-edited']);
+  });
+
+  // A sign-out since the address was first contacted revoked the cookie;
+  // the editor says so rather than close as though it was kept.
+  test('an address saved without its cookie says so', () async {
+    await storage.saveServerConfigs([
+      const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+    ]);
+    await storage.setActiveServerId('a');
+    final server = (await storage.getOpenWebUiRegistryStrict()).servers.single;
+    Future<String> shown() async {
+      final accounts = await container.read(openWebUiAccountsProvider.future);
+      return accounts.single.server.endpoints.single.url;
+    }
+
+    check(await shown()).equals('https://chat.example');
+    final revision = storage.sessionRevocationRevision;
+    await storage.clearActiveAccountAuthDataIf(canClear: () => true);
+
+    final kept = await saveCheckedAddress(
+      container,
+      serverId: server.id,
+      route: OpenWebUiEndpoint(
+        id: server.endpoints.single.id,
+        url: 'https://moved.example',
+      ),
+      adding: false,
+      cookieOwner: 'a',
+      headers: const {'Cookie': 'proxy=1'},
+      sessionRevision: revision,
+    );
+
+    check(kept).isFalse();
     check(await shown()).equals('https://moved.example');
     check(_Routes.reasons).deepEquals(['routes-edited']);
   });
@@ -164,7 +200,8 @@ final class _LockableSecureStore extends InMemorySecureKeyValueStore {
   }
 }
 
-/// Fails to keep a proxy cookie, as a Keychain refusing a write does.
+/// Fails to keep a proxy cookie while [keychainRefuses], as a Keychain
+/// refusing a write does.
 final class _CookieRefusingStorage extends OptimizedStorageService {
   _CookieRefusingStorage({
     required super.secureStorage,
@@ -172,13 +209,23 @@ final class _CookieRefusingStorage extends OptimizedStorageService {
     required super.workerManager,
   });
 
+  var keychainRefuses = false;
+
   @override
   Future<bool> saveEndpointSessionHeaders({
     required String accountId,
     required OpenWebUiEndpoint route,
     required Map<String, String> headers,
     required int sessionRevision,
-  }) async => throw StateError('Keychain unavailable');
+  }) async {
+    if (keychainRefuses) throw StateError('Keychain unavailable');
+    return super.saveEndpointSessionHeaders(
+      accountId: accountId,
+      route: route,
+      headers: headers,
+      sessionRevision: sessionRevision,
+    );
+  }
 }
 
 /// Records the route checks asked for instead of probing.
