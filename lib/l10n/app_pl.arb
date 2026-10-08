@@ -7641,6 +7641,8 @@
   "accountsSwitchStopsReply": "Przełączenie konta ją zatrzyma.",
   "accountsSignOutStopsReply": "Wylogowanie ją zatrzyma.",
   "accountsSwitchAnyway": "Przełącz mimo to",
+  "accountsAddressChangeStopsReply": "Zmiana używanego adresu ją zatrzyma.",
+  "accountsAddressChangeAnyway": "Zmień mimo to",
   "accountsSignOutAnyway": "Wyloguj się mimo to",
   "accountsServerAddresses": "Adresy",
   "accountsServerAddressesHelp": "Conduit łączy się przez pierwszy adres, który odpowie, zaczynając od góry. Przeciągnij, aby zmienić kolejność.",

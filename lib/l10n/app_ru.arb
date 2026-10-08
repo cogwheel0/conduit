@@ -4167,6 +4167,8 @@
   "accountsSwitchStopsReply": "Переключение аккаунта остановит его.",
   "accountsSignOutStopsReply": "Выход остановит его.",
   "accountsSwitchAnyway": "Всё равно переключиться",
+  "accountsAddressChangeStopsReply": "Изменение используемого адреса остановит его.",
+  "accountsAddressChangeAnyway": "Всё равно изменить",
   "accountsSignOutAnyway": "Всё равно выйти",
   "accountsServerAddresses": "Адреса",
   "accountsServerAddressesHelp": "Conduit подключается через первый ответивший адрес, начиная сверху. Перетащите, чтобы изменить порядок.",

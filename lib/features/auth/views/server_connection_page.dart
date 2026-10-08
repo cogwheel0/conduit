@@ -55,7 +55,10 @@ import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/account_actions.dart'
-    show abandonAddedAccount, confirmLeavingActiveAccount;
+    show
+        abandonAddedAccount,
+        confirmChangingAddressInUse,
+        confirmLeavingActiveAccount;
 
 const int _maxConnectionProviderDetailCharacters = 300;
 const int _maxConnectionErrorCharacters = 640;
@@ -624,6 +627,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       setState(() => _connectionError = l10n.accountsAddressNeedsSignIn);
       return false;
     }
+    // Saved, the address in use moves the clients off it, ending a reply
+    // arriving through them; that is asked first.
+    final inUse = container.read(openWebUiRouteResolverProvider);
+    if (widget.endpointId != null &&
+        inUse.serverId == server.id &&
+        inUse.endpointId == widget.endpointId &&
+        !await confirmChangingAddressInUse(context, container)) {
+      return false;
+    }
+    if (!mounted) return false;
     final cookieKept = await saveCheckedAddress(
       container,
       serverId: server.id,

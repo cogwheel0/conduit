@@ -4129,6 +4129,8 @@
   "accountsSwitchStopsReply": "Ein Kontowechsel bricht sie ab.",
   "accountsSignOutStopsReply": "Das Abmelden bricht sie ab.",
   "accountsSwitchAnyway": "Trotzdem wechseln",
+  "accountsAddressChangeStopsReply": "Eine Änderung der verwendeten Adresse bricht sie ab.",
+  "accountsAddressChangeAnyway": "Trotzdem ändern",
   "accountsSignOutAnyway": "Trotzdem abmelden",
   "accountsServerAddresses": "Adressen",
   "accountsServerAddressesHelp": "Conduit probiert die Adressen von oben nach unten und verbindet sich über die erste, die antwortet. Ziehe sie, um die Reihenfolge zu ändern.",

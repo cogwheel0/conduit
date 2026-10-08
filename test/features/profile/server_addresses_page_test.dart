@@ -7,6 +7,7 @@ import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:flutter/material.dart';
@@ -72,6 +73,8 @@ void main() {
     WidgetTester tester, {
     OpenWebUiServer? server,
     Future<List<ServerConfig>> Function()? readConfigs,
+    bool replyInProgress = false,
+    void Function()? onStopReplies,
   }) async {
     final shown = server ?? _server;
     stored = [...shown.endpoints];
@@ -110,6 +113,12 @@ void main() {
             ];
           }),
           openWebUiRouteResolverProvider.overrideWith(_Routes.new),
+          accountChangeReplyGuardProvider.overrideWithValue(
+            () => replyInProgress,
+          ),
+          accountChangeStopRepliesProvider.overrideWithValue(
+            onStopReplies ?? () {},
+          ),
         ],
         child: MaterialApp(
           navigatorKey: navigator,
@@ -197,6 +206,43 @@ void main() {
     expect(saved, [
       ['public'],
     ]);
+  });
+
+  // Removed, the address in use moves the clients off it, which would end
+  // the reply arriving through them.
+  testWidgets('removing the address in use while a reply is written asks '
+      'first', (tester) async {
+    var stops = 0;
+    await pumpPage(tester, replyInProgress: true, onStopReplies: () => stops++);
+
+    await remove(tester, 'public');
+    expect(find.text('A reply is still being written'), findsOneWidget);
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+    expect(saved, isEmpty);
+    expect(stops, 0);
+
+    await remove(tester, 'public');
+    await tester.tap(find.text('Change anyway').last);
+    await tester.pumpAndSettle();
+    expect(saved, [
+      ['lan'],
+    ]);
+    expect(stops, 1);
+  });
+
+  testWidgets('removing another address while a reply is written does not '
+      'ask', (tester) async {
+    var stops = 0;
+    await pumpPage(tester, replyInProgress: true, onStopReplies: () => stops++);
+
+    await remove(tester, 'lan');
+
+    expect(find.text('A reply is still being written'), findsNothing);
+    expect(saved, [
+      ['public'],
+    ]);
+    expect(stops, 0);
   });
 
   testWidgets('a removal started before another lands keeps both', (

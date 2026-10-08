@@ -8388,6 +8388,14 @@
   "@accountsSwitchAnyway": {
     "description": "Confirms switching accounts even though it stops the reply that is still streaming."
   },
+  "accountsAddressChangeStopsReply": "Changing the address in use stops it.",
+  "@accountsAddressChangeStopsReply": {
+    "description": "Body of the confirmation shown before saving or removing the server address in use while a reply is still streaming."
+  },
+  "accountsAddressChangeAnyway": "Change anyway",
+  "@accountsAddressChangeAnyway": {
+    "description": "Confirms changing or removing the server address in use even though it stops the reply that is still streaming."
+  },
   "accountsSignOutAnyway": "Sign out anyway",
   "@accountsSignOutAnyway": {
     "description": "Confirms signing out of the current account even though it stops the reply that is still streaming."

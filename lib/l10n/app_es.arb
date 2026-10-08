@@ -4129,6 +4129,8 @@
   "accountsSwitchStopsReply": "Cambiar de cuenta la detendrá.",
   "accountsSignOutStopsReply": "Cerrar sesión la detendrá.",
   "accountsSwitchAnyway": "Cambiar de todos modos",
+  "accountsAddressChangeStopsReply": "Cambiar la dirección en uso la detendrá.",
+  "accountsAddressChangeAnyway": "Cambiar de todos modos",
   "accountsSignOutAnyway": "Cerrar sesión de todos modos",
   "accountsServerAddresses": "Direcciones",
   "accountsServerAddressesHelp": "Conduit se conecta a través de la primera dirección que responde, empezando por arriba. Arrastra para cambiar el orden.",

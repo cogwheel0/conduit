@@ -4129,6 +4129,8 @@
   "accountsSwitchStopsReply": "Se cambi account, verrà interrotta.",
   "accountsSignOutStopsReply": "Se esci, verrà interrotta.",
   "accountsSwitchAnyway": "Cambia comunque",
+  "accountsAddressChangeStopsReply": "Se modifichi l'indirizzo in uso, verrà interrotta.",
+  "accountsAddressChangeAnyway": "Modifica comunque",
   "accountsSignOutAnyway": "Esci comunque",
   "accountsServerAddresses": "Indirizzi",
   "accountsServerAddressesHelp": "Conduit si connette tramite il primo indirizzo che risponde, partendo dall'alto. Trascina per cambiare l'ordine.",

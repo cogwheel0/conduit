@@ -4129,6 +4129,8 @@
   "accountsSwitchStopsReply": "Als je van account wisselt, wordt het gestopt.",
   "accountsSignOutStopsReply": "Als je uitlogt, wordt het gestopt.",
   "accountsSwitchAnyway": "Toch wisselen",
+  "accountsAddressChangeStopsReply": "Als je het gebruikte adres wijzigt, wordt het gestopt.",
+  "accountsAddressChangeAnyway": "Toch wijzigen",
   "accountsSignOutAnyway": "Toch uitloggen",
   "accountsServerAddresses": "Adressen",
   "accountsServerAddressesHelp": "Conduit maakt verbinding via het eerste adres dat antwoordt, van boven naar beneden. Sleep om de volgorde te wijzigen.",

@@ -14,6 +14,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -210,6 +211,96 @@ void main() {
       () async => (await storage.getOpenWebUiRegistryStrict()).servers.single,
     );
     check(saved!.endpoints.single.url).equals('https://chat.example');
+  });
+
+  // Saved, the address in use moves the clients off it, which would end the
+  // reply arriving through them.
+  testWidgets('saving the address in use while a reply is written asks '
+      'first', (tester) async {
+    final previousOverrides = HttpOverrides.current;
+    HttpOverrides.global = _RealHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previousOverrides);
+    final origin = (await tester.runAsync(() async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) {
+        final body = switch (request.uri.path) {
+          '/health' => '{"status":true}',
+          '/api/config' =>
+            '{"status":true,"version":"0.6.0","name":"Open WebUI",'
+                '"features":{}}',
+          _ => null,
+        };
+        request.response
+          ..statusCode = body == null ? HttpStatus.notFound : HttpStatus.ok
+          ..headers.contentType = ContentType.json
+          ..write(body ?? '{}');
+        unawaited(request.response.close());
+      });
+      return 'http://127.0.0.1:${server.port}';
+    }))!;
+    final server = (await tester.runAsync(() async {
+      await storage.saveServerConfigs([
+        const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+      ]);
+      return (await storage.getOpenWebUiRegistryStrict()).servers.single;
+    }))!;
+    var stops = 0;
+    final replying = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        openWebUiRouteResolverProvider.overrideWith(
+          () => _Routes(
+            inUse: OpenWebUiRouteStatus(
+              serverId: server.id,
+              endpointId: server.endpoints.single.id,
+            ),
+          ),
+        ),
+        accountChangeReplyGuardProvider.overrideWithValue(() => true),
+        accountChangeStopRepliesProvider.overrideWithValue(() => stops++),
+      ],
+    );
+    addTearDown(replying.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: replying,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ServerConnectionPage(
+            routesOfServerId: server.id,
+            endpointId: server.endpoints.single.id,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('server-url-field')),
+        matching: find.byType(EditableText),
+      ),
+      origin,
+    );
+    await tester.tap(find.text('Save address'));
+    final asked = find.text('A reply is still being written');
+    for (var i = 0; i < 100 && asked.evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(asked, findsOneWidget);
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+
+    final saved = await tester.runAsync(
+      () async => (await storage.getOpenWebUiRegistryStrict()).servers.single,
+    );
+    check(saved!.endpoints.single.url).equals('https://chat.example');
+    check(stops).equals(0);
   });
 
   testWidgets('an address cannot be edited while it is checked', (
@@ -619,10 +710,14 @@ final class _CookieRefusingStorage extends OptimizedStorageService {
 
 /// Records the route checks asked for instead of probing.
 final class _Routes extends OpenWebUiRouteResolver {
+  _Routes({this.inUse = const OpenWebUiRouteStatus()});
+
   static final reasons = <String>[];
 
+  final OpenWebUiRouteStatus inUse;
+
   @override
-  OpenWebUiRouteStatus build() => const OpenWebUiRouteStatus();
+  OpenWebUiRouteStatus build() => inUse;
 
   @override
   Future<void> resolve({String reason = 'manual'}) async => reasons.add(reason);

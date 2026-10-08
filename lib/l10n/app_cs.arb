@@ -5951,6 +5951,8 @@
   "accountsSwitchStopsReply": "Přepnutí účtu ji zastaví.",
   "accountsSignOutStopsReply": "Odhlášení ji zastaví.",
   "accountsSwitchAnyway": "Přesto přepnout",
+  "accountsAddressChangeStopsReply": "Změna používané adresy ji zastaví.",
+  "accountsAddressChangeAnyway": "Přesto změnit",
   "accountsSignOutAnyway": "Přesto se odhlásit",
   "accountsServerAddresses": "Adresy",
   "accountsServerAddressesHelp": "Conduit se připojí přes první adresu, která odpoví, počínaje shora. Pořadí změníte přetažením.",

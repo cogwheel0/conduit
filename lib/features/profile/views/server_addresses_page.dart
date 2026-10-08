@@ -280,6 +280,16 @@ class _AddressRow extends StatelessWidget {
       isDestructive: true,
     );
     if (!confirmed || !context.mounted) return;
+    // Removed, the address in use moves the clients off it, ending a reply
+    // arriving through them; that is asked first.
+    if (inUse &&
+        !await confirmChangingAddressInUse(
+          context,
+          ProviderScope.containerOf(context, listen: false),
+        )) {
+      return;
+    }
+    if (!context.mounted) return;
     await ServerAddressesPage._save(
       context,
       server.id,

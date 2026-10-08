@@ -4129,6 +4129,8 @@
   "accountsSwitchStopsReply": "切換帳戶會停止該回覆。",
   "accountsSignOutStopsReply": "登出會停止該回覆。",
   "accountsSwitchAnyway": "仍要切換",
+  "accountsAddressChangeStopsReply": "變更正在使用的位址會停止該回覆。",
+  "accountsAddressChangeAnyway": "仍要變更",
   "accountsSignOutAnyway": "仍要登出",
   "accountsServerAddresses": "位址",
   "accountsServerAddressesHelp": "Conduit 會由上而下依序嘗試，透過第一個有回應的位址連線。拖曳即可調整順序。",

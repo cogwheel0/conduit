@@ -4129,6 +4129,8 @@
   "accountsSwitchStopsReply": "切换账户会停止该回复。",
   "accountsSignOutStopsReply": "退出登录会停止该回复。",
   "accountsSwitchAnyway": "仍然切换",
+  "accountsAddressChangeStopsReply": "更改正在使用的地址会停止该回复。",
+  "accountsAddressChangeAnyway": "仍然更改",
   "accountsSignOutAnyway": "仍然退出登录",
   "accountsServerAddresses": "地址",
   "accountsServerAddressesHelp": "Conduit 会从上到下依次尝试，通过第一个有响应的地址连接。拖动可调整顺序。",
