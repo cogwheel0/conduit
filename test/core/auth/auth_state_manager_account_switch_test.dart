@@ -246,6 +246,80 @@ void main() {
     check(tokenReads).equals(1);
   });
 
+  test('a sign-in started before a kept session is looked for is left alone',
+      () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    String? token;
+    var tokenReads = 0;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async {
+      tokenReads++;
+      return token;
+    });
+    when(() => storage.getAuthToken()).thenAnswer((_) async => token);
+    when(() => storage.getSavedCredentials()).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    late final ProviderContainer container;
+    Future<void>? newer;
+    var looked = false;
+    // A sign-in starts while the account in use is read.
+    when(() => storage.getEffectiveActiveServerId()).thenAnswer((_) async {
+      if (!looked) {
+        looked = true;
+        newer = container.read(authStateManagerProvider.notifier).refresh();
+      }
+      return 'account-a';
+    });
+    when(
+      () => storage.switchActiveServer(
+        fromServerId: 'account-a',
+        toServerId: 'account-a',
+      ),
+    ).thenAnswer((_) async {
+      token = _tokenA;
+      return true;
+    });
+
+    container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+    tokenReads = 0;
+
+    await container
+        .read(authStateManagerProvider.notifier)
+        .switchToAccount('account-a');
+    await newer;
+
+    // Only the newer sign-in read the session; storage was not even asked.
+    check(tokenReads).equals(1);
+    verifyNever(
+      () => storage.switchActiveServer(
+        fromServerId: 'account-a',
+        toServerId: 'account-a',
+      ),
+    );
+  });
+
   test('an account without a session settles signed out', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();

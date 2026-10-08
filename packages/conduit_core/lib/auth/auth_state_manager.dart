@@ -1113,6 +1113,9 @@ class AuthStateManager extends _$AuthStateManager {
   /// sign-in, the ordinary case for an account that was signed out of.
   Future<bool> switchToAccount(String accountId) async {
     final storage = ref.read(optimizedStorageServiceProvider);
+    // Taken before anything is awaited: a sign-in started meanwhile owns
+    // what comes next.
+    final revision = _authAttemptRevision;
     final previousActiveId = await storage.getEffectiveActiveServerId();
     if (previousActiveId == accountId) {
       // Signed out, it may still have its session in the vault, left there
@@ -1120,8 +1123,9 @@ class AuthStateManager extends _$AuthStateManager {
       // switch to the account it is on; left there, the next switch away
       // would drop it.
       if (!_current.isAuthenticated) {
-        // A sign-in started while storage looks owns what comes next.
-        final revision = _authAttemptRevision;
+        if (!ref.mounted || _authAttemptRevision != revision) {
+          return _current.isAuthenticated;
+        }
         if (await storage.switchActiveServer(
           fromServerId: accountId,
           toServerId: accountId,
