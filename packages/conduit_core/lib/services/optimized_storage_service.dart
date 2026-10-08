@@ -2441,9 +2441,15 @@ class OptimizedStorageService {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
         // The session checked to be the target's user, and no newer one
-        // committed since: a merge moves the live session to the target.
+        // committed since: a merge moves the live session to the target. A
+        // token read that fails is not a changed token, so it propagates;
+        // one fenced off by a sign-out is none, and the merge declines.
         if (expectedToken != null &&
-            await _getAuthTokenUnlocked() != expectedToken) {
+            await _retrySecureStorageRead(
+                  _getAuthTokenStrictUnlocked,
+                  scope: 'storage/optimized/token-compare-merge',
+                ) !=
+                expectedToken) {
           return false;
         }
         final previousRegistry = await _snapshotRegistryUnlocked();
