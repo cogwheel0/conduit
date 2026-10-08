@@ -408,7 +408,12 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   /// [accountId]'s files are touched, never whichever account the providers
   /// currently name. If its database is still open, it is closed first and
   /// kept closed until its files are gone.
-  Future<void> purgeAccount(String accountId) async {
+  ///
+  /// With [keepsRecord], for an account that stays saved and was only signed
+  /// out of, its settings stay, and nothing is left for the next start to
+  /// retry: with its owner marker gone, whatever database is left is deleted
+  /// before the account's next sign-in opens one.
+  Future<void> purgeAccount(String accountId, {bool keepsRecord = false}) async {
     if (_disposed) return;
     final stillOpen =
         ref.read(openWebUiCertifiedDatabaseServerProvider) == accountId;
@@ -428,7 +433,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     // next start. Each step is tried even when one before it fails. A record
     // that cannot be written does not stop them: stopping would leave all of
     // the data behind, with no record to retry it from either.
-    await _recordPendingPurge(accountId);
+    if (!keepsRecord) await _recordPendingPurge(accountId);
     Object? firstError;
     StackTrace? firstStackTrace;
     Future<bool> attempt(Future<void> Function() step) async {
@@ -464,13 +469,15 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       // The marker is how a retry finds that trust again, so it stays until
       // the trust is gone.
       if (trustForgotten) await attempt(() => _removeOwnerMarker(accountId));
-      await attempt(
-        () => ref.read(openWebUiAccountPrivateDataClearProvider)(accountId),
-      );
+      if (!keepsRecord) {
+        await attempt(
+          () => ref.read(openWebUiAccountPrivateDataClearProvider)(accountId),
+        );
+      }
       if (firstError != null) {
         Error.throwWithStackTrace(firstError!, firstStackTrace!);
       }
-      await _forgetPendingPurge(accountId);
+      if (!keepsRecord) await _forgetPendingPurge(accountId);
       DebugLogger.log(
         'account-database-purged',
         scope: 'auth/storage-isolation',

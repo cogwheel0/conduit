@@ -521,6 +521,61 @@ void main() {
     check(isolation.purged).isEmpty();
   });
 
+  // After a password change: signed in again as the same user, the account
+  // keeps its settings, but not chats cached under the old session.
+  test("the plain logout deletes the account's chats and keeps the account",
+      () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.clearActiveAccountAuthDataIf(
+        canClear: any(named: 'canClear'),
+      ),
+    ).thenAnswer(
+      (invocation) async =>
+          (invocation.namedArguments[#canClear] as bool Function())(),
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith(
+          (ref) async => const ServerConfig(
+            id: 'account-a',
+            name: 'A',
+            url: 'https://a.example',
+          ),
+        ),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await container.read(activeServerProvider.future);
+    await _settledAuth(container);
+
+    await container.read(authStateManagerProvider.notifier).logout();
+
+    check(isolation.purgedKeepingRecord).deepEquals(['account-a']);
+    check(isolation.purged).isEmpty();
+    verifyNever(() => storage.removeAccount(any()));
+  });
+
   test('a sign-out overtaken by a switch leaves the account now in use', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();
@@ -687,9 +742,13 @@ final class _Storage extends Mock implements OptimizedStorageService {}
 final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
   int switches = 0;
   final purged = <String>[];
+  final purgedKeepingRecord = <String>[];
 
   @override
-  Future<void> purgeAccount(String accountId) async => purged.add(accountId);
+  Future<void> purgeAccount(
+    String accountId, {
+    bool keepsRecord = false,
+  }) async => (keepsRecord ? purgedKeepingRecord : purged).add(accountId);
 
   /// Follows auth as the real barrier does, so auth telling it about a switch
   /// runs against the same provider graph as in the app.

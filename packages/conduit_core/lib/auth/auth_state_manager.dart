@@ -3198,6 +3198,11 @@ class AuthStateManager extends _$AuthStateManager {
     final logoutApi = ref.read(apiServiceProvider);
     final logoutAuthSnapshot = logoutApi?.captureAuthSnapshot();
     final logoutToken = logoutApi?.authToken;
+    // The plain logout deletes the account's chats, as logout always has.
+    // Its record and settings stay, to sign in to again.
+    final loggedOutAccountId = clearAllAppData
+        ? null
+        : ref.read(activeServerProvider).asData?.value?.id;
     final attemptRevision = _beginAuthAttempt();
     _update(
       (current) =>
@@ -3217,6 +3222,25 @@ class AuthStateManager extends _$AuthStateManager {
     var completeLocalCleanup = false;
     var finalizationYieldedOwnership = false;
     Object? terminalFailure;
+
+    // Once its sign-in is gone, and while its database is still open, so the
+    // purge keeps it closed until its files are gone.
+    Future<void> purgeLoggedOutAccountData() async {
+      final accountId = loggedOutAccountId;
+      if (accountId == null) return;
+      try {
+        await _accountStorageIsolation.purgeAccount(
+          accountId,
+          keepsRecord: true,
+        );
+      } catch (error, stackTrace) {
+        _logAuthenticationFailure(
+          'logout-data-purge-failed',
+          error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
 
     Future<bool> clearAuthDataForCurrentOwnership() async {
       final storage = ref.read(optimizedStorageServiceProvider);
@@ -3365,6 +3389,7 @@ class AuthStateManager extends _$AuthStateManager {
         DebugLogger.auth('Logout cleanup yielded to a committed newer session');
         return FullAppDataClearOutcome.ownershipYielded;
       }
+      await purgeLoggedOutAccountData();
 
       DebugLogger.auth(
         clearAllAppData
@@ -3390,6 +3415,7 @@ class AuthStateManager extends _$AuthStateManager {
             );
             return FullAppDataClearOutcome.ownershipYielded;
           }
+          await purgeLoggedOutAccountData();
         } catch (clearError) {
           _logAuthenticationFailure('logout-clear-failed', clearError);
           terminalFailure = clearError;
