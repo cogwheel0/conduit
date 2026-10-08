@@ -501,6 +501,23 @@ void main() {
         check(routes.state.endpointId).equals(inUse);
       });
 
+      test('is not charged a refusal sent before it was edited', () async {
+        final routes = await twoRoutesOnOneUrl();
+        final inUse = routes.state.endpointId;
+
+        // Sent with a header the route in use had before an edit.
+        ConnectivityService.reportRouteRejected(
+          Uri.parse(_lan),
+          connection: direct.copyWith(
+            customHeaders: const {'X-Before-Edit': '1'},
+          ),
+        );
+        await settle();
+        await routes.resolve(reason: 'resumed');
+
+        check(routes.state.endpointId).equals(inUse);
+      });
+
       test('is charged its own refusal', () async {
         final routes = await twoRoutesOnOneUrl();
 

@@ -98,6 +98,12 @@ final class OpenWebUiEndpoint {
   final String? mtlsPrivateKeyLabel;
   final String? mtlsPrivateKeyPassword;
 
+  /// Whether [config], an account's connection, was made through this route
+  /// as it is now: [sameConnection], apart from the session headers the
+  /// account captured there.
+  bool carries(ServerConfig config) =>
+      sameConnection(_splitConfig(config).connection);
+
   /// Whether [other] reaches the server the same way: same URL, headers, TLS
   /// policy and client identity. Ids and labels are names, not connection.
   bool sameConnection(OpenWebUiEndpoint other) =>

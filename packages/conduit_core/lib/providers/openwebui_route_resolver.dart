@@ -201,13 +201,11 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         final server = _inUseServer;
         // Routes can share a URL and differ in headers or client identity:
         // a request still out on the route a check left can be refused once
-        // another with its URL is in use, and that one was not refused.
+        // another with its URL is in use, or on the route in use before an
+        // edit changed how it connects. Neither refuses the route as it is.
         if (route != null && server != null && connection != null) {
-          final sentOver = server.routeForConnection(
-            connection,
-            selectedEndpointId: route,
-          );
-          if (sentOver.id != route) return;
+          final inUseRoute = server.endpoint(route);
+          if (inUseRoute == null || !inUseRoute.carries(connection)) return;
         }
         if (route != null) _refused[route] = DateTime.now();
       }
