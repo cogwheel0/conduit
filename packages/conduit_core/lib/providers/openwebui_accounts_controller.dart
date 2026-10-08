@@ -273,10 +273,18 @@ class OpenWebUiAccountsController {
   /// Only an account that never signed in -- no proven user, no session --
   /// is dropped, and only when another account can take over: the most
   /// recently used one that is still signed in. Returns whether it did.
-  Future<bool> abandonPendingSignIn() =>
-      _afterLastChange(_abandonPendingSignIn);
+  Future<bool> abandonPendingSignIn() {
+    // Which addition is left is decided now, not when its turn comes: one
+    // begun meanwhile -- after Cancel was pressed twice, say -- is not it,
+    // even from the same account.
+    final stillInProgress = _ref
+        .read(accountAdditionOriginProvider.notifier)
+        .stillInProgress();
+    return _afterLastChange(() => _abandonPendingSignIn(stillInProgress));
+  }
 
-  Future<bool> _abandonPendingSignIn() async {
+  Future<bool> _abandonPendingSignIn(bool Function() stillInProgress) async {
+    if (!stillInProgress()) return false;
     // Only an addition's own sign-in is left: an account carried over from
     // before accounts existed can look the same, and leaving it would delete
     // its data. So can the account the addition began from, until the new
@@ -300,7 +308,11 @@ class OpenWebUiAccountsController {
     // The sign-in can finish while the next account is chosen. Checked last,
     // with nothing awaited between this and leaving starting: an account
     // that signed in is never abandoned.
-    if (await _activeAccountId() != activeId || _signedIn()) return false;
+    if (await _activeAccountId() != activeId ||
+        _signedIn() ||
+        !stillInProgress()) {
+      return false;
+    }
     // Not signed out of: it has no session for its server to end, and asking
     // would leave a window for one to land and be revoked. Storage checks
     // once more as it removes the account, and refuses one a sign-in reached.

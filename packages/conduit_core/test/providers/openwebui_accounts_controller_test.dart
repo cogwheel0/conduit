@@ -806,12 +806,14 @@ void main() {
       OpenWebUiAccountsController controller,
     })
   >
-  signedInToBLast() async {
+  signedInToBLast({FutureOr<void> Function()? duringAbandon}) async {
     final storage = _LastAccountStorage()..active = 'old';
     final container = ProviderContainer(
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(storage),
-        authStateManagerProvider.overrideWith(() => _LastAccountAuth(storage)),
+        authStateManagerProvider.overrideWith(
+          () => _LastAccountAuth(storage, duringAbandon: duringAbandon),
+        ),
         hermesConfigProvider.overrideWith(_EmptyHermes.new),
         openWebUiAccountsProvider.overrideWith((ref) async {
           final summaries = ref.watch(openWebUiAccountSummariesProvider);
@@ -955,6 +957,38 @@ void main() {
       check(auth.signedOut).deepEquals(['a']);
       check(auth.abandoned).deepEquals(['c']);
     });
+  });
+
+  // Cancel pressed again while the first is still leaving, and another
+  // addition begun before the second one's turn.
+  test('a Cancel queued for an addition leaves no later one', () async {
+    final handedBack = Completer<void>();
+    final release = Completer<void>();
+    final (:storage, :container, :controller) = await signedInToBLast(
+      duringAbandon: () {
+        handedBack.complete();
+        return release.future;
+      },
+    );
+    final auth =
+        container.read(authStateManagerProvider.notifier) as _LastAccountAuth;
+    final origin = container.read(accountAdditionOriginProvider.notifier);
+    origin.begin('b');
+    storage.active = 'c';
+
+    final first = controller.abandonPendingSignIn();
+    final second = controller.abandonPendingSignIn();
+    await handedBack.future;
+    // Back on B, the user adds another account, and its sign-in starts.
+    origin.endLater()();
+    origin.begin('b');
+    storage.active = 'c';
+    release.complete();
+
+    check(await first).isTrue();
+    check(await second).isFalse();
+    check(auth.abandoned).deepEquals(['c']);
+    check(storage.active).equals('c');
   });
 
   test('cancelling an addition goes back to the account signed in to last', () async {
