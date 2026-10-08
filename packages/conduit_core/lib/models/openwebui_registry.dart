@@ -47,6 +47,26 @@ String openWebUiServerIdentityUrl(String value) {
       .toString();
 }
 
+/// [endpoints] with [route] saved into them: in place of the address of its
+/// id, or at the end when [adding] and there is none.
+///
+/// An edit of an address that is no longer saved fails rather than bringing
+/// it back: it was removed while the edit was being checked, and saving it
+/// would undo that removal, then take the server's sessions to it again.
+List<OpenWebUiEndpoint> withEditedRoute(
+  List<OpenWebUiEndpoint> endpoints,
+  OpenWebUiEndpoint route, {
+  required bool adding,
+}) {
+  final saved = endpoints.any((endpoint) => endpoint.id == route.id);
+  if (!saved && !adding) throw StateError('That address was removed.');
+  return [
+    for (final endpoint in endpoints)
+      endpoint.id == route.id ? route : endpoint,
+    if (!saved) route,
+  ];
+}
+
 /// One way of reaching a server, with everything that can differ per route.
 final class OpenWebUiEndpoint {
   OpenWebUiEndpoint({

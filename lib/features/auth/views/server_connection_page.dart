@@ -457,14 +457,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
     );
     // Onto the routes as stored now, not as read before the check, which can
-    // take a while.
+    // take a while; an address removed meanwhile stays removed.
     await storage.editServerEndpoints(
       server.id,
-      (endpoints) => [
-        for (final endpoint in endpoints)
-          endpoint.id == route.id ? route : endpoint,
-        if (!endpoints.any((endpoint) => endpoint.id == route.id)) route,
-      ],
+      (endpoints) =>
+          withEditedRoute(endpoints, route, adding: widget.endpointId == null),
     );
     // A proxy sign-in on this address belongs to the account whose session
     // proved it, which need not be the active one; with nothing to prove, to

@@ -1818,6 +1818,33 @@ void main() {
           .deepEquals([server.endpoints.first.id]);
     });
 
+    test('an address removed while being edited stays removed', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('proxy', 'https://proxy.example.com');
+      final edited = OpenWebUiEndpoint(
+        id: 'proxy',
+        url: 'https://edited.example.com',
+      );
+
+      await storage.editServerEndpoints(
+        server.id,
+        (endpoints) => [
+          for (final endpoint in endpoints)
+            if (endpoint.id != 'proxy') endpoint,
+        ],
+      );
+      await check(
+        storage.editServerEndpoints(
+          server.id,
+          (endpoints) => withEditedRoute(endpoints, edited, adding: false),
+        ),
+      ).throws<StateError>();
+
+      final registry = await storage.getOpenWebUiRegistryStrict();
+      check(registry.servers.single.endpoints.map((endpoint) => endpoint.id))
+          .deepEquals([server.endpoints.first.id]);
+    });
+
     test('a failed save leaves the route in use as it was', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');

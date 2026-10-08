@@ -333,6 +333,35 @@ void main() {
     });
   });
 
+  group('withEditedRoute', () {
+    final lan = OpenWebUiEndpoint(id: 'lan', url: 'http://10.0.0.2:3000');
+    final proxy = OpenWebUiEndpoint(id: 'proxy', url: 'https://proxy.example');
+    final edited = OpenWebUiEndpoint(
+      id: 'proxy',
+      url: 'https://edited.example',
+    );
+
+    test('saves an edit in place', () {
+      check(withEditedRoute([proxy, lan], edited, adding: false))
+          .deepEquals([edited, lan]);
+    });
+
+    // Removed while the edit was being checked; saving would bring it back.
+    test('fails for an address no longer saved', () {
+      check(() => withEditedRoute([lan], edited, adding: false))
+          .throws<StateError>();
+    });
+
+    test('appends only an addition', () {
+      check(withEditedRoute([lan], proxy, adding: true))
+          .deepEquals([lan, proxy]);
+      // An addition saved already, by a save that went wrong after it, is
+      // saved in place rather than twice.
+      check(withEditedRoute([proxy, lan], edited, adding: true))
+          .deepEquals([edited, lan]);
+    });
+  });
+
   test('server identity URLs ignore case and a trailing slash', () {
     check(openWebUiServerIdentityUrl('HTTPS://Chat.Example.com/'))
         .equals('https://chat.example.com');
