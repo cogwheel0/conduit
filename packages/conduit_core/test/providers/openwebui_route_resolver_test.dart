@@ -471,6 +471,40 @@ void main() {
       check(await routeInUse()).equals(_lan);
     });
 
+    // Signed in through the proxy again: a request still out with the
+    // cookie that expired can be refused after the new one is kept.
+    test('is not charged a refusal of a cookie since replaced', () async {
+      final route = (await storage.getOpenWebUiRegistryStrict())
+          .servers
+          .single
+          .endpoints
+          .first;
+      check(
+        await storage.saveEndpointSessionHeaders(
+          accountId: 'account',
+          route: route,
+          headers: const {'Cookie': 'proxy_session=new'},
+          sessionRevision: storage.sessionRevocationRevision,
+        ),
+      ).isTrue();
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      final inUse = (await container.read(activeServerProvider.future))!;
+      check(inUse.customHeaders['Cookie']).equals('proxy_session=new');
+
+      ConnectivityService.reportRouteRejected(
+        Uri.parse(_lan),
+        connection: inUse.copyWith(
+          customHeaders: const {'Cookie': 'proxy_session=expired'},
+        ),
+      );
+      await settle();
+      await routes.resolve(reason: 'resumed');
+
+      check(await routeInUse()).equals(_lan);
+    });
+
     // Routes to one server can share a URL and differ in headers. A request
     // still out on the one a check left can be refused once the other is
     // in use; the one in use was not refused.

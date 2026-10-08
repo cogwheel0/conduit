@@ -10,6 +10,7 @@ library;
 
 import 'dart:async';
 
+import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
 import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
@@ -208,9 +209,17 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       if (reason == 'rejected') {
         final route = _inUseRouteId;
         final server = _inUseServer;
-        // A proxy session is one account's: a request still out for the
-        // account left can be refused once another is active on its route.
-        if (connection != null && connection.id != _inUseAccountId) return;
+        // A proxy session is one account's, on one route, with the cookie it
+        // holds now: a request still out from a client since replaced -- for
+        // an account left, or with a cookie a new sign-in replaced -- can be
+        // refused once the client in use would not be.
+        if (connection != null) {
+          if (connection.id != _inUseAccountId) return;
+          final inUse = ref.read(activeServerProvider).value;
+          if (inUse != null && !_sameClientConnection(connection, inUse)) {
+            return;
+          }
+        }
         // Routes can share a URL and differ in headers or client identity:
         // a request still out on the route a check left can be refused once
         // another with its URL is in use, or on the route in use before an
@@ -438,6 +447,24 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   }
 
   bool _owns(int generation) => ref.mounted && generation == _generation;
+
+  /// Whether [reported], what a refused request went out on, is what the
+  /// app's client [inUse] is built from now, its session headers included.
+  static bool _sameClientConnection(
+    ServerConfig reported,
+    ServerConfig inUse,
+  ) =>
+      reported.id == inUse.id &&
+      reported.url == inUse.url &&
+      const MapEquality<String, String>().equals(
+        reported.customHeaders,
+        inUse.customHeaders,
+      ) &&
+      reported.allowSelfSignedCertificates ==
+          inUse.allowSelfSignedCertificates &&
+      reported.mtlsCertificateChainPem == inUse.mtlsCertificateChainPem &&
+      reported.mtlsPrivateKeyPem == inUse.mtlsPrivateKeyPem &&
+      reported.mtlsPrivateKeyPassword == inUse.mtlsPrivateKeyPassword;
 
   /// After a check moved the route in use. A proxy turning requests away
   /// on the route left shows a connection issue, and nothing would look at
