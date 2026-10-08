@@ -1070,6 +1070,24 @@ void main() {
     check(registry.account('a')?.userId).equals('user-1');
     check(registry).isA<OpenWebUiRegistry>();
   });
+
+  // A failed wipe leaves writes building on what it meant to leave, until
+  // one lands; from then on, on what was written.
+  test('after a failed wipe, a write builds on the last one written', () async {
+    await storage.saveServerConfigs([account('a')]);
+    secure.refusesDeleteAll = true;
+    await check(storage.clearAll()).throws<StateError>();
+    secure.refusesDeleteAll = false;
+
+    await storage.saveServerConfigs([account('a')]);
+    await storage.bindAccountUser('a', 'user-1');
+    await storage.saveServerConfigs([account('a')]);
+
+    final stored = OpenWebUiRegistry.decode(
+      (await secure.read(key: 'openwebui_registry_v1'))!,
+    );
+    check(stored.account('a')?.userId).equals('user-1');
+  });
 }
 
 /// Refuses writes to [refusedKey], and reads of [unreadableKey], once set,
@@ -1078,6 +1096,13 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedKey;
   String? refusedOnceKey;
   String? unreadableKey;
+  bool refusesDeleteAll = false;
+
+  @override
+  Future<void> deleteAll() {
+    if (refusesDeleteAll) throw StateError('keychain refused to clear');
+    return super.deleteAll();
+  }
 
   @override
   Future<void> write({required String key, required String? value}) {
