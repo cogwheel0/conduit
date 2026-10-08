@@ -2848,8 +2848,11 @@ class OptimizedStorageService {
     String? retainedActiveServerId;
     if (preserveServerDetails) {
       await attempt(() async {
+        // After an earlier wipe whose delete failed, what it meant to leave,
+        // not the old registry still stored.
         retainedRegistry = _retainNonSecretServerDetails(
-          await _getRegistryStrictUnlocked(bypassReadSuppression: true),
+          _registryLeftByWipe ??
+              await _getRegistryStrictUnlocked(bypassReadSuppression: true),
         );
         retainedActiveServerId = _effectiveActiveServerId(
           configs: retainedRegistry.projectAll(),

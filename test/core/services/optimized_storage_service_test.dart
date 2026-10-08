@@ -2759,6 +2759,42 @@ void main() {
     check(stored.servers.single.endpoints.single.label).equals('Home');
   });
 
+  test('a wipe keeping server details after a failed one keeps none of '
+      'what that one removed', () async {
+    secureStorageValues['openwebui_registry_v1'] = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(id: 'route', url: 'https://chat.example'),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          isActive: true,
+        ),
+      ],
+    ).encode();
+    secureStorageFailureCountdowns['deleteAll:null'] = 1;
+    await expectLater(storage.clearAll(), throwsA(isA<PlatformException>()));
+    check(secureStorageValues).containsKey('openwebui_registry_v1');
+
+    await storage.clearAllIf(
+      canClear: () => true,
+      preserveServerDetails: true,
+    );
+
+    final stored = OpenWebUiRegistry.decode(
+      secureStorageValues['openwebui_registry_v1']!,
+    );
+    check(stored.servers).isEmpty();
+    check(stored.accounts).isEmpty();
+  });
+
   test('clearAll queued behind a session commit cannot be followed by token resurrection', () async {
     final previous = _serverConfig('server-a').copyWith(isActive: true);
     final target = _serverConfig('server-b');
