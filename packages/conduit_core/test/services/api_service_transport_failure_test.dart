@@ -54,6 +54,27 @@ final class _Proxy implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// Answers every request with [answer] once [release] completes.
+final class _Held implements HttpClientAdapter {
+  _Held(this.release, this.answer);
+
+  final Completer<void> release;
+  final ResponseBody Function() answer;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    await release.future;
+    return answer();
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 /// Upgrades a plain-HTTP request to HTTPS on the same host, where nothing
 /// answers.
 final class _UpgradingToNothing implements HttpClientAdapter {
@@ -291,6 +312,35 @@ void main() {
 
       try {
         await checking.dio.get<dynamic>('/api/v1/auths/');
+      } on DioException {
+        // Refused; only what was reported matters here.
+      }
+
+      check(rejected).isEmpty();
+    });
+
+    // Retired, it lets its requests finish, with the session it held.
+    test('to a client since retired is not reported', () async {
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
+      final retired = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: server,
+        ),
+        workerManager: workerManager,
+        reportsRouteRefusals: true,
+      );
+      addTearDown(workerManager.dispose);
+      retired.updateAuthToken('replaced-token');
+      final answer = Completer<void>();
+      retired.dio.httpClientAdapter = _Held(answer, () => _page(401));
+
+      final request = retired.dio.get<dynamic>('/api/v1/auths/');
+      retired.dispose();
+      answer.complete();
+      try {
+        await request;
       } on DioException {
         // Refused; only what was reported matters here.
       }

@@ -205,7 +205,9 @@ abstract class _ApiServiceBase {
               );
               ConnectivityService.noteSuccessfulTraffic(connectivityOrigin);
             }
-            if (_reportsRouteRefusals) {
+            // Not once retired: a request it let finish went out with the
+            // session it held, which may since have been replaced.
+            if (_reportsRouteRefusals && !_disposed) {
               _reportProxyRefusal(response, connectivityOrigin, serverConfig);
             }
           } catch (_) {}
@@ -213,7 +215,7 @@ abstract class _ApiServiceBase {
         },
         onError: (error, handler) {
           final response = error.response;
-          if (response != null && _reportsRouteRefusals) {
+          if (response != null && _reportsRouteRefusals && !_disposed) {
             // Reporting must not replace the request's own error.
             try {
               _reportProxyRefusal(response, connectivityOrigin, serverConfig);
