@@ -1701,7 +1701,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 _buildReviewerModeSection(),
                 const SizedBox(height: Spacing.xl),
               ],
-              _buildServerForm(),
+              // An address is saved as it was checked, and the editor then
+              // closes: an edit made during the check would be lost.
+              IgnorePointer(
+                ignoring: _editingRoutes && _isConnecting,
+                child: ExcludeFocus(
+                  excluding: _editingRoutes && _isConnecting,
+                  child: _buildServerForm(),
+                ),
+              ),
             ],
           ),
         ),

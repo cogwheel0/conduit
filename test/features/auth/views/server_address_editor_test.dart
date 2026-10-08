@@ -212,6 +212,84 @@ void main() {
     check(saved!.endpoints.single.url).equals('https://chat.example');
   });
 
+  testWidgets('an address cannot be edited while it is checked', (
+    tester,
+  ) async {
+    final previousOverrides = HttpOverrides.current;
+    HttpOverrides.global = _RealHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previousOverrides);
+    final origin = (await tester.runAsync(() async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) {
+        final body = switch (request.uri.path) {
+          '/health' => '{"status":true}',
+          '/api/config' =>
+            '{"status":true,"version":"0.6.0","name":"Open WebUI",'
+                '"features":{}}',
+          _ => null,
+        };
+        request.response
+          ..statusCode = body == null ? HttpStatus.notFound : HttpStatus.ok
+          ..headers.contentType = ContentType.json
+          ..write(body ?? '{}');
+        unawaited(request.response.close());
+      });
+      return 'http://127.0.0.1:${server.port}';
+    }))!;
+    final server = (await tester.runAsync(() async {
+      await storage.saveServerConfigs([
+        const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+      ]);
+      return (await storage.getOpenWebUiRegistryStrict()).servers.single;
+    }))!;
+    // The second read is the address check's, after the address answered.
+    final checking = storage.activeReadHeld = Completer<void>();
+    storage
+      ..activeReads = 0
+      ..activeReadHeldFrom = 2;
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ServerConnectionPage(
+            routesOfServerId: server.id,
+            endpointId: server.endpoints.single.id,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final urlField = find.descendant(
+      of: find.byKey(const ValueKey<String>('server-url-field')),
+      matching: find.byType(EditableText),
+    );
+    await tester.enterText(urlField, origin);
+    await tester.tap(find.text('Save address'));
+    for (var i = 0; i < 100 && storage.activeReads < 2; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    check(storage.activeReads).equals(2);
+
+    await tester.tap(urlField, warnIfMissed: false);
+    await tester.pump();
+
+    check(tester.widget<EditableText>(urlField).focusNode.hasFocus).isFalse();
+    check(tester.testTextInput.hasAnyClients).isFalse();
+
+    await tester.pumpWidget(const SizedBox());
+    checking.complete();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+  });
+
   // Otherwise the address in use is saved somewhere new while the client
   // and the addresses shown stay where it was.
   test('an address saved without its cookie still moves the client', () async {
