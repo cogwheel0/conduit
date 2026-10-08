@@ -91,13 +91,26 @@ Future<void> migrateDeviceSettingsIntoAccount(String accountId) async {
   final claim = _deviceSettingsCopyClaim;
   if (claim != null && claim != accountId) return;
   _deviceSettingsCopyClaim = accountId;
+  // An account removed while this runs ends the copy. What was written for
+  // it goes too: its own clear may have run before those writes landed.
+  final written = <String>[];
   for (final key in accountScopedPreferenceKeys) {
+    if (_deviceSettingsCopyClaim != accountId) break;
     final scoped = accountScopedPreferenceKey(key, accountId);
     if (PreferencesStore.containsKey(scoped)) continue;
     final value = PreferencesStore.getRaw(key);
     // Checked: a copy that did not land must not be marked done, or the
     // account would stop reading the device value it never received.
-    if (value != null) await PreferencesStore.putChecked(scoped, value);
+    if (value != null) {
+      await PreferencesStore.putChecked(scoped, value);
+      written.add(scoped);
+    }
+  }
+  if (_deviceSettingsCopyClaim != accountId) {
+    for (final key in written) {
+      await PreferencesStore.remove(key);
+    }
+    return;
   }
   await PreferencesStore.putChecked(
     PreferenceKeys.accountScopedSettingsMigrated,

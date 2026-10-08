@@ -161,6 +161,33 @@ void main() {
     check(await SettingsService.getDefaultModel()).isNull();
   });
 
+  test('a settings copy overtaken by its account\'s removal leaves nothing',
+      () async {
+    final paused = Completer<void>();
+    final resume = Completer<void>();
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async {
+        if (key == onA && !paused.isCompleted) {
+          paused.complete();
+          await resume.future;
+        }
+        return null;
+      },
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+
+    final copying = migrateDeviceSettingsIntoAccount('a');
+    await paused.future;
+    // A is signed out of while its copy is being written.
+    await clearOpenWebUiAccountPreferences('a');
+    resume.complete();
+    await copying;
+
+    check(PreferencesStore.containsKey(onA)).isFalse();
+  });
+
   test('a write lands under the account active when it started', () async {
     await PreferencesStore.put(
       PreferenceKeys.accountScopedSettingsMigrated,
