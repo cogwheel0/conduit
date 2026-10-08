@@ -232,6 +232,47 @@ void main() {
       });
       check(next.project('a')!.customHeaders).isEmpty();
     });
+
+    test('a config read on a route sharing the URL in use is saved to it', () {
+      final registry = OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 's',
+            name: 'Home',
+            endpoints: [
+              OpenWebUiEndpoint(id: 'main', url: 'https://chat.example.com'),
+              OpenWebUiEndpoint(
+                id: 'tenant',
+                url: 'https://chat.example.com',
+                customHeaders: const {'X-Tenant': 'b'},
+              ),
+            ],
+          ),
+        ],
+        accounts: [OpenWebUiAccount(id: 'a', serverId: 's')],
+      );
+      // Read while the tenant route was in use; saved once main is.
+      final viaTenant = registry.project(
+        'a',
+        selectedEndpoints: const {'s': 'tenant'},
+      )!;
+
+      final next = registry.mergeServerConfigs([
+        viaTenant.copyWith(
+          customHeaders: const {'X-Tenant': 'b', 'Cookie': 'session=2'},
+        ),
+      ], selectedEndpoints: const {'s': 'main'});
+
+      check(
+        next.servers.single.endpoints.map((endpoint) => endpoint.customHeaders),
+      ).deepEquals([
+        const <String, String>{},
+        const {'X-Tenant': 'b'},
+      ]);
+      check(next.account('a')!.capturedHeaders).deepEquals({
+        'tenant': {'Cookie': 'session=2'},
+      });
+    });
   });
 
   group('fromLegacyServerConfigs', () {

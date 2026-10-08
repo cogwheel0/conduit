@@ -509,9 +509,11 @@ final class OpenWebUiRegistry {
       String endpointId;
       if (existing != null && existingDraft != null) {
         draft = existingDraft;
+        // Not by URL alone: routes can share one, and differ in headers or
+        // client certificate.
         endpointId = draft.original
-            .routeFor(
-              config.url,
+            .routeForConnection(
+              config,
               selectedEndpointId: selectedEndpoints[draft.original.id],
             )
             .id;
