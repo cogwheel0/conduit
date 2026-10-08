@@ -131,6 +131,87 @@ void main() {
     expect(find.text('https://chat.example'), findsNothing);
   });
 
+  // Back abandons the edit: the address the server's accounts use stays.
+  testWidgets('an address left while it is checked is not saved', (
+    tester,
+  ) async {
+    final previousOverrides = HttpOverrides.current;
+    HttpOverrides.global = _RealHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previousOverrides);
+    final origin = (await tester.runAsync(() async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) {
+        final body = switch (request.uri.path) {
+          '/health' => '{"status":true}',
+          '/api/config' =>
+            '{"status":true,"version":"0.6.0","name":"Open WebUI",'
+                '"features":{}}',
+          _ => null,
+        };
+        request.response
+          ..statusCode = body == null ? HttpStatus.notFound : HttpStatus.ok
+          ..headers.contentType = ContentType.json
+          ..write(body ?? '{}');
+        unawaited(request.response.close());
+      });
+      return 'http://127.0.0.1:${server.port}';
+    }))!;
+    final server = (await tester.runAsync(() async {
+      await storage.saveServerConfigs([
+        const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+      ]);
+      return (await storage.getOpenWebUiRegistryStrict()).servers.single;
+    }))!;
+    // The second read is the address check's, after the address answered.
+    final checking = storage.activeReadHeld = Completer<void>();
+    storage
+      ..activeReads = 0
+      ..activeReadHeldFrom = 2;
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ServerConnectionPage(
+            routesOfServerId: server.id,
+            endpointId: server.endpoints.single.id,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('server-url-field')),
+        matching: find.byType(EditableText),
+      ),
+      origin,
+    );
+    await tester.tap(find.text('Save address'));
+    for (var i = 0; i < 100 && storage.activeReads < 2; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    check(storage.activeReads).equals(2);
+
+    // The editor goes while the address is checked.
+    await tester.pumpWidget(const SizedBox());
+    checking.complete();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+
+    final saved = await tester.runAsync(
+      () async => (await storage.getOpenWebUiRegistryStrict()).servers.single,
+    );
+    check(saved!.endpoints.single.url).equals('https://chat.example');
+  });
+
   // Otherwise the address in use is saved somewhere new while the client
   // and the addresses shown stay where it was.
   test('an address saved without its cookie still moves the client', () async {
@@ -293,6 +374,18 @@ final class _CookieRefusingStorage extends OptimizedStorageService {
 
   var keychainRefuses = false;
 
+  /// Holds a read of the active account, from the [activeReadHeldFrom]th on,
+  /// while set.
+  Completer<void>? activeReadHeld;
+  var activeReadHeldFrom = 1;
+  var activeReads = 0;
+
+  @override
+  Future<String?> getEffectiveActiveServerId() async {
+    if (++activeReads >= activeReadHeldFrom) await activeReadHeld?.future;
+    return super.getEffectiveActiveServerId();
+  }
+
   /// Holds a read of the saved servers back while set.
   Completer<void>? registryHeld;
 
@@ -329,3 +422,5 @@ final class _Routes extends OpenWebUiRouteResolver {
   @override
   Future<void> resolve({String reason = 'manual'}) async => reasons.add(reason);
 }
+
+class _RealHttpOverrides extends HttpOverrides {}

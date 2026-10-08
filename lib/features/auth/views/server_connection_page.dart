@@ -507,8 +507,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// captured for it is not kept once a sign-out has revoked cookies since.
   Future<bool> _saveRoute(ServerConfig verified, int sessionRevision) async {
     final l10n = AppLocalizations.of(context)!;
-    // The editor can be left while this runs, and the widget's ref is gone
-    // with it; what follows a save must still run.
+    // The editor can be left while a save runs, and the widget's ref is gone
+    // with it; what follows the save must still run.
     final container = ProviderScope.containerOf(context, listen: false);
     final storage = container.read(optimizedStorageServiceProvider);
     final registry = await storage.getOpenWebUiRegistryStrict();
@@ -585,6 +585,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       mtlsPrivateKeyLabel: verified.mtlsPrivateKeyLabel,
       mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
     );
+    // Left while the address was checked: Back abandons the edit, and the
+    // address the server's accounts use stays as it was.
+    if (!mounted) return false;
     // A proxy sign-in on this address belongs to the account whose session
     // proved it, which need not be the active one; with nothing to prove, to
     // the active account when it is on this server.
