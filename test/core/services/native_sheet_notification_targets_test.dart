@@ -20,6 +20,7 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -58,6 +59,13 @@ class _IdleStartup extends AppStartupFlow {
 class _IdleQuickActions extends QuickActionsCoordinator {
   @override
   FutureOr<void> build() {}
+}
+
+/// Checks no server addresses: the mocked storage keeps no servers, and a
+/// check failing to read them would wait to run again past the test.
+class _IdleRoutes extends OpenWebUiRouteResolver {
+  @override
+  OpenWebUiRouteStatus build() => const OpenWebUiRouteStatus();
 }
 
 class _Config extends BackendConfigNotifier {
@@ -205,6 +213,7 @@ Future<_NativeSettings> _pumpApp(
       notificationTargetsProvider.overrideWith(() => _Targets(targetCount)),
       appStartupFlowProvider.overrideWith(_IdleStartup.new),
       quickActionsCoordinatorProvider.overrideWith(_IdleQuickActions.new),
+      openWebUiRouteResolverProvider.overrideWith(_IdleRoutes.new),
       userScopedProviderCleanupProvider.overrideWithValue(null),
       chatWakelockCoordinatorProvider.overrideWithValue(null),
       goRouterProvider.overrideWithValue(router),

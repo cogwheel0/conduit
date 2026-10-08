@@ -321,6 +321,11 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         stackTrace: stackTrace,
       );
       state = state.copyWith(checking: false);
+      // Storage coming back -- a Keychain unlocking -- starts no check, and
+      // any check waiting to run again was cancelled for this one.
+      if (!_inBackground) {
+        _retry = Timer(_retryDelay, () => _schedule('retry'));
+      }
     }
   }
 

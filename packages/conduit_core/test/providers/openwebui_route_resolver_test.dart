@@ -265,6 +265,17 @@ void main() {
     check(await routeInUse()).equals(_public);
   });
 
+  // A locked Keychain, say. Nothing else starts a check once it opens.
+  test('a check that cannot read storage runs again', () async {
+    answers = {_lan: true, _tailscale: true, _public: true};
+    final routes = await resolver();
+    storage.failNextRegistryRead = true;
+
+    await routes.resolve();
+
+    check(routes.retryPending).isTrue();
+  });
+
   test('a check overtaken by a newer one still moves the client', () async {
     final routes = await resolver();
     check((await container.read(serverConfigsProvider.future)).single.url)
@@ -364,6 +375,16 @@ void main() {
       check(routes.retryPending).isFalse();
     });
 
+    test('a check that cannot read storage does not run again', () async {
+      final routes = await resolver();
+      lifecycle.emit(AppLifecyclePhase.paused);
+      storage.failNextRegistryRead = true;
+
+      await routes.resolve();
+
+      check(routes.retryPending).isFalse();
+    });
+
     test('a better route put off there waits for the app to return', () async {
       answers = {_lan: false, _tailscale: false, _public: true};
       final routes = await resolver();
@@ -452,7 +473,8 @@ void main() {
   });
 }
 
-/// Holds route selections at a gate, so two checks can overlap there.
+/// Holds route selections at a gate, so two checks can overlap there, and
+/// fails a read of the saved servers when asked to.
 final class _GatedStorage extends OptimizedStorageService {
   _GatedStorage({
     required super.secureStorage,
@@ -462,6 +484,16 @@ final class _GatedStorage extends OptimizedStorageService {
 
   Completer<void>? gate;
   var selectCalls = 0;
+  var failNextRegistryRead = false;
+
+  @override
+  Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async {
+    if (failNextRegistryRead) {
+      failNextRegistryRead = false;
+      throw StateError('Keychain locked');
+    }
+    return super.getOpenWebUiRegistryStrict();
+  }
 
   @override
   Future<bool> selectEndpoint(String serverId, String endpointId) async {
