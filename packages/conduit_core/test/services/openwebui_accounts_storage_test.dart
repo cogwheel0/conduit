@@ -702,6 +702,62 @@ void main() {
           .deepEquals(['a', 'b']);
     });
 
+    test('the active one is left as it was when handing over fails', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      await signIn('b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'c');
+      await storage.saveAuthToken('token-c');
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c-old',
+      );
+      await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a');
+      await storage.saveAuthToken('token-a');
+      // From before accounts existed: C's newer sign-in, live while A is.
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c-new',
+      );
+      // B's token is refused as it is taken up, after everything else.
+      secure.refusedOnceKey = 'auth_token_v2';
+
+      await check(
+        storage.removeAccount('a', thenActivate: 'b'),
+      ).throws<StateError>();
+
+      check(await storage.getActiveServerId()).equals('a');
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['a', 'b', 'c']);
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check((await storage.getSavedCredentialsStrict())?['password'])
+          .equals('pw-c-new');
+      check((await vaultedCredentials('c'))?['password']).equals('pw-c-old');
+      check(await vaultedToken('b')).equals('token-b');
+    });
+
+    test('an inactive one takes its sign-in from the live slots', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('a');
+      // From before accounts existed: B's sign-in, live while A is active.
+      await storage.saveCredentials(
+        serverId: 'b',
+        username: 'user-b',
+        password: 'pw-b',
+      );
+
+      check(await storage.removeInactiveAccount('b')).isTrue();
+
+      check(await storage.getSavedCredentialsStrict()).isNull();
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await storage.getActiveServerId()).equals('a');
+    });
+
     test('removing an inactive one declines once it is active', () async {
       await storage.saveServerConfigs([
         account('a'),
@@ -994,14 +1050,19 @@ void main() {
 }
 
 /// Refuses writes to [refusedKey], and reads of [unreadableKey], once set,
-/// as a locked Keychain does.
+/// as a locked Keychain does; [refusedOnceKey] refuses its next write only.
 final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedKey;
+  String? refusedOnceKey;
   String? unreadableKey;
 
   @override
   Future<void> write({required String key, required String? value}) {
     if (key == refusedKey) throw StateError('keychain refused $key');
+    if (key == refusedOnceKey) {
+      refusedOnceKey = null;
+      throw StateError('keychain refused $key');
+    }
     return super.write(key: key, value: value);
   }
 

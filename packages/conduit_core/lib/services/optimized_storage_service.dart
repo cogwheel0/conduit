@@ -675,11 +675,14 @@ class OptimizedStorageService {
   /// switch would. Before accounts existed one could outlive a server change,
   /// and the account it names is still signed in. Returns what it filed,
   /// with the account it was filed under.
+  ///
+  /// The vault slot it writes is recorded in [undo] first, when given.
   Future<({String owner, String credentials})?>
   _fileForeignSavedCredentialsUnlocked(
     String accountId,
-    Iterable<ServerConfig> configs,
-  ) async {
+    Iterable<ServerConfig> configs, {
+    _VaultUndo? undo,
+  }) async {
     if (_savedCredentialsReadSuppressed) return null;
     final payload = await _retrySecureStorageRead(
       _secureCredentialStorage.getSavedCredentialsPayloadStrict,
@@ -693,6 +696,7 @@ class OptimizedStorageService {
         !configs.any((config) => config.id == owner)) {
       return null;
     }
+    if (undo != null) await _rememberVaultedCredentialsUnlocked(undo, owner);
     try {
       await _secureCredentialStorage.saveServerCredentialsPayload(
         owner,
@@ -2440,43 +2444,112 @@ class OptimizedStorageService {
             ? thenActivate
             : null;
         // Read before anything changes: once this account is gone, a read
-        // that fails could not be retried from it.
+        // that fails could not be retried from it. So is what a failure
+        // part-way puts back.
         var nextSession = wasActive && next != null
             ? await _readVaultedSessionUnlocked(next)
             : null;
-        if (wasActive) {
-          final filed = await _fileForeignSavedCredentialsUnlocked(
-            accountId,
-            configs,
-          );
-          if (nextSession != null && filed?.owner == next) {
-            // Filed under the account taking over, which takes it up.
-            nextSession = (
-              token: nextSession.token,
-              credentials: filed!.credentials,
+        final previousRegistry = await _snapshotRegistryUnlocked();
+        final previousToken = wasActive && !_authTokenReadSuppressed
+            ? await _retrySecureStorageRead(
+                () => _getAuthTokenStrictUnlocked(bypassReadSuppression: true),
+                scope: 'storage/optimized/removal-undo',
+              )
+            : null;
+        final previousCredentialsReadSuppressed =
+            _savedCredentialsReadSuppressed;
+        final previousCredentialsPayload = previousCredentialsReadSuppressed
+            ? null
+            : await _retrySecureStorageRead(
+                _secureCredentialStorage.getSavedCredentialsPayloadStrict,
+                scope: 'storage/optimized/removal-undo',
+              );
+        final vaultUndo = _VaultUndo();
+        if (next != null && nextSession != null) {
+          // Taken up below, and filed to first when the live sign-in is its.
+          vaultUndo.tokens[next] = nextSession.token;
+          vaultUndo.credentials[next] = nextSession.credentials;
+        }
+
+        var liveCredentialsChanged = false;
+        var registryWritten = false;
+        var activeIdWritten = false;
+        try {
+          if (wasActive) {
+            final filed = await _fileForeignSavedCredentialsUnlocked(
+              accountId,
+              configs,
+              undo: vaultUndo,
+            );
+            if (nextSession != null && filed?.owner == next) {
+              // Filed under the account taking over, which takes it up.
+              nextSession = (
+                token: nextSession.token,
+                credentials: filed!.credentials,
+              );
+            }
+            liveCredentialsChanged = true;
+            await _deleteAuthTokenUnlocked();
+            await _deleteSavedCredentialsUnlocked();
+          } else if (_savedCredentialsServerId(previousCredentialsPayload) ==
+              accountId) {
+            // From before accounts existed: this account's sign-in, live
+            // while another is active. It goes with the account.
+            liveCredentialsChanged = true;
+            await _deleteSavedCredentialsUnlocked();
+          }
+          await _deleteVaultedSessionUndoablyUnlocked(accountId, vaultUndo);
+          _stagedServerConfigCandidate = null;
+
+          final remaining = [
+            for (final config in configs)
+              if (config.id != accountId)
+                config.copyWith(
+                  // Removing an inactive account leaves the active one active.
+                  isActive: wasActive ? config.id == next : config.isActive,
+                ),
+          ];
+          if (remaining.length != configs.length || wasActive) {
+            registryWritten = true;
+            await _saveServerConfigsUnlocked(remaining);
+          }
+          if (!wasActive) return false;
+          activeIdWritten = true;
+          await _writeActiveServerIdWithoutConfigSync(next);
+          if (next == null) return false;
+          return await _adoptVaultedSessionUnlocked(next, vaulted: nextSession);
+        } catch (error, stackTrace) {
+          // Nothing of the removal stays: the account keeps its record, its
+          // sessions and, when it was active, the live slots.
+          await _restoreVaultUnlocked(vaultUndo);
+          try {
+            await _restoreServerSessionUnlocked(
+              registry: previousRegistry,
+              activeServerId: rawActive,
+              token: previousToken,
+              restoreConfigs: registryWritten,
+              restoreActiveServerId: activeIdWritten,
+              restoreCredentials: liveCredentialsChanged,
+              credentialsPayload: previousCredentialsPayload,
+              credentialsReadSuppressed: previousCredentialsReadSuppressed,
+              // An inactive account's removal leaves the live token alone.
+              tokenAlreadyDeleted: !wasActive,
+            );
+          } catch (rollbackError, rollbackStackTrace) {
+            await _bestEffortFailClosedServerSessionRestoreUnlocked(
+              registry: previousRegistry,
+              activeServerId: rawActive,
+            );
+            Error.throwWithStackTrace(
+              ServerConfigSessionRollbackException(
+                commitError: error,
+                rollbackError: rollbackError,
+              ),
+              rollbackStackTrace,
             );
           }
-          await _deleteAuthTokenUnlocked();
-          await _deleteSavedCredentialsUnlocked();
+          Error.throwWithStackTrace(error, stackTrace);
         }
-        await _deleteVaultedSessionUnlocked(accountId);
-        _stagedServerConfigCandidate = null;
-
-        final remaining = [
-          for (final config in configs)
-            if (config.id != accountId)
-              config.copyWith(
-                // Removing an inactive account leaves the active one active.
-                isActive: wasActive ? config.id == next : config.isActive,
-              ),
-        ];
-        if (remaining.length != configs.length || wasActive) {
-          await _saveServerConfigsUnlocked(remaining);
-        }
-        if (!wasActive) return false;
-        await _writeActiveServerIdWithoutConfigSync(next);
-        if (next == null) return false;
-        return _adoptVaultedSessionUnlocked(next, vaulted: nextSession);
       }),
     );
   }
