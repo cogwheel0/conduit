@@ -65,6 +65,7 @@ import 'package:conduit_core/services/connectivity_service.dart';
 
 import 'package:conduit_core/services/conversation_parsing.dart';
 
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 

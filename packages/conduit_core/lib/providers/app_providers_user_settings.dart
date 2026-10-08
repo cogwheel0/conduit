@@ -193,7 +193,7 @@ class PersonalizationSettings extends _$PersonalizationSettings {
       _settingsServerId = serverId;
       _settingsSnapshot = updated;
       state = AsyncData(updated);
-      _cachePinnedModelsLocally(updated.pinnedModelIds);
+      _cachePinnedModelsLocally(updated.pinnedModelIds, accountId: serverId);
       ref.invalidate(rawUserSettingsProvider);
       ref.invalidate(userSettingsProvider);
       return updated;
@@ -291,7 +291,7 @@ class PersonalizationSettings extends _$PersonalizationSettings {
 
     _settingsServerId = serverId;
     _settingsSnapshot = settings;
-    _cachePinnedModelsLocally(settings.pinnedModelIds);
+    _cachePinnedModelsLocally(settings.pinnedModelIds, accountId: serverId);
     return settings;
   }
 
@@ -340,7 +340,12 @@ class PersonalizationSettings extends _$PersonalizationSettings {
     );
   }
 
-  void _cachePinnedModelsLocally(List<String> modelIds) {
+  /// Keeps [modelIds], the pins [accountId]'s server answered with, as that
+  /// account's local copy.
+  void _cachePinnedModelsLocally(
+    List<String> modelIds, {
+    required String? accountId,
+  }) {
     final local = ref.read(appSettingsProvider).pinnedModels;
     if (const ListEquality<Object?>().equals(local, modelIds)) {
       return;
@@ -348,7 +353,9 @@ class PersonalizationSettings extends _$PersonalizationSettings {
 
     unawaited(
       Future<void>.microtask(() async {
-        if (!ref.mounted) {
+        // A switch since would file them under the next account: a write
+        // lands under the account active when it starts.
+        if (!ref.mounted || currentPreferenceAccountId() != accountId) {
           return;
         }
         await ref.read(appSettingsProvider.notifier).setPinnedModels(modelIds);
