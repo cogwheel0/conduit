@@ -7,6 +7,8 @@
 /// WebUI account is left.
 library;
 
+import 'dart:async';
+
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -335,28 +337,12 @@ final class OpenWebUiAccountsController {
 /// the app.
 final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
   var reconciling = false;
-  ref.listen<AsyncValue<AuthState>>(authStateManagerProvider, (
-    previous,
-    next,
-  ) async {
-    final auth = next.asData?.value;
-    final user = auth?.user;
-    if (reconciling || auth == null || !auth.isAuthenticated || user == null) {
-      return;
-    }
-    final before = previous?.asData?.value;
-    if (before != null &&
-        before.isAuthenticated &&
-        before.token == auth.token) {
-      return;
-    }
-    // Read synchronously, at publication: the active account is then the one
-    // this session belongs to. Anything read after an await may already be
-    // the next account of a switch in progress.
-    final sessionAccountId = PreferencesStore.getString(
-      PreferenceKeys.activeServerId,
-    );
-    if (sessionAccountId == null || sessionAccountId.isEmpty) return;
+  // A sign-in published while another was being reconciled. Checked once
+  // that one is done: it would otherwise stay a duplicate for good.
+  ({AuthState auth, String sessionAccountId})? deferred;
+
+  Future<void> reconcile(AuthState auth, String sessionAccountId) async {
+    final user = auth.user!;
     reconciling = true;
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
@@ -394,6 +380,37 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
       );
     } finally {
       reconciling = false;
+      final next = deferred;
+      deferred = null;
+      if (next != null && ref.mounted) {
+        unawaited(reconcile(next.auth, next.sessionAccountId));
+      }
     }
+  }
+
+  ref.listen<AsyncValue<AuthState>>(authStateManagerProvider, (
+    previous,
+    next,
+  ) {
+    final auth = next.asData?.value;
+    if (auth == null || !auth.isAuthenticated || auth.user == null) return;
+    final before = previous?.asData?.value;
+    if (before != null &&
+        before.isAuthenticated &&
+        before.token == auth.token) {
+      return;
+    }
+    // Read synchronously, at publication: the active account is then the one
+    // this session belongs to. Anything read after an await may already be
+    // the next account of a switch in progress.
+    final sessionAccountId = PreferencesStore.getString(
+      PreferenceKeys.activeServerId,
+    );
+    if (sessionAccountId == null || sessionAccountId.isEmpty) return;
+    if (reconciling) {
+      deferred = (auth: auth, sessionAccountId: sessionAccountId);
+      return;
+    }
+    unawaited(reconcile(auth, sessionAccountId));
   });
 });

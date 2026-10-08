@@ -67,6 +67,46 @@ final class _Auth extends AuthStateManager {
   }
 }
 
+/// Signs in when told to, and records the accounts it folds sign-ins into.
+final class _SigningInAuth extends AuthStateManager {
+  final merges = <(String, String)>[];
+
+  @override
+  Future<AuthState> build() async =>
+      const AuthState(status: AuthStatus.unauthenticated);
+
+  void signIn(String token, User user) => state = AsyncData(
+    AuthState(status: AuthStatus.authenticated, token: token, user: user),
+  );
+
+  @override
+  Future<bool> mergeActiveAccountInto(
+    String targetAccountId, {
+    required String expectedSourceAccountId,
+  }) async {
+    merges.add((targetAccountId, expectedSourceAccountId));
+    return true;
+  }
+}
+
+/// Serves the registry once [release] completes.
+final class _HeldRegistryStorage implements OptimizedStorageService {
+  _HeldRegistryStorage(this.registry);
+
+  final OpenWebUiRegistry registry;
+  final Completer<void> release = Completer<void>();
+
+  @override
+  Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async {
+    await release.future;
+    return registry;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError(invocation.memberName.toString());
+}
+
 final class _Hermes extends HermesConfigController {
   @override
   HermesConfig build() => const HermesConfig();
@@ -250,6 +290,49 @@ void main() {
     }, storage: storage);
 
     check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+  });
+
+  test('a sign-in published while another is reconciled is still folded '
+      'into its account', () async {
+    const userA = User(id: 'user-a', username: 'a', email: 'a@x', role: 'user');
+    const userB = User(id: 'user-b', username: 'b', email: 'b@x', role: 'user');
+    final storage = _HeldRegistryStorage(
+      OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 's',
+            name: 'Chat',
+            endpoints: [OpenWebUiEndpoint(id: 'e', url: 'https://chat.example')],
+          ),
+        ],
+        accounts: [
+          OpenWebUiAccount(id: 'a', serverId: 's', userId: 'user-a'),
+          OpenWebUiAccount(id: 'b', serverId: 's', userId: 'user-b'),
+          OpenWebUiAccount(id: 'added-1', serverId: 's'),
+          OpenWebUiAccount(id: 'added-2', serverId: 's'),
+        ],
+      ),
+    );
+    final auth = _SigningInAuth();
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => auth),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiDuplicateAccountReconcilerProvider);
+    await container.read(authStateManagerProvider.future);
+
+    // A's sign-in is being reconciled when B's lands; A's is then stale.
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'added-1');
+    auth.signIn('token-1', userA);
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'added-2');
+    auth.signIn('token-2', userB);
+    storage.release.complete();
+    await pumpEventQueue();
+
+    check(auth.merges).deepEquals([('b', 'added-2')]);
   });
 
   test('leaving an addition goes back to the account signed in to last', () async {
