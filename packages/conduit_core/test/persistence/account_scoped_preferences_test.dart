@@ -217,6 +217,42 @@ void main() {
     check(PreferencesStore.containsKey(onA)).isFalse();
   });
 
+  // A sign-out removes the account while a save of its settings is still
+  // being written, one key after another.
+  test('a settings save overtaken by its account\'s removal leaves nothing',
+      () async {
+    final paused = Completer<void>();
+    final resume = Completer<void>();
+    final onA = accountScopedPreferenceKey('', 'a');
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async {
+        if (key.endsWith(onA) && !paused.isCompleted) {
+          paused.complete();
+          await resume.future;
+        }
+        return null;
+      },
+    );
+    await PreferencesStore.put(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    await activate('a');
+
+    final saving = SettingsService.saveSettings(
+      const AppSettings(defaultModel: 'model-on-a'),
+    );
+    await paused.future;
+    await clearOpenWebUiAccountPreferences('a');
+    resume.complete();
+    await saving;
+
+    check(PreferencesStore.keys().where((key) => key.endsWith(onA))).isEmpty();
+    // Device-wide settings it carried are still saved.
+    check(PreferencesStore.containsKey(PreferenceKeys.reduceMotion)).isTrue();
+  });
+
   test('an account whose settings copy cannot be marked done is still cleared',
       () async {
     final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
@@ -511,6 +547,47 @@ void main() {
     await apply;
 
     check(container.read(appSettingsProvider).notificationSound).isFalse();
+  });
+
+  test('server notification prefs overtaken by their account\'s removal '
+      'leave nothing', () async {
+    final paused = Completer<void>();
+    final resume = Completer<void>();
+    final onA = accountScopedPreferenceKey('', 'a');
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async {
+        if (key.endsWith(onA) && !paused.isCompleted) {
+          paused.complete();
+          await resume.future;
+        }
+        return null;
+      },
+    );
+    await PreferencesStore.put(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    await activate('a');
+    final container = ProviderContainer(
+      overrides: [settledActiveAccountIdProvider.overrideWith(_SettledOnA.new)],
+    );
+    addTearDown(container.dispose);
+
+    final apply = container
+        .read(appSettingsProvider.notifier)
+        .applyServerNotificationPrefs(
+          accountId: 'a',
+          enabled: true,
+          sound: true,
+          soundAlways: true,
+        );
+    await paused.future;
+    await clearOpenWebUiAccountPreferences('a');
+    resume.complete();
+    await apply;
+
+    check(PreferencesStore.keys().where((key) => key.endsWith(onA))).isEmpty();
   });
 
   test('a signed-out account\'s summary stays gone when another account '

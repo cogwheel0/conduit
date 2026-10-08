@@ -344,6 +344,36 @@ class SettingsService {
       ],
     );
 
+    // The account can be signed out of and removed while this is written:
+    // what lands for it then goes too.
+    try {
+      await _writeSettings(
+        settings,
+        scopedUpdates: scopedUpdates,
+        defaultModelKey: defaultModelKey,
+        openRouterImageGenerationModelKey: openRouterImageGenerationModelKey,
+        ttsServerVoiceIdKey: ttsServerVoiceIdKey,
+        ttsServerVoiceNameKey: ttsServerVoiceNameKey,
+      );
+    } finally {
+      await removeClearedAccountPreferences([
+        ...scopedUpdates.keys,
+        defaultModelKey,
+        openRouterImageGenerationModelKey,
+        ttsServerVoiceIdKey,
+        ttsServerVoiceNameKey,
+      ]);
+    }
+  }
+
+  static Future<void> _writeSettings(
+    AppSettings settings, {
+    required Map<String, Object?> scopedUpdates,
+    required String defaultModelKey,
+    required String openRouterImageGenerationModelKey,
+    required String ttsServerVoiceIdKey,
+    required String ttsServerVoiceNameKey,
+  }) async {
     // Web search preferences are written only by their own setters, so a
     // bulk save of a stale snapshot can't undo a concurrent change.
     await PreferencesStore.putAll(scopedUpdates);
@@ -1232,11 +1262,18 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     show();
     String key(String baseKey) =>
         accountScopedPreferenceKey(baseKey, accountId);
-    await PreferencesStore.putAll({
+    final written = {
       key(SettingsService._notificationsEnabledKey): ?enabled,
       key(SettingsService._notificationSoundKey): ?sound,
       key(SettingsService._notificationSoundAlwaysKey): ?soundAlways,
-    });
+    };
+    // Read from the server for an account that can be signed out of and
+    // removed meanwhile: what lands for it then goes too.
+    try {
+      await PreferencesStore.putAll(written);
+    } finally {
+      await removeClearedAccountPreferences(written.keys);
+    }
     // Switching away and back while these were written reloads the settings
     // from the ones written by then. Show what is stored once they all are:
     // a choice the user made meanwhile is stored after the server's, and

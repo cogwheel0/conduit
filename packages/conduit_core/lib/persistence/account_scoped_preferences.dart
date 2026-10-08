@@ -27,6 +27,33 @@ String accountScopedPreferenceKey(String baseKey, String? accountId) {
   return '$baseKey$_accountScopeSeparator${_encodedAccountId(accountId)}';
 }
 
+/// The accounts, by encoded id, whose preferences
+/// [clearOpenWebUiAccountPreferences] has deleted, for each store: a write
+/// that captured one's keys before then and lands after would bring them
+/// back.
+final Expando<Set<String>> _clearedAccounts = Expando('cleared-accounts');
+
+/// Whether [key] is a setting of an account whose preferences were deleted,
+/// its account signed out of and removed. A write of it lands nowhere.
+bool isClearedAccountPreferenceKey(String key) {
+  if (!PreferencesStore.isReady) return false;
+  final cleared = _clearedAccounts[PreferencesStore.instance];
+  if (cleared == null || cleared.isEmpty) return false;
+  final separator = key.lastIndexOf(_accountScopeSeparator);
+  return separator >= 0 &&
+      cleared.contains(
+        key.substring(separator + _accountScopeSeparator.length),
+      );
+}
+
+/// Removes those of [keys] that a save wrote for an account whose
+/// preferences were deleted while it ran; they would outlive the account.
+Future<void> removeClearedAccountPreferences(Iterable<String> keys) async {
+  for (final key in keys) {
+    if (isClearedAccountPreferenceKey(key)) await PreferencesStore.remove(key);
+  }
+}
+
 /// The settings stored per account.
 const Set<String> accountScopedPreferenceKeys = <String>{
   PreferenceKeys.defaultModel,
@@ -193,6 +220,9 @@ Future<void> settleDeviceSettingsCopy(
 /// first failure is reported once the rest have run.
 Future<void> clearOpenWebUiAccountPreferences(String accountId) async {
   if (!PreferencesStore.isReady) return;
+  (_clearedAccounts[PreferencesStore.instance] ??= <String>{}).add(
+    _encodedAccountId(accountId),
+  );
   Object? firstError;
   StackTrace? firstStackTrace;
   Future<void> attempt(Future<void> Function() write) async {
