@@ -51,6 +51,25 @@ void _reportProxyRefusal(
 
 const _proxyRefusalReportedKey = 'conduit.proxyRefusalReported';
 
+/// Reports [response] when it is a gateway error for [server]: a proxy in
+/// front of it that could not reach it.
+void _reportGatewayFailure(Response<dynamic> response, Uri? server) {
+  final options = response.requestOptions;
+  if (options.extra[_gatewayFailureReportedKey] == true) return;
+  if (!requestUsesServerConnectivityOrigin(
+    sameOriginRedirectStart(options),
+    server,
+  )) {
+    return;
+  }
+  if (!_gatewayErrorStatusCodes.contains(response.statusCode)) return;
+  options.extra[_gatewayFailureReportedKey] = true;
+  ConnectivityService.reportGatewayFailure(server);
+}
+
+const _gatewayErrorStatusCodes = {502, 503, 504};
+const _gatewayFailureReportedKey = 'conduit.gatewayFailureReported';
+
 /// Whether [a] and [b] name one path, a trailing slash aside.
 bool _samePath(Uri a, Uri b) {
   String trimmed(String path) =>
@@ -230,6 +249,7 @@ abstract class _ApiServiceBase {
             // Reporting must not replace the request's own error.
             try {
               _reportProxyRefusal(response, connectivityOrigin, serverConfig);
+              _reportGatewayFailure(response, connectivityOrigin);
             } catch (_) {}
           }
           // Judged by where a replay started, as a refusal is: an upgrade to

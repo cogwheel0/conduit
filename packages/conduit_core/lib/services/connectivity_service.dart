@@ -462,6 +462,8 @@ class ConnectivityService {
       StreamController<Uri>.broadcast(sync: true);
   static final StreamController<RouteRejection> _routeRejections =
       StreamController<RouteRejection>.broadcast(sync: true);
+  static final StreamController<Uri> _gatewayFailures =
+      StreamController<Uri>.broadcast(sync: true);
 
   static String? _originKey(Uri? uri) {
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
@@ -498,6 +500,19 @@ class ConnectivityService {
   static void reportTransportFailure(Uri? serverUri) {
     if (serverUri != null && !_transportFailures.isClosed) {
       _transportFailures.add(serverUri);
+    }
+  }
+
+  /// Requests a proxy in front of their server answered for it with a
+  /// gateway error, by server URI: the proxy could not reach the server,
+  /// which another of its addresses may still reach. The address answered,
+  /// so connectivity ignores it; the route resolver checks the server's
+  /// addresses again, without holding this one back.
+  static Stream<Uri> get gatewayFailures => _gatewayFailures.stream;
+
+  static void reportGatewayFailure(Uri? serverUri) {
+    if (serverUri != null && !_gatewayFailures.isClosed) {
+      _gatewayFailures.add(serverUri);
     }
   }
 

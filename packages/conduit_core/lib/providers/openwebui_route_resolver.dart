@@ -259,6 +259,12 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       (uri) => failed(uri, 'unreachable'),
       onError: (Object _) {},
     );
+    // A proxy that cannot reach the server says nothing of the server's
+    // other addresses; they are checked as for one not answering.
+    final gateways = ConnectivityService.gatewayFailures.listen(
+      (uri) => failed(uri, 'gateway'),
+      onError: (Object _) {},
+    );
     final rejections = ConnectivityService.routeRejections.listen(
       (rejection) => failed(
         rejection.server,
@@ -287,6 +293,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       _retry?.cancel();
       _trailing?.cancel();
       unawaited(failures.cancel());
+      unawaited(gateways.cancel());
       unawaited(rejections.cancel());
       unawaited(network.cancel());
       unawaited(lifecycle.cancel());

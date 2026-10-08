@@ -358,6 +358,19 @@ void main() {
       check(await routeInUse()).equals(_public);
     });
 
+    test('checks the routes when a proxy on it reports a gateway error',
+        () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      answers[_lan] = false;
+
+      ConnectivityService.reportGatewayFailure(Uri.parse(_lan));
+
+      await until(() => routes.state.endpointId == 'public');
+      check(await routeInUse()).equals(_public);
+    });
+
     test('checks them when it was the route a check moved to', () async {
       final routes = await resolver();
       answers = {_lan: false, _tailscale: false, _public: true};

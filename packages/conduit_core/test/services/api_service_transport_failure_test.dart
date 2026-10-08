@@ -282,6 +282,27 @@ void main() {
       });
     }
 
+    // A proxy whose server went away; another address can still reach it.
+    for (final status in [502, 503, 504]) {
+      test('with a gateway error $status is reported for another address '
+          'to be tried', () async {
+        final gateways = <Uri>[];
+        final subscription = ConnectivityService.gatewayFailures.listen(
+          gateways.add,
+        );
+        addTearDown(subscription.cancel);
+
+        await request('/api/v1/models/', {
+          '/api/v1/models/': () => _page(status),
+        });
+
+        check(gateways).deepEquals([Uri.parse(server)]);
+        // It answered: not a refusal of the session, nor unreachable.
+        check(rejected).isEmpty();
+        check(unreachable).isEmpty();
+      });
+    }
+
     test('with a page sent with its content type twice is reported, and '
         'the request keeps its own error', () async {
       api.dio.httpClientAdapter = _Proxy({
