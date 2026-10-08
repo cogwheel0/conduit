@@ -123,6 +123,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   bool _isSigningIn = false;
   bool _serverConfigSaved = false;
 
+  /// Whether the addition this page's server was saved for is still under
+  /// way, when it was saved for one.
+  bool Function()? _additionInProgress;
+
   ConnectionAttemptState get _attemptState {
     final l10n = AppLocalizations.of(context)!;
     if (_isSigningIn) {
@@ -297,6 +301,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         await _saveServerConfig(_serverConfig!);
         _serverConfigSaved = true;
       }
+      if (!await _signInTargetStillSelected()) {
+        throw StateError('The selected server changed before sign-in was ready.');
+      }
+      if (!mounted) return;
 
       final actions = ref.read(authActionsProvider);
       bool success;
@@ -401,6 +409,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final addition = ref.read(accountAdditionOriginProvider) == null
         ? null
         : ref.read(accountAdditionOriginProvider.notifier).stillInProgress();
+    _additionInProgress = addition;
     await ref
         .read(authStateManagerProvider.notifier)
         .selectUnauthenticatedServerConfig(config, canCommit: addition);
@@ -421,6 +430,19 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           .read(backendConfigProvider.notifier)
           .cacheForServer(backendConfig, config.id);
     }
+  }
+
+  /// Whether what this sign-in signs in to is still selected. Cancel, or
+  /// Back, while it is prepared ends the addition and makes the account it
+  /// began from active again; a sign-in then would save this user's session
+  /// under that account.
+  Future<bool> _signInTargetStillSelected() async {
+    final addition = _additionInProgress;
+    if (addition != null && !addition()) return false;
+    final config = _serverConfig;
+    if (config == null) return true;
+    final selected = await ref.read(activeServerProvider.future);
+    return mounted && authenticationServerMatchesSelection(selected, config);
   }
 
   /// Cancel: drops the added account and returns to the account it was
@@ -867,6 +889,15 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         return;
       }
       if (!mounted) return;
+    }
+    if (!await _signInTargetStillSelected() || !mounted) {
+      if (mounted) {
+        setState(() {
+          _loginError = AppLocalizations.of(context)!.genericSignInFailed;
+          _isSigningIn = false;
+        });
+      }
+      return;
     }
 
     await context.pushNamed(RouteNames.ssoAuth, extra: _serverConfig);

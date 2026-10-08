@@ -18,6 +18,7 @@ import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dar
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -674,6 +675,63 @@ void main() {
     check(committed).isFalse();
     check(actions.ldapAttempts).isEmpty();
     expect(find.byKey(const ValueKey<String>('chat')), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
+
+  // Cancel while sign-in is prepared ends the addition and makes the account
+  // it began from active again; signing in then would save this user's
+  // session under that account.
+  testWidgets('an addition left while sign-in is prepared signs nothing in', (
+    tester,
+  ) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final actions = _RejectingAuthActions();
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLdap: true),
+      authActions: actions,
+      addingAccountFrom: 'ada-account',
+    );
+    addTearDown(harness.dispose);
+    late ProviderContainer container;
+    when(
+      () => harness.storage.selectUnauthenticatedServerConfig(
+        any(),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        publish: any(named: 'publish'),
+      ),
+    ).thenAnswer((_) async {
+      // Saved; Cancel lands while the rest is prepared.
+      container.read(accountAdditionOriginProvider.notifier).end('ada-account');
+      return true;
+    });
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+    container = ProviderScope.containerOf(
+      tester.element(find.byType(AuthenticationPage)),
+    );
+    await tester.tap(find.text('LDAP'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byKey(const ValueKey('ldap_form')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), 'grace');
+    await tester.enterText(fields.at(1), 'password');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sign in with LDAP'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    check(actions.ldapAttempts).isEmpty();
 
     await harness.unmount(tester);
   });
