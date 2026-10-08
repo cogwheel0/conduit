@@ -3214,6 +3214,101 @@ void main() {
     check(auth.user).equals(user);
     check(auth.isLoading).isFalse();
   });
+
+  // Stopped by its addition ending rather than by a newer sign-in, the
+  // proxy sign-in still owns the loading state it set, and settles it.
+  test('a proxy sign-in for an addition already left settles back', () async {
+    const addedUser = User(
+      id: 'added-user',
+      username: 'added',
+      email: 'added@example.test',
+      role: 'user',
+    );
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        user,
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    var stageCall = 60;
+    when(() => storage.stageServerConfigCandidate(any())).thenAnswer(
+      (_) async => (
+        configs: const [previousConfig],
+        activeServerId: previousConfig.id,
+        transactionId: ++stageCall,
+      ),
+    );
+    when(
+      () => storage.discardServerConfigCandidate(
+        candidate: any(named: 'candidate'),
+        transactionId: any(named: 'transactionId'),
+      ),
+    ).thenAnswer((_) async => true);
+    when(
+      () => storage.commitServerConfigCandidateSession(
+        candidate: any(named: 'candidate'),
+        transactionId: any(named: 'transactionId'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final canCommit =
+          invocation.namedArguments[#canCommit] as bool Function();
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      if (!canCommit()) return false;
+      await publish();
+      return true;
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    check(
+      await container
+          .read(authStateManagerProvider.notifier)
+          .commitPrevalidatedProxySession(
+            serverConfig: previousConfig,
+            token: token,
+            user: user,
+          ),
+    ).isTrue();
+
+    final addition = container.read(accountAdditionOriginProvider.notifier)
+      ..begin(previousConfig.id);
+    final stillAdding = addition.stillInProgress();
+    // Left before the sign-in it began reaches auth.
+    addition.end(previousConfig.id);
+
+    check(
+      await container
+          .read(authActionsProvider)
+          .commitPrevalidatedProxySession(
+            serverConfig: candidate,
+            token: 'added-proxy-token',
+            user: addedUser,
+            canCommit: stillAdding,
+          ),
+    ).isFalse();
+    final auth = container.read(authStateManagerProvider).requireValue;
+    check(auth.isLoading).isFalse();
+    check(auth.status).equals(AuthStatus.authenticated);
+    check(auth.token).equals(token);
+  });
 }
 
 enum _MixedAuthMode { password, token, ldap }

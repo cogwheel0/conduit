@@ -1736,9 +1736,19 @@ class AuthStateManager extends _$AuthStateManager {
     );
 
     final storage = ref.read(optimizedStorageServiceProvider);
+    // Stopped by the caller rather than by a newer attempt, this one still
+    // owns the state it set loading, and settles it back.
+    void settleStopped() => _restorePrevalidatedProxyAttemptState(
+      attemptRevision: attemptRevision,
+      capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
+      previousState: previousState,
+    );
     ServerConfigCandidateSnapshot? candidateSnapshot;
     try {
-      if (superseded()) return false;
+      if (superseded()) {
+        settleStopped();
+        return false;
+      }
       final snapshot = await storage.stageServerConfigCandidate(serverConfig);
       candidateSnapshot = snapshot;
       if (superseded()) {
@@ -1747,6 +1757,7 @@ class AuthStateManager extends _$AuthStateManager {
           candidate: serverConfig,
           snapshot: snapshot,
         );
+        settleStopped();
         return false;
       }
 
