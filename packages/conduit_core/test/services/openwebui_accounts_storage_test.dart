@@ -496,6 +496,15 @@ void main() {
     });
   });
 
+  test('an account in use that cannot be read is not reported as none', () async {
+    await storage.saveServerConfigs([account('a')]);
+    await signIn('a');
+    storage.clearCache();
+    secure.unreadableKey = 'openwebui_registry_v1';
+
+    await check(storage.getEffectiveActiveServerId()).throws<StateError>();
+  });
+
   test('signing out still clears cached user data when the account list '
       'cannot be read', () async {
     await storage.saveServerConfigs([account('a')]);

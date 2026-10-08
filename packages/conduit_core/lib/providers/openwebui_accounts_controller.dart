@@ -143,7 +143,23 @@ final class OpenWebUiAccountsController {
         .signOutAccount(accountId, thenActivate: next);
     // Read again: the sign-out waited on the server, and what is active now
     // is what it left, or what a sign-in made active meanwhile.
-    final now = await _activeAccountId();
+    final String? now;
+    try {
+      now = await _activeAccountId();
+    } catch (error, stackTrace) {
+      // The sign-out is done; with the account now in use unknown, nothing
+      // else changes on its behalf, the backend least of all.
+      DebugLogger.error(
+        'active-account-read-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _ref.invalidate(openWebUiAccountsProvider);
+      return signedIn
+          ? OpenWebUiAccountChangeResult.done
+          : OpenWebUiAccountChangeResult.needsSignIn;
+    }
     if (now == activeId) {
       _ref.invalidate(openWebUiAccountsProvider);
       return OpenWebUiAccountChangeResult.done;
@@ -260,8 +276,18 @@ final class OpenWebUiAccountsController {
           : PreferredBackend.unset;
     }
     // A sign-in can have made an account active while this waited; the app
-    // stays on Open WebUI then.
-    if (await _activeAccountId() != null) return;
+    // stays on Open WebUI then, and when that cannot be read.
+    try {
+      if (await _activeAccountId() != null) return;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'active-account-read-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return;
+    }
     await _ref.read(preferredBackendProvider.notifier).set(fallback);
   }
 

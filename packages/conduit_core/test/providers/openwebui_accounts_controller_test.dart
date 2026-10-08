@@ -22,8 +22,14 @@ import 'package:test/test.dart';
 final class _Storage implements OptimizedStorageService {
   String? active = 'a';
 
+  /// Once set, reading the active account fails with it.
+  Object? readError;
+
   @override
-  Future<String?> getEffectiveActiveServerId() async => active;
+  Future<String?> getEffectiveActiveServerId() async {
+    if (readError case final error?) throw error;
+    return active;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) =>
@@ -149,6 +155,51 @@ void main() {
     }, storage: storage);
 
     check(preferred).equals(PreferredBackend.unset);
+    check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+  });
+
+  test('a sign-out that cannot read the account in use afterwards changes '
+      'nothing more', () async {
+    final storage = _Storage();
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(
+          () => _Auth(
+            storage,
+            duringSignOut: () => storage.readError = StateError('locked'),
+          ),
+        ),
+        hermesConfigProvider.overrideWith(_Hermes.new),
+        openWebUiAccountsProvider.overrideWith((ref) async => const []),
+        accountChangeReplyGuardProvider.overrideWithValue(() => false),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final result = await container
+        .read(openWebUiAccountsControllerProvider)
+        .signOut('a');
+
+    check(result).equals(OpenWebUiAccountChangeResult.needsSignIn);
+    check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
+  });
+
+  test('the backend stays when the account in use cannot be read before '
+      'falling back', () async {
+    final storage = _Storage();
+    final profile = DirectConnectionProfile(
+      id: 'profile',
+      name: 'Provider',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://provider.example/v1',
+    );
+
+    await _signOutOfLastAccount(() async {
+      storage.readError = StateError('locked');
+      return [profile];
+    }, storage: storage);
+
     check(PreferencesStore.getString(PreferenceKeys.preferredBackend)).isNull();
   });
 

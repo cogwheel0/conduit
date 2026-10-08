@@ -1166,7 +1166,17 @@ class AuthStateManager extends _$AuthStateManager {
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
       Future<bool> isActive() async {
-        final activeId = await storage.getEffectiveActiveServerId();
+        String? activeId;
+        try {
+          activeId = await storage.getEffectiveActiveServerId();
+        } catch (error, stackTrace) {
+          // Unread, it is judged by the account the app has in use.
+          _logAuthenticationFailure(
+            'active-account-read-failed',
+            error,
+            stackTrace: stackTrace,
+          );
+        }
         return activeId == accountId ||
             (activeId == null &&
                 ref.read(activeServerProvider).asData?.value?.id == accountId);

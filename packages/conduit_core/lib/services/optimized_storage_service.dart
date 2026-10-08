@@ -2849,20 +2849,12 @@ class OptimizedStorageService {
   /// names, or failing that the one flagged active, or the only one saved.
   /// Account changes compare against this, as storage itself does; the
   /// stricter id can be null while an account is active. Null when nothing
-  /// is active or the read failed.
+  /// is active; throws when it cannot be read.
   Future<String?> getEffectiveActiveServerId() {
+    // Not caught: a failed read must not pass for no account at all, which
+    // callers would act on.
     return _authStateLock.synchronized(
-      () => _serverConfigsLock.synchronized(() async {
-        try {
-          return await _effectiveActiveServerIdUnlocked();
-        } catch (error) {
-          DebugLogger.log(
-            'Failed to resolve effective active server id: $error',
-            scope: 'storage/optimized',
-          );
-          return null;
-        }
-      }),
+      () => _serverConfigsLock.synchronized(_effectiveActiveServerIdUnlocked),
     );
   }
 
