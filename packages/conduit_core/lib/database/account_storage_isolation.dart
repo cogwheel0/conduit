@@ -429,17 +429,19 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     await _recordPendingPurge(accountId);
     Object? firstError;
     StackTrace? firstStackTrace;
-    Future<void> attempt(Future<void> Function() step) async {
+    Future<bool> attempt(Future<void> Function() step) async {
       try {
         await step();
+        return true;
       } catch (error, stackTrace) {
         firstError ??= error;
         firstStackTrace ??= stackTrace;
+        return false;
       }
     }
 
     try {
-      await attempt(() async {
+      final trustForgotten = await attempt(() async {
         final ownerMarker = ref
             .read(openWebUiAccountOwnerMarkerStoreProvider)
             .read(accountId);
@@ -457,7 +459,9 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         }
       });
       await attempt(() => ref.read(openWebUiDatabasePurgeProvider)(accountId));
-      await attempt(() => _removeOwnerMarker(accountId));
+      // The marker is how a retry finds that trust again, so it stays until
+      // the trust is gone.
+      if (trustForgotten) await attempt(() => _removeOwnerMarker(accountId));
       await attempt(
         () => ref.read(openWebUiAccountPrivateDataClearProvider)(accountId),
       );
@@ -491,24 +495,36 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       PreferenceKeys.pendingAccountPurges,
     );
     if (pending == null || pending.isEmpty) return;
+    final Set<String> saved;
     try {
-      final saved = await ref.read(openWebUiSavedAccountIdsProvider)();
-      for (final accountId in pending) {
-        if (_disposed) return;
+      saved = await ref.read(openWebUiSavedAccountIdsProvider)();
+    } catch (error, stackTrace) {
+      _logPendingPurgeFailure(error, stackTrace);
+      return;
+    }
+    // One account that fails again stays pending, and must not keep the
+    // ones after it from being cleaned up.
+    for (final accountId in pending) {
+      if (_disposed) return;
+      try {
         if (saved.contains(accountId)) {
           await _forgetPendingPurge(accountId);
         } else {
           await purgeAccount(accountId);
         }
+      } catch (error, stackTrace) {
+        _logPendingPurgeFailure(error, stackTrace);
       }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'pending-account-purge-failed',
-        scope: 'auth/storage-isolation',
-        error: error,
-        stackTrace: stackTrace,
-      );
     }
+  }
+
+  void _logPendingPurgeFailure(Object error, StackTrace stackTrace) {
+    DebugLogger.error(
+      'pending-account-purge-failed',
+      scope: 'auth/storage-isolation',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   Future<void> _recordPendingPurge(String accountId) async {

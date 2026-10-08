@@ -2303,8 +2303,6 @@ void main() {
           .equals(OpenWebUiDatabaseAccessPhase.open);
     });
 
-    // Settings scoped to an account read the kept id; an account active
-    // only as storage counts it would read the device's meanwhile.
     // The account is already gone from the list the user could sign out of
     // it again from.
     test('a purge that fails part-way runs its other steps and is kept for '
@@ -2356,6 +2354,78 @@ void main() {
       ).isNull();
     });
 
+    test('a purge keeps the owner marker until the trust it finds is gone',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+      var refuseTrustWrites = true;
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async =>
+            refuseTrustWrites &&
+                key == PreferenceKeys.hermesMixedSessionBindingTrust
+            ? false
+            : null,
+      );
+      addTearDown(() {
+        HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+        PreferencesStore.debugReset();
+      });
+      final harness = await _harness();
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      await check(isolation.purgeAccount(_serverTwo.id)).throws<StateError>();
+      check(harness.markerStore.read(_serverTwo.id)).isNotNull();
+
+      // The retry finds the trust through the marker, then removes both.
+      refuseTrustWrites = false;
+      await isolation.purgeAccount(_serverTwo.id);
+      check(harness.markerStore.read(_serverTwo.id)).isNull();
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNull();
+    });
+
+    test('a purge left by an earlier run that fails again does not hold up '
+        'the others', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountPurges}': [
+          'locked',
+          'signed-out',
+        ],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final purged = <String>[];
+      await _harness(
+        databasePurge: (accountId) async {
+          if (accountId == 'locked') throw StateError('Database locked');
+          purged.add(accountId);
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () async => {_server.id},
+          ),
+        ],
+      );
+      List<String>? pending() =>
+          PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges);
+      for (var i = 0; i < 40 && (pending()?.length ?? 0) > 1; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals(['signed-out']);
+      check(pending()).isNotNull().deepEquals(['locked']);
+    });
+
+    // Settings scoped to an account read the kept id; an account active
+    // only as storage counts it would read the device's meanwhile.
     test('certifying an account keeps it as the active account', () async {
       final kept = <String>[];
       final harness = await _harness(
