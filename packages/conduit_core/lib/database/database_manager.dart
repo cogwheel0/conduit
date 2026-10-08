@@ -519,6 +519,9 @@ class DatabaseManager {
   /// An account signed in to again in this run has the same file. Opened
   /// before the wipe finished, what it wrote would go at the next start.
   Future<void> recordPendingWipe(Set<String>? files) async {
+    // Held before the preference is written, and still held when that write
+    // fails: the files stay closed for this run, the safe side, and
+    // [finishPendingWipe] still deletes them.
     _pendingWipe = (files: files == null ? null : Set.of(files));
     await PreferencesStore.putChecked(
       PreferenceKeys.pendingAccountDatabaseWipe,
