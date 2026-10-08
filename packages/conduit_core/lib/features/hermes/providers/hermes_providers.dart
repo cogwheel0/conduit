@@ -593,12 +593,6 @@ class HermesConfigController extends Notifier<HermesConfig> {
     _throwIfSecretsUnavailable();
     final connectionId = state.connectionId;
     if (connectionId == null) return;
-    // First: a sign-in finishing meanwhile queues its save behind this.
-    _desktopSignOuts.update(
-      connectionId,
-      (count) => count + 1,
-      ifAbsent: () => 1,
-    );
     await _withRunAdmissionBlocked(() async {
       await _cancelActiveRuns();
       // An explicit sign-out clears the origin's dashboard cookies even when
@@ -611,6 +605,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
         throw StateError('Hermes dashboard cookies could not be cleared.');
       }
       await _persistDesktopCredentials(connectionId, null);
+      // Only once signed out: a sign-in finishing meanwhile queued its save
+      // behind this, and must not be saved. After a sign-out that failed, a
+      // refresh of the tokens still stored must be.
+      _desktopSignOuts.update(
+        connectionId,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
       state = _withState(desktopCredentials: null);
       _releaseRuntimeSession();
       ref.read(hermesConnectionGenerationProvider.notifier).bump();
