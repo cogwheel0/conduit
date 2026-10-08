@@ -117,6 +117,23 @@ void main() {
       check(edited.servers).length.equals(1);
     });
 
+    test('of two different edits to a shared endpoint, the later wins', () {
+      final shared = OpenWebUiRegistry.empty.mergeServerConfigs([
+        config('a', url: 'https://chat.example.com'),
+        config('b', url: 'https://chat.example.com'),
+      ]);
+      final configs = shared.projectAll();
+
+      final edited = shared.mergeServerConfigs([
+        configs[0].copyWith(url: 'https://chat.example.org'),
+        configs[1].copyWith(url: 'https://chat.example.net'),
+      ]);
+
+      check(edited.project('a')!.url).equals('https://chat.example.net');
+      check(edited.project('b')!.url).equals('https://chat.example.net');
+      check(edited.servers).length.equals(1);
+    });
+
     test('dropping the last account of a server drops the server', () {
       final registry = OpenWebUiRegistry.empty.mergeServerConfigs([
         config('a'),

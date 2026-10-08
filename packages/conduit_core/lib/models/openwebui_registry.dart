@@ -400,7 +400,8 @@ final class OpenWebUiRegistry {
   ///
   /// A shared endpoint is edited only by a config that differs from it. When
   /// two accounts on one server are saved together and only one was edited,
-  /// the other's unchanged copy must not undo that edit.
+  /// the other's unchanged copy must not undo that edit. When both carry
+  /// different edits, the one later in [configs] wins.
   OpenWebUiRegistry mergeServerConfigs(
     Iterable<ServerConfig> configs, {
     Map<String, String> selectedEndpoints = const <String, String>{},
