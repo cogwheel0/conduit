@@ -35,6 +35,7 @@ ProviderRead _reader({
   bool accountless = false,
   List<DirectConnectionProfile> directProfiles = const [],
   String? addingAccountFrom,
+  AuthState authSnapshot = const AuthState(status: AuthStatus.unauthenticated),
 }) {
   final values = <ProviderListenable<Object?>, Object?>{
     accountAdditionOriginProvider: addingAccountFrom,
@@ -47,9 +48,7 @@ ProviderRead _reader({
     effectiveDirectConnectionProfilesProvider:
         AsyncData<List<DirectConnectionProfile>>(directProfiles),
     accountlessPrimaryBackendUsableProvider: accountless,
-    authStateManagerProvider: const AsyncData<AuthState>(
-      AuthState(status: AuthStatus.unauthenticated),
-    ),
+    authStateManagerProvider: AsyncData<AuthState>(authSnapshot),
   };
   return <T>(ProviderListenable<T> provider) {
     if (!values.containsKey(provider)) {
@@ -99,6 +98,27 @@ void main() {
         final read = _reader();
 
         check(resolveRouteRedirect(Routes.addServer, read)).equals(Routes.chat);
+      });
+
+      // A profile refresh for the account it began from was refused: that
+      // account's error, its token kept.
+      test('stays in the sign-in flow through an error of the first '
+          'account', () {
+        final read = _reader(
+          auth: AuthNavigationState.error,
+          authSnapshot: const AuthState(
+            status: AuthStatus.error,
+            token: 'token-a',
+            error: 'refused',
+          ),
+          addingAccountFrom: _server.id,
+        );
+
+        check(resolveRouteRedirect(Routes.addServer, read)).isNull();
+        check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+        // Outside the addition's pages, the error shows as before.
+        check(resolveRouteRedirect(Routes.chat, read))
+            .equals(Routes.connectionIssue);
       });
 
       test('the new account, signed out, stays on its sign-in', () {

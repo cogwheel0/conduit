@@ -289,6 +289,11 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
       if (isAuthLocation(location)) return null;
       return Routes.authentication;
     case AuthNavigationState.error:
+      // A request refused for the account an addition began from, which
+      // keeps its token, is that account's: the addition's pages stay.
+      if (isAuthLocation(location) && _isAddingAccountFromActive(read)) {
+        return null;
+      }
       final authSnapshot = read(authStateManagerProvider)
           .maybeWhen(data: (state) => state, orElse: () => null);
       final hasValidToken = authSnapshot?.hasValidToken ?? false;
