@@ -4,8 +4,8 @@
 /// A saved server can list several addresses -- a LAN address, a Tailscale
 /// name, a public reverse proxy -- in the user's order of preference. The app
 /// uses the first of them that answers, checking again when the account,
-/// the network or the server's reachability changes and when the app comes
-/// back to the foreground.
+/// the network or the server's reachability changes, when a proxy in front
+/// of it turns requests away, and when the app comes back to the foreground.
 library;
 
 import 'dart:async';
@@ -154,13 +154,14 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       if (previous != next) _schedule('account');
     });
     // Requests failing to reach the server mean the route in use may have
-    // gone. Watched through the static signal rather than the connectivity
+    // gone, and a proxy turning them away means its session there expired.
+    // Watched through the static signals rather than the connectivity
     // provider, which would start its health polling just by being listened
     // to. A burst of failures checks once. Every client reports its own
     // failures -- an address being checked, another account's server -- and
     // only the route in use says anything about it.
     DateTime? lastFailureCheck;
-    final failures = ConnectivityService.transportFailures.listen((uri) {
+    void failed(Uri uri, String reason) {
       final inUse = _inUseOrigin;
       if (inUse != null && ConnectivityService.originKey(uri) != inUse) {
         return;
@@ -173,8 +174,17 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         return;
       }
       lastFailureCheck = now;
-      _schedule('unreachable');
-    }, onError: (Object _) {});
+      _schedule(reason);
+    }
+
+    final failures = ConnectivityService.transportFailures.listen(
+      (uri) => failed(uri, 'unreachable'),
+      onError: (Object _) {},
+    );
+    final rejections = ConnectivityService.routeRejections.listen(
+      (uri) => failed(uri, 'rejected'),
+      onError: (Object _) {},
+    );
     final network = ref.read(connectivityPortProvider).onChanged.listen((
       hasInterface,
     ) {
@@ -192,6 +202,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
     ref.onDispose(() {
       _retry?.cancel();
       unawaited(failures.cancel());
+      unawaited(rejections.cancel());
       unawaited(network.cancel());
       unawaited(lifecycle.cancel());
     });

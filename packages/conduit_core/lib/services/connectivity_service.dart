@@ -454,6 +454,8 @@ class ConnectivityService {
       StreamController<Uri>.broadcast(sync: true);
   static final StreamController<Uri> _transportFailures =
       StreamController<Uri>.broadcast(sync: true);
+  static final StreamController<Uri> _routeRejections =
+      StreamController<Uri>.broadcast(sync: true);
 
   static String? _originKey(Uri? uri) {
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
@@ -490,6 +492,19 @@ class ConnectivityService {
   static void reportTransportFailure(Uri? serverUri) {
     if (serverUri != null && !_transportFailures.isClosed) {
       _transportFailures.add(serverUri);
+    }
+  }
+
+  /// Requests a proxy in front of their server turned away, by server URI:
+  /// its session there expired, and it answers with its sign-in instead of
+  /// the server. The address answered, so this says nothing about whether
+  /// the server can be reached and connectivity ignores it; the route
+  /// resolver tries the server's other addresses.
+  static Stream<Uri> get routeRejections => _routeRejections.stream;
+
+  static void reportRouteRejected(Uri? serverUri) {
+    if (serverUri != null && !_routeRejections.isClosed) {
+      _routeRejections.add(serverUri);
     }
   }
 

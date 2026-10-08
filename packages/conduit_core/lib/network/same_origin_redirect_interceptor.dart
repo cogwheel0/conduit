@@ -75,6 +75,11 @@ RequestOptions? nextSameOriginRedirectRequest({
   return redirected;
 }
 
+/// Whether [options] replays a redirect [SameOriginRedirectInterceptor]
+/// followed.
+bool isSameOriginRedirectReplay(RequestOptions options) =>
+    options.extra.containsKey(_hopExtraKey);
+
 /// Replays only credential-safe, idempotent redirects surfaced by Dio.
 final class SameOriginRedirectInterceptor extends Interceptor {
   SameOriginRedirectInterceptor(this.dio, {required this.prepareReplay});

@@ -348,6 +348,19 @@ void main() {
     });
   });
 
+  // Its session there expired: the address answers, with its sign-in.
+  test('a proxy refusing the route in use checks the routes', () async {
+    answers = {_lan: false, _tailscale: false, _public: true};
+    final routes = await resolver();
+    await routes.resolve();
+    answers = {_lan: false, _tailscale: true, _public: false};
+
+    ConnectivityService.reportRouteRejected(Uri.parse(_public));
+
+    await until(() => routes.state.endpointId == 'tailscale');
+    check(await routeInUse()).equals(_tailscale);
+  });
+
   group('in the background', () {
     // Every route, every 30 seconds, while nothing answers.
     test('a check waiting to run again stops', () async {

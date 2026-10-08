@@ -1,5 +1,38 @@
 part of 'api_service.dart';
 
+/// Reports [response] when it is a proxy in front of [server] turning the
+/// request away, its session there having expired.
+///
+/// Open WebUI answers its API with JSON, its refusals included. A proxy
+/// asking for a sign-in answers with a redirect the client does not follow,
+/// with a page it redirected to on the same address, or with a page refusing
+/// access -- as [ApiService.checkHealthWithProxyDetection] tells one. A page
+/// answered without a redirect is left out: Open WebUI's web app answers an
+/// address it does not know, as an older server does a newer endpoint.
+void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
+  if (!requestUsesServerConnectivityOrigin(
+    response.requestOptions.uri,
+    server,
+  )) {
+    return;
+  }
+  final status = response.statusCode ?? 0;
+  final page =
+      response.headers
+          .value(Headers.contentTypeHeader)
+          ?.toLowerCase()
+          .contains('text/html') ??
+      false;
+  final refused =
+      publicHealthRedirectStatusCodes.contains(status) ||
+      (page && (status == 401 || status == 403)) ||
+      (page &&
+          status >= 200 &&
+          status < 300 &&
+          isSameOriginRedirectReplay(response.requestOptions));
+  if (refused) ConnectivityService.reportRouteRejected(server);
+}
+
 abstract class _ApiServiceBase {
   // Declared here, implemented by the family mixins applied over this base.
   // A mixin cannot see a sibling mixin's members, and three of these are
@@ -121,11 +154,13 @@ abstract class _ApiServiceBase {
       ),
     );
 
-    // 3. Success pings to relax offline detection, and requests that could
-    // not reach the server. ApiService also supports absolute image/CDN URLs,
-    // so only the configured server origin is allowed to influence that
-    // server's health state. Ahead of the error handler: it rejects with its
-    // own error, which ends the chain for interceptors after it.
+    // 3. Success pings to relax offline detection, requests that could not
+    // reach the server, and requests a proxy in front of it turned away.
+    // ApiService also supports absolute image/CDN URLs, so only the
+    // configured server origin is allowed to influence that server's health
+    // state. Ahead of the error handler: it rejects with its own error, which
+    // ends the chain for interceptors after it. After the redirect replay,
+    // which runs a followed redirect through here again.
     final connectivityOrigin = Uri.tryParse(serverConfig.url);
     _dio.interceptors.add(
       InterceptorsWrapper(
@@ -142,10 +177,15 @@ abstract class _ApiServiceBase {
               );
               ConnectivityService.noteSuccessfulTraffic(connectivityOrigin);
             }
+            _reportProxyRefusal(response, connectivityOrigin);
           } catch (_) {}
           handler.next(response);
         },
         onError: (error, handler) {
+          final response = error.response;
+          if (response != null) {
+            _reportProxyRefusal(response, connectivityOrigin);
+          }
           if (error.response == null &&
               requestUsesServerConnectivityOrigin(
                 error.requestOptions.uri,
