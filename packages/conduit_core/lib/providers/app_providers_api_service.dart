@@ -44,6 +44,9 @@ final apiServiceProvider = Provider<ApiService?>((ref) {
         workerManager: workerManager,
         authToken: authToken,
         suppressCookieCustomHeader: suppressCookieHeader,
+        // The active account's client on the route in use: a proxy turning
+        // it away says that route's session there has expired.
+        reportsRouteRefusals: true,
       );
 
       // Keep callbacks in sync so interceptor can notify auth manager

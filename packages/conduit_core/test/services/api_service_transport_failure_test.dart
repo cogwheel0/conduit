@@ -5,10 +5,13 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 /// Every request fails before reaching a server, as when the address in use
@@ -136,6 +139,7 @@ void main() {
           url: server,
         ),
         workerManager: workerManager,
+        reportsRouteRefusals: true,
       );
       api.updateAuthToken('session-token');
       rejected = [];
@@ -216,6 +220,69 @@ void main() {
       check(rejected).deepEquals([Uri.parse(server)]);
     });
 
+    // A client checking an address, or signing in another account, carries
+    // a session of its own, or none: the account in use is not refused.
+    test('to a client other than the app\'s own is not reported', () async {
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
+      final checking = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: server,
+        ),
+        workerManager: workerManager,
+      );
+      addTearDown(() {
+        checking.dispose();
+        workerManager.dispose();
+      });
+      checking.updateAuthToken('session-token');
+      checking.dio.httpClientAdapter = _Proxy({
+        '/api/v1/auths/': () => _redirect('https://sso.example/login'),
+      });
+
+      try {
+        await checking.dio.get<dynamic>('/api/v1/auths/');
+      } on DioException {
+        // Refused; only what was reported matters here.
+      }
+
+      check(rejected).isEmpty();
+    });
+
+    test("to the app's own client is reported", () async {
+      PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+      await PreferencesStore.ensureInitialized();
+      addTearDown(PreferencesStore.debugReset);
+      final workerManager = WorkerManager(worker: const InlineWorkerPort());
+      addTearDown(workerManager.dispose);
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          workerManagerProvider.overrideWithValue(workerManager),
+          activeServerProvider.overrideWith(
+            (ref) async =>
+                const ServerConfig(id: 'server', name: 'Server', url: server),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(activeServerProvider.future);
+      container.read(apiAuthTokenMirrorProvider.notifier).set('session-token');
+      final app = container.read(apiServiceProvider)!;
+      app.dio.httpClientAdapter = _Proxy({
+        '/api/v1/auths/': () => _redirect('https://sso.example/login'),
+      });
+
+      try {
+        await app.dio.get<dynamic>('/api/v1/auths/');
+      } on DioException {
+        // Refused; only what was reported matters here.
+      }
+
+      check(rejected).deepEquals([Uri.parse(server)]);
+    });
+
     test('on an address the server upgraded to HTTPS is reported', () async {
       final workerManager = WorkerManager(worker: const InlineWorkerPort());
       final plain = ApiService(
@@ -225,6 +292,7 @@ void main() {
           url: 'http://chat.example',
         ),
         workerManager: workerManager,
+        reportsRouteRefusals: true,
       );
       addTearDown(() {
         plain.dispose();

@@ -363,6 +363,7 @@ class ApiService extends _ApiServiceBase
     super.publicHealthSocketUpgrader,
     super.publicHealthPinnedConnectTimeout,
     super.publicHealthRequestTimeout,
+    super.reportsRouteRefusals,
   });
 }
 

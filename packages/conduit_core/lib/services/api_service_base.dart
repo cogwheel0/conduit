@@ -74,6 +74,13 @@ abstract class _ApiServiceBase {
   final PublicHealthSocketUpgrader _publicHealthSocketUpgrader;
   final Duration _publicHealthPinnedConnectTimeout;
   final Duration _publicHealthRequestTimeout;
+
+  /// Whether a proxy turning this client's requests away is reported as the
+  /// route in use refusing them. Only the app's own client, the active
+  /// account's on that route, says so: a proxy session is one account's on
+  /// one address, and a client checking an address or signing in another
+  /// account carries a session of its own, or none.
+  final bool _reportsRouteRefusals;
   late final ApiAuthInterceptor _authInterceptor;
   Future<void> _userSettingsMutationQueue = Future<void>.value();
   bool _disposed = false;
@@ -98,6 +105,7 @@ abstract class _ApiServiceBase {
     PublicHealthSocketUpgrader? publicHealthSocketUpgrader,
     Duration publicHealthPinnedConnectTimeout = const Duration(seconds: 30),
     Duration publicHealthRequestTimeout = const Duration(seconds: 30),
+    bool reportsRouteRefusals = false,
   }) : _dio = Dio(
          BaseOptions(
            baseUrl: serverConfig.url,
@@ -114,6 +122,7 @@ abstract class _ApiServiceBase {
          ),
        ),
        _workerManager = workerManager,
+       _reportsRouteRefusals = reportsRouteRefusals,
        _publicHealthAddressResolver =
            publicHealthAddressResolver ??
            ((host) => InternetAddress.lookup(host)),
@@ -193,13 +202,15 @@ abstract class _ApiServiceBase {
               );
               ConnectivityService.noteSuccessfulTraffic(connectivityOrigin);
             }
-            _reportProxyRefusal(response, connectivityOrigin);
+            if (_reportsRouteRefusals) {
+              _reportProxyRefusal(response, connectivityOrigin);
+            }
           } catch (_) {}
           handler.next(response);
         },
         onError: (error, handler) {
           final response = error.response;
-          if (response != null) {
+          if (response != null && _reportsRouteRefusals) {
             // Reporting must not replace the request's own error.
             try {
               _reportProxyRefusal(response, connectivityOrigin);
