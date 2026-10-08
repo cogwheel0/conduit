@@ -94,6 +94,17 @@ class AccountAdditionOrigin extends Notifier<String?> {
     if (state == activeAccountId) state = null;
   }
 
+  /// Ends, once called, the addition in progress now, unless another has
+  /// begun by then -- even from the same account, which [end] cannot tell
+  /// apart. For the page an addition opened: it can go after the next
+  /// addition has begun.
+  void Function() endLater() {
+    final begun = _begun;
+    return () {
+      if (ref.mounted && _begun == begun) state = null;
+    };
+  }
+
   /// Whether the addition in progress now still is, for work it started:
   /// false once it ends, and still false if another begins after it.
   bool Function() stillInProgress() {

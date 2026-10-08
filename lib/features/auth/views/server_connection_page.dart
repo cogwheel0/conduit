@@ -26,7 +26,6 @@ import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show
-        AccountAdditionOrigin,
         accountAdditionOriginProvider,
         pendingSignInAbandonableProvider;
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
@@ -286,8 +285,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       _headerKeyController.text.trim().isNotEmpty &&
       _headerValueController.text.trim().isNotEmpty;
 
-  AccountAdditionOrigin? _accountAddition;
-  String? _accountAdditionFrom;
+  /// Ends the account addition this page was opened for, as it goes.
+  void Function()? _endAccountAddition;
 
   /// The saved server the form was filled in from, when it was.
   OpenWebUiServer? _savedServer;
@@ -299,8 +298,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     if (widget.addingAccount) {
       // openAddAccount began the addition before opening this page, which the
       // router needs; the page only ends it when it goes.
-      _accountAddition = ref.read(accountAdditionOriginProvider.notifier);
-      _accountAdditionFrom = ref.read(settledActiveAccountIdProvider);
+      _endAccountAddition = ref
+          .read(accountAdditionOriginProvider.notifier)
+          .endLater();
       _prefillFromSavedServer();
     } else {
       _prefillFromState();
@@ -387,12 +387,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   @override
   void dispose() {
-    final accountAddition = _accountAddition;
-    if (accountAddition != null) {
-      final from = _accountAdditionFrom;
+    final endAccountAddition = _endAccountAddition;
+    if (endAccountAddition != null) {
       // Not while the tree is unmounting: Riverpod forbids changing provider
       // state from a widget lifecycle callback.
-      Future.microtask(() => accountAddition.end(from));
+      Future.microtask(endAccountAddition);
     }
     _urlController.removeListener(_resetTransientAttempt);
     _urlController.dispose();

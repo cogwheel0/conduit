@@ -450,6 +450,26 @@ void main() {
     });
   });
 
+  group('an account addition', () {
+    test('ended by a page that closes after the next one began goes on',
+        () async {
+      final container_ = container();
+      final addition = container_.read(accountAdditionOriginProvider.notifier);
+      addition.begin('a');
+      final endFirst = addition.endLater();
+      // Added again from the same account before the first page went.
+      addition.begin('a');
+      final stillAdding = addition.stillInProgress();
+
+      endFirst();
+
+      check(container_.read(accountAdditionOriginProvider)).equals('a');
+      check(stillAdding()).isTrue();
+      addition.endLater()();
+      check(container_.read(accountAdditionOriginProvider)).isNull();
+    });
+  });
+
   group('with no account left', () {
     test(
       'signing out of the last account waits for Direct profiles still loading',
