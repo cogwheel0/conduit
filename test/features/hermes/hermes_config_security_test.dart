@@ -189,6 +189,84 @@ void main() {
     check(await storage.read(key: _desktopKey)).isNull();
   });
 
+  test('a live client refresh after a failed sign-out is saved', () async {
+    final storage = _FailOnceSecureStorage({
+      _apiKey: 'key-for-one',
+      _sessionKey: 'memory-for-one',
+    });
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    await controller.saveConnection(
+      baseUrl: 'https://one.example/v1',
+      mode: HermesBackendMode.desktopGateway,
+      desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+      desktopCredentialsChanged: true,
+      desktopCredentials: _nativeCredentials('original'),
+    );
+    final writeCredentials = controller.credentialsWriterFor(
+      container.read(hermesConfigProvider),
+      live: true,
+    );
+
+    storage.failNextDeleteFor = _desktopKey;
+    await expectLater(controller.signOutDesktop(), throwsStateError);
+    // The server spent the stored refresh token on this one.
+    await writeCredentials(_nativeCredentials('refreshed'));
+
+    final persisted = jsonDecode(storage.values[_desktopKey]!) as Map;
+    check((persisted['native_tokens'] as Map)['refresh_token'])
+        .equals('refreshed-refresh');
+    check(
+      container
+          .read(hermesConfigProvider)
+          .desktopCredentials
+          ?.nativeTokens
+          ?.refreshToken,
+    ).equals('refreshed-refresh');
+  });
+
+  test('onboarding rollback removes only the connection it saved', () async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.hermesEnabled: false,
+      PreferenceKeys.hermesConnections: _connectionsDocument(),
+    });
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    final container = await _readyHermesContainer(FlutterSecureKeyValueStore());
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    check(container.read(hermesConfigProvider).connectionId).isNull();
+
+    final commit = container
+        .read(hermesConnectionGatewayProvider)
+        .commitOnboarding(
+          const HermesConnectionDraft(
+            config: HermesConfig(
+              enabled: true,
+              baseUrl: 'https://two.example/v1',
+              apiKey: 'key-for-two',
+            ),
+            apiKeyChanged: true,
+            sessionKeyChanged: false,
+          ),
+          isCurrent: () {
+            final active = container.read(hermesConfigProvider).connectionId;
+            if (active == null) return true;
+            // Saved and active; the user switches to One before it finishes.
+            unawaited(controller.setActiveConnection(_id));
+            return false;
+          },
+        );
+    await expectLater(
+      commit,
+      throwsA(isA<HermesConnectionCommitCancelled>()),
+    );
+
+    check(controller.connections.map((profile) => profile.id))
+        .deepEquals([_id]);
+    check(container.read(hermesConfigProvider).connectionId).equals(_id);
+  });
+
   for (final revocation in [
     'gateway replacement',
     'sign-out',
