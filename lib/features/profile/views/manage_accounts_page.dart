@@ -130,7 +130,10 @@ class _AccountRow extends ConsumerWidget {
       leading: SavedAccountAvatar(entry: entry, size: IconSize.xl),
       selected: entry.isActive,
       preserveTrailingSemantics: true,
-      onTap: entry.isActive
+      // The active account signed out -- its session expired, next to a
+      // usable Hermes or Direct backend that keeps this page open -- is
+      // switched to as any other, which opens its sign-in.
+      onTap: entry.isActive && entry.hasSession
           ? null
           : () => switchToSavedAccount(context, ref, entry.id),
       trailing: Row(
