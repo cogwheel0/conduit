@@ -107,6 +107,8 @@ final class OpenWebUiAccountsController {
       final signedIn = await _ref
           .read(authStateManagerProvider.notifier)
           .switchToAccount(accountId);
+      // Its session may have been taken up: the list shows it signed in.
+      _ref.invalidate(openWebUiAccountsProvider);
       return signedIn
           ? OpenWebUiAccountChangeResult.done
           : OpenWebUiAccountChangeResult.needsSignIn;

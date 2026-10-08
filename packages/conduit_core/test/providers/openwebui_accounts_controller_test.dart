@@ -226,17 +226,23 @@ void main() {
       () async {
     final storage = _Storage();
     final auth = _Auth(storage);
+    var listed = 0;
     final container = ProviderContainer(
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(storage),
         authStateManagerProvider.overrideWith(() => auth),
         hermesConfigProvider.overrideWith(_Hermes.new),
-        openWebUiAccountsProvider.overrideWith((ref) async => const []),
+        openWebUiAccountsProvider.overrideWith((ref) async {
+          listed++;
+          return const [];
+        }),
         accountChangeReplyGuardProvider.overrideWithValue(() => false),
       ],
     );
     addTearDown(container.dispose);
     await container.read(authStateManagerProvider.future);
+    // The accounts list as shown before, the account signed out.
+    await container.read(openWebUiAccountsProvider.future);
 
     final result = await container
         .read(openWebUiAccountsControllerProvider)
@@ -245,6 +251,9 @@ void main() {
     // Auth can take up a session the account still has in its vault.
     check(auth.switches).deepEquals(['a']);
     check(result).equals(OpenWebUiAccountChangeResult.done);
+    // And the accounts list is read again, showing it signed in.
+    await container.read(openWebUiAccountsProvider.future);
+    check(listed).equals(2);
   });
 
   test('a sign-out that cannot read the account in use afterwards changes '
