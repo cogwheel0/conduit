@@ -100,8 +100,14 @@ class SettingsService {
   static T? _getPreference<T>(String key) =>
       PreferencesStore.get<T>(scopedPreferenceReadKey(key));
 
-  static Future<void> _putPreference(String key, Object? value) =>
-      PreferencesStore.put(scopedPreferenceWriteKey(key), value);
+  static Future<void> _putPreference(String key, Object? value) async {
+    final accountId = currentPreferenceAccountId();
+    final scoped = scopedPreferenceWriteKey(key);
+    if (value == null && scoped != key) {
+      await settleDeviceSettingsCopy(accountId);
+    }
+    await PreferencesStore.put(scoped, value);
+  }
 
   /// Get reduced motion preference
   static Future<bool> getReduceMotion() {
@@ -236,22 +242,26 @@ class SettingsService {
   }
 
   /// Set default model preference
-  static Future<void> setDefaultModel(String? modelId) {
+  static Future<void> setDefaultModel(String? modelId) async {
+    final accountId = currentPreferenceAccountId();
     final key = scopedPreferenceWriteKey(_defaultModelKey);
     if (modelId != null) {
       return PreferencesStore.put(key, modelId);
     }
-    return PreferencesStore.remove(key);
+    await settleDeviceSettingsCopy(accountId);
+    await PreferencesStore.remove(key);
   }
 
   /// Set the model used by OpenRouter's dedicated Image API.
-  static Future<void> setOpenRouterImageGenerationModel(String? modelId) {
+  static Future<void> setOpenRouterImageGenerationModel(String? modelId) async {
     final normalized = modelId?.trim();
+    final accountId = currentPreferenceAccountId();
     final key = scopedPreferenceWriteKey(_openRouterImageGenerationModelKey);
     if (normalized != null && normalized.isNotEmpty) {
       return PreferencesStore.put(key, normalized);
     }
-    return PreferencesStore.remove(key);
+    await settleDeviceSettingsCopy(accountId);
+    await PreferencesStore.remove(key);
   }
 
   /// Load all settings
@@ -301,6 +311,7 @@ class SettingsService {
 
     // Resolve every account-scoped key now, before the first write yields: a
     // switch completing mid-save must not land the rest under another account.
+    final accountId = currentPreferenceAccountId();
     final defaultModelKey = scopedPreferenceWriteKey(_defaultModelKey);
     final openRouterImageGenerationModelKey = scopedPreferenceWriteKey(
       _openRouterImageGenerationModelKey,
@@ -312,12 +323,16 @@ class SettingsService {
       PreferenceKeys.ttsServerVoiceName,
     );
 
-    // Web search preferences are written only by their own setters, so a
-    // bulk save of a stale snapshot can't undo a concurrent change.
-    await PreferencesStore.putAll({
+    final scopedUpdates = {
       for (final entry in updates.entries)
         scopedPreferenceWriteKey(entry.key): entry.value,
-    });
+    };
+    // A setting this clears must not fall back to the device value.
+    await settleDeviceSettingsCopy(accountId);
+
+    // Web search preferences are written only by their own setters, so a
+    // bulk save of a stale snapshot can't undo a concurrent change.
+    await PreferencesStore.putAll(scopedUpdates);
 
     await _putOrRemove(_chatWebSearchEnabledKey, settings.chatWebSearchEnabled);
     await _putOrRemove(

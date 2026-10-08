@@ -9,6 +9,8 @@ library;
 
 import 'dart:convert';
 
+import 'package:meta/meta.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'persistence_keys.dart';
@@ -82,6 +84,10 @@ String? _deviceSettingsCopyClaim;
 /// to is removed without the copy marked done: no account takes them over.
 const _deviceSettingsGone = '';
 
+/// Forgets the copy's claim, which lives as long as the process does.
+@visibleForTesting
+void debugResetDeviceSettingsCopy() => _deviceSettingsCopyClaim = null;
+
 /// Copies the device-wide values of [accountScopedPreferenceKeys] into
 /// [accountId], once, the first time an account is active after per-account
 /// settings arrived. The device-wide values stay as the fallback used when
@@ -121,6 +127,26 @@ Future<void> migrateDeviceSettingsIntoAccount(String accountId) async {
     true,
   );
   _deviceSettingsCopyClaim = null;
+}
+
+/// Finishes [accountId]'s one-time copy of the device settings before one
+/// of its settings is cleared. A setting cleared before the copy ran would
+/// read as the device value again, and the copy would later bring it back.
+Future<void> settleDeviceSettingsCopy(String? accountId) async {
+  if (accountId == null || !PreferencesStore.isReady) return;
+  if (PreferencesStore.getBool(PreferenceKeys.accountScopedSettingsMigrated) ==
+      true) {
+    return;
+  }
+  try {
+    await migrateDeviceSettingsIntoAccount(accountId);
+  } catch (error) {
+    DebugLogger.warning(
+      'device-settings-copy-failed',
+      scope: 'persistence/account-scope',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+  }
 }
 
 /// Deletes everything [accountId] keeps in preferences: its scoped settings,

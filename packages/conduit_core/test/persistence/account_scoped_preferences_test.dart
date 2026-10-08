@@ -33,6 +33,7 @@ void main() {
   setUp(() async {
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
+    debugResetDeviceSettingsCopy();
   });
 
   tearDown(PreferencesStore.debugReset);
@@ -221,6 +222,27 @@ void main() {
         accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'b'),
       ),
     ).isFalse();
+  });
+
+  test('a setting cleared before the device settings were copied stays '
+      'cleared', () async {
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    var refuse = true;
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async =>
+          key == onA && refuse ? false : null,
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+    await activate('a');
+    // A's copy failed, so A still reads the device value.
+    await check(migrateDeviceSettingsIntoAccount('a')).throws<StateError>();
+    check(await SettingsService.getDefaultModel()).equals('pre-upgrade');
+    refuse = false;
+
+    await SettingsService.setDefaultModel(null);
+
+    check(await SettingsService.getDefaultModel()).isNull();
   });
 
   test('a write lands under the account active when it started', () async {
