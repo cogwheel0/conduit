@@ -277,5 +277,17 @@ void main() {
         check(rejected).isEmpty();
       });
     }
+
+    // A model with no image of its own: Open WebUI redirects to its default.
+    test("Open WebUI redirecting a model's image is not reported", () async {
+      api.dio.httpClientAdapter = _Proxy({
+        '/api/v1/models/model/profile/image': () =>
+            _redirect('/static/favicon.png'),
+      });
+
+      await api.getWorkspaceModelProfileImage('model');
+
+      check(rejected).isEmpty();
+    });
   });
 }

@@ -28,7 +28,10 @@ void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
   final page = (response.headers[Headers.contentTypeHeader] ?? const [])
       .any((type) => type.toLowerCase().contains('text/html'));
   final refused =
-      publicHealthRedirectStatusCodes.contains(status) ||
+      // Unless the request takes a redirect as its answer: Open WebUI
+      // redirects an image it has no copy of to its default image.
+      (publicHealthRedirectStatusCodes.contains(status) &&
+          !options.validateStatus(status)) ||
       (page && (status == 401 || status == 403)) ||
       (page &&
           status >= 200 &&
