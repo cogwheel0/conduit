@@ -194,9 +194,17 @@ void openAddAccount(BuildContext context, WidgetRef ref, {String? serverId}) {
 
 /// Drops the added account whose sign-in never finished, which makes the
 /// account it was added from active again, and returns to chat.
-Future<void> abandonAddedAccount(BuildContext context, WidgetRef ref) async {
+///
+/// When it could not be dropped and is still there, signed out, the flow
+/// stays open, with its Cancel: in chat, the router would only open that
+/// account's sign-in again, without one. Returns false then, for the page to
+/// say so.
+Future<bool> abandonAddedAccount(BuildContext context, WidgetRef ref) async {
+  var left = false;
   try {
-    await ref.read(openWebUiAccountsControllerProvider).abandonPendingSignIn();
+    left = await ref
+        .read(openWebUiAccountsControllerProvider)
+        .abandonPendingSignIn();
   } catch (error, stackTrace) {
     DebugLogger.error(
       'abandon-added-account-failed',
@@ -205,7 +213,18 @@ Future<void> abandonAddedAccount(BuildContext context, WidgetRef ref) async {
       stackTrace: stackTrace,
     );
   }
-  if (context.mounted) context.go(Routes.chat);
+  if (!context.mounted) return true;
+  if (!left) {
+    // Not dropped because a sign-in reached it is not still pending; read
+    // again, not as last shown. Unreadable, it may be: stay.
+    final stillPending = await ref
+        .read(pendingSignInAbandonableProvider.future)
+        .then((pending) => pending, onError: (Object _) => true);
+    if (!context.mounted) return true;
+    if (stillPending) return false;
+  }
+  context.go(Routes.chat);
+  return true;
 }
 
 /// Asks where to add an account -- a saved server or a new one -- and opens

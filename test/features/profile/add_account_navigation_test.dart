@@ -309,6 +309,45 @@ void main() {
     check(find.text('add account').evaluate()).isNotEmpty();
   });
 
+  // In chat, the router would only open the added account's sign-in again,
+  // and without Cancel.
+  testWidgets('Back that cannot drop the added account stays', (tester) async {
+    abandonable = true;
+    await openAddAccountFromChat(tester);
+    accounts.drops = false;
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('server-connection-back-button')),
+    );
+    await tester.pumpAndSettle();
+
+    check(accounts.abandons).equals(1);
+    expect(connectionPage, findsOneWidget);
+    check(find.text('add account').evaluate()).isEmpty();
+  });
+
+  testWidgets('Back that cannot tell whether the added account can be '
+      'dropped stays, and says so', (tester) async {
+    await openAddAccountFromChat(tester);
+    final answer = abandonableAnswer = Completer<bool>();
+    container.invalidate(pendingSignInAbandonableProvider);
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('server-connection-back-button')),
+    );
+    await tester.pump();
+    answer.completeError(StateError('Keychain locked'));
+    await tester.pumpAndSettle();
+
+    check(accounts.abandons).equals(0);
+    expect(connectionPage, findsOneWidget);
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Back pressed again while it waits drops the account once', (
     tester,
   ) async {
@@ -478,9 +517,12 @@ class _RecordingAccountsController extends Fake
     implements OpenWebUiAccountsController {
   int abandons = 0;
 
+  /// Whether the added account is dropped.
+  bool drops = true;
+
   @override
   Future<bool> abandonPendingSignIn() async {
     abandons++;
-    return true;
+    return drops;
   }
 }

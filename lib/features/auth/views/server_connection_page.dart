@@ -1339,12 +1339,27 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       // Asked as it settles, not as last shown: back from the sign-in page,
       // the added account has just become active, and the answer for it may
       // still be on its way. Plain Back would leave that account active.
-      final abandonable = await ref
-          .read(pendingSignInAbandonableProvider.future)
-          .catchError((Object _) => false);
+      final bool abandonable;
+      try {
+        abandonable = await ref.read(pendingSignInAbandonableProvider.future);
+      } catch (_) {
+        // Not known whether the added account is still there, signed out:
+        // leaving could leave it active. Back stays, says so, and can be
+        // pressed again.
+        if (mounted) {
+          setState(() {
+            _connectionError = AppLocalizations.of(context)!.errorMessage;
+          });
+        }
+        return;
+      }
       if (!mounted) return;
       if (abandonable) {
-        await abandonAddedAccount(context, ref);
+        if (!await abandonAddedAccount(context, ref) && mounted) {
+          setState(() {
+            _connectionError = AppLocalizations.of(context)!.errorMessage;
+          });
+        }
         return;
       }
     }

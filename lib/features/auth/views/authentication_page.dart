@@ -364,7 +364,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       return UtilityBackNavigation(
         label: l10n.cancel,
         buttonKey: key,
-        onPressed: () => abandonAddedAccount(context, ref),
+        onPressed: _cancelAddition,
       );
     }
     if (ref.watch(accountAdditionOriginProvider) != null && context.canPop()) {
@@ -420,6 +420,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       await ref
           .read(backendConfigProvider.notifier)
           .cacheForServer(backendConfig, config.id);
+    }
+  }
+
+  /// Cancel: drops the added account and returns to the account it was
+  /// added from, or stays and says so when it could not be dropped.
+  Future<void> _cancelAddition() async {
+    if (!await abandonAddedAccount(context, ref) && mounted) {
+      setState(() => _loginError = AppLocalizations.of(context)!.errorMessage);
     }
   }
 
@@ -489,7 +497,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     return PopScope(
       canPop: !abandonable,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) abandonAddedAccount(context, ref);
+        if (!didPop) _cancelAddition();
       },
       child: UtilityPageScaffold.auth(
         title: l10n.signIn,

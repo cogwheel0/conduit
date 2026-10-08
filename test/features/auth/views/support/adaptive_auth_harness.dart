@@ -195,8 +195,11 @@ class AdaptiveAuthHarness {
           accountAdditionOriginProvider.overrideWith(
             () => _AddingAccountFrom(addingAccountFrom!),
           ),
-        if (abandonablePendingSignIn)
-          pendingSignInAbandonableProvider.overrideWith((_) async => true),
+        // Answered here, not read from the mocked storage: a read that fails
+        // keeps the connection page from leaving an addition.
+        pendingSignInAbandonableProvider.overrideWith(
+          (_) async => abandonablePendingSignIn,
+        ),
         if (replyBeingWritten) ...[
           accountChangeReplyGuardProvider.overrideWithValue(() => true),
           accountChangeStopRepliesProvider.overrideWithValue(
