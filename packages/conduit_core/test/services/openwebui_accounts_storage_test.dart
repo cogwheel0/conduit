@@ -423,6 +423,43 @@ void main() {
       check((await vaultedCredentials('c'))?['password']).equals('pw-c-old');
     });
 
+    test('a failed commit puts back the vault through a write refused '
+        'once', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      await signIn('c', password: 'pw-c-old');
+      check(
+        await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a'),
+      ).isFalse();
+      await storage.saveAuthToken('token-a');
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c-new',
+      );
+      final ownership = await storage.captureSavedServerSessionOwnership('b');
+      var checks = 0;
+
+      final committed = await storage.commitExistingServerSession(
+        ownership: ownership!,
+        token: 'token-b',
+        canCommit: () {
+          if (++checks < 5) return true;
+          // The Keychain refuses the first write putting C's sign-in back.
+          secure.refusedOnceKey = 'user_credentials_server_v1:c';
+          return false;
+        },
+        publish: () {},
+      );
+
+      check(committed).isFalse();
+      check(secure.refusedOnceKey).isNull();
+      check((await vaultedCredentials('c'))?['password']).equals('pw-c-old');
+    });
+
     test(
       'a fresh sign-in that does not finish keeps the vaulted session',
       () async {

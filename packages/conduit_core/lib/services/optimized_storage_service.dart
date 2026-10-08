@@ -753,18 +753,25 @@ class OptimizedStorageService {
   /// account out for an attempt that never happened.
   Future<void> _restoreVaultUnlocked(_VaultUndo undo) async {
     Future<void> restore(Future<void> Function() write) async {
-      try {
-        await write();
-      } catch (error, stackTrace) {
-        // The live session was restored; only an account kept aside may now
-        // read as signed out. That is not worth signing the user out of the
-        // live one, which the rollback-uncertain path would.
-        DebugLogger.error(
-          'vault-restore-failed',
-          scope: 'storage/optimized',
-          error: error,
-          stackTrace: stackTrace,
-        );
+      for (var attempt = 1; ; attempt++) {
+        try {
+          await write();
+          return;
+        } catch (error, stackTrace) {
+          // Keychain access can fail briefly, as for a read: tried again
+          // once. Then it is left. The live session was restored; only an
+          // account kept aside may now read as signed out, as the account
+          // list then shows it. That is not worth signing the user out of
+          // the live one, which the rollback-uncertain path would.
+          if (attempt < 2) continue;
+          DebugLogger.error(
+            'vault-restore-failed',
+            scope: 'storage/optimized',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return;
+        }
       }
     }
 
