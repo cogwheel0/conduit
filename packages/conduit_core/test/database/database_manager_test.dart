@@ -868,6 +868,30 @@ void main() {
       },
     );
 
+    test('an unreadable wipe record deletes nothing', () async {
+      PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+      await PreferencesStore.ensureInitialized();
+      addTearDown(PreferencesStore.debugReset);
+      final alpha = fileFor(DatabaseManager.fileNameFor('alpha'))
+        ..writeAsStringSync('signed in to since');
+      await PreferencesStore.put(
+        PreferenceKeys.pendingAccountDatabaseWipe,
+        '["server_al',
+      );
+
+      final restarted = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) =>
+            AppDatabase(NativeDatabase(fileFor(fileName))),
+      )..resumePendingWipe();
+      await restarted.finishPendingWipe();
+
+      check(alpha.existsSync()).isTrue();
+      check(
+        PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).isFalse();
+    });
+
     test('a wipe a newer sign-out recorded is kept', () async {
       PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
       await PreferencesStore.ensureInitialized();

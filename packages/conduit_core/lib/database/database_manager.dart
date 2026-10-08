@@ -851,12 +851,19 @@ String pendingAccountDatabaseWipeValue(Set<String>? files) =>
 
 /// The files a pending wipe deletes; null for all of them. Only those listed
 /// go, so an account signed in to after the failed sign-out keeps its data.
+/// A record that cannot be read names none: taken for every file, it would
+/// delete accounts signed in to since.
 Set<String>? pendingAccountDatabaseWipeFiles(String value) {
   if (value == '*') return null;
   try {
     return {for (final name in jsonDecode(value) as List) name as String};
-  } catch (_) {
-    return null;
+  } catch (error) {
+    DebugLogger.error(
+      'pending-wipe-record-unreadable',
+      scope: 'db/manager',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    return const <String>{};
   }
 }
 
