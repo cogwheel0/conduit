@@ -179,8 +179,9 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
   bool _initialAuthDecisionComplete = false;
   bool _purgeRequired = false;
   bool _purgeRunning = false;
-  // Whose files the running purge is deleting.
-  String? _purgeRunningFor;
+  // Whose files the purges still running are deleting, one entry each: a
+  // purge whose gate another took over, or that never needed it, still is.
+  final List<String> _purgesRunning = <String>[];
   bool _disposed = false;
   String? _cleanServerId;
   int _purgeGeneration = 0;
@@ -449,7 +450,6 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       ref.read(openWebUiDatabaseAccessProvider.notifier).beginPurge();
       // A sign-in landing meanwhile waits for it, as for any purge.
       _purgeRunning = true;
-      _purgeRunningFor = accountId;
       gateGeneration = ++_purgeGeneration;
     }
     final certificationGeneration = _certificationGeneration;
@@ -463,7 +463,6 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     final ledger = keepsRecord
         ? PreferenceKeys.pendingAccountDataPurges
         : PreferenceKeys.pendingAccountPurges;
-    await _recordPendingPurge(accountId, ledger: ledger);
     Object? firstError;
     StackTrace? firstStackTrace;
     Future<bool> attempt(Future<void> Function() step) async {
@@ -477,7 +476,9 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       }
     }
 
+    _purgesRunning.add(accountId);
     try {
+      await _recordPendingPurge(accountId, ledger: ledger);
       final trustForgotten = await attempt(() async {
         final ownerMarker = ref
             .read(openWebUiAccountOwnerMarkerStoreProvider)
@@ -513,6 +514,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
         scope: 'auth/storage-isolation',
       );
     } finally {
+      _purgesRunning.remove(accountId);
       // Unless a switch has taken over since.
       final ownsGate =
           gateGeneration != null &&
@@ -592,7 +594,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
           );
           continue;
         }
-        if (_purgeRunning && _purgeRunningFor == accountId) continue;
+        if (_purgesRunning.contains(accountId)) continue;
         if (saved.contains(accountId)) {
           await purgeAccount(accountId, keepsRecord: true);
         } else {
@@ -805,13 +807,15 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     }
 
     _purgeRunning = true;
-    _purgeRunningFor = serverId;
     final generation = ++_purgeGeneration;
+    _purgesRunning.add(serverId);
     _settled = _runPurge(
       serverId: serverId,
       generation: generation,
       reason: reason,
-    );
+    ).whenComplete(() {
+      _purgesRunning.remove(serverId);
+    });
   }
 
   Future<void> _runPurge({

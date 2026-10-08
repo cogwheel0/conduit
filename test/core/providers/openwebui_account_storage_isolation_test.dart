@@ -2550,6 +2550,127 @@ void main() {
       check(pending()).isNull();
     });
 
+    // A purge that holds no gate, of an account not in use, is as much in
+    // progress as one that does.
+    test('a logout purge left by an earlier run is not started again while '
+        'one deletes it', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_serverTwo.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (accountId) async {
+          purged.add(accountId);
+          await releasePurge.future;
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      final purge = isolation.purgeAccount(_serverTwo.id, keepsRecord: true);
+      for (var i = 0; i < 5 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      savedIds.complete({_server.id, _serverTwo.id});
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_serverTwo.id]);
+      releasePurge.complete();
+      await purge;
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountDataPurges),
+      ).isNull();
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+    });
+
+    test('a logout purge that failed before the retry reached it is '
+        'retried', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_serverTwo.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (accountId) async {
+          purged.add(accountId);
+          if (purged.length == 1) throw StateError('Database locked');
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      List<String>? pending() => PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountDataPurges,
+      );
+
+      await check(
+        isolation.purgeAccount(_serverTwo.id, keepsRecord: true),
+      ).throws<StateError>();
+      savedIds.complete({_server.id, _serverTwo.id});
+      for (var i = 0; i < 20 && pending() != null; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_serverTwo.id, _serverTwo.id]);
+      check(pending()).isNull();
+    });
+
+    test('a purge at start that failed is retried by the logout record it '
+        'left', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_server.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final purged = <String>[];
+      await _harness(
+        expectInitiallyOpen: false,
+        // Each of the start's three attempts fails.
+        databasePurge: (accountId) async {
+          purged.add(accountId);
+          if (purged.length <= 3) throw StateError('Database locked');
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      check(purged).length.equals(3);
+      List<String>? pending() => PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountDataPurges,
+      );
+
+      savedIds.complete({_server.id});
+      for (var i = 0; i < 20 && pending() != null; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).length.equals(4);
+      check(pending()).isNull();
+    });
+
     // The sign-in at start purges what the logout left, still deleting it
     // when the retry reaches it; the retry leaves that one to it.
     test('a logout purge running at start is not started again', () async {
