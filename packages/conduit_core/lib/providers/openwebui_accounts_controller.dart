@@ -258,6 +258,8 @@ class OpenWebUiAccountsController {
       _afterLastChange(_abandonPendingSignIn);
 
   Future<bool> _abandonPendingSignIn() async {
+    // The cached list can trail a sign-in that just finished; auth cannot.
+    if (_signedIn()) return false;
     final activeId = await _activeAccountId();
     if (activeId == null) return false;
     final entries = await _ref.read(openWebUiAccountsProvider.future);
@@ -270,6 +272,10 @@ class OpenWebUiAccountsController {
         !entries.any((entry) => entry.id == next && entry.hasSession)) {
       return false;
     }
+    // The sign-in can finish while the next account is chosen. Checked last,
+    // with nothing awaited between this and the sign-out starting: an
+    // account that signed in is never abandoned.
+    if (await _activeAccountId() != activeId || _signedIn()) return false;
     await _ref
         .read(authStateManagerProvider.notifier)
         .signOutAccount(activeId, thenActivate: next);
@@ -283,6 +289,10 @@ class OpenWebUiAccountsController {
     }
     return true;
   }
+
+  bool _signedIn() =>
+      _ref.read(authStateManagerProvider).asData?.value.isAuthenticated ??
+      false;
 
   Future<String?> _activeAccountId() =>
       _ref.read(optimizedStorageServiceProvider).getEffectiveActiveServerId();

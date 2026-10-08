@@ -313,6 +313,28 @@ void main() {
       check(auth.signedOut).deepEquals([('a', 'b')]);
     });
 
+    test('keeps an added account whose sign-in finishes meanwhile', () async {
+      accounts = [
+        entry('a', hasSession: false).withUser(null),
+        entry('b', lastUsedAt: DateTime(2026, 9)),
+      ];
+      var reads = 0;
+      // The sign-in lands once the account has been found still pending.
+      when(() => storage.getEffectiveActiveServerId()).thenAnswer((_) async {
+        if (++reads == 2) auth.signIn();
+        return activeId;
+      });
+      final container_ = container();
+      await container_.read(authStateManagerProvider.future);
+
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isFalse();
+      check(auth.signedOut).isEmpty();
+    });
+
     test('keeps an account that has signed in before', () async {
       accounts = [entry('a', hasSession: false), entry('b')];
       final container_ = container();
@@ -768,4 +790,12 @@ final class _RecordingAuth extends AuthStateManager {
     signedOut.add((accountId, thenActivate));
     return thenActivate != null;
   }
+
+  void signIn() => state = const AsyncData(
+    AuthState(
+      status: AuthStatus.authenticated,
+      token: 'token',
+      user: User(id: 'user', username: 'u', email: 'u@x', role: 'user'),
+    ),
+  );
 }
