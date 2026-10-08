@@ -144,6 +144,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   int _generation = 0;
   Timer? _retry;
 
+  /// A check held back by [_failureCheckInterval], run once it has passed.
+  Timer? _trailing;
+
   /// The origin of the route in use as the last check left it; null before
   /// one has, or with no server to reach.
   String? _inUseOrigin;
@@ -169,8 +172,18 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       // Nor would it be checked; resuming checks anyway.
       if (_inBackground) return;
       final now = DateTime.now();
-      if (lastFailureCheck != null &&
-          now.difference(lastFailureCheck!) < _failureCheckInterval) {
+      final last = lastFailureCheck;
+      final wait = last == null
+          ? Duration.zero
+          : _failureCheckInterval - now.difference(last);
+      if (wait > Duration.zero) {
+        // Held back, not dropped: a route a check just moved to may be the
+        // one failing now, and nothing else would look again.
+        _trailing ??= Timer(wait, () {
+          _trailing = null;
+          lastFailureCheck = DateTime.now();
+          _schedule(reason);
+        });
         return;
       }
       lastFailureCheck = now;
@@ -197,10 +210,13 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         // Nothing is checked in the background; coming back checks again.
         _retry?.cancel();
         _retry = null;
+        _trailing?.cancel();
+        _trailing = null;
       }
     }, onError: (Object _) {});
     ref.onDispose(() {
       _retry?.cancel();
+      _trailing?.cancel();
       unawaited(failures.cancel());
       unawaited(rejections.cancel());
       unawaited(network.cancel());
@@ -224,6 +240,10 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   /// Whether a check is waiting to run again.
   @visibleForTesting
   bool get retryPending => _retry?.isActive ?? false;
+
+  /// Whether a check held back after a recent one is waiting to run.
+  @visibleForTesting
+  bool get trailingCheckPending => _trailing?.isActive ?? false;
 
   /// Checks every route to the active account's server and uses the first,
   /// in the user's order, that answers.

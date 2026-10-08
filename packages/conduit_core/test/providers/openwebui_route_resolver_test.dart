@@ -319,6 +319,24 @@ void main() {
       await until(() => routes.state.endpointId == 'tailscale');
     });
 
+    // A check that just ran holds the next one back; a failure of the
+    // route it moved to must still be looked at once that time has passed.
+    test('soon after a check is held back, not dropped', () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      ConnectivityService.reportTransportFailure(Uri.parse(_lan));
+      await settle();
+      check(routes.trailingCheckPending).isFalse();
+
+      ConnectivityService.reportTransportFailure(Uri.parse(_lan));
+      await settle();
+
+      check(routes.trailingCheckPending).isTrue();
+      lifecycle.emit(AppLifecyclePhase.paused);
+      check(routes.trailingCheckPending).isFalse();
+    });
+
     // An address being checked, or another account's server.
     test('elsewhere checks nothing', () async {
       answers = {_lan: true, _tailscale: false, _public: true};
