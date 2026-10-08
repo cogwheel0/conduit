@@ -226,7 +226,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
     _retry?.cancel();
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
-      final accountId = await storage.getActiveServerId();
+      // As storage counts it: an account can be active with no id kept for
+      // it, flagged active or the only one saved. A failed read throws.
+      final accountId = await storage.getEffectiveActiveServerId();
       final registry = await storage.getOpenWebUiRegistryStrict();
       if (!_owns(generation)) return;
       final account = accountId == null ? null : registry.account(accountId);

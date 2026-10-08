@@ -148,6 +148,19 @@ void main() {
         .contains('tailscale');
   });
 
+  // Storage counts it active with no id kept for it, as it does an account
+  // only flagged active.
+  test('checks the routes of the only account saved', () async {
+    await storage.setActiveServerId(null);
+    answers = {_lan: false, _tailscale: true, _public: true};
+    final routes = await resolver();
+
+    await routes.resolve();
+
+    check(await routeInUse()).equals(_tailscale);
+    check(routes.state.endpointId).equals('tailscale');
+  });
+
   test('goes back to a better route once it answers again', () async {
     answers = {_lan: false, _tailscale: false, _public: true};
     final routes = await resolver();
