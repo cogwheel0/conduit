@@ -460,6 +460,10 @@ class ConnectivityService {
     return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}:${uri.port}';
   }
 
+  /// The scheme, host and port [uri] reaches, as failures and traffic are
+  /// matched to a server here; null when it has none.
+  static String? originKey(Uri? uri) => _originKey(uri);
+
   /// Records successful server traffic so the fallback health timer does not
   /// wake the radio merely to prove a connection that normal API work already
   /// proved. Entries are origin-scoped to avoid suppressing a newly-selected

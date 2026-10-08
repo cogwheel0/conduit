@@ -144,6 +144,10 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   int _generation = 0;
   Timer? _retry;
 
+  /// The origin of the route in use as the last check left it; null before
+  /// one has, or with no server to reach.
+  String? _inUseOrigin;
+
   @override
   OpenWebUiRouteStatus build() {
     ref.listen<String?>(settledActiveAccountIdProvider, (previous, next) {
@@ -152,9 +156,15 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
     // Requests failing to reach the server mean the route in use may have
     // gone. Watched through the static signal rather than the connectivity
     // provider, which would start its health polling just by being listened
-    // to. A burst of failures checks once.
+    // to. A burst of failures checks once. Every client reports its own
+    // failures -- an address being checked, another account's server -- and
+    // only the route in use says anything about it.
     DateTime? lastFailureCheck;
-    final failures = ConnectivityService.transportFailures.listen((_) {
+    final failures = ConnectivityService.transportFailures.listen((uri) {
+      final inUse = _inUseOrigin;
+      if (inUse != null && ConnectivityService.originKey(uri) != inUse) {
+        return;
+      }
       final now = DateTime.now();
       if (lastFailureCheck != null &&
           now.difference(lastFailureCheck!) < _failureCheckInterval) {
@@ -205,12 +215,15 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       final account = accountId == null ? null : registry.account(accountId);
       final server = account == null ? null : registry.server(account.serverId);
       if (account == null || server == null) {
+        _inUseOrigin = null;
         state = const OpenWebUiRouteStatus();
         return;
       }
       final current = server.selectedEndpoint(
         storage.endpointSelection[server.id],
       );
+      // Until a check settles otherwise, the route in use stays in use.
+      _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(current.url));
       if (server.endpoints.length < 2) {
         state = OpenWebUiRouteStatus(
           serverId: server.id,
@@ -263,6 +276,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         // keep the client on the old URL.
         if (changed && ref.mounted) ref.invalidate(serverConfigsProvider);
         if (!_owns(generation)) return;
+        _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(chosen.url));
         if (changed) {
           DebugLogger.log(
             'route-selected',

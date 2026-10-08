@@ -12,6 +12,7 @@ import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:hive_ce/hive.dart';
@@ -21,6 +22,9 @@ import 'package:test/test.dart';
 const _lan = 'http://10.0.0.2:3000';
 const _tailscale = 'http://home.tailnet.ts.net:3000';
 const _public = 'https://chat.example.com';
+
+/// An address none of the server's routes reach.
+const _elsewhere = 'https://typo.example';
 
 /// Which of a server's routes the app uses.
 ///
@@ -109,6 +113,10 @@ void main() {
 
   Future<String> routeInUse() async =>
       (await storage.getServerConfigsStrict()).single.url;
+
+  /// Lets whatever a report started run to its end.
+  Future<void> settle() =>
+      Future<void>.delayed(const Duration(milliseconds: 50));
 
   Future<void> until(bool Function() condition) async {
     for (var turn = 0; turn < 100 && !condition(); turn++) {
@@ -251,6 +259,59 @@ void main() {
 
     check((await container.read(serverConfigsProvider.future)).single.url)
         .equals(_tailscale);
+  });
+
+  group('a request failing to reach its server', () {
+    test('checks the routes when it was the route in use', () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      answers[_lan] = false;
+
+      ConnectivityService.reportTransportFailure(Uri.parse('$_lan/api/chats'));
+
+      await until(() => routes.state.endpointId == 'public');
+      check(await routeInUse()).equals(_public);
+    });
+
+    test('checks them when it was the route a check moved to', () async {
+      final routes = await resolver();
+      answers = {_lan: false, _tailscale: false, _public: true};
+      await routes.resolve();
+      answers = {_lan: false, _tailscale: true, _public: false};
+
+      ConnectivityService.reportTransportFailure(Uri.parse(_public));
+
+      await until(() => routes.state.endpointId == 'tailscale');
+    });
+
+    // An address being checked, or another account's server.
+    test('elsewhere checks nothing', () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      probed.clear();
+
+      ConnectivityService.reportTransportFailure(Uri.parse(_elsewhere));
+      await settle();
+
+      check(probed).isEmpty();
+    });
+
+    // A check it started would hold back the next one for a while.
+    test('elsewhere does not hold back a check of the route in use', () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+
+      ConnectivityService.reportTransportFailure(Uri.parse(_elsewhere));
+      await settle();
+      answers[_lan] = false;
+      ConnectivityService.reportTransportFailure(Uri.parse(_lan));
+
+      await until(() => routes.state.endpointId == 'public');
+      check(await routeInUse()).equals(_public);
+    });
   });
 
   test('a route probe keeps a cookie off while logout fences it', () async {
