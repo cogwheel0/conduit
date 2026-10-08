@@ -36,9 +36,11 @@ ProviderRead _reader({
   List<DirectConnectionProfile> directProfiles = const [],
   String? addingAccountFrom,
   AuthState authSnapshot = const AuthState(status: AuthStatus.unauthenticated),
+  String? settledAccount,
 }) {
   final values = <ProviderListenable<Object?>, Object?>{
     accountAdditionOriginProvider: addingAccountFrom,
+    settledActiveAccountIdProvider: settledAccount,
     reviewerModeProvider: reviewerMode,
     activeServerProvider: activeServer,
     authNavigationStateProvider: auth,
@@ -117,6 +119,21 @@ void main() {
         check(resolveRouteRedirect(Routes.addServer, read)).isNull();
         check(resolveRouteRedirect(Routes.authentication, read)).isNull();
         // Outside the addition's pages, the error shows as before.
+        check(resolveRouteRedirect(Routes.chat, read))
+            .equals(Routes.connectionIssue);
+      });
+
+      // The Keychain can refuse a read for a moment.
+      test('stays in the sign-in flow when the active server cannot be '
+          'read', () {
+        final read = _reader(
+          activeServer: AsyncError<ServerConfig?>('locked', StackTrace.empty),
+          addingAccountFrom: _server.id,
+          settledAccount: _server.id,
+        );
+
+        check(resolveRouteRedirect(Routes.addServer, read)).isNull();
+        check(resolveRouteRedirect(Routes.authentication, read)).isNull();
         check(resolveRouteRedirect(Routes.chat, read))
             .equals(Routes.connectionIssue);
       });

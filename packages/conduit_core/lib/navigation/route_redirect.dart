@@ -169,6 +169,12 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
   }
 
   if (activeServerAsync.hasError) {
+    // A failed read of the active server leaves an addition's pages open
+    // while the account it began from is the one last settled active: the
+    // read can fail for a moment, as the Keychain can be locked.
+    if (isAuthLocation(location) && _isAddingAccountFromActive(read)) {
+      return null;
+    }
     if (prefersDirect && !directUsable) {
       if (isAuthLocation(location)) return null;
       final destination = directProfilesLoading
@@ -352,9 +358,14 @@ String? _workspaceRedirect(String location, ProviderRead read) {
 /// which ends this, and ordinary routing lands it in chat.
 bool _isAddingAccountFromActive(ProviderRead read) {
   final origin = read(accountAdditionOriginProvider);
-  return origin != null &&
-      origin.isNotEmpty &&
-      origin == read(activeServerProvider).value?.id;
+  if (origin == null || origin.isEmpty) return false;
+  final active = read(activeServerProvider);
+  // A read that failed names no account; the one last settled active
+  // stands for it.
+  final activeId = active.hasError && !active.hasValue
+      ? read(settledActiveAccountIdProvider)
+      : active.value?.id;
+  return origin == activeId;
 }
 
 bool isAuthLocation(String location) {
