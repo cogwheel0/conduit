@@ -164,6 +164,9 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
     ServerConfig activeServer,
     AppLocalizations l10n,
   ) async {
+    // The route [activeServer] was read from, which the cookies are saved
+    // to; the app can move to another while the sign-in is open.
+    final renewedRoute = ref.read(openWebUiRouteResolverProvider).endpointId;
     final result = await context.pushNamed<ProxyAuthResult>(
       RouteNames.proxyAuth,
       extra: ProxyAuthConfig(serverConfig: activeServer),
@@ -199,7 +202,9 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
       ref.invalidate(serverConfigsProvider);
       ref.invalidate(activeServerProvider);
       // Its refusals were of the session just replaced.
-      ref.read(openWebUiRouteResolverProvider.notifier).proxySessionRenewed();
+      ref
+          .read(openWebUiRouteResolverProvider.notifier)
+          .proxySessionRenewed(renewedRoute);
       await ref.read(activeServerProvider.future);
       if (!mounted) return;
 

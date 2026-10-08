@@ -483,11 +483,11 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       ref.read(accountChangeReplyGuardProvider)() ||
       ref.read(openWebUiSignInPendingProvider)();
 
-  /// The proxy session of the route in use was signed in to again: its
-  /// refusals were of the session replaced. Another route's stand.
-  void proxySessionRenewed() {
-    final route = _inUseRouteId;
-    if (route != null) _refused.remove(route);
+  /// The proxy session of [endpointId], the route in use when its sign-in
+  /// began, was signed in to again: its refusals were of the session
+  /// replaced. Another route's stand, though the app moved to it meanwhile.
+  void proxySessionRenewed(String? endpointId) {
+    if (endpointId != null) _refused.remove(endpointId);
   }
 
   /// The addresses of [serverId] were saved, and checked again. A refusal
