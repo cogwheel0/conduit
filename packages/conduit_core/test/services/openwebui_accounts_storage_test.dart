@@ -1521,6 +1521,92 @@ void main() {
       });
     });
 
+    group('signing in through a route not in use', () {
+      const proxyUrl = 'https://proxy.example.com';
+
+      Future<OpenWebUiServer> withProxyRoute() async {
+        await storage.saveServerConfigs([account('a')]);
+        await signIn('a');
+        return addRoute('proxy', proxyUrl);
+      }
+
+      ServerConfig viaProxy(String id) => ServerConfig(
+        id: id,
+        name: 'Chat',
+        url: proxyUrl,
+        customHeaders: const {'Cookie': 'p=1'},
+      );
+
+      // Through the route in use the account matched neither the address
+      // it was checked on nor its cookie, and sign-in refused it.
+      test('reaches the server through that route', () async {
+        final server = await withProxyRoute();
+
+        check(
+          await storage.selectUnauthenticatedServerConfig(
+            viaProxy('new'),
+            publish: () {},
+          ),
+        ).isTrue();
+
+        final config = (await storage.getServerConfigs()).firstWhere(
+          (config) => config.id == 'new',
+        );
+        check(config.url).equals(proxyUrl);
+        check(config.customHeaders).deepEquals({'Cookie': 'p=1'});
+        check(storage.endpointSelection).deepEquals({server.id: 'proxy'});
+        check(PreferencesStore.getString(PreferenceKeys.openWebUiEndpointHint))
+            .isNotNull()
+            .contains('"proxy"');
+      });
+
+      test('that fails keeps the route in use', () async {
+        final server = await withProxyRoute();
+        final hint = PreferencesStore.getString(
+          PreferenceKeys.openWebUiEndpointHint,
+        );
+
+        await check(
+          storage.selectUnauthenticatedServerConfig(
+            viaProxy('new'),
+            publish: () => throw StateError('publish failed'),
+          ),
+        ).throws<StateError>();
+
+        check(storage.endpointSelection).deepEquals({
+          server.id: server.endpoints.first.id,
+        });
+        check(
+          PreferencesStore.getString(PreferenceKeys.openWebUiEndpointHint),
+        ).equals(hint);
+        check((await storage.getServerConfigs()).single.url)
+            .equals('https://chat.example.com');
+      });
+
+      test('through a proxy reaches the server through that route', () async {
+        final server = await withProxyRoute();
+        final candidate = viaProxy('new');
+        final staged = await storage.stageServerConfigCandidate(candidate);
+
+        check(
+          await storage.commitServerConfigCandidateSession(
+            candidate: candidate,
+            transactionId: staged.transactionId,
+            token: 'token-new',
+            canCommit: () => true,
+            publish: () {},
+          ),
+        ).isTrue();
+
+        check(storage.endpointSelection).deepEquals({server.id: 'proxy'});
+        check(
+          (await storage.getServerConfigs())
+              .firstWhere((config) => config.id == 'new')
+              .customHeaders,
+        ).deepEquals({'Cookie': 'p=1'});
+      });
+    });
+
     test('a sign-in validated on one route cannot commit on another', () async {
       await storage.saveServerConfigs([account('a')]);
       await storage.setActiveServerId('a');

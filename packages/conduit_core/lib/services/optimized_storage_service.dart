@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:collection/collection.dart' show MapEquality;
 import 'package:hive_ce/hive.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -49,13 +50,15 @@ typedef ServerSessionOwnershipSnapshot = ({
   bool requireActive,
 });
 
-/// The registry as a transaction found it, and whether reads of it were
-/// fenced then. A rollback puts back exactly this: rebuilding it from the
-/// projected configs would lose what they do not carry, such as an
-/// account's proven user and the ids of its server and routes.
+/// The registry as a transaction found it, whether reads of it were fenced
+/// then, and the route each server was reached through. A rollback puts back
+/// exactly this: rebuilding it from the projected configs would lose what
+/// they do not carry, such as an account's proven user and the ids of its
+/// server and routes.
 typedef _RegistrySnapshot = ({
   OpenWebUiRegistry registry,
   bool readsSuppressed,
+  Map<String, String> selection,
 });
 
 typedef _StagedServerConfigCandidate = ({
@@ -1388,6 +1391,9 @@ class OptimizedStorageService {
           await _saveServerConfigsUnlocked(nextConfigs);
           if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
 
+          // A rollback puts the route in use back with the registry.
+          await _selectRouteOfUnlocked(selected);
+
           await _writeActiveServerIdWithoutConfigSync(selected.id);
           if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
 
@@ -2049,6 +2055,9 @@ class OptimizedStorageService {
           await _saveServerConfigsUnlocked(committedConfigs);
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
 
+          // The proxy proved this session on the candidate's address.
+          await _selectRouteOfUnlocked(committedCandidate);
+
           await _writeActiveServerIdWithoutConfigSync(candidate.id);
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
 
@@ -2297,6 +2306,7 @@ class OptimizedStorageService {
     final sanitized = (
       registry: registry.registry.withoutCapturedHeaders(),
       readsSuppressed: registry.readsSuppressed,
+      selection: registry.selection,
     );
     await attempt(
       () => _restoreServerSessionUnlocked(
@@ -2420,6 +2430,33 @@ class OptimizedStorageService {
       await _writeEndpointHint();
       return true;
     });
+  }
+
+  /// Reaches the server of [config], an account just saved for a sign-in,
+  /// through the route [config] was saved to.
+  ///
+  /// The sign-in was checked on the address it names, and its proxy cookie
+  /// is kept for that route. A server already saved with that address among
+  /// its others can be using another one, and through it the sign-in would
+  /// reach neither the client it was checked with nor its cookie. Taking it
+  /// to the route in use instead would send what the user typed for one
+  /// address to another without asking.
+  Future<void> _selectRouteOfUnlocked(ServerConfig config) async {
+    final registry = await _registryForWriteUnlocked();
+    final account = registry.account(config.id);
+    final server = account == null ? null : registry.server(account.serverId);
+    if (server == null) return;
+    final selection = _endpointSelection();
+    final route = server.routeFor(
+      config.url,
+      selectedEndpointId: selection[server.id],
+    );
+    if (route.id == server.selectedEndpoint(selection[server.id]).id) return;
+    selection[server.id] = route.id;
+    _serverOwnershipRevision++;
+    _cacheManager.invalidate(_activeServerIdKey);
+    _cacheRegistry(registry);
+    await _writeEndpointHint();
   }
 
   /// Remembers the routes in use for the next launch. Only a hint: losing it
@@ -3144,12 +3181,24 @@ class OptimizedStorageService {
   Future<_RegistrySnapshot> _snapshotRegistryUnlocked() async => (
     registry: await _registryForWriteUnlocked(),
     readsSuppressed: _serverConfigsReadSuppressed,
+    selection: Map<String, String>.unmodifiable(_endpointSelection()),
   );
 
   /// Writes [snapshot] back as it was taken. Reads fenced then stay fenced,
-  /// whatever the transaction being undone did to the fence.
+  /// whatever the transaction being undone did to the fence, and each server
+  /// goes back to the route it was reached through.
   Future<void> _restoreRegistryUnlocked(_RegistrySnapshot snapshot) async {
-    await _saveRegistryUnlocked(snapshot.registry, authorizeReads: false);
+    final selectionChanged = !const MapEquality<String, String>().equals(
+      _endpointSelection(),
+      snapshot.selection,
+    );
+    // Before the write, which projects the configs it caches through it.
+    if (selectionChanged) _selectedEndpoints = Map.of(snapshot.selection);
+    try {
+      await _saveRegistryUnlocked(snapshot.registry, authorizeReads: false);
+    } finally {
+      if (selectionChanged) await _writeEndpointHint();
+    }
     _serverConfigsReadSuppressed = snapshot.readsSuppressed;
   }
 

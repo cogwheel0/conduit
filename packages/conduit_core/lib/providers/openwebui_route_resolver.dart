@@ -13,6 +13,7 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/ports/app_lifecycle.dart';
@@ -87,6 +88,21 @@ final openWebUiRouteProbeProvider = Provider<OpenWebUiRouteProbe>(
         },
       ),
 );
+
+/// Whether the active account has no session yet: it is being signed in to,
+/// or its saved session is still being restored.
+///
+/// A sign-in is checked on the client for the address it was given, and
+/// moving to a better route then would rebuild that client under it.
+final openWebUiSignInPendingProvider = Provider<bool Function()>((ref) {
+  return () {
+    try {
+      return !ref.read(isAuthenticatedProvider2);
+    } catch (_) {
+      return false;
+    }
+  };
+});
 
 /// Whether the address editor has the reverse-proxy sign-in open, to check a
 /// proxy-protected address of a saved server.
@@ -167,7 +183,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   /// in the user's order, that answers.
   ///
   /// Moving to a better route while a reply is being written would cut it
-  /// off, so that waits; leaving a route that stopped answering does not.
+  /// off, and while the active account is being signed in to would rebuild
+  /// the client the sign-in is checked on, so that waits; leaving a route
+  /// that stopped answering does not.
   Future<void> resolve({String reason = 'manual'}) async {
     final generation = ++_generation;
     _retry?.cancel();
@@ -225,7 +243,8 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
             upgrade && await probes[server.endpoints.indexOf(current)];
         if (!_owns(generation)) return;
         if (currentStillAnswers &&
-            ref.read(accountChangeReplyGuardProvider)()) {
+            (ref.read(accountChangeReplyGuardProvider)() ||
+                ref.read(openWebUiSignInPendingProvider)())) {
           state = state.copyWith(checking: false, noneAnswered: false);
           _retry = Timer(_retryDelay, () => _schedule('deferred'));
           return;

@@ -35,6 +35,7 @@ void main() {
   late Map<String, bool> answers;
   late List<String> probed;
   var replyInProgress = false;
+  var signingIn = false;
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('route-resolver-test');
@@ -57,6 +58,7 @@ void main() {
     answers = {};
     probed = [];
     replyInProgress = false;
+    signingIn = false;
 
     await storage.saveServerConfigs([
       const ServerConfig(id: 'account', name: 'Home', url: _lan),
@@ -95,6 +97,7 @@ void main() {
         accountChangeReplyGuardProvider.overrideWithValue(
           () => replyInProgress,
         ),
+        openWebUiSignInPendingProvider.overrideWithValue(() => signingIn),
       ],
     );
     addTearDown(container.dispose);
@@ -149,6 +152,23 @@ void main() {
     await routes.resolve();
 
     check(await routeInUse()).equals(_public);
+  });
+
+  // Moving would rebuild the client the sign-in is being checked on.
+  test('a better route waits while the active account signs in', () async {
+    answers = {_lan: false, _tailscale: false, _public: true};
+    final routes = await resolver();
+    await routes.resolve();
+
+    answers[_lan] = true;
+    signingIn = true;
+    await routes.resolve();
+    check(await routeInUse()).equals(_public);
+
+    // As the check put off then does.
+    signingIn = false;
+    await routes.resolve();
+    check(await routeInUse()).equals(_lan);
   });
 
   test('a route that stopped answering is left even mid-reply', () async {
