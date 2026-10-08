@@ -394,9 +394,16 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Future<void> _saveServerConfig(ServerConfig config) async {
+    // Saved for an added account, the server is that addition's. Left while
+    // the save is slow -- Back is then only Back, with the account it was
+    // added from still active -- the addition ends, and so must the save:
+    // it would make the new account active, signed out, over chat.
+    final addition = ref.read(accountAdditionOriginProvider) == null
+        ? null
+        : ref.read(accountAdditionOriginProvider.notifier).stillInProgress();
     await ref
         .read(authStateManagerProvider.notifier)
-        .selectUnauthenticatedServerConfig(config);
+        .selectUnauthenticatedServerConfig(config, canCommit: addition);
 
     final selectedServer = await ref.read(activeServerProvider.future);
     if (!authenticationServerMatchesSelection(selectedServer, config)) {

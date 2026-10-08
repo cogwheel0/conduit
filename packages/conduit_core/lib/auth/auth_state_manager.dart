@@ -1483,7 +1483,15 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  Future<void> selectUnauthenticatedServerConfig(ServerConfig config) async {
+  /// Makes [config] the active account, signed out, for a sign-in to it.
+  ///
+  /// [canCommit] lets the caller withdraw the selection while it is saved:
+  /// once it says no, the account active before stays active, as it does
+  /// when a newer auth attempt begins.
+  Future<void> selectUnauthenticatedServerConfig(
+    ServerConfig config, {
+    bool Function()? canCommit,
+  }) async {
     final currentState = _current;
     final previousState =
         currentState.isLoading || currentState.status == AuthStatus.loading
@@ -1491,17 +1499,20 @@ class AuthStateManager extends _$AuthStateManager {
         : currentState;
     final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
     final attemptRevision = _beginAuthAttempt();
+    bool superseded() =>
+        _authAttemptSuperseded(attemptRevision) ||
+        !(canCommit?.call() ?? true);
     final storage = ref.read(optimizedStorageServiceProvider);
     try {
       await storage.selectUnauthenticatedServerConfig(
         config,
-        canCommit: () => !_authAttemptSuperseded(attemptRevision),
+        canCommit: () => !superseded(),
         onRollbackUncertain: () {
           if (!ref.mounted) return;
           _poisonUncertainServerSession(failedAttemptRevision: attemptRevision);
         },
         publish: () {
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded before publication.',
             );
@@ -1513,26 +1524,26 @@ class AuthStateManager extends _$AuthStateManager {
           _lastSettledState = safeState;
           _lastTransactionalSessionRevision = null;
           _set(safeState);
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded during publication.',
             );
           }
           _updateApiServiceToken(null);
           ref.invalidate(serverConfigsProvider);
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded during publication.',
             );
           }
           ref.invalidate(activeServerProvider);
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded during publication.',
             );
           }
           ref.invalidate(apiServiceProvider);
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded during publication.',
             );

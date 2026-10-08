@@ -5,6 +5,9 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit/platform/webview_cookie_helper.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -590,6 +593,87 @@ void main() {
 
     check(harness.repliesStopped).equals(1);
     check(actions.ldapAttempts).deepEquals([('grace', 'password')]);
+
+    await harness.unmount(tester);
+  });
+
+  // While the first attempt saves the added account's server, the account it
+  // was added from is still active, so Back only closes the page. Going on
+  // back to chat ended the addition, but the save went on to make the new
+  // account active, signed out, and sign-in opened again over chat.
+  testWidgets('leaving an addition while its server is saved keeps the '
+      'account it was added from', (tester) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    // The harness's active account is the one the addition began from.
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore({PreferenceKeys.activeServerId: server.id}),
+    );
+    addTearDown(PreferencesStore.debugReset);
+    final actions = _RejectingAuthActions();
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLdap: true),
+      authActions: actions,
+      addingAccountFrom: server.id,
+    );
+    addTearDown(harness.dispose);
+    final saveHeld = Completer<void>();
+    var committed = false;
+    when(
+      () => harness.storage.selectUnauthenticatedServerConfig(
+        any(),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        publish: any(named: 'publish'),
+      ),
+    ).thenAnswer((invocation) async {
+      await saveHeld.future;
+      // As the storage does: a save that no longer owns its attempt leaves
+      // the account active before it as it was.
+      final canCommit =
+          invocation.namedArguments[#canCommit] as bool Function()?;
+      if (canCommit != null && !canCommit()) return false;
+      committed = true;
+      return true;
+    });
+
+    await tester.pumpWidget(harness.build(initialLocation: Routes.addServer));
+    await tester.pumpAndSettle();
+    unawaited(harness.router.pushNamed<void>(RouteNames.authentication));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('LDAP'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byKey(const ValueKey('ldap_form')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), 'grace');
+    await tester.enterText(fields.at(1), 'password');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sign in with LDAP'));
+    // The attempt shows progress until the save finishes.
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('authentication-back-button')),
+    );
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+    expect(find.byType(AuthenticationPage), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('server-connection-back-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('chat')), findsOneWidget);
+
+    saveHeld.complete();
+    await tester.pumpAndSettle();
+
+    check(committed).isFalse();
+    check(actions.ldapAttempts).isEmpty();
+    expect(find.byKey(const ValueKey<String>('chat')), findsOneWidget);
 
     await harness.unmount(tester);
   });

@@ -77,14 +77,28 @@ final accountAdditionOriginProvider =
     NotifierProvider<AccountAdditionOrigin, String?>(AccountAdditionOrigin.new);
 
 class AccountAdditionOrigin extends Notifier<String?> {
+  /// How many additions have begun, so one that began later is told apart
+  /// from the one before it.
+  int _begun = 0;
+
   @override
   String? build() => null;
 
-  void begin(String? activeAccountId) => state = activeAccountId;
+  void begin(String? activeAccountId) {
+    _begun++;
+    state = activeAccountId;
+  }
 
   /// Ends the flow begun from [activeAccountId], unless another has begun.
   void end(String? activeAccountId) {
     if (state == activeAccountId) state = null;
+  }
+
+  /// Whether the addition in progress now still is, for work it started:
+  /// false once it ends, and still false if another begins after it.
+  bool Function() stillInProgress() {
+    final begun = _begun;
+    return () => ref.mounted && _begun == begun && state != null;
   }
 }
 
