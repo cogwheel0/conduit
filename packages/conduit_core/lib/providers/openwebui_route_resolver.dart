@@ -102,11 +102,15 @@ bool Function() logoutFenceSuppressesCookies(
 /// or its saved session is still being restored.
 ///
 /// A sign-in is checked on the client for the address it was given, and
-/// moving to a better route then would rebuild that client under it.
+/// moving to a better route then would rebuild that client under it. A
+/// connection issue is not one: it keeps the session, signs nothing in, and
+/// moving is how it recovers ([OpenWebUiRouteResolver]'s session check).
 final openWebUiSignInPendingProvider = Provider<bool Function()>((ref) {
   return () {
     try {
-      return !ref.read(isAuthenticatedProvider2);
+      if (ref.read(isAuthenticatedProvider2)) return false;
+      final auth = ref.read(authStateManagerProvider).asData?.value;
+      return auth == null || auth.status != AuthStatus.error || auth.isLoading;
     } catch (_) {
       return false;
     }

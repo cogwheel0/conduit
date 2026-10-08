@@ -608,6 +608,50 @@ void main() {
     });
   });
 
+  // Moving would rebuild the client a sign-in is being checked on; a
+  // connection issue keeps its session and signs nothing in, and moving to
+  // a route that answers is how it recovers.
+  group('a sign-in counts as under way', () {
+    Future<bool> pendingWith(AuthState state) async {
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(() => _AuthAt(state)),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      return container.read(openWebUiSignInPendingProvider)();
+    }
+
+    test('while signed out', () async {
+      check(
+        await pendingWith(const AuthState(status: AuthStatus.unauthenticated)),
+      ).isTrue();
+    });
+
+    test('while the session is being restored', () async {
+      check(
+        await pendingWith(const AuthState(status: AuthStatus.loading)),
+      ).isTrue();
+    });
+
+    test('not on a connection issue', () async {
+      check(
+        await pendingWith(
+          const AuthState(status: AuthStatus.error, token: 'token'),
+        ),
+      ).isFalse();
+    });
+
+    test('not once signed in', () async {
+      check(
+        await pendingWith(
+          const AuthState(status: AuthStatus.authenticated, token: 'token'),
+        ),
+      ).isFalse();
+    });
+  });
+
   test('a signed-in session is not checked again as the route moves', () async {
     answers = {_lan: true, _tailscale: false, _public: true};
     final routes = await resolver();
@@ -761,6 +805,16 @@ final class _Auth extends AuthStateManager {
     rechecks++;
     return false;
   }
+}
+
+/// Settled at [settled].
+final class _AuthAt extends AuthStateManager {
+  _AuthAt(this.settled);
+
+  final AuthState settled;
+
+  @override
+  Future<AuthState> build() async => settled;
 }
 
 /// Holds route selections at a gate, so two checks can overlap there, and
