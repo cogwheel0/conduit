@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
@@ -90,6 +91,44 @@ void main() {
       find.text('Something went wrong. Please try again.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('an address typed while the saved one is read stays', (
+    tester,
+  ) async {
+    final server = (await tester.runAsync(() async {
+      await storage.saveServerConfigs([
+        const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+      ]);
+      return (await storage.getOpenWebUiRegistryStrict()).servers.single;
+    }))!;
+    final read = storage.registryHeld = Completer<void>();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ServerConnectionPage(
+            routesOfServerId: server.id,
+            endpointId: server.endpoints.single.id,
+          ),
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('server-url-field')),
+        matching: find.byType(EditableText),
+      ),
+      'https://typed.example',
+    );
+    read.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('https://typed.example'), findsOneWidget);
+    expect(find.text('https://chat.example'), findsNothing);
   });
 
   // Otherwise the address in use is saved somewhere new while the client
@@ -253,6 +292,15 @@ final class _CookieRefusingStorage extends OptimizedStorageService {
   });
 
   var keychainRefuses = false;
+
+  /// Holds a read of the saved servers back while set.
+  Completer<void>? registryHeld;
+
+  @override
+  Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async {
+    await registryHeld?.future;
+    return super.getOpenWebUiRegistryStrict();
+  }
 
   @override
   Future<bool> saveEndpointSessionHeaders({

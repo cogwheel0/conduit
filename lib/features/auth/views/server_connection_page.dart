@@ -440,6 +440,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _prefillFromRoute() async {
     final endpointId = widget.endpointId;
     if (endpointId == null) return;
+    // As for a saved server's: what the user typed while it is read stays.
+    final untouched = (_formContents(), _routeLabelController.text);
     final OpenWebUiRegistry registry;
     try {
       registry = await ref
@@ -463,6 +465,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         .server(widget.routesOfServerId!)
         ?.endpoint(endpointId);
     if (!mounted || endpoint == null) return;
+    if ((_formContents(), _routeLabelController.text) != untouched) return;
     _routeLabelController.text = endpoint.label ?? '';
     _applyEndpoint(endpoint);
   }
