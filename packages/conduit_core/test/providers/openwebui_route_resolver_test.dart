@@ -450,6 +450,69 @@ void main() {
       check(await routeInUse()).equals(_public);
     });
 
+    // Routes to one server can share a URL and differ in headers. A request
+    // still out on the one a check left can be refused once the other is
+    // in use; the one in use was not refused.
+    group('sharing a URL with the route in use', () {
+      const proxied = ServerConfig(
+        id: 'account',
+        name: 'Home',
+        url: _lan,
+        customHeaders: {'X-Proxy-Route': 'lan'},
+      );
+      const direct = ServerConfig(id: 'account', name: 'Home', url: _lan);
+
+      Future<OpenWebUiRouteResolver> twoRoutesOnOneUrl() async {
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        final server = registry.servers.single;
+        await storage.saveServer(
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [
+              server.endpoints.first,
+              OpenWebUiEndpoint(
+                id: 'proxied',
+                url: _lan,
+                customHeaders: proxied.customHeaders,
+              ),
+              OpenWebUiEndpoint(id: 'public', url: _public),
+            ],
+          ),
+        );
+        answers = {_lan: true, _public: true};
+        final routes = await resolver();
+        await routes.resolve();
+        return routes;
+      }
+
+      test('is not charged a refusal of the other', () async {
+        final routes = await twoRoutesOnOneUrl();
+        final inUse = routes.state.endpointId;
+        check(inUse).isNotNull().not((it) => it.equals('proxied'));
+
+        ConnectivityService.reportRouteRejected(
+          Uri.parse(_lan),
+          connection: proxied,
+        );
+        await settle();
+        await routes.resolve(reason: 'resumed');
+
+        check(routes.state.endpointId).equals(inUse);
+      });
+
+      test('is charged its own refusal', () async {
+        final routes = await twoRoutesOnOneUrl();
+
+        ConnectivityService.reportRouteRejected(
+          Uri.parse(_lan),
+          connection: direct,
+        );
+
+        await until(() => routes.state.endpointId == 'proxied');
+      });
+    });
+
     test('moves even while a reply is being written', () async {
       answers = {_lan: false, _tailscale: false, _public: true};
       final routes = await resolver();

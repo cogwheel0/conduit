@@ -9,7 +9,11 @@ part of 'api_service.dart';
 /// access -- as [ApiService.checkHealthWithProxyDetection] tells one. A page
 /// answered without a redirect is left out: Open WebUI's web app answers an
 /// address it does not know, as an older server does a newer endpoint.
-void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
+void _reportProxyRefusal(
+  Response<dynamic> response,
+  Uri? server,
+  ServerConfig connection,
+) {
   final options = response.requestOptions;
   // A replay's refusal passes here inside the replay and again on the way
   // out of the request it replays; it is one refusal.
@@ -41,7 +45,7 @@ void _reportProxyRefusal(Response<dynamic> response, Uri? server) {
           isSameOriginRedirectReplay(options));
   if (!refused) return;
   options.extra[_proxyRefusalReportedKey] = true;
-  ConnectivityService.reportRouteRejected(server);
+  ConnectivityService.reportRouteRejected(server, connection: connection);
 }
 
 const _proxyRefusalReportedKey = 'conduit.proxyRefusalReported';
@@ -203,7 +207,7 @@ abstract class _ApiServiceBase {
               ConnectivityService.noteSuccessfulTraffic(connectivityOrigin);
             }
             if (_reportsRouteRefusals) {
-              _reportProxyRefusal(response, connectivityOrigin);
+              _reportProxyRefusal(response, connectivityOrigin, serverConfig);
             }
           } catch (_) {}
           handler.next(response);
@@ -213,7 +217,7 @@ abstract class _ApiServiceBase {
           if (response != null && _reportsRouteRefusals) {
             // Reporting must not replace the request's own error.
             try {
-              _reportProxyRefusal(response, connectivityOrigin);
+              _reportProxyRefusal(response, connectivityOrigin, serverConfig);
             } catch (_) {}
           }
           if (error.response == null &&

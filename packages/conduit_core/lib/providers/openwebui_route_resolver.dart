@@ -157,8 +157,9 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   /// one has, or with no server to reach.
   String? _inUseOrigin;
 
-  /// The id of that route.
+  /// The id of that route, and the server it belongs to.
   String? _inUseRouteId;
+  OpenWebUiServer? _inUseServer;
 
   /// Routes a proxy turned the active account's requests away from, by id,
   /// and when. Their health check can still pass, so for [_refusedFor] no
@@ -190,13 +191,24 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
     // failures -- an address being checked, another account's server -- and
     // only the route in use says anything about it.
     DateTime? lastFailureCheck;
-    void failed(Uri uri, String reason) {
+    void failed(Uri uri, String reason, {ServerConfig? connection}) {
       final inUse = _inUseOrigin;
       if (inUse != null && ConnectivityService.originKey(uri) != inUse) {
         return;
       }
       if (reason == 'rejected') {
         final route = _inUseRouteId;
+        final server = _inUseServer;
+        // Routes can share a URL and differ in headers or client identity:
+        // a request still out on the route a check left can be refused once
+        // another with its URL is in use, and that one was not refused.
+        if (route != null && server != null && connection != null) {
+          final sentOver = server.routeForConnection(
+            connection,
+            selectedEndpointId: route,
+          );
+          if (sentOver.id != route) return;
+        }
         if (route != null) _refused[route] = DateTime.now();
       }
       // Nor would it be checked; resuming checks anyway.
@@ -225,7 +237,11 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       onError: (Object _) {},
     );
     final rejections = ConnectivityService.routeRejections.listen(
-      (uri) => failed(uri, 'rejected'),
+      (rejection) => failed(
+        rejection.server,
+        'rejected',
+        connection: rejection.connection,
+      ),
       onError: (Object _) {},
     );
     final network = ref.read(connectivityPortProvider).onChanged.listen((
@@ -298,6 +314,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       if (account == null || server == null) {
         _inUseOrigin = null;
         _inUseRouteId = null;
+        _inUseServer = null;
         _recheckOwed = false;
         state = const OpenWebUiRouteStatus();
         return;
@@ -308,6 +325,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       // Until a check settles otherwise, the route in use stays in use.
       _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(current.url));
       _inUseRouteId = current.id;
+      _inUseServer = server;
       if (server.endpoints.length < 2) {
         state = OpenWebUiRouteStatus(
           serverId: server.id,

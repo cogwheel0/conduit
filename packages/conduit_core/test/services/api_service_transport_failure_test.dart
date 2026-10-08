@@ -145,7 +145,7 @@ void main() {
       rejected = [];
       unreachable = [];
       final rejections = ConnectivityService.routeRejections.listen(
-        rejected.add,
+        (rejection) => rejected.add(rejection.server),
       );
       final failures = ConnectivityService.transportFailures.listen(
         unreachable.add,
@@ -273,6 +273,11 @@ void main() {
       app.dio.httpClientAdapter = _Proxy({
         '/api/v1/auths/': () => _redirect('https://sso.example/login'),
       });
+      final sentOver = <ServerConfig?>[];
+      final connections = ConnectivityService.routeRejections.listen(
+        (rejection) => sentOver.add(rejection.connection),
+      );
+      addTearDown(connections.cancel);
 
       try {
         await app.dio.get<dynamic>('/api/v1/auths/');
@@ -281,6 +286,8 @@ void main() {
       }
 
       check(rejected).deepEquals([Uri.parse(server)]);
+      // With the connection it was sent over, for the route it came from.
+      check(sentOver).deepEquals([app.serverConfig]);
     });
 
     test('on an address the server upgraded to HTTPS is reported', () async {

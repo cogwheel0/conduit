@@ -24,6 +24,10 @@ part 'connectivity_service.g.dart';
 /// - [offline]: No network or server unreachable
 enum ConnectivityStatus { online, offline }
 
+/// A request a proxy turned away from [server], and the connection it was
+/// sent over when known; see [ConnectivityService.routeRejections].
+typedef RouteRejection = ({Uri server, ServerConfig? connection});
+
 /// Simplified connectivity service that monitors network and server health.
 ///
 /// Key improvements:
@@ -454,8 +458,8 @@ class ConnectivityService {
       StreamController<Uri>.broadcast(sync: true);
   static final StreamController<Uri> _transportFailures =
       StreamController<Uri>.broadcast(sync: true);
-  static final StreamController<Uri> _routeRejections =
-      StreamController<Uri>.broadcast(sync: true);
+  static final StreamController<RouteRejection> _routeRejections =
+      StreamController<RouteRejection>.broadcast(sync: true);
 
   static String? _originKey(Uri? uri) {
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
@@ -500,11 +504,18 @@ class ConnectivityService {
   /// the server. The address answered, so this says nothing about whether
   /// the server can be reached and connectivity ignores it; the route
   /// resolver tries the server's other addresses.
-  static Stream<Uri> get routeRejections => _routeRejections.stream;
+  static Stream<RouteRejection> get routeRejections =>
+      _routeRejections.stream;
 
-  static void reportRouteRejected(Uri? serverUri) {
+  /// Reports [serverUri] refusing a request, sent as [connection] when the
+  /// client knows it: routes to one server can share a URL and differ in
+  /// headers or client certificate.
+  static void reportRouteRejected(
+    Uri? serverUri, {
+    ServerConfig? connection,
+  }) {
     if (serverUri != null && !_routeRejections.isClosed) {
-      _routeRejections.add(serverUri);
+      _routeRejections.add((server: serverUri, connection: connection));
     }
   }
 
