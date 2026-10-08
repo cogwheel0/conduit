@@ -2303,6 +2303,25 @@ void main() {
           .equals(OpenWebUiDatabaseAccessPhase.open);
     });
 
+    // Settings scoped to an account read the kept id; an account active
+    // only as storage counts it would read the device's meanwhile.
+    test('certifying an account keeps it as the active account', () async {
+      final kept = <String>[];
+      final harness = await _harness(
+        additionalOverrides: [
+          openWebUiActiveAccountRecordProvider.overrideWithValue(
+            (accountId) async => kept.add(accountId),
+          ),
+        ],
+      );
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+      await Future<void>.delayed(Duration.zero);
+
+      check(kept).deepEquals([_server.id]);
+    });
+
     test('certifying an account records it as the one just used', () async {
       final harness = await _harness();
       await harness.container

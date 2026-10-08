@@ -120,6 +120,17 @@ final openWebUiAccountUserBindProvider = Provider<OpenWebUiAccountUserBind>(
   (ref) => ref.watch(optimizedStorageServiceProvider).bindAccountUser,
 );
 
+typedef OpenWebUiActiveAccountRecord = Future<void> Function(String accountId);
+
+/// Keeps a certified account's id as the active one when storage counts it
+/// active without one kept (see
+/// [OptimizedStorageService.recordEffectiveActiveAccount]).
+final openWebUiActiveAccountRecordProvider =
+    Provider<OpenWebUiActiveAccountRecord>(
+      (ref) =>
+          ref.watch(optimizedStorageServiceProvider).recordEffectiveActiveAccount,
+    );
+
 typedef OpenWebUiAccountPrivateDataClear =
     Future<void> Function(String accountId);
 
@@ -815,10 +826,20 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
               .recordUser(serverId, certifiedUser)
               .catchError(logSummaryFailure),
         );
+        // The account's id is kept first: its settings are read under it
+        // from now on, the copy they start from included.
+        Future<void> recordActive() async {
+          try {
+            await ref.read(openWebUiActiveAccountRecordProvider)(serverId);
+          } catch (error, stackTrace) {
+            logSummaryFailure(error, stackTrace);
+          }
+        }
+
         unawaited(
-          migrateDeviceSettingsIntoAccount(
-            serverId,
-          ).catchError(logSummaryFailure),
+          recordActive()
+              .then((_) => migrateDeviceSettingsIntoAccount(serverId))
+              .catchError(logSummaryFailure),
         );
       } catch (error, stackTrace) {
         logSummaryFailure(error, stackTrace);

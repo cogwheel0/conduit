@@ -2790,6 +2790,26 @@ class OptimizedStorageService {
   Future<void> setActiveServerId(String? serverId) =>
       _authStateLock.synchronized(() => _setActiveServerIdUnlocked(serverId));
 
+  /// Keeps [accountId] as the active account id when it is active only as
+  /// storage counts it -- flagged active, or the only account saved -- with
+  /// no id kept for it. Settings scoped to an account read the kept id, so
+  /// until then they would be the device's, while the account's own copy of
+  /// them went stale. Changes nothing else, and nothing when another
+  /// account is active.
+  Future<void> recordEffectiveActiveAccount(String accountId) =>
+      _authStateLock.synchronized(
+        () => _serverConfigsLock.synchronized(() async {
+          final raw = _rawStoredActiveServerId(bypassReadSuppression: true);
+          if (raw == accountId) return;
+          final effective = _effectiveActiveServerId(
+            configs: await _getServerConfigsStrictUnlocked(),
+            rawActiveServerId: raw,
+          );
+          if (effective != accountId) return;
+          await _writeActiveServerIdWithoutConfigSync(accountId);
+        }),
+      );
+
   Future<void> _setActiveServerIdUnlocked(String? serverId) async {
     await _serverConfigsLock.synchronized(() async {
       final configs = await _getServerConfigsStrictUnlocked();

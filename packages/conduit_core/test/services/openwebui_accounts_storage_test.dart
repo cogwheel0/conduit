@@ -617,6 +617,28 @@ void main() {
     });
   });
 
+  group('an account active as storage counts it', () {
+    test('has its id kept once certified', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await PreferencesStore.remove(PreferenceKeys.activeServerId);
+
+      await storage.recordEffectiveActiveAccount('a');
+
+      check(PreferencesStore.getString(PreferenceKeys.activeServerId))
+          .equals('a');
+    });
+
+    test('leaves another account kept as active alone', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await storage.setActiveServerId('b');
+
+      await storage.recordEffectiveActiveAccount('a');
+
+      check(PreferencesStore.getString(PreferenceKeys.activeServerId))
+          .equals('b');
+    });
+  });
+
   group('signing in as an existing account', () {
     test('folds the new account into the existing one', () async {
       await storage.saveServerConfigs([account('existing'), account('new')]);
