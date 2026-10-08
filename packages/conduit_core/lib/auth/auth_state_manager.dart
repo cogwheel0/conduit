@@ -1119,14 +1119,20 @@ class AuthStateManager extends _$AuthStateManager {
       // by a switch that failed part-way. Storage takes it up when asked to
       // switch to the account it is on; left there, the next switch away
       // would drop it.
-      if (!_current.isAuthenticated &&
-          await storage.switchActiveServer(
-            fromServerId: accountId,
-            toServerId: accountId,
-          )) {
-        _invalidateServerProviders();
-        await refresh();
-        return _current.isAuthenticated;
+      if (!_current.isAuthenticated) {
+        // A sign-in started while storage looks owns what comes next.
+        final revision = _authAttemptRevision;
+        if (await storage.switchActiveServer(
+          fromServerId: accountId,
+          toServerId: accountId,
+        )) {
+          if (!ref.mounted || _authAttemptRevision != revision) {
+            return _current.isAuthenticated;
+          }
+          _invalidateServerProviders();
+          await refresh();
+          return _current.isAuthenticated;
+        }
       }
       // Already active -- which a single stored config is, by the storage
       // layer's own fallback, before anything has explicitly selected it. So

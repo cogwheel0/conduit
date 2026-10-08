@@ -182,6 +182,70 @@ void main() {
         .equals(_tokenA);
   });
 
+  test('taking up a kept session leaves a sign-in started meanwhile alone',
+      () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    String? token;
+    var tokenReads = 0;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async {
+      tokenReads++;
+      return token;
+    });
+    when(() => storage.getAuthToken()).thenAnswer((_) async => token);
+    when(() => storage.getSavedCredentials()).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    late final ProviderContainer container;
+    Future<void>? newer;
+    when(
+      () => storage.switchActiveServer(
+        fromServerId: 'account-a',
+        toServerId: 'account-a',
+      ),
+    ).thenAnswer((_) async {
+      token = _tokenA;
+      // A sign-in starts while storage takes the session up.
+      newer = container.read(authStateManagerProvider.notifier).refresh();
+      return true;
+    });
+
+    container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+    tokenReads = 0;
+
+    await container
+        .read(authStateManagerProvider.notifier)
+        .switchToAccount('account-a');
+    await newer;
+
+    // Only the newer sign-in read the session; a second restore would have
+    // cancelled it.
+    check(tokenReads).equals(1);
+  });
+
   test('an account without a session settles signed out', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();
