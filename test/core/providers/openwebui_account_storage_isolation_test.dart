@@ -2217,6 +2217,33 @@ void main() {
       check(clearedWhileActive).not((it) => it.contains(_serverTwo.id));
     });
 
+    // Switching away and back can let a newer purge reopen the account; a
+    // retry of the older one would then delete what it opened.
+    test('a purge overtaken by a switch tries no more', () async {
+      final firstFailed = Completer<void>();
+      var purges = 0;
+      final harness = await _harness(
+        databasePurge: (_) async {
+          purges++;
+          if (!firstFailed.isCompleted) {
+            firstFailed.complete();
+            throw StateError('Database locked');
+          }
+        },
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      // Another user on the open account: its data is purged.
+      harness.auth.publish(_authenticated('token-b', _userB));
+      await firstFailed.future;
+      isolation.beginAccountSwitch();
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      check(purges).equals(1);
+    });
+
     // After a password change: the account stays, so it can be signed in to
     // again while its files are still being deleted.
     test('a sign-in landing while a kept account is purged waits for it',

@@ -840,6 +840,10 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     StackTrace? lastStackTrace;
     final revokedStorageAccountIdentities = <String>{};
     for (var attempt = 1; attempt <= 3; attempt++) {
+      // Superseded by a switch or another purge, it tries no more: a purge
+      // since may have opened this account's database again, and a retry
+      // would delete it from under that.
+      if (attempt > 1 && (_disposed || generation != _purgeGeneration)) return;
       try {
         final ownerMarker = ref
             .read(openWebUiAccountOwnerMarkerStoreProvider)
