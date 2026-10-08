@@ -187,56 +187,67 @@ Future<void> settleDeviceSettingsCopy(
 
 /// Deletes everything [accountId] keeps in preferences: its scoped settings,
 /// its socket transport options, its cached feature flags and its summary.
+///
+/// Every removal is tried, and checked: one the store refuses would leave
+/// that account's data on disk behind a sign-out that seemed to work. The
+/// first failure is reported once the rest have run.
 Future<void> clearOpenWebUiAccountPreferences(String accountId) async {
   if (!PreferencesStore.isReady) return;
-  Object? markError;
-  StackTrace? markStackTrace;
+  Object? firstError;
+  StackTrace? firstStackTrace;
+  Future<void> attempt(Future<void> Function() write) async {
+    try {
+      await write();
+    } catch (error, stackTrace) {
+      firstError ??= error;
+      firstStackTrace ??= stackTrace;
+    }
+  }
+
   if (_deviceSettingsCopyClaim == accountId) {
     // The device settings were being copied to this account, the first in
     // use after the upgrade, which they belonged to. They go with it rather
     // than pass to the next account, which starts from the defaults. Until
     // that is marked, no account takes them over in this run.
     _deviceSettingsCopyClaim = _deviceSettingsGone;
-    try {
+    await attempt(() async {
       await PreferencesStore.putChecked(
         PreferenceKeys.accountScopedSettingsMigrated,
         true,
       );
       _deviceSettingsCopyClaim = null;
-    } catch (error, stackTrace) {
-      // Reported once the account's own settings are gone too.
-      markError = error;
-      markStackTrace = stackTrace;
-    }
+    });
   }
   final suffix = '$_accountScopeSeparator${_encodedAccountId(accountId)}';
   for (final key in PreferencesStore.keys().toList(growable: false)) {
-    if (key.endsWith(suffix)) await PreferencesStore.remove(key);
+    if (key.endsWith(suffix)) {
+      await attempt(() => PreferencesStore.putChecked(key, null));
+    }
   }
-  await PreferencesStore.remove(
-    '${PreferenceKeys.transportOptionsPrefix}:'
-    '${base64Url.encode(utf8.encode(accountId))}',
+  await attempt(
+    () => PreferencesStore.putChecked(
+      '${PreferenceKeys.transportOptionsPrefix}:'
+      '${base64Url.encode(utf8.encode(accountId))}',
+      null,
+    ),
   );
 
   final rawFlags = PreferencesStore.getString(
     PreferenceKeys.serverFeatureAvailability,
   );
   if (rawFlags != null && rawFlags.isNotEmpty) {
+    Map<String, Object?>? kept;
+    var changed = false;
     try {
       final decoded = jsonDecode(rawFlags);
       if (decoded is Map) {
         final prefix = '$accountId::';
-        final kept = <String, Object?>{
+        kept = <String, Object?>{
           for (final entry in decoded.entries)
             if (!entry.key.toString().startsWith(prefix))
               entry.key.toString(): entry.value,
         };
-        if (kept.length != decoded.length) {
-          await PreferencesStore.put(
-            PreferenceKeys.serverFeatureAvailability,
-            jsonEncode(kept),
-          );
-        }
+        changed = kept.length != decoded.length;
       }
     } catch (error) {
       DebugLogger.warning(
@@ -245,24 +256,46 @@ Future<void> clearOpenWebUiAccountPreferences(String accountId) async {
         data: {'errorType': error.runtimeType.toString()},
       );
     }
+    if (changed) {
+      await attempt(
+        () => PreferencesStore.putChecked(
+          PreferenceKeys.serverFeatureAvailability,
+          jsonEncode(kept),
+        ),
+      );
+    }
   }
 
   final rawSummaries = PreferencesStore.getString(
     PreferenceKeys.openWebUiAccountSummaries,
   );
   if (rawSummaries != null && rawSummaries.isNotEmpty) {
+    Object? decoded;
+    var unreadable = false;
     try {
-      final decoded = jsonDecode(rawSummaries);
-      if (decoded is Map && decoded.containsKey(accountId)) {
-        decoded.remove(accountId);
-        await PreferencesStore.put(
-          PreferenceKeys.openWebUiAccountSummaries,
-          jsonEncode(decoded),
-        );
-      }
+      decoded = jsonDecode(rawSummaries);
     } catch (_) {
-      await PreferencesStore.remove(PreferenceKeys.openWebUiAccountSummaries);
+      unreadable = true;
+    }
+    final summaries = decoded is Map ? decoded : null;
+    if (unreadable) {
+      await attempt(
+        () => PreferencesStore.putChecked(
+          PreferenceKeys.openWebUiAccountSummaries,
+          null,
+        ),
+      );
+    } else if (summaries != null && summaries.containsKey(accountId)) {
+      summaries.remove(accountId);
+      await attempt(
+        () => PreferencesStore.putChecked(
+          PreferenceKeys.openWebUiAccountSummaries,
+          jsonEncode(summaries),
+        ),
+      );
     }
   }
-  if (markError != null) Error.throwWithStackTrace(markError, markStackTrace!);
+  if (firstError != null) {
+    Error.throwWithStackTrace(firstError!, firstStackTrace!);
+  }
 }

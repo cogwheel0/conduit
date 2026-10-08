@@ -145,6 +145,34 @@ void main() {
     check(PreferencesStore.getRaw(onA)).equals('pre-upgrade');
   });
 
+  test("a removal the store refuses is reported, after the account's other "
+      'data has gone', () async {
+    final pinnedOnA = accountScopedPreferenceKey(
+      PreferenceKeys.pinnedModels,
+      'a',
+    );
+    final modelOnA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    final transport =
+        '${PreferenceKeys.transportOptionsPrefix}:'
+        '${base64Url.encode(utf8.encode('a'))}';
+    final store = InMemoryKeyValueStore();
+    PreferencesStore.debugOverride(
+      store,
+      writeInterceptor: (_, key, value) async =>
+          key == pinnedOnA && value == null ? false : null,
+    );
+    await PreferencesStore.put(pinnedOnA, ['model']);
+    await PreferencesStore.put(modelOnA, 'model');
+    await PreferencesStore.put(transport, 'polling');
+
+    await check(clearOpenWebUiAccountPreferences('a')).throws<StateError>();
+
+    check(PreferencesStore.containsKey(modelOnA)).isFalse();
+    check(PreferencesStore.containsKey(transport)).isFalse();
+    // Still there, and said so.
+    check(PreferencesStore.containsKey(pinnedOnA)).isTrue();
+  });
+
   test('device settings whose copy failed go with the account they were for',
       () async {
     final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
