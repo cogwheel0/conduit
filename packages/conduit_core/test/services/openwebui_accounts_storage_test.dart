@@ -1468,6 +1468,59 @@ void main() {
           .equals('https://chat.example.com');
     });
 
+    group('signing in on a route in use that is not the first', () {
+      late ServerConfig onLan;
+
+      setUp(() async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        await signIn('b');
+        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+        await storage.saveAuthToken('token-a');
+        final server = await addRoute('lan', 'http://10.0.0.2:3000');
+        await storage.selectEndpoint(server.id, 'lan');
+        onLan = (await storage.getServerConfigs()).firstWhere(
+          (config) => config.id == 'a',
+        );
+      });
+
+      ServerConfig withNewCertificate(ServerConfig config) => config.copyWith(
+        mtlsCertificateChainPem: 'new-chain',
+        mtlsPrivateKeyPem: 'new-key',
+      );
+
+      test('with nothing changed keeps the other accounts\' sessions', () async {
+        await storage.selectUnauthenticatedServerConfig(onLan, publish: () {});
+
+        check(await vaultedToken('b')).equals('token-b');
+      });
+
+      test('with a new client certificate ends the sessions kept aside '
+          'there', () async {
+        await storage.selectUnauthenticatedServerConfig(
+          withNewCertificate(onLan),
+          publish: () {},
+        );
+
+        check(await vaultedToken('b')).isNull();
+      });
+
+      test('through a proxy with a new client certificate ends them too', () async {
+        final candidate = withNewCertificate(onLan);
+        final staged = await storage.stageServerConfigCandidate(candidate);
+
+        check(
+          await storage.commitServerConfigCandidateSession(
+            candidate: candidate,
+            transactionId: staged.transactionId,
+            token: 'token-a-again',
+            canCommit: () => true,
+            publish: () {},
+          ),
+        ).isTrue();
+        check(await vaultedToken('b')).isNull();
+      });
+    });
+
     test('a sign-in validated on one route cannot commit on another', () async {
       await storage.saveServerConfigs([account('a')]);
       await storage.setActiveServerId('a');

@@ -1364,10 +1364,14 @@ class OptimizedStorageService {
             if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
           }
           // Selecting an account with its server edited moves every account
-          // on that server, the one just filed away included.
+          // on that server, the one just filed away included. Judged on the
+          // routes in use, which is where the save applies the edit.
+          final selection = _endpointSelection();
           await _dropVaultedSessionsOfMovedAccountsUnlocked(
-            current: registry.projectAll(),
-            next: registry.mergeServerConfigs(nextConfigs).projectAll(),
+            current: registry.projectAll(selectedEndpoints: selection),
+            next: registry
+                .mergeServerConfigs(nextConfigs, selectedEndpoints: selection)
+                .projectAll(selectedEndpoints: selection),
             skip: selected.id,
             undo: vaultUndo,
           );
@@ -2017,12 +2021,18 @@ class OptimizedStorageService {
           );
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
           // A candidate can keep a saved account's id with its server moved,
-          // which moves every account on that server.
+          // which moves every account on that server; on the routes in use.
+          final selection = _endpointSelection();
           await _dropVaultedSessionsOfMovedAccountsUnlocked(
-            current: previousRegistry.registry.projectAll(),
+            current: previousRegistry.registry.projectAll(
+              selectedEndpoints: selection,
+            ),
             next: previousRegistry.registry
-                .mergeServerConfigs(committedConfigs)
-                .projectAll(),
+                .mergeServerConfigs(
+                  committedConfigs,
+                  selectedEndpoints: selection,
+                )
+                .projectAll(selectedEndpoints: selection),
             undo: vaultUndo,
           );
 
