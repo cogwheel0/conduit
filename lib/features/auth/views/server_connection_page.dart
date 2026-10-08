@@ -29,7 +29,8 @@ import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show
         logoutFenceSuppressesCookies,
         openWebUiRouteResolverProvider,
-        proxySignInForRouteEditingProvider;
+        proxySignInForRouteEditingProvider,
+        reloadAfterRoutesEdited;
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show
         accountAdditionOriginProvider,
@@ -338,14 +339,9 @@ Future<bool> saveCheckedAddress(
     saved = true;
   }
   if (!saved) return false;
-  // The clients, the addresses shown and the route in use follow it.
-  container.invalidate(serverConfigsProvider);
-  container.invalidate(openWebUiAccountsProvider);
-  unawaited(
-    container
-        .read(openWebUiRouteResolverProvider.notifier)
-        .routesEdited(serverId, endpointId: route.id),
-  );
+  // The addresses shown and the route in use follow it, and the clients
+  // when the active connection changed.
+  await reloadAfterRoutesEdited(container, serverId, endpointId: route.id);
   return true;
 }
 

@@ -165,13 +165,7 @@ class ServerAddressesPage extends ConsumerWidget {
       await container
           .read(optimizedStorageServiceProvider)
           .editServerEndpoints(serverId, edit);
-      container.invalidate(serverConfigsProvider);
-      container.invalidate(openWebUiAccountsProvider);
-      unawaited(
-        container
-            .read(openWebUiRouteResolverProvider.notifier)
-            .routesEdited(serverId),
-      );
+      await reloadAfterRoutesEdited(container, serverId);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'server-addresses-save-failed',

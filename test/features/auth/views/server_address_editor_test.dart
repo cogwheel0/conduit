@@ -412,6 +412,49 @@ void main() {
     check(_Routes.reasons).deepEquals(['routes-edited']);
   });
 
+  // A new client ends the reply arriving through it: an edit of an address
+  // not in use leaves the active connection, and its clients, as they are.
+  test('saving an address not in use leaves the active connection alone',
+      () async {
+    await storage.saveServerConfigs([
+      const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+    ]);
+    await storage.setActiveServerId('a');
+    final stored = (await storage.getOpenWebUiRegistryStrict()).servers.single;
+    await storage.saveServer(
+      OpenWebUiServer(
+        id: stored.id,
+        name: stored.name,
+        endpoints: [
+          ...stored.endpoints,
+          OpenWebUiEndpoint(id: 'away', url: 'https://away.example'),
+        ],
+      ),
+    );
+    await container.read(activeServerProvider.future);
+    var changes = 0;
+    container.listen(activeServerProvider, (_, _) => changes++);
+    Future<bool> save(String routeId, String url) => saveCheckedAddress(
+      container,
+      serverId: stored.id,
+      route: OpenWebUiEndpoint(id: routeId, url: url),
+      adding: false,
+      cookieOwner: null,
+      headers: const {},
+      sessionRevision: storage.sessionRevocationRevision,
+    );
+
+    check(await save('away', 'https://moved-away.example')).isTrue();
+    await Future<void>.delayed(Duration.zero);
+    check(changes).equals(0);
+
+    check(
+      await save(stored.endpoints.single.id, 'https://moved.example'),
+    ).isTrue();
+    await Future<void>.delayed(Duration.zero);
+    check(changes).isGreaterThan(0);
+  });
+
   // Saved without it, an address behind a proxy would be refused, with no
   // other to fall back to; the clients and the addresses shown stay put too.
   test('an address whose cookie cannot be kept is not saved', () async {

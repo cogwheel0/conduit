@@ -611,3 +611,38 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
     return decided.future;
   }
 }
+
+/// Brings what follows [serverId]'s addresses up to date once an edit of
+/// them is saved: the addresses shown, the route check and, only when the
+/// active account's own connection changed, its clients. A new client ends
+/// the reply it is receiving; an edit of an address not in use, or of
+/// another server, leaves the active connection as it was.
+Future<void> reloadAfterRoutesEdited(
+  ProviderContainer container,
+  String serverId, {
+  String? endpointId,
+}) async {
+  var connectionChanged = true;
+  try {
+    final inUse = container.read(activeServerProvider);
+    if (inUse.hasValue && !inUse.isLoading) {
+      final active = inUse.value;
+      final saved = await container
+          .read(optimizedStorageServiceProvider)
+          .getServerConfigsStrict();
+      connectionChanged =
+          active == null ||
+          saved.where((config) => config.id == active.id).firstOrNull !=
+              active;
+    }
+  } catch (_) {
+    // Unknown: the clients are rebuilt, as for any edit.
+  }
+  if (connectionChanged) container.invalidate(serverConfigsProvider);
+  container.invalidate(openWebUiAccountsProvider);
+  unawaited(
+    container
+        .read(openWebUiRouteResolverProvider.notifier)
+        .routesEdited(serverId, endpointId: endpointId),
+  );
+}
