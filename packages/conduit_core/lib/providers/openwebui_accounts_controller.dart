@@ -300,7 +300,11 @@ class OpenWebUiAccountsController {
     if (active == null || active.account.userId != null || active.hasSession) {
       return false;
     }
-    final next = await _nextAccountAfter(activeId);
+    // Back to the account the addition began from while it is signed in,
+    // even when another was used since; else to the one used last.
+    final next = entries.any((entry) => entry.id == origin && entry.hasSession)
+        ? origin
+        : await _nextAccountAfter(activeId);
     if (next == null ||
         !entries.any((entry) => entry.id == next && entry.hasSession)) {
       return false;

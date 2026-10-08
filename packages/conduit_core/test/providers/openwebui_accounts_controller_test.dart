@@ -959,6 +959,18 @@ void main() {
     });
   });
 
+  test('cancelling an addition goes back to the account it began from, '
+      'not one used since', () async {
+    final (:storage, :container, :controller) = await signedInToBLast();
+    // A is active again, with B used after it.
+    storage.active = 'a';
+    container.read(accountAdditionOriginProvider.notifier).begin('a');
+    storage.active = 'c';
+
+    check(await controller.abandonPendingSignIn()).isTrue();
+    check(storage.active).equals('a');
+  });
+
   // Cancel pressed again while the first is still leaving, and another
   // addition begun before the second one's turn.
   test('a Cancel queued for an addition leaves no later one', () async {
