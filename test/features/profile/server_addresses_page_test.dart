@@ -113,7 +113,7 @@ void main() {
             ];
           }),
           openWebUiRouteResolverProvider.overrideWith(_Routes.new),
-          accountChangeReplyGuardProvider.overrideWithValue(
+          addressChangeReplyGuardProvider.overrideWithValue(
             () => replyInProgress,
           ),
           accountChangeStopRepliesProvider.overrideWithValue(

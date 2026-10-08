@@ -13,6 +13,8 @@ import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
+import 'package:conduit_core/database/account_storage_isolation.dart'
+    show conversationUsesOpenWebUiStorage;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         isChatStreamingProvider,
@@ -47,6 +49,24 @@ final accountChangeReplyGuardProvider = Provider<bool Function()>((ref) {
     try {
       return ref.read(isChatStreamingProvider) ||
           ref.read(localChatGenerationActiveProvider);
+    } catch (_) {
+      return false;
+    }
+  };
+});
+
+/// Whether a reply is arriving through the active Open WebUI account's
+/// address, which changing or removing that address cuts off: the open
+/// chat's, when it is an Open WebUI chat. Direct, Hermes and on-device
+/// replies do not use the address. The host may widen it (Open WebUI replies
+/// it tracks in the background).
+final addressChangeReplyGuardProvider = Provider<bool Function()>((ref) {
+  return () {
+    try {
+      return ref.read(isChatStreamingProvider) &&
+          conversationUsesOpenWebUiStorage(
+            ref.read(activeConversationProvider),
+          );
     } catch (_) {
       return false;
     }

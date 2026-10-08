@@ -257,7 +257,7 @@ void main() {
             ),
           ),
         ),
-        accountChangeReplyGuardProvider.overrideWithValue(() => true),
+        addressChangeReplyGuardProvider.overrideWithValue(() => true),
         accountChangeStopRepliesProvider.overrideWithValue(() => stops++),
       ],
     );

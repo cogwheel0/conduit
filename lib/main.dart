@@ -396,6 +396,21 @@ void main() {
               }
             };
           }),
+          // Replies still being written in the background are Open WebUI's,
+          // which arrive through the active account's address.
+          addressChangeReplyGuardProvider.overrideWith((ref) {
+            return () {
+              try {
+                return (ref.read(isChatStreamingProvider) &&
+                        conversationUsesOpenWebUiStorage(
+                          ref.read(activeConversationProvider),
+                        )) ||
+                    BackgroundStreamingHandler.instance.hasActiveReplyStreams;
+              } catch (_) {
+                return false;
+              }
+            };
+          }),
           // Posted notifications deep-link into the account that posted them.
           hostActiveAccountChangedProvider.overrideWith((ref) {
             return (_) {
