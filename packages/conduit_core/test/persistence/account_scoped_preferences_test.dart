@@ -292,6 +292,50 @@ void main() {
     check(shown.notificationSoundAlways).isTrue();
   });
 
+  test('a notification choice made while server prefs are saved stays',
+      () async {
+    final paused = Completer<void>();
+    final resume = Completer<void>();
+    final lastKey = accountScopedPreferenceKey(
+      PreferenceKeys.notificationSoundAlways,
+      'a',
+    );
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async {
+        if (key == lastKey && !paused.isCompleted) {
+          paused.complete();
+          await resume.future;
+        }
+        return null;
+      },
+    );
+    await PreferencesStore.put(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    await activate('a');
+    final container = ProviderContainer(
+      overrides: [settledActiveAccountIdProvider.overrideWith(_SettledOnA.new)],
+    );
+    addTearDown(container.dispose);
+    final settings = container.read(appSettingsProvider.notifier);
+
+    final apply = settings.applyServerNotificationPrefs(
+      accountId: 'a',
+      enabled: true,
+      sound: true,
+      soundAlways: true,
+    );
+    // The server's sound setting is saved; the user turns sound off.
+    await paused.future;
+    await settings.setNotificationSound(false);
+    resume.complete();
+    await apply;
+
+    check(container.read(appSettingsProvider).notificationSound).isFalse();
+  });
+
   test('a signed-out account\'s summary stays gone when another account '
       'is used', () async {
     final container = ProviderContainer(

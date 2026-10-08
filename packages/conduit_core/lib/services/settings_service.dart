@@ -1209,8 +1209,19 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       key(SettingsService._notificationSoundAlwaysKey): ?soundAlways,
     });
     // Switching away and back while these were written reloads the settings
-    // from the ones written by then; show all of them once they are.
-    show();
+    // from the ones written by then. Show what is stored once they all are:
+    // a choice the user made meanwhile is stored after the server's, and
+    // stays.
+    if (currentPreferenceAccountId() != accountId) return;
+    bool? stored(String baseKey) => PreferencesStore.getBool(key(baseKey));
+    final next = state.copyWith(
+      notificationsEnabled: stored(SettingsService._notificationsEnabledKey),
+      notificationSound: stored(SettingsService._notificationSoundKey),
+      notificationSoundAlways: stored(
+        SettingsService._notificationSoundAlwaysKey,
+      ),
+    );
+    if (next != state) state = next;
   }
 
   Future<void> setHighContrast(bool value) async {
