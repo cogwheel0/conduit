@@ -223,6 +223,28 @@ void main() {
     }, _RealHttpOverrides());
   });
 
+  // A probe follows an upgrade to HTTPS on the server's host, as the API
+  // client does; the route's own headers go with it, and nowhere else.
+  test('health client keeps the route headers on an upgrade to HTTPS', () async {
+    final dio = createConnectivityHealthClient(
+      const ServerConfig(
+        id: 'route',
+        name: 'Route',
+        url: 'http://chat.example',
+        customHeaders: {'CF-Access-Client-Id': 'route-id'},
+      ),
+    );
+    addTearDown(dio.close);
+    final sent = <String, Object?>{};
+    dio.httpClientAdapter = _HeaderRecorder(sent);
+
+    await dio.getUri<dynamic>(Uri.parse('https://chat.example/health'));
+    await dio.getUri<dynamic>(Uri.parse('https://other.example/health'));
+
+    check(sent['https://chat.example/health']).equals('route-id');
+    check(sent['https://other.example/health']).isNull();
+  });
+
   group('a route probe', () {
     /// Serves [handle] on a loopback port for the length of the test.
     Future<String> serve(
@@ -734,3 +756,32 @@ final class _FailingHealthAdapter implements _RequestCountingAdapter {
 }
 
 final class _RealHttpOverrides extends HttpOverrides {}
+
+/// Records the route header each request went out with, by URL.
+final class _HeaderRecorder implements HttpClientAdapter {
+  _HeaderRecorder(this.sent);
+
+  final Map<String, Object?> sent;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    sent[options.uri.toString()] = options.headers.entries
+        .where((entry) => entry.key.toLowerCase() == 'cf-access-client-id')
+        .map((entry) => entry.value)
+        .firstOrNull;
+    return ResponseBody.fromString(
+      '{"status":true}',
+      HttpStatus.ok,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}

@@ -696,8 +696,15 @@ Dio createConnectivityHealthClient(
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          if (ConnectivityService._originKey(options.uri) !=
-              ConnectivityService._originKey(serverUri)) {
+          // Kept where the API client keeps them: the server's own origin,
+          // or an upgrade to HTTPS on its host that a probe follows.
+          final target = options.uri;
+          final sameServer =
+              ConnectivityService._originKey(target) ==
+                  ConnectivityService._originKey(serverUri) ||
+              (serverUri != null &&
+                  isCredentialSafeRedirectTarget(serverUri, target));
+          if (!sameServer) {
             options.headers.removeWhere(
               (name, _) => customHeaderNames.contains(name.toLowerCase()),
             );
