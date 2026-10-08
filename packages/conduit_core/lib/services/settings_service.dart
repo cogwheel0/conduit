@@ -104,7 +104,7 @@ class SettingsService {
     final accountId = currentPreferenceAccountId();
     final scoped = scopedPreferenceWriteKey(key);
     if (value == null && scoped != key) {
-      await settleDeviceSettingsCopy(accountId);
+      await settleDeviceSettingsCopy(accountId, clearing: [key]);
     }
     await PreferencesStore.put(scoped, value);
   }
@@ -248,7 +248,7 @@ class SettingsService {
     if (modelId != null) {
       return PreferencesStore.put(key, modelId);
     }
-    await settleDeviceSettingsCopy(accountId);
+    await settleDeviceSettingsCopy(accountId, clearing: [_defaultModelKey]);
     await PreferencesStore.remove(key);
   }
 
@@ -260,7 +260,10 @@ class SettingsService {
     if (normalized != null && normalized.isNotEmpty) {
       return PreferencesStore.put(key, normalized);
     }
-    await settleDeviceSettingsCopy(accountId);
+    await settleDeviceSettingsCopy(
+      accountId,
+      clearing: [_openRouterImageGenerationModelKey],
+    );
     await PreferencesStore.remove(key);
   }
 
@@ -328,7 +331,18 @@ class SettingsService {
         scopedPreferenceWriteKey(entry.key): entry.value,
     };
     // A setting this clears must not fall back to the device value.
-    await settleDeviceSettingsCopy(accountId);
+    await settleDeviceSettingsCopy(
+      accountId,
+      clearing: [
+        if (settings.defaultModel == null) _defaultModelKey,
+        if (settings.openRouterImageGenerationModel == null)
+          _openRouterImageGenerationModelKey,
+        if (settings.ttsServerVoiceId?.isNotEmpty != true)
+          PreferenceKeys.ttsServerVoiceId,
+        if (settings.ttsServerVoiceName?.isNotEmpty != true)
+          PreferenceKeys.ttsServerVoiceName,
+      ],
+    );
 
     // Web search preferences are written only by their own setters, so a
     // bulk save of a stale snapshot can't undo a concurrent change.

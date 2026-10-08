@@ -275,6 +275,36 @@ void main() {
     check(PreferencesStore.getRaw(onA)).equals('pre-upgrade');
   });
 
+  test('a setting cleared while the device settings cannot be copied says '
+      'so', () async {
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async => key == onA ? false : null,
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+    await activate('a');
+
+    // The device value would come back with the copy; the clear fails
+    // rather than seem to work.
+    await check(SettingsService.setDefaultModel(null)).throws<StateError>();
+    check(await SettingsService.getDefaultModel()).equals('pre-upgrade');
+  });
+
+  test('a setting with no device value clears while the copy cannot run',
+      () async {
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async => key == onA ? false : null,
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+    await activate('a');
+
+    // Nothing for the image model to fall back to or be copied back from.
+    await SettingsService.setOpenRouterImageGenerationModel(null);
+  });
+
   test('a write lands under the account active when it started', () async {
     await PreferencesStore.put(
       PreferenceKeys.accountScopedSettingsMigrated,

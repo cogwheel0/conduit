@@ -149,23 +149,39 @@ Future<void> _copyDeviceSettings(String accountId) async {
   _deviceSettingsCopyClaim = null;
 }
 
-/// Finishes [accountId]'s one-time copy of the device settings before one
-/// of its settings is cleared. A setting cleared before the copy ran would
-/// read as the device value again, and the copy would later bring it back.
-Future<void> settleDeviceSettingsCopy(String? accountId) async {
+/// Finishes [accountId]'s one-time copy of the device settings before the
+/// settings [clearing] are cleared, and fails when it cannot. A setting
+/// cleared before the copy ran would read as the device value again, and
+/// the copy would later bring it back; a clear that cannot stick says so.
+/// Only a setting with a device value can come back that way.
+Future<void> settleDeviceSettingsCopy(
+  String? accountId, {
+  required Iterable<String> clearing,
+}) async {
   if (accountId == null || !PreferencesStore.isReady) return;
-  if (PreferencesStore.getBool(PreferenceKeys.accountScopedSettingsMigrated) ==
-      true) {
+  bool copied() =>
+      PreferencesStore.getBool(PreferenceKeys.accountScopedSettingsMigrated) ==
+      true;
+  if (copied() ||
+      !clearing.any(
+        (key) =>
+            accountScopedPreferenceKeys.contains(key) &&
+            PreferencesStore.getRaw(key) != null,
+      )) {
     return;
   }
-  try {
-    await migrateDeviceSettingsIntoAccount(accountId);
-  } catch (error) {
-    DebugLogger.warning(
-      'device-settings-copy-failed',
-      scope: 'persistence/account-scope',
-      data: {'errorType': error.runtimeType.toString()},
+  final claim = _deviceSettingsCopyClaim;
+  if (claim != null && claim != accountId) {
+    // Another account's copy, when one is under way, decides it.
+    await _deviceSettingsCopyRunning?.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
     );
+  } else {
+    await migrateDeviceSettingsIntoAccount(accountId);
+  }
+  if (!copied()) {
+    throw StateError('The device settings could not be copied to the account.');
   }
 }
 
