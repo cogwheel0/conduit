@@ -36,19 +36,28 @@ void _reportProxyRefusal(
       (publicHealthRedirectStatusCodes.contains(status) &&
           options.extra[_redirectIsAnswerKey] != true) ||
       (page && (status == 401 || status == 403)) ||
-      // Not a file downloaded after a followed redirect: it can be a page
-      // of its own.
+      // Not a file downloaded after a redirect that kept its path -- up to
+      // HTTPS, say: it can be a page of its own. One taken elsewhere, to a
+      // sign-in, is the proxy's.
       (page &&
           status >= 200 &&
           status < 300 &&
-          options.extra[_contentMayBePageKey] != true &&
-          isSameOriginRedirectReplay(options));
+          isSameOriginRedirectReplay(options) &&
+          (options.extra[_contentMayBePageKey] != true ||
+              !_samePath(sameOriginRedirectStart(options), options.uri)));
   if (!refused) return;
   options.extra[_proxyRefusalReportedKey] = true;
   ConnectivityService.reportRouteRejected(server, connection: connection);
 }
 
 const _proxyRefusalReportedKey = 'conduit.proxyRefusalReported';
+
+/// Whether [a] and [b] name one path, a trailing slash aside.
+bool _samePath(Uri a, Uri b) {
+  String trimmed(String path) =>
+      path.endsWith('/') ? path.substring(0, path.length - 1) : path;
+  return trimmed(a.path) == trimmed(b.path);
+}
 
 const _transportFailureReportedKey = 'conduit.transportFailureReported';
 

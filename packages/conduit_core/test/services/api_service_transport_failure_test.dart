@@ -444,6 +444,18 @@ void main() {
       });
     });
 
+    // Downloaded from the proxy's sign-in, a page is not the file.
+    test('with its sign-in page for a file download', () async {
+      api.dio.httpClientAdapter = _Proxy({
+        '/api/v1/files/file/content': () => _redirect('/login'),
+        '/login': () => _page(HttpStatus.ok),
+      });
+
+      await api.getFileContent('file');
+
+      check(rejected).deepEquals([Uri.parse(server)]);
+    });
+
     test('on an address the server upgraded to HTTPS is reported', () async {
       final workerManager = WorkerManager(worker: const InlineWorkerPort());
       final plain = ApiService(
