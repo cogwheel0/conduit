@@ -1087,6 +1087,39 @@ void main() {
       );
     }
 
+    // A switch that failed part-way can leave the source's own session in
+    // its vault too.
+    test('a merge leaves nothing kept under the account it removes', () async {
+      await signedInAsNewOverExisting();
+      await secure.write(key: 'auth_token_server_v1:new', value: 'stale-new');
+
+      check(
+        await storage.mergeActiveAccountInto(
+          'existing',
+          expectedSourceAccountId: 'new',
+        ),
+      ).isTrue();
+
+      check(await vaultedToken('new')).isNull();
+      check(await storage.getAuthTokenStrict()).equals('fresh-token');
+    });
+
+    test('a merge that fails part-way keeps what was kept under the source',
+        () async {
+      await signedInAsNewOverExisting();
+      await secure.write(key: 'auth_token_server_v1:new', value: 'stale-new');
+      secure.refusedKey = 'openwebui_registry_v1';
+
+      await check(
+        storage.mergeActiveAccountInto(
+          'existing',
+          expectedSourceAccountId: 'new',
+        ),
+      ).throws<StateError>();
+
+      check(await vaultedToken('new')).equals('stale-new');
+    });
+
     test(
       'a merge whose active-id write fails leaves both accounts as they were',
       () async {

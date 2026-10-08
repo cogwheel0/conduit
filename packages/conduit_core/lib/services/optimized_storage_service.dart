@@ -2692,6 +2692,9 @@ class OptimizedStorageService {
         var registryWritten = false;
         try {
           await _deleteVaultedSessionUndoablyUnlocked(target.id, vaultUndo);
+          // The source goes, and what was kept aside under its id with it,
+          // as when an account is removed: left, nothing would reach it.
+          await _deleteVaultedSessionUndoablyUnlocked(source.id, vaultUndo);
           final payload = _savedCredentialsReadSuppressed
               ? null
               : await _secureCredentialStorage
