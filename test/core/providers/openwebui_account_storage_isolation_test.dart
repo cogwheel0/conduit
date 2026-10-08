@@ -2406,6 +2406,75 @@ void main() {
       check(pending()).isNull();
     });
 
+    // A proxy sign-in commits another account without announcing the switch;
+    // its identity can arrive while the selection is still re-resolving.
+    test('an unannounced sign-in is judged against the account it lands in',
+        () async {
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async => purged.add(serverId),
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+
+      await PreferencesStore.put(PreferenceKeys.activeServerId, _serverTwo.id);
+      harness.serverSelection.set(_serverTwo);
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+
+      check(purged).isEmpty();
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+    });
+
+    // The sign-in at start purges what the logout left; the retry, reading
+    // its list from before, must not purge the database opened since.
+    test('a logout purge already finished at start is not retried', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_server.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (accountId) async => purged.add(accountId),
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+      check(purged).deepEquals([_server.id]);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+
+      savedIds.complete({_server.id});
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_server.id]);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+    });
+
     test('a session ending mid-purge keeps the files closed', () async {
       final releasePurge = Completer<void>();
       final purged = <String>[];

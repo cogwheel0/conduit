@@ -295,6 +295,8 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
 
   String? _settledActiveServerId() {
     try {
+      // None while it re-resolves: its previous value can be the account
+      // being left, and an identity judged against that one's marker purges.
       final id = ref.read(activeServerProvider).asData?.value?.id;
       return id == null || id.isEmpty ? null : id;
     } catch (_) {
@@ -574,6 +576,17 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
     for (final accountId in pendingData) {
       if (_disposed) return;
       try {
+        // Read again: a sign-in since may have purged it, and opened what it
+        // has now. One being purged is left to that purge.
+        if (!_dataPurgePending(accountId)) continue;
+        if (ref.read(openWebUiCertifiedDatabaseServerProvider) == accountId) {
+          await _forgetPendingPurge(
+            accountId,
+            ledger: PreferenceKeys.pendingAccountDataPurges,
+          );
+          continue;
+        }
+        if (_purgeRunning) continue;
         if (saved.contains(accountId)) {
           await purgeAccount(accountId, keepsRecord: true);
         } else {
