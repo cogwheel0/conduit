@@ -144,6 +144,23 @@ void main() {
     check(PreferencesStore.getRaw(onA)).equals('pre-upgrade');
   });
 
+  test('device settings whose copy failed go with the account they were for',
+      () async {
+    final onA = accountScopedPreferenceKey(PreferenceKeys.defaultModel, 'a');
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(),
+      writeInterceptor: (_, key, _) async => key == onA ? false : null,
+    );
+    await PreferencesStore.put(PreferenceKeys.defaultModel, 'pre-upgrade');
+    await check(migrateDeviceSettingsIntoAccount('a')).throws<StateError>();
+
+    await clearOpenWebUiAccountPreferences('a');
+    await migrateDeviceSettingsIntoAccount('b');
+    await activate('b');
+
+    check(await SettingsService.getDefaultModel()).isNull();
+  });
+
   test('a write lands under the account active when it started', () async {
     await PreferencesStore.put(
       PreferenceKeys.accountScopedSettingsMigrated,

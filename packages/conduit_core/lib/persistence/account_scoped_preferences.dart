@@ -110,6 +110,16 @@ Future<void> migrateDeviceSettingsIntoAccount(String accountId) async {
 /// its socket transport options, its cached feature flags and its summary.
 Future<void> clearOpenWebUiAccountPreferences(String accountId) async {
   if (!PreferencesStore.isReady) return;
+  if (_deviceSettingsCopyClaim == accountId) {
+    // The device settings were being copied to this account, the first in
+    // use after the upgrade, which they belonged to. They go with it rather
+    // than pass to the next account, which starts from the defaults.
+    await PreferencesStore.putChecked(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    _deviceSettingsCopyClaim = null;
+  }
   final suffix = '$_accountScopeSeparator${_encodedAccountId(accountId)}';
   for (final key in PreferencesStore.keys().toList(growable: false)) {
     if (key.endsWith(suffix)) await PreferencesStore.remove(key);
