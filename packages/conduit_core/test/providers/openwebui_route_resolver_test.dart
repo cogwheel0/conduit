@@ -457,8 +457,16 @@ void main() {
       await routes.resolve(reason: 'resumed');
       check(await routeInUse()).equals(_public);
 
-      // Saving the addresses can carry a new session for it.
-      await routes.resolve(reason: 'routes-edited');
+      // Saving another address leaves it remembered.
+      final serverId = (await storage.getOpenWebUiRegistryStrict())
+          .servers
+          .single
+          .id;
+      await routes.routesEdited(serverId, endpointId: 'tailscale');
+      check(await routeInUse()).equals(_public);
+
+      // Saving it again can carry a new session for it.
+      await routes.routesEdited(serverId, endpointId: 'endpoint:account');
       check(await routeInUse()).equals(_lan);
     });
 
@@ -651,6 +659,25 @@ void main() {
 
     // Signed in to it again: its refusals were of the session replaced.
     test('is taken up again once its proxy session is renewed', () async {
+      // Nothing else answers, so the refused route stays in use, and its
+      // session is signed in to again from the connection issue.
+      answers = {_lan: true, _tailscale: false, _public: false};
+      final routes = await resolver();
+      await routes.resolve();
+      ConnectivityService.reportRouteRejected(Uri.parse(_lan));
+      await until(() => routes.state.noneAnswered);
+
+      routes.proxySessionRenewed();
+      answers[_public] = true;
+      await routes.resolve(reason: 'resumed');
+
+      check(await routeInUse()).equals(_lan);
+    });
+
+    // The route renewed is the one in use; another route's proxy is no less
+    // expired for it.
+    test("stays remembered when another route's proxy session is renewed",
+        () async {
       answers = {_lan: true, _tailscale: false, _public: true};
       final routes = await resolver();
       await routes.resolve();
@@ -660,7 +687,7 @@ void main() {
       routes.proxySessionRenewed();
       await routes.resolve(reason: 'resumed');
 
-      check(await routeInUse()).equals(_lan);
+      check(await routeInUse()).equals(_public);
     });
 
     test('moves even while a reply is being written', () async {

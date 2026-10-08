@@ -335,7 +335,7 @@ Future<bool> saveCheckedAddress(
     unawaited(
       container
           .read(openWebUiRouteResolverProvider.notifier)
-          .resolve(reason: 'routes-edited'),
+          .routesEdited(serverId, endpointId: route.id),
     );
   }
 }

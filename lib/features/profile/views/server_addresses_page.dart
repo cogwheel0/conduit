@@ -153,7 +153,7 @@ class ServerAddressesPage extends ConsumerWidget {
       unawaited(
         container
             .read(openWebUiRouteResolverProvider.notifier)
-            .resolve(reason: 'routes-edited'),
+            .routesEdited(serverId),
       );
     } catch (error, stackTrace) {
       DebugLogger.error(

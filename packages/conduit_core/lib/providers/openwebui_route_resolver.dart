@@ -324,7 +324,6 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   Future<void> resolve({String reason = 'manual'}) async {
     final generation = ++_generation;
     _retry?.cancel();
-    if (reason == 'routes-edited') _refused.clear();
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
       // As storage counts it: an account can be active with no id kept for
@@ -484,9 +483,24 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       ref.read(accountChangeReplyGuardProvider)() ||
       ref.read(openWebUiSignInPendingProvider)();
 
-  /// A proxy session was signed in to again: the refusals remembered were
-  /// of the session it replaced.
-  void proxySessionRenewed() => _refused.clear();
+  /// The proxy session of the route in use was signed in to again: its
+  /// refusals were of the session replaced. Another route's stand.
+  void proxySessionRenewed() {
+    final route = _inUseRouteId;
+    if (route != null) _refused.remove(route);
+  }
+
+  /// The addresses of [serverId] were saved, and checked again. A refusal
+  /// of [endpointId], the address saved when one was, is forgotten: it now
+  /// connects as saved, a new proxy session perhaps among it. Other routes'
+  /// refusals, and those of the server in use when another was edited,
+  /// stand.
+  Future<void> routesEdited(String serverId, {String? endpointId}) {
+    if (endpointId != null && serverId == _inUseServer?.id) {
+      _refused.remove(endpointId);
+    }
+    return resolve(reason: 'routes-edited');
+  }
 
   /// Whether [reported], what a refused request went out on, is what the
   /// app's client [inUse] is built from now, its session headers included.
