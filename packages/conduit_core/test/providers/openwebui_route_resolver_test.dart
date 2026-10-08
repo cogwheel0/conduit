@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
@@ -45,6 +46,7 @@ void main() {
   var signingIn = false;
   late FakeAppLifecycle lifecycle;
   Completer<void>? probesAnswer;
+  late _Auth auth;
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('route-resolver-test');
@@ -70,6 +72,7 @@ void main() {
     signingIn = false;
     lifecycle = FakeAppLifecycle();
     probesAnswer = null;
+    auth = _Auth(AuthStatus.authenticated);
 
     await storage.saveServerConfigs([
       const ServerConfig(id: 'account', name: 'Home', url: _lan),
@@ -112,9 +115,11 @@ void main() {
         ),
         openWebUiSignInPendingProvider.overrideWithValue(() => signingIn),
         appLifecycleProvider.overrideWithValue(lifecycle),
+        authStateManagerProvider.overrideWith(() => auth),
       ],
     );
     addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
     final notifier = container.read(openWebUiRouteResolverProvider.notifier);
     // Let the resolver's own start-up check run and settle first.
     await Future<void>.delayed(Duration.zero);
@@ -408,6 +413,71 @@ void main() {
     });
   });
 
+  // A proxy refusing the route left showed a connection issue; nothing else
+  // looks at the session again until Retry.
+  group('a session left on a connection issue', () {
+    test('is checked again once a check moves the route', () async {
+      auth = _Auth(AuthStatus.error);
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      check(auth.rechecks).equals(0);
+
+      answers[_lan] = false;
+      await routes.resolve();
+      check(await routeInUse()).equals(_public);
+      check(auth.rechecks).equals(1);
+
+      await routes.resolve();
+      check(auth.rechecks).equals(1);
+    });
+
+    test('is not checked again while a reply is being written', () async {
+      auth = _Auth(AuthStatus.error);
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      answers[_lan] = false;
+      replyInProgress = true;
+
+      await routes.resolve();
+
+      check(await routeInUse()).equals(_public);
+      check(auth.rechecks).equals(0);
+    });
+
+    test('is not checked again in the background', () async {
+      auth = _Auth(AuthStatus.error);
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      answers[_lan] = false;
+      final answer = probesAnswer = Completer<void>();
+      probed.clear();
+      final checking = routes.resolve();
+      await until(() => probed.isNotEmpty);
+
+      lifecycle.emit(AppLifecyclePhase.paused);
+      answer.complete();
+      await checking;
+
+      check(await routeInUse()).equals(_public);
+      check(auth.rechecks).equals(0);
+    });
+  });
+
+  test('a signed-in session is not checked again as the route moves', () async {
+    answers = {_lan: true, _tailscale: false, _public: true};
+    final routes = await resolver();
+    await routes.resolve();
+    answers[_lan] = false;
+
+    await routes.resolve();
+
+    check(await routeInUse()).equals(_public);
+    check(auth.rechecks).equals(0);
+  });
+
   group('in the background', () {
     // Every route, every 30 seconds, while nothing answers.
     test('a check waiting to run again stops', () async {
@@ -531,6 +601,24 @@ void main() {
 
     check(probed.toSet()).deepEquals({_lan, _tailscale, _public});
   });
+}
+
+/// An active account whose session is [status], counting the times it is
+/// asked to check that session again.
+final class _Auth extends AuthStateManager {
+  _Auth(this.status);
+
+  final AuthStatus status;
+  var rechecks = 0;
+
+  @override
+  Future<AuthState> build() async => AuthState(status: status, token: 'token');
+
+  @override
+  Future<bool> recheckSessionAfterRouteChange() async {
+    rechecks++;
+    return false;
+  }
 }
 
 /// Holds route selections at a gate, so two checks can overlap there, and

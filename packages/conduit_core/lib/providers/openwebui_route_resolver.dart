@@ -14,6 +14,7 @@ import 'package:meta/meta.dart';
 import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -333,8 +334,11 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         final changed = await storage.selectEndpoint(server.id, chosen.id);
         // Even when a newer check has started: one that picks the same route
         // finds it already selected and leaves the configs alone, which would
-        // keep the client on the old URL.
-        if (changed && ref.mounted) ref.invalidate(serverConfigsProvider);
+        // keep the client on the old URL and the session left unchecked.
+        if (changed && ref.mounted) {
+          ref.invalidate(serverConfigsProvider);
+          _recheckSession();
+        }
         if (!_owns(generation)) return;
         _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(chosen.url));
         if (changed) {
@@ -367,6 +371,33 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   }
 
   bool _owns(int generation) => ref.mounted && generation == _generation;
+
+  /// After a check moved the route in use. A proxy turning requests away
+  /// on the route left shows a connection issue, and nothing would look at
+  /// the session again until Retry; auth checks it on the route moved to,
+  /// once for the move. Not in the background, nor while a reply is being
+  /// written.
+  void _recheckSession() {
+    try {
+      if (_inBackground || ref.read(accountChangeReplyGuardProvider)()) return;
+      if (ref.read(authStateManagerProvider).value?.status !=
+          AuthStatus.error) {
+        return;
+      }
+      unawaited(
+        ref
+            .read(authStateManagerProvider.notifier)
+            .recheckSessionAfterRouteChange(),
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'session-recheck-failed',
+        scope: 'connectivity/routes',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
 
   Future<bool> _answers(
     OpenWebUiRegistry registry,

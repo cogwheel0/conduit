@@ -281,6 +281,10 @@ class AuthStateManager extends _$AuthStateManager {
   DateTime? _lastRetryTime;
   int _retryResetGeneration = 0;
 
+  /// Whether the connection issue shown now has had its session checked
+  /// again on a route moved to ([recheckSessionAfterRouteChange]).
+  bool _connectionIssueRechecked = false;
+
   AuthState get _current =>
       state.asData?.value ?? const AuthState(status: AuthStatus.initial);
 
@@ -457,6 +461,7 @@ class AuthStateManager extends _$AuthStateManager {
     if (!next.isLoading && next.status != AuthStatus.loading) {
       _lastSettledState = next;
     }
+    if (next.status != AuthStatus.error) _connectionIssueRechecked = false;
     // Riverpod listeners run synchronously during this assignment. Any cache
     // derived from the publication must therefore be fenced after listeners
     // have had a chance to replace it or start a newer auth operation.
@@ -3082,6 +3087,65 @@ class AuthStateManager extends _$AuthStateManager {
         clearError: false,
       ),
     );
+  }
+
+  /// Checks the session a connection issue kept, on the address its server
+  /// is reached through now, and signs back in only if the server accepts
+  /// it there as the same user. Anything else leaves the issue shown and the
+  /// session kept, for Retry. Returns whether it signed back in.
+  ///
+  /// A proxy turning requests away shows a connection issue. A check of the
+  /// server's addresses moving to another one asks for this: the client is
+  /// rebuilt for it, and nothing else would look at the session again.
+  /// Once for each issue: an address refusing the session too would move
+  /// the server back, and the check there would be refused again.
+  Future<bool> recheckSessionAfterRouteChange() async {
+    final kept = _current;
+    final token = kept.token;
+    final user = kept.user;
+    if (_connectionIssueRechecked ||
+        kept.status != AuthStatus.error ||
+        token == null ||
+        token.isEmpty ||
+        user == null) {
+      return false;
+    }
+    _connectionIssueRechecked = true;
+    final attemptRevision = _authAttemptRevision;
+    final safetyEpoch = _sessionSafetyEpoch;
+    bool stillKept() =>
+        ref.mounted &&
+        _authAttemptRevision == attemptRevision &&
+        _sessionSafetyEpoch == safetyEpoch &&
+        _current.status == AuthStatus.error &&
+        _current.token == token;
+    try {
+      // The client follows the address moved to once this settles.
+      await ref.read(activeServerProvider.future);
+      if (!stillKept()) return false;
+      final api = ref.read(apiServiceProvider);
+      if (api == null || api.authToken != token) return false;
+      final accepted = await api.getCurrentUser(
+        suppressAuthFailureNotification: true,
+        authSnapshot: api.captureAuthSnapshot(),
+      );
+      if (!stillKept() || accepted.id != user.id) return false;
+      _recordValidatedIdentity(token, accepted);
+      _update(
+        (current) => current.copyWith(
+          status: AuthStatus.authenticated,
+          user: accepted,
+          isLoading: false,
+          clearError: true,
+        ),
+        cache: true,
+      );
+      DebugLogger.auth('session-rechecked-on-new-route', scope: 'auth/state');
+      return true;
+    } catch (error) {
+      _logAuthenticationFailure('session-recheck-on-new-route-failed', error);
+      return false;
+    }
   }
 
   /// Handle token invalidation (called by API service for explicit token expiry)

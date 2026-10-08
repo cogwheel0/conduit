@@ -1124,6 +1124,89 @@ void main() {
     },
   );
 
+  // A check of the server's addresses moved it off one whose proxy turned
+  // requests away. Only the server accepting the session through the new
+  // one signs back in; a refusal there leaves the session kept, for Retry,
+  // and is not asked again for the same issue: the route refusing it too
+  // would move the server back.
+  test('a connection issue signs back in once a new route accepts', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    addTearDown(PreferencesStore.debugReset);
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
+    when(
+      () => storage.captureServerSessionOwnership(
+        validatedConfig: any(named: 'validatedConfig'),
+        requireActive: true,
+      ),
+    ).thenAnswer(
+      (_) async =>
+          (revision: 1, serverConfig: previousConfig, requireActive: true),
+    );
+    when(
+      () => storage.commitExistingServerSession(
+        ownership: any(named: 'ownership'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        rememberedCredentials: any(named: 'rememberedCredentials'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      await publish();
+      return true;
+    });
+    final api = _SuccessfulAuthApi();
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(api),
+        activeServerProvider.overrideWith((ref) async => previousConfig),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(api.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    final notifier = container.read(authStateManagerProvider.notifier);
+    check(await notifier.login('user', 'password')).isTrue();
+    notifier.onAuthIssue();
+
+    final request = RequestOptions(path: '/api/v1/auths/');
+    api.currentUserFailure = DioException(
+      requestOptions: request,
+      response: Response<void>(requestOptions: request, statusCode: 401),
+      type: DioExceptionType.badResponse,
+    );
+    check(await notifier.recheckSessionAfterRouteChange()).isFalse();
+    final refused = container.read(authStateManagerProvider).requireValue;
+    check(refused.status).equals(AuthStatus.error);
+    check(refused.token).equals(token);
+    check(refused.user).equals(user);
+
+    api.currentUserFailure = null;
+    final asked = api.currentUserCalls;
+    check(await notifier.recheckSessionAfterRouteChange()).isFalse();
+    check(api.currentUserCalls).equals(asked);
+
+    check(await notifier.login('user', 'password')).isTrue();
+    notifier.onAuthIssue();
+    check(await notifier.recheckSessionAfterRouteChange()).isTrue();
+    final restored = container.read(authStateManagerProvider).requireValue;
+    check(restored.status).equals(AuthStatus.authenticated);
+    check(restored.token).equals(token);
+    check(restored.user).equals(user);
+  });
+
   test(
     'successful refresh carries newer session ownership past delayed logout',
     () async {
@@ -3390,6 +3473,8 @@ final class _SuccessfulAuthApi extends ApiService {
   final Completer<void>? releaseLogout;
   final Object? logoutFailure;
   Object? loginFailure;
+  Object? currentUserFailure;
+  int currentUserCalls = 0;
   String loginToken = 'validated-proxy-token';
 
   @override
@@ -3416,12 +3501,16 @@ final class _SuccessfulAuthApi extends ApiService {
     bool suppressAuthFailureNotification = false,
     String? candidateAuthToken,
     ApiAuthSnapshot? authSnapshot,
-  }) async => const User(
-    id: 'user',
-    username: 'user',
-    email: 'user@example.test',
-    role: 'user',
-  );
+  }) async {
+    currentUserCalls++;
+    if (currentUserFailure case final failure?) throw failure;
+    return const User(
+      id: 'user',
+      username: 'user',
+      email: 'user@example.test',
+      role: 'user',
+    );
+  }
 
   @override
   Future<bool> checkHealth() async => true;
