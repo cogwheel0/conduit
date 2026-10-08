@@ -140,17 +140,34 @@ final openWebUiRouteResolverProvider =
 
 class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   static const Duration _retryDelay = Duration(seconds: 30);
-  static const Duration _failureCheckInterval = Duration(seconds: 15);
+  /// How long after a check a failure waits before checking again.
+  @visibleForTesting
+  static Duration failureCheckInterval = const Duration(seconds: 15);
+
+  /// How long a route a proxy refused is not taken to answer.
+  static const Duration _refusedFor = Duration(minutes: 5);
 
   int _generation = 0;
   Timer? _retry;
 
-  /// A check held back by [_failureCheckInterval], run once it has passed.
+  /// A check held back by [failureCheckInterval], run once it has passed.
   Timer? _trailing;
 
   /// The origin of the route in use as the last check left it; null before
   /// one has, or with no server to reach.
   String? _inUseOrigin;
+
+  /// The id of that route.
+  String? _inUseRouteId;
+
+  /// Routes a proxy turned the active account's requests away from, by id,
+  /// and when. Their health check can still pass, so for [_refusedFor] no
+  /// check takes them to answer, nor moves back to them. Recorded as each
+  /// refusal is reported, for the route it came from: a check run later may
+  /// find another route in use. A proxy session is the account's own, so
+  /// another account starts afresh, and saving the server's addresses -- a
+  /// new session among them -- forgets them too.
+  final Map<String, DateTime> _refused = {};
 
   /// A check moved the route in use, and the session has not been checked
   /// on it since; see [_recheckSession].
@@ -162,6 +179,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       if (previous == next) return;
       // The move owed a check to the account it was made for.
       _recheckOwed = false;
+      _refused.clear();
       _schedule('account');
     });
     // Requests failing to reach the server mean the route in use may have
@@ -177,13 +195,17 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       if (inUse != null && ConnectivityService.originKey(uri) != inUse) {
         return;
       }
+      if (reason == 'rejected') {
+        final route = _inUseRouteId;
+        if (route != null) _refused[route] = DateTime.now();
+      }
       // Nor would it be checked; resuming checks anyway.
       if (_inBackground) return;
       final now = DateTime.now();
       final last = lastFailureCheck;
       final wait = last == null
           ? Duration.zero
-          : _failureCheckInterval - now.difference(last);
+          : failureCheckInterval - now.difference(last);
       if (wait > Duration.zero) {
         // Held back, not dropped: a route a check just moved to may be the
         // one failing now, and nothing else would look again.
@@ -263,6 +285,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
   Future<void> resolve({String reason = 'manual'}) async {
     final generation = ++_generation;
     _retry?.cancel();
+    if (reason == 'routes-edited') _refused.clear();
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
       // As storage counts it: an account can be active with no id kept for
@@ -274,6 +297,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       final server = account == null ? null : registry.server(account.serverId);
       if (account == null || server == null) {
         _inUseOrigin = null;
+        _inUseRouteId = null;
         _recheckOwed = false;
         state = const OpenWebUiRouteStatus();
         return;
@@ -283,6 +307,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
       );
       // Until a check settles otherwise, the route in use stays in use.
       _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(current.url));
+      _inUseRouteId = current.id;
       if (server.endpoints.length < 2) {
         state = OpenWebUiRouteStatus(
           serverId: server.id,
@@ -297,12 +322,13 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         endpointId: current.id,
         checking: true,
       );
-      // A proxy turning requests away from the route in use can still let
-      // its health check through; for the check that started, that route
-      // does not answer.
+      // A proxy turning requests away from a route can still let its health
+      // check through; for a while, that route does not answer.
+      final now = DateTime.now();
+      _refused.removeWhere((_, at) => now.difference(at) >= _refusedFor);
       final probes = [
         for (final route in server.endpoints)
-          if (reason == 'rejected' && route.id == current.id)
+          if (_refused.containsKey(route.id))
             Future<bool>.value(false)
           else
             _answers(registry, account, server, route),
@@ -350,6 +376,7 @@ class OpenWebUiRouteResolver extends Notifier<OpenWebUiRouteStatus> {
         }
         if (!_owns(generation)) return;
         _inUseOrigin = ConnectivityService.originKey(Uri.tryParse(chosen.url));
+        _inUseRouteId = chosen.id;
         if (changed) {
           DebugLogger.log(
             'route-selected',

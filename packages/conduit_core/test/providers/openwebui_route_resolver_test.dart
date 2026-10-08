@@ -399,6 +399,57 @@ void main() {
       check(await routeInUse()).equals(_public);
     });
 
+    // Its health check still passing, a later check took it to answer and
+    // moved back, to be refused again on the next request.
+    test('is not moved back to while it is remembered', () async {
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+
+      ConnectivityService.reportRouteRejected(Uri.parse(_lan));
+      await until(() => routes.state.endpointId == 'public');
+
+      await routes.resolve(reason: 'resumed');
+      check(await routeInUse()).equals(_public);
+
+      // Saving the addresses can carry a new session for it.
+      await routes.resolve(reason: 'routes-edited');
+      check(await routeInUse()).equals(_lan);
+    });
+
+    // A refusal held back after a recent check was charged to whichever
+    // route was in use once it ran: here the one a check moved to since.
+    test('held back, counts against the route it came from', () async {
+      final interval = OpenWebUiRouteResolver.failureCheckInterval;
+      OpenWebUiRouteResolver.failureCheckInterval = const Duration(
+        milliseconds: 500,
+      );
+      addTearDown(
+        () => OpenWebUiRouteResolver.failureCheckInterval = interval,
+      );
+      answers = {_lan: true, _tailscale: false, _public: true};
+      final routes = await resolver();
+      await routes.resolve();
+      ConnectivityService.reportTransportFailure(Uri.parse(_lan));
+      await settle();
+
+      ConnectivityService.reportRouteRejected(Uri.parse(_lan));
+      await settle();
+      check(routes.trailingCheckPending).isTrue();
+      // The route stops answering at all, and a check moves off it.
+      answers[_lan] = false;
+      await routes.resolve();
+      check(await routeInUse()).equals(_public);
+      // Its proxy lets the health check through again.
+      answers[_lan] = true;
+
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      check(routes.trailingCheckPending).isFalse();
+      await settle();
+
+      check(await routeInUse()).equals(_public);
+    });
+
     test('moves even while a reply is being written', () async {
       answers = {_lan: false, _tailscale: false, _public: true};
       final routes = await resolver();
