@@ -93,6 +93,9 @@ final class _SigningInAuth extends AuthStateManager {
   /// few times at most, so merging without end shows as a count, not a hang.
   bool mergeFails = false;
 
+  /// Holds a merge, once recorded, until completed.
+  Completer<void>? mergeHeld;
+
   @override
   Future<AuthState> build() async =>
       const AuthState(status: AuthStatus.unauthenticated);
@@ -108,6 +111,7 @@ final class _SigningInAuth extends AuthStateManager {
     String? expectedToken,
   }) async {
     merges.add((targetAccountId, expectedSourceAccountId));
+    await mergeHeld?.future;
     if (!mergeFails || merges.length > 3) return true;
     // Storage refused; the session is put back, and published again.
     final current = state.requireValue;
@@ -542,6 +546,54 @@ void main() {
     await pumpEventQueue();
 
     check(auth.merges).deepEquals([('a', 'added')]);
+  });
+
+  // The merge restores the account the addition began from before its
+  // leftovers are cleared; another addition can begin from it meanwhile.
+  test('a merge finishing late leaves an addition begun since going',
+      () async {
+    const userA = User(id: 'user-a', username: 'a', email: 'a@x', role: 'user');
+    final storage = _HeldRegistryStorage(
+      OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 's',
+            name: 'Chat',
+            endpoints: [OpenWebUiEndpoint(id: 'e', url: 'https://chat.example')],
+          ),
+        ],
+        accounts: [
+          OpenWebUiAccount(id: 'a', serverId: 's', userId: 'user-a'),
+          OpenWebUiAccount(id: 'added', serverId: 's'),
+        ],
+      ),
+    )..release.complete();
+    final held = Completer<void>();
+    final auth = _SigningInAuth()..mergeHeld = held;
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        authStateManagerProvider.overrideWith(() => auth),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiDuplicateAccountReconcilerProvider);
+    await container.read(authStateManagerProvider.future);
+    final addition = container.read(accountAdditionOriginProvider.notifier);
+    addition.begin('a');
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'added');
+    auth.signIn('token', userA);
+    await pumpEventQueue();
+    check(auth.merges).deepEquals([('a', 'added')]);
+
+    // Back in A, the user adds another account before the merge finishes.
+    addition.begin('a');
+    final stillAdding = addition.stillInProgress();
+    held.complete();
+    await pumpEventQueue();
+
+    check(container.read(accountAdditionOriginProvider)).equals('a');
+    check(stillAdding()).isTrue();
   });
 
   test('a sign-in published while another is reconciled is still folded '

@@ -454,6 +454,13 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
       final current = ref.read(authStateManagerProvider).asData?.value;
       if (current?.token != auth.token) return;
       DebugLogger.log('duplicate-account-merged', scope: 'auth/accounts');
+      // The addition this sign-in finishes, taken before the merge: that
+      // account is active again while its leftovers are cleared, and another
+      // addition can begin from it meanwhile.
+      final addition = ref.read(accountAdditionOriginProvider.notifier);
+      final fromExisting =
+          ref.read(accountAdditionOriginProvider) == existing.id;
+      final endAddition = addition.endLater();
       final merged = await ref
           .read(authStateManagerProvider.notifier)
           .mergeActiveAccountInto(
@@ -470,7 +477,7 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
       // back in that account. The sign-in is done, but with that account
       // active again the router took the addition for still running and
       // kept the finished sign-in on screen.
-      ref.read(accountAdditionOriginProvider.notifier).end(existing.id);
+      if (fromExisting) endAddition();
       await ref
           .read(openWebUiAccountSummariesProvider.notifier)
           .touch(existing.id);
