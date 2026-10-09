@@ -4,6 +4,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
+import 'package:conduit_core/features/push/services/hermes_push_backend.dart'
+    show kConduitHermesPluginPinned;
 import 'package:conduit_core/ports/push_platform_port.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -96,6 +98,16 @@ class _PushTargetDetailSheetState extends ConsumerState<PushTargetDetailSheet> {
               ),
             ],
           ),
+          // Without a pinned commit the command installs whatever the
+          // plugin's repository publishes now.
+          if (!kConduitHermesPluginPinned) ...[
+            const SizedBox(height: Spacing.xs),
+            Text(
+              l10n.pushHermesCommandLatest,
+              key: const Key('push-detail-command-latest'),
+              style: theme.caption?.copyWith(color: theme.textSecondary),
+            ),
+          ],
         ],
         if (action != null) ...[
           const SizedBox(height: Spacing.md),

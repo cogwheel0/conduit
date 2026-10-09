@@ -11,6 +11,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
+import 'package:conduit_core/features/push/services/hermes_push_backend.dart'
+    show kConduitHermesPluginPinned;
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
@@ -484,6 +486,11 @@ void main() {
       expect(
         find.text('hermes -p work plugins install x --enable'),
         findsWidgets,
+      );
+      // Without a pinned plugin commit the command installs the latest one.
+      expect(
+        find.byKey(const Key('push-detail-command-latest')),
+        kConduitHermesPluginPinned ? findsNothing : findsOneWidget,
       );
       // Hermes has no reply origin choice.
       expect(find.text('All my chats'), findsNothing);

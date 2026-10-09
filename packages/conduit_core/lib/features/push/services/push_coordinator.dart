@@ -218,12 +218,15 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Installs and enables the Hermes plugin through the Hermes dashboard (a
   /// `desktopGateway` connection), restarts a running gateway, and waits up
-  /// to two minutes for Hermes to load it. Other connections answer false:
-  /// their state carries the command to run instead.
+  /// to two minutes for Hermes to load it. Only where the last check offered
+  /// it ([PushTargetState.canInstallHermesPlugin]: a pinned plugin commit and
+  /// the dashboard's own profile); other connections answer false, and their
+  /// state carries the command to run instead.
   Future<bool> installHermesPlugin(String scope) async {
     final target = _target(scope);
     if (target is! HermesPushTarget ||
-        target.mode != HermesBackendMode.desktopGateway) {
+        target.mode != HermesBackendMode.desktopGateway ||
+        state.targets[scope]?.canInstallHermesPlugin != true) {
       return false;
     }
     if (!await _install(target)) return false;

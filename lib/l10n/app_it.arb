@@ -4290,5 +4290,6 @@
   "hermesJobNotifyTitle": "Avvisami",
   "hermesJobNotifyDescription": "Invia una notifica push quando questo job consegna un risultato.",
   "pushAskAdminMessage": "Potresti configurare Conduit Push sul nostro server Open WebUI? Permette a Conduit di inviare notifiche push con crittografia end-to-end. In Pannello di amministrazione → Funzioni, importa {url} e imposta l'ID della funzione su {functionId}. Guida: {guide}",
-  "pushExplainFailed": "Conduit riprova da solo la prossima volta che lo apri, oppure puoi riprovare ora."
+  "pushExplainFailed": "Conduit riprova da solo la prossima volta che lo apri, oppure puoi riprovare ora.",
+  "pushHermesCommandLatest": "Questo installa l'ultima versione pubblicata del plugin."
 }

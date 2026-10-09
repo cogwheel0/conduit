@@ -9079,5 +9079,9 @@
   "pushExplainFailed": "Conduit tries again by itself the next time you open it, or you can try again now.",
   "@pushExplainFailed": {
     "description": "Detail-sheet explanation under a push failure (the failure itself is the heading above it); a Retry button follows."
+  },
+  "pushHermesCommandLatest": "This installs the latest published version of the plugin.",
+  "@pushHermesCommandLatest": {
+    "description": "Note under the copyable Hermes plugin install command when this build does not pin a plugin commit, so the command installs whatever version the plugin's repository currently publishes."
   }
 }

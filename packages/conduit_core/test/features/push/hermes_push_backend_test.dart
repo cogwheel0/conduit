@@ -22,16 +22,56 @@ const _subscription = PushServerSubscription(
 void main() {
   group('helpers', () {
     test('the install command pins the commit and names the profile', () {
-      check(hermesPluginInstallCommand()).equals(
+      check(hermesPluginInstallCommand(ref: '')).equals(
         'hermes plugins install cogwheel0/conduit-hermes-push --enable'
         ' && hermes gateway restart',
       );
       check(hermesPluginInstallCommand(profile: 'work', ref: 'a' * 40)).equals(
-        'hermes -p work plugins install cogwheel0/conduit-hermes-push'
-        ' --ref ${'a' * 40} --enable && hermes -p work gateway restart',
+        "hermes -p 'work' plugins install cogwheel0/conduit-hermes-push"
+        " --ref ${'a' * 40} --enable && hermes -p 'work' gateway restart",
       );
       check(hermesPluginInstallCommand(profile: 'default'))
+          .isNotNull()
           .not((it) => it.contains(' -p '));
+    });
+
+    test('a malformed pin is left out of the command', () {
+      for (final ref in ['abc', 'A' * 40, 'g' * 40, '${'a' * 40} ; rm -rf /']) {
+        check(hermesPluginInstallCommand(ref: ref))
+            .isNotNull()
+            .not((it) => it.contains('--ref'));
+      }
+    });
+
+    test('a profile that is not a Hermes profile name gets no command', () {
+      for (final profile in [
+        'work; rm -rf ~',
+        r'$(id)',
+        'Work',
+        '-p',
+        "it's",
+        'a' * 65,
+      ]) {
+        check(hermesPluginInstallCommand(profile: profile)).isNull();
+      }
+      check(hermesPluginInstallCommand(profile: 'team-a_1'))
+          .isNotNull()
+          .contains("-p 'team-a_1'");
+    });
+
+    test('the plugin pin is empty until the mirror publishes, or a full SHA', () {
+      // An empty pin is allowed only until the first mirror publish; any
+      // other value must name one commit.
+      check(
+        kConduitHermesPluginRef.isEmpty ||
+            RegExp(r'^[0-9a-f]{40}$').hasMatch(kConduitHermesPluginRef),
+      ).isTrue();
+      check(kConduitHermesPluginPinned)
+          .equals(kConduitHermesPluginRef.isNotEmpty);
+      check(hermesPluginRefIsPinned('a' * 40)).isTrue();
+      check(hermesPluginRefIsPinned('a' * 39)).isFalse();
+      check(hermesPluginRefIsPinned('A' * 40)).isFalse();
+      check(hermesPluginRefIsPinned('')).isFalse();
     });
 
     test('finds the profile and root of an API server URL', () {
@@ -97,7 +137,7 @@ void main() {
       gateway.code = 'platform_unavailable';
       final probe = await backend.probe();
       check(probe.outcome).equals(PushProbeOutcome.needsHermesPlugin);
-      check(probe.hermesInstallCommand).isNotNull().contains('hermes -p work');
+      check(probe.hermesInstallCommand).isNotNull().contains("hermes -p 'work'");
       check(probe.canInstallHermesPlugin).isFalse();
     });
 
@@ -195,7 +235,11 @@ void main() {
 
     setUp(() {
       dashboard = _Dashboard();
-      backend = HermesDashboardPushBackend(client: dashboard, profile: 'work');
+      backend = HermesDashboardPushBackend(
+        client: dashboard,
+        profile: 'default',
+        pluginRef: _pin,
+      );
     });
 
     test('hello 200 is ready', () async {
@@ -218,14 +262,66 @@ void main() {
     );
 
     test('an unmounted route without the plugin needs it installed', () async {
-      dashboard.hello = const HermesDashboardResponse(
-        404,
-        '{"detail":"No such API endpoint: /api/plugins/conduit/v1/hello"}',
-      );
+      dashboard.hello = _unmounted;
       final probe = await backend.probe();
       check(probe.outcome).equals(PushProbeOutcome.needsHermesPlugin);
       check(probe.canInstallHermesPlugin).isTrue();
-      check(probe.hermesInstallCommand).isNotNull().contains('-p work');
+      check(probe.hermesInstallCommand).isNotNull().contains('--ref $_pin');
+    });
+
+    test('without a pinned commit there is only the command', () async {
+      for (final ref in ['', 'not-a-sha', 'A' * 40]) {
+        final dashboard = _Dashboard()..hello = _unmounted;
+        final backend = HermesDashboardPushBackend(
+          client: dashboard,
+          profile: 'default',
+          pluginRef: ref,
+        );
+        final probe = await backend.probe();
+        check(probe.outcome).equals(PushProbeOutcome.needsHermesPlugin);
+        check(probe.canInstallHermesPlugin).isFalse();
+        check(probe.hermesInstallCommand)
+            .isNotNull()
+            .not((it) => it.contains('--ref'));
+        final error = await _backendError(backend.install());
+        check(error.failure).equals(
+          const PushFailure(PushFailureReason.installFailed, detail: 'unpinned'),
+        );
+        check(dashboard.calls).not(
+          (it) => it.contains('POST /api/dashboard/agent-plugins/install'),
+        );
+      }
+    });
+
+    test("this build's own pin decides one-tap install", () async {
+      final dashboard = _Dashboard()..hello = _unmounted;
+      final backend = HermesDashboardPushBackend(
+        client: dashboard,
+        profile: 'default',
+      );
+      check((await backend.probe()).canInstallHermesPlugin)
+          .equals(kConduitHermesPluginPinned);
+    });
+
+    test('another profile gets the command with its name', () async {
+      final dashboard = _Dashboard()..hello = _unmounted;
+      final backend = HermesDashboardPushBackend(
+        client: dashboard,
+        profile: 'work',
+        pluginRef: _pin,
+      );
+      final probe = await backend.probe();
+      check(probe.outcome).equals(PushProbeOutcome.needsHermesPlugin);
+      check(probe.canInstallHermesPlugin).isFalse();
+      check(probe.hermesInstallCommand).isNotNull().contains("-p 'work'");
+      // The hub answers for that profile.
+      check(dashboard.calls)
+          .contains('GET /api/dashboard/plugins/hub?profile=work');
+      final error = await _backendError(backend.install());
+      check(error.failure.detail).equals('use_command');
+      check(dashboard.calls).not(
+        (it) => it.contains('POST /api/dashboard/agent-plugins/install'),
+      );
     });
 
     test('"Plugin not found" needs it installed or enabled', () async {
@@ -252,6 +348,10 @@ void main() {
     });
 
     test('ops go to the events route for the profile', () async {
+      final backend = HermesDashboardPushBackend(
+        client: dashboard,
+        profile: 'work',
+      );
       await backend.unsubscribe('AAAAAAAAAAAAAAAAAAAAAA');
       check(dashboard.calls.single)
           .equals('POST /api/plugins/conduit/v1/events?profile=work');
@@ -265,11 +365,11 @@ void main() {
       check(dashboard.calls).deepEquals([
         'GET /api/dashboard/plugins/hub',
         'POST /api/dashboard/agent-plugins/install',
-        'POST /api/gateway/restart?profile=work',
+        'POST /api/gateway/restart?profile=default',
       ]);
       check(dashboard.bodies.first as Map).deepEquals({
         'identifier': 'cogwheel0/conduit-hermes-push',
-        if (kConduitHermesPluginRef.isNotEmpty) 'ref': kConduitHermesPluginRef,
+        'ref': _pin,
         'enable': true,
         'force': false,
       });
@@ -297,10 +397,53 @@ void main() {
         ),
       );
       check(dashboard.calls)
-          .not((it) => it.contains('POST /api/gateway/restart?profile=work'));
+          .not((it) => it.contains('POST /api/gateway/restart?profile=default'));
+    });
+
+    for (final (name, body) in [
+      ('a caution verdict', '{"ok":false,"scan_verdict":"caution"}'),
+      ('a consent request', '{"consent_required":true,"capabilities":[]}'),
+      ('an install left disabled', '{"ok":true,"enabled":false}'),
+      ('no ok at all', '{"plugin_name":"conduit"}'),
+      ('an empty body', ''),
+    ]) {
+      test('a 2xx with $name is not an install', () async {
+        dashboard.installResponse = HermesDashboardResponse(200, body);
+        final error = await _backendError(backend.install());
+        check(error.failure.reason).equals(PushFailureReason.installFailed);
+        check(error.failure.detail).isNotNull().isNotEmpty();
+        check(dashboard.calls)
+            .not((it) => it.contains('POST /api/gateway/restart?profile=default'));
+      });
+    }
+
+    test('a caution verdict names itself', () async {
+      dashboard.installResponse = const HermesDashboardResponse(
+        200,
+        '{"ok":false,"scan_verdict":"caution"}',
+      );
+      final error = await _backendError(backend.install());
+      check(error.failure.detail).equals('scan_caution');
+    });
+
+    test('an enable that did not happen is a failure', () async {
+      dashboard.hubRow = {'name': 'conduit', 'runtime_status': 'inactive'};
+      dashboard.enableResponse = const HermesDashboardResponse(
+        200,
+        '{"consent_required":true}',
+      );
+      final error = await _backendError(backend.install());
+      check(error.failure.detail).equals('consent_required');
     });
   });
 }
+
+const String _pin = '0123456789abcdef0123456789abcdef01234567';
+
+const HermesDashboardResponse _unmounted = HermesDashboardResponse(
+  404,
+  '{"detail":"No such API endpoint: /api/plugins/conduit/v1/hello"}',
+);
 
 Future<PushBackendException> _backendError(Future<Object?> future) async {
   try {
@@ -389,7 +532,11 @@ final class _Dashboard implements HermesDashboardClient {
   bool gatewayIsRunning = false;
   HermesDashboardResponse installResponse = const HermesDashboardResponse(
     200,
-    '{"ok":true,"plugin_name":"conduit"}',
+    '{"ok":true,"plugin_name":"conduit","enabled":true}',
+  );
+  HermesDashboardResponse enableResponse = const HermesDashboardResponse(
+    200,
+    '{"ok":true}',
   );
 
   @override
@@ -414,6 +561,7 @@ final class _Dashboard implements HermesDashboardClient {
         }),
       ),
       '/api/dashboard/agent-plugins/install' => installResponse,
+      '/api/dashboard/agent-plugins/conduit/enable' => enableResponse,
       _ => const HermesDashboardResponse(200, '{"ok":true}'),
     };
   }

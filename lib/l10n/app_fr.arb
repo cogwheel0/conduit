@@ -4290,5 +4290,6 @@
   "hermesJobNotifyTitle": "M'avertir",
   "hermesJobNotifyDescription": "Envoyer une notification push quand cette tâche livre un résultat.",
   "pushAskAdminMessage": "Pourriez-vous installer Conduit Push sur notre serveur Open WebUI ? Cela permet à Conduit d'envoyer des notifications push chiffrées de bout en bout. Dans Panneau d'administration → Fonctions, importez {url} et définissez l'ID de la fonction sur {functionId}. Guide : {guide}",
-  "pushExplainFailed": "Conduit réessaiera tout seul la prochaine fois que vous l'ouvrirez, ou vous pouvez réessayer maintenant."
+  "pushExplainFailed": "Conduit réessaiera tout seul la prochaine fois que vous l'ouvrirez, ou vous pouvez réessayer maintenant.",
+  "pushHermesCommandLatest": "Cela installe la dernière version publiée du plugin."
 }

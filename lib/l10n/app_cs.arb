@@ -6112,5 +6112,6 @@
   "hermesJobNotifyTitle": "Upozornit mě",
   "hermesJobNotifyDescription": "Poslat push oznámení, když tato úloha doručí výsledek.",
   "pushAskAdminMessage": "Mohl bys na našem serveru Open WebUI nastavit Conduit Push? Conduit pak může posílat koncově šifrovaná push oznámení. V Panelu správce → Funkce importuj {url} a nastav ID funkce na {functionId}. Návod: {guide}",
-  "pushExplainFailed": "Conduit to zkusí znovu sám, až ho příště otevřete, nebo to můžete zkusit znovu hned."
+  "pushExplainFailed": "Conduit to zkusí znovu sám, až ho příště otevřete, nebo to můžete zkusit znovu hned.",
+  "pushHermesCommandLatest": "Tím se nainstaluje nejnovější zveřejněná verze pluginu."
 }
