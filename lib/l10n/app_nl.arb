@@ -4291,5 +4291,8 @@
   "hermesJobNotifyDescription": "Een pushmelding sturen wanneer deze taak een resultaat aflevert.",
   "pushAskAdminMessage": "Kun je Conduit Push instellen op onze Open WebUI-server? Daarmee kan Conduit end-to-end versleutelde pushmeldingen sturen. Importeer in Beheerpaneel → Functies {url} en zet de functie-ID op {functionId}. Handleiding: {guide}",
   "pushExplainFailed": "Conduit probeert het vanzelf opnieuw wanneer je het weer opent, of je kunt het nu opnieuw proberen.",
-  "pushHermesCommandLatest": "Hiermee installeer je de nieuwste gepubliceerde versie van de plug-in."
+  "pushHermesCommandLatest": "Hiermee installeer je de nieuwste gepubliceerde versie van de plug-in.",
+  "hermesJobCreatedNotifyFailed": "Taak gemaakt, maar de meldingen ervoor konden niet worden ingeschakeld.",
+  "hermesJobUpdatedNotifyFailed": "Taak opgeslagen, maar de meldingen ervan konden niet worden gewijzigd.",
+  "hermesJobNotifyNeedsScheduled": "Zet Geplande taken aan bij Meldingen om dit te gebruiken."
 }

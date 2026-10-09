@@ -7,6 +7,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_subscription_record.dart';
@@ -382,22 +383,36 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Turns a Hermes cron job's "Notify me" on or off by adding `conduit` to
   /// its `deliver` targets or removing it. Answers the new `deliver`.
+  ///
+  /// The job is read fresh from the server first, so targets added since the
+  /// app last listed it are kept. One whose `deliver` this app cannot read
+  /// is refused with [HermesJobDeliveryUnknown] rather than overwritten.
   Future<String> setHermesJobNotify({
     required String connectionId,
     required String jobId,
-    required String? deliver,
     required bool notify,
   }) async {
-    final next = hermesDeliverWithConduit(deliver, notify: notify);
-    final service = await ref
-        .read(pushBackendFactoryProvider)
-        .openHermesService(connectionId);
+    final service = await _factory.openHermesService(connectionId);
     try {
-      await service.updateJob(jobId, deliver: next);
+      HermesJob? job;
+      for (final raw in await service.listJobs()) {
+        final parsed = HermesJob.fromJson(raw);
+        if (parsed?.id == jobId) {
+          job = parsed;
+          break;
+        }
+      }
+      if (job == null) throw StateError('The scheduled job no longer exists.');
+      if (!job.deliveryKnown) throw const HermesJobDeliveryUnknown();
+      final current = job.deliveryTarget;
+      final next = hermesDeliverWithConduit(current, notify: notify);
+      if (hermesDeliverIncludesConduit(current) != notify) {
+        await service.updateJob(jobId, deliver: next);
+      }
+      return next;
     } finally {
       service.close();
     }
-    return next;
   }
 
   /// Removes these accounts' subscriptions from their servers while their
@@ -2226,6 +2241,15 @@ bool openWebUiAccountNotificationsEnabled(String accountId) {
       true;
   if (migrated) return false;
   return PreferencesStore.getBool(PreferenceKeys.notificationsEnabled) ?? false;
+}
+
+/// A Hermes job's delivery targets could not be read, so "Notify me" is
+/// not changed for it: writing them back would drop the unread ones.
+final class HermesJobDeliveryUnknown implements Exception {
+  const HermesJobDeliveryUnknown();
+
+  @override
+  String toString() => 'HermesJobDeliveryUnknown';
 }
 
 final class _ScopeRunner {

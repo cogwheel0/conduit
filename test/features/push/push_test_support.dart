@@ -134,14 +134,18 @@ final class FakePushCoordinator extends PushCoordinator {
   @override
   Future<List<String>> distributors() async => distributorList;
 
+  /// Thrown by [setHermesJobNotify].
+  Object? jobNotifyError;
+
   @override
   Future<String> setHermesJobNotify({
     required String connectionId,
     required String jobId,
-    required String? deliver,
     required bool notify,
   }) async {
-    calls.add('setHermesJobNotify $connectionId $jobId $deliver $notify');
+    calls.add('setHermesJobNotify $connectionId $jobId $notify');
+    final error = jobNotifyError;
+    if (error != null) throw error;
     return notify ? 'local,conduit' : 'local';
   }
 }

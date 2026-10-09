@@ -4291,5 +4291,8 @@
   "hermesJobNotifyDescription": "Enviar una notificación push cuando esta tarea entregue un resultado.",
   "pushAskAdminMessage": "¿Podrías configurar Conduit Push en nuestro servidor de Open WebUI? Permite a Conduit enviar notificaciones push con cifrado de extremo a extremo. En Panel de administración → Funciones, importa {url} y pon {functionId} como ID de la función. Guía: {guide}",
   "pushExplainFailed": "Conduit lo volverá a intentar solo la próxima vez que lo abras, o puedes volver a intentarlo ahora.",
-  "pushHermesCommandLatest": "Esto instala la versión publicada más reciente del plugin."
+  "pushHermesCommandLatest": "Esto instala la versión publicada más reciente del plugin.",
+  "hermesJobCreatedNotifyFailed": "Tarea creada, pero no se pudieron activar sus notificaciones.",
+  "hermesJobUpdatedNotifyFailed": "Tarea guardada, pero no se pudieron cambiar sus notificaciones.",
+  "hermesJobNotifyNeedsScheduled": "Activa Tareas programadas en Notificaciones para usar esto."
 }

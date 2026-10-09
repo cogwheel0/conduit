@@ -4291,5 +4291,8 @@
   "hermesJobNotifyDescription": "此工作交付結果時傳送推播通知。",
   "pushAskAdminMessage": "可以在我們的 Open WebUI 伺服器上設定 Conduit Push 嗎？這樣 Conduit 就能傳送端對端加密的推播通知。請在「管理員面板 → 函式」中匯入 {url}，並把函式 ID 設為 {functionId}。設定指南：{guide}",
   "pushExplainFailed": "Conduit 會在你下次開啟時自動重試，你也可以現在重試。",
-  "pushHermesCommandLatest": "這會安裝外掛最新發佈的版本。"
+  "pushHermesCommandLatest": "這會安裝外掛最新發佈的版本。",
+  "hermesJobCreatedNotifyFailed": "排程工作已建立，但無法為其開啟通知。",
+  "hermesJobUpdatedNotifyFailed": "排程工作已儲存，但無法變更其通知。",
+  "hermesJobNotifyNeedsScheduled": "要使用此功能，請在「通知」中開啟「排程工作」。"
 }

@@ -4063,5 +4063,8 @@
   "hermesJobNotifyDescription": "이 작업이 결과를 전달하면 푸시 알림을 보냅니다.",
   "pushAskAdminMessage": "우리 Open WebUI 서버에 Conduit Push를 설정해 줄 수 있나요? Conduit가 종단 간 암호화된 푸시 알림을 보낼 수 있게 됩니다. 관리자 패널 → 함수에서 {url}을(를) 가져오고 함수 ID를 {functionId}(으)로 설정하세요. 설정 가이드: {guide}",
   "pushExplainFailed": "다음에 Conduit를 열 때 자동으로 다시 시도합니다. 지금 다시 시도할 수도 있습니다.",
-  "pushHermesCommandLatest": "플러그인의 최신 게시 버전을 설치합니다."
+  "pushHermesCommandLatest": "플러그인의 최신 게시 버전을 설치합니다.",
+  "hermesJobCreatedNotifyFailed": "작업을 만들었지만 알림을 켜지 못했습니다.",
+  "hermesJobUpdatedNotifyFailed": "작업을 저장했지만 알림을 변경하지 못했습니다.",
+  "hermesJobNotifyNeedsScheduled": "사용하려면 알림에서 예약된 작업을 켜세요."
 }

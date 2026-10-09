@@ -1322,11 +1322,11 @@ void main() {
 
     test('notify me adds conduit to a job and removes it', () async {
       h = await _Harness.start(targets: [_hermes]);
+      h.factory.jobs.stored['job-1'] = 'telegram';
       check(
         await h.coordinator.setHermesJobNotify(
           connectionId: 'conn-1',
           jobId: 'job-1',
-          deliver: 'telegram',
           notify: true,
         ),
       ).equals('telegram,conduit');
@@ -1335,11 +1335,59 @@ void main() {
         await h.coordinator.setHermesJobNotify(
           connectionId: 'conn-1',
           jobId: 'job-1',
-          deliver: 'telegram,conduit',
           notify: false,
         ),
       ).equals('telegram');
       check(PushCoordinator.hermesJobNotifies('telegram,conduit')).isTrue();
+    });
+
+    test("notify me reads the job fresh and keeps targets added since", () async {
+      h = await _Harness.start(targets: [_hermes]);
+      // Another client added Slack after this app listed the job.
+      h.factory.jobs.stored['job-1'] = 'telegram,slack';
+      await h.coordinator.setHermesJobNotify(
+        connectionId: 'conn-1',
+        jobId: 'job-1',
+        notify: true,
+      );
+      check(h.factory.jobs.updates)
+          .deepEquals({'job-1': 'telegram,slack,conduit'});
+    });
+
+    test('notify me never rewrites delivery targets it cannot read', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      for (final deliver in <Object>['x' * 300, ['telegram', 'slack'], 7]) {
+        h.factory.jobs.stored['job-1'] = deliver;
+        await check(
+          h.coordinator.setHermesJobNotify(
+            connectionId: 'conn-1',
+            jobId: 'job-1',
+            notify: true,
+          ),
+        ).throws<HermesJobDeliveryUnknown>();
+      }
+      check(h.factory.jobs.updates).isEmpty();
+    });
+
+    test('notify me already in place writes nothing', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      h.factory.jobs.stored['job-1'] = 'local,conduit';
+      check(
+        await h.coordinator.setHermesJobNotify(
+          connectionId: 'conn-1',
+          jobId: 'job-1',
+          notify: true,
+        ),
+      ).equals('local,conduit');
+      h.factory.jobs.stored['job-2'] = null;
+      check(
+        await h.coordinator.setHermesJobNotify(
+          connectionId: 'conn-1',
+          jobId: 'job-2',
+          notify: true,
+        ),
+      ).equals('local,conduit');
+      check(h.factory.jobs.updates).deepEquals({'job-2': 'local,conduit'});
     });
   });
 }
@@ -1914,6 +1962,20 @@ final class _Gateway implements HttpClientAdapter {
 final class _Jobs implements HermesBackendService {
   final updates = <String, String?>{};
 
+  /// Each job's `deliver` as the server has it, by job id.
+  final stored = <String, Object?>{};
+
+  @override
+  Future<List<Map<String, dynamic>>> listJobs() async => [
+    for (final entry in stored.entries)
+      {
+        'id': entry.key,
+        'prompt': 'p',
+        'schedule': '0 9 * * *',
+        'deliver': ?entry.value,
+      },
+  ];
+
   @override
   Future<void> updateJob(
     String id, {
@@ -1922,7 +1984,10 @@ final class _Jobs implements HermesBackendService {
     String? schedule,
     bool? enabled,
     String? deliver,
-  }) async => updates[id] = deliver;
+  }) async {
+    updates[id] = deliver;
+    stored[id] = deliver;
+  }
 
   @override
   void close() {}
