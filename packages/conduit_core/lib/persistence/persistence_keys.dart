@@ -108,6 +108,29 @@ final class PreferenceKeys {
   static const String notificationChannelEnabled =
       'notification_channel_enabled';
 
+  // Push notifications. Device-wide, never account-scoped: one toggle covers
+  // every account and connection, and no key or token is stored here.
+  /// The master push toggle.
+  static const String pushEnabled = 'push_enabled_v1';
+
+  /// A random id for this install, sent as each subscription's `did`.
+  static const String pushDeviceId = 'push_device_id_v1';
+
+  /// `fcm` or `unifiedPush`; absent means automatic.
+  static const String pushAndroidTransport = 'push_android_transport_v1';
+
+  /// The UnifiedPush distributor package; absent means the first installed.
+  static const String pushAndroidDistributor = 'push_android_distributor_v1';
+
+  /// Per-scope subscription records (`PushSubscriptionRecord`), as JSON.
+  static const String pushTargets = 'push_targets_v1';
+
+  /// Deleted subscriptions a server may still hold (`PushTombstone`), as JSON.
+  static const String pushTombstones = 'push_tombstones_v1';
+
+  /// When every target was last checked against its server, in epoch ms.
+  static const String pushLastFullReconcile = 'push_last_full_reconcile_v1';
+
   // Hermes Agent (direct second backend) — non-secret config. The API key and
   // long-term memory session key are secrets and live in SecureCredentialStorage.
   /// Global master switch; applies to whichever saved connection is active.
