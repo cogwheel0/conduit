@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12 and later ignore android:allowBackup="false" for device-to-device
+  transfer. The push preferences (the FCM opt-in, the tap token and the
+  mirrored push settings) describe this install only, so they stay behind; the
+  push keys and dedup ledger are in noBackupFilesDir, which never moves.
+  Cloud backup stays off through allowBackup="false"; the exclusion is
+  repeated there in case that changes.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="conduit_push.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="conduit_push.xml" />
+    </device-transfer>
+</data-extraction-rules>

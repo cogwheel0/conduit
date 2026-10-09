@@ -1,10 +1,13 @@
 package app.cogwheel.conduit.push
 
+import java.io.File
+import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.w3c.dom.Element
 
 class PushConfigStoreTest {
     private val values = MemoryKeyValueStore()
@@ -71,5 +74,21 @@ class PushConfigStoreTest {
         // Nothing is left that would start Firebase at the next launch.
         assertFalse(PushConfigStore(values).fcmOptedIn)
         assertEquals(null, values.getString("fcm_opted_in"))
+    }
+
+    @Test
+    fun thePreferencesStayBehindInADeviceTransfer() {
+        // Gradle runs unit tests in the module directory.
+        val manifest = File("src/main/AndroidManifest.xml").readText()
+        assertTrue(manifest.contains("android:dataExtractionRules=\"@xml/data_extraction_rules\""))
+        val rules = DocumentBuilderFactory.newInstance().newDocumentBuilder()
+            .parse(File("src/main/res/xml/data_extraction_rules.xml"))
+        val transfer = rules.getElementsByTagName("device-transfer").item(0) as Element
+        val excludes = transfer.getElementsByTagName("exclude")
+        val excluded = (0 until excludes.length).map { index ->
+            val exclude = excludes.item(index) as Element
+            exclude.getAttribute("domain") to exclude.getAttribute("path")
+        }
+        assertTrue(excluded.contains("sharedpref" to "${PushConfigStore.PREFS_NAME}.xml"))
     }
 }
