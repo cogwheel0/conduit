@@ -171,6 +171,33 @@ void main() {
     expect(find.text('LAN'), findsOneWidget);
   });
 
+  testWidgets('lists the server\'s accounts, each to sign out of, and adds '
+      'another on it', (tester) async {
+    await pumpPage(tester);
+
+    expect(find.byKey(const Key('server-account-a')), findsOneWidget);
+    expect(find.byKey(const Key('accounts-sign-out-a')), findsOneWidget);
+    expect(find.byKey(const Key('server-add-account')), findsOneWidget);
+  });
+
+  // Signing out of a server's last account removes the server, and the
+  // page was left showing nothing.
+  testWidgets('goes once the last of its accounts is gone', (tester) async {
+    var configs = const [
+      ServerConfig(id: 'a', name: 'Home', url: 'http://10.0.0.2:3000'),
+    ];
+    await pumpPage(tester, readConfigs: () async => configs);
+    expect(find.byType(ServerAddressesPage), findsOneWidget);
+
+    configs = const [];
+    ProviderScope.containerOf(
+      tester.element(find.byType(ServerAddressesPage)),
+    ).invalidate(serverConfigsProvider);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ServerAddressesPage), findsNothing);
+  });
+
   testWidgets('lists the addresses in order and marks the one in use', (
     tester,
   ) async {

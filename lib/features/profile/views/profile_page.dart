@@ -15,7 +15,6 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/utils/external_link_launcher.dart';
-import '../../../shared/widgets/sign_out_options_dialog.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
@@ -37,7 +36,6 @@ import '../../workspace/providers/workspace_capabilities_provider.dart';
 
 import 'package:conduit_core/services/api_service.dart';
 
-import 'package:conduit_core/models/user.dart' as models;
 import 'package:conduit_core/utils/user_display_name.dart';
 
 import 'package:conduit_core/utils/user_avatar_utils.dart';
@@ -149,14 +147,6 @@ class ProfilePage extends ConsumerWidget {
     final accountsAsync = ref.watch(openWebUiAccountsProvider);
     final accounts = accountsAsync.value ?? const <OpenWebUiAccountEntry>[];
     final activeAccount = accounts.where((entry) => entry.isActive).firstOrNull;
-    // Until the saved accounts are read, or when they cannot be, there may be
-    // several, and signing out signs out of every one: say so.
-    final severalAccounts = !accountsAsync.hasValue || accounts.length > 1;
-    // The other saved accounts stay a tap away while the active one has no
-    // session -- it expired, or a switch left it signed out -- and Hermes or
-    // Direct keeps this page open.
-    final showAccounts =
-        hasOpenWebUiAccount || accounts.any((entry) => !entry.isActive);
     return ListView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -168,19 +158,14 @@ class ProfilePage extends ConsumerWidget {
         Spacing.pagePadding + mediaQuery.padding.bottom,
       ),
       children: [
-        if (hasOpenWebUiAccount) ...[
-          _buildProfileHeader(context, userData, api),
-          const SizedBox(height: Spacing.lg),
-        ],
-        if (showAccounts) ...[
-          _buildAccountsSection(
-            context,
-            ref,
-            accounts,
-            showManage: severalAccounts,
-          ),
-          const SizedBox(height: Spacing.lg),
-        ],
+        _buildAccountCard(
+          context,
+          ref,
+          user: hasOpenWebUiAccount ? userData : null,
+          api: api,
+          accounts: accounts,
+        ),
+        const SizedBox(height: Spacing.lg),
         ...items,
         const SizedBox(height: Spacing.xl),
         _buildDonationSection(context),
@@ -188,11 +173,15 @@ class ProfilePage extends ConsumerWidget {
         if (hasOpenWebUiAccount)
           InsetGroupedList(
             children: [
-              // With one account, signing out is what it always was. With
-              // several, sign out of this one, or of every account at once.
+              // With several accounts, Sign out leaves this one and the next
+              // takes over; signing out of all is on the Accounts page. With
+              // one, it is what it always was -- and until the accounts are
+              // read, or when they cannot be, there may be several, and it
+              // signs out of every one: say so.
               if (accounts.length > 1 && activeAccount != null)
-                _buildSignOutOfAccountOption(context, ref, activeAccount),
-              _buildSignOutOption(context, ref, all: severalAccounts),
+                _buildSignOutOfAccountOption(context, ref, activeAccount)
+              else
+                _buildSignOutOption(context, ref, all: !accountsAsync.hasValue),
             ],
           ),
       ],
@@ -271,77 +260,90 @@ class ProfilePage extends ConsumerWidget {
     }
   }
 
-  Widget _buildProfileHeader(
+  /// Who Settings is for -- the Open WebUI account signed in, else the
+  /// Hermes connection in use, else Direct -- leading to every account and
+  /// connection, with the way to add another under it.
+  Widget _buildAccountCard(
     BuildContext context,
-    dynamic user,
-    ApiService? api,
-  ) {
+    WidgetRef ref, {
+    required dynamic user,
+    required ApiService? api,
+    required List<OpenWebUiAccountEntry> accounts,
+  }) {
     final l10n = AppLocalizations.of(context)!;
-    final displayName = deriveUserDisplayName(
-      user,
-      fallback: l10n.userFallbackName,
-    );
-    final characters = displayName.characters;
-    final initial = characters.isNotEmpty
-        ? characters.first.toUpperCase()
-        : 'U';
-    final avatarUrl = resolveUserAvatarUrlForUser(api, user);
-
-    String? extractEmail(dynamic source) {
-      if (source is models.User) {
-        return source.email;
-      }
-      if (source is Map) {
-        final value = source['email'];
-        if (value is String && value.trim().isNotEmpty) {
-          return value.trim();
-        }
-        final nested = source['user'];
-        if (nested is Map) {
-          final nestedValue = nested['email'];
-          if (nestedValue is String && nestedValue.trim().isNotEmpty) {
-            return nestedValue.trim();
-          }
-        }
-      }
-      return null;
-    }
-
-    final email = extractEmail(user) ?? l10n.noEmailLabel;
     final theme = context.conduitTheme;
-    // Identity header: centered avatar, name, and account line,
-    // with an explicit pill that opens the account editor.
-    return Column(
+    final hermesConnections = ref.watch(hermesConnectionsProvider);
+    final hermesActiveId = ref.watch(hermesEnabledProvider)
+        ? ref.watch(hermesActiveConnectionIdProvider)
+        : null;
+    final hermesActive = hermesConnections
+        .where((connection) => connection.id == hermesActiveId)
+        .firstOrNull;
+
+    final Widget leading;
+    final String title;
+    final String? place;
+    String? shownHermesId;
+    if (user != null) {
+      title = deriveUserDisplayName(user, fallback: l10n.userFallbackName);
+      final characters = title.characters;
+      leading = UserAvatar(
+        size: IconSize.xl,
+        imageUrl: resolveUserAvatarUrlForUser(api, user),
+        fallbackText: characters.isEmpty ? 'U' : characters.first.toUpperCase(),
+      );
+      final active = accounts.where((entry) => entry.isActive).firstOrNull;
+      place = active == null ? null : serverDisplayName(active.server);
+    } else if (hermesActive != null) {
+      shownHermesId = hermesActive.id;
+      title = hermesActive.name;
+      leading = _buildAssetIconBadge(
+        context,
+        'assets/icons/hermes_agent.png',
+        color: theme.textPrimary,
+      );
+      place = l10n.hermesAgentSettingsTitle;
+    } else {
+      title = l10n.directConnectionsTitle;
+      leading = _buildIconBadge(
+        context,
+        UiUtils.platformIcon(
+          ios: CupertinoIcons.link,
+          android: Icons.hub_outlined,
+        ),
+        color: theme.iconSecondary,
+      );
+      place = null;
+    }
+    // Every other account or connection there is to switch to.
+    final others =
+        accounts.where((entry) => user == null || !entry.isActive).length +
+        hermesConnections
+            .where((connection) => connection.id != shownHermesId)
+            .length;
+    final subtitle = [?place, if (others > 0) '+$others'].join(' ');
+
+    return InsetGroupedList(
+      key: const Key('settings-account-card'),
       children: [
-        UserAvatar(size: 80, imageUrl: avatarUrl, fallbackText: initial),
-        const SizedBox(height: Spacing.sm + Spacing.xxs),
-        Text(
-          displayName,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppTypography.headlineSmallStyle.copyWith(
-            color: theme.textPrimary,
-            fontWeight: FontWeight.w500,
-          ),
+        UtilityRow(
+          key: const Key('settings-accounts'),
+          leading: leading,
+          title: title,
+          subtitle: subtitle.isEmpty ? null : subtitle,
+          showChevron: true,
+          onTap: () => context.pushNamed(RouteNames.accounts),
         ),
-        const SizedBox(height: Spacing.xxs),
-        Text(
-          email,
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppTypography.bodyMediumStyle.copyWith(
-            color: theme.textSecondary,
+        UtilityRow(
+          key: const Key('settings-add-account'),
+          title: l10n.accountsAddAccount,
+          foregroundColor: theme.buttonPrimary,
+          leading: _buildIconBadge(
+            context,
+            UiUtils.platformIcon(ios: CupertinoIcons.add, android: Icons.add),
+            color: theme.buttonPrimary,
           ),
-        ),
-        const SizedBox(height: Spacing.md),
-        AdaptiveButton(
-          key: const Key('settings-edit-profile'),
-          onPressed: () => context.pushNamed(RouteNames.accountSettings),
-          label: l10n.edit,
-          style: AdaptiveButtonStyle.bordered,
-          size: AdaptiveButtonSize.small,
+          onTap: () => showAddAccountSheet(context, ref),
         ),
       ],
     );
@@ -371,6 +373,50 @@ class ProfilePage extends ConsumerWidget {
       chatDataControlsEntryVisibleProvider,
     );
 
+    final personalizationItem = _buildAccountOption(
+      context,
+      icon: UiUtils.platformIcon(
+        ios: CupertinoIcons.person_crop_circle_badge_checkmark,
+        android: Icons.auto_awesome,
+      ),
+      title: l10n.personalization,
+      onTap: () => context.pushNamed(RouteNames.personalization),
+    );
+    // What belongs to the Open WebUI account signed in.
+    final accountItems = <Widget>[
+      if (hasOpenWebUiAccount) ...[
+        _buildAccountOption(
+          context,
+          key: const Key('settings-profile'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.person_crop_circle,
+            android: Icons.account_circle_outlined,
+          ),
+          title: l10n.profileTitle,
+          onTap: () => context.pushNamed(RouteNames.accountSettings),
+        ),
+        _buildAccountOption(
+          context,
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.bell,
+            android: Icons.notifications_outlined,
+          ),
+          title: l10n.notificationsTitle,
+          onTap: () => context.pushNamed(RouteNames.notificationSettings),
+        ),
+        personalizationItem,
+        _buildAccountOption(
+          context,
+          key: const Key('data-connection-entry'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.antenna_radiowaves_left_right,
+            android: Icons.sync_alt,
+          ),
+          title: l10n.settingsDataAndConnection,
+          onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
+        ),
+      ],
+    ];
     // Single-line settings rows, so each title and its
     // icon carry the meaning without a descriptive subtitle.
     final appItems = <Widget>[
@@ -401,26 +447,8 @@ class ProfilePage extends ConsumerWidget {
         title: l10n.audioSettingsTitle,
         onTap: () => context.pushNamed(RouteNames.audioSettings),
       ),
-      if (hasOpenWebUiAccount)
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.bell,
-            android: Icons.notifications_outlined,
-          ),
-          title: l10n.notificationsTitle,
-          onTap: () => context.pushNamed(RouteNames.notificationSettings),
-        ),
-      if (hasOpenWebUiAccount || directPrimary)
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.person_crop_circle_badge_checkmark,
-            android: Icons.auto_awesome,
-          ),
-          title: l10n.personalization,
-          onTap: () => context.pushNamed(RouteNames.personalization),
-        ),
+      // Without an account, Direct's default model is set there.
+      if (!hasOpenWebUiAccount && directPrimary) personalizationItem,
     ];
     // Everyday server places: things to open and use, not to configure.
     final placeItems = <Widget>[
@@ -445,46 +473,6 @@ class ProfilePage extends ConsumerWidget {
           ),
           title: l10n.workspaceTitle,
           onTap: () => context.pushNamed(RouteNames.workspace),
-        ),
-    ];
-    final connectionItems = <Widget>[
-      if (hasOpenWebUiAccount)
-        _buildAccountOption(
-          context,
-          key: const Key('data-connection-entry'),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.antenna_radiowaves_left_right,
-            android: Icons.sync_alt,
-          ),
-          title: l10n.settingsDataAndConnection,
-          onTap: () => context.pushNamed(RouteNames.dataConnectionSettings),
-        ),
-      _buildAccountOption(
-        context,
-        icon: UiUtils.platformIcon(
-          ios: CupertinoIcons.link,
-          android: Icons.hub_outlined,
-        ),
-        title: l10n.directConnectionsTitle,
-        onTap: () => context.pushNamed(RouteNames.directConnections),
-      ),
-      _buildAccountOption(
-        context,
-        key: const Key('hermes-settings-entry'),
-        iconAsset: 'assets/icons/hermes_agent.png',
-        title: l10n.hermesAgentSettingsTitle,
-        subtitle: ref.watch(hermesActiveConnectionNameProvider),
-        onTap: () => context.pushNamed(RouteNames.hermesSettings),
-      ),
-      if (!hasOpenWebUiAccount)
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.add_circled,
-            android: Icons.add_circle_outline,
-          ),
-          title: l10n.connectOpenWebUITitle,
-          onTap: () => context.goNamed(RouteNames.serverConnection),
         ),
     ];
     // Power-user pages that Advanced reveals. The group disappears with its
@@ -525,6 +513,14 @@ class ProfilePage extends ConsumerWidget {
         ),
     ];
     return [
+      if (accountItems.isNotEmpty) ...[
+        InsetGroupedList(
+          key: const Key('settings-account-group'),
+          title: l10n.accountSettingsTitle,
+          children: accountItems,
+        ),
+        const SizedBox(height: Spacing.lg),
+      ],
       InsetGroupedList(children: appItems),
       if (placeItems.isNotEmpty) ...[
         const SizedBox(height: Spacing.lg),
@@ -533,11 +529,6 @@ class ProfilePage extends ConsumerWidget {
           children: placeItems,
         ),
       ],
-      const SizedBox(height: Spacing.lg),
-      InsetGroupedList(
-        key: const Key('settings-connections-group'),
-        children: connectionItems,
-      ),
       if (advancedItems.isNotEmpty) ...[
         const SizedBox(height: Spacing.lg),
         InsetGroupedList(
@@ -550,53 +541,6 @@ class ProfilePage extends ConsumerWidget {
       const SizedBox(height: Spacing.lg),
       InsetGroupedList(children: [_buildAboutTile(context)]),
     ];
-  }
-
-  /// The other saved accounts, one tap from switching to them, and the ways
-  /// to add or manage accounts.
-  Widget _buildAccountsSection(
-    BuildContext context,
-    WidgetRef ref,
-    List<OpenWebUiAccountEntry> accounts, {
-    required bool showManage,
-  }) {
-    final l10n = AppLocalizations.of(context)!;
-    return InsetGroupedList(
-      key: const Key('settings-accounts-group'),
-      title: l10n.accountsTitle,
-      children: [
-        for (final entry in accounts)
-          if (!entry.isActive)
-            UtilityRow(
-              key: Key('settings-account-${entry.id}'),
-              title: accountDisplayName(entry, l10n),
-              subtitle: accountDetailLine(entry, l10n),
-              leading: SavedAccountAvatar(entry: entry, size: IconSize.xl),
-              onTap: () => switchToSavedAccount(context, ref, entry.id),
-            ),
-        _buildAccountOption(
-          context,
-          key: const Key('settings-add-account'),
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.person_badge_plus,
-            android: Icons.person_add_alt,
-          ),
-          title: l10n.accountsAddAccount,
-          onTap: () => showAddAccountSheet(context, ref),
-        ),
-        if (showManage)
-          _buildAccountOption(
-            context,
-            key: const Key('settings-manage-accounts'),
-            icon: UiUtils.platformIcon(
-              ios: CupertinoIcons.person_2,
-              android: Icons.manage_accounts_outlined,
-            ),
-            title: l10n.accountsManage,
-            onTap: () => context.pushNamed(RouteNames.accounts),
-          ),
-      ],
-    );
   }
 
   Widget _buildSignOutOfAccountOption(
@@ -612,7 +556,7 @@ class ProfilePage extends ConsumerWidget {
         ios: CupertinoIcons.square_arrow_left,
         android: Icons.logout,
       ),
-      title: l10n.accountsSignOutOf(accountDisplayName(entry, l10n)),
+      title: l10n.signOut,
       onTap: () => signOutOfSavedAccount(context, ref, entry),
       showChevron: false,
       destructive: true,
@@ -633,7 +577,7 @@ class ProfilePage extends ConsumerWidget {
         android: Icons.logout,
       ),
       title: all ? l10n.accountsSignOutAll : l10n.signOut,
-      onTap: () => _signOut(context, ref),
+      onTap: () => signOutOfAllAccounts(context, ref),
       showChevron: false,
       destructive: true,
     );
@@ -717,19 +661,5 @@ class ProfilePage extends ConsumerWidget {
       title: AppLocalizations.of(context)!.aboutApp,
       onTap: () => context.pushNamed(RouteNames.about),
     );
-  }
-
-  void _signOut(BuildContext context, WidgetRef ref) async {
-    final keepServerDetails = await showSignOutOptionsDialog(context);
-
-    if (!context.mounted || keepServerDetails == null) return;
-    try {
-      await ref
-          .read(signOutCoordinatorProvider)
-          .signOut(keepServerDetails: keepServerDetails);
-    } catch (_) {
-      if (!context.mounted) return;
-      UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
-    }
   }
 }

@@ -1,6 +1,7 @@
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/profile/views/profile_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -8,6 +9,13 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+const _homeAgent = HermesConnectionProfile(
+  id: 'hermes-home',
+  name: 'Home agent',
+  documentTrustPrincipalId: 'p-home',
+  baseUrl: 'http://10.0.0.5:8642',
+);
 
 void main() {
   testWidgets('Hermes-only profile exposes only app-local settings', (
@@ -46,18 +54,14 @@ void main() {
     expect(find.text('Audio'), findsOneWidget);
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Chat'), findsOneWidget);
-    expect(find.text('Hermes Agent'), findsOneWidget);
-    expect(find.byKey(const Key('hermes-settings-logo')), findsOneWidget);
+    expect(find.byKey(const Key('settings-account-group')), findsNothing);
     expect(find.byKey(const Key('settings-category-account')), findsNothing);
     expect(find.byKey(const Key('settings-category-app')), findsNothing);
     expect(find.byKey(const Key('settings-category-ai')), findsNothing);
-
-    await tester.scrollUntilVisible(find.text('Direct Connections'), 300);
     expect(find.byKey(const Key('settings-category-server')), findsNothing);
-    expect(find.text('Direct Connections'), findsOneWidget);
-    // Settings rows are single-line; descriptions no longer render.
-    expect(find.text('OpenAI-compatible APIs and Ollama'), findsNothing);
-    expect(find.text('Connect to Open WebUI'), findsOneWidget);
+    // Connections -- Open WebUI's included -- are reached through Accounts.
+    expect(find.text('Connect to Open WebUI'), findsNothing);
+    expect(find.text('Add account'), findsOneWidget);
 
     await tester.fling(find.byType(ListView), const Offset(0, -1000), 2000);
     await tester.pumpAndSettle();
@@ -78,7 +82,7 @@ void main() {
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
-  testWidgets('the Hermes row names the active connection', (tester) async {
+  testWidgets('the card names the Hermes connection in use', (tester) async {
     final originalErrorWidgetBuilder = ErrorWidget.builder;
     final originalFlutterErrorOnError = FlutterError.onError;
     addTearDown(() async {
@@ -95,7 +99,9 @@ void main() {
           isAuthLoadingProvider2.overrideWithValue(false),
           apiServiceProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(true),
-          hermesActiveConnectionNameProvider.overrideWithValue('Home agent'),
+          hermesEnabledProvider.overrideWithValue(true),
+          hermesConnectionsProvider.overrideWithValue(const [_homeAgent]),
+          hermesActiveConnectionIdProvider.overrideWithValue(_homeAgent.id),
         ],
         child: const MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -106,15 +112,22 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final entry = find.byKey(const Key('hermes-settings-entry'));
-    expect(entry, findsOneWidget);
-    // The section keeps its title; the connection is the subtitle.
+    final card = find.byKey(const Key('settings-accounts'));
+    expect(card, findsOneWidget);
+    // The connection is who Settings is for; Hermes is where.
     expect(
-      find.descendant(of: entry, matching: find.text('Hermes Agent')),
+      find.descendant(of: card, matching: find.text('Home agent')),
       findsOneWidget,
     );
     expect(
-      find.descendant(of: entry, matching: find.text('Home agent')),
+      find.descendant(of: card, matching: find.text('Hermes Agent')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: card,
+        matching: find.byKey(const Key('hermes-settings-logo')),
+      ),
       findsOneWidget,
     );
 

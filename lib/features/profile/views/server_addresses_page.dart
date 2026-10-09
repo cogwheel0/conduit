@@ -30,8 +30,12 @@ class ServerAddressEditorRequest {
   final String? endpointId;
 }
 
-/// The addresses one saved Open WebUI server can be reached at, in the order
-/// they are tried. Drag to reorder; tap to edit; add another.
+/// One saved Open WebUI server: its accounts, to switch to, sign out of, or
+/// add to; then the addresses it can be reached at, in the order they are
+/// tried. Drag to reorder; tap to edit; add another.
+///
+/// Signing out of its last account removes the server, and the page goes
+/// with it.
 class ServerAddressesPage extends ConsumerWidget {
   const ServerAddressesPage({super.key, required this.serverId});
 
@@ -41,11 +45,17 @@ class ServerAddressesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final accounts = ref.watch(openWebUiAccountsProvider);
-    final server = accounts.value
-        ?.map((entry) => entry.server)
-        .where((server) => server.id == serverId)
-        .firstOrNull;
+    final onServer = [
+      for (final entry in accounts.value ?? const <OpenWebUiAccountEntry>[])
+        if (entry.server.id == serverId) entry,
+    ];
+    final server = onServer.firstOrNull?.server;
     final route = ref.watch(openWebUiRouteResolverProvider);
+    if (server == null && accounts.hasValue && !accounts.isLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.of(context).maybePop();
+      });
+    }
 
     return UtilityPageScaffold.settings(
       title: server == null
@@ -71,6 +81,32 @@ class ServerAddressesPage extends ConsumerWidget {
             ],
           ),
         if (server != null) ...[
+          InsetGroupedList(
+            key: const Key('server-accounts'),
+            title: l10n.accountsTitle,
+            children: [
+              for (final entry in onServer)
+                SavedAccountRow(
+                  key: Key('server-account-${entry.id}'),
+                  entry: entry,
+                  showSignOut: true,
+                ),
+              UtilityRow(
+                key: const Key('server-add-account'),
+                title: l10n.accountsAddOnThisServer,
+                foregroundColor: context.conduitTheme.buttonPrimary,
+                leading: Icon(
+                  UiUtils.platformIcon(
+                    ios: CupertinoIcons.add,
+                    android: Icons.add,
+                  ),
+                  color: context.conduitTheme.buttonPrimary,
+                ),
+                onTap: () => openAddAccount(context, ref, serverId: server.id),
+              ),
+            ],
+          ),
+          settingsSectionGap,
           InsetGroupedList(
             key: const Key('server-addresses'),
             title: l10n.accountsServerAddresses,

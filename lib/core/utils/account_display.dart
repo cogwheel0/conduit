@@ -30,6 +30,16 @@ String accountDetailLine(OpenWebUiAccountEntry entry, AppLocalizations l10n) {
   ].join(' · ');
 }
 
+/// The line under an account listed beneath its server: that it needs a
+/// sign-in, else its email when the name above is not already that; null
+/// when there is nothing to add.
+String? accountSubtitle(OpenWebUiAccountEntry entry, AppLocalizations l10n) {
+  if (!entry.hasSession) return l10n.accountsSignedOut;
+  final email = entry.summary.email?.trim();
+  if (email == null || email.isEmpty) return null;
+  return email == accountDisplayName(entry, l10n) ? null : email;
+}
+
 /// A saved server's name, or the host of its first route when it has none.
 String serverDisplayName(OpenWebUiServer server) {
   final name = server.name.trim();

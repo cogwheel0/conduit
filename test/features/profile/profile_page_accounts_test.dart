@@ -11,6 +11,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
@@ -91,7 +92,14 @@ void main() {
     addTearDown(workerManager.dispose);
     // Account actions navigate through the app's router.
     final router = GoRouter(
-      routes: [GoRoute(path: '/', builder: (_, _) => const ProfilePage())],
+      routes: [
+        GoRoute(path: '/', builder: (_, _) => const ProfilePage()),
+        GoRoute(
+          path: Routes.accounts,
+          name: RouteNames.accounts,
+          builder: (_, _) => const Text('accounts page'),
+        ),
+      ],
     );
     addTearDown(router.dispose);
     await tester.pumpWidget(
@@ -135,10 +143,14 @@ void main() {
     return controller;
   }
 
-  testWidgets('lists the other saved accounts and switches on tap', (
-    tester,
-  ) async {
-    final controller = await pumpProfile(tester, [
+  Finder inCard(Finder finder) => find.descendant(
+    of: find.byKey(const Key('settings-account-card')),
+    matching: finder,
+  );
+
+  testWidgets('the card says who is signed in, where, and how many others, '
+      'and leads to them all', (tester) async {
+    await pumpProfile(tester, [
       _entry(
         'alex-home',
         _home,
@@ -150,20 +162,37 @@ void main() {
       _entry('sam-home', _home, name: 'Sam', hasSession: false),
     ]);
 
-    expect(find.text('Accounts'), findsOneWidget);
-    expect(find.text('Alex (work)'), findsOneWidget);
-    expect(find.text('alex@work · Work'), findsOneWidget);
-    expect(find.text('Sam'), findsOneWidget);
-    expect(find.text('Signed out · Home'), findsOneWidget);
-    expect(find.text('Add account'), findsOneWidget);
-    expect(find.text('Manage accounts'), findsOneWidget);
+    check(inCard(find.text('Alex')).evaluate()).isNotEmpty();
+    check(inCard(find.text('Home +2')).evaluate()).isNotEmpty();
+    check(inCard(find.text('Add account')).evaluate()).isNotEmpty();
+    // The other accounts are on the Accounts page, not listed here.
+    check(find.text('Alex (work)').evaluate()).isEmpty();
+    check(find.text('Manage accounts').evaluate()).isEmpty();
 
-    await tester.tap(find.text('Alex (work)'));
+    await tester.tap(find.byKey(const Key('settings-accounts')));
     await tester.pumpAndSettle();
-    expect(controller.switched, ['alex-work']);
+    check(find.text('accounts page').evaluate()).isNotEmpty();
   });
 
-  testWidgets('with several accounts, sign out of one or of all', (
+  testWidgets('the account signed in has its own group, and connections are '
+      'left to Accounts', (tester) async {
+    await pumpProfile(tester, [
+      _entry('alex-home', _home, name: 'Alex', isActive: true),
+    ]);
+
+    final group = find.byKey(const Key('settings-account-group'));
+    check(find.descendant(of: group, matching: find.text('Account')).evaluate())
+        .isNotEmpty();
+    check(
+      find.descendant(of: group, matching: find.text('Profile')).evaluate(),
+    ).isNotEmpty();
+    await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
+    await tester.pumpAndSettle();
+    check(find.text('Direct Connections').evaluate()).isEmpty();
+    check(find.text('Hermes Agent').evaluate()).isEmpty();
+  });
+
+  testWidgets('with several accounts, Sign out leaves only the active one', (
     tester,
   ) async {
     await pumpProfile(tester, [
@@ -173,8 +202,12 @@ void main() {
 
     await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
     await tester.pumpAndSettle();
-    expect(find.text('Sign out of Alex'), findsOneWidget);
-    expect(find.text('Sign out of all accounts'), findsOneWidget);
+    final signOut = find.byKey(const Key('settings-sign-out-account'));
+    check(signOut.evaluate()).isNotEmpty();
+    check(
+      find.descendant(of: signOut, matching: find.text('Sign out')).evaluate(),
+    ).isNotEmpty();
+    check(find.text('Sign out of all accounts').evaluate()).isEmpty();
   });
 
   testWidgets('with one account, sign out is unchanged', (tester) async {
@@ -182,8 +215,7 @@ void main() {
       _entry('alex-home', _home, name: 'Alex', isActive: true),
     ]);
 
-    expect(find.text('Add account'), findsOneWidget);
-    expect(find.text('Manage accounts'), findsNothing);
+    check(inCard(find.text('Home')).evaluate()).isNotEmpty();
     await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-sign-out')), findsOneWidget);
@@ -197,7 +229,7 @@ void main() {
       'out of all of them', (tester) async {
     await pumpProfile(tester, const [], accountsError: StateError('locked'));
 
-    check(find.text('Manage accounts').evaluate()).isNotEmpty();
+    check(inCard(find.text('Alex')).evaluate()).isNotEmpty();
     await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
     await tester.pumpAndSettle();
     check(find.text('Sign out of all accounts').evaluate()).isNotEmpty();
@@ -212,7 +244,7 @@ void main() {
   // the profile header.
   testWidgets('with the active account signed out, the other accounts are '
       'still a tap away', (tester) async {
-    final controller = await pumpProfile(
+    await pumpProfile(
       tester,
       [
         _entry(
@@ -228,12 +260,11 @@ void main() {
       directPrimary: true,
     );
 
-    check(
-      find.byKey(const Key('settings-accounts-group')).evaluate(),
-    ).isNotEmpty();
-    check(find.text('Manage accounts').evaluate()).isNotEmpty();
-    await tester.tap(find.text('Alex (work)'));
+    // Direct is what is in use; both accounts are elsewhere.
+    check(inCard(find.text('Direct Connections')).evaluate()).isNotEmpty();
+    check(inCard(find.text('+2')).evaluate()).isNotEmpty();
+    await tester.tap(find.byKey(const Key('settings-accounts')));
     await tester.pumpAndSettle();
-    check(controller.switched).deepEquals(['alex-work']);
+    check(find.text('accounts page').evaluate()).isNotEmpty();
   });
 }
