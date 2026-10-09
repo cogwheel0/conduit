@@ -197,8 +197,10 @@ class PushBridge(private val activity: MainActivity) : PushHostApi {
         PushRuntime.ledger(context).claim(dedupKey, localNotificationId)
 
     override fun cancelScope(scope: String) {
-        val localIds = PushRuntime.ledger(context).claimsFor(scope).mapNotNull { it.localNotificationId }
-        PushNotifier(context).cancelScope(scope, localIds)
+        val local = PushRuntime.ledger(context).claimsFor(scope).mapNotNull { claim ->
+            claim.localNotificationId?.toIntOrNull()?.let { id -> claim.key to id }
+        }
+        PushNotifier(context).cancelScope(scope, local)
     }
 
     override fun takeLaunchTap(): PlatformPushTap? = PushTaps.takeLaunchTap()

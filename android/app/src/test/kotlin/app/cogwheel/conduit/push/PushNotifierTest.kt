@@ -99,22 +99,34 @@ class PushNotifierTest {
         assertNull(PushTaps.read(context, forged))
     }
 
+    private fun plain() = NotificationCompat.Builder(context, PushNotifier.CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.stat_notify_chat)
+        .build()
+
     @Test
     fun cancelScopeRemovesThatScopeOnly() {
         notifier.post("owui:a", "{}", content("owui:a", "chat:c:1"))
         notifier.post("owui:ab", "{}", content("owui:ab", "chat:c:2"))
         notifier.post("hermes:x", "{}", content("hermes:x", "hermes:s:t"))
-        // A notification the app posted itself, by id, like flutter_local_notifications.
-        manager.notify(
-            41,
-            NotificationCompat.Builder(context, PushNotifier.CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_notify_chat)
-                .build(),
+        // The app's own, as flutter_local_notifications posts it: tagged with
+        // its dedup key, under the id it claimed.
+        manager.notify("owui:a|chat:c:3", 41, plain())
+        // Untagged ones belong to other features, such as the voice call,
+        // even under an id the app also claimed.
+        manager.notify(41, plain())
+        manager.notify(2001, plain())
+
+        notifier.cancelScope("owui:a", listOf("owui:a|chat:c:3" to 41, "owui:ab|chat:c:2" to 7))
+
+        val left = shadowOf(manager).activeNotifications.map { it.tag to it.id }
+        assertEquals(
+            setOf<Pair<String?, Int>>(
+                "owui:ab|chat:c:2" to PushNotifier.NOTIFICATION_ID,
+                "hermes:x|hermes:s:t" to PushNotifier.NOTIFICATION_ID,
+                null to 41,
+                null to 2001,
+            ),
+            left.toSet(),
         )
-
-        notifier.cancelScope("owui:a", listOf("41", "not-a-number"))
-
-        val left = shadowOf(manager).activeNotifications.map { it.tag }
-        assertEquals(setOf("owui:ab|chat:c:2", "hermes:x|hermes:s:t"), left.toSet())
     }
 }
