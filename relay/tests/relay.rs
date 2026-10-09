@@ -945,7 +945,7 @@ async fn fcm_push_delivers_the_exact_request() {
         json!({"message": {
             "token": FCM_TOKEN,
             "data": {"cp_v": "1", "cp_s": SID, "cp_d": URL_SAFE_NO_PAD.encode(&body)},
-            "android": {"priority": "HIGH", "ttl": "86400s"}
+            "android": {"priority": "HIGH", "ttl": "86400s", "restricted_package_name": APP}
         }})
     );
 
@@ -964,9 +964,35 @@ async fn fcm_push_delivers_the_exact_request() {
     assert_eq!(response.status(), 201);
     assert_eq!(
         relay.mock.fcm()[1].json()["message"]["android"],
-        json!({"priority": "NORMAL", "ttl": "259200s"})
+        json!({"priority": "NORMAL", "ttl": "259200s", "restricted_package_name": APP})
     );
     assert_eq!(relay.mock.oauth().len(), 1);
+}
+
+#[tokio::test]
+async fn fcm_pushes_reach_only_the_registered_package() {
+    let beta = format!("{APP}.beta");
+    let relay = start_with(|env| {
+        env.insert("FCM_APPS", format!("{APP},{APP}.beta"));
+    })
+    .await;
+    let mut endpoints = Vec::new();
+    for app in [APP, beta.as_str()] {
+        let response = relay
+            .register(&json!({"provider": "fcm", "token": FCM_TOKEN, "app": app, "env": "prod", "sid": SID}))
+            .await;
+        let body: Value = response.json().await.unwrap();
+        endpoints.push(body["endpoint"].as_str().unwrap().to_owned());
+    }
+    for endpoint in &endpoints {
+        assert_eq!(relay.push_reply(endpoint).await.status(), 201);
+    }
+    // The same token, sealed for two apps: FCM is told which one may get it.
+    let sent = relay.mock.fcm();
+    let package =
+        |i: usize| sent[i].json()["message"]["android"]["restricted_package_name"].clone();
+    assert_eq!(package(0), APP);
+    assert_eq!(package(1), beta.as_str());
 }
 
 #[tokio::test]

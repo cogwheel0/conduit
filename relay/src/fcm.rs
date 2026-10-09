@@ -126,7 +126,7 @@ struct SendRequest<'a> {
 struct FcmMessage<'a> {
     token: &'a str,
     data: Data<'a>,
-    android: Android,
+    android: Android<'a>,
 }
 
 #[derive(Serialize)]
@@ -141,9 +141,13 @@ struct Data<'a> {
 /// message has a `Topic` of its own, so the phone would get back an arbitrary
 /// four. Without one, FCM stores each message.
 #[derive(Serialize)]
-struct Android {
+struct Android<'a> {
     priority: &'static str,
     ttl: String,
+    /// The package sealed into the endpoint. FCM delivers only if the token
+    /// belongs to it, which is what makes `FCM_APPS` hold for pushes, not
+    /// only for registration.
+    restricted_package_name: &'a str,
 }
 
 enum Attempt {
@@ -332,6 +336,7 @@ impl Fcm {
                 android: Android {
                     priority: priority(message.meta.high_priority),
                     ttl: ttl(message.meta.ttl),
+                    restricted_package_name: message.app,
                 },
             },
         };
@@ -626,12 +631,13 @@ mod tests {
                 android: Android {
                     priority: "HIGH",
                     ttl: ttl(60),
+                    restricted_package_name: "app.cogwheel.conduit",
                 },
             },
         };
         assert_eq!(
             serde_json::to_string(&body).unwrap(),
-            r#"{"message":{"token":"tok","data":{"cp_v":"1","cp_s":"sid","cp_d":"data"},"android":{"priority":"HIGH","ttl":"60s"}}}"#
+            r#"{"message":{"token":"tok","data":{"cp_v":"1","cp_s":"sid","cp_d":"data"},"android":{"priority":"HIGH","ttl":"60s","restricted_package_name":"app.cogwheel.conduit"}}}"#
         );
     }
 }
