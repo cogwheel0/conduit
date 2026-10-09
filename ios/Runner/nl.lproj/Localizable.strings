@@ -58,3 +58,5 @@
 "native.unablePresentDropdown" = "Kan native dropdown niet tonen";
 "native.upload" = "Uploaden";
 "native.user" = "Gebruiker";
+"push.fallback.title" = "Conduit";
+"push.fallback.body" = "Nieuwe melding";

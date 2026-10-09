@@ -58,3 +58,5 @@
 "native.unablePresentDropdown" = "네이티브 드롭다운을 표시할 수 없습니다";
 "native.upload" = "업로드";
 "native.user" = "사용자";
+"push.fallback.title" = "Conduit";
+"push.fallback.body" = "새 알림";
