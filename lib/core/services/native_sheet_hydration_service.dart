@@ -51,6 +51,12 @@ import '../utils/model_icon_utils.dart';
 import '../utils/model_logos.dart';
 
 import 'package:conduit_core/utils/model_sort_utils.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show
+        appleOnDeviceEnabledProvider,
+        applePccEnabledProvider,
+        applePccPlatformSupportedProvider,
+        directConnectionProfilesProvider;
 
 import '../utils/native_sheet_utils.dart';
 import 'native_sheet_avatar_bytes_hydrator.dart';
@@ -116,6 +122,51 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   showPersonalConnections: read(personalConnectionsEntryVisibleProvider),
   showChatDataControls: read(chatDataControlsEntryVisibleProvider),
 );
+
+/// What the account card atop the native Settings root says, read now.
+({String title, String? subtitle}) readNativeAccountCard(
+  NativeSheetProviderReader read,
+  AppLocalizations l10n, {
+  required NativeProfileRootAccount? account,
+}) {
+  final card = accountCardSummary(
+    l10n,
+    signedInName: account?.displayName,
+    accounts: read(openWebUiAccountsProvider).value ?? const [],
+    hermesConnections: read(hermesConnectionsProvider),
+    hermesInUseId: read(hermesEnabledProvider)
+        ? read(hermesActiveConnectionIdProvider)
+        : null,
+  );
+  return (title: card.title, subtitle: card.subtitle);
+}
+
+/// The saved Open WebUI accounts besides the active one, read now; null
+/// when they could not be read.
+int? readNativeOtherAccountCount(NativeSheetProviderReader read) => read(
+  openWebUiAccountsProvider,
+).value?.where((entry) => !entry.isActive).length;
+
+/// The native Accounts page, read now.
+NativeSheetDetailConfig readNativeAccountsDetail(
+  NativeSheetProviderReader read,
+  AppLocalizations l10n,
+) {
+  // The Apple toggles default to on: only where Apple Intelligence can exist
+  // are they rows.
+  final apple = read(applePccPlatformSupportedProvider);
+  return buildNativeAccountsDetail(
+    l10n,
+    accounts: read(openWebUiAccountsProvider).value,
+    hermesConnections: read(hermesConnectionsProvider),
+    hermesInUseId: read(hermesEnabledProvider)
+        ? read(hermesActiveConnectionIdProvider)
+        : null,
+    directProfiles: read(directConnectionProfilesProvider).value,
+    appleOnDevice: apple && read(appleOnDeviceEnabledProvider),
+    applePcc: apple && read(applePccEnabledProvider),
+  );
+}
 
 /// The native Settings root on screen and the account it was built for.
 final class _NativeProfileRoot {
@@ -223,11 +274,8 @@ class NativeSheetHydrationService {
         l10n,
         account: root.account,
         visibility: readNativeProfileRootVisibility(_ref.read),
-        hermesConnectionName: _ref.read(hermesActiveConnectionNameProvider),
-        otherAccounts: otherSavedAccountsForNativeSheet(
-          _ref.read(openWebUiAccountsProvider).value,
-          l10n,
-        ),
+        card: readNativeAccountCard(_ref.read, l10n, account: root.account),
+        otherAccountCount: readNativeOtherAccountCount(_ref.read),
       ),
     );
     // The sheet is gone (or never took a root patch); stop rebuilding it.
@@ -597,6 +645,17 @@ class NativeSheetHydrationService {
     }
 
     switch (detailId) {
+      case nativeAccountsDetailId:
+        // As they are now: the Direct providers may have been read since the
+        // sheet opened, and a pushed page comes back to this one.
+        final accounts = readNativeAccountsDetail(_ref.read, l10n);
+        await NativeSheetBridge.instance.applyDetailPatch(
+          detailId: nativeAccountsDetailId,
+          title: accounts.title,
+          items: const [],
+          sections: accounts.sections,
+        );
+        return;
       case NativeSheetRoutes.accountSettings:
         await _hydrateNativeAccountSettingsDetail(ctx, l10n);
         return;

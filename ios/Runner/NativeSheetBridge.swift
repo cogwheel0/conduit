@@ -208,6 +208,16 @@ private struct NativeSheetItem {
     let sliderMin: Double?
     let sliderMax: Double?
     let sliderDivisions: Int?
+    /// A round picture in place of the symbol: these bytes, else the initials
+    /// of `avatarName`.
+    let avatarName: String?
+    let avatarData: Data?
+    /// Marks the row in use with a check.
+    let checked: Bool
+    /// Draws the row in the accent color, as an action.
+    let accent: Bool
+    /// Draws the row as the sheet's profile summary.
+    let usesProfileAvatar: Bool
 
     init?(_ payload: [String: Any]) {
         guard
@@ -260,6 +270,12 @@ private struct NativeSheetItem {
         } else {
             sliderDivisions = nil
         }
+        avatarName = payload["avatarName"] as? String
+        avatarData = (payload["avatarBytes"] as? FlutterStandardTypedData)?.data
+            ?? payload["avatarBytes"] as? Data
+        checked = payload["checked"] as? Bool ?? false
+        accent = payload["accent"] as? Bool ?? false
+        usesProfileAvatar = payload["usesProfileAvatar"] as? Bool ?? false
     }
 
     private static func optionalDouble(_ value: Any?) -> Double? {
@@ -671,6 +687,9 @@ private struct NativeSheetDetail {
     let confirmActionLabel: String?
     /// When set (0...1], sheet uses a single custom detent at this fraction of `maximumDetentValue`.
     let maxHeightFraction: CGFloat?
+    /// A bar button that closes the sheet and then sends this action.
+    let trailingActionId: String?
+    let trailingActionSfSymbol: String?
 
     init(
         id: String,
@@ -680,7 +699,9 @@ private struct NativeSheetDetail {
         sections: [NativeSheetSection] = [],
         confirmActionId: String? = nil,
         confirmActionLabel: String? = nil,
-        maxHeightFraction: CGFloat? = nil
+        maxHeightFraction: CGFloat? = nil,
+        trailingActionId: String? = nil,
+        trailingActionSfSymbol: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -690,6 +711,8 @@ private struct NativeSheetDetail {
         self.confirmActionId = confirmActionId
         self.confirmActionLabel = confirmActionLabel
         self.maxHeightFraction = maxHeightFraction
+        self.trailingActionId = trailingActionId
+        self.trailingActionSfSymbol = trailingActionSfSymbol
     }
 
     init?(_ payload: [String: Any]) {
@@ -712,6 +735,8 @@ private struct NativeSheetDetail {
         sections = (payload["sections"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetSection.init)
         maxHeightFraction = NativeSheetDetail.parseMaxHeightFraction(payload["maxHeightFraction"])
+        trailingActionId = payload["trailingActionId"] as? String
+        trailingActionSfSymbol = payload["trailingActionSfSymbol"] as? String
     }
 
     private static func parseMaxHeightFraction(_ value: Any?) -> CGFloat? {
@@ -895,6 +920,8 @@ private extension PlatformNativeSheetDetail {
         payload["confirmActionId"] = confirmActionId
         payload["confirmActionLabel"] = confirmActionLabel
         payload["maxHeightFraction"] = maxHeightFraction
+        payload["trailingActionId"] = trailingActionId
+        payload["trailingActionSfSymbol"] = trailingActionSfSymbol
         return payload
     }
 }
@@ -930,6 +957,11 @@ private extension PlatformNativeSheetItem {
         payload["min"] = min
         payload["max"] = max
         if let divisions { payload["divisions"] = Int(divisions) }
+        payload["avatarName"] = avatarName
+        payload["avatarBytes"] = avatarBytes
+        payload["checked"] = checked
+        payload["accent"] = accent
+        payload["usesProfileAvatar"] = usesProfileAvatar
         return payload
     }
 }
@@ -1132,7 +1164,7 @@ func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
         // Switching, adding or signing out of an account can ask a question
         // in a sheet of its own, which cannot present over this one.
         || actionId == "account-switch" || actionId == "account-add"
-        || actionId == "account-sign-out"
+        || actionId == "account-sign-out" || actionId == "account-direct-edit"
 }
 
 final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
@@ -3363,9 +3395,9 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
         let item = item(at: indexPath)
-        if item.id == "profile" {
+        if item.usesProfileAvatar {
             let cell = tableView.dequeueReusableCell(withIdentifier: "profileCell", for: indexPath)
-            configureProfileSummaryCell(cell)
+            configureProfileSummaryCell(cell, item: item)
             return cell
         }
 
@@ -3391,7 +3423,7 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         item.url != nil || item.dismissOnSelect || configuration.details[item.id] != nil
     }
 
-    private func configureProfileSummaryCell(_ cell: UITableViewCell) {
+    private func configureProfileSummaryCell(_ cell: UITableViewCell, item: NativeSheetItem) {
         cell.accessoryType = .disclosureIndicator
         cell.selectionStyle = .default
         NativeSheetSettingsStyle.applyCellStyle(cell)
@@ -3399,14 +3431,15 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         let avatar = NativeAvatarView(profile: configuration.profile, diameter: 56)
 
         let titleLabel = UILabel()
-        titleLabel.text = configuration.profile.displayName
+        titleLabel.text = item.title
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.textColor = NativeSheetTheme.shared.foreground
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 1
 
         let subtitleLabel = UILabel()
-        subtitleLabel.text = configuration.profile.email
+        subtitleLabel.text = item.subtitle
+        subtitleLabel.isHidden = item.subtitle?.isEmpty ?? true
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
         subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
@@ -4744,6 +4777,21 @@ private final class NativeDetailTableViewController: UITableViewController {
         }
 
         if pendingTextValues.isEmpty {
+            if let trailingActionId = detail.trailingActionId, !trailingActionId.isEmpty,
+               let action = NativeSheetItem([
+                   "id": trailingActionId,
+                   "title": trailingActionId,
+                   "dismissOnSelect": true,
+                   "actionId": trailingActionId,
+                   "actionValue": true,
+               ]) {
+                // Handled as a row that closes the sheet to send it.
+                navigationItem.rightBarButtonItem = iconBarButton(
+                    systemName: detail.trailingActionSfSymbol ?? "plus",
+                    action: UIAction { [weak self] _ in self?.onSelect(action) }
+                )
+                return
+            }
             // A pushed detail already has a Back button. Showing Close as
             // well creates two competing exit actions, so reserve Close for
             // the root controller of a presented sheet.
@@ -6880,7 +6928,10 @@ private func configureNavigationCell(
     content.secondaryText = item.kind == "searchablePicker"
         ? (item.selectedOptionLabel ?? item.subtitle)
         : item.subtitle
-    if let iconAsset = item.iconAsset {
+    let avatar = nativeRowAvatarImage(for: item)
+    if let avatar {
+        content.image = avatar
+    } else if let iconAsset = item.iconAsset {
         content.image = loadFlutterAssetImage(iconAsset)?
             .withRenderingMode(.alwaysTemplate)
             ?? UIImage(systemName: item.sfSymbol)
@@ -6888,7 +6939,18 @@ private func configureNavigationCell(
         content.image = UIImage(systemName: item.sfSymbol)
     }
     NativeSheetSettingsStyle.applyContentStyle(&content)
-    if item.iconAsset != nil {
+    if avatar != nil {
+        // A picture keeps its own colors, at the size a symbol takes.
+        content.imageProperties.tintColor = nil
+        content.imageProperties.maximumSize = CGSize(
+            width: nativeRowAvatarDiameter,
+            height: nativeRowAvatarDiameter
+        )
+        content.imageProperties.reservedLayoutSize = CGSize(
+            width: nativeRowAvatarDiameter,
+            height: nativeRowAvatarDiameter
+        )
+    } else if item.iconAsset != nil {
         let assetSize = item.iconSize ?? NativeSheetSettingsStyle.iconSize
         content.imageProperties.maximumSize = CGSize(
             width: assetSize,
@@ -6898,6 +6960,9 @@ private func configureNavigationCell(
     if item.destructive {
         content.textProperties.color = NativeSheetTheme.shared.destructive
         content.imageProperties.tintColor = NativeSheetTheme.shared.destructive
+    } else if item.accent {
+        content.textProperties.color = NativeSheetTheme.shared.accent
+        content.imageProperties.tintColor = NativeSheetTheme.shared.accent
     }
     content.textProperties.font = .preferredFont(forTextStyle: .body)
     if item.kind == "info" && !showsDisclosure {
@@ -6908,8 +6973,43 @@ private func configureNavigationCell(
     }
     cell.contentConfiguration = content
     applyTextAccessibilityLabel(to: cell, from: content)
-    cell.accessoryType = showsDisclosure ? .disclosureIndicator : .none
+    if item.checked {
+        // The check takes the accent the sheet tints its views with.
+        cell.accessoryType = .checkmark
+        cell.accessibilityTraits.insert(.selected)
+    } else {
+        cell.accessoryType = showsDisclosure ? .disclosureIndicator : .none
+        cell.accessibilityTraits.remove(.selected)
+    }
     NativeSheetSettingsStyle.applyCellStyle(cell)
+}
+
+private let nativeRowAvatarDiameter: CGFloat = 32
+
+/// A row's round picture: its bytes, cut to a circle, else its name's
+/// initials; nil for a row that has neither.
+private func nativeRowAvatarImage(for item: NativeSheetItem) -> UIImage? {
+    let size = CGSize(width: nativeRowAvatarDiameter, height: nativeRowAvatarDiameter)
+    if let data = item.avatarData, let picture = UIImage(data: data) {
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            let rect = CGRect(origin: .zero, size: size)
+            UIBezierPath(ovalIn: rect).addClip()
+            let scale = max(size.width / picture.size.width, size.height / picture.size.height)
+            let drawn = CGSize(
+                width: picture.size.width * scale,
+                height: picture.size.height * scale
+            )
+            picture.draw(in: CGRect(
+                x: (size.width - drawn.width) / 2,
+                y: (size.height - drawn.height) / 2,
+                width: drawn.width,
+                height: drawn.height
+            ))
+        }.withRenderingMode(.alwaysOriginal)
+    }
+    guard let name = item.avatarName else { return nil }
+    return nativeInitialsAvatarUIImage(name: name, diameter: nativeRowAvatarDiameter)?
+        .withRenderingMode(.alwaysOriginal)
 }
 
 /// VoiceOver otherwise leads with the SF Symbol's generated description

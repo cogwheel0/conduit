@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart'
-    show nativeAccountSwitchActionId;
+    show nativeAccountSwitchActionId, nativeAccountsDetailId;
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -419,9 +419,18 @@ void main() {
     await tester.pump();
 
     check(harness.presented).length.equals(1);
-    final ids = _rootItemIds(harness.presented.single);
+    final config = harness.presented.single;
+    check(_rootItemIds(config)).contains(nativeAccountsDetailId);
+    // On the Accounts page the card leads to, the active one with the rest.
+    final accountsPage = config.detailSheets.singleWhere(
+      (detail) => detail.id == nativeAccountsDetailId,
+    );
+    final ids = [
+      for (final section in accountsPage.sections)
+        ...section.items.map((item) => item.id),
+    ];
     check(ids).contains('$nativeAccountSwitchActionId:work');
-    check(ids.contains('$nativeAccountSwitchActionId:ada')).isFalse();
+    check(ids).contains('$nativeAccountSwitchActionId:ada');
 
     // Settle the profile refresh the sheet started behind itself.
     harness.profiles.pending!.complete(_profile());

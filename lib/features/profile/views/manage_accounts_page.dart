@@ -239,9 +239,7 @@ class _HermesConnectionRow extends StatelessWidget {
           : null,
     );
     return Semantics(
-      customSemanticsActions: {
-        CustomSemanticsAction(label: l10n.edit): onEdit,
-      },
+      customSemanticsActions: {CustomSemanticsAction(label: l10n.edit): onEdit},
       child: GestureDetector(onLongPress: onEdit, child: row),
     );
   }
@@ -309,7 +307,7 @@ class _DirectCard extends ConsumerWidget {
             key: Key('accounts-direct-${profile.id}'),
             title: profile.name,
             subtitle: [
-              _directProviderName(profile, l10n),
+              directProviderName(profile, l10n),
               if (!profile.enabled) l10n.disabledLabel,
             ].join(' · '),
             leading: _RowGlyph(
@@ -340,15 +338,6 @@ class _DirectCard extends ConsumerWidget {
           ),
       ],
     );
-  }
-
-  static String _directProviderName(
-    DirectConnectionProfile profile,
-    AppLocalizations l10n,
-  ) {
-    if (profile.adapterKey == kOllamaAdapterKey) return l10n.ollama;
-    if (profile.isOpenRouter) return l10n.openRouterProviderName;
-    return l10n.openAICompatible;
   }
 }
 

@@ -941,6 +941,8 @@ class NativeSheetDetailConfig {
     /// maximum sheet height (matches capped Material bottom sheets). Ignored
     /// on non-iOS.
     this.maxHeightFraction,
+    this.trailingActionId,
+    this.trailingActionSfSymbol,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -957,6 +959,11 @@ class NativeSheetDetailConfig {
   /// Portion of the largest allowable sheet height (typically ~full screen).
   final double? maxHeightFraction;
 
+  /// A bar button, drawn as [trailingActionSfSymbol], that closes the sheet
+  /// and then sends this action.
+  final String? trailingActionId;
+  final String? trailingActionSfSymbol;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -968,6 +975,9 @@ class NativeSheetDetailConfig {
       if (confirmActionId != null) 'confirmActionId': confirmActionId,
       if (confirmActionLabel != null) 'confirmActionLabel': confirmActionLabel,
       if (maxHeightFraction != null) 'maxHeightFraction': maxHeightFraction,
+      if (trailingActionId != null) 'trailingActionId': trailingActionId,
+      if (trailingActionSfSymbol != null)
+        'trailingActionSfSymbol': trailingActionSfSymbol,
     };
   }
 }
@@ -1013,6 +1023,11 @@ class NativeSheetItemConfig {
     this.min,
     this.max,
     this.divisions,
+    this.avatarName,
+    this.avatarBytes,
+    this.checked = false,
+    this.accent = false,
+    this.usesProfileAvatar = false,
   });
 
   final String id;
@@ -1047,6 +1062,21 @@ class NativeSheetItemConfig {
   /// Optional discrete steps for `UISlider` (`0` = continuous).
   final int? divisions;
 
+  /// Shown as a round picture -- [avatarBytes], else this name's initials --
+  /// in place of [sfSymbol].
+  final String? avatarName;
+  final Uint8List? avatarBytes;
+
+  /// Marks the row in use with a check.
+  final bool checked;
+
+  /// Draws the row in the accent color, as an action.
+  final bool accent;
+
+  /// Draws the row as the sheet's profile summary: its large avatar beside
+  /// this row's own title and subtitle.
+  final bool usesProfileAvatar;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1076,6 +1106,11 @@ class NativeSheetItemConfig {
       if (min != null) 'min': min,
       if (max != null) 'max': max,
       if (divisions != null) 'divisions': divisions,
+      if (avatarName != null) 'avatarName': avatarName,
+      if (avatarBytes != null) 'avatarBytes': avatarBytes,
+      if (checked) 'checked': checked,
+      if (accent) 'accent': accent,
+      if (usesProfileAvatar) 'usesProfileAvatar': usesProfileAvatar,
     };
   }
 }
@@ -1348,6 +1383,8 @@ extension on NativeSheetDetailConfig {
       confirmActionId: confirmActionId,
       confirmActionLabel: confirmActionLabel,
       maxHeightFraction: maxHeightFraction,
+      trailingActionId: trailingActionId,
+      trailingActionSfSymbol: trailingActionSfSymbol,
     );
   }
 }
@@ -1392,6 +1429,11 @@ extension on NativeSheetItemConfig {
       min: min,
       max: max,
       divisions: divisions,
+      avatarName: avatarName,
+      avatarBytes: avatarBytes,
+      checked: checked,
+      accent: accent,
+      usesProfileAvatar: usesProfileAvatar,
     );
   }
 }

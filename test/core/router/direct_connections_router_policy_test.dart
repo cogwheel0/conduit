@@ -55,12 +55,15 @@ void main() {
     });
 
     test('native-sheet entry dismisses without a second page transition', () {
+      // Its card on the native Accounts page opens it.
       final item = [
-        for (final section in buildNativeProfileRootSections(
+        for (final section in buildNativeAccountsDetail(
           lookupAppLocalizations(const Locale('en')),
-          account: null,
-          visibility: const NativeProfileRootVisibility(),
-        ))
+          accounts: const [],
+          hermesConnections: const [],
+          hermesInUseId: null,
+          directProfiles: const [],
+        ).sections)
           ...section.items,
       ].singleWhere((item) => item.id == NativeSheetRoutes.directConnections);
       final request = directConnectionsNativeSheetNavigationRequest;

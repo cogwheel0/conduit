@@ -26,6 +26,8 @@ import 'package:conduit_core/services/api_service.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directConnectionProfilesProvider;
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
@@ -59,7 +61,6 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 import 'sidebar_tab_registry.dart';
-import '../../../core/utils/account_display.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -587,9 +588,11 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
   /// without them if they fail or take too long; it then lists only this one.
   Future<void> _loadSavedAccounts(WidgetRef ref) async {
     try {
-      await ref
-          .read(openWebUiAccountsProvider.future)
-          .timeout(const Duration(seconds: 2));
+      await Future.wait([
+        ref.read(openWebUiAccountsProvider.future),
+        // The Accounts page lists them too.
+        ref.read(directConnectionProfilesProvider.future),
+      ]).timeout(const Duration(seconds: 2));
     } catch (error) {
       DebugLogger.warning(
         'saved-accounts-load-failed',
@@ -735,11 +738,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       l10n,
       account: rootAccount,
       visibility: visibility,
-      hermesConnectionName: ref.read(hermesActiveConnectionNameProvider),
-      otherAccounts: otherSavedAccountsForNativeSheet(
-        ref.read(openWebUiAccountsProvider).value,
-        l10n,
-      ),
+      card: readNativeAccountCard(ref.read, l10n, account: rootAccount),
+      otherAccountCount: readNativeOtherAccountCount(ref.read),
     );
     final supportItems = buildNativeSupportItems(l10n);
     // The native sheet lays itself out from [sections]; the flat lists are
@@ -814,6 +814,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       supportItems: supportItems,
       sections: sections,
       detailSheets: [
+        readNativeAccountsDetail(ref.read, l10n),
         if (user != null && profilePending)
           buildNativeLoadingDetail(
             l10n: l10n,

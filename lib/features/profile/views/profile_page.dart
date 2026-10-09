@@ -272,56 +272,40 @@ class ProfilePage extends ConsumerWidget {
   }) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
-    final hermesConnections = ref.watch(hermesConnectionsProvider);
-    final hermesActiveId = ref.watch(hermesEnabledProvider)
-        ? ref.watch(hermesActiveConnectionIdProvider)
-        : null;
-    final hermesActive = hermesConnections
-        .where((connection) => connection.id == hermesActiveId)
-        .firstOrNull;
-
-    final Widget leading;
-    final String title;
-    final String? place;
-    String? shownHermesId;
-    if (user != null) {
-      title = deriveUserDisplayName(user, fallback: l10n.userFallbackName);
-      final characters = title.characters;
-      leading = UserAvatar(
+    final signedInName = user == null
+        ? null
+        : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
+    final card = accountCardSummary(
+      l10n,
+      signedInName: signedInName,
+      accounts: accounts,
+      hermesConnections: ref.watch(hermesConnectionsProvider),
+      hermesInUseId: ref.watch(hermesEnabledProvider)
+          ? ref.watch(hermesActiveConnectionIdProvider)
+          : null,
+    );
+    final Widget leading = switch (card.kind) {
+      AccountCardKind.openWebUi => UserAvatar(
         size: IconSize.xl,
         imageUrl: resolveUserAvatarUrlForUser(api, user),
-        fallbackText: characters.isEmpty ? 'U' : characters.first.toUpperCase(),
-      );
-      final active = accounts.where((entry) => entry.isActive).firstOrNull;
-      place = active == null ? null : serverDisplayName(active.server);
-    } else if (hermesActive != null) {
-      shownHermesId = hermesActive.id;
-      title = hermesActive.name;
-      leading = _buildAssetIconBadge(
+        fallbackText: card.title.characters.isEmpty
+            ? 'U'
+            : card.title.characters.first.toUpperCase(),
+      ),
+      AccountCardKind.hermes => _buildAssetIconBadge(
         context,
         'assets/icons/hermes_agent.png',
         color: theme.textPrimary,
-      );
-      place = l10n.hermesAgentSettingsTitle;
-    } else {
-      title = l10n.directConnectionsTitle;
-      leading = _buildIconBadge(
+      ),
+      AccountCardKind.direct => _buildIconBadge(
         context,
         UiUtils.platformIcon(
           ios: CupertinoIcons.link,
           android: Icons.hub_outlined,
         ),
         color: theme.iconSecondary,
-      );
-      place = null;
-    }
-    // Every other account or connection there is to switch to.
-    final others =
-        accounts.where((entry) => user == null || !entry.isActive).length +
-        hermesConnections
-            .where((connection) => connection.id != shownHermesId)
-            .length;
-    final subtitle = [?place, if (others > 0) '+$others'].join(' ');
+      ),
+    };
 
     return InsetGroupedList(
       key: const Key('settings-account-card'),
@@ -329,8 +313,8 @@ class ProfilePage extends ConsumerWidget {
         UtilityRow(
           key: const Key('settings-accounts'),
           leading: leading,
-          title: title,
-          subtitle: subtitle.isEmpty ? null : subtitle,
+          title: card.title,
+          subtitle: card.subtitle,
           showChevron: true,
           onTap: () => context.pushNamed(RouteNames.accounts),
         ),
