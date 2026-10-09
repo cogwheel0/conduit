@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'conduit_platform_apis.g.dart';
 
@@ -53,6 +54,20 @@ class MobilePushPlatform implements PushPlatformPort, PushFlutterApi {
 
   @override
   Future<bool> requestPermission() => _call(_host.requestPermission);
+
+  /// Reads the notification permission without prompting, through
+  /// permission_handler, a dependency the app already has.
+  @override
+  Future<bool?> hasPermission() async {
+    try {
+      final status = await Permission.notification.status;
+      return status.isGranted || status.isLimited || status.isProvisional;
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
 
   @override
   Future<PushDeviceToken?> currentToken(PushTransport transport) async {

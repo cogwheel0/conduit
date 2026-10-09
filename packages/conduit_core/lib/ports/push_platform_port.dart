@@ -232,8 +232,13 @@ abstract interface class PushPlatformPort {
   /// unsupported.
   Future<List<PushTransport>> availableTransports();
 
-  /// Asks for permission to show notifications. False when denied.
+  /// Asks for permission to show notifications. False when denied. May show
+  /// the system prompt, so only a user action should call it.
   Future<bool> requestPermission();
+
+  /// Whether notifications may be shown, without ever prompting. Null when
+  /// the platform cannot tell.
+  Future<bool?> hasPermission();
 
   /// The current device token, registering for remote notifications first if
   /// needed. Null when [transport] is unavailable.
@@ -297,6 +302,9 @@ class UnsupportedPushPlatform implements PushPlatformPort {
 
   @override
   Future<bool> requestPermission() async => false;
+
+  @override
+  Future<bool?> hasPermission() async => null;
 
   @override
   Future<PushDeviceToken?> currentToken(PushTransport transport) async => null;

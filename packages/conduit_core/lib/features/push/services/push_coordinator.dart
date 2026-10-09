@@ -252,20 +252,22 @@ class PushCoordinator extends _$PushCoordinator {
     return false;
   }
 
-  /// Sends a test push and waits for it. Answers whether it arrived.
+  /// Sends a test push and waits for it. Answers whether it arrived. Asks
+  /// for notification permission first when it is missing.
   Future<bool> sendTest(String scope) async {
     final target = _target(scope);
     if (target == null || !state.enabled) return false;
+    await _askPermissionIfMissing();
     await _reconcile(target, forceTest: true);
     return _isOn(scope);
   }
 
-  /// Runs one target's setup again, asking for permission again if it was
-  /// denied.
+  /// Runs one target's setup again, asking for permission again if it is
+  /// missing.
   Future<void> retry(String scope) async {
     final target = _target(scope);
     if (target == null || !state.enabled) return;
-    if (state.permissionDenied) await _requestPermission();
+    await _askPermissionIfMissing();
     _environment = null;
     await _reconcile(target, resubscribe: true);
   }
@@ -1125,8 +1127,9 @@ class PushCoordinator extends _$PushCoordinator {
         const PushFailure(PushFailureReason.noTransport),
       );
     }
-    if (_permissionGranted == null) await _requestPermission();
-    if (_permissionGranted == false) {
+    // Automatic passes never prompt: only the user turning push on, retrying
+    // or sending a test does.
+    if (!await _checkPermission()) {
       return _blockedEnvironment(PushStatus.permissionDenied, null);
     }
 
@@ -1239,6 +1242,7 @@ class PushCoordinator extends _$PushCoordinator {
     }
   }
 
+  /// Shows the system prompt. Only for a user action.
   Future<void> _requestPermission() async {
     try {
       _permissionGranted = await _platform.requestPermission();
@@ -1248,6 +1252,30 @@ class PushCoordinator extends _$PushCoordinator {
       return;
     }
     _update((s) => s.copyWith(permissionDenied: _permissionGranted == false));
+  }
+
+  /// Prompts only when notifications are not allowed already.
+  Future<void> _askPermissionIfMissing() async {
+    if (await _checkPermission()) return;
+    await _requestPermission();
+    // A denial is shown by the setup that follows.
+    _environment = null;
+  }
+
+  /// Whether notifications are allowed, without prompting. A platform that
+  /// cannot tell falls back to the answer of this process's last prompt.
+  Future<bool> _checkPermission() async {
+    bool? granted;
+    try {
+      granted = await _platform.hasPermission();
+    } catch (error) {
+      _log('push-permission-check-failed', error);
+    }
+    granted ??= _permissionGranted;
+    final allowed = granted ?? false;
+    _permissionGranted = allowed;
+    _update((s) => s.copyWith(permissionDenied: !allowed));
+    return allowed;
   }
 
   Future<bool> _install(PushTarget target) async {

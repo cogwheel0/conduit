@@ -261,6 +261,53 @@ void main() {
       check(h.state.permissionDenied).isFalse();
     });
 
+    test('a check after launch never prompts', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      check(h.platform.prompts).equals(1);
+      final platform = h.platform;
+      h.dispose();
+
+      // Notifications were switched off in system settings meanwhile.
+      platform.permission = false;
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        platform: platform,
+      );
+      await h.coordinator.retry(_owui.scope);
+      check(platform.prompts).equals(2);
+      platform.prompts = 0;
+      h.platform.emit(
+        PushTokenEvent(
+          PushDeviceToken(
+            transport: PushTransport.apns,
+            token: 'dd' * 32,
+            app: 'app.test',
+            env: 'dev',
+          ),
+        ),
+      );
+      await h.until(
+        () => h.status(_owui.scope) == PushStatus.permissionDenied,
+      );
+      await pumpEventQueue();
+      check(platform.prompts).equals(0);
+      check(h.state.permissionDenied).isTrue();
+    });
+
+    test('sending a test asks for a missing permission', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      h.platform
+        ..prompts = 0
+        ..permissionStatus = () => h.platform.prompts > 0;
+      check(await h.coordinator.sendTest(_owui.scope)).isTrue();
+      check(h.platform.prompts).equals(1);
+      check(await h.coordinator.sendTest(_owui.scope)).isTrue();
+      check(h.platform.prompts).equals(1);
+    });
+
     test('no token', () async {
       h = await _Harness.start(targets: [_owui]);
       h.platform.tokenError = _PlatformError('apns_timeout');
@@ -996,8 +1043,20 @@ final class _Platform implements PushPlatformPort {
   @override
   Future<List<PushTransport>> availableTransports() async => transports;
 
+  int prompts = 0;
+
+  /// What a non-prompting check answers; null means the platform can't tell.
+  bool? Function()? permissionStatus;
+
   @override
-  Future<bool> requestPermission() async => permission;
+  Future<bool> requestPermission() async {
+    prompts++;
+    return permission;
+  }
+
+  @override
+  Future<bool?> hasPermission() async =>
+      permissionStatus == null ? permission : permissionStatus!();
 
   @override
   Future<PushDeviceToken?> currentToken(PushTransport transport) async {
