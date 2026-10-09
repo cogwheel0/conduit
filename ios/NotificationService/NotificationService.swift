@@ -17,7 +17,9 @@ import os
 //     of a notification already shown, and pushes for a kind or account the
 //     user turned off on this device.
 // Until the entitlement is granted (ConduitPushFilteringEnabled is NO), those
-// pushes are shown as passive, silent generic notifications instead.
+// pushes are shown as passive, silent generic notifications instead, except
+// duplicates: a repeat replaces the notification already on screen (the
+// relay's apns-collapse-id), so it is shown again with its content, quietly.
 
 final class NotificationService: UNNotificationServiceExtension {
   private static let log = Logger(
@@ -52,21 +54,30 @@ final class NotificationService: UNNotificationServiceExtension {
       configStore: PushConfigStore(directory: directory),
       ledger: PushLedger(directory: directory)
     )
-    let passive = Self.passive(original, config: receiver.currentConfig())
-    lock.withLock { bestAttempt = passive }
+    let config = receiver.currentConfig()
+    lock.withLock { bestAttempt = Self.passive(original, config: config) }
 
+    let filtering = PushSharedContainer.isFilteringEnabled()
     switch receiver.receive(userInfo: original.userInfo) {
     case .deliver(let delivery):
       if let localId = delivery.replacesLocalNotificationId {
+        // The ledger now says a push took over, so if the app has not
+        // posted its copy yet, it removes it after posting.
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [localId])
       }
       finish(with: Self.decrypted(original, delivery: delivery, tapKey: Self.tapKey(appGroup)))
-    case .reject(let reason):
-      let drop = reason.mayDrop && PushSharedContainer.isFilteringEnabled()
+    case .duplicate(let delivery):
+      Self.log.notice("Push repeats one already shown, drop: \(filtering, privacy: .public)")
+      finish(
+        with: filtering
+          ? UNNotificationContent()
+          : Self.repeated(original, delivery: delivery, tapKey: Self.tapKey(appGroup)))
+    case .reject(let reason, let scope):
+      let drop = reason.mayDrop && filtering
       Self.log.notice(
         "Not showing push content: \(String(describing: reason), privacy: .public), drop: \(drop, privacy: .public)"
       )
-      finish(with: drop ? UNNotificationContent() : passive)
+      finish(with: drop ? UNNotificationContent() : Self.passive(original, config: config, scope: scope))
     }
   }
 
@@ -98,8 +109,9 @@ final class NotificationService: UNNotificationServiceExtension {
   private static func decrypted(
     _ original: UNNotificationContent,
     delivery: PushDelivery,
-    tapKey: PushTapKey?
-  ) -> UNNotificationContent {
+    tapKey: PushTapKey?,
+    repeated: Bool = false
+  ) -> UNMutableNotificationContent {
     let content = mutableCopy(of: original)
     let shown = delivery.presentation
     content.title = shown.title
@@ -108,27 +120,29 @@ final class NotificationService: UNNotificationServiceExtension {
     content.threadIdentifier = shown.threadIdentifier
     content.sound = shown.playsSound ? .default : nil
     content.interruptionLevel = .active
-    var userInfo = original.userInfo
-    // The ciphertext is no longer needed; the sid tells the app which
-    // subscription the push came from.
-    userInfo[PushUserInfoKey.envelope] = ["v": PushPayload.version, "s": delivery.sid]
-    // Without the key there is no tap, so the app does not open it.
-    if let tapKey {
-      userInfo[PushUserInfoKey.tap] = PushTap(
-        scope: delivery.scope,
-        payloadJSON: delivery.payload.json
-      ).userInfoValue(signedWith: tapKey)
-    } else {
-      userInfo.removeValue(forKey: PushUserInfoKey.tap)
-    }
-    content.userInfo = userInfo
+    content.userInfo = PushNotificationUserInfo.decrypted(
+      original.userInfo, delivery: delivery, tapKey: tapKey, repeated: repeated)
+    return content
+  }
+
+  /// A repeat of a notification already shown. It replaces that one, so it
+  /// keeps the content and the tap, but makes no sound and shows no banner.
+  private static func repeated(
+    _ original: UNNotificationContent,
+    delivery: PushDelivery,
+    tapKey: PushTapKey?
+  ) -> UNNotificationContent {
+    let content = decrypted(original, delivery: delivery, tapKey: tapKey, repeated: true)
+    content.sound = nil
+    content.interruptionLevel = .passive
     return content
   }
 
   /// The generic alert, quiet: no sound and no banner over other work.
   private static func passive(
     _ original: UNNotificationContent,
-    config: PushConfig
+    config: PushConfig,
+    scope: String? = nil
   ) -> UNNotificationContent {
     let content = mutableCopy(of: original)
     let fallback = PushPresentation.fallback(config: config)
@@ -145,9 +159,7 @@ final class NotificationService: UNNotificationServiceExtension {
     content.sound = nil
     content.interruptionLevel = .passive
     content.relevanceScore = 0
-    var userInfo = original.userInfo
-    userInfo.removeValue(forKey: PushUserInfoKey.tap)
-    content.userInfo = userInfo
+    content.userInfo = PushNotificationUserInfo.generic(original.userInfo, scope: scope)
     return content
   }
 

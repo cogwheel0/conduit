@@ -131,6 +131,9 @@ final class PushPayloadTests: XCTestCase {
     for userInfo in bad {
       XCTAssertNil(PushEnvelope(userInfo: userInfo), "\(userInfo)")
     }
+    // Only a different version is unsupported rather than malformed.
+    XCTAssertEqual(bad.filter(PushEnvelope.hasOtherVersion).count, 1)
+    XCTAssertTrue(PushEnvelope.hasOtherVersion(["cp": ["v": 2]]))
   }
 
   func testATapOpensOnlyWithTheExtensionsSignature() throws {
@@ -161,5 +164,64 @@ final class PushPayloadTests: XCTestCase {
 
     XCTAssertNil(PushTap(userInfo: [:], key: key))
     XCTAssertNil(PushTap(userInfo: [PushUserInfoKey.tap: ["scope": "x"]], key: key))
+  }
+
+  private func delivery() throws -> PushDelivery {
+    let payload = try PushPayload.parse(Data(#"{"v":1,"k":"reply","dk":"chat:c:m"}"#.utf8))
+    return PushDelivery(
+      sid: "sid-1", scope: "owui:acct-1", payload: payload,
+      presentation: PushPresentation.make(payload: payload, scope: "owui:acct-1", config: .default),
+      replacesLocalNotificationId: nil)
+  }
+
+  func testADecryptedNotificationCarriesItsScopeAndASignedTap() throws {
+    let key = try PushTapKey.load(storage: MemorySecretStorage())
+    // Whatever the push itself carried under Conduit's keys is replaced.
+    let original: [AnyHashable: Any] = [
+      "aps": ["mutable-content": 1],
+      PushUserInfoKey.envelope: ["v": 1, "s": "sid-1", "d": "ciphertext"],
+      PushUserInfoKey.tap: ["scope": "owui:evil", "payload": "{}", "sig": "AAAA"],
+      PushUserInfoKey.scope: "owui:evil",
+      PushUserInfoKey.repeated: true,
+    ]
+
+    let userInfo = PushNotificationUserInfo.decrypted(
+      original, delivery: try delivery(), tapKey: key, repeated: false)
+
+    XCTAssertNotNil(userInfo["aps"])
+    XCTAssertEqual(userInfo[PushUserInfoKey.envelope] as? [String: AnyHashable], ["v": 1, "s": "sid-1"])
+    XCTAssertEqual(userInfo[PushUserInfoKey.scope] as? String, "owui:acct-1")
+    XCTAssertNil(userInfo[PushUserInfoKey.repeated])
+    XCTAssertEqual(
+      PushTap(userInfo: userInfo, key: key),
+      PushTap(scope: "owui:acct-1", payloadJSON: #"{"v":1,"k":"reply","dk":"chat:c:m"}"#))
+
+    let again = PushNotificationUserInfo.decrypted(
+      original, delivery: try delivery(), tapKey: key, repeated: true)
+    XCTAssertEqual(again[PushUserInfoKey.repeated] as? Bool, true)
+    XCTAssertNotNil(PushTap(userInfo: again, key: key))
+
+    // Without the key there is no tap to open.
+    let keyless = PushNotificationUserInfo.decrypted(
+      original, delivery: try delivery(), tapKey: nil, repeated: false)
+    XCTAssertNil(keyless[PushUserInfoKey.tap])
+    XCTAssertEqual(keyless[PushUserInfoKey.scope] as? String, "owui:acct-1")
+  }
+
+  func testAGenericNotificationKeepsOnlyItsScope() {
+    let original: [AnyHashable: Any] = [
+      "aps": ["mutable-content": 1],
+      PushUserInfoKey.tap: ["scope": "owui:evil", "payload": "{}", "sig": "AAAA"],
+      PushUserInfoKey.scope: "owui:evil",
+      PushUserInfoKey.repeated: true,
+    ]
+
+    let known = PushNotificationUserInfo.generic(original, scope: "hermes:conn")
+    XCTAssertEqual(known[PushUserInfoKey.scope] as? String, "hermes:conn")
+    XCTAssertNil(known[PushUserInfoKey.tap])
+    XCTAssertNil(known[PushUserInfoKey.repeated])
+    XCTAssertNotNil(known["aps"])
+
+    XCTAssertNil(PushNotificationUserInfo.generic(original, scope: nil)[PushUserInfoKey.scope])
   }
 }

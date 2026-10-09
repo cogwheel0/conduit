@@ -2,8 +2,10 @@ import Foundation
 
 /// Why a push is not shown with content.
 public enum PushRejection: Equatable {
-  /// No `cp` envelope, or one this version does not understand.
+  /// No `cp` envelope, or one without a readable sid and body.
   case malformedEnvelope
+  /// A `cp` envelope of a version this build does not understand.
+  case unsupportedEnvelope
   /// No subscription has this sid.
   case unknownSubscription
   /// The subscription could not be read, for example before the first
@@ -15,15 +17,28 @@ public enum PushRejection: Equatable {
   case invalidPayload
   /// The user switched push, this kind, or this account off on this device.
   case switchedOff
-  /// Already shown.
-  case duplicate
 
   /// Whether the extension may drop the push once Apple grants the
-  /// notification filtering entitlement. These are exactly the cases the
-  /// entitlement request commits to: undecryptable or unauthenticated
-  /// pushes, duplicates, and kinds or accounts the user turned off.
+  /// notification filtering entitlement. The entitlement request commits to
+  /// dropping only pushes that fail authenticated decryption, duplicates
+  /// (`PushReceiveOutcome.duplicate`), and kinds or accounts the user turned
+  /// off on the device.
+  ///
+  /// - A malformed envelope carries nothing that could pass authenticated
+  ///   decryption (no envelope, no sid, or a body that is not base64url), so
+  ///   it counts as undecryptable and may go, as may an unknown sid, whose
+  ///   push no key on this device can authenticate.
+  /// - An unsupported envelope version is not known to be undecryptable: it
+  ///   may be a genuine push from a newer relay, so it stays.
+  /// - An invalid payload passed authenticated decryption, so it is not
+  ///   undecryptable either and stays, as does unreadable storage.
   public var mayDrop: Bool {
-    self != .storageUnavailable
+    switch self {
+    case .malformedEnvelope, .unknownSubscription, .undecryptable, .switchedOff:
+      return true
+    case .unsupportedEnvelope, .storageUnavailable, .invalidPayload:
+      return false
+    }
   }
 }
 
@@ -38,8 +53,16 @@ public struct PushDelivery: Equatable {
 }
 
 public enum PushReceiveOutcome: Equatable {
+  /// Show it.
   case deliver(PushDelivery)
-  case reject(PushRejection)
+  /// Already shown, by an earlier push or by the app. The relay collapses
+  /// repeats of a message (`apns-collapse-id` is its `Topic`), so this
+  /// notification replaces the one on screen: the delivery is what to show
+  /// again, quietly, unless the extension may drop it.
+  case duplicate(PushDelivery)
+  /// Not shown with content. `scope` is the subscription's, when the sid is
+  /// known, so even the generic notification can be cleared with its account.
+  case reject(PushRejection, scope: String?)
 }
 
 /// Decides what a push shows, from the stores alone: no network, only the
@@ -57,16 +80,18 @@ public final class PushReceiver {
 
   public func receive(userInfo: [AnyHashable: Any]) -> PushReceiveOutcome {
     guard let envelope = PushEnvelope(userInfo: userInfo) else {
-      return .reject(.malformedEnvelope)
+      let reason: PushRejection =
+        PushEnvelope.hasOtherVersion(userInfo) ? .unsupportedEnvelope : .malformedEnvelope
+      return .reject(reason, scope: nil)
     }
 
     let found: PushKeyRecord?
     do {
       found = try keys.record(sid: envelope.sid)
     } catch {
-      return .reject(.storageUnavailable)
+      return .reject(.storageUnavailable, scope: nil)
     }
-    guard let record = found else { return .reject(.unknownSubscription) }
+    guard let record = found else { return .reject(.unknownSubscription, scope: nil) }
 
     let payload: PushPayload
     do {
@@ -78,10 +103,10 @@ public final class PushReceiver {
       do {
         payload = try PushPayload.parse(plaintext)
       } catch {
-        return .reject(.invalidPayload)
+        return .reject(.invalidPayload, scope: record.scope)
       }
     } catch {
-      return .reject(.undecryptable)
+      return .reject(.undecryptable, scope: record.scope)
     }
 
     // A test proves the path works even when its notification is not shown.
@@ -91,7 +116,7 @@ public final class PushReceiver {
 
     let config = configStore.load()
     guard config.allows(payload.kind, scope: record.scope) else {
-      return .reject(.switchedOff)
+      return .reject(.switchedOff, scope: record.scope)
     }
 
     var presentation = PushPresentation.make(
@@ -106,22 +131,22 @@ public final class PushReceiver {
     case .claimed:
       break
     case .duplicate:
-      return .reject(.duplicate)
+      // The first copy already alerted the user.
+      presentation.playsSound = false
     case .replacesLocal(let localId):
       // The local copy already alerted the user.
       replacedId = localId
       presentation.playsSound = false
     }
 
-    return .deliver(
-      PushDelivery(
-        sid: record.sid,
-        scope: record.scope,
-        payload: payload,
-        presentation: presentation,
-        replacesLocalNotificationId: replacedId
-      )
+    let delivery = PushDelivery(
+      sid: record.sid,
+      scope: record.scope,
+      payload: payload,
+      presentation: presentation,
+      replacesLocalNotificationId: replacedId
     )
+    return claim == .duplicate ? .duplicate(delivery) : .deliver(delivery)
   }
 
   /// The config for text shown without content.

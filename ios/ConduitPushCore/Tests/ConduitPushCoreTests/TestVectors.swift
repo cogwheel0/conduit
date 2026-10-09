@@ -103,3 +103,29 @@ func temporaryDirectory() throws -> URL {
   try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
   return url
 }
+
+/// A sender, for pushes the vectors don't cover: RFC 8291 aes128gcm with
+/// Conduit's padding buckets, as in server-plugins/common/conduit_webpush.
+enum TestWebPush {
+  static func encrypt(_ plaintext: Data, to record: PushKeyRecord) throws -> Data {
+    let sender = P256.KeyAgreement.PrivateKey()
+    let receiver = try P256.KeyAgreement.PublicKey(x963Representation: record.publicKey)
+    let secret = try sender.sharedSecretFromKeyAgreement(with: receiver).withUnsafeBytes { Data($0) }
+    let salt = PushKeyRecord.randomBytes(16)
+    let asPublic = sender.publicKey.x963Representation
+    func hmac(_ key: Data, _ data: Data) -> Data {
+      Data(HMAC<SHA256>.authenticationCode(for: data, using: SymmetricKey(data: key)))
+    }
+    let ikm = hmac(
+      hmac(record.authSecret, secret),
+      Data("WebPush: info\0".utf8) + record.publicKey + asPublic + [1])
+    let prk = hmac(salt, ikm)
+    let key = hmac(prk, Data("Content-Encoding: aes128gcm\0".utf8) + [1]).prefix(16)
+    let nonce = hmac(prk, Data("Content-Encoding: nonce\0".utf8) + [1]).prefix(12)
+    let bucket = try XCTUnwrap([512, 1024, 2048].first { plaintext.count + 1 + 16 <= $0 })
+    let padded = plaintext + [2] + Data(count: bucket - 16 - plaintext.count - 1)
+    let sealed = try AES.GCM.seal(
+      padded, using: SymmetricKey(data: key), nonce: AES.GCM.Nonce(data: nonce))
+    return salt + [0, 0, 0x10, 0, 65] + asPublic + sealed.ciphertext + sealed.tag
+  }
+}

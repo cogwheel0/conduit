@@ -325,8 +325,11 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   }
 
   /// A Conduit push for `scope`, or a local notification whose
-  /// flutter_local_notifications payload names `scope`.
+  /// flutter_local_notifications payload names `scope`. The extension puts
+  /// the scope on every notification it shows for a known sid, the generic
+  /// ones too; older ones only carry it in their tap.
   private static func notification(_ userInfo: [AnyHashable: Any], belongsTo scope: String) -> Bool {
+    if let pushScope = userInfo[PushUserInfoKey.scope] as? String { return pushScope == scope }
     if let tap = userInfo[PushUserInfoKey.tap] as? [String: Any] {
       return tap["scope"] as? String == scope
     }
