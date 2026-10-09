@@ -2,12 +2,18 @@ import 'package:conduit/features/notifications/views/notification_settings_page.
 import 'package:conduit/features/profile/widgets/account_actions.dart'
     show ActiveCheckmark;
 import 'package:conduit/features/push/views/push_privacy_page.dart';
+import 'package:conduit/features/push/widgets/push_target_detail_sheet.dart'
+    show PushTargetDetailSheet;
+import 'package:conduit/shared/widgets/utility_components.dart'
+    show UtilityRow;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart'
     show ConduitLoadingIndicator;
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
     show AdaptiveButton, AdaptiveSwitch;
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
@@ -17,11 +23,18 @@ import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/push_platform_port.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
@@ -37,6 +50,7 @@ Future<FakePushCoordinator> _pump(
   List<String> distributors = const [],
   bool settle = true,
   bool hasOpenWebUiAccount = true,
+  List<Override> overrides = const [],
 }) async {
   tester.view
     ..physicalSize = const Size(900, 3200)
@@ -60,6 +74,7 @@ Future<FakePushCoordinator> _pump(
       // Webhook destinations are a separate feature.
       notificationTargetsAvailableProvider.overrideWithValue(false),
       openWebUiAccountAvailableProvider.overrideWithValue(hasOpenWebUiAccount),
+      ...overrides,
     ],
   );
   addTearDown(container.dispose);
@@ -77,6 +92,10 @@ Future<FakePushCoordinator> _pump(
         path: Routes.pushPrivacy,
         name: RouteNames.pushPrivacy,
         builder: (_, _) => const PushPrivacyPage(),
+      ),
+      GoRoute(
+        path: Routes.authentication,
+        builder: (_, _) => const Text('sign-in page'),
       ),
     ],
   );
@@ -605,6 +624,97 @@ void main() {
     expect(find.byKey(const Key('push-privacy-read-more')), findsOneWidget);
   });
 
+  testWidgets('push that can no longer work here can still be turned off', (
+    tester,
+  ) async {
+    final fake = await _pump(
+      tester,
+      pushStateWith([_owui(PushStatus.failed)], transports: const []),
+    );
+    final row = tester.widget<UtilityRow>(
+      find.byKey(const Key('push-enabled')),
+    );
+    expect(row.enabled, isTrue);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('push-enabled')),
+        matching: find.byType(AdaptiveSwitch),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(fake.calls, ['setEnabled false']);
+    // Off, it cannot be turned back on here.
+    expect(
+      tester.widget<UtilityRow>(find.byKey(const Key('push-enabled'))).enabled,
+      isFalse,
+    );
+  });
+
+  testWidgets('a switch that fails says so', (tester) async {
+    final fake = await _pump(tester, pushStateWith(const [], enabled: false));
+    fake.setEnabledError = StateError('platform');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('push-enabled')),
+        matching: find.byType(AdaptiveSwitch),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Something went wrong. Please try again.'), findsOneWidget);
+  });
+
+  testWidgets('a detail sheet whose target is gone closes', (tester) async {
+    final fake = await _pump(tester, pushStateWith([_owui(PushStatus.on)]));
+    await tester.tap(_inRow(_owuiScope, find.text('ada@example.com')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('push-detail-status')), findsOneWidget);
+
+    // Signed out of on another screen meanwhile.
+    fake.emit(pushStateWith(const []));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('push-detail-diagnostics')), findsNothing);
+    expect(find.byType(PushTargetDetailSheet), findsNothing);
+  });
+
+  group('signing in to the account in use', () {
+    Future<(FakePushCoordinator, _SpyAuth)> signIn(
+      WidgetTester tester, {
+      required _SessionApi api,
+    }) async {
+      final auth = _SpyAuth();
+      final fake = await _pump(
+        tester,
+        pushStateWith([_owui(PushStatus.signInNeeded)]),
+        overrides: [
+          // The app still takes the account for signed in.
+          openWebUiAccountsControllerProvider.overrideWith(_AlreadyActive.new),
+          apiServiceProvider.overrideWithValue(api),
+          authStateManagerProvider.overrideWith(() => auth),
+        ],
+      );
+      await tester.tap(find.byKey(const Key('push-action-$_owuiScope')));
+      await tester.pumpAndSettle();
+      return (fake, auth);
+    }
+
+    testWidgets('a session its server refuses goes to sign in again', (
+      tester,
+    ) async {
+      final (fake, auth) = await signIn(tester, api: _SessionApi(status: 401));
+      expect(auth.invalidations, 1);
+      expect(find.text('sign-in page'), findsOneWidget);
+      expect(fake.calls, isEmpty);
+    });
+
+    testWidgets('a session that still works sets push up again', (
+      tester,
+    ) async {
+      final (fake, auth) = await signIn(tester, api: _SessionApi(status: 200));
+      expect(auth.invalidations, 0);
+      expect(fake.calls, ['retry $_owuiScope']);
+    });
+  });
+
   testWidgets('without an Open WebUI account its channels go', (tester) async {
     await _pump(
       tester,
@@ -627,4 +737,70 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+/// An accounts controller whose account is already the active one.
+final class _AlreadyActive extends OpenWebUiAccountsController {
+  _AlreadyActive(super.ref);
+
+  @override
+  Future<OpenWebUiAccountChangeResult> switchTo(
+    String accountId, {
+    bool force = false,
+  }) async => OpenWebUiAccountChangeResult.alreadyActive;
+}
+
+/// The active account's client, whose server answers the session check
+/// with [status].
+final class _SessionApi extends ApiService {
+  _SessionApi({required this.status})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'acct-1',
+          name: 'Home',
+          url: 'https://home.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final int status;
+
+  @override
+  String? get authToken => 'opaque-session-token';
+
+  @override
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+    String? candidateAuthToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    if (status != 200) {
+      final request = RequestOptions(path: '/api/v1/auths/');
+      throw DioException(
+        requestOptions: request,
+        response: Response<Object?>(requestOptions: request, statusCode: status),
+      );
+    }
+    return const User(
+      id: 'u',
+      username: 'ada',
+      email: 'ada@example.com',
+      role: 'user',
+    );
+  }
+}
+
+final class _SpyAuth extends AuthStateManager {
+  int invalidations = 0;
+
+  @override
+  Future<AuthState> build() async =>
+      const AuthState(status: AuthStatus.authenticated, token: 'token');
+
+  @override
+  Future<void> onTokenInvalidated() async {
+    invalidations++;
+    await future;
+    state = const AsyncData(AuthState(status: AuthStatus.tokenExpired));
+  }
 }

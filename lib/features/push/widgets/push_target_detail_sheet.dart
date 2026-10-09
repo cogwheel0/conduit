@@ -41,6 +41,7 @@ class PushTargetDetailSheet extends ConsumerStatefulWidget {
 
 class _PushTargetDetailSheetState extends ConsumerState<PushTargetDetailSheet> {
   bool _testing = false;
+  bool _closing = false;
 
   Future<void> _sendTest() async {
     final l10n = AppLocalizations.of(context)!;
@@ -67,6 +68,15 @@ class _PushTargetDetailSheetState extends ConsumerState<PushTargetDetailSheet> {
     final target = push.targets[widget.scope];
     final accounts = pushAccountEntries(ref);
     final navigator = Navigator.of(context);
+
+    // Removed since it was opened (or before: a stale native row), so
+    // there is nothing to show; the sheet goes rather than stay empty.
+    if (target == null && !_closing) {
+      _closing = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(navigator.maybePop());
+      });
+    }
 
     final children = <Widget>[];
     if (target != null) {

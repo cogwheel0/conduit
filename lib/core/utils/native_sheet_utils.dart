@@ -1143,6 +1143,8 @@ NativeSheetSectionConfig buildNativePushSection(
 ) {
   final available = push?.available ?? true;
   final enabled = push?.enabled ?? false;
+  // On while push can no longer work here, the switch still turns it off.
+  final switchable = available || enabled;
   final attention = [
     for (final target in push?.targets.values ?? const <PushTargetState>[])
       if (pushTargetNeedsAttention(target)) target,
@@ -1157,7 +1159,9 @@ NativeSheetSectionConfig buildNativePushSection(
             ? l10n.pushEnabledDescription
             : l10n.pushUnavailableBuild,
         sfSymbol: 'bell.badge',
-        kind: available ? NativeSheetItemKind.toggle : NativeSheetItemKind.info,
+        kind: switchable
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
         value: enabled,
       ),
       if (enabled && push != null)

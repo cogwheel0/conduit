@@ -49,6 +49,11 @@ final class FakePushCoordinator extends PushCoordinator {
   final calls = <String>[];
   bool testArrives = true;
 
+  /// Thrown by [setEnabled] after [setEnabledDelay], once the switch shows
+  /// the new value.
+  Object? setEnabledError;
+  Duration setEnabledDelay = Duration.zero;
+
   @override
   PushState build() => initial;
 
@@ -58,6 +63,11 @@ final class FakePushCoordinator extends PushCoordinator {
   Future<void> setEnabled(bool enabled) async {
     calls.add('setEnabled $enabled');
     state = state.copyWith(enabled: enabled);
+    if (setEnabledDelay > Duration.zero) {
+      await Future<void>.delayed(setEnabledDelay);
+    }
+    final error = setEnabledError;
+    if (error != null) throw error;
   }
 
   @override
