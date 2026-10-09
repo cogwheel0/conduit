@@ -7,6 +7,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/automations/providers/automation_providers.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -131,6 +132,10 @@ void main() {
             return accounts;
           }),
           openWebUiAccountsControllerProvider.overrideWithValue(controller),
+          // No Hermes connections, whatever another test left saved: the
+          // card counts them.
+          hermesConnectionsProvider.overrideWithValue(const []),
+          hermesEnabledProvider.overrideWithValue(false),
         ],
         child: MaterialApp.router(
           localizationsDelegates: conduitLocalizationsDelegates,

@@ -81,6 +81,8 @@ void main() {
   late GoRouter router;
 
   setUp(() {
+    // Other tests share this isolate when CI runs them in shards.
+    addTearDown(PreferencesStore.debugReset);
     // One saved Hermes connection, with Hermes off.
     PreferencesStore.debugOverride(
       InMemoryKeyValueStore(<String, Object?>{
