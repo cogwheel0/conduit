@@ -10,6 +10,12 @@
     <string name="widget_photos">Photos</string>
     <string name="widget_clipboard">Clipboard</string>
     <string name="widget_mic">Voice</string>
+
+    <!-- The message notification channel, created here only when a push
+         arrives before the app ever ran. The app renames it to the user's
+         language (notificationChannelMessages* in lib/l10n). -->
+    <string name="push_channel_messages_name">Messages</string>
+    <string name="push_channel_messages_description">Replies, channel messages, and finished responses</string>
 </resources>
 
 
