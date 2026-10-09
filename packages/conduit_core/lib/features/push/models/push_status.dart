@@ -220,6 +220,7 @@ final class PushTargetState {
     this.diagnostics,
     this.origin = PushOrigin.conduit,
     this.optedOut = false,
+    this.notificationsOff = false,
     this.verifiedAt,
     this.transport,
     this.serverVersion,
@@ -243,6 +244,10 @@ final class PushTargetState {
   final PushServerDiagnostics? diagnostics;
   final PushOrigin origin;
   final bool optedOut;
+
+  /// The Open WebUI account's own notifications switch is off, so its pushes
+  /// arrive but are not shown.
+  final bool notificationsOff;
 
   /// When a test push last decrypted on this device for the current
   /// subscription.
@@ -273,6 +278,7 @@ final class PushTargetState {
     bool clearDiagnostics = false,
     PushOrigin? origin,
     bool? optedOut,
+    bool? notificationsOff,
     DateTime? verifiedAt,
     bool clearVerifiedAt = false,
     PushTransport? transport,
@@ -292,6 +298,7 @@ final class PushTargetState {
     diagnostics: clearDiagnostics ? null : diagnostics ?? this.diagnostics,
     origin: origin ?? this.origin,
     optedOut: optedOut ?? this.optedOut,
+    notificationsOff: notificationsOff ?? this.notificationsOff,
     verifiedAt: clearVerifiedAt ? null : verifiedAt ?? this.verifiedAt,
     transport: clearTransport ? null : transport ?? this.transport,
     serverVersion: serverVersion ?? this.serverVersion,
@@ -310,6 +317,7 @@ final class PushTargetState {
       other.diagnostics == diagnostics &&
       other.origin == origin &&
       other.optedOut == optedOut &&
+      other.notificationsOff == notificationsOff &&
       other.verifiedAt == verifiedAt &&
       other.transport == transport &&
       other.serverVersion == serverVersion &&
@@ -326,6 +334,7 @@ final class PushTargetState {
     diagnostics,
     origin,
     optedOut,
+    notificationsOff,
     verifiedAt,
     transport,
     serverVersion,

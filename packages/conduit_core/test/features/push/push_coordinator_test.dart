@@ -13,6 +13,8 @@ import 'package:conduit_core/features/push/services/push_backend.dart';
 import 'package:conduit_core/features/push/services/push_backend_factory.dart';
 import 'package:conduit_core/features/push/services/push_relay_client.dart';
 import 'package:conduit_core/features/push/services/push_settings_store.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/push_platform_port.dart';
@@ -595,6 +597,24 @@ void main() {
       check(h.status(_owui.scope)).equals(PushStatus.on);
     });
 
+    test('deleting a Hermes connection removes its subscription first', () async {
+      h = await _Harness.start(targets: [_owui, _hermes]);
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_hermes.scope).sid!;
+      h.log.clear();
+
+      await h.container
+          .read(pushSignOutHookProvider)
+          .beforeHermesConnectionRemoved('conn-1');
+
+      check(h.log).deepEquals([
+        'unsubscribe ${_hermes.scope} $sid',
+        'delete $sid',
+        'cancelScope ${_hermes.scope}',
+      ]);
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
     test('a full sign-out releases every target', () async {
       h = await _Harness.start(targets: [_owui, _hermes]);
       await h.coordinator.setEnabled(true);
@@ -634,6 +654,53 @@ void main() {
         platform: platform,
       );
       await h.until(() => platform.subscriptions.isEmpty);
+    });
+  });
+
+  group('notification settings', () {
+    test("an account's own notifications switch off is a disabled scope", () async {
+      h = await _Harness.start(targets: [_owui, _owui2, _hermes]);
+      final key1 = accountScopedPreferenceKey(
+        PreferenceKeys.notificationsEnabled,
+        'acct-1',
+      );
+      final key2 = accountScopedPreferenceKey(
+        PreferenceKeys.notificationsEnabled,
+        'acct-2',
+      );
+      await PreferencesStore.put(key2, false);
+      await h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+
+      final config = h.platform.config!;
+      check(config.enabled).isTrue();
+      check(config.disabledScopes).deepEquals([_owui2.scope]);
+      check(h.target(_owui2.scope).notificationsOff).isTrue();
+      check(h.target(_owui.scope).notificationsOff).isFalse();
+      check(h.target(_hermes.scope).notificationsOff).isFalse();
+      // Turning push on turned on the switch nobody had set, and kept the
+      // one that was turned off.
+      check(PreferencesStore.getBool(key1)).equals(true);
+      check(PreferencesStore.getBool(key2)).equals(false);
+      // Its pushes are still set up and verified.
+      check(h.status(_owui2.scope)).equals(PushStatus.on);
+    });
+
+    test('the scheduled tasks toggle stops cron pushes', () async {
+      h = await _Harness.start(targets: [_hermes]);
+      await h.coordinator.setEnabled(true);
+      h.settings.set(
+        h.settings.state.copyWith(notificationScheduledEnabled: false),
+      );
+      await h.until(
+        () =>
+            h.server(_hermes).subscriptions.values.single.events.length == 2,
+      );
+      check(
+        h.server(_hermes).subscriptions.values.single.events,
+      ).deepEquals(['reply', 'reply_failed']);
+      await pumpEventQueue();
+      check(h.platform.config!.enabledKinds).not((it) => it.contains('cron'));
     });
   });
 

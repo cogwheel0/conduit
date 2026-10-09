@@ -16,6 +16,9 @@ import 'package:conduit_core/features/push/services/push_backend.dart';
 import 'package:conduit_core/features/push/services/push_backend_factory.dart';
 import 'package:conduit_core/features/push/services/push_relay_client.dart';
 import 'package:conduit_core/features/push/services/push_settings_store.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/ports/push_platform_port.dart';
 import 'package:conduit_core/providers/host_ports.dart';
@@ -96,7 +99,9 @@ class PushCoordinator extends _$PushCoordinator {
       if (previous != null &&
           (previous.notificationChatEnabled != next.notificationChatEnabled ||
               previous.notificationChannelEnabled !=
-                  next.notificationChannelEnabled)) {
+                  next.notificationChannelEnabled ||
+              previous.notificationScheduledEnabled !=
+                  next.notificationScheduledEnabled)) {
         _onEventsChanged();
       }
       _scheduleDisplayConfig();
@@ -146,16 +151,7 @@ class PushCoordinator extends _$PushCoordinator {
     if (!ref.mounted) return;
     if (enabled) {
       _update((s) => s.copyWith(enabled: true, permissionDenied: false));
-      final app = ref.read(appSettingsProvider);
-      if (!app.notificationsEnabled) {
-        try {
-          await ref
-              .read(appSettingsProvider.notifier)
-              .setNotificationsEnabled(true);
-        } catch (error) {
-          _log('push-notifications-enable-failed', error);
-        }
-      }
+      await _enableAccountNotifications();
       await _requestPermission();
       _publishTargets();
       _scheduleDisplayConfig();
@@ -371,6 +367,14 @@ class PushCoordinator extends _$PushCoordinator {
             status: PushStatus.signInNeeded,
           ),
       ]);
+
+  /// Removes a Hermes connection's subscription from its server while its
+  /// address and secrets still work, then deletes its keys. Called before
+  /// the connection is deleted.
+  Future<void> releaseHermesConnection(String connectionId) {
+    final scope = PushTarget.hermesScope(connectionId);
+    return _release(scope, target: _target(scope));
+  }
 
   /// Removes everything before the app's data is cleared: every server
   /// subscription that can still be reached, every key, every record.
@@ -1493,7 +1497,9 @@ class PushCoordinator extends _$PushCoordinator {
   }
 
   Future<void> _syncDisplayConfig() async {
-    if (!ref.mounted || _hasTransports == false) return;
+    if (!ref.mounted) return;
+    _markNotificationsOff();
+    if (_hasTransports == false) return;
     final config = displayConfig();
     if (config == _lastConfig) return;
     _lastConfig = config;
@@ -1507,6 +1513,10 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// What the platform shows pushes with, from the master toggle, the
   /// notification settings, the opted-out targets and their labels.
+  ///
+  /// The notifications switch belongs to each Open WebUI account (it mirrors
+  /// that account's server setting), so an account that has it off is a
+  /// disabled scope rather than a reason to drop every push.
   PushDisplayConfig displayConfig() {
     final app = ref.read(appSettingsProvider);
     final targets = _targets ?? const <PushTarget>[];
@@ -1518,18 +1528,18 @@ class PushCoordinator extends _$PushCoordinator {
         )
         .length;
     return PushDisplayConfig(
-      enabled:
-          state.enabled && app.notificationsEnabled && app.notificationSystem,
+      enabled: state.enabled && app.notificationSystem,
       sound: app.notificationSound,
       enabledKinds: [
         if (app.notificationChatEnabled) ...['reply', 'reply_failed'],
         if (app.notificationChannelEnabled) 'channel',
-        'cron',
+        if (app.notificationScheduledEnabled) 'cron',
         'test',
       ],
       disabledScopes: [
         for (final target in targets)
-          if (_record(target.scope).optedOut) target.scope,
+          if (_record(target.scope).optedOut || _notificationsOff(target))
+            target.scope,
       ],
       scopeLabels: {for (final target in targets) target.scope: target.label},
       showScopeLabel: on > 1,
@@ -1544,8 +1554,58 @@ class PushCoordinator extends _$PushCoordinator {
       if (target.kind == PushTargetKind.openWebUi &&
           app.notificationChannelEnabled)
         'channel',
-      if (target.kind == PushTargetKind.hermes) 'cron',
+      if (target.kind == PushTargetKind.hermes &&
+          app.notificationScheduledEnabled)
+        'cron',
     ];
+  }
+
+  /// Whether [target] is an Open WebUI account whose own notifications
+  /// switch is off.
+  bool _notificationsOff(PushTarget target) {
+    if (target is! OpenWebUiPushTarget) return false;
+    if (target.accountId == currentPreferenceAccountId()) {
+      return !ref.read(appSettingsProvider).notificationsEnabled;
+    }
+    return !openWebUiAccountNotificationsEnabled(target.accountId);
+  }
+
+  void _markNotificationsOff() {
+    for (final target in _targets ?? const <PushTarget>[]) {
+      final off = _notificationsOff(target);
+      if (state.targets[target.scope]?.notificationsOff != off) {
+        _setTarget(target.scope, (t) => t.copyWith(notificationsOff: off));
+      }
+    }
+  }
+
+  /// Turns on the notifications switch of every Open WebUI account that never
+  /// stored one, and of the active account; an inactive account that turned
+  /// its switch off keeps it off.
+  Future<void> _enableAccountNotifications() async {
+    try {
+      final app = ref.read(appSettingsProvider);
+      if (!app.notificationsEnabled) {
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setNotificationsEnabled(true);
+      }
+      final active = currentPreferenceAccountId();
+      for (final target in _targets ?? const <PushTarget>[]) {
+        if (target is! OpenWebUiPushTarget || target.accountId == active) {
+          continue;
+        }
+        final key = accountScopedPreferenceKey(
+          PreferenceKeys.notificationsEnabled,
+          target.accountId,
+        );
+        if (PreferencesStore.getBool(key) == null) {
+          await PreferencesStore.put(key, true);
+        }
+      }
+    } catch (error) {
+      _log('push-notifications-enable-failed', error);
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -1601,6 +1661,7 @@ class PushCoordinator extends _$PushCoordinator {
             diagnostics ?? (status == PushStatus.failed ? t.diagnostics : null),
         origin: record.origin,
         optedOut: record.optedOut,
+        notificationsOff: t.notificationsOff,
         verifiedAt: record.verifiedAt,
         transport: record.transport,
         serverVersion: probe?.serverVersion ?? t.serverVersion,
@@ -1753,6 +1814,21 @@ class PushCoordinator extends _$PushCoordinator {
     scope: 'push',
     data: {'errorType': error.runtimeType.toString()},
   );
+}
+
+/// An Open WebUI account's own notifications switch, read from its stored
+/// copy of the server setting. One that never stored it follows the
+/// device-wide value until the per-account copy has run, as the settings do.
+bool openWebUiAccountNotificationsEnabled(String accountId) {
+  final stored = PreferencesStore.getBool(
+    accountScopedPreferenceKey(PreferenceKeys.notificationsEnabled, accountId),
+  );
+  if (stored != null) return stored;
+  final migrated =
+      PreferencesStore.getBool(PreferenceKeys.accountScopedSettingsMigrated) ==
+      true;
+  if (migrated) return false;
+  return PreferencesStore.getBool(PreferenceKeys.notificationsEnabled) ?? false;
 }
 
 final class _ScopeRunner {

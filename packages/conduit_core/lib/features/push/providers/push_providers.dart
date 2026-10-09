@@ -195,6 +195,10 @@ final class PushSignOutHook {
   /// Before signing out of everything and clearing the app's data.
   Future<void> beforeFullSignOut() => _run(() => _coordinator.releaseAll());
 
+  /// Before the saved Hermes connection [connectionId] is deleted.
+  Future<void> beforeHermesConnectionRemoved(String connectionId) =>
+      _run(() => _coordinator.releaseHermesConnection(connectionId));
+
   PushCoordinator get _coordinator =>
       _ref.read(pushCoordinatorProvider.notifier);
 
