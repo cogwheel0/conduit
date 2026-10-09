@@ -166,12 +166,15 @@ with `502`. Keep the proxy's upstream keep-alive below 10 seconds. Caddy's
 default is 2 minutes, which the example below lowers; nginx as configured
 below doesn't reuse upstream connections.
 
-Keep the secrets in files readable by uid 65532 and out of your shell history:
+Keep the secrets out of your shell history, in files that only the
+container's user can read. The image runs as distroless's `nonroot` user,
+uid and gid 65532, so the files belong to that id with mode `0400`. The id
+doesn't need to exist on the host:
 
 ```bash
-sudo install -d -m 0755 /etc/conduit-push/secrets
-sudo install -m 0444 AuthKey_XYZ987WVUT.p8 /etc/conduit-push/secrets/apns.p8
-sudo install -m 0444 fcm-service-account.json /etc/conduit-push/secrets/fcm.json
+sudo install -d -m 0750 -o root -g 65532 /etc/conduit-push/secrets
+sudo install -m 0400 -o 65532 -g 65532 AuthKey_XYZ987WVUT.p8 /etc/conduit-push/secrets/apns.p8
+sudo install -m 0400 -o 65532 -g 65532 fcm-service-account.json /etc/conduit-push/secrets/fcm.json
 sudo tee /etc/conduit-push/relay.env >/dev/null <<'EOF'
 RELAY_PUBLIC_URL=https://push.example.com
 RELAY_SEAL_KEYS=1:PASTE_THE_OUTPUT_OF_openssl_rand_-base64_32
@@ -197,6 +200,11 @@ docker run -d --name conduit-push-relay --restart unless-stopped \
 
 Docker reads `relay.env` itself, so it stays private to root and is not
 mounted into the container.
+
+With rootless Docker or user-namespace remapping, the container's uid 65532
+is a different uid on the host; give the files to that one instead. On
+Kubernetes, mount a Secret volume with `defaultMode: 0440` and set the pod's
+`fsGroup` to 65532.
 
 A [Caddy](https://caddyserver.com) site, which writes no access log unless
 you add a `log` directive and sets `X-Forwarded-For` to the real client:
