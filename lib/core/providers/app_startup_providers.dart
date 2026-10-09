@@ -68,6 +68,7 @@ import 'package:conduit_core/features/direct_connections/direct_connections.dart
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 import '../../features/notifications/providers/direct_notification_bridge.dart';
+import '../../features/notifications/providers/hermes_notification_bridge.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
 import '../../features/notifications/providers/notification_tap_listener.dart';
 import '../../shared/theme/theme_providers.dart';
@@ -1284,7 +1285,9 @@ class AppStartupFlow extends _$AppStartupFlow {
     // for Open WebUI waits for its session (see post-auth startup).
     _keepAlive(notificationTapListenerProvider);
     // Direct replies run on this device; nothing else notifies about them.
+    // Hermes turns this app ran notify too, deduplicated against push.
     _keepAlive(directNotificationBridgeProvider);
+    _keepAlive(hermesNotificationBridgeProvider);
     unawaited(
       ref
           .read(notificationTapListenerProvider.notifier)

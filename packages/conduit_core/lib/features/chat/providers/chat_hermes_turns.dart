@@ -1573,6 +1573,9 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
 }) async {
   final configController =
       ref.read(hermesConfigProvider.notifier) as HermesConfigController;
+  // The connection this turn runs on. A switch cancels the run before it
+  // changes, so a turn that ends unstopped ended here.
+  final runConnectionId = ref.read(hermesActiveConnectionIdProvider) as String?;
   HermesRunKey currentRunKey() => owner.runKey(assistantMessageId);
   bool ownsRun() => registry.owns(currentRunKey(), cancelToken: cancelToken);
   bool cancelled() =>
@@ -1673,8 +1676,41 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     }
   }
 
+  // Notifies about a turn that ended without being stopped, as a push for it
+  // would: the reply, or its failure. Only for a native Hermes chat; a Hermes
+  // turn inside an Open WebUI chat belongs to that chat.
+  var announcedFinish = false;
+  void announceFinished() {
+    if (announcedFinish || owner.usesOpenWebUiBackend) return;
+    announcedFinish = true;
+    // A stop finishes the stream too; there is no reply to tell about.
+    if (registry.wasStopped(cancelToken)) return;
+    final connectionId = runConnectionId;
+    if (connectionId == null || connectionId.isEmpty) return;
+    try {
+      final message = projection.message;
+      final sessionId =
+          message.metadata?['hermesSessionId'] ?? capturedSessionId;
+      if (sessionId is! String || sessionId.isEmpty) return;
+      registry.announceCompletion(
+        HermesTurnCompletion(
+          connectionId: connectionId,
+          sessionId: sessionId,
+          message: message,
+          title: owner._conversationSnapshot?.title,
+        ),
+      );
+    } catch (_) {
+      DebugLogger.error(
+        'turn-completion-announce-failed',
+        scope: 'hermes/transport',
+      );
+    }
+  }
+
   void finishOwned() {
     if (!projectionStore.finalize(projection)) return;
+    announceFinished();
     if (!owner.isActive(ref)) return;
     notifier.finishStreamingMessage(
       assistantMessageId,

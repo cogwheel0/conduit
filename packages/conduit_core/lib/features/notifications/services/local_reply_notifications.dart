@@ -1,6 +1,8 @@
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind;
 import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show HermesTurnCompletion;
 
 import '../models/app_notification.dart';
 import '../models/notification_scope.dart';
@@ -37,5 +39,33 @@ AppNotification? appNotificationForDirectRun(DirectRunCompletion completion) {
       'direct:$conversationId:${completion.assistantMessageId}',
     ),
     group: 'chat:$conversationId',
+  );
+}
+
+/// The notification for a Hermes turn this app ran that ended, or null when
+/// it can't be attributed.
+///
+/// The app can't know the server's turn id, so its dedup key
+/// (`hermes:<connectionId>|hermes:<sessionId>:<local turn key>`) never
+/// matches the push for the same turn; the shared group `hermes:<sessionId>`
+/// lets the router drop whichever comes second (docs/push/PROTOCOL.md §2).
+AppNotification? appNotificationForHermesTurn(
+  HermesTurnCompletion completion,
+) {
+  final connectionId = completion.connectionId;
+  final sessionId = completion.sessionId;
+  if (connectionId.isEmpty || sessionId.isEmpty) return null;
+  final scope = NotificationScope.hermes(connectionId);
+  final failed = completion.failed;
+  return AppNotification(
+    kind: failed
+        ? NotificationKind.replyFailed
+        : NotificationKind.chatCompletion,
+    scope: scope.value,
+    title: clipNotificationText(completion.title, notificationTitleLimit),
+    body: failed ? '' : notificationPreviewText(completion.message.content),
+    sourceId: sessionId,
+    dedupKey: scope.dedupKey('hermes:$sessionId:${completion.turnKey}'),
+    group: 'hermes:$sessionId',
   );
 }
