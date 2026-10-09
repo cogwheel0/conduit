@@ -34,6 +34,13 @@ android {
         }
     }
 
+    sourceSets {
+        getByName("test") {
+            // The shared push test vectors (docs/push/PROTOCOL.md).
+            resources.srcDir("../../push/test-vectors")
+        }
+    }
+
     compileOptions {
         // Align with modern Android Gradle Plugin requirements
         sourceCompatibility = JavaVersion.VERSION_17
