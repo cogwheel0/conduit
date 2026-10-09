@@ -26,6 +26,8 @@ import 'package:conduit_core/services/api_service.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directConnectionProfilesProvider;
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
@@ -39,6 +41,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../core/utils/native_sheet_utils.dart';
+import '../../../core/utils/account_display.dart' show AccountCardKind;
 
 import 'package:conduit_core/utils/user_avatar_utils.dart';
 
@@ -59,7 +62,6 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 import 'sidebar_tab_registry.dart';
-import '../../../core/utils/account_display.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -436,8 +438,9 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
 
       if (nativeProfilePresenter != null) {
         // Pre-load the Hermes avatar bytes (the config builder is sync, and
-        // avatarBytes must be supplied up front).
-        final hermesAvatarBytes = hermesOnly
+        // avatarBytes must be supplied up front): without an Open WebUI
+        // user, the account card may name a Hermes connection.
+        final hermesAvatarBytes = hermesOnly || user == null
             ? await _loadHermesAvatarBytes()
             : null;
         if (!context.mounted) return;
@@ -587,9 +590,11 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
   /// without them if they fail or take too long; it then lists only this one.
   Future<void> _loadSavedAccounts(WidgetRef ref) async {
     try {
-      await ref
-          .read(openWebUiAccountsProvider.future)
-          .timeout(const Duration(seconds: 2));
+      await Future.wait([
+        ref.read(openWebUiAccountsProvider.future),
+        // The Accounts page lists them too.
+        ref.read(directConnectionProfilesProvider.future),
+      ]).timeout(const Duration(seconds: 2));
     } catch (error) {
       DebugLogger.warning(
         'saved-accounts-load-failed',
@@ -721,25 +726,19 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     Uint8List? hermesAvatarBytes,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    // In Hermes-only mode there's no Open WebUI account, so hide the OWUI
-    // account-specific sections (profile, memory, data connection, password,
-    // sign-out) and instead surface a "Connect to Open WebUI" switch entry.
-    final hermesOnly = ref.read(hermesOnlyModeProvider);
     final appSettings = ref.read(appSettingsProvider);
     final nativeAudio = buildNativeAudioSheetParts(l10n, appSettings);
     final appearanceTitle = nativeAppearanceTitle(l10n);
     final chatsTitle = nativeChatsTitle(l10n);
     final aiMemoryTitle = nativeAiMemoryTitle(l10n);
     final dataConnectionTitle = nativeDataConnectionTitle(l10n);
+    final card = readNativeAccountCard(ref.read, l10n, account: rootAccount);
     final sections = buildNativeProfileRootSections(
       l10n,
       account: rootAccount,
       visibility: visibility,
-      hermesConnectionName: ref.read(hermesActiveConnectionNameProvider),
-      otherAccounts: otherSavedAccountsForNativeSheet(
-        ref.read(openWebUiAccountsProvider).value,
-        l10n,
-      ),
+      card: (title: card.title, subtitle: card.subtitle),
+      otherAccountCount: readNativeOtherAccountCount(ref.read),
     );
     final supportItems = buildNativeSupportItems(l10n);
     // The native sheet lays itself out from [sections]; the flat lists are
@@ -751,37 +750,34 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
 
     return NativeProfileSheetConfig(
       profileMenuTitle: nativeSettingsTitle(l10n),
-      profile: hermesOnly
-          ? NativeProfileSheetUser(
-              displayName:
-                  ref.read(hermesActiveConnectionNameProvider) ??
-                  kHermesDefaultConnectionName,
-              email: _hermesHostLabel(
-                ref,
-                fallback: l10n.hermesSelfHostedAgentLabel,
-              ),
-              initials: hermesConnectionInitials(
-                ref.read(hermesActiveConnectionNameProvider),
-              ),
-              avatarBytes: hermesAvatarBytes,
-              avatarIsTemplate: true,
-            )
-          : user == null
-          ? NativeProfileSheetUser(
-              displayName: l10n.directConnectionsTitle,
-              email: l10n.directConnectionsSubtitle,
-              initials: l10n.directConnectionsTitle.characters.first
-                  .toUpperCase(),
-            )
-          : _nativeAccountProfileUser(
-              ref,
-              l10n: l10n,
-              user: user,
-              api: api,
-              displayName: displayName,
-              initials: initials,
-              accountProfile: accountProfile,
-            ),
+      // The account card draws this profile's avatar beside its own text,
+      // so both name the same one.
+      profile: switch (card.kind) {
+        AccountCardKind.hermes => NativeProfileSheetUser(
+          displayName: card.title,
+          email: _hermesHostLabel(
+            ref,
+            fallback: l10n.hermesSelfHostedAgentLabel,
+          ),
+          initials: hermesConnectionInitials(card.title),
+          avatarBytes: hermesAvatarBytes,
+          avatarIsTemplate: true,
+        ),
+        AccountCardKind.direct => NativeProfileSheetUser(
+          displayName: l10n.directConnectionsTitle,
+          email: l10n.directConnectionsSubtitle,
+          initials: l10n.directConnectionsTitle.characters.first.toUpperCase(),
+        ),
+        AccountCardKind.openWebUi => _nativeAccountProfileUser(
+          ref,
+          l10n: l10n,
+          user: user,
+          api: api,
+          displayName: displayName,
+          initials: initials,
+          accountProfile: accountProfile,
+        ),
+      },
       editProfileLabel: l10n.edit,
       editProfileSheet: NativeEditProfileSheetConfig(
         title: l10n.profileDetails,
@@ -814,6 +810,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       supportItems: supportItems,
       sections: sections,
       detailSheets: [
+        readNativeAccountsDetail(ref.read, l10n),
         if (user != null && profilePending)
           buildNativeLoadingDetail(
             l10n: l10n,

@@ -1585,6 +1585,11 @@ class PlatformNativeSheetItem {
     this.min,
     this.max,
     this.divisions,
+    this.avatarName,
+    this.avatarBytes,
+    this.checked,
+    this.accent,
+    this.usesProfileAvatar,
   });
 
   String id;
@@ -1641,6 +1646,22 @@ class PlatformNativeSheetItem {
 
   int? divisions;
 
+  /// Shown as a round picture -- [avatarBytes], else this name's initials --
+  /// in place of the symbol.
+  String? avatarName;
+
+  Uint8List? avatarBytes;
+
+  /// Marks the row in use with a check.
+  bool? checked;
+
+  /// Draws the row in the accent color, as an action.
+  bool? accent;
+
+  /// Draws the row as the sheet's profile summary: its large avatar beside
+  /// the row's own title and subtitle.
+  bool? usesProfileAvatar;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -1670,6 +1691,11 @@ class PlatformNativeSheetItem {
       min,
       max,
       divisions,
+      avatarName,
+      avatarBytes,
+      checked,
+      accent,
+      usesProfileAvatar,
     ];
   }
 
@@ -1707,6 +1733,11 @@ class PlatformNativeSheetItem {
       min: result[24] as double?,
       max: result[25] as double?,
       divisions: result[26] as int?,
+      avatarName: result[27] as String?,
+      avatarBytes: result[28] as Uint8List?,
+      checked: result[29] as bool?,
+      accent: result[30] as bool?,
+      usesProfileAvatar: result[31] as bool?,
     );
   }
 
@@ -1745,7 +1776,12 @@ class PlatformNativeSheetItem {
         _deepEquals(pending, other.pending) &&
         _deepEquals(min, other.min) &&
         _deepEquals(max, other.max) &&
-        _deepEquals(divisions, other.divisions);
+        _deepEquals(divisions, other.divisions) &&
+        _deepEquals(avatarName, other.avatarName) &&
+        _deepEquals(avatarBytes, other.avatarBytes) &&
+        _deepEquals(checked, other.checked) &&
+        _deepEquals(accent, other.accent) &&
+        _deepEquals(usesProfileAvatar, other.usesProfileAvatar);
   }
 
   @override
@@ -1754,7 +1790,7 @@ class PlatformNativeSheetItem {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions)';
+    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar)';
   }
 }
 
@@ -2165,6 +2201,8 @@ class PlatformNativeSheetDetail {
     this.confirmActionId,
     this.confirmActionLabel,
     this.maxHeightFraction,
+    this.trailingActionId,
+    this.trailingActionSfSymbol,
   });
 
   String id;
@@ -2183,6 +2221,11 @@ class PlatformNativeSheetDetail {
 
   double? maxHeightFraction;
 
+  /// A bar button that closes the sheet and then sends this action.
+  String? trailingActionId;
+
+  String? trailingActionSfSymbol;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -2193,6 +2236,8 @@ class PlatformNativeSheetDetail {
       confirmActionId,
       confirmActionLabel,
       maxHeightFraction,
+      trailingActionId,
+      trailingActionSfSymbol,
     ];
   }
 
@@ -2212,6 +2257,8 @@ class PlatformNativeSheetDetail {
       confirmActionId: result[5] as String?,
       confirmActionLabel: result[6] as String?,
       maxHeightFraction: result[7] as double?,
+      trailingActionId: result[8] as String?,
+      trailingActionSfSymbol: result[9] as String?,
     );
   }
 
@@ -2232,7 +2279,9 @@ class PlatformNativeSheetDetail {
         _deepEquals(sections, other.sections) &&
         _deepEquals(confirmActionId, other.confirmActionId) &&
         _deepEquals(confirmActionLabel, other.confirmActionLabel) &&
-        _deepEquals(maxHeightFraction, other.maxHeightFraction);
+        _deepEquals(maxHeightFraction, other.maxHeightFraction) &&
+        _deepEquals(trailingActionId, other.trailingActionId) &&
+        _deepEquals(trailingActionSfSymbol, other.trailingActionSfSymbol);
   }
 
   @override
@@ -2241,7 +2290,7 @@ class PlatformNativeSheetDetail {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetDetail(id: $id, title: $title, subtitle: $subtitle, items: $items, sections: $sections, confirmActionId: $confirmActionId, confirmActionLabel: $confirmActionLabel, maxHeightFraction: $maxHeightFraction)';
+    return 'PlatformNativeSheetDetail(id: $id, title: $title, subtitle: $subtitle, items: $items, sections: $sections, confirmActionId: $confirmActionId, confirmActionLabel: $confirmActionLabel, maxHeightFraction: $maxHeightFraction, trailingActionId: $trailingActionId, trailingActionSfSymbol: $trailingActionSfSymbol)';
   }
 }
 

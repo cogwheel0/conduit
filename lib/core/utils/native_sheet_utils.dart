@@ -1,9 +1,12 @@
-import 'package:flutter/foundation.dart' show immutable;
+import 'package:flutter/foundation.dart' show Uint8List, immutable;
 import 'package:intl/intl.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../shared/utils/locale_display_formatters.dart';
 
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_memory.dart';
@@ -13,6 +16,12 @@ import '../services/native_sheet_bridge.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
 
+import 'package:conduit_core/providers/app_providers.dart'
+    show OpenWebUiAccountEntry;
+
+import '../../features/hermes/widgets/hermes_connection_switcher.dart'
+    show hermesConnectionSummary;
+import 'account_display.dart';
 import 'tts_voice_utils.dart';
 
 String nativeQuickActionsTitle(AppLocalizations l10n) {
@@ -138,79 +147,66 @@ class NativeProfileRootAccount {
   final String email;
 }
 
-/// Another saved Open WebUI account, as a row of the native Settings root.
-@immutable
-class NativeProfileRootSavedAccount {
-  const NativeProfileRootSavedAccount({
-    required this.id,
-    required this.displayName,
-    required this.detail,
-  });
-
-  final String id;
-  final String displayName;
-  final String detail;
-}
-
 /// The sections of the native Settings root, in the order the Flutter
-/// Settings page uses: the profile row, the other saved accounts, the
-/// everyday settings, places, connections, then an Advanced group that only
-/// exists while it has a row.
+/// Settings page uses: the account card -- whom Settings is for, leading to
+/// every account and connection, with Add account under it -- then the
+/// signed-in account's own rows, the everyday settings, places, and an
+/// Advanced group that only exists while it has a row.
 ///
 /// Pure, so the open sheet can be rebuilt with the same rows when a setting
 /// it depends on (Advanced) changes while it is up.
 ///
-/// [hermesConnectionName] names the active saved Hermes connection under the
-/// Hermes Agent row.
-///
-/// [otherAccounts] is null when the saved accounts could not be read in
-/// time. There may be several then, and signing out signs out of every one,
-/// so the sign-out row says so; only the accounts known are listed.
+/// [otherAccountCount] counts the saved Open WebUI accounts besides the
+/// active one, and is null when they could not be read in time. There may
+/// be several then, and signing out signs out of every one, so the sign-out
+/// row says so.
 List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   AppLocalizations l10n, {
   required NativeProfileRootAccount? account,
   required NativeProfileRootVisibility visibility,
-  String? hermesConnectionName,
-  List<NativeProfileRootSavedAccount>? otherAccounts =
-      const <NativeProfileRootSavedAccount>[],
+  required ({String title, String? subtitle}) card,
+  int? otherAccountCount = 0,
 }) {
   final hasAccount = account != null;
-  final knownOtherAccounts =
-      otherAccounts ?? const <NativeProfileRootSavedAccount>[];
-  final hasOtherAccounts = knownOtherAccounts.isNotEmpty;
-  final severalAccounts = otherAccounts == null || hasOtherAccounts;
-  final accountItems = <NativeSheetItemConfig>[
-    for (final other in knownOtherAccounts)
-      NativeSheetItemConfig(
-        id: '$nativeAccountSwitchActionId:${other.id}',
-        title: other.displayName,
-        subtitle: other.detail,
-        sfSymbol: 'person.crop.circle',
-        dismissOnSelect: true,
-        showsDisclosure: false,
-        actionId: nativeAccountSwitchActionId,
-        actionValue: other.id,
-      ),
-    _nativeRootPageItem(
+  final cardItems = <NativeSheetItemConfig>[
+    NativeSheetItemConfig(
+      id: nativeAccountsDetailId,
+      title: card.title,
+      subtitle: card.subtitle,
+      sfSymbol: 'person.crop.circle',
+      usesProfileAvatar: true,
+    ),
+    _nativeAddItem(
       nativeAccountAddActionId,
       title: l10n.accountsAddAccount,
-      sfSymbol: 'person.crop.circle.badge.plus',
+      kind: null,
     ),
-    if (severalAccounts)
-      _nativeRootPageItem(
-        nativeAccountManageActionId,
-        title: l10n.accountsManage,
-        sfSymbol: 'person.2',
-      ),
   ];
-  final profileItem = account == null
-      ? null
-      : NativeSheetItemConfig(
-          id: NativeSheetRoutes.profile,
-          title: account.displayName,
-          subtitle: account.email,
-          sfSymbol: 'person.crop.circle',
-        );
+  // What belongs to the Open WebUI account signed in.
+  final accountItems = <NativeSheetItemConfig>[
+    if (hasAccount) ...[
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.profile,
+        title: l10n.profileTitle,
+        sfSymbol: 'person.crop.circle',
+      ),
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.notificationSettings,
+        title: l10n.notificationsTitle,
+        sfSymbol: 'bell',
+      ),
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.aiMemory,
+        title: nativeAiMemoryTitle(l10n),
+        sfSymbol: 'wand.and.stars',
+      ),
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.dataConnection,
+        title: nativeDataConnectionTitle(l10n),
+        sfSymbol: 'network',
+      ),
+    ],
+  ];
   // Single-line settings rows, so each title and its symbol carry the
   // meaning without a descriptive subtitle.
   final appItems = <NativeSheetItemConfig>[
@@ -229,18 +225,6 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       title: l10n.voice,
       sfSymbol: 'waveform',
     ),
-    if (hasAccount)
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.notificationSettings,
-        title: l10n.notificationsTitle,
-        sfSymbol: 'bell',
-      ),
-    if (hasAccount)
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.aiMemory,
-        title: nativeAiMemoryTitle(l10n),
-        sfSymbol: 'wand.and.stars',
-      ),
   ];
   // Everyday server places: things to open and use, not to configure.
   final placeItems = <NativeSheetItemConfig>[
@@ -255,36 +239,6 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         NativeSheetRoutes.workspace,
         title: l10n.workspaceTitle,
         sfSymbol: 'square.grid.2x2',
-      ),
-  ];
-  final connectionItems = <NativeSheetItemConfig>[
-    if (hasAccount)
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.dataConnection,
-        title: nativeDataConnectionTitle(l10n),
-        sfSymbol: 'network',
-      ),
-    _nativeRootPageItem(
-      NativeSheetRoutes.directConnections,
-      title: l10n.directConnectionsTitle,
-      sfSymbol: 'link.circle',
-    ),
-    NativeSheetItemConfig(
-      id: NativeSheetRoutes.hermes,
-      title: l10n.hermesAgentSettingsTitle,
-      subtitle: hermesConnectionName,
-      sfSymbol: 'sparkles',
-      iconAsset: 'assets/icons/hermes_agent.png',
-      iconSize: 26,
-      dismissOnSelect: true,
-      actionId: NativeSheetRoutes.hermes,
-      actionValue: true,
-    ),
-    if (!hasAccount)
-      _nativeRootPageItem(
-        nativeConnectOpenWebUiActionId,
-        title: l10n.connectOpenWebUITitle,
-        sfSymbol: 'plus.circle',
       ),
   ];
   // Power-user pages Advanced reveals. The group goes with its last row, so
@@ -310,15 +264,14 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       ),
   ];
   return [
-    if (profileItem != null) NativeSheetSectionConfig(items: [profileItem]),
-    // The other saved accounts stay a tap away while the active one has no
-    // session -- it expired, or a switch left it signed out -- and Hermes or
-    // Direct keeps Settings open.
-    if (hasAccount || hasOtherAccounts)
-      NativeSheetSectionConfig(title: l10n.accountsTitle, items: accountItems),
+    NativeSheetSectionConfig(items: cardItems),
+    if (accountItems.isNotEmpty)
+      NativeSheetSectionConfig(
+        title: l10n.accountSettingsTitle,
+        items: accountItems,
+      ),
     NativeSheetSectionConfig(items: appItems),
     if (placeItems.isNotEmpty) NativeSheetSectionConfig(items: placeItems),
-    NativeSheetSectionConfig(items: connectionItems),
     if (advancedItems.isNotEmpty)
       NativeSheetSectionConfig(
         title: l10n.advancedFeatures,
@@ -337,33 +290,27 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
     if (hasAccount)
       NativeSheetSectionConfig(
         items: [
-          // With one account, signing out is what it always was. With
-          // several, sign out of this one, or of every account at once.
-          if (hasOtherAccounts)
+          // With several accounts, Sign out leaves this one and the next
+          // takes over; signing out of all is on the Accounts page. With
+          // one, it is what it always was.
+          if (otherAccountCount != null && otherAccountCount > 0)
             NativeSheetItemConfig(
               id: nativeAccountSignOutActionId,
-              title: l10n.accountsSignOutOf(account.displayName),
+              title: l10n.signOut,
               sfSymbol: 'rectangle.portrait.and.arrow.right',
               destructive: true,
               dismissOnSelect: true,
               showsDisclosure: false,
               actionId: nativeAccountSignOutActionId,
               actionValue: true,
+            )
+          else
+            _nativeSignOutItem(
+              l10n,
+              title: otherAccountCount == null
+                  ? l10n.accountsSignOutAll
+                  : l10n.signOut,
             ),
-          NativeSheetItemConfig(
-            id: nativeSignOutActionId,
-            title: severalAccounts ? l10n.accountsSignOutAll : l10n.signOut,
-            placeholder: l10n.signOutOptionsDescription,
-            options: [
-              NativeSheetOptionConfig(
-                id: 'keep-server-details',
-                label: l10n.keepServerDetails,
-                subtitle: l10n.keepServerDetailsDescription,
-              ),
-            ],
-            sfSymbol: 'rectangle.portrait.and.arrow.right',
-            destructive: true,
-          ),
         ],
       ),
     NativeSheetSectionConfig(
@@ -371,6 +318,268 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       items: buildNativeSupportItems(l10n),
     ),
   ];
+}
+
+/// Id of the native Accounts page, pushed from the account card.
+const nativeAccountsDetailId = 'accounts';
+
+/// The native Accounts page: a card for each Open WebUI server -- its own
+/// row opening its page, its accounts under it, the active one checked --
+/// then Hermes with its connections, the one in use checked, and Direct
+/// with its providers, each opening its editor. A card's empty list offers
+/// to add its first; + in the bar adds any.
+///
+/// [accounts] and [directProfiles] are null when they could not be read in
+/// time; [hermesInUseId] is null while Hermes is off.
+NativeSheetDetailConfig buildNativeAccountsDetail(
+  AppLocalizations l10n, {
+  required List<OpenWebUiAccountEntry>? accounts,
+  required List<HermesConnectionProfile> hermesConnections,
+  required String? hermesInUseId,
+  required List<DirectConnectionProfile>? directProfiles,
+  bool appleOnDevice = false,
+  bool applePcc = false,
+}) {
+  final byServer = <String, List<OpenWebUiAccountEntry>>{};
+  for (final entry in accounts ?? const <OpenWebUiAccountEntry>[]) {
+    byServer.putIfAbsent(entry.server.id, () => []).add(entry);
+  }
+  final saved = directProfiles ?? const <DirectConnectionProfile>[];
+  return NativeSheetDetailConfig(
+    id: nativeAccountsDetailId,
+    title: l10n.accountsTitle,
+    trailingActionId: nativeAccountAddActionId,
+    trailingActionSfSymbol: 'plus',
+    sections: [
+      if (accounts == null)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'accounts-unreadable',
+              title: l10n.errorMessage,
+              sfSymbol: 'exclamationmark.triangle',
+              kind: NativeSheetItemKind.info,
+            ),
+          ],
+        )
+      else if (accounts.isEmpty)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'accounts-openwebui',
+              title: l10n.backendChooserOpenWebUITitle,
+              sfSymbol: 'server.rack',
+              iconAsset: 'assets/icons/open_webui.png',
+              kind: NativeSheetItemKind.info,
+            ),
+            _nativeAddItem(
+              'accounts-openwebui-add',
+              title: l10n.connectOpenWebUITitle,
+              kind: 'openWebUi',
+            ),
+          ],
+        )
+      else
+        for (final group in byServer.values)
+          NativeSheetSectionConfig(
+            items: [
+              NativeSheetItemConfig(
+                id: '$nativeAccountServerActionId:${group.first.server.id}',
+                title: serverDisplayName(group.first.server),
+                avatarName: serverDisplayName(group.first.server),
+                dismissOnSelect: true,
+                actionId: nativeAccountServerActionId,
+                actionValue: group.first.server.id,
+              ),
+              for (final entry in group) _nativeAccountItem(entry, l10n),
+            ],
+          ),
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'accounts-hermes',
+            title: l10n.hermesAgentSettingsTitle,
+            sfSymbol: 'sparkles',
+            iconAsset: 'assets/icons/hermes_agent.png',
+            iconSize: 26,
+            dismissOnSelect: true,
+            actionId: NativeSheetRoutes.hermes,
+            actionValue: true,
+          ),
+          for (final connection in hermesConnections)
+            _nativeSwitchItem(
+              id: '$nativeHermesUseActionId:${connection.id}',
+              title: connection.name,
+              subtitle: hermesConnectionSummary(connection),
+              sfSymbol: connection.mode == HermesBackendMode.desktopGateway
+                  ? 'desktopcomputer'
+                  : 'cloud',
+              inUse: connection.id == hermesInUseId,
+              actionId: nativeHermesUseActionId,
+              actionValue: connection.id,
+            ),
+          if (hermesConnections.isEmpty)
+            _nativeAddItem(
+              'accounts-hermes-add',
+              title: l10n.hermesAddConnection,
+              kind: 'hermes',
+            ),
+        ],
+      ),
+      NativeSheetSectionConfig(
+        items: [
+          _nativeRootPageItem(
+            NativeSheetRoutes.directConnections,
+            title: l10n.directConnectionsTitle,
+            sfSymbol: 'link.circle',
+          ),
+          if (appleOnDevice)
+            NativeSheetItemConfig(
+              id: 'accounts-apple-on-device',
+              title: l10n.backendChooserAppleOnDeviceTitle,
+              sfSymbol: 'iphone',
+              dismissOnSelect: true,
+              actionId: NativeSheetRoutes.directConnections,
+              actionValue: true,
+            ),
+          if (applePcc)
+            NativeSheetItemConfig(
+              id: 'accounts-apple-pcc',
+              title: l10n.backendChooserApplePccTitle,
+              sfSymbol: 'lock.shield',
+              dismissOnSelect: true,
+              actionId: NativeSheetRoutes.directConnections,
+              actionValue: true,
+            ),
+          for (final profile in saved)
+            NativeSheetItemConfig(
+              id: '$nativeDirectEditActionId:${profile.id}',
+              title: profile.name,
+              subtitle: [
+                directProviderName(profile, l10n),
+                if (!profile.enabled) l10n.disabledLabel,
+              ].join(' · '),
+              sfSymbol: profile.adapterKey == kOllamaAdapterKey
+                  ? 'desktopcomputer'
+                  : 'cloud',
+              dismissOnSelect: true,
+              actionId: nativeDirectEditActionId,
+              actionValue: profile.id,
+            ),
+          // Not offered while the saved ones are unread: the Direct page
+          // says why, and adds from there.
+          if (directProfiles != null &&
+              saved.isEmpty &&
+              !appleOnDevice &&
+              !applePcc)
+            _nativeAddItem(
+              'accounts-direct-add',
+              title: l10n.addDirectConnection,
+              kind: 'direct',
+            ),
+        ],
+      ),
+      // With one account, Settings' Sign out already signs out of it.
+      if ((accounts?.length ?? 0) > 1)
+        NativeSheetSectionConfig(
+          items: [_nativeSignOutItem(l10n, title: l10n.accountsSignOutAll)],
+        ),
+    ],
+  );
+}
+
+/// A saved Open WebUI account under its server: switched to on a tap, but
+/// the one in use, signed in, stays put.
+NativeSheetItemConfig _nativeAccountItem(
+  OpenWebUiAccountEntry entry,
+  AppLocalizations l10n,
+) {
+  final name = accountDisplayName(entry, l10n);
+  return _nativeSwitchItem(
+    id: '$nativeAccountSwitchActionId:${entry.id}',
+    title: name,
+    subtitle: accountSubtitle(entry, l10n),
+    avatarName: name,
+    avatarBytes: _dataUrlBytes(entry.summary.profileImage),
+    checked: entry.isActive,
+    inUse: entry.isActive && entry.hasSession,
+    actionId: nativeAccountSwitchActionId,
+    actionValue: entry.id,
+  );
+}
+
+/// A row to switch to, checked when [checked] (by default, when [inUse]);
+/// the one in use has nothing to switch to and does nothing.
+NativeSheetItemConfig _nativeSwitchItem({
+  required String id,
+  required String title,
+  required String? subtitle,
+  required bool inUse,
+  required String actionId,
+  required String actionValue,
+  bool? checked,
+  String sfSymbol = 'person.crop.circle',
+  String? avatarName,
+  Uint8List? avatarBytes,
+}) => NativeSheetItemConfig(
+  id: id,
+  title: title,
+  subtitle: subtitle,
+  sfSymbol: sfSymbol,
+  avatarName: avatarName,
+  avatarBytes: avatarBytes,
+  checked: checked ?? inUse,
+  kind: inUse ? NativeSheetItemKind.info : NativeSheetItemKind.navigation,
+  dismissOnSelect: !inUse,
+  showsDisclosure: false,
+  actionId: inUse ? null : actionId,
+  actionValue: inUse ? null : actionValue,
+);
+
+/// A row, in the accent color, that closes the sheet to add an account or
+/// connection -- on the account sheet's tab for [kind], when given.
+NativeSheetItemConfig _nativeAddItem(
+  String id, {
+  required String title,
+  required String? kind,
+}) => NativeSheetItemConfig(
+  id: id,
+  title: title,
+  sfSymbol: 'plus',
+  accent: true,
+  dismissOnSelect: true,
+  showsDisclosure: false,
+  actionId: nativeAccountAddActionId,
+  actionValue: kind ?? true,
+);
+
+NativeSheetItemConfig _nativeSignOutItem(
+  AppLocalizations l10n, {
+  required String title,
+}) => NativeSheetItemConfig(
+  id: nativeSignOutActionId,
+  title: title,
+  placeholder: l10n.signOutOptionsDescription,
+  options: [
+    NativeSheetOptionConfig(
+      id: 'keep-server-details',
+      label: l10n.keepServerDetails,
+      subtitle: l10n.keepServerDetailsDescription,
+    ),
+  ],
+  sfSymbol: 'rectangle.portrait.and.arrow.right',
+  destructive: true,
+);
+
+/// The bytes of a picture saved as a data URL, as Open WebUI keeps uploaded
+/// ones; null for anything else.
+Uint8List? _dataUrlBytes(String? url) {
+  if (url == null || !url.startsWith('data:image')) return null;
+  try {
+    return UriData.parse(url).contentAsBytes();
+  } on FormatException {
+    return null;
+  }
 }
 
 /// Control id of the Advanced toggle in the native Chats page.
@@ -386,12 +595,15 @@ const nativeConnectOpenWebUiActionId = 'add-owui-server';
 /// Control id of the root Sign out row.
 const nativeSignOutActionId = 'sign-out';
 
-/// Native Settings rows for the saved Open WebUI accounts. A switch row
-/// carries the account id as its action value.
+/// Native Settings rows for accounts and connections. A row that acts on
+/// one carries its id as its action value; an add row, the account sheet's
+/// tab for its kind (`openWebUi`, `hermes`, `direct`), or true for the first.
 const nativeAccountSwitchActionId = 'account-switch';
 const nativeAccountAddActionId = 'account-add';
-const nativeAccountManageActionId = 'account-manage';
 const nativeAccountSignOutActionId = 'account-sign-out';
+const nativeAccountServerActionId = 'account-server';
+const nativeHermesUseActionId = 'account-hermes-use';
+const nativeDirectEditActionId = 'account-direct-edit';
 
 /// The donation rows at the bottom of the native Settings root.
 List<NativeSheetItemConfig> buildNativeSupportItems(AppLocalizations l10n) => [

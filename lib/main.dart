@@ -85,9 +85,11 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
-        nativeAccountManageActionId,
+        nativeAccountServerActionId,
         nativeAccountSignOutActionId,
         nativeAccountSwitchActionId,
+        nativeDirectEditActionId,
+        nativeHermesUseActionId,
         nativeAdvancedFeaturesId,
         nativeCitationShowTitlesId,
         nativeMemoryEditorActionPrefix,
@@ -161,6 +163,8 @@ import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show openWebUiRouteResolverProvider;
 import 'core/services/background_streaming_handler.dart';
 import 'features/profile/widgets/account_actions.dart';
+import 'features/profile/widgets/account_sheet.dart'
+    show EditDirectConnectionRequest, showAccountSheet;
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -589,8 +593,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     }
   }
 
-  /// The native Settings rows for saved Open WebUI accounts. Returns
-  /// whether [actionId] was one of them.
+  /// The native Settings rows for accounts and connections. Returns whether
+  /// [actionId] was one of them.
   Future<bool> _handleNativeAccountAction(String actionId, Object? value) async {
     final context = NavigationService.context;
     switch (actionId) {
@@ -600,16 +604,30 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return true;
       case nativeAccountAddActionId:
         if (context == null) return true;
-        await showAddAccountSheet(context, ref);
+        await showAddAccountSheet(
+          context,
+          ref,
+          kind: value is String
+              ? AccountKind.values.asNameMap()[value] ?? AccountKind.openWebUi
+              : AccountKind.openWebUi,
+        );
         return true;
-      case nativeAccountManageActionId:
-        final request = accountsNativeSheetNavigationRequest;
+      case nativeAccountServerActionId:
+        if (value is! String) return true;
         unawaited(
           NavigationService.router.pushNamed<void>(
-            request.routeName,
-            extra: request.extra,
+            RouteNames.serverAddresses,
+            extra: value,
           ),
         );
+        return true;
+      case nativeHermesUseActionId:
+        if (context == null || value is! String) return true;
+        await useHermesConnection(context, ref, value);
+        return true;
+      case nativeDirectEditActionId:
+        if (context == null || value is! String) return true;
+        await showAccountSheet(context, EditDirectConnectionRequest(value));
         return true;
       case nativeAccountSignOutActionId:
         if (context == null) return true;

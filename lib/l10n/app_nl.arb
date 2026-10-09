@@ -4138,6 +4138,8 @@
   "accountsAddAccountTitle": "Een account toevoegen",
   "accountsAddAccountMessage": "Log in op een ander account op een opgeslagen server, of maak verbinding met een nieuwe.",
   "accountsNewServer": "Nieuwe server",
+  "accountsContinueWith": "Doorgaan met {server}",
+  "accountsKindDirect": "Direct",
   "accountsAddOnThisServer": "Account op deze server toevoegen",
   "accountsSwitch": "Wisselen",
   "accountsSignOutOf": "{name} uitloggen",

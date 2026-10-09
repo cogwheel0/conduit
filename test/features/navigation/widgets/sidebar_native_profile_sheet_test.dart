@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart'
-    show nativeAccountSwitchActionId;
+    show nativeAccountSwitchActionId, nativeAccountsDetailId;
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -20,6 +20,7 @@ import 'package:conduit_core/features/calendar/providers/calendar_providers.dart
     show calendarAvailableProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
@@ -32,7 +33,9 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
@@ -90,6 +93,11 @@ class _Profiles extends AccountProfile {
   }
 }
 
+final class _DirectPrimary extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.direct;
+}
+
 class _SignedInUser extends Notifier<User?> {
   @override
   User? build() => _ada;
@@ -124,6 +132,7 @@ Future<_Harness> _pump(
   WidgetTester tester, {
   required AccountMetadata? cached,
   Future<List<OpenWebUiAccountEntry>>? accounts,
+  List<Override> overrides = const [],
 }) async {
   final storage = _MockOptimizedStorageService();
   when(storage.getThemeMode).thenReturn(null);
@@ -154,6 +163,7 @@ Future<_Harness> _pump(
       }),
       if (accounts != null)
         openWebUiAccountsProvider.overrideWith((ref) => accounts),
+      ...overrides,
     ],
   );
   addTearDown(container.dispose);
@@ -419,13 +429,58 @@ void main() {
     await tester.pump();
 
     check(harness.presented).length.equals(1);
-    final ids = _rootItemIds(harness.presented.single);
+    final config = harness.presented.single;
+    check(_rootItemIds(config)).contains(nativeAccountsDetailId);
+    // On the Accounts page the card leads to, the active one with the rest.
+    final accountsPage = config.detailSheets.singleWhere(
+      (detail) => detail.id == nativeAccountsDetailId,
+    );
+    final ids = [
+      for (final section in accountsPage.sections)
+        ...section.items.map((item) => item.id),
+    ];
     check(ids).contains('$nativeAccountSwitchActionId:work');
-    check(ids.contains('$nativeAccountSwitchActionId:ada')).isFalse();
+    check(ids).contains('$nativeAccountSwitchActionId:ada');
 
     // Settle the profile refresh the sheet started behind itself.
     harness.profiles.pending!.complete(_profile());
     await tester.pump();
+  });
+
+  // With Direct primary, no Open WebUI user and Hermes in use, the card
+  // named the Hermes connection beside Direct's avatar.
+  testWidgets('the account card\'s avatar is whom its text names', (
+    tester,
+  ) async {
+    const agent = HermesConnectionProfile(
+      id: 'hermes-home',
+      name: 'Home agent',
+      documentTrustPrincipalId: 'p-home',
+      baseUrl: 'http://10.0.0.5:8642',
+    );
+    final harness = await _pump(
+      tester,
+      cached: null,
+      accounts: Future.value(const []),
+      overrides: [
+        preferredBackendProvider.overrideWith(_DirectPrimary.new),
+        hermesConnectionsProvider.overrideWithValue(const [agent]),
+        hermesActiveConnectionIdProvider.overrideWithValue(agent.id),
+        hermesActiveConnectionNameProvider.overrideWithValue(agent.name),
+        hermesEnabledProvider.overrideWithValue(true),
+      ],
+    );
+
+    harness.container.read(_signedInUser.notifier).signIn(null);
+    await tester.pump();
+    await _tapAvatar(tester);
+    await tester.pumpAndSettle();
+
+    final config = harness.presented.single;
+    final card = config.sections.first.items.first;
+    check(card.title).equals('Home agent');
+    check(card.usesProfileAvatar).isTrue();
+    check(config.profile.displayName).equals('Home agent');
   });
 
   testWidgets('saved accounts that never load do not hold the sheet back', (

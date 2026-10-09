@@ -5960,6 +5960,8 @@
   "accountsAddAccountTitle": "Pridať účet",
   "accountsAddAccountMessage": "Prihláste sa do ďalšieho účtu na uloženom serveri alebo sa pripojte k novému.",
   "accountsNewServer": "Nový server",
+  "accountsContinueWith": "Pokračovať na {server}",
+  "accountsKindDirect": "Priame",
   "accountsAddOnThisServer": "Pridať účet na tomto serveri",
   "accountsSwitch": "Prepnúť",
   "accountsSignOutOf": "Odhlásiť sa z účtu {name}",

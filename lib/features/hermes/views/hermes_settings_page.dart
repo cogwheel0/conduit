@@ -34,6 +34,7 @@ class HermesSettingsPage extends ConsumerStatefulWidget {
     super.key,
     this.isOnboarding = false,
     this.connectionId,
+    this.onFinished,
   });
 
   /// When true, the page is shown as a first-run setup step for the active
@@ -43,6 +44,12 @@ class HermesSettingsPage extends ConsumerStatefulWidget {
 
   /// Saved connection to edit; null adds a new one. Ignored in onboarding.
   final String? connectionId;
+
+  /// Set when the editor is part of the account sheet rather than a page: it
+  /// brings no page of its own, leaves the server's management to the page,
+  /// and this is called, rather than going back, once the connection is
+  /// saved -- a new one also tested and put in use -- or deleted.
+  final VoidCallback? onFinished;
 
   @override
   ConsumerState<HermesSettingsPage> createState() => _HermesSettingsPageState();
@@ -145,6 +152,13 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
   }
 
   HermesConnectionController get _controller => _connectionController!;
+
+  bool get _embedded => widget.onFinished != null;
+
+  /// Opened in the account sheet to add a connection. It stays the adding
+  /// form after a Connect that saved the connection but failed to put it in
+  /// use, so the next Connect finishes the job rather than only saving.
+  bool get _addingInSheet => _embedded && widget.connectionId == null;
 
   /// Whether this editor's connection is the active one.
   bool get _editsActive {
@@ -322,7 +336,12 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             .read(preferredBackendProvider.notifier)
             .set(PreferredBackend.unset);
       }
-      if (mounted) unawaited(Navigator.of(context).maybePop());
+      if (!mounted) return;
+      if (_embedded) {
+        widget.onFinished!();
+      } else {
+        unawaited(Navigator.of(context).maybePop());
+      }
     } catch (error) {
       DebugLogger.warning(
         'connection-delete-failed',
@@ -338,6 +357,49 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     }
   }
 
+  /// The account sheet's Connect: tests the new connection, saves it, and
+  /// puts it in use, turning Hermes on.
+  Future<void> _connectInSheet() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final reachable = await _controller.testConnection(
+      saved: _saved(),
+      messages: _messages(AppLocalizations.of(context)!),
+    );
+    if (!reachable || !mounted || !await _saveSettings() || !mounted) return;
+    if (!_editsActive && !await _useConnection()) return;
+    if (!mounted) return;
+    // Turned on, and the primary backend only where there was none: next to
+    // Open WebUI or Direct it joins them.
+    final container = ProviderScope.containerOf(context, listen: false);
+    try {
+      await container.read(hermesConfigProvider.notifier).setEnabled(true);
+      if (container.read(preferredBackendProvider) == PreferredBackend.unset) {
+        await container
+            .read(preferredBackendProvider.notifier)
+            .set(PreferredBackend.hermes);
+      }
+    } catch (error) {
+      DebugLogger.warning(
+        'connection-enable-failed',
+        scope: 'hermes/connections',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.hermesSwitchConnectionFailed,
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return;
+    }
+    if (mounted) widget.onFinished!();
+  }
+
+  Future<void> _saveInSheet() async {
+    if (await _saveSettings() && mounted) widget.onFinished!();
+  }
+
   Future<void> _testConnection() async {
     await _controller.testConnection(
       saved: _saved(),
@@ -351,17 +413,25 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final l10n = AppLocalizations.of(context)!;
     final controller = _connectionController;
     if (controller == null) {
+      final loading = [
+        if (_loadFailed)
+          ..._loadFailure(l10n)
+        else
+          const Padding(
+            padding: EdgeInsets.all(Spacing.xl),
+            child: Center(child: AdaptiveProgressIndicator()),
+          ),
+      ];
+      // In the account sheet, inside its form's list: no page of its own.
+      if (_embedded) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: loading,
+        );
+      }
       return UtilityPageScaffold.settings(
         title: l10n.hermesAgentSettingsTitle,
-        children: [
-          if (_loadFailed)
-            ..._loadFailure(l10n)
-          else
-            const Padding(
-              padding: EdgeInsets.all(Spacing.xl),
-              child: Center(child: AdaptiveProgressIndicator()),
-            ),
-        ],
+        children: loading,
       );
     }
     // An editor whose connection stops being active (switched elsewhere)
@@ -406,6 +476,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       iosSettingsRow: PlatformInfo.isIOS,
     );
     final serverUrlField = AccessibleFormField(
+      key: const ValueKey<String>('hermes-server-url-field'),
       enabled: !controller.operation.isBusy,
       label: l10n.hermesServerUrlTitle,
       hint: 'http://192.168.1.10:8642',
@@ -419,6 +490,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
       iosSettingsRow: PlatformInfo.isIOS,
     );
     final apiKeyField = AccessibleFormField(
+      key: const ValueKey<String>('hermes-api-key-field'),
       enabled: !controller.operation.isBusy,
       label: l10n.hermesApiKeyTitle,
       hint: config.apiKey == null || config.apiKey!.isEmpty
@@ -458,7 +530,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         gap,
       ] else
         const HermesSecretsErrorBanner(),
-      if (!widget.isOnboarding && existing && !editsActive) ...[
+      if (!widget.isOnboarding &&
+          !_addingInSheet &&
+          existing &&
+          !editsActive) ...[
         InsetGroupedList(
           footer: l10n.hermesInactiveConnectionNotice,
           children: [
@@ -609,7 +684,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           ),
         ),
       ],
-      if (!widget.isOnboarding) ...[
+      if (!widget.isOnboarding && !_embedded) ...[
         gap,
         if (PlatformInfo.isIOS)
           Column(
@@ -669,7 +744,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
             ],
           ),
       ],
-      if (editsActive && !widget.isOnboarding && activeConfig.isUsable) ...[
+      if (editsActive &&
+          !widget.isOnboarding &&
+          !_embedded &&
+          activeConfig.isUsable) ...[
         const SizedBox(height: Spacing.xl),
         const HermesCapabilitiesSection(),
         const SizedBox(height: Spacing.lg),
@@ -681,7 +759,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         const SizedBox(height: Spacing.lg),
         const HermesServerStatusSection(),
       ],
-      if (!widget.isOnboarding && existing) ...[
+      if (!widget.isOnboarding && !_addingInSheet && existing) ...[
         gap,
         InsetGroupedList(
           useNativeSurface: PlatformInfo.isIOS,
@@ -698,6 +776,28 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         ),
       ],
     ];
+
+    if (_embedded) {
+      final busy = controller.operation.isBusy || _switching;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ...content,
+          const SizedBox(height: Spacing.lg),
+          ConnectionAttemptBanner(state: controller.attempt),
+          if (controller.attempt.isVisible) const SizedBox(height: Spacing.sm),
+          ConduitButton(
+            key: const ValueKey<String>('hermes-sheet-submit'),
+            text: _addingInSheet ? l10n.hermesConnectAction : l10n.save,
+            isFullWidth: true,
+            isLoading: busy,
+            onPressed: draftUsable && !busy
+                ? (_addingInSheet ? _connectInSheet : _saveInSheet)
+                : null,
+          ),
+        ],
+      );
+    }
 
     if (widget.isOnboarding) {
       return UtilityPageScaffold.auth(

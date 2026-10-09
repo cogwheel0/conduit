@@ -384,6 +384,11 @@ class PlatformNativeSheetItem {
     this.min,
     this.max,
     this.divisions,
+    this.avatarName,
+    this.avatarBytes,
+    this.checked,
+    this.accent,
+    this.usesProfileAvatar,
   });
 
   String id;
@@ -413,6 +418,21 @@ class PlatformNativeSheetItem {
   double? min;
   double? max;
   int? divisions;
+
+  /// Shown as a round picture -- [avatarBytes], else this name's initials --
+  /// in place of the symbol.
+  String? avatarName;
+  Uint8List? avatarBytes;
+
+  /// Marks the row in use with a check.
+  bool? checked;
+
+  /// Draws the row in the accent color, as an action.
+  bool? accent;
+
+  /// Draws the row as the sheet's profile summary: its large avatar beside
+  /// the row's own title and subtitle.
+  bool? usesProfileAvatar;
 }
 
 class PlatformNativeSheetLink {
@@ -523,6 +543,8 @@ class PlatformNativeSheetDetail {
     this.confirmActionId,
     this.confirmActionLabel,
     this.maxHeightFraction,
+    this.trailingActionId,
+    this.trailingActionSfSymbol,
   });
 
   String id;
@@ -533,6 +555,10 @@ class PlatformNativeSheetDetail {
   String? confirmActionId;
   String? confirmActionLabel;
   double? maxHeightFraction;
+
+  /// A bar button that closes the sheet and then sends this action.
+  String? trailingActionId;
+  String? trailingActionSfSymbol;
 }
 
 class PlatformNativeProfileSheetConfig {

@@ -1,5 +1,5 @@
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
@@ -7,17 +7,25 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:go_router/go_router.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/adaptive_selection_sheet.dart';
+import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/user_avatar.dart';
+import '../../../shared/widgets/utility_components.dart';
 import '../../../core/utils/account_display.dart';
+import '../../auth/views/server_connection_page.dart'
+    show ServerConnectionHandoff;
+import '../../hermes/widgets/hermes_connection_switcher.dart';
+import 'account_sheet.dart';
 
 export '../../../core/utils/account_display.dart';
+export 'account_sheet.dart' show AccountKind;
 
 /// The avatar of an account the app is not signed in to: the image saved the
 /// last time it was active when that image travels with it (a data URL, as
@@ -42,6 +50,140 @@ class SavedAccountAvatar extends StatelessWidget {
       imageUrl: image != null && image.startsWith('data:image') ? image : null,
       fallbackText: characters.isEmpty ? 'U' : characters.first.toUpperCase(),
     );
+  }
+}
+
+/// A saved Open WebUI account as a row under its server: its avatar, who it
+/// is, and a check when it is the active one. Tapping switches to it; a long
+/// press signs out of it. [showSignOut] adds a sign-out button as well, for
+/// the server's own page.
+class SavedAccountRow extends ConsumerWidget {
+  const SavedAccountRow({
+    super.key,
+    required this.entry,
+    this.showSignOut = false,
+  });
+
+  final OpenWebUiAccountEntry entry;
+  final bool showSignOut;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final name = accountDisplayName(entry, l10n);
+    void signOut() => signOutOfSavedAccount(context, ref, entry);
+    return Semantics(
+      customSemanticsActions: {
+        CustomSemanticsAction(label: l10n.accountsSignOutOf(name)): signOut,
+      },
+      child: GestureDetector(
+        onLongPress: signOut,
+        child: UtilityRow(
+          title: name,
+          subtitle: accountSubtitle(entry, l10n),
+          leading: SavedAccountAvatar(entry: entry, size: IconSize.xl),
+          selected: entry.isActive,
+          preserveTrailingSemantics: true,
+          // The active account signed out -- its session expired, next to a
+          // usable Hermes or Direct backend that keeps this page open -- is
+          // switched to as any other, which opens its sign-in.
+          onTap: entry.isActive && entry.hasSession
+              ? null
+              : () => switchToSavedAccount(context, ref, entry.id),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (entry.isActive)
+                ActiveCheckmark(semanticLabel: l10n.accountsActive),
+              if (showSignOut)
+                AdaptiveButton.icon(
+                  key: Key('accounts-sign-out-${entry.id}'),
+                  semanticLabel: l10n.accountsSignOutOf(name),
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.square_arrow_left,
+                    android: Icons.logout,
+                  ),
+                  iconColor: theme.error,
+                  style: AdaptiveButtonStyle.plain,
+                  // A row of a scrolling list: no native view per row.
+                  useNative: false,
+                  onPressed: signOut,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The check that marks the account or connection in use.
+class ActiveCheckmark extends StatelessWidget {
+  const ActiveCheckmark({super.key, required this.semanticLabel});
+
+  final String semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: semanticLabel,
+      child: Icon(
+        UiUtils.platformIcon(
+          ios: CupertinoIcons.checkmark_alt,
+          android: Icons.check,
+        ),
+        color: context.conduitTheme.buttonPrimary,
+        size: IconSize.medium,
+      ),
+    );
+  }
+}
+
+/// Makes [connectionId] the Hermes connection in use, turning Hermes on
+/// when it is off. It is switched to first: a switch that fails leaves
+/// Hermes as it was, rather than on with the connection it was meant to
+/// leave.
+Future<void> useHermesConnection(
+  BuildContext context,
+  WidgetRef ref,
+  String connectionId,
+) async {
+  if (ref.read(hermesActiveConnectionIdProvider) != connectionId) {
+    if (!await switchHermesConnection(context, ref, connectionId)) return;
+    if (!context.mounted) return;
+  }
+  if (ref.read(hermesEnabledProvider)) return;
+  try {
+    await ref.read(hermesConfigProvider.notifier).setEnabled(true);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'hermes-enable-failed',
+      scope: 'profile/accounts',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (context.mounted) {
+      UiUtils.showMessage(
+        context,
+        AppLocalizations.of(context)!.errorMessage,
+      );
+    }
+  }
+}
+
+/// Signs out of every account, after asking whether to keep the servers'
+/// details for signing in again.
+Future<void> signOutOfAllAccounts(BuildContext context, WidgetRef ref) async {
+  final keepServerDetails = await showSignOutOptionsDialog(context);
+  if (!context.mounted || keepServerDetails == null) return;
+  try {
+    await ref
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: keepServerDetails);
+  } catch (_) {
+    if (!context.mounted) return;
+    UiUtils.showMessage(context, AppLocalizations.of(context)!.errorMessage);
   }
 }
 
@@ -216,7 +358,8 @@ Future<void> signOutOfSavedAccount(
 }
 
 /// Opens the connection page to add an account on the saved server
-/// [serverId], or on a new one.
+/// [serverId], or on a new one -- carrying on from [handoff] when the
+/// account sheet checked the server first.
 ///
 /// The router keeps a signed-in user away from sign-in pages unless an
 /// account is being added, and it decides that as the page opens, so the
@@ -224,12 +367,26 @@ Future<void> signOutOfSavedAccount(
 /// the router's location rather than being pushed: the router redirects
 /// from its location, so over chat a finished sign-in would stay on screen,
 /// and the new account's first, signed-out attempt would replace the stack.
-void openAddAccount(BuildContext context, WidgetRef ref, {String? serverId}) {
+void openAddAccount(
+  BuildContext context,
+  WidgetRef ref, {
+  String? serverId,
+  ServerConnectionHandoff? handoff,
+}) {
   ref
       .read(accountAdditionOriginProvider.notifier)
       .begin(ref.read(settledActiveAccountIdProvider));
-  context.goNamed(RouteNames.addServer, extra: serverId);
+  context.goNamed(RouteNames.addServer, extra: handoff ?? serverId);
 }
+
+/// Opens the connection page for a first Open WebUI account, next to a
+/// Hermes or Direct backend in use -- carrying on from [handoff] when the
+/// account sheet checked the server first. With no account to come back to
+/// there is no addition to begin.
+void connectFirstOpenWebUiAccount(
+  BuildContext context, {
+  ServerConnectionHandoff? handoff,
+}) => context.goNamed(RouteNames.serverConnection, extra: handoff);
 
 /// Drops the added account whose sign-in never finished, which makes the
 /// account it was added from active again, and returns to chat.
@@ -266,68 +423,10 @@ Future<bool> abandonAddedAccount(BuildContext context, WidgetRef ref) async {
   return true;
 }
 
-/// Asks where to add an account -- a saved server or a new one -- and opens
-/// the connection page for it.
-Future<void> showAddAccountSheet(BuildContext context, WidgetRef ref) async {
-  final l10n = AppLocalizations.of(context)!;
-  List<OpenWebUiServer> servers;
-  try {
-    final entries = await ref.read(openWebUiAccountsProvider.future);
-    servers = {
-      for (final entry in entries) entry.server.id: entry.server,
-    }.values.toList(growable: false);
-  } catch (_) {
-    servers = const <OpenWebUiServer>[];
-  }
-  if (!context.mounted) return;
-  if (servers.isEmpty) {
-    openAddAccount(context, ref);
-    return;
-  }
-
-  final theme = context.conduitTheme;
-  final choice = await showAdaptiveSelectionSheet<String>(
-    context: context,
-    builder: (sheetContext) => AdaptiveSelectionSheet(
-      title: l10n.accountsAddAccountTitle,
-      description: l10n.accountsAddAccountMessage,
-      itemCount: servers.length + 1,
-      itemBuilder: (itemContext, index) {
-        if (index == servers.length) {
-          return AdaptiveSelectionTile(
-            key: const Key('add-account-new-server'),
-            title: l10n.accountsNewServer,
-            selected: false,
-            leading: Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.add_circled,
-                android: Icons.add_circle_outline,
-              ),
-              color: theme.buttonPrimary,
-            ),
-            onTap: () => Navigator.of(sheetContext).pop(''),
-          );
-        }
-        final server = servers[index];
-        final host = Uri.tryParse(server.endpoints.first.url)?.host;
-        final name = serverDisplayName(server);
-        return AdaptiveSelectionTile(
-          key: Key('add-account-server-${server.id}'),
-          title: name,
-          subtitle: host == null || host == name ? null : host,
-          selected: false,
-          leading: Icon(
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.cloud,
-              android: Icons.dns_outlined,
-            ),
-            color: theme.iconSecondary,
-          ),
-          onTap: () => Navigator.of(sheetContext).pop(server.id),
-        );
-      },
-    ),
-  );
-  if (choice == null || !context.mounted) return;
-  openAddAccount(context, ref, serverId: choice.isEmpty ? null : choice);
-}
+/// Opens the account sheet to add an account or connection, on the tab for
+/// [kind].
+Future<void> showAddAccountSheet(
+  BuildContext context,
+  WidgetRef ref, {
+  AccountKind kind = AccountKind.openWebUi,
+}) => showAccountSheet(context, AddAccountRequest(kind));

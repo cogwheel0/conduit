@@ -498,7 +498,11 @@ void main() {
 
       check(await service.refreshProfileRoot()).isTrue();
       final rebuilt = patches.lastWhere((p) => p.detailId == 'profile-menu');
-      check(rootRows(rebuilt).first).equals(NativeSheetRoutes.profile);
+      // Still Ada's: her card first, her own rows after it.
+      final card = rebuilt.sections.first.items.first;
+      check(card.id).equals(nativeAccountsDetailId);
+      check(card.title).equals('Ada');
+      check(rootRows(rebuilt)).contains(NativeSheetRoutes.profile);
 
       patches.clear();
       container

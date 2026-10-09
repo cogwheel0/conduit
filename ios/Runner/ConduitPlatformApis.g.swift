@@ -1430,6 +1430,17 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
   var min: Double? = nil
   var max: Double? = nil
   var divisions: Int64? = nil
+  /// Shown as a round picture -- [avatarBytes], else this name's initials --
+  /// in place of the symbol.
+  var avatarName: String? = nil
+  var avatarBytes: FlutterStandardTypedData? = nil
+  /// Marks the row in use with a check.
+  var checked: Bool? = nil
+  /// Draws the row in the accent color, as an action.
+  var accent: Bool? = nil
+  /// Draws the row as the sheet's profile summary: its large avatar beside
+  /// the row's own title and subtitle.
+  var usesProfileAvatar: Bool? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1461,6 +1472,11 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     let min: Double? = nilOrValue(pigeonVar_list[24])
     let max: Double? = nilOrValue(pigeonVar_list[25])
     let divisions: Int64? = nilOrValue(pigeonVar_list[26])
+    let avatarName: String? = nilOrValue(pigeonVar_list[27])
+    let avatarBytes: FlutterStandardTypedData? = nilOrValue(pigeonVar_list[28])
+    let checked: Bool? = nilOrValue(pigeonVar_list[29])
+    let accent: Bool? = nilOrValue(pigeonVar_list[30])
+    let usesProfileAvatar: Bool? = nilOrValue(pigeonVar_list[31])
 
     return PlatformNativeSheetItem(
       id: id,
@@ -1489,7 +1505,12 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
       pending: pending,
       min: min,
       max: max,
-      divisions: divisions
+      divisions: divisions,
+      avatarName: avatarName,
+      avatarBytes: avatarBytes,
+      checked: checked,
+      accent: accent,
+      usesProfileAvatar: usesProfileAvatar
     )
   }
   func toList() -> [Any?] {
@@ -1521,13 +1542,18 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
       min,
       max,
       divisions,
+      avatarName,
+      avatarBytes,
+      checked,
+      accent,
+      usesProfileAvatar,
     ]
   }
   static func == (lhs: PlatformNativeSheetItem, rhs: PlatformNativeSheetItem) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconAsset, rhs.iconAsset) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconSize, rhs.iconSize) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showsDisclosure, rhs.showsDisclosure) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissOnSelect, rhs.dismissOnSelect) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionId, rhs.actionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionValue, rhs.actionValue) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceIndex, rhs.sourceIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceUrl, rhs.sourceUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceType, rhs.sourceType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.snippet, rhs.snippet) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.faviconUrl, rhs.faviconUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.queries, rhs.queries) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.links, rhs.links) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pending, rhs.pending) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.min, rhs.min) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.max, rhs.max) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.divisions, rhs.divisions)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconAsset, rhs.iconAsset) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconSize, rhs.iconSize) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showsDisclosure, rhs.showsDisclosure) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissOnSelect, rhs.dismissOnSelect) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionId, rhs.actionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionValue, rhs.actionValue) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceIndex, rhs.sourceIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceUrl, rhs.sourceUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceType, rhs.sourceType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.snippet, rhs.snippet) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.faviconUrl, rhs.faviconUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.queries, rhs.queries) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.links, rhs.links) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pending, rhs.pending) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.min, rhs.min) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.max, rhs.max) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.divisions, rhs.divisions) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarName, rhs.avatarName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarBytes, rhs.avatarBytes) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.checked, rhs.checked) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.accent, rhs.accent) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.usesProfileAvatar, rhs.usesProfileAvatar)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1559,10 +1585,15 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: min, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: max, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: divisions, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: avatarName, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: avatarBytes, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: checked, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: accent, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: usesProfileAvatar, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetItem(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), iconAsset: \(String(describing: iconAsset)), iconSize: \(String(describing: iconSize)), showsDisclosure: \(String(describing: showsDisclosure)), destructive: \(String(describing: destructive)), dismissOnSelect: \(String(describing: dismissOnSelect)), actionId: \(String(describing: actionId)), actionValue: \(String(describing: actionValue)), url: \(String(describing: url)), kind: \(String(describing: kind)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), options: \(String(describing: options)), sourceIndex: \(String(describing: sourceIndex)), sourceUrl: \(String(describing: sourceUrl)), sourceType: \(String(describing: sourceType)), snippet: \(String(describing: snippet)), faviconUrl: \(String(describing: faviconUrl)), queries: \(String(describing: queries)), links: \(String(describing: links)), pending: \(String(describing: pending)), min: \(String(describing: min)), max: \(String(describing: max)), divisions: \(String(describing: divisions)))"
+    return "PlatformNativeSheetItem(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), iconAsset: \(String(describing: iconAsset)), iconSize: \(String(describing: iconSize)), showsDisclosure: \(String(describing: showsDisclosure)), destructive: \(String(describing: destructive)), dismissOnSelect: \(String(describing: dismissOnSelect)), actionId: \(String(describing: actionId)), actionValue: \(String(describing: actionValue)), url: \(String(describing: url)), kind: \(String(describing: kind)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), options: \(String(describing: options)), sourceIndex: \(String(describing: sourceIndex)), sourceUrl: \(String(describing: sourceUrl)), sourceType: \(String(describing: sourceType)), snippet: \(String(describing: snippet)), faviconUrl: \(String(describing: faviconUrl)), queries: \(String(describing: queries)), links: \(String(describing: links)), pending: \(String(describing: pending)), min: \(String(describing: min)), max: \(String(describing: max)), divisions: \(String(describing: divisions)), avatarName: \(String(describing: avatarName)), avatarBytes: \(String(describing: avatarBytes)), checked: \(String(describing: checked)), accent: \(String(describing: accent)), usesProfileAvatar: \(String(describing: usesProfileAvatar)))"
   }
 }
 
@@ -1901,6 +1932,9 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
   var confirmActionId: String? = nil
   var confirmActionLabel: String? = nil
   var maxHeightFraction: Double? = nil
+  /// A bar button that closes the sheet and then sends this action.
+  var trailingActionId: String? = nil
+  var trailingActionSfSymbol: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1913,6 +1947,8 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
     let confirmActionId: String? = nilOrValue(pigeonVar_list[5])
     let confirmActionLabel: String? = nilOrValue(pigeonVar_list[6])
     let maxHeightFraction: Double? = nilOrValue(pigeonVar_list[7])
+    let trailingActionId: String? = nilOrValue(pigeonVar_list[8])
+    let trailingActionSfSymbol: String? = nilOrValue(pigeonVar_list[9])
 
     return PlatformNativeSheetDetail(
       id: id,
@@ -1922,7 +1958,9 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
       sections: sections,
       confirmActionId: confirmActionId,
       confirmActionLabel: confirmActionLabel,
-      maxHeightFraction: maxHeightFraction
+      maxHeightFraction: maxHeightFraction,
+      trailingActionId: trailingActionId,
+      trailingActionSfSymbol: trailingActionSfSymbol
     )
   }
   func toList() -> [Any?] {
@@ -1935,13 +1973,15 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
       confirmActionId,
       confirmActionLabel,
       maxHeightFraction,
+      trailingActionId,
+      trailingActionSfSymbol,
     ]
   }
   static func == (lhs: PlatformNativeSheetDetail, rhs: PlatformNativeSheetDetail) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sections, rhs.sections) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionId, rhs.confirmActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionLabel, rhs.confirmActionLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maxHeightFraction, rhs.maxHeightFraction)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sections, rhs.sections) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionId, rhs.confirmActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.confirmActionLabel, rhs.confirmActionLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.maxHeightFraction, rhs.maxHeightFraction) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionId, rhs.trailingActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.trailingActionSfSymbol, rhs.trailingActionSfSymbol)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1954,10 +1994,12 @@ struct PlatformNativeSheetDetail: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: confirmActionId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: confirmActionLabel, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: maxHeightFraction, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: trailingActionId, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: trailingActionSfSymbol, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetDetail(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), items: \(String(describing: items)), sections: \(String(describing: sections)), confirmActionId: \(String(describing: confirmActionId)), confirmActionLabel: \(String(describing: confirmActionLabel)), maxHeightFraction: \(String(describing: maxHeightFraction)))"
+    return "PlatformNativeSheetDetail(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), items: \(String(describing: items)), sections: \(String(describing: sections)), confirmActionId: \(String(describing: confirmActionId)), confirmActionLabel: \(String(describing: confirmActionLabel)), maxHeightFraction: \(String(describing: maxHeightFraction)), trailingActionId: \(String(describing: trailingActionId)), trailingActionSfSymbol: \(String(describing: trailingActionSfSymbol)))"
   }
 }
 
