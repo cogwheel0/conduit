@@ -66,9 +66,10 @@ The plaintext is compact UTF-8 JSON:
 | `n` | string | Test nonce, only for `k == "test"` |
 
 Unknown keys are ignored. Servers sanitize the preview before truncating
-it. They strip `<details>` and `<think>` blocks, fenced code, images, link
-markup, and Markdown markers, then collapse whitespace, then cut on code
-points and append `…`.
+it. They look at the first 4000 characters only, and drop everything from a
+`<details>` or `<think>` block left open by that cut. They strip `<details>`
+and `<think>` blocks, fenced code, images, link markup, and Markdown markers,
+then collapse whitespace, then cut on code points and append `…`.
 
 ### Dedup keys
 
@@ -223,11 +224,15 @@ the same body to it. The connector instance is the `sid`.
    (shown as a passive generic notification until Apple grants the filtering
    entitlement).
 2. Decrypt, parse `cp/1`, and build the app-wide dedup key.
-3. If that key was already shown, drop the push. Otherwise claim it in the
-   shared ledger.
+3. Claim the key in the shared ledger. If it was already shown, drop the push.
+   Until Apple grants the filtering entitlement, iOS instead shows it again
+   with its decrypted content, silently and as passive, because a push with
+   the same `Topic` replaces the earlier notification on screen.
 4. If the user switched this kind or this account off on the device, drop the push.
 5. Show it: title `t` (or a localized fallback for the kind), body `b`, and the
    account label as the subtitle when more than one account is subscribed.
-   A tap opens the item in that account.
+   The thread or group is `<scope>|<g>`, so one server can't merge its
+   notifications into another account's. A tap opens the item in that account;
+   on iOS the extension signs the tap so the app only acts on taps it wrote.
 6. A `test` push also records `n` so the app can mark the subscription as
    verified.
