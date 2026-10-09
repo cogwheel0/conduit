@@ -5,8 +5,10 @@ import 'package:hive_ce/hive.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:conduit_core/conduit_core.dart';
 
+import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -45,6 +47,15 @@ typedef ServerSessionOwnershipSnapshot = ({
   int revision,
   ServerConfig serverConfig,
   bool requireActive,
+});
+
+/// The registry as a transaction found it, and whether reads of it were
+/// fenced then. A rollback puts back exactly this: rebuilding it from the
+/// projected configs would lose what they do not carry, such as an
+/// account's proven user and the ids of its server and routes.
+typedef _RegistrySnapshot = ({
+  OpenWebUiRegistry registry,
+  bool readsSuppressed,
 });
 
 typedef _StagedServerConfigCandidate = ({
@@ -194,6 +205,12 @@ class OptimizedStorageService {
   /// reentrant, so locked methods must call the unlocked bodies internally).
   final Lock _authStateLock = Lock();
   final Lock _serverConfigsLock = Lock();
+
+  /// Set once no read can migrate the one-server config list any more: a
+  /// registry was found or written, or there was no list to move. Until then
+  /// a config read may run the migration, which rewrites the saved sign-in,
+  /// so it holds [_authStateLock] as well.
+  bool _registryMigrationSettled = false;
   int _serverOwnershipRevision = 0;
   int _nextServerConfigCandidateTransactionId = 0;
   _StagedServerConfigCandidate? _stagedServerConfigCandidate;
@@ -208,9 +225,15 @@ class OptimizedStorageService {
   bool _serverConfigsReadSuppressed = false;
   bool _activeServerIdReadSuppressed = false;
 
+  // What the last full wipe meant to leave stored, until a registry write
+  // lands; see [_registryForWriteUnlocked]. Not a cache entry: it must not
+  // expire while the old registry may still be stored.
+  OpenWebUiRegistry? _registryLeftByWipe;
+
   static const String _authTokenKey = 'auth_token_v3';
   static const String _activeServerIdKey = PreferenceKeys.activeServerId;
   static const String _serverConfigsCacheKey = 'server_configs_v1';
+  static const String _registryCacheKey = 'openwebui_registry_v1';
   static const String _themeModeKey = PreferenceKeys.themeMode;
   static const String _themePaletteKey = PreferenceKeys.themePalette;
   static const String _localeCodeKey = PreferenceKeys.localeCode;
@@ -549,10 +572,26 @@ class OptimizedStorageService {
   /// storage failure into absence. A confirmed null is cached; failures retry
   /// once and then propagate so bootstrap cannot silently disable auto-login.
   Future<Map<String, String>?> getSavedCredentialsStrict() {
-    return _authStateLock.synchronized(
-      () => _retrySecureStorageRead(
+    return _authStateLock.synchronized(() async {
+      await _settleRegistryMigrationUnlocked();
+      return _retrySecureStorageRead(
         _getSavedCredentialsStrictUnlocked,
         scope: 'storage/optimized/credentials',
+      );
+    });
+  }
+
+  /// Runs the registry migration, when it is still due, before a saved
+  /// sign-in is read. The migration moves a sign-in whose account collapsed
+  /// into another; read before it, the sign-in names an account the
+  /// migration then drops, and the silent sign-in started from it finds no
+  /// server. Call with [_authStateLock] held and [_serverConfigsLock] not.
+  Future<void> _settleRegistryMigrationUnlocked() async {
+    if (_registryMigrationSettled) return;
+    await _serverConfigsLock.synchronized(
+      () => _retrySecureStorageRead(
+        _registryForWriteUnlocked,
+        scope: 'storage/optimized/server-configs',
       ),
     );
   }
@@ -560,6 +599,7 @@ class OptimizedStorageService {
   Future<Map<String, String>?> _getSavedCredentialsUnlocked() async {
     if (_savedCredentialsReadSuppressed) return null;
     try {
+      await _settleRegistryMigrationUnlocked();
       final credentials = await _retrySecureStorageRead(
         _getSavedCredentialsStrictUnlocked,
         scope: 'storage/optimized/credentials',
@@ -693,19 +733,25 @@ class OptimizedStorageService {
                   : config.copyWith(apiKey: null),
             )
             .toList(growable: false);
+        // Judge ownership by what the save will store, not by what was passed:
+        // accounts on one server share its endpoint, so an edit made through
+        // one account moves every other account on that server too.
+        final nextConfigs = (await _registryForWriteUnlocked())
+            .mergeServerConfigs(sanitizedConfigs)
+            .projectAll();
         final rawActiveServerId = _rawStoredActiveServerId();
         final currentActiveId = _effectiveActiveServerId(
           configs: currentConfigs,
           rawActiveServerId: rawActiveServerId,
         );
         final nextActiveId = _effectiveActiveServerId(
-          configs: sanitizedConfigs,
+          configs: nextConfigs,
           rawActiveServerId: rawActiveServerId,
         );
         final currentActive = currentConfigs
             .where((config) => config.id == currentActiveId)
             .firstOrNull;
-        final nextActive = sanitizedConfigs
+        final nextActive = nextConfigs
             .where((config) => config.id == nextActiveId)
             .firstOrNull;
         // Session ownership follows the server identity (id, origin URL, mTLS
@@ -732,7 +778,7 @@ class OptimizedStorageService {
           final currentCredentialConfig = currentConfigs
               .where((config) => config.id == credentialServerId)
               .firstOrNull;
-          final nextCredentialConfig = sanitizedConfigs
+          final nextCredentialConfig = nextConfigs
               .where((config) => config.id == credentialServerId)
               .firstOrNull;
           credentialOwnershipChanged =
@@ -801,15 +847,40 @@ class OptimizedStorageService {
     return config.copyWith(apiKey: null, customHeaders: sanitizedHeaders);
   }
 
-  ServerConfig _retainNonSecretServerDetails(ServerConfig config) {
-    return config.copyWith(
-      apiKey: null,
-      customHeaders: const <String, String>{},
-      mtlsCertificateChainPem: null,
-      mtlsCertificateLabel: null,
-      mtlsPrivateKeyPem: null,
-      mtlsPrivateKeyLabel: null,
-      mtlsPrivateKeyPassword: null,
+  /// What a sign-out that keeps server details keeps of [registry]: every
+  /// server with all its routes in order, their URLs, labels and certificate
+  /// policy, and every account, no longer proven to be anyone and without
+  /// captured cookies. Custom headers and client identities are secrets and
+  /// go. Built from the registry, not from its projections, which carry only
+  /// the route each account is using.
+  OpenWebUiRegistry _retainNonSecretServerDetails(OpenWebUiRegistry registry) {
+    return OpenWebUiRegistry(
+      servers: [
+        for (final server in registry.servers)
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [
+              for (final endpoint in server.endpoints)
+                OpenWebUiEndpoint(
+                  id: endpoint.id,
+                  url: endpoint.url,
+                  label: endpoint.label,
+                  allowSelfSignedCertificates:
+                      endpoint.allowSelfSignedCertificates,
+                ),
+            ],
+          ),
+      ],
+      accounts: [
+        for (final account in registry.accounts)
+          OpenWebUiAccount(
+            id: account.id,
+            serverId: account.serverId,
+            isActive: account.isActive,
+            lastConnected: account.lastConnected,
+          ),
+      ],
     );
   }
 
@@ -847,9 +918,7 @@ class OptimizedStorageService {
         bool ownsAttempt() => canCommit?.call() ?? true;
         if (!ownsAttempt()) return false;
 
-        final previousConfigs = List<ServerConfig>.unmodifiable(
-          await _getServerConfigsStrictUnlocked(),
-        );
+        final previousRegistry = await _snapshotRegistryUnlocked();
         if (!ownsAttempt()) return false;
         final previousActiveServerId = _rawStoredActiveServerId();
         final previousToken = await _getAuthTokenStrictUnlocked();
@@ -894,7 +963,7 @@ class OptimizedStorageService {
           if (persistenceStarted) {
             try {
               await _restoreServerSessionUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
                 token: previousToken,
                 restoreCredentials: true,
@@ -904,7 +973,7 @@ class OptimizedStorageService {
               _stagedServerConfigCandidate = previousStage;
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -923,13 +992,13 @@ class OptimizedStorageService {
             try {
               if (commitError is ServerConfigSessionRollbackException) {
                 await _restoreTokenlessSanitizedServerSessionUnlocked(
-                  configs: previousConfigs,
+                  registry: previousRegistry,
                   activeServerId: previousActiveServerId,
                 );
                 _notifyRollbackUncertainSafely(onRollbackUncertain);
               } else {
                 await _restoreServerSessionUnlocked(
-                  configs: previousConfigs,
+                  registry: previousRegistry,
                   activeServerId: previousActiveServerId,
                   token: previousToken,
                   restoreCredentials: true,
@@ -940,7 +1009,7 @@ class OptimizedStorageService {
               }
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -959,17 +1028,22 @@ class OptimizedStorageService {
     );
   }
 
+  /// Saves [configs] as the complete account list.
+  ///
+  /// The registry is the stored form; [configs] are folded into it by
+  /// [OpenWebUiRegistry.mergeServerConfigs], which keeps every account's
+  /// server, its other endpoints and its proven user while applying the
+  /// edits the configs carry.
   Future<void> _saveServerConfigsUnlocked(
     List<ServerConfig> configs, {
     bool authorizeReads = true,
   }) async {
     try {
-      final jsonString = jsonEncode(configs.map((c) => c.toJson()).toList());
-      await _secureCredentialStorage.saveServerConfigs(jsonString);
-      if (authorizeReads) _serverConfigsReadSuppressed = false;
-      _serverOwnershipRevision++;
-      _cacheManager.invalidate(_activeServerIdKey);
-      _cacheServerConfigs(configs);
+      final base = await _registryForWriteUnlocked();
+      await _saveRegistryUnlocked(
+        base.mergeServerConfigs(configs),
+        authorizeReads: authorizeReads,
+      );
       DebugLogger.log(
         'Server configs saved (${configs.length} entries)',
         scope: 'storage/optimized',
@@ -1077,6 +1151,7 @@ class OptimizedStorageService {
         final previousConfigs = List<ServerConfig>.unmodifiable(
           await _getServerConfigsStrictUnlocked(),
         );
+        final previousRegistry = await _snapshotRegistryUnlocked();
         if (!canCommit() || _serverOwnershipRevision != ownership.revision) {
           return false;
         }
@@ -1200,7 +1275,7 @@ class OptimizedStorageService {
           if (persistenceStarted) {
             try {
               await _restoreServerSessionUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
                 token: previousToken,
                 restoreConfigs: configsWritten,
@@ -1211,7 +1286,7 @@ class OptimizedStorageService {
               );
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1233,7 +1308,7 @@ class OptimizedStorageService {
                 // Never resurrect a previous bearer, saved credential, or
                 // proxy Cookie under a possibly-cleared fence.
                 await _restoreTokenlessSanitizedServerSessionUnlocked(
-                  configs: previousConfigs,
+                  registry: previousRegistry,
                   activeServerId: previousActiveServerId,
                   // Even when the forward commit did not touch configs, the
                   // baseline may contain the Cookie that the uncertain fence
@@ -1244,7 +1319,7 @@ class OptimizedStorageService {
                 _notifyRollbackUncertainSafely(onRollbackUncertain);
               } else {
                 await _restoreServerSessionUnlocked(
-                  configs: previousConfigs,
+                  registry: previousRegistry,
                   activeServerId: previousActiveServerId,
                   token: previousToken,
                   restoreConfigs: configsWritten,
@@ -1256,7 +1331,7 @@ class OptimizedStorageService {
               }
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: previousConfigs,
+                registry: previousRegistry,
                 activeServerId: previousActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1317,25 +1392,8 @@ class OptimizedStorageService {
         stored.mtlsPrivateKeyPassword == next.mtlsPrivateKeyPassword;
   }
 
-  String _normalizedServerIdentityUrl(String value) {
-    final trimmed = value.trim();
-    final parsed = Uri.tryParse(trimmed);
-    if (parsed == null || !parsed.hasScheme || parsed.host.isEmpty) {
-      return trimmed;
-    }
-    var path = parsed.path;
-    while (path.length > 1 && path.endsWith('/')) {
-      path = path.substring(0, path.length - 1);
-    }
-    if (path == '/') path = '';
-    return parsed
-        .replace(
-          scheme: parsed.scheme.toLowerCase(),
-          host: parsed.host.toLowerCase(),
-          path: path,
-        )
-        .toString();
-  }
+  String _normalizedServerIdentityUrl(String value) =>
+      openWebUiServerIdentityUrl(value);
 
   bool _sameStringMap(Map<String, String> left, Map<String, String> right) {
     if (left.length != right.length) return false;
@@ -1473,6 +1531,7 @@ class OptimizedStorageService {
           committedCandidate,
         ];
 
+        late final _RegistrySnapshot previousRegistry;
         String? previousToken;
         String? previousCredentialsPayload;
         var previousCredentialsReadSuppressed = false;
@@ -1481,6 +1540,7 @@ class OptimizedStorageService {
           // This strict snapshot occurs inside the auth lock and before the
           // first write. A transient Keychain failure must abort the commit,
           // never masquerade as a missing prior session during rollback.
+          previousRegistry = await _snapshotRegistryUnlocked();
           previousToken = await _getAuthTokenStrictUnlocked();
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
           previousCredentialsReadSuppressed = _savedCredentialsReadSuppressed;
@@ -1531,6 +1591,7 @@ class OptimizedStorageService {
             try {
               await _restoreStagedServerConfigSessionUnlocked(
                 staged: staged,
+                previousRegistry: previousRegistry,
                 previousToken: previousToken,
                 previousCredentialsPayload: previousCredentialsPayload,
                 previousCredentialsReadSuppressed:
@@ -1538,7 +1599,7 @@ class OptimizedStorageService {
               );
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: staged.baselineConfigs,
+                registry: previousRegistry,
                 activeServerId: staged.baselineActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1557,13 +1618,14 @@ class OptimizedStorageService {
             try {
               if (commitError is ServerConfigSessionRollbackException) {
                 await _restoreTokenlessSanitizedServerSessionUnlocked(
-                  configs: staged.baselineConfigs,
+                  registry: previousRegistry,
                   activeServerId: staged.baselineActiveServerId,
                 );
                 _notifyRollbackUncertainSafely(onRollbackUncertain);
               } else {
                 await _restoreStagedServerConfigSessionUnlocked(
                   staged: staged,
+                  previousRegistry: previousRegistry,
                   previousToken: previousToken,
                   previousCredentialsPayload: previousCredentialsPayload,
                   previousCredentialsReadSuppressed:
@@ -1572,7 +1634,7 @@ class OptimizedStorageService {
               }
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
-                configs: staged.baselineConfigs,
+                registry: previousRegistry,
                 activeServerId: staged.baselineActiveServerId,
               );
               _notifyRollbackUncertainSafely(onRollbackUncertain);
@@ -1630,12 +1692,13 @@ class OptimizedStorageService {
 
   Future<void> _restoreStagedServerConfigSessionUnlocked({
     required _StagedServerConfigCandidate staged,
+    required _RegistrySnapshot previousRegistry,
     required String? previousToken,
     required String? previousCredentialsPayload,
     required bool previousCredentialsReadSuppressed,
   }) {
     return _restoreServerSessionUnlocked(
-      configs: staged.baselineConfigs,
+      registry: previousRegistry,
       activeServerId: staged.baselineActiveServerId,
       token: previousToken,
       restoreCredentials: true,
@@ -1645,7 +1708,7 @@ class OptimizedStorageService {
   }
 
   Future<void> _restoreServerSessionUnlocked({
-    required List<ServerConfig> configs,
+    required _RegistrySnapshot registry,
     required String? activeServerId,
     required String? token,
     bool restoreConfigs = true,
@@ -1672,7 +1735,7 @@ class OptimizedStorageService {
     }
     if (restoreConfigs) {
       try {
-        await _saveServerConfigsUnlocked(configs);
+        await _restoreRegistryUnlocked(registry);
       } catch (error, stackTrace) {
         ownershipRestoreError ??= error;
         ownershipRestoreStackTrace ??= stackTrace;
@@ -1718,10 +1781,11 @@ class OptimizedStorageService {
   }
 
   /// Fail-closed rollback used only when the durable incomplete-logout fence
-  /// cannot be restored. Deleting auth secrets is the first prefix; configs
-  /// are then restored without legacy bearer fields or proxy cookies.
+  /// cannot be restored. Deleting auth secrets is the first prefix; the
+  /// registry is then restored without the proxy cookies its accounts
+  /// captured (it never stores a legacy bearer).
   Future<void> _restoreTokenlessSanitizedServerSessionUnlocked({
-    required List<ServerConfig> configs,
+    required _RegistrySnapshot registry,
     required String? activeServerId,
     bool restoreConfigs = true,
     bool restoreActiveServerId = true,
@@ -1743,12 +1807,13 @@ class OptimizedStorageService {
     // bearer scrub.
     await attempt(_deleteAuthTokenUnlocked);
     await attempt(_deleteSavedCredentialsUnlocked);
-    final sanitized = configs
-        .map(_revokeServerConfigAuthArtifacts)
-        .toList(growable: false);
+    final sanitized = (
+      registry: registry.registry.withoutCapturedHeaders(),
+      readsSuppressed: registry.readsSuppressed,
+    );
     await attempt(
       () => _restoreServerSessionUnlocked(
-        configs: sanitized,
+        registry: sanitized,
         activeServerId: activeServerId,
         token: null,
         restoreConfigs: restoreConfigs,
@@ -1770,12 +1835,12 @@ class OptimizedStorageService {
   /// this safety pass is logged by type only and must not hide that error or
   /// prevent the in-memory uncertainty fence from being published.
   Future<void> _bestEffortFailClosedServerSessionRestoreUnlocked({
-    required List<ServerConfig> configs,
+    required _RegistrySnapshot registry,
     required String? activeServerId,
   }) async {
     try {
       await _restoreTokenlessSanitizedServerSessionUnlocked(
-        configs: configs,
+        registry: registry,
         activeServerId: activeServerId,
       );
     } catch (error, stackTrace) {
@@ -1803,8 +1868,21 @@ class OptimizedStorageService {
     return configs.length == 1 ? configs.single.id : null;
   }
 
+  /// Runs a config read under [_serverConfigsLock], and under
+  /// [_authStateLock] first while it could still run the migration: the
+  /// migration moves the saved sign-in, and a sign-in saved or deleted
+  /// between its read and that write would be overwritten or come back.
+  Future<T> _synchronizedServerConfigsRead<T>(Future<T> Function() read) {
+    if (_registryMigrationSettled) {
+      return _serverConfigsLock.synchronized(read);
+    }
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(read),
+    );
+  }
+
   Future<List<ServerConfig>> getServerConfigs() {
-    return _serverConfigsLock.synchronized(() async {
+    return _synchronizedServerConfigsRead(() async {
       try {
         return await _getServerConfigsStrictRetryingUnlocked();
       } catch (error) {
@@ -1821,7 +1899,7 @@ class OptimizedStorageService {
   /// list. Provider-facing callers use this so Riverpod publishes AsyncError
   /// and can recover on invalidation instead of retaining a false empty cache.
   Future<List<ServerConfig>> getServerConfigsStrict() =>
-      _serverConfigsLock.synchronized(_getServerConfigsStrictRetryingUnlocked);
+      _synchronizedServerConfigsRead(_getServerConfigsStrictRetryingUnlocked);
 
   Future<List<ServerConfig>> _getServerConfigsStrictRetryingUnlocked() {
     return _retrySecureStorageRead(
@@ -1844,23 +1922,172 @@ class OptimizedStorageService {
       }
     }
 
-    final jsonString = await _secureCredentialStorage.getServerConfigs();
-    if (jsonString == null) {
-      if (!bypassReadSuppression) {
-        _cacheServerConfigs(const <ServerConfig>[]);
-      }
-      return const [];
+    final registry = await _getRegistryStrictUnlocked(
+      bypassReadSuppression: bypassReadSuppression,
+    );
+    return registry.projectAll();
+  }
+
+  Future<OpenWebUiRegistry> _getRegistryStrictUnlocked({
+    bool bypassReadSuppression = false,
+  }) async {
+    if (_serverConfigsReadSuppressed && !bypassReadSuppression) {
+      return OpenWebUiRegistry.empty;
     }
-    if (jsonString.isEmpty) {
-      throw const FormatException('Server configs payload was empty');
+    if (!bypassReadSuppression) {
+      final (hit: hasCachedRegistry, value: cachedRegistry) = _cacheManager
+          .lookup<OpenWebUiRegistry>(_registryCacheKey);
+      if (hasCachedRegistry && cachedRegistry != null) return cachedRegistry;
+    }
+    final registry = await _readRegistryFromStorageUnlocked();
+    if (!bypassReadSuppression) _cacheRegistry(registry);
+    return registry;
+  }
+
+  /// The registry a config write folds into: the last one written by this
+  /// process, or the stored one. Read fences do not apply; a write must build
+  /// on what is durable, not on what reads are currently allowed to see.
+  ///
+  /// After a full wipe it is the registry the wipe meant to leave -- empty,
+  /// or the server details it kept -- even when the platform delete failed
+  /// and the old one is still stored. Until a registry write lands, a write
+  /// builds on that, however long it takes, so it cannot bring back the
+  /// accounts, routes or cookies the wipe was removing.
+  Future<OpenWebUiRegistry> _registryForWriteUnlocked() async {
+    final leftByWipe = _registryLeftByWipe;
+    if (leftByWipe != null) return leftByWipe;
+    final (hit: hasCachedRegistry, value: cachedRegistry) = _cacheManager
+        .lookup<OpenWebUiRegistry>(_registryCacheKey);
+    if (hasCachedRegistry && cachedRegistry != null) return cachedRegistry;
+    return _readRegistryFromStorageUnlocked();
+  }
+
+  Future<_RegistrySnapshot> _snapshotRegistryUnlocked() async => (
+    registry: await _registryForWriteUnlocked(),
+    readsSuppressed: _serverConfigsReadSuppressed,
+  );
+
+  /// Writes [snapshot] back as it was taken. Reads fenced then stay fenced,
+  /// whatever the transaction being undone did to the fence.
+  Future<void> _restoreRegistryUnlocked(_RegistrySnapshot snapshot) async {
+    await _saveRegistryUnlocked(snapshot.registry, authorizeReads: false);
+    _serverConfigsReadSuppressed = snapshot.readsSuppressed;
+  }
+
+  Future<void> _saveRegistryUnlocked(
+    OpenWebUiRegistry registry, {
+    bool authorizeReads = true,
+  }) async {
+    await _secureCredentialStorage.saveOpenWebUiRegistry(registry.encode());
+    _registryLeftByWipe = null;
+    _registryMigrationSettled = true;
+    if (authorizeReads) _serverConfigsReadSuppressed = false;
+    _serverOwnershipRevision++;
+    _cacheManager.invalidate(_activeServerIdKey);
+    _cacheRegistry(registry);
+  }
+
+  Future<OpenWebUiRegistry> _readRegistryFromStorageUnlocked() async {
+    final stored = await _secureCredentialStorage.getOpenWebUiRegistry();
+    if (stored != null) {
+      _registryMigrationSettled = true;
+      if (stored.isEmpty) {
+        throw const FormatException('Open WebUI registry payload was empty');
+      }
+      return OpenWebUiRegistry.decode(stored);
     }
 
-    final decoded = jsonDecode(jsonString) as List<dynamic>;
+    final legacy = await _secureCredentialStorage.getServerConfigs();
+    if (legacy == null) {
+      // Nothing writes the old list any more, so none can appear later.
+      _registryMigrationSettled = true;
+      return OpenWebUiRegistry.empty;
+    }
+    if (legacy.isEmpty) {
+      throw const FormatException('Server configs payload was empty');
+    }
+    final decoded = jsonDecode(legacy) as List<dynamic>;
     final configs = decoded
         .map((item) => ServerConfig.fromJson(item))
         .toList(growable: false);
-    if (!bypassReadSuppression) _cacheServerConfigs(configs);
-    return configs;
+    final registry = await _migrateLegacyServerConfigsUnlocked(configs);
+    _registryMigrationSettled = true;
+    return registry;
+  }
+
+  /// Replaces the one-server config list with the registry, once.
+  ///
+  /// Every read happens before the first write, and any failure propagates
+  /// before anything is written: a Keychain that is still locked at launch
+  /// must not turn into "no servers". The registry is written and read back
+  /// before the legacy list is deleted, so a crash at any point leaves one of
+  /// the two intact, and the registry wins whenever it exists. One-way: an
+  /// older build afterwards finds no saved server and asks to sign in.
+  ///
+  /// It can rewrite the saved sign-in, so it runs with both locks held; see
+  /// [_synchronizedServerConfigsRead].
+  Future<OpenWebUiRegistry> _migrateLegacyServerConfigsUnlocked(
+    List<ServerConfig> configs,
+  ) async {
+    final activeId = _effectiveActiveServerId(
+      configs: configs,
+      rawActiveServerId: _rawStoredActiveServerId(bypassReadSuppression: true),
+    );
+    final credentials = await _secureCredentialStorage
+        .getSavedCredentialsPayloadStrict();
+    final credentialOwner = _savedCredentialsServerId(credentials);
+    final vaulted = await _secureCredentialStorage.vaultedServerIds();
+    const markers = PreferencesOpenWebUiAccountOwnerMarkerStore();
+    final collapsedInto = <String, String>{};
+    final registry = OpenWebUiRegistry.fromLegacyServerConfigs(
+      configs,
+      priority: <String>[?activeId, ?credentialOwner, ...vaulted],
+      userIdFor: (accountId) => markers.read(accountId)?.userId,
+      onCollapsed: (droppedId, keptId) => collapsedInto[droppedId] = keptId,
+    );
+
+    // The saved sign-in may name an account that collapsed into another of
+    // the same user; it follows that account, or a silent sign-in would find
+    // its owner gone and drop it. Before the registry write, so a crash
+    // reruns the migration with the sign-in already owned by a kept account.
+    final credentialHeir = collapsedInto[credentialOwner];
+    if (credentials != null && credentialHeir != null) {
+      final decoded = jsonDecode(credentials) as Map<String, dynamic>;
+      await _secureCredentialStorage.restoreSavedCredentialsPayload(
+        jsonEncode(<String, dynamic>{...decoded, 'serverId': credentialHeir}),
+      );
+    }
+
+    final encoded = registry.encode();
+    await _secureCredentialStorage.saveOpenWebUiRegistry(encoded);
+    final written = await _secureCredentialStorage.getOpenWebUiRegistry();
+    if (written != encoded) {
+      try {
+        await _secureCredentialStorage.deleteOpenWebUiRegistry();
+      } catch (_) {}
+      throw StateError('Open WebUI registry could not be verified');
+    }
+    try {
+      await _secureCredentialStorage.deleteLegacyServerConfigs();
+    } catch (error) {
+      // The registry is authoritative from here on; the stale list is never
+      // read again while it exists.
+      DebugLogger.warning(
+        'legacy-server-configs-delete-failed',
+        scope: 'storage/optimized/registry',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    DebugLogger.info(
+      'registry-migrated',
+      scope: 'storage/optimized/registry',
+      data: {
+        'legacyConfigs': configs.length,
+        'accounts': registry.accounts.length,
+        'servers': registry.servers.length,
+      },
+    );
+    return registry;
   }
 
   Future<List<ServerConfig>>
@@ -2481,6 +2708,14 @@ class OptimizedStorageService {
   }
 
   Future<void> _scrubServerConfigAuthArtifactsUnlocked() async {
+    // After a wipe whose delete failed, the old registry is still stored,
+    // cookies and all. What the wipe meant to leave goes over it: a copy
+    // with only its secrets taken out would keep what the wipe removed.
+    final leftByWipe = _registryLeftByWipe;
+    if (leftByWipe != null) {
+      await _saveRegistryUnlocked(leftByWipe, authorizeReads: false);
+      return;
+    }
     final configs = await _getServerConfigsStrictUnlockedBypassingSuppression();
     var changed = false;
     final sanitized = configs
@@ -2609,17 +2844,18 @@ class OptimizedStorageService {
     final initiatingServerId = _rawStoredActiveServerId(
       bypassReadSuppression: true,
     );
-    var retainedServerConfigs = const <ServerConfig>[];
+    var retainedRegistry = OpenWebUiRegistry.empty;
     String? retainedActiveServerId;
     if (preserveServerDetails) {
       await attempt(() async {
-        final configs =
-            await _getServerConfigsStrictUnlockedBypassingSuppression();
-        retainedServerConfigs = configs
-            .map(_retainNonSecretServerDetails)
-            .toList(growable: false);
+        // After an earlier wipe whose delete failed, what it meant to leave,
+        // not the old registry still stored.
+        retainedRegistry = _retainNonSecretServerDetails(
+          _registryLeftByWipe ??
+              await _getRegistryStrictUnlocked(bypassReadSuppression: true),
+        );
         retainedActiveServerId = _effectiveActiveServerId(
-          configs: retainedServerConfigs,
+          configs: retainedRegistry.projectAll(),
           rawActiveServerId: initiatingServerId,
         );
       });
@@ -2685,7 +2921,8 @@ class OptimizedStorageService {
         false,
         ttl: _credentialsFlagTtl,
       );
-      _cacheServerConfigs(const <ServerConfig>[]);
+      _cacheRegistry(OpenWebUiRegistry.empty);
+      _registryLeftByWipe = retainedRegistry;
       _cacheActiveServerId(null);
     }
 
@@ -2693,10 +2930,7 @@ class OptimizedStorageService {
       var configsRestored = false;
       var activeIdRestored = false;
       await attempt(() async {
-        await _saveServerConfigsUnlocked(
-          retainedServerConfigs,
-          authorizeReads: false,
-        );
+        await _saveRegistryUnlocked(retainedRegistry, authorizeReads: false);
         configsRestored = true;
       });
       await attempt(() async {
@@ -2711,7 +2945,6 @@ class OptimizedStorageService {
       if (configsRestored && activeIdRestored) {
         _serverConfigsReadSuppressed = false;
         _activeServerIdReadSuppressed = false;
-        _cacheServerConfigs(retainedServerConfigs);
         _cacheActiveServerId(retainedActiveServerId);
       } else {
         _serverConfigsReadSuppressed = true;
@@ -2838,8 +3071,10 @@ class OptimizedStorageService {
     return null;
   }
 
-  void _cacheServerConfigs(List<ServerConfig> configs) {
+  void _cacheRegistry(OpenWebUiRegistry registry) {
+    final configs = registry.projectAll();
     _cacheManager.write('server_config_count', configs.length);
+    _cacheManager.write(_registryCacheKey, registry, ttl: _serverConfigsTtl);
     _cacheManager.write(
       _serverConfigsCacheKey,
       List<ServerConfig>.unmodifiable(configs),
