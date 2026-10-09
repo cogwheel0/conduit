@@ -149,6 +149,8 @@ void main() {
       expect(add.title, _l10n.accountsAddAccount);
       expect(add.accent, isTrue);
       expect(add.dismissOnSelect, isTrue);
+      // An action, not a page: no chevron.
+      expect(add.showsDisclosure, isFalse);
       expect(add.actionId, nativeAccountAddActionId);
     });
 

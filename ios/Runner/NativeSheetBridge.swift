@@ -1510,7 +1510,9 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                 sections: sections,
                 confirmActionId: existing.confirmActionId,
                 confirmActionLabel: existing.confirmActionLabel,
-                maxHeightFraction: existing.maxHeightFraction
+                maxHeightFraction: existing.maxHeightFraction,
+                trailingActionId: existing.trailingActionId,
+                trailingActionSfSymbol: existing.trailingActionSfSymbol
             )
             self.detailPayloads[detailId] = patched
             if self.activeDetailTableController?.detailId == detailId {
@@ -3420,7 +3422,9 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 
     private func shouldShowDisclosure(for item: NativeSheetItem) -> Bool {
-        item.url != nil || item.dismissOnSelect || configuration.details[item.id] != nil
+        // A row that closes the sheet without opening anything says so.
+        item.showsDisclosure
+            ?? (item.url != nil || item.dismissOnSelect || configuration.details[item.id] != nil)
     }
 
     private func configureProfileSummaryCell(_ cell: UITableViewCell, item: NativeSheetItem) {

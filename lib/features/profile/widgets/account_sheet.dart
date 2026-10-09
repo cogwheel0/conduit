@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/sheet_handle.dart';
@@ -311,15 +310,25 @@ class _SheetHeader extends StatelessWidget {
         height: TouchTarget.comfortable,
         child: Row(
           children: [
+            // Drawn here, not as the native glass toolbar button, which
+            // renders as a flat square over a sheet.
             AdaptiveTooltip(
               message: closeLabel,
-              child: ConduitAdaptiveAppBarIconButton(
-                key: const Key('account-sheet-close'),
-                icon: context.usesCupertinoChrome
-                    ? CupertinoIcons.xmark
-                    : Icons.close,
-                semanticLabel: closeLabel,
-                onPressed: onClose,
+              child: SizedBox.square(
+                dimension: TouchTarget.minimum,
+                child: FloatingAppBarButton(
+                  key: const Key('account-sheet-close'),
+                  isCircular: true,
+                  semanticLabel: closeLabel,
+                  onTap: onClose,
+                  child: Icon(
+                    context.usesCupertinoChrome
+                        ? CupertinoIcons.xmark
+                        : Icons.close,
+                    color: theme.textPrimary,
+                    size: IconSize.medium,
+                  ),
+                ),
               ),
             ),
             Expanded(
