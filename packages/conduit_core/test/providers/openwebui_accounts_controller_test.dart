@@ -492,6 +492,7 @@ void main() {
     test('keeps an account that has signed in before', () async {
       accounts = [entry('a', hasSession: false), entry('b')];
       final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
 
       check(await container_.read(pendingSignInAbandonableProvider.future))
           .isFalse();
@@ -509,9 +510,16 @@ void main() {
         entry('b', hasSession: false),
       ];
       final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
 
       check(await container_.read(pendingSignInAbandonableProvider.future))
           .isFalse();
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isFalse();
+      check(auth.abandoned).isEmpty();
     });
   });
 
