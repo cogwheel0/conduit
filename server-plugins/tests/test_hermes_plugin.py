@@ -181,11 +181,15 @@ class Relay:
         self.status = 201
         self.by_endpoint: Dict[str, int] = {}
         self.fail = False
+        self.meanwhile: Dict[str, Any] = {}  # endpoint -> what happens while it answers
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         if self.fail:
             raise httpx.ConnectError("unreachable", request=request)
         self.requests.append(request)
+        meanwhile = self.meanwhile.pop(str(request.url), None)
+        if meanwhile is not None:
+            meanwhile()
         return httpx.Response(self.by_endpoint.get(str(request.url), self.status))
 
 
@@ -395,6 +399,22 @@ def test_dead_endpoint_is_pruned(env, status):
     env.relay.status = status
     assert env.op({"op": "test", "sid": device.sid, "nonce": "n"}) == {"ok": True, "push_status": status}
     assert env.op({"op": "list"})["sids"] == []
+
+
+def test_dead_endpoint_does_not_prune_a_refreshed_subscription(env):
+    device, other = Device("a"), Device("b")
+    env.subscribe(device)
+    env.subscribe(other)
+    old_endpoint = device.endpoint
+    env.relay.by_endpoint[old_endpoint] = 410
+    env.relay.by_endpoint[other.endpoint] = 404
+    # The push token changed: the app re-registers with the same sid and a new
+    # endpoint while the old endpoint is still answering 410.
+    device.endpoint = "https://relay.example/v1/push/a-renewed"
+    env.relay.meanwhile[old_endpoint] = lambda: env.subscribe(device)
+    _turn(env)
+    [stored] = env.store.Store(env.home).subscriptions()
+    assert (stored["sid"], stored["endpoint"]) == (device.sid, device.endpoint)
 
 
 def test_other_failures_keep_the_subscription(env):

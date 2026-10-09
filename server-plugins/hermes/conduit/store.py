@@ -16,7 +16,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 try:  # POSIX only; Windows falls back to the in-process lock.
     import fcntl
@@ -134,13 +134,24 @@ class Store:
 
     def remove(self, sids: List[str], now: Optional[float] = None) -> int:
         """Deletes the given sids; returns how many were removed."""
-        if not sids:
-            return 0
-        now = time.time() if now is None else now
         drop = set(sids)
+        return self._drop(lambda s: s.get("sid") in drop, now) if drop else 0
+
+    def remove_dead(self, dead: Iterable[Tuple[str, str]], now: Optional[float] = None) -> int:
+        """Deletes subscriptions whose endpoint answered 404 or 410.
+
+        Matches ``(sid, endpoint)``, not the sid alone: the app keeps its sid
+        when it re-registers with a new endpoint, and that fresh entry must
+        survive a late answer from the old one.
+        """
+        drop = set(dead)
+        return self._drop(lambda s: (s.get("sid"), s.get("endpoint")) in drop, now) if drop else 0
+
+    def _drop(self, match: Callable[[Dict[str, Any]], bool], now: Optional[float]) -> int:
+        now = time.time() if now is None else now
         with self._locked():
             current = self.subscriptions(now)
-            kept = [s for s in current if s.get("sid") not in drop]
+            kept = [s for s in current if not match(s)]
             self._write(SUBSCRIPTIONS, {"v": 1, "subs": kept})
         return len(current) - len(kept)
 
