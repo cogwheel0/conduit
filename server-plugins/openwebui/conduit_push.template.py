@@ -341,7 +341,11 @@ def _from_conduit(request: Any) -> bool:
         agent = headers.get("user-agent") if headers is not None else None
     except Exception:
         return False
-    return isinstance(agent, str) and agent.strip().startswith("Conduit/")
+    if not isinstance(agent, str):
+        return False
+    # Conduit sends a bare "Conduit" until startup has read its own version.
+    agent = agent.strip()
+    return agent == "Conduit" or agent.startswith("Conduit/")
 
 
 def _check_public_endpoint(url: str) -> bool:

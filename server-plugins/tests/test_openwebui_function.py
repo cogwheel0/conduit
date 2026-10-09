@@ -438,7 +438,18 @@ def test_reply_from_conduit_reaches_every_subscribed_device(world, fn):
     assert all(session.closed for session in world.sessions)
 
 
-@pytest.mark.parametrize("req", [request("Mozilla/5.0"), request("conduit/2.4.1"), request(""), None])
+@pytest.mark.parametrize("agent", ["Conduit", " Conduit/2.4.1 "])
+def test_reply_from_conduit_before_and_after_it_knows_its_version(world, fn, agent):
+    phone = Device()
+    world.subscribe("u1", phone)
+    dispatch(fn, **finished(req=request(agent)))
+    assert [post.url for post in world.posts] == [phone.endpoint]
+
+
+@pytest.mark.parametrize(
+    "req",
+    [request("Mozilla/5.0"), request("conduit/2.4.1"), request("Conduitx/1"), request(""), None],
+)
 def test_reply_from_other_clients_only_reaches_any_origin(world, fn, req):
     phone, tablet = Device(), Device(origin="any")
     world.subscribe("u1", phone, tablet)
