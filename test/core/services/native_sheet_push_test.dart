@@ -11,6 +11,8 @@ import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notifications/models/notification_target.dart';
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatWakelockCoordinatorProvider;
 import 'package:conduit_core/models/backend_config.dart';
@@ -32,6 +34,8 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart' show Scaffold;
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../features/push/push_test_support.dart';
 
 const _server = ServerConfig(
   id: 'test-server',
@@ -151,6 +155,8 @@ Future<_NativeSettings> _pumpApp(
     'features': {'webhooks': true},
   },
   int? targetCount = 0,
+  PushState? push,
+  FakePushCoordinator? coordinator,
 }) async {
   if (advanced) {
     await PreferencesStore.put(PreferenceKeys.advancedFeaturesEnabled, true);
@@ -217,6 +223,14 @@ Future<_NativeSettings> _pumpApp(
       userScopedProviderCleanupProvider.overrideWithValue(null),
       chatWakelockCoordinatorProvider.overrideWithValue(null),
       goRouterProvider.overrideWithValue(router),
+      pushStateIfUsedProvider.overrideWith(
+        (ref) => push == null ? null : ref.watch(pushCoordinatorProvider),
+      ),
+      if (coordinator != null)
+        pushCoordinatorProvider.overrideWith(() => coordinator),
+      openWebUiAccountsProvider.overrideWith(
+        (ref) async => const <OpenWebUiAccountEntry>[],
+      ),
     ],
   );
   addTearDown(container.dispose);
@@ -241,17 +255,9 @@ Future<_NativeSettings> _pumpApp(
 }
 
 const _detail = NativeSheetRoutes.notificationSettings;
-const _localToggles = [
-  'notifications-enabled',
-  'push-enabled',
-  'push-privacy',
-  'notification-in-app-banner',
-  'notification-system',
-  'notification-sound',
-  'notification-sound-always',
-  'notification-chat',
-  'notification-channel',
-  'notification-scheduled',
+
+List<String> _ids(Iterable<PlatformNativeSheetItem> items) => [
+  for (final item in items) item.id,
 ];
 
 void main() {
@@ -272,131 +278,124 @@ void main() {
         .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, null);
   });
 
-  testWidgets('a permitted account with Advanced on is offered the Webhook '
-      'destinations row beside the local toggles', (tester) async {
-    final native = await _pumpApp(tester);
+  testWidgets('with push off the sheet offers the push switch, the privacy '
+      'explainer and the scheduled tasks toggle', (tester) async {
+    final native = await _pumpApp(tester, advanced: false);
 
     await native.detailAppeared(_detail);
 
-    final ids = native.items(_detail).map((item) => item.id).toList();
-    expect(ids, containsAll(_localToggles));
+    final items = native.items(_detail);
+    final ids = _ids(items);
+    expect(
+      ids,
+      containsAllInOrder([
+        'notifications-enabled',
+        'push-enabled',
+        'push-privacy',
+        'notification-in-app-banner',
+      ]),
+    );
+    expect(ids, contains('notification-scheduled'));
+    expect(ids, isNot(contains(NativeSheetRoutes.pushTargets)));
+    final toggle = items.singleWhere((item) => item.id == 'push-enabled');
+    expect(toggle.kind, PlatformNativeSheetItemKind.toggle);
+    expect(toggle.value, isFalse);
+    expect(native.patches.last.detailSheets ?? const [], isEmpty);
+  });
+
+  testWidgets('with push on it lists every target with its status', (
+    tester,
+  ) async {
+    final state = pushStateWith([
+      const PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+      const PushTargetState(
+        target: pushHermesApiTarget,
+        status: PushStatus.needsHermesPlugin,
+        hermesInstallCommand: 'hermes plugins install x',
+      ),
+    ]);
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: state,
+      coordinator: FakePushCoordinator(state),
+    );
+
+    await native.detailAppeared(_detail);
+
     final row = native
         .items(_detail)
-        .singleWhere((item) => item.id == 'notification-targets');
-    expect(row.title, 'Webhook destinations');
-    expect(row.dismissOnSelect, isTrue);
-    expect(row.actionId, 'notification-targets');
-    expect(row.sfSymbol, 'bell.and.waves.left.and.right');
-    expect(row.subtitle, 'None');
-    // What destinations are lives under the row, not in its subtitle.
-    final group = native.patches.last.sections.last;
-    expect(group.items.single.id, 'notification-targets');
-    expect(
-      group.footer,
-      'Your Open WebUI server sends events to these URLs, even while this '
-      'app is closed.',
+        .singleWhere((item) => item.id == NativeSheetRoutes.pushTargets);
+    expect(row.subtitle, 'Push needs attention');
+    final detail = native.patches.last.detailSheets!.single;
+    expect(detail.id, NativeSheetRoutes.pushTargets);
+    final rows = [for (final s in detail.sections) ...s.items];
+    final owui = rows.singleWhere(
+      (item) => item.id == 'push-target:${pushOwuiTarget.scope}',
     );
+    expect(owui.subtitle, 'On');
+    expect(owui.dismissOnSelect, isTrue);
+    expect(owui.actionId, 'push-target');
+    expect(owui.actionValue, pushOwuiTarget.scope);
+    final hermes = rows.singleWhere(
+      (item) => item.id == 'push-target:${pushHermesApiTarget.scope}',
+    );
+    expect(hermes.title, 'Home Hermes');
+    expect(hermes.subtitle, 'Needs the Conduit plugin in Hermes');
+    expect(hermes.sfSymbol, 'exclamationmark.triangle');
   });
 
-  testWidgets('the local toggles show before the destinations group is added', (
-    tester,
-  ) async {
-    final native = await _pumpApp(tester, targetCount: 2);
-
+  testWidgets('the push switch turns push on', (tester) async {
+    final fake = FakePushCoordinator(pushStateWith(const [], enabled: false));
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: fake.initial,
+      coordinator: fake,
+    );
     await native.detailAppeared(_detail);
 
-    final patches = native.patches.where((p) => p.detailId == _detail).toList();
-    expect(patches, hasLength(2));
-    List<String> ids(PlatformNativeSheetApplyDetailPatchRequest patch) => [
-      for (final section in patch.sections) ...section.items.map((i) => i.id),
-    ];
-    expect(ids(patches.first), _localToggles);
-    expect(ids(patches.last), [..._localToggles, 'notification-targets']);
-    expect(native.items(_detail).last.subtitle, '2 destinations');
+    await native.control('push-enabled', true);
+
+    expect(fake.calls, ['setEnabled true']);
+    final row = native
+        .items(_detail)
+        .singleWhere((item) => item.id == 'push-enabled');
+    expect(row.value, isTrue);
   });
 
-  testWidgets('an unreadable list leaves the row without a count', (
-    tester,
-  ) async {
-    final native = await _pumpApp(tester, targetCount: null);
+  testWidgets('a target row opens its detail sheet over the Notifications '
+      'page', (tester) async {
+    final state = pushStateWith([
+      const PushTargetState(
+        target: pushOwuiTarget,
+        status: PushStatus.needsAdminSetup,
+      ),
+    ]);
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: state,
+      coordinator: FakePushCoordinator(state),
+    );
 
-    await native.detailAppeared(_detail);
+    await native.control('push-target', pushOwuiTarget.scope);
 
-    final row = native.items(_detail).last;
-    expect(row.id, 'notification-targets');
-    expect(row.subtitle, isNull);
-  });
-
-  testWidgets('tapping it closes the sheet and opens the Notifications page '
-      'with the native-sheet origin', (tester) async {
-    final native = await _pumpApp(tester);
-    await native.detailAppeared(_detail);
-
-    await native.control('notification-targets', true);
-
-    expect(find.text('notifications page'), findsOneWidget);
-    expect(native.pushed, hasLength(1));
     expect(native.pushed.single.path, Routes.notificationSettings);
     expect(native.pushed.single.extra, isA<NativeSheetNavigationOrigin>());
+    expect(find.byKey(const Key('push-detail-status')), findsOneWidget);
+    expect(find.text('Needs your admin to set up'), findsOneWidget);
   });
 
-  group('without a row', () {
-    // Each is a reason the account is not offered webhook destinations. The
-    // local toggles must be unaffected, and a stale tap must go nowhere.
-    final cases =
-        <
-          String,
-          ({
-            bool advanced,
-            bool serverEnabled,
-            Map<String, dynamic> permissions,
-          })
-        >{
-          'Advanced off': (
-            advanced: false,
-            serverEnabled: true,
-            permissions: const {
-              'features': {'webhooks': true},
-            },
-          ),
-          'server flag off': (
-            advanced: true,
-            serverEnabled: false,
-            permissions: const {
-              'features': {'webhooks': true},
-            },
-          ),
-          'permission missing': (
-            advanced: true,
-            serverEnabled: true,
-            permissions: const {},
-          ),
-        };
+  testWidgets('the scheduled tasks toggle is saved', (tester) async {
+    final native = await _pumpApp(tester, advanced: false);
+    await native.detailAppeared(_detail);
 
-    for (final MapEntry(:key, :value) in cases.entries) {
-      testWidgets(key, (tester) async {
-        final native = await _pumpApp(
-          tester,
-          advanced: value.advanced,
-          serverEnabled: value.serverEnabled,
-          permissions: value.permissions,
-        );
+    await native.control('notification-scheduled', false);
 
-        await native.detailAppeared(_detail);
-
-        final ids = native.items(_detail).map((item) => item.id).toList();
-        expect(ids, containsAll(_localToggles));
-        expect(ids, isNot(contains('notification-targets')));
-
-        await native.control('notification-targets', true);
-
-        expect(find.text('notifications page'), findsNothing);
-        expect(native.pushed, isEmpty);
-        expect(
-          find.text("That option isn't available right now."),
-          findsOneWidget,
-        );
-      });
-    }
+    expect(
+      PreferencesStore.getBool(PreferenceKeys.notificationScheduledEnabled),
+      isFalse,
+    );
   });
 }
