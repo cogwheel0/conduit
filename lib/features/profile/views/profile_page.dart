@@ -43,6 +43,7 @@ import 'package:conduit_core/utils/user_avatar_utils.dart';
 
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../widgets/account_actions.dart';
 
 /// Profile page (You tab) showing user info and main actions
 /// Enhanced with production-grade design tokens for better cohesion
@@ -144,6 +145,17 @@ class ProfilePage extends ConsumerWidget {
       directPrimary: directPrimary,
       hasOpenWebUiAccount: hasOpenWebUiAccount,
     );
+    final accountsAsync = ref.watch(openWebUiAccountsProvider);
+    final accounts = accountsAsync.value ?? const <OpenWebUiAccountEntry>[];
+    final activeAccount = accounts.where((entry) => entry.isActive).firstOrNull;
+    // Until the saved accounts are read, or when they cannot be, there may be
+    // several, and signing out signs out of every one: say so.
+    final severalAccounts = !accountsAsync.hasValue || accounts.length > 1;
+    // The other saved accounts stay a tap away while the active one has no
+    // session -- it expired, or a switch left it signed out -- and Hermes or
+    // Direct keeps this page open.
+    final showAccounts =
+        hasOpenWebUiAccount || accounts.any((entry) => !entry.isActive);
     return ListView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -159,12 +171,29 @@ class ProfilePage extends ConsumerWidget {
           _buildProfileHeader(context, userData, api),
           const SizedBox(height: Spacing.lg),
         ],
+        if (showAccounts) ...[
+          _buildAccountsSection(
+            context,
+            ref,
+            accounts,
+            showManage: severalAccounts,
+          ),
+          const SizedBox(height: Spacing.lg),
+        ],
         ...items,
         const SizedBox(height: Spacing.xl),
         _buildDonationSection(context),
         if (hasOpenWebUiAccount) const SizedBox(height: Spacing.xl),
         if (hasOpenWebUiAccount)
-          InsetGroupedList(children: [_buildSignOutOption(context, ref)]),
+          InsetGroupedList(
+            children: [
+              // With one account, signing out is what it always was. With
+              // several, sign out of this one, or of every account at once.
+              if (accounts.length > 1 && activeAccount != null)
+                _buildSignOutOfAccountOption(context, ref, activeAccount),
+              _buildSignOutOption(context, ref, all: severalAccounts),
+            ],
+          ),
       ],
     );
   }
@@ -520,7 +549,78 @@ class ProfilePage extends ConsumerWidget {
     ];
   }
 
-  Widget _buildSignOutOption(BuildContext context, WidgetRef ref) {
+  /// The other saved accounts, one tap from switching to them, and the ways
+  /// to add or manage accounts.
+  Widget _buildAccountsSection(
+    BuildContext context,
+    WidgetRef ref,
+    List<OpenWebUiAccountEntry> accounts, {
+    required bool showManage,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    return InsetGroupedList(
+      key: const Key('settings-accounts-group'),
+      title: l10n.accountsTitle,
+      children: [
+        for (final entry in accounts)
+          if (!entry.isActive)
+            UtilityRow(
+              key: Key('settings-account-${entry.id}'),
+              title: accountDisplayName(entry, l10n),
+              subtitle: accountDetailLine(entry, l10n),
+              leading: SavedAccountAvatar(entry: entry, size: IconSize.xl),
+              onTap: () => switchToSavedAccount(context, ref, entry.id),
+            ),
+        _buildAccountOption(
+          context,
+          key: const Key('settings-add-account'),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.person_badge_plus,
+            android: Icons.person_add_alt,
+          ),
+          title: l10n.accountsAddAccount,
+          onTap: () => showAddAccountSheet(context, ref),
+        ),
+        if (showManage)
+          _buildAccountOption(
+            context,
+            key: const Key('settings-manage-accounts'),
+            icon: UiUtils.platformIcon(
+              ios: CupertinoIcons.person_2,
+              android: Icons.manage_accounts_outlined,
+            ),
+            title: l10n.accountsManage,
+            onTap: () => context.pushNamed(RouteNames.accounts),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSignOutOfAccountOption(
+    BuildContext context,
+    WidgetRef ref,
+    OpenWebUiAccountEntry entry,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    return _buildAccountOption(
+      context,
+      key: const Key('settings-sign-out-account'),
+      icon: UiUtils.platformIcon(
+        ios: CupertinoIcons.square_arrow_left,
+        android: Icons.logout,
+      ),
+      title: l10n.accountsSignOutOf(accountDisplayName(entry, l10n)),
+      onTap: () => signOutOfSavedAccount(context, ref, entry),
+      showChevron: false,
+      destructive: true,
+    );
+  }
+
+  Widget _buildSignOutOption(
+    BuildContext context,
+    WidgetRef ref, {
+    bool all = false,
+  }) {
     final l10n = AppLocalizations.of(context)!;
     return _buildAccountOption(
       context,
@@ -529,7 +629,7 @@ class ProfilePage extends ConsumerWidget {
         ios: CupertinoIcons.square_arrow_left,
         android: Icons.logout,
       ),
-      title: l10n.signOut,
+      title: all ? l10n.accountsSignOutAll : l10n.signOut,
       onTap: () => _signOut(context, ref),
       showChevron: false,
       destructive: true,

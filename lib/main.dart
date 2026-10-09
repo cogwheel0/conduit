@@ -84,6 +84,10 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 
 import 'core/utils/native_sheet_utils.dart'
     show
+        nativeAccountAddActionId,
+        nativeAccountManageActionId,
+        nativeAccountSignOutActionId,
+        nativeAccountSwitchActionId,
         nativeAdvancedFeaturesId,
         nativeCitationShowTitlesId,
         nativeMemoryEditorActionPrefix,
@@ -153,6 +157,7 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'core/services/background_streaming_handler.dart';
+import 'features/profile/widgets/account_actions.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -558,6 +563,39 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     }
   }
 
+  /// The native Settings rows for saved Open WebUI accounts. Returns
+  /// whether [actionId] was one of them.
+  Future<bool> _handleNativeAccountAction(String actionId, Object? value) async {
+    final context = NavigationService.context;
+    switch (actionId) {
+      case nativeAccountSwitchActionId:
+        if (context == null || value is! String) return true;
+        await switchToSavedAccount(context, ref, value);
+        return true;
+      case nativeAccountAddActionId:
+        if (context == null) return true;
+        await showAddAccountSheet(context, ref);
+        return true;
+      case nativeAccountManageActionId:
+        final request = accountsNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return true;
+      case nativeAccountSignOutActionId:
+        if (context == null) return true;
+        final accounts = await ref.read(openWebUiAccountsProvider.future);
+        final active = accounts.where((entry) => entry.isActive).firstOrNull;
+        if (active == null || !context.mounted) return true;
+        await signOutOfSavedAccount(context, ref, active);
+        return true;
+    }
+    return false;
+  }
+
   Future<void> _handleNativeSheetLogoutRequested({
     bool? keepServerDetails,
   }) async {
@@ -658,6 +696,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         NavigationService.openOpenWebUIConnectFromNativeSheet();
         return;
       }
+
+      if (await _handleNativeAccountAction(event.id, value)) return;
 
       if (event.id == NativeSheetRoutes.directConnections) {
         final request = directConnectionsNativeSheetNavigationRequest;

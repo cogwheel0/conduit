@@ -11,6 +11,7 @@ import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -33,8 +34,13 @@ ProviderRead _reader({
   bool hermesSecretsLoading = false,
   bool accountless = false,
   List<DirectConnectionProfile> directProfiles = const [],
+  String? addingAccountFrom,
+  AuthState authSnapshot = const AuthState(status: AuthStatus.unauthenticated),
+  String? settledAccount,
 }) {
   final values = <ProviderListenable<Object?>, Object?>{
+    accountAdditionOriginProvider: addingAccountFrom,
+    settledActiveAccountIdProvider: settledAccount,
     reviewerModeProvider: reviewerMode,
     activeServerProvider: activeServer,
     authNavigationStateProvider: auth,
@@ -44,9 +50,7 @@ ProviderRead _reader({
     effectiveDirectConnectionProfilesProvider:
         AsyncData<List<DirectConnectionProfile>>(directProfiles),
     accountlessPrimaryBackendUsableProvider: accountless,
-    authStateManagerProvider: const AsyncData<AuthState>(
-      AuthState(status: AuthStatus.unauthenticated),
-    ),
+    authStateManagerProvider: AsyncData<AuthState>(authSnapshot),
   };
   return <T>(ProviderListenable<T> provider) {
     if (!values.containsKey(provider)) {
@@ -72,6 +76,77 @@ void main() {
           .equals(Routes.chat);
       check(resolveRouteRedirect(Routes.splash, read)).equals(Routes.chat);
       check(resolveRouteRedirect(Routes.chat, read)).isNull();
+    });
+
+    group('adding another account', () {
+      test('stays in the sign-in flow while the first account is active', () {
+        final read = _reader(addingAccountFrom: _server.id);
+
+        check(resolveRouteRedirect(Routes.addServer, read)).isNull();
+        check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+        check(resolveRouteRedirect(Routes.proxyAuth, read)).isNull();
+        check(resolveRouteRedirect(Routes.ssoAuth, read)).isNull();
+      });
+
+      test('lands in chat once the new account is the active one', () {
+        final read = _reader(addingAccountFrom: 'the-account-it-began-from');
+
+        check(resolveRouteRedirect(Routes.authentication, read))
+            .equals(Routes.chat);
+        check(resolveRouteRedirect(Routes.addServer, read)).equals(Routes.chat);
+      });
+
+      test('outside the flow an add-server visit goes to chat', () {
+        final read = _reader();
+
+        check(resolveRouteRedirect(Routes.addServer, read)).equals(Routes.chat);
+      });
+
+      // A profile refresh for the account it began from was refused: that
+      // account's error, its token kept.
+      test('stays in the sign-in flow through an error of the first '
+          'account', () {
+        final read = _reader(
+          auth: AuthNavigationState.error,
+          authSnapshot: const AuthState(
+            status: AuthStatus.error,
+            token: 'token-a',
+            error: 'refused',
+          ),
+          addingAccountFrom: _server.id,
+        );
+
+        check(resolveRouteRedirect(Routes.addServer, read)).isNull();
+        check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+        // Outside the addition's pages, the error shows as before.
+        check(resolveRouteRedirect(Routes.chat, read))
+            .equals(Routes.connectionIssue);
+      });
+
+      // The Keychain can refuse a read for a moment.
+      test('stays in the sign-in flow when the active server cannot be '
+          'read', () {
+        final read = _reader(
+          activeServer: AsyncError<ServerConfig?>('locked', StackTrace.empty),
+          addingAccountFrom: _server.id,
+          settledAccount: _server.id,
+        );
+
+        check(resolveRouteRedirect(Routes.addServer, read)).isNull();
+        check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+        check(resolveRouteRedirect(Routes.chat, read))
+            .equals(Routes.connectionIssue);
+      });
+
+      test('the new account, signed out, stays on its sign-in', () {
+        final read = _reader(
+          auth: AuthNavigationState.needsLogin,
+          addingAccountFrom: 'the-account-it-began-from',
+        );
+
+        check(resolveRouteRedirect(Routes.addServer, read)).isNull();
+        check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+      });
     });
 
     test('a signed-out session is sent to authentication', () {
@@ -157,6 +232,40 @@ void main() {
 
       check(resolveRouteRedirect(Routes.chat, read)).isNull();
       check(resolveRouteRedirect(Routes.authentication, read)).isNull();
+    });
+
+    // An expired session leaves the saved accounts on the device, and the
+    // profile offers Manage accounts next to a usable Hermes or Direct
+    // backend. The router sent that to chat.
+    test('Manage accounts opens with the active account signed out next to '
+        'a usable accountless backend', () {
+      final hermes = _reader(
+        auth: AuthNavigationState.needsLogin,
+        preferred: PreferredBackend.hermes,
+        hermes: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          apiKey: 'key',
+        ),
+        accountless: true,
+      );
+      final direct = _reader(
+        auth: AuthNavigationState.needsLogin,
+        preferred: PreferredBackend.direct,
+        accountless: true,
+        directProfiles: [
+          DirectConnectionProfile(
+            id: 'direct',
+            name: 'Direct',
+            adapterKey: kOpenAiCompatibleAdapterKey,
+            baseUrl: 'https://api.example/v1',
+            apiKey: 'key',
+          ),
+        ],
+      );
+
+      check(resolveRouteRedirect(Routes.accounts, hermes)).isNull();
+      check(resolveRouteRedirect(Routes.accounts, direct)).isNull();
     });
 
     group('the Hermes MCP page', () {

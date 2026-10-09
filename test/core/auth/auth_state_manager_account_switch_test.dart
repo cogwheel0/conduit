@@ -44,7 +44,12 @@ const _tokenB = 'eyJhbGciOiJIUzI1NiJ9.eyJpZCI6ImIifQ.signature-for-account-b';
 /// token A. So auth goes tokenless, and the storage barrier is told, before
 /// storage moves the active id.
 void main() {
-  setUpAll(() => registerFallbackValue(_userA));
+  setUpAll(() {
+    registerFallbackValue(_userA);
+    registerFallbackValue(
+      const ServerConfig(id: 'fallback', name: 'F', url: 'https://f.example'),
+    );
+  });
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({
@@ -608,6 +613,65 @@ void main() {
     check(isolation.purged).isEmpty();
   });
 
+  // The addition a server was saved for ended as it was published: storage
+  // puts the previous account's session back and reports it declined.
+  test('a server selection storage puts back shows the previous account '
+      'again', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.selectUnauthenticatedServerConfig(
+        any(),
+        publish: any(named: 'publish'),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      await publish();
+      return false;
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    await container
+        .read(authStateManagerProvider.notifier)
+        .selectUnauthenticatedServerConfig(
+          const ServerConfig(
+            id: 'account-new',
+            name: 'New',
+            url: 'https://new.example',
+          ),
+        );
+
+    final after = container.read(authStateManagerProvider).requireValue;
+    check(after.token).equals(_tokenA);
+    check(after.isAuthenticated).isTrue();
+  });
+
   test('a merge storage declines deletes nothing', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();
@@ -653,6 +717,169 @@ void main() {
 
     check(merged).isFalse();
     check(isolation.purged).isEmpty();
+  });
+
+  test('leaving an added account asks no server to end a session', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    // A was added from B and never signed in.
+    var active = 'account-a';
+    String? token;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => token);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => active == 'account-b' ? _userB : null);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId()).thenAnswer((_) async => active);
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => active);
+    when(
+      () => storage.removePendingAccount(
+        'account-a',
+        thenActivate: 'account-b',
+      ),
+    ).thenAnswer((_) async {
+      active = 'account-b';
+      token = _tokenB;
+      return true;
+    });
+    var serverAsked = 0;
+    final workerManager = WorkerManager();
+    final api = _LoggingOutApi(workerManager, onLogout: () => serverAsked++);
+    addTearDown(() {
+      api.dispose();
+      workerManager.dispose();
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(api),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    final left = await container
+        .read(authStateManagerProvider.notifier)
+        .abandonPendingAccount('account-a', thenActivate: 'account-b');
+
+    check(left).isTrue();
+    check(serverAsked).equals(0);
+    check(isolation.switches).equals(1);
+    check(isolation.purged).deepEquals(['account-a']);
+    final after = container.read(authStateManagerProvider).requireValue;
+    check(after.token).equals(_tokenB);
+    check(after.user?.id).equals(_userB.id);
+  });
+
+  test('leaving an added account a sign-in reached deletes nothing', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    // The sign-in landed before storage's lock: storage sees its session and
+    // refuses to remove the account.
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.removePendingAccount(
+        'account-a',
+        thenActivate: 'account-b',
+      ),
+    ).thenAnswer((_) async => null);
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    final left = await container
+        .read(authStateManagerProvider.notifier)
+        .abandonPendingAccount('account-a', thenActivate: 'account-b');
+
+    check(left).isFalse();
+    check(isolation.purged).isEmpty();
+    // Settled back on the account, still signed in, not left loading.
+    final after = container.read(authStateManagerProvider).requireValue;
+    check(after.isLoading).isFalse();
+    check(after.token).equals(_tokenA);
+  });
+
+  test('leaving an added account whose purge cannot be recorded removes '
+      'nothing', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation()..refusesRecord = true;
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => _tokenA);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    await _settledAuth(container);
+
+    await check(
+      container
+          .read(authStateManagerProvider.notifier)
+          .abandonPendingAccount('account-a', thenActivate: 'account-b'),
+    ).throws<StateError>();
+
+    verifyNever(
+      () => storage.removePendingAccount(
+        any(),
+        thenActivate: any(named: 'thenActivate'),
+      ),
+    );
+    check(isolation.switches).equals(0);
+    check(
+      container.read(authStateManagerProvider).requireValue.token,
+    ).equals(_tokenA);
   });
 
   test('a merge leaves a sign-in started while it looks for the account '

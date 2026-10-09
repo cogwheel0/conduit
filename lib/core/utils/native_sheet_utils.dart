@@ -138,18 +138,67 @@ class NativeProfileRootAccount {
   final String email;
 }
 
+/// Another saved Open WebUI account, as a row of the native Settings root.
+@immutable
+class NativeProfileRootSavedAccount {
+  const NativeProfileRootSavedAccount({
+    required this.id,
+    required this.displayName,
+    required this.detail,
+  });
+
+  final String id;
+  final String displayName;
+  final String detail;
+}
+
 /// The sections of the native Settings root, in the order the Flutter
-/// Settings page uses: the profile row, the everyday settings, places,
-/// connections, then an Advanced group that only exists while it has a row.
+/// Settings page uses: the profile row, the other saved accounts, the
+/// everyday settings, places, connections, then an Advanced group that only
+/// exists while it has a row.
 ///
 /// Pure, so the open sheet can be rebuilt with the same rows when a setting
 /// it depends on (Advanced) changes while it is up.
+///
+/// [otherAccounts] is null when the saved accounts could not be read in
+/// time. There may be several then, and signing out signs out of every one,
+/// so the sign-out row says so; only the accounts known are listed.
 List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   AppLocalizations l10n, {
   required NativeProfileRootAccount? account,
   required NativeProfileRootVisibility visibility,
+  List<NativeProfileRootSavedAccount>? otherAccounts =
+      const <NativeProfileRootSavedAccount>[],
 }) {
   final hasAccount = account != null;
+  final knownOtherAccounts =
+      otherAccounts ?? const <NativeProfileRootSavedAccount>[];
+  final hasOtherAccounts = knownOtherAccounts.isNotEmpty;
+  final severalAccounts = otherAccounts == null || hasOtherAccounts;
+  final accountItems = <NativeSheetItemConfig>[
+    for (final other in knownOtherAccounts)
+      NativeSheetItemConfig(
+        id: '$nativeAccountSwitchActionId:${other.id}',
+        title: other.displayName,
+        subtitle: other.detail,
+        sfSymbol: 'person.crop.circle',
+        dismissOnSelect: true,
+        showsDisclosure: false,
+        actionId: nativeAccountSwitchActionId,
+        actionValue: other.id,
+      ),
+    _nativeRootPageItem(
+      nativeAccountAddActionId,
+      title: l10n.accountsAddAccount,
+      sfSymbol: 'person.crop.circle.badge.plus',
+    ),
+    if (severalAccounts)
+      _nativeRootPageItem(
+        nativeAccountManageActionId,
+        title: l10n.accountsManage,
+        sfSymbol: 'person.2',
+      ),
+  ];
   final profileItem = account == null
       ? null
       : NativeSheetItemConfig(
@@ -257,6 +306,11 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   ];
   return [
     if (profileItem != null) NativeSheetSectionConfig(items: [profileItem]),
+    // The other saved accounts stay a tap away while the active one has no
+    // session -- it expired, or a switch left it signed out -- and Hermes or
+    // Direct keeps Settings open.
+    if (hasAccount || hasOtherAccounts)
+      NativeSheetSectionConfig(title: l10n.accountsTitle, items: accountItems),
     NativeSheetSectionConfig(items: appItems),
     if (placeItems.isNotEmpty) NativeSheetSectionConfig(items: placeItems),
     NativeSheetSectionConfig(items: connectionItems),
@@ -278,9 +332,22 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
     if (hasAccount)
       NativeSheetSectionConfig(
         items: [
+          // With one account, signing out is what it always was. With
+          // several, sign out of this one, or of every account at once.
+          if (hasOtherAccounts)
+            NativeSheetItemConfig(
+              id: nativeAccountSignOutActionId,
+              title: l10n.accountsSignOutOf(account.displayName),
+              sfSymbol: 'rectangle.portrait.and.arrow.right',
+              destructive: true,
+              dismissOnSelect: true,
+              showsDisclosure: false,
+              actionId: nativeAccountSignOutActionId,
+              actionValue: true,
+            ),
           NativeSheetItemConfig(
             id: nativeSignOutActionId,
-            title: l10n.signOut,
+            title: severalAccounts ? l10n.accountsSignOutAll : l10n.signOut,
             placeholder: l10n.signOutOptionsDescription,
             options: [
               NativeSheetOptionConfig(
@@ -313,6 +380,13 @@ const nativeConnectOpenWebUiActionId = 'add-owui-server';
 
 /// Control id of the root Sign out row.
 const nativeSignOutActionId = 'sign-out';
+
+/// Native Settings rows for the saved Open WebUI accounts. A switch row
+/// carries the account id as its action value.
+const nativeAccountSwitchActionId = 'account-switch';
+const nativeAccountAddActionId = 'account-add';
+const nativeAccountManageActionId = 'account-manage';
+const nativeAccountSignOutActionId = 'account-sign-out';
 
 /// The donation rows at the bottom of the native Settings root.
 List<NativeSheetItemConfig> buildNativeSupportItems(AppLocalizations l10n) => [

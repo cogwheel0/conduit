@@ -4,6 +4,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
@@ -41,14 +42,27 @@ class AdaptiveAuthHarness {
     this.applePccStatus,
     this.accountlessBackendUsable = false,
     this.authActions,
+    this.savedUsername,
+    this.addingAccountFrom,
+    this.abandonablePendingSignIn = false,
+    this.accountsController,
+    this.savedServersError,
+    this.replyBeingWritten = false,
   }) {
-    when(() => _storage.getSavedCredentials()).thenAnswer((_) async => null);
+    when(() => _storage.getSavedCredentials()).thenAnswer(
+      (_) async => savedUsername == null ? null : {'username': savedUsername!},
+    );
     when(() => _storage.getAuthTokenStrict()).thenAnswer((_) async => '');
     when(() => _storage.getSavedCredentialsStrict())
         .thenAnswer((_) async => null);
     when(() => _storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => _storage.saveLocalUserAvatar(null)).thenAnswer((_) async {});
     when(() => _storage.getReviewerMode()).thenAnswer((_) async => false);
+    if (savedServersError case final error?) {
+      when(
+        () => _storage.getOpenWebUiRegistryStrict(),
+      ).thenAnswer((_) async => throw error);
+    }
     if (authActions != null) {
       // A sign-in attempt first saves the server it was opened for.
       registerFallbackValue(server);
@@ -84,6 +98,32 @@ class AdaptiveAuthHarness {
 
   /// Replaces the sign-in actions, so a test controls the outcome of an attempt.
   final AuthActions? authActions;
+
+  /// The username of the sign-in saved on the device, if any.
+  final String? savedUsername;
+
+  /// The account another one is being added from, if one is.
+  final String? addingAccountFrom;
+
+  /// Whether the active account is an added one whose sign-in never
+  /// finished, which sign-in pages offer to drop.
+  final bool abandonablePendingSignIn;
+
+  /// Replaces the account actions, so a test sees which it asked for.
+  final OpenWebUiAccountsController? accountsController;
+
+  /// What reading the saved servers fails with, as a Keychain error does.
+  final Object? savedServersError;
+
+  /// Whether a reply is still being written that leaving the active account
+  /// would stop.
+  final bool replyBeingWritten;
+
+  /// How many times the replies being written were stopped.
+  int repliesStopped = 0;
+
+  /// The device storage, for a test to see what was saved.
+  OptimizedStorageService get storage => _storage;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
@@ -120,6 +160,14 @@ class AdaptiveAuthHarness {
           builder: (_, _) => const ServerConnectionPage(),
         ),
         GoRoute(
+          path: Routes.addServer,
+          name: RouteNames.addServer,
+          builder: (_, state) => ServerConnectionPage(
+            addingAccount: true,
+            serverId: state.extra is String ? state.extra as String : null,
+          ),
+        ),
+        GoRoute(
           path: Routes.backendChooser,
           name: RouteNames.backendChooser,
           builder: (_, _) => const BackendChooserPage(),
@@ -143,6 +191,25 @@ class AdaptiveAuthHarness {
           accountlessBackendUsable,
         ),
         optimizedStorageServiceProvider.overrideWithValue(_storage),
+        if (addingAccountFrom != null)
+          accountAdditionOriginProvider.overrideWith(
+            () => _AddingAccountFrom(addingAccountFrom!),
+          ),
+        // Answered here, not read from the mocked storage: a read that fails
+        // keeps the connection page from leaving an addition.
+        pendingSignInAbandonableProvider.overrideWith(
+          (_) async => abandonablePendingSignIn,
+        ),
+        if (replyBeingWritten) ...[
+          accountChangeReplyGuardProvider.overrideWithValue(() => true),
+          accountChangeStopRepliesProvider.overrideWithValue(
+            () => repliesStopped++,
+          ),
+        ],
+        if (accountsController != null)
+          openWebUiAccountsControllerProvider.overrideWithValue(
+            accountsController!,
+          ),
         activeServerProvider.overrideWith((_) async => server),
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => appleOnDeviceStatus ?? _unavailableAppleStatus(),
@@ -188,6 +255,15 @@ class AdaptiveAuthHarness {
     ErrorWidget.builder = _previousErrorWidgetBuilder;
     FlutterError.onError = _previousFlutterOnError;
   }
+}
+
+final class _AddingAccountFrom extends AccountAdditionOrigin {
+  _AddingAccountFrom(this.accountId);
+
+  final String accountId;
+
+  @override
+  String? build() => accountId;
 }
 
 PlatformPccStatus _unavailableAppleStatus() => PlatformPccStatus(

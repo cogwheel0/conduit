@@ -1281,6 +1281,57 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
+  /// Leaves [accountId], the active account, whose sign-in was never
+  /// finished, for [thenActivate], and forgets it on this device.
+  ///
+  /// It never signed in, so there is no session to end on its server. Storage
+  /// checks that, under the lock a sign-in commits under, as it removes the
+  /// account: one that is no longer active, or that a sign-in has reached
+  /// meanwhile, is refused and keeps its session and its data.
+  ///
+  /// Returns whether it was left.
+  Future<bool> abandonPendingAccount(
+    String accountId, {
+    required String thenActivate,
+  }) async {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    // As for a sign-out, recorded before the account goes; when it cannot
+    // be, the account stays.
+    await _accountStorageIsolation.recordAccountPurge(accountId);
+    final attemptRevision = _enterAccountBoundary();
+    final bool? hasSession;
+    try {
+      hasSession = await storage.removePendingAccount(
+        accountId,
+        thenActivate: thenActivate,
+      );
+    } catch (error, stackTrace) {
+      _logAuthenticationFailure(
+        'pending-account-abandon-failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      // Settle on whatever reached storage rather than staying in loading.
+      _invalidateServerProviders();
+      if (!_authAttemptSuperseded(attemptRevision)) await refresh();
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    if (hasSession == null) {
+      // Refused: settle back on the account, and whatever session it has.
+      _invalidateServerProviders();
+      if (!_authAttemptSuperseded(attemptRevision)) await refresh();
+      return false;
+    }
+    if (!_authAttemptSuperseded(attemptRevision)) {
+      await _settleAtAccountBoundary(
+        attemptRevision: attemptRevision,
+        hasSession: hasSession,
+      );
+    }
+    await _purgeRemovedAccount(accountId);
+    return true;
+  }
+
   /// Folds the account just signed in to into [targetAccountId], the
   /// existing account of the same user on the same server.
   ///
@@ -1483,7 +1534,15 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  Future<void> selectUnauthenticatedServerConfig(ServerConfig config) async {
+  /// Makes [config] the active account, signed out, for a sign-in to it.
+  ///
+  /// [canCommit] lets the caller withdraw the selection while it is saved:
+  /// once it says no, the account active before stays active, as it does
+  /// when a newer auth attempt begins.
+  Future<void> selectUnauthenticatedServerConfig(
+    ServerConfig config, {
+    bool Function()? canCommit,
+  }) async {
     final currentState = _current;
     final previousState =
         currentState.isLoading || currentState.status == AuthStatus.loading
@@ -1491,17 +1550,20 @@ class AuthStateManager extends _$AuthStateManager {
         : currentState;
     final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
     final attemptRevision = _beginAuthAttempt();
+    bool superseded() =>
+        _authAttemptSuperseded(attemptRevision) ||
+        !(canCommit?.call() ?? true);
     final storage = ref.read(optimizedStorageServiceProvider);
     try {
-      await storage.selectUnauthenticatedServerConfig(
+      final selected = await storage.selectUnauthenticatedServerConfig(
         config,
-        canCommit: () => !_authAttemptSuperseded(attemptRevision),
+        canCommit: () => !superseded(),
         onRollbackUncertain: () {
           if (!ref.mounted) return;
           _poisonUncertainServerSession(failedAttemptRevision: attemptRevision);
         },
         publish: () {
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded before publication.',
             );
@@ -1513,26 +1575,26 @@ class AuthStateManager extends _$AuthStateManager {
           _lastSettledState = safeState;
           _lastTransactionalSessionRevision = null;
           _set(safeState);
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded during publication.',
             );
           }
           _updateApiServiceToken(null);
           ref.invalidate(serverConfigsProvider);
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded during publication.',
             );
           }
           ref.invalidate(activeServerProvider);
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded during publication.',
             );
           }
           ref.invalidate(apiServiceProvider);
-          if (_authAttemptSuperseded(attemptRevision)) {
+          if (superseded()) {
             throw StateError(
               'Server selection was superseded during publication.',
             );
@@ -1540,6 +1602,16 @@ class AuthStateManager extends _$AuthStateManager {
           _clearIncompleteLogoutFenceAfterTokenlessCleanup();
         },
       );
+      if (!selected) {
+        // Declined, or put back after it was published: the addition it was
+        // for ended meanwhile. Storage holds the previous account's session
+        // again, so auth shows it again, unless a newer attempt owns it.
+        _restoreRolledBackAuthPublication(
+          attemptRevision: attemptRevision,
+          capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
+          previousState: previousState,
+        );
+      }
     } catch (error, stackTrace) {
       if (error is! ServerConfigSessionRollbackException) {
         _restoreRolledBackAuthPublication(
@@ -1623,10 +1695,15 @@ class AuthStateManager extends _$AuthStateManager {
   /// server config is written. The config, active-server id, and token are
   /// committed as one revision-owned attempt; a persistence failure restores
   /// the previous config/session, while a newer auth attempt always wins.
+  ///
+  /// [canCommit] lets the caller withdraw the commit while it is saved: once
+  /// it says no, the account active before stays active, as it does when a
+  /// newer auth attempt begins.
   Future<bool> commitPrevalidatedProxySession({
     required ServerConfig serverConfig,
     required String token,
     required User user,
+    bool Function()? canCommit,
   }) async {
     final tokenStr = token.trim();
     if (tokenStr.isEmpty) {
@@ -1658,6 +1735,8 @@ class AuthStateManager extends _$AuthStateManager {
         : currentState;
     final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
     final attemptRevision = _beginAuthAttempt();
+    bool superseded() =>
+        _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
     _update(
       (current) => current.copyWith(
         status: AuthStatus.loading,
@@ -1667,17 +1746,28 @@ class AuthStateManager extends _$AuthStateManager {
     );
 
     final storage = ref.read(optimizedStorageServiceProvider);
+    // Stopped by the caller rather than by a newer attempt, this one still
+    // owns the state it set loading, and settles it back.
+    void settleStopped() => _restorePrevalidatedProxyAttemptState(
+      attemptRevision: attemptRevision,
+      capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
+      previousState: previousState,
+    );
     ServerConfigCandidateSnapshot? candidateSnapshot;
     try {
-      if (_authAttemptSuperseded(attemptRevision)) return false;
+      if (superseded()) {
+        settleStopped();
+        return false;
+      }
       final snapshot = await storage.stageServerConfigCandidate(serverConfig);
       candidateSnapshot = snapshot;
-      if (_authAttemptSuperseded(attemptRevision)) {
+      if (superseded()) {
         await _restorePrevalidatedProxyConfig(
           storage: storage,
           candidate: serverConfig,
           snapshot: snapshot,
         );
+        settleStopped();
         return false;
       }
 
@@ -1685,13 +1775,13 @@ class AuthStateManager extends _$AuthStateManager {
         storage: storage,
         token: tokenStr,
         user: user,
-        canCommit: () => !_authAttemptSuperseded(attemptRevision),
+        canCommit: () => !superseded(),
         commitPersistenceAndPublish: ({required publish}) {
           return storage.commitServerConfigCandidateSession(
             candidate: serverConfig,
             transactionId: snapshot.transactionId,
             token: tokenStr,
-            canCommit: () => !_authAttemptSuperseded(attemptRevision),
+            canCommit: () => !superseded(),
             publish: () async {
               await publish();
               ref.invalidate(serverConfigsProvider);

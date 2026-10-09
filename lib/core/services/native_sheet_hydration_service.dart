@@ -61,6 +61,7 @@ import 'package:conduit_core/services/settings_service.dart';
 
 import '../../shared/theme/theme_providers.dart';
 import '../../shared/services/app_package_info.dart';
+import '../utils/account_display.dart';
 
 final nativeSheetHydrationServiceProvider =
     Provider<NativeSheetHydrationService>(NativeSheetHydrationService.new);
@@ -222,6 +223,10 @@ class NativeSheetHydrationService {
         l10n,
         account: root.account,
         visibility: readNativeProfileRootVisibility(_ref.read),
+        otherAccounts: otherSavedAccountsForNativeSheet(
+          _ref.read(openWebUiAccountsProvider).value,
+          l10n,
+        ),
       ),
     );
     // The sheet is gone (or never took a root patch); stop rebuilding it.

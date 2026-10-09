@@ -16,12 +16,18 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../platform/webview_cookie_helper.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/openwebui_registry.dart'
+    show OpenWebUiRegistry, OpenWebUiServer, openWebUiServerIdentityUrl;
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show
+        accountAdditionOriginProvider,
+        pendingSignInAbandonableProvider;
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -41,6 +47,8 @@ import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../../profile/widgets/account_actions.dart'
+    show abandonAddedAccount, confirmLeavingActiveAccount;
 
 const int _maxConnectionProviderDetailCharacters = 300;
 const int _maxConnectionErrorCharacters = 640;
@@ -223,7 +231,20 @@ Object? _serverConnectionResponseErrorDetail(Object? data) => switch (data) {
 };
 
 class ServerConnectionPage extends ConsumerStatefulWidget {
-  const ServerConnectionPage({super.key});
+  const ServerConnectionPage({
+    super.key,
+    this.addingAccount = false,
+    this.serverId,
+  });
+
+  /// Connecting to sign in to another account while one is signed in. The
+  /// form starts empty -- or from [serverId]'s saved route -- rather than
+  /// from the active account, and proxy sign-in starts from a clean browser
+  /// session so it cannot sign straight back in as the current user.
+  final bool addingAccount;
+
+  /// The saved server another account is being added on, when there is one.
+  final String? serverId;
 
   @override
   ConsumerState<ServerConnectionPage> createState() =>
@@ -264,12 +285,92 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       _headerKeyController.text.trim().isNotEmpty &&
       _headerValueController.text.trim().isNotEmpty;
 
+  /// Ends the account addition this page was opened for, as it goes.
+  void Function()? _endAccountAddition;
+
+  /// The saved server the form was filled in from, when it was.
+  OpenWebUiServer? _savedServer;
+
   @override
   void initState() {
     super.initState();
     _urlController.addListener(_resetTransientAttempt);
-    _prefillFromState();
+    if (widget.addingAccount) {
+      // openAddAccount began the addition before opening this page, which the
+      // router needs; the page only ends it when it goes.
+      _endAccountAddition = ref
+          .read(accountAdditionOriginProvider.notifier)
+          .endLater();
+      _prefillFromSavedServer();
+    } else {
+      _prefillFromState();
+    }
   }
+
+  Future<void> _prefillFromSavedServer() async {
+    final serverId = widget.serverId;
+    if (serverId == null) return;
+    // The form can be edited while the saved server is read; what the user
+    // typed then stays.
+    final untouched = _formContents();
+    final OpenWebUiRegistry registry;
+    try {
+      registry = await ref
+          .read(optimizedStorageServiceProvider)
+          .getOpenWebUiRegistryStrict();
+    } catch (error, stackTrace) {
+      // Nothing awaits this; say why the form starts empty.
+      DebugLogger.error(
+        'add-account-prefill-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      setState(() {
+        _connectionError = AppLocalizations.of(context)!.errorMessage;
+      });
+      return;
+    }
+    final server = registry.server(serverId);
+    final endpoint = server?.endpoints.first;
+    if (!mounted || endpoint == null) return;
+    _savedServer = server;
+    if (_formContents() != untouched) return;
+    setState(() {
+      _urlController.text = endpoint.url;
+      _customHeaders
+        ..clear()
+        ..addAll(endpoint.customHeaders);
+      _showAdvancedSettings =
+          endpoint.allowSelfSignedCertificates ||
+          endpoint.customHeaders.isNotEmpty ||
+          (!kIsWeb && endpoint.mtlsPrivateKeyPem != null);
+      _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
+      _mtlsCertificateChainPem = kIsWeb
+          ? null
+          : endpoint.mtlsCertificateChainPem;
+      _mtlsCertificateLabel = kIsWeb ? null : endpoint.mtlsCertificateLabel;
+      _mtlsPrivateKeyPem = kIsWeb ? null : endpoint.mtlsPrivateKeyPem;
+      _mtlsPrivateKeyLabel = kIsWeb ? null : endpoint.mtlsPrivateKeyLabel;
+      _mtlsPrivateKeyPasswordController.text = kIsWeb
+          ? ''
+          : (endpoint.mtlsPrivateKeyPassword ?? '');
+    });
+  }
+
+  /// What the connection form holds, to tell whether it has been edited.
+  Object _formContents() => (
+    _urlController.text,
+    [
+      for (final header in _customHeaders.entries)
+        '${header.key}\u0000${header.value}',
+    ].join('\u0001'),
+    _allowSelfSignedCertificates,
+    _mtlsCertificateChainPem,
+    _mtlsPrivateKeyPem,
+    _mtlsPrivateKeyPasswordController.text,
+  );
 
   void _resetTransientAttempt() {
     if (!mounted || _isConnecting) return;
@@ -303,6 +404,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   @override
   void dispose() {
+    final endAccountAddition = _endAccountAddition;
+    if (endAccountAddition != null) {
+      // Not while the tree is unmounting: Riverpod forbids changing provider
+      // state from a widget lifecycle callback.
+      Future.microtask(endAccountAddition);
+    }
     _urlController.removeListener(_resetTransientAttempt);
     _urlController.dispose();
     _headerKeyController.dispose();
@@ -360,7 +467,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
       final tempConfig = ServerConfig(
         id: const Uuid().v4(),
-        name: _deriveServerNameFromUrl(url),
+        name: _serverNameFor(url),
         url: url,
         customHeaders: Map<String, String>.from(_customHeaders),
         isActive: true,
@@ -484,7 +591,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
 
     // Show proxy auth page
-    final proxyConfig = ProxyAuthConfig(serverConfig: tempConfig);
+    final proxyConfig = ProxyAuthConfig(
+      serverConfig: tempConfig,
+      freshSession: widget.addingAccount,
+    );
 
     if (!mounted) return;
 
@@ -675,12 +785,25 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     User validatedUser,
     BackendConfig backendConfig,
   ) async {
+    // Committing makes the new account the active one. While another account
+    // is added, that leaves the one it was added from and stops a reply still
+    // being written there, so ask first. Left while the commit is slow, the
+    // addition ends, and so must the commit: the account it was added from
+    // stays active.
+    final addition = ref.read(accountAdditionOriginProvider) == null
+        ? null
+        : ref.read(accountAdditionOriginProvider.notifier).stillInProgress();
+    if (addition != null && !await confirmLeavingActiveAccount(context, ref)) {
+      return;
+    }
+    if (!mounted) return;
     try {
       final authActions = ref.read(authActionsProvider);
       final success = await authActions.commitPrevalidatedProxySession(
         serverConfig: serverConfig,
         token: token,
         user: validatedUser,
+        canCommit: addition,
       );
 
       if (!mounted) return;
@@ -867,6 +990,22 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       if (num == null || num < 0 || num > 255) return false;
     }
     return true;
+  }
+
+  /// The saved server's own name while the form still reaches it: saving an
+  /// added account's connection renames the server it joins after it, for
+  /// every account on that server. Otherwise the address's host.
+  String _serverNameFor(String url) {
+    final saved = _savedServer;
+    final identity = openWebUiServerIdentityUrl(url);
+    if (saved != null &&
+        saved.name.trim().isNotEmpty &&
+        saved.endpoints.any(
+          (endpoint) => openWebUiServerIdentityUrl(endpoint.url) == identity,
+        )) {
+      return saved.name;
+    }
+    return _deriveServerNameFromUrl(url);
   }
 
   String _deriveServerNameFromUrl(String url) {
@@ -1141,36 +1280,98 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Widget build(BuildContext context) {
     final reviewerMode = ref.watch(reviewerModeProvider);
     final l10n = AppLocalizations.of(context)!;
+    // Kept current for Back, which waits for it.
+    if (widget.addingAccount) ref.watch(pendingSignInAbandonableProvider);
 
-    return UtilityPageScaffold.auth(
-      title: l10n.backendChooserOpenWebUITitle,
-      onTitleLongPress: _toggleReviewerMode,
-      backNavigation: UtilityBackNavigation(
-        label: l10n.back,
-        buttonKey: const ValueKey<String>('server-connection-back-button'),
-        // Users adding Open WebUI next to a working Apple, Direct, or Hermes
-        // backend came from chat; only first-time setup returns to the
-        // backend chooser.
-        onPressed: () => context.go(
-          ref.read(accountlessPrimaryBackendUsableProvider)
-              ? Routes.chat
-              : Routes.backendChooser,
+    // Adding an account is the router's location, with nothing beneath it to
+    // pop to, so the system back does what Back does rather than leave the app.
+    return PopScope(
+      canPop: !widget.addingAccount,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goBack();
+      },
+      child: UtilityPageScaffold.auth(
+        title: l10n.backendChooserOpenWebUITitle,
+        onTitleLongPress: _toggleReviewerMode,
+        backNavigation: UtilityBackNavigation(
+          label: l10n.back,
+          buttonKey: const ValueKey<String>('server-connection-back-button'),
+          onPressed: _goBack,
         ),
-      ),
-      bottomAction: _buildConnectButton(),
-      body: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (reviewerMode) ...[
-              _buildReviewerModeSection(),
-              const SizedBox(height: Spacing.xl),
+        bottomAction: _buildConnectButton(),
+        body: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (reviewerMode) ...[
+                _buildReviewerModeSection(),
+                const SizedBox(height: Spacing.xl),
+              ],
+              _buildServerForm(),
             ],
-            _buildServerForm(),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  /// Back waits to know whether the added account can be dropped; a press
+  /// meanwhile, of the button or the system's back, is the same Back.
+  bool _goingBack = false;
+
+  /// Users adding Open WebUI next to a working Apple, Direct, or Hermes
+  /// backend came from chat; only first-time setup returns to the backend
+  /// chooser. Adding another account goes back to chat too, first dropping
+  /// the added account if its sign-in began and never finished.
+  Future<void> _goBack() async {
+    if (_goingBack) return;
+    _goingBack = true;
+    try {
+      await _leave();
+    } finally {
+      _goingBack = false;
+    }
+  }
+
+  Future<void> _leave() async {
+    if (widget.addingAccount) {
+      // Asked as it settles, not as last shown: back from the sign-in page,
+      // the added account has just become active, and the answer for it may
+      // still be on its way. Plain Back would leave that account active.
+      final bool abandonable;
+      try {
+        abandonable = await ref.read(pendingSignInAbandonableProvider.future);
+      } catch (_) {
+        // Not known whether the added account is still there, signed out:
+        // leaving could leave it active. Back stays, says so, and can be
+        // pressed again.
+        if (mounted) {
+          setState(() {
+            _connectionError = AppLocalizations.of(context)!.errorMessage;
+          });
+        }
+        return;
+      }
+      if (!mounted) return;
+      if (abandonable) {
+        if (!await abandonAddedAccount(context, ref) && mounted) {
+          setState(() {
+            _connectionError = AppLocalizations.of(context)!.errorMessage;
+          });
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
+    if (widget.addingAccount && context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go(
+      widget.addingAccount || ref.read(accountlessPrimaryBackendUsableProvider)
+          ? Routes.chat
+          : Routes.backendChooser,
     );
   }
 

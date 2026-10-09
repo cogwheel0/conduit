@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/core/utils/native_sheet_utils.dart'
+    show nativeAccountSwitchActionId;
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -10,6 +12,7 @@ import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
@@ -22,6 +25,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -119,6 +123,7 @@ final class _Harness {
 Future<_Harness> _pump(
   WidgetTester tester, {
   required AccountMetadata? cached,
+  Future<List<OpenWebUiAccountEntry>>? accounts,
 }) async {
   final storage = _MockOptimizedStorageService();
   when(storage.getThemeMode).thenReturn(null);
@@ -147,6 +152,8 @@ Future<_Harness> _pump(
         harness.presented.add(config);
         return true;
       }),
+      if (accounts != null)
+        openWebUiAccountsProvider.overrideWith((ref) => accounts),
     ],
   );
   addTearDown(container.dispose);
@@ -195,6 +202,26 @@ Future<void> _tapAvatar(WidgetTester tester) async {
 List<String> _itemIds(Iterable<PlatformNativeSheetSection> sections) => [
   for (final section in sections) ...section.items.map((item) => item.id),
 ];
+
+List<String> _rootItemIds(NativeProfileSheetConfig config) => [
+  for (final section in config.sections)
+    ...section.items.map((item) => item.id),
+];
+
+final _home = OpenWebUiServer(
+  id: 'home',
+  name: 'Home',
+  endpoints: [OpenWebUiEndpoint(id: 'lan', url: 'http://10.0.0.2:3000')],
+);
+
+OpenWebUiAccountEntry _savedAccount(String id, {required bool isActive}) =>
+    OpenWebUiAccountEntry(
+      account: OpenWebUiAccount(id: id, serverId: _home.id),
+      server: _home,
+      summary: OpenWebUiAccountSummary(name: id),
+      isActive: isActive,
+      hasSession: true,
+    );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -370,5 +397,60 @@ void main() {
     // It opened on the fresh copy, so there is nothing to hand it later.
     check(harness.profiles.refreshes).equals(1);
     check(harness.profileUpdates).isEmpty();
+  });
+
+  testWidgets('the first open waits for the saved accounts and lists the '
+      'others', (tester) async {
+    final accounts = Completer<List<OpenWebUiAccountEntry>>();
+    final harness = await _pump(
+      tester,
+      cached: _profile(),
+      accounts: accounts.future,
+    );
+
+    await _tapAvatar(tester);
+    check(harness.presented).isEmpty();
+
+    accounts.complete([
+      _savedAccount('ada', isActive: true),
+      _savedAccount('work', isActive: false),
+    ]);
+    await tester.pump();
+    await tester.pump();
+
+    check(harness.presented).length.equals(1);
+    final ids = _rootItemIds(harness.presented.single);
+    check(ids).contains('$nativeAccountSwitchActionId:work');
+    check(ids.contains('$nativeAccountSwitchActionId:ada')).isFalse();
+
+    // Settle the profile refresh the sheet started behind itself.
+    harness.profiles.pending!.complete(_profile());
+    await tester.pump();
+  });
+
+  testWidgets('saved accounts that never load do not hold the sheet back', (
+    tester,
+  ) async {
+    final harness = await _pump(
+      tester,
+      cached: _profile(),
+      accounts: Completer<List<OpenWebUiAccountEntry>>().future,
+    );
+
+    await _tapAvatar(tester);
+    check(harness.presented).isEmpty();
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+
+    check(harness.presented).length.equals(1);
+    check(
+      _rootItemIds(
+        harness.presented.single,
+      ).where((id) => id.startsWith(nativeAccountSwitchActionId)),
+    ).isEmpty();
+
+    harness.profiles.pending!.complete(_profile());
+    await tester.pump();
   });
 }

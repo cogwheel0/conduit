@@ -10,7 +10,6 @@ library;
 import 'dart:async';
 
 import 'package:riverpod/riverpod.dart';
-import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
@@ -21,10 +20,8 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         stopGenerationProvider;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
-import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -69,10 +66,77 @@ final hostActiveAccountChangedProvider = Provider<void Function(String?)>(
   (ref) => (_) {},
 );
 
+/// The account that was active when adding another one began, while that
+/// flow is open; null otherwise.
+///
+/// Adding an account runs through sign-in screens the router normally keeps
+/// a signed-in user away from. While the account named here is still the
+/// active one, the router leaves the flow alone; once the new account is
+/// active, ordinary routing takes over and lands it in chat.
+final accountAdditionOriginProvider =
+    NotifierProvider<AccountAdditionOrigin, String?>(AccountAdditionOrigin.new);
+
+class AccountAdditionOrigin extends Notifier<String?> {
+  /// How many additions have begun, so one that began later is told apart
+  /// from the one before it.
+  int _begun = 0;
+
+  @override
+  String? build() => null;
+
+  void begin(String? activeAccountId) {
+    _begun++;
+    state = activeAccountId;
+  }
+
+  /// Ends the flow begun from [activeAccountId], unless another has begun.
+  void end(String? activeAccountId) {
+    if (state == activeAccountId) state = null;
+  }
+
+  /// Ends, once called, the addition in progress now, unless another has
+  /// begun by then -- even from the same account, which [end] cannot tell
+  /// apart. For the page an addition opened: it can go after the next
+  /// addition has begun.
+  void Function() endLater() {
+    final begun = _begun;
+    return () {
+      if (ref.mounted && _begun == begun) state = null;
+    };
+  }
+
+  /// Whether the addition in progress now still is, for work it started:
+  /// false once it ends, and still false if another begins after it.
+  bool Function() stillInProgress() {
+    final begun = _begun;
+    return () => ref.mounted && _begun == begun && state != null;
+  }
+}
+
+/// Whether the active account is a sign-in started for an added account that
+/// can be left: an addition is in progress, the account is not the one it
+/// began from, it never signed in, and another account is still signed in to
+/// go back to. Sign-in screens offer Cancel instead of Back then. Never
+/// signed in is not enough on its own: an account carried over from before
+/// accounts existed may not know its user, and be the one adding began from.
+final pendingSignInAbandonableProvider = FutureProvider<bool>((ref) async {
+  final origin = ref.watch(accountAdditionOriginProvider);
+  if (origin == null) return false;
+  final entries = await ref.watch(openWebUiAccountsProvider.future);
+  final active = entries.where((entry) => entry.isActive).firstOrNull;
+  if (active == null ||
+      active.id == origin ||
+      active.account.userId != null ||
+      active.hasSession) {
+    return false;
+  }
+  return entries.any((entry) => !entry.isActive && entry.hasSession);
+});
+
 final openWebUiAccountsControllerProvider =
     Provider<OpenWebUiAccountsController>(OpenWebUiAccountsController.new);
 
-final class OpenWebUiAccountsController {
+class OpenWebUiAccountsController {
   OpenWebUiAccountsController(this._ref);
 
   final Ref _ref;
@@ -204,44 +268,107 @@ final class OpenWebUiAccountsController {
         : OpenWebUiAccountChangeResult.needsSignIn;
   }
 
-  /// Starts signing in to another account on the saved server [serverId].
+  /// Leaves a sign-in started for an added account without finishing it.
   ///
-  /// A new account is added with the server's current route and made active,
-  /// signed out, so the sign-in screen opens for it. The account that was
-  /// active stays signed in, in the vault. Returns the new account's id.
-  Future<String?> beginAddAccount(String serverId, {bool force = false}) =>
-      _afterLastChange(() => _beginAddAccount(serverId, force: force));
-
-  Future<String?> _beginAddAccount(
-    String serverId, {
-    required bool force,
-  }) async {
-    if (!_mayLeaveActiveAccount(force)) return null;
-    final storage = _ref.read(optimizedStorageServiceProvider);
-    final registry = await storage.getOpenWebUiRegistryStrict();
-    final template = registry
-        .accountsOn(serverId)
-        .map((account) => registry.project(account.id))
-        .whereType<ServerConfig>()
-        .firstOrNull;
-    if (template == null) return null;
-    final accountId = const Uuid().v4();
-    await _ref
-        .read(authStateManagerProvider.notifier)
-        .selectUnauthenticatedServerConfig(
-          template.copyWith(
-            id: accountId,
-            isActive: true,
-            lastConnected: null,
-            customHeaders: {
-              for (final entry in template.customHeaders.entries)
-                if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
-            },
-          ),
-        );
-    _afterActiveAccountChanged(accountId);
-    return accountId;
+  /// Only an account that never signed in -- no proven user, no session --
+  /// is dropped, and only when another account can take over: the most
+  /// recently used one that is still signed in. Returns whether it did.
+  Future<bool> abandonPendingSignIn() {
+    // Which addition is left is decided now, not when its turn comes: one
+    // begun meanwhile -- after Cancel was pressed twice, say -- is not it,
+    // even from the same account.
+    final stillInProgress = _ref
+        .read(accountAdditionOriginProvider.notifier)
+        .stillInProgress();
+    return _afterLastChange(() => _abandonPendingSignIn(stillInProgress));
   }
+
+  Future<bool> _abandonPendingSignIn(bool Function() stillInProgress) async {
+    if (!stillInProgress()) return false;
+    // Only an addition's own sign-in is left: an account carried over from
+    // before accounts existed can look the same, and leaving it would delete
+    // its data. So can the account the addition began from, until the new
+    // one is made active.
+    final origin = _ref.read(accountAdditionOriginProvider);
+    if (origin == null) return false;
+    // The cached list can trail a sign-in that just finished; auth cannot.
+    if (_signedIn()) return false;
+    final activeId = await _activeAccountId();
+    if (activeId == null || activeId == origin) return false;
+    final entries = await _ref.read(openWebUiAccountsProvider.future);
+    final active = entries.where((entry) => entry.id == activeId).firstOrNull;
+    if (active == null || active.account.userId != null || active.hasSession) {
+      return false;
+    }
+    // Back to the account the addition began from while it is signed in,
+    // even when another was used since; else to the one used last.
+    final next = entries.any((entry) => entry.id == origin && entry.hasSession)
+        ? origin
+        : await _nextAccountAfter(activeId);
+    if (next == null ||
+        !entries.any((entry) => entry.id == next && entry.hasSession)) {
+      return false;
+    }
+    // The sign-in can finish while the next account is chosen. Checked last,
+    // with nothing awaited between this and leaving starting: an account
+    // that signed in is never abandoned.
+    if (await _activeAccountId() != activeId ||
+        _signedIn() ||
+        !stillInProgress()) {
+      return false;
+    }
+    // Not signed out of: it has no session for its server to end, and asking
+    // would leave a window for one to land and be revoked. Storage checks
+    // once more as it removes the account, and refuses one a sign-in reached.
+    final bool left;
+    try {
+      left = await _ref
+          .read(authStateManagerProvider.notifier)
+          .abandonPendingAccount(activeId, thenActivate: next);
+    } catch (error, stackTrace) {
+      // What storage did is not known: the list is read again, as when it
+      // refuses, and the caller hears only that the account was not left.
+      DebugLogger.error(
+        'abandon-pending-sign-in-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _ref.invalidate(openWebUiAccountsProvider);
+      return false;
+    }
+    if (!left) {
+      _ref.invalidate(openWebUiAccountsProvider);
+      return false;
+    }
+    // Read again, as a sign-out does: a sign-in can make another account
+    // active while auth settles, and that one is left alone.
+    final String? now;
+    try {
+      now = await _activeAccountId();
+    } catch (error, stackTrace) {
+      // Left already: the list, read again, shows what is active.
+      DebugLogger.error(
+        'abandon-active-read-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _ref.invalidate(openWebUiAccountsProvider);
+      return true;
+    }
+    if (now == next) {
+      await _ref.read(openWebUiAccountSummariesProvider.notifier).touch(next);
+      _afterActiveAccountChanged(next);
+    } else {
+      _ref.invalidate(openWebUiAccountsProvider);
+    }
+    return true;
+  }
+
+  bool _signedIn() =>
+      _ref.read(authStateManagerProvider).asData?.value.isAuthenticated ??
+      false;
 
   Future<String?> _activeAccountId() =>
       _ref.read(optimizedStorageServiceProvider).getEffectiveActiveServerId();
@@ -371,6 +498,13 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
       final current = ref.read(authStateManagerProvider).asData?.value;
       if (current?.token != auth.token) return;
       DebugLogger.log('duplicate-account-merged', scope: 'auth/accounts');
+      // The addition this sign-in finishes, taken before the merge: that
+      // account is active again while its leftovers are cleared, and another
+      // addition can begin from it meanwhile.
+      final addition = ref.read(accountAdditionOriginProvider.notifier);
+      final fromExisting =
+          ref.read(accountAdditionOriginProvider) == existing.id;
+      final endAddition = addition.endLater();
       final merged = await ref
           .read(authStateManagerProvider.notifier)
           .mergeActiveAccountInto(
@@ -383,6 +517,11 @@ final openWebUiDuplicateAccountReconcilerProvider = Provider<void>((ref) {
         return;
       }
       done = true;
+      // An addition signed in as the user of the account it began from lands
+      // back in that account. The sign-in is done, but with that account
+      // active again the router took the addition for still running and
+      // kept the finished sign-in on screen.
+      if (fromExisting) endAddition();
       await ref
           .read(openWebUiAccountSummariesProvider.notifier)
           .touch(existing.id);

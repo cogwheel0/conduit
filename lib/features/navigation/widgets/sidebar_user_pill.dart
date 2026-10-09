@@ -56,6 +56,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 import 'sidebar_tab_registry.dart';
+import '../../../core/utils/account_display.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -436,6 +437,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
             ? await _loadHermesAvatarBytes()
             : null;
         if (!context.mounted) return;
+        // The sheet lists the other saved accounts as they are when it opens,
+        // so the first open after launch must not beat their load.
+        await _loadSavedAccounts(ref);
+        if (!context.mounted) return;
         final hasAccountProfile = !hermesOnly && user != null;
         // The profile details editor preselects the stored gender and birth
         // date and saves every field, so it must not open on a profile that
@@ -574,6 +579,22 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     return ref.read(accountProfileProvider).asData?.value ?? cached;
   }
 
+  /// Waits briefly for the saved Open WebUI accounts. The sheet still opens
+  /// without them if they fail or take too long; it then lists only this one.
+  Future<void> _loadSavedAccounts(WidgetRef ref) async {
+    try {
+      await ref
+          .read(openWebUiAccountsProvider.future)
+          .timeout(const Duration(seconds: 2));
+    } catch (error) {
+      DebugLogger.warning(
+        'saved-accounts-load-failed',
+        scope: 'navigation/profile',
+        data: {'error': error.toString()},
+      );
+    }
+  }
+
   /// Refreshes the account profile after the Settings sheet opened on the
   /// cached [shown] copy, hands the sheet the newer one when it differs, and
   /// then fills in its Profile page, which waited on a loading row.
@@ -710,6 +731,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       l10n,
       account: rootAccount,
       visibility: visibility,
+      otherAccounts: otherSavedAccountsForNativeSheet(
+        ref.read(openWebUiAccountsProvider).value,
+        l10n,
+      ),
     );
     final supportItems = buildNativeSupportItems(l10n);
     // The native sheet lays itself out from [sections]; the flat lists are

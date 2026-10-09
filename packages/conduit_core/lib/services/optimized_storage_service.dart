@@ -2456,25 +2456,30 @@ class OptimizedStorageService {
             bypassReadSuppression: true,
           ),
         );
-        final ids = await _secureCredentialStorage.vaultedServerIds();
-        if (active != null) {
-          final token = _authTokenReadSuppressed
-              ? null
-              : await _getAuthTokenStrictUnlocked(bypassReadSuppression: true);
-          final credentials = _savedCredentialsReadSuppressed
-              ? null
-              : await _secureCredentialStorage
-                    .getSavedCredentialsPayloadStrict();
-          if (token?.isNotEmpty ?? false) ids.add(active);
-          // A saved sign-in names its own account. From before accounts
-          // existed, that can be another one than the active.
-          if (credentials?.isNotEmpty ?? false) {
-            ids.add(_savedCredentialsServerId(credentials) ?? active);
-          }
-        }
-        return ids;
+        return _accountIdsWithSessionUnlocked(active);
       }),
     );
+  }
+
+  /// [accountIdsWithSession], with [active] the account the live slots
+  /// belong to.
+  Future<Set<String>> _accountIdsWithSessionUnlocked(String? active) async {
+    final ids = await _secureCredentialStorage.vaultedServerIds();
+    if (active != null) {
+      final token = _authTokenReadSuppressed
+          ? null
+          : await _getAuthTokenStrictUnlocked(bypassReadSuppression: true);
+      final credentials = _savedCredentialsReadSuppressed
+          ? null
+          : await _secureCredentialStorage.getSavedCredentialsPayloadStrict();
+      if (token?.isNotEmpty ?? false) ids.add(active);
+      // A saved sign-in names its own account. From before accounts
+      // existed, that can be another one than the active.
+      if (credentials?.isNotEmpty ?? false) {
+        ids.add(_savedCredentialsServerId(credentials) ?? active);
+      }
+    }
+    return ids;
   }
 
   /// Forgets [accountId]: its live or vaulted session and saved sign-in, its
@@ -2496,11 +2501,30 @@ class OptimizedStorageService {
   Future<bool> removeInactiveAccount(String accountId) async =>
       await _removeAccount(accountId, onlyIfInactive: true) != null;
 
-  /// Null when [onlyIfInactive] declined.
+  /// Forgets [accountId] as [removeAccount] does, handing over to
+  /// [thenActivate], only while it is the active account and has never
+  /// signed in: no user proven for it, and no live, saved or vaulted
+  /// session. Otherwise it changes nothing and returns null.
+  ///
+  /// Deciding that under the same locks as the removal, which a sign-in
+  /// commits under too, is what keeps a sign-in from landing in between,
+  /// after which its session would be deleted with the account. Returns
+  /// whether [thenActivate] has a session to restore.
+  Future<bool?> removePendingAccount(
+    String accountId, {
+    required String thenActivate,
+  }) => _removeAccount(
+    accountId,
+    thenActivate: thenActivate,
+    onlyIfPending: true,
+  );
+
+  /// Null when [onlyIfInactive] or [onlyIfPending] declined.
   Future<bool?> _removeAccount(
     String accountId, {
     String? thenActivate,
     bool onlyIfInactive = false,
+    bool onlyIfPending = false,
   }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
@@ -2515,6 +2539,21 @@ class OptimizedStorageService {
             ) ==
             accountId;
         if (wasActive && onlyIfInactive) return null;
+        if (onlyIfPending) {
+          if (!wasActive) return null;
+          // The account to hand over to must be another one, and may have
+          // been removed meanwhile.
+          if (thenActivate == accountId ||
+              !configs.any((config) => config.id == thenActivate)) {
+            return null;
+          }
+          final registry = await _getRegistryStrictUnlocked(
+            bypassReadSuppression: true,
+          );
+          if (registry.account(accountId)?.userId != null) return null;
+          final withSession = await _accountIdsWithSessionUnlocked(accountId);
+          if (withSession.contains(accountId)) return null;
+        }
         // One removed since the caller chose it is none: an active id that
         // named it would name no account.
         final next =

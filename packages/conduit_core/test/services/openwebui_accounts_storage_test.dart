@@ -929,6 +929,166 @@ void main() {
     });
   });
 
+  group('leaving an added account before it signs in', () {
+    // B is signed in; A is added from it, and A's sign-in has not finished.
+    Future<void> addPendingFromSignedIn() async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('b', password: 'pw-b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+    }
+
+    Future<void> checkKept() async {
+      check(await storage.getActiveServerId()).equals('a');
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['a', 'b']);
+      check(await vaultedToken('b')).equals('token-b');
+    }
+
+    test('removes it and hands over to the next account', () async {
+      await addPendingFromSignedIn();
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .equals(true);
+
+      check(await storage.getActiveServerId()).equals('b');
+      check(await storage.getAuthTokenStrict()).equals('token-b');
+      check((await storage.getSavedCredentialsStrict())?['password'])
+          .equals('pw-b');
+      check(await vaultedToken('b')).isNull();
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['b']);
+    });
+
+    test('stays when the next account\'s session cannot be read', () async {
+      await addPendingFromSignedIn();
+      secure.unreadableKey = 'auth_token_server_v1:b';
+
+      // Gone first, it could not be cancelled again to try once more.
+      await check(
+        storage.removePendingAccount('a', thenActivate: 'b'),
+      ).throws<StateError>();
+
+      secure.unreadableKey = null;
+      await checkKept();
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .equals(true);
+      check(await storage.getAuthTokenStrict()).equals('token-b');
+    });
+
+    test('is not held up by a saved sign-in for another account', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      await signIn('b', password: 'pw-b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      // From before accounts existed: C's sign-in, live while A is active.
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c',
+      );
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .equals(true);
+
+      check(await storage.getActiveServerId()).equals('b');
+      check((await vaultedCredentials('c'))?['password']).equals('pw-c');
+    });
+
+    test('is refused when it would hand over to itself', () async {
+      await addPendingFromSignedIn();
+
+      check(await storage.removePendingAccount('a', thenActivate: 'a'))
+          .isNull();
+
+      await checkKept();
+    });
+
+    test('is refused once the account to hand over to is gone', () async {
+      await addPendingFromSignedIn();
+      await storage.removeInactiveAccount('b');
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      check(await storage.getActiveServerId()).equals('a');
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['a']);
+    });
+
+    test('is refused once a sign-in has reached it', () async {
+      await addPendingFromSignedIn();
+      await storage.saveAuthToken('token-a');
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      await checkKept();
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+    });
+
+    test('is refused once a saved sign-in has reached it', () async {
+      await addPendingFromSignedIn();
+      await storage.saveCredentials(
+        serverId: 'a',
+        username: 'user-a',
+        password: 'pw-a',
+      );
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      await checkKept();
+      check((await storage.getSavedCredentialsStrict())?['password'])
+          .equals('pw-a');
+    });
+
+    // As a switch that failed part-way leaves it: active, its session still
+    // in its vault.
+    test('is refused while a session of its own is in its vault', () async {
+      await addPendingFromSignedIn();
+      await secure.write(key: 'auth_token_server_v1:a', value: 'token-a');
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      await checkKept();
+      check(await vaultedToken('a')).equals('token-a');
+    });
+
+    test('is refused once its user is known', () async {
+      await addPendingFromSignedIn();
+      await storage.bindAccountUser('a', 'user-a');
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      await checkKept();
+    });
+
+    test('is refused once it is no longer the active account', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      await signIn('b', password: 'pw-b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      // Switched away meanwhile, to an account with no session either.
+      await storage.switchActiveServer(fromServerId: 'a', toServerId: 'c');
+
+      check(await storage.removePendingAccount('a', thenActivate: 'b'))
+          .isNull();
+
+      check(await storage.getActiveServerId()).equals('c');
+      check((await storage.getServerConfigs()).map((config) => config.id))
+          .deepEquals(['a', 'b', 'c']);
+      check(await vaultedToken('b')).equals('token-b');
+    });
+  });
+
   group('an account active as storage counts it', () {
     test('has its id kept once certified', () async {
       await storage.saveServerConfigs([account('a')]);

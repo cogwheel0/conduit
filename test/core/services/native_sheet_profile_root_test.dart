@@ -1,8 +1,13 @@
+import 'package:checks/checks.dart';
+import 'package:conduit/core/router/app_router.dart'
+    show usesNoTransitionForNativeSheet;
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart'
     show nativeProfileSheetFieldsDiffer;
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/services/navigation_service.dart'
+    show RouteNames, accountsNativeSheetNavigationRequest;
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
@@ -44,6 +49,7 @@ void main() {
 
       expect(_ids(sections), [
         [NativeSheetRoutes.profile],
+        [nativeAccountAddActionId],
         [
           NativeSheetRoutes.appearance,
           NativeSheetRoutes.chats,
@@ -66,7 +72,7 @@ void main() {
         [nativeSignOutActionId],
         ['buy-me-a-coffee', 'github-sponsors'],
       ]);
-      final advanced = sections[4];
+      final advanced = sections[5];
       expect(advanced.title, _l10n.advancedFeatures);
       expect(advanced.footer, _l10n.profileAdvancedFooter);
       expect(sections.last.title, _l10n.supportConduit);
@@ -107,11 +113,112 @@ void main() {
       expect(ids, isNot(contains(NativeSheetRoutes.calendar)));
       expect(ids, isNot(contains(NativeSheetRoutes.workspace)));
       expect(ids, isNot(contains(NativeSheetRoutes.scheduledTasks)));
-      // Only the support title remains as a section heading.
+      // Only the accounts and support titles remain as section headings.
       expect(
         sections.where((section) => section.title != null).map((s) => s.title),
-        [_l10n.supportConduit],
+        [_l10n.accountsTitle, _l10n.supportConduit],
       );
+    });
+
+    test('other saved accounts are a tap away, with one sign-out each', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: const NativeProfileRootVisibility(),
+        otherAccounts: const [
+          NativeProfileRootSavedAccount(
+            id: 'work',
+            displayName: 'Ada at work',
+            detail: 'ada@work.example · Work',
+          ),
+        ],
+      );
+
+      final accounts = sections[1];
+      expect(accounts.title, _l10n.accountsTitle);
+      expect(
+        [for (final item in accounts.items) item.actionId],
+        [
+          nativeAccountSwitchActionId,
+          nativeAccountAddActionId,
+          nativeAccountManageActionId,
+        ],
+      );
+      final work = accounts.items.first;
+      expect(work.title, 'Ada at work');
+      expect(work.subtitle, 'ada@work.example · Work');
+      expect(work.actionValue, 'work');
+      expect(work.dismissOnSelect, isTrue);
+
+      final signOut = _ids(sections)
+          .firstWhere((ids) => ids.contains(nativeSignOutActionId));
+      expect(signOut, [nativeAccountSignOutActionId, nativeSignOutActionId]);
+      expect(
+        _item(sections, nativeAccountSignOutActionId).title,
+        _l10n.accountsSignOutOf('Ada'),
+      );
+      expect(
+        _item(sections, nativeSignOutActionId).title,
+        _l10n.accountsSignOutAll,
+      );
+    });
+
+    // Pushed without the native-sheet origin, the page played its own
+    // transition under the sheet as that slid away.
+    test('Manage accounts opens without a second transition', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: const NativeProfileRootVisibility(),
+        otherAccounts: const [
+          NativeProfileRootSavedAccount(
+            id: 'work',
+            displayName: 'Ada at work',
+            detail: 'ada@work.example · Work',
+          ),
+        ],
+      );
+      final request = accountsNativeSheetNavigationRequest;
+
+      expect(
+        _item(sections, nativeAccountManageActionId).dismissOnSelect,
+        isTrue,
+      );
+      expect(request.routeName, RouteNames.accounts);
+      expect(usesNoTransitionForNativeSheet(request.extra), isTrue);
+    });
+
+    // The sheet reads the saved accounts as it opens. When that read failed
+    // or ran late, the row said "Sign out" while it signed out of every
+    // account.
+    test('with the other accounts unknown, signing out says it signs out '
+        'of all of them', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: const NativeProfileRootVisibility(),
+        otherAccounts: null,
+      );
+
+      check([for (final item in sections[1].items) item.actionId])
+          .deepEquals([nativeAccountAddActionId, nativeAccountManageActionId]);
+      check(_item(sections, nativeSignOutActionId).title)
+          .equals(_l10n.accountsSignOutAll);
+      final ids = _ids(sections).expand((ids) => ids);
+      check(ids.contains(nativeAccountSignOutActionId)).isFalse();
+    });
+
+    test('with one account, signing out is what it always was', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: const NativeProfileRootVisibility(),
+      );
+
+      final ids = _ids(sections).expand((ids) => ids).toList();
+      expect(ids, isNot(contains(nativeAccountSignOutActionId)));
+      expect(ids, isNot(contains(nativeAccountManageActionId)));
+      expect(_item(sections, nativeSignOutActionId).title, _l10n.signOut);
     });
 
     test('without an Open WebUI account the account rows give way to '
@@ -138,6 +245,37 @@ void main() {
         nativeConnectOpenWebUiActionId,
       ]);
     });
+  });
+
+  // An expired session clears the current user. Next to a usable Hermes or
+  // Direct backend Settings stays open, and the other accounts went with
+  // the profile row.
+  test('with the active account signed out, the other accounts are still a '
+      'tap away', () {
+    final sections = buildNativeProfileRootSections(
+      _l10n,
+      account: null,
+      visibility: const NativeProfileRootVisibility(),
+      otherAccounts: const [
+        NativeProfileRootSavedAccount(
+          id: 'work',
+          displayName: 'Ada at work',
+          detail: 'ada@work.example · Work',
+        ),
+      ],
+    );
+
+    final accounts = sections.first;
+    check(accounts.title).equals(_l10n.accountsTitle);
+    check([for (final item in accounts.items) item.actionId]).deepEquals([
+      nativeAccountSwitchActionId,
+      nativeAccountAddActionId,
+      nativeAccountManageActionId,
+    ]);
+    check(accounts.items.first.actionValue).equals('work');
+    final ids = _ids(sections).expand((ids) => ids);
+    check(ids.contains(NativeSheetRoutes.profile)).isFalse();
+    check(ids.contains(nativeSignOutActionId)).isFalse();
   });
 
   test('About rows that open Flutter pages close the sheet with a chevron', () {
