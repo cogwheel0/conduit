@@ -9,6 +9,8 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/models/personal_valves.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/push/services/openwebui_push_backend.dart'
+    show kConduitPushFunctionId;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_valve_values.dart';
 import 'package:conduit_core/models/model.dart';
@@ -448,6 +450,11 @@ final personalValvesTargetsProvider = Provider<List<PersonalValvesTarget>>((
   final targets = <PersonalValvesTarget>[];
   final seen = <String>{};
   void add(PersonalValvesTargetKind kind, String id, String label) {
+    // Conduit Push keeps its subscriptions in user valves it manages itself.
+    if (kind == PersonalValvesTargetKind.function &&
+        id == kConduitPushFunctionId) {
+      return;
+    }
     if (seen.add('${kind.name}:$id')) {
       targets.add(PersonalValvesTarget(kind: kind, id: id, label: label));
     }

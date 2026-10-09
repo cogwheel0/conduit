@@ -167,11 +167,13 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
     return _nullableJsonMap(response.data);
   }
 
-  /// Null when the function is inactive or declares no `UserValves`.
+  /// Null when the function is inactive or declares no `UserValves`, and for
+  /// Conduit Push, whose user valves only the push coordinator edits.
   Future<WorkspaceValveSpec?> getUserFunctionValvesSpec(
     String functionId, {
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    if (functionId == kConduitPushFunctionId) return null;
     final response = await _dio.get(
       '/api/v1/functions/id/$functionId/valves/user/spec',
       options: _withAuthSnapshot(Options(), authSnapshot),

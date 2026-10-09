@@ -4169,5 +4169,14 @@
   "accountsRemoveAddressMessage": "Conduit probeert dit adres niet meer. Je accounts blijven ingelogd.",
   "accountsAddressConfirmTitle": "Dit adres controleren?",
   "accountsAddressConfirmMessage": "Om zeker te weten dat {host} deze server is, stuurt Conduit er de sessie van een hier opgeslagen account naartoe. Ga alleen verder als je dit adres vertrouwt.",
-  "accountsAddressConfirmAction": "Adres controleren"
+  "accountsAddressConfirmAction": "Adres controleren",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nieuwe melding",
+  "pushReplyTitle": "Nieuw antwoord",
+  "pushReplyFailedTitle": "Antwoord mislukt",
+  "pushReplyFailedBody": "Het antwoord kon niet worden voltooid.",
+  "pushChannelTitle": "Nieuw bericht",
+  "pushCronTitle": "Geplande taak",
+  "pushTestTitle": "Pushmeldingen werken",
+  "pushTestBody": "Deze testmelding kwam van je server."
 }

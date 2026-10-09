@@ -29,6 +29,7 @@ import 'platform/flutter_flush_scheduler.dart';
 import 'platform/flutter_post_frame_scheduler.dart';
 import 'platform/ios_display_boost.dart';
 import 'platform/mobile_background_execution.dart';
+import 'platform/mobile_push_platform.dart';
 
 import 'package:conduit_core/services/share_staging_cleanup.dart'
     show shareStagingDirectoryName;
@@ -98,6 +99,7 @@ import 'core/utils/native_sheet_utils.dart'
 import 'shared/utils/ui_utils.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
+import 'features/push/push_host_bindings.dart';
 
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 
@@ -156,6 +158,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'shared/services/app_package_info.dart';
 
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
@@ -241,6 +244,13 @@ void main() {
     stagingDirectoryName: shareStagingDirectoryName,
   );
   AudioCapturePort.hostFactory = RecordAudioCapture.new;
+  // End-to-end-encrypted push: the keys and decryption live in the iOS
+  // Notification Service Extension and the Android receiver.
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android)) {
+    PushPlatformPort.hostDefault = MobilePushPlatform();
+  }
   // The preference store is a host capability too; installed
   // before bootstrap awaits its first synchronous read.
   PreferencesStore.installLoader(FlutterKeyValueStore.load);
@@ -425,9 +435,17 @@ void main() {
               final local = ref.read(localNotificationServiceProvider);
               final clearing = accountId == null
                   ? local.cancelAll()
-                  : local.cancelScope(
-                      NotificationScope.openWebUi(accountId).value,
-                    );
+                  : Future.wait([
+                      local.cancelScope(
+                        NotificationScope.openWebUi(accountId).value,
+                      ),
+                      // Pushes that arrived while the sign-out ran.
+                      ref
+                          .read(pushPlatformPortProvider)
+                          .cancelScope(
+                            NotificationScope.openWebUi(accountId).value,
+                          ),
+                    ]);
               unawaited(
                 clearing.catchError((Object error, StackTrace stackTrace) {
                   DebugLogger.error(
@@ -440,10 +458,43 @@ void main() {
               );
             };
           }),
+          // A deleted Hermes connection takes its push subscription and its
+          // posted notifications with it. Push goes first, while the
+          // connection's key still works.
+          hostHermesConnectionRemovingProvider.overrideWith((ref) {
+            return (connectionId) async {
+              await ref
+                  .read(pushSignOutHookProvider)
+                  .beforeHermesConnectionRemoved(connectionId);
+              final scope = NotificationScope.hermes(connectionId).value;
+              try {
+                await ref
+                    .read(localNotificationServiceProvider)
+                    .cancelScope(scope);
+              } catch (error, stackTrace) {
+                DebugLogger.error(
+                  'hermes-removal-notification-clear-failed',
+                  scope: 'notifications/system',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }
+            };
+          }),
           // The in-memory selection, so a language change applies to the
           // next request before the preference write lands.
           appLanguageTagProvider.overrideWith(
             (ref) => ref.watch(appLocaleProvider)?.toLanguageTag(),
+          ),
+          // What a push shows when it carries no title of its own, in the
+          // app's language; the core cannot localize.
+          pushLocalizedStringsProvider.overrideWith((ref) {
+            ref.watch(appLocaleProvider);
+            return pushDisplayStrings(currentAppLocalizations());
+          }),
+          // The Conduit Push function bundled for one-tap installs.
+          pushOpenWebUiFunctionSourceProvider.overrideWithValue(
+            loadBundledConduitPushFunction,
           ),
           // Apple Foundation Models through the Pigeon bridge
           // (ios/Runner/PccBridge.swift); the adapter lives in conduit_core.

@@ -4169,5 +4169,14 @@
   "accountsRemoveAddressMessage": "Conduit versucht diese Adresse nicht mehr. Deine Konten bleiben angemeldet.",
   "accountsAddressConfirmTitle": "Diese Adresse prüfen?",
   "accountsAddressConfirmMessage": "Um sicherzugehen, dass {host} dieser Server ist, schickt Conduit dorthin die Sitzung eines hier gespeicherten Kontos. Fahre nur fort, wenn du dieser Adresse vertraust.",
-  "accountsAddressConfirmAction": "Adresse prüfen"
+  "accountsAddressConfirmAction": "Adresse prüfen",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Neue Benachrichtigung",
+  "pushReplyTitle": "Neue Antwort",
+  "pushReplyFailedTitle": "Antwort fehlgeschlagen",
+  "pushReplyFailedBody": "Die Antwort konnte nicht abgeschlossen werden.",
+  "pushChannelTitle": "Neue Nachricht",
+  "pushCronTitle": "Geplante Aufgabe",
+  "pushTestTitle": "Push-Benachrichtigungen funktionieren",
+  "pushTestBody": "Diese Testbenachrichtigung kam von deinem Server."
 }

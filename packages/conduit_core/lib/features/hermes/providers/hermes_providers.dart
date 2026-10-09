@@ -1146,7 +1146,31 @@ class HermesConfigController extends Notifier<HermesConfig> {
   ///
   /// Deleting the active connection activates the most recently used
   /// remaining one, or leaves Hermes without a connection.
-  Future<void> deleteConnection(String connectionId) =>
+  Future<void> deleteConnection(String connectionId) async {
+    if (_profile(connectionId) != null) {
+      await _beforeConnectionRemoved(connectionId);
+    }
+    return _deleteConnection(connectionId);
+  }
+
+  /// Gives the host a bounded moment, while the connection's address and
+  /// secrets still work, to remove what belongs to it elsewhere: its push
+  /// subscription on the server, its posted notifications.
+  Future<void> _beforeConnectionRemoved(String connectionId) async {
+    try {
+      await ref
+          .read(hostHermesConnectionRemovingProvider)(connectionId)
+          .timeout(const Duration(seconds: 6));
+    } catch (error) {
+      DebugLogger.warning(
+        'connection-removal-hook-failed',
+        scope: 'hermes/connections',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+  }
+
+  Future<void> _deleteConnection(String connectionId) =>
       _serializeMutation(() async {
         await _secretsHydration;
         _throwIfSecretsUnavailable();
@@ -1964,6 +1988,15 @@ typedef HermesConnectionSwitchPrompt =
 /// keeps starting a new session on the active connection.
 final hermesConnectionSwitchPromptProvider =
     Provider<HermesConnectionSwitchPrompt>((ref) => (_) async => false);
+
+/// Called before a saved Hermes connection is deleted, while its address
+/// and secrets still work. The host removes what the core cannot name, such
+/// as the notifications posted for it. Bounded by the caller, which goes on
+/// with the deletion whatever this does.
+final hostHermesConnectionRemovingProvider =
+    Provider<Future<void> Function(String connectionId)>(
+      (ref) => (_) async {},
+    );
 
 final hermesConfigProvider =
     NotifierProvider<HermesConfigController, HermesConfig>(

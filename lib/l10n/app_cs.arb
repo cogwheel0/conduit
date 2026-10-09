@@ -5991,5 +5991,14 @@
   "accountsRemoveAddressMessage": "Conduit přestane tuto adresu zkoušet. Vaše účty zůstanou přihlášené.",
   "accountsAddressConfirmTitle": "Ověřit tuto adresu?",
   "accountsAddressConfirmMessage": "Aby Conduit ověřil, že {host} je tento server, pošle mu relaci účtu uloženého v tomto zařízení. Pokračujte, jen pokud této adrese důvěřujete.",
-  "accountsAddressConfirmAction": "Ověřit adresu"
+  "accountsAddressConfirmAction": "Ověřit adresu",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nové oznámení",
+  "pushReplyTitle": "Nová odpověď",
+  "pushReplyFailedTitle": "Odpověď selhala",
+  "pushReplyFailedBody": "Odpověď se nepodařilo dokončit.",
+  "pushChannelTitle": "Nová zpráva",
+  "pushCronTitle": "Naplánovaná úloha",
+  "pushTestTitle": "Push oznámení fungují",
+  "pushTestBody": "Toto testovací oznámení přišlo z vašeho serveru."
 }
