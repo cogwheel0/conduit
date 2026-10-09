@@ -188,6 +188,8 @@ void main() {
     check(notification.dedupKey).equals(
       'hermes:conn-1|hermes:${turn.sessionId}:assistant-1',
     );
+    // The push for this turn keys on the server's turn id.
+    check(notification.sharesPushDedupKey).isFalse();
   });
 
   test('a failed turn is announced as failed', () async {

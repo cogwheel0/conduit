@@ -57,8 +57,8 @@ class NotificationEventClassifier {
     // what a push for the same reply keys on. Without it, key on a digest of
     // the content: a replayed identical terminal frame dedupes, while a later
     // distinct response in the same chat still notifies.
-    final messageId =
-        _asNonEmptyString(event['message_id']) ?? _contentDigest(content);
+    final namedId = _asNonEmptyString(event['message_id']);
+    final messageId = namedId ?? _contentDigest(content);
 
     return AppNotification(
       kind: NotificationKind.chatCompletion,
@@ -68,6 +68,8 @@ class NotificationEventClassifier {
       sourceId: chatId,
       dedupKey: '$scope|chat:$chatId:$messageId',
       group: 'chat:$chatId',
+      // A push keys on the message id, which a digest never equals.
+      sharesPushDedupKey: namedId != null,
     );
   }
 
@@ -113,6 +115,7 @@ class NotificationEventClassifier {
       dedupKey:
           '$scope|channel:$channelId:${messageId ?? _contentDigest(content)}',
       group: 'channel:$channelId',
+      sharesPushDedupKey: messageId != null,
     );
   }
 

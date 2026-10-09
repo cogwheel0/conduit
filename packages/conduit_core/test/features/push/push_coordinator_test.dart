@@ -889,6 +889,77 @@ void main() {
       check(h.status(_owui2.scope)).equals(PushStatus.on);
     });
 
+    test('turning push on writes each switch it turns on to its server', () async {
+      final active = accountScopedPreferenceKey(
+        PreferenceKeys.notificationsEnabled,
+        'acct-1',
+      );
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'acct-1');
+      await PreferencesStore.put(active, false);
+      // acct-2 never stored one; acct-3 turned its own off.
+      const owui3 = OpenWebUiPushTarget(accountId: 'acct-3', label: 'c');
+      await PreferencesStore.put(
+        accountScopedPreferenceKey(
+          PreferenceKeys.notificationsEnabled,
+          'acct-3',
+        ),
+        false,
+      );
+      h = await _Harness.start(
+        targets: [_owui, _owui2, owui3],
+        keepPreferences: true,
+      );
+      await h.coordinator.setEnabled(true);
+      await h.until(() => h.factory.notificationWrites.length == 2);
+      check(h.factory.notificationWrites.toSet())
+          .deepEquals({'acct-1 true', 'acct-2 true'});
+      check(PreferencesStore.getBool(active)).equals(true);
+      // The device-level switch, which Hermes follows, is on too.
+      check(PreferencesStore.getBool(PreferenceKeys.notificationsEnabled))
+          .equals(true);
+    });
+
+    test('a server that refuses the switch does not stop push', () async {
+      h = await _Harness.start(targets: [_owui]);
+      h.factory.notificationWriteError = StateError('offline');
+      await h.coordinator.setEnabled(true);
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('a Hermes connection follows the device-level switch', () async {
+      h = await _Harness.start(targets: [_owui, _hermes]);
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'acct-1');
+      await h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+      check(h.target(_hermes.scope).notificationsOff).isFalse();
+
+      // Switched off, as the Notifications page does with no account.
+      await PreferencesStore.put(PreferenceKeys.notificationsEnabled, false);
+      h.settings.set(h.settings.state.copyWith(notificationSound: false));
+      await h.until(() => h.target(_hermes.scope).notificationsOff);
+      check(h.platform.config!.disabledScopes).deepEquals([_hermes.scope]);
+      check(
+        notificationsEnabledForScope(_hermes.scope, activeValue: true),
+      ).isFalse();
+      check(
+        notificationsEnabledForScope('direct', activeValue: true),
+      ).isFalse();
+      // The active account keeps its own.
+      check(
+        notificationsEnabledForScope(_owui.scope, activeValue: true),
+      ).isTrue();
+    });
+
+    test('a device-level switch never set follows the active one', () {
+      PreferencesStore.debugOverride(InMemoryKeyValueStore());
+      check(
+        notificationsEnabledForScope('hermes:x', activeValue: true),
+      ).isTrue();
+      check(
+        notificationsEnabledForScope('hermes:x', activeValue: false),
+      ).isFalse();
+    });
+
     test('the scheduled tasks toggle stops cron pushes', () async {
       h = await _Harness.start(targets: [_hermes]);
       await h.coordinator.setEnabled(true);

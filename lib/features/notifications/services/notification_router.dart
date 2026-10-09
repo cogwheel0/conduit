@@ -37,6 +37,15 @@ typedef NotificationClaim =
 Future<bool> _alwaysClaim(String dedupKey, String? localNotificationId) =>
     Future<bool>.value(true);
 
+/// Whether notifications for one scope (`owui:<accountId>`,
+/// `hermes:<connectionId>`, `direct`) are switched on.
+typedef ScopeNotificationsEnabled = bool Function(String scope);
+
+/// Whether push is on (a test push decrypted here) for one scope.
+typedef ScopePushVerified = bool Function(String scope);
+
+bool _noPush(String scope) => false;
+
 /// The single decision point for whether and how to surface a classified
 /// [AppNotification]. UI-free and dependency-injected so every gating branch is
 /// unit-testable. The widget/provider layer supplies the collaborators.
@@ -50,9 +59,13 @@ class NotificationRouter {
     required void Function(AppNotification) showInAppBanner,
     required void Function(AppNotification) onChannelUnread,
     NotificationClaim claim = _alwaysClaim,
+    ScopeNotificationsEnabled? scopeNotificationsEnabled,
+    ScopePushVerified pushVerified = _noPush,
     DateTime Function() now = DateTime.now,
     int dedupCapacity = 200,
   }) : _readSettings = readSettings,
+       _scopeNotificationsEnabled = scopeNotificationsEnabled,
+       _pushVerified = pushVerified,
        _readActiveView = readActiveView,
        _isAppForeground = isAppForeground,
        _localNotifications = localNotifications,
@@ -78,6 +91,12 @@ class NotificationRouter {
   final void Function(AppNotification) _showInAppBanner;
   final void Function(AppNotification) _onChannelUnread;
   final NotificationClaim _claim;
+
+  /// The notification's own switch: its Open WebUI account's, or the
+  /// device-level one for Hermes and Direct. Without it, the active
+  /// settings' switch stands for every scope.
+  final ScopeNotificationsEnabled? _scopeNotificationsEnabled;
+  final ScopePushVerified _pushVerified;
   final DateTime Function() _now;
   final int _dedupCapacity;
 
@@ -101,24 +120,42 @@ class NotificationRouter {
   }) async {
     final settings = _readSettings();
 
-    // 1. Master toggle.
-    if (!settings.notificationsEnabled) return NotificationSurface.suppressed;
+    // 1. Master toggle: the switch of the account the notification belongs
+    // to, not the active account's. Hermes and Direct follow the
+    // device-level switch (see notificationsEnabledForScope).
+    final enabled =
+        _scopeNotificationsEnabled?.call(notification.scope) ??
+        settings.notificationsEnabled;
+    if (!enabled) return NotificationSurface.suppressed;
 
     // 2. Per-kind toggle.
     if (!_kindEnabled(notification.kind, settings)) {
       return NotificationSurface.suppressed;
     }
 
-    // 3. De-duplication (also guards replayed terminal frames after re-bind),
+    final foreground = _isAppForeground();
+
+    // 3. In the background a verified push reports the same event and is
+    // shown without this router. A source whose key cannot match the push's
+    // (a Hermes turn this app watched, a frame with no message id) would
+    // then notify twice, so it leaves the system notification to the push.
+    // Nothing is recorded, so the push, if it reaches the router in the
+    // foreground, still shows.
+    if (!foreground &&
+        !alreadyClaimed &&
+        !notification.sharesPushDedupKey &&
+        _pushVerified(notification.scope)) {
+      return NotificationSurface.suppressed;
+    }
+
+    // 4. De-duplication (also guards replayed terminal frames after re-bind),
     // and a Hermes reply already shown for the same session.
     if (!_markFresh(notification.dedupKey) ||
         !_markHermesGroupFresh(notification)) {
       return NotificationSurface.suppressed;
     }
 
-    final foreground = _isAppForeground();
-
-    // 4. Don't alert for content the user is actively looking at — but only in
+    // 5. Don't alert for content the user is actively looking at — but only in
     // the foreground. Backgrounded, the user can't see any view, so a
     // completion in the chat they just left (the "active" chat) must still
     // notify. Mirrors Open WebUI's `(notViewingChat) || isInBackground` gate.
@@ -127,7 +164,7 @@ class NotificationRouter {
       return NotificationSurface.suppressed;
     }
 
-    // 5. Side effects for everything that passed gating.
+    // 6. Side effects for everything that passed gating.
     if (settings.notificationSound && settings.notificationSoundAlways) {
       await _sound.play();
     }
@@ -135,7 +172,7 @@ class NotificationRouter {
       _onChannelUnread(notification);
     }
 
-    // 6. Exactly one primary surface, chosen by lifecycle. Unlike Open WebUI's
+    // 7. Exactly one primary surface, chosen by lifecycle. Unlike Open WebUI's
     // web client (which can show an in-app toast AND a browser Notification at
     // once), a foregrounded mobile app only needs the in-app banner; the OS
     // notification is the background affordance.

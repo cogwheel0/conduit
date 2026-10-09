@@ -47,8 +47,11 @@ AppNotification? appNotificationForDirectRun(DirectRunCompletion completion) {
 ///
 /// The app can't know the server's turn id, so its dedup key
 /// (`hermes:<connectionId>|hermes:<sessionId>:<local turn key>`) never
-/// matches the push for the same turn; the shared group `hermes:<sessionId>`
-/// lets the router drop whichever comes second (docs/push/PROTOCOL.md §2).
+/// matches the push for the same turn ([AppNotification.sharesPushDedupKey]
+/// is false). In the foreground the shared group `hermes:<sessionId>` lets
+/// the router drop whichever comes second (docs/push/PROTOCOL.md §2); in the
+/// background, where the push is shown without the router, the router
+/// leaves it to the push when push is verified for the connection.
 AppNotification? appNotificationForHermesTurn(
   HermesTurnCompletion completion,
 ) {
@@ -67,5 +70,6 @@ AppNotification? appNotificationForHermesTurn(
     sourceId: sessionId,
     dedupKey: scope.dedupKey('hermes:$sessionId:${completion.turnKey}'),
     group: 'hermes:$sessionId',
+    sharesPushDedupKey: false,
   );
 }

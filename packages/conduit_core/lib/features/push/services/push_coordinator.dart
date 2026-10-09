@@ -7,6 +7,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_subscription_record.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
@@ -1896,15 +1897,14 @@ class PushCoordinator extends _$PushCoordinator {
     ];
   }
 
-  /// Whether [target] is an Open WebUI account whose own notifications
-  /// switch is off.
-  bool _notificationsOff(PushTarget target) {
-    if (target is! OpenWebUiPushTarget) return false;
-    if (target.accountId == currentPreferenceAccountId()) {
-      return !ref.read(appSettingsProvider).notificationsEnabled;
-    }
-    return !openWebUiAccountNotificationsEnabled(target.accountId);
-  }
+  /// Whether [target]'s notifications switch is off: an Open WebUI
+  /// account's own, or the device-level one for a Hermes connection (see
+  /// [notificationsEnabledForScope], which the notification router uses
+  /// too).
+  bool _notificationsOff(PushTarget target) => !notificationsEnabledForScope(
+    target.scope,
+    activeValue: ref.read(appSettingsProvider).notificationsEnabled,
+  );
 
   void _markNotificationsOff() {
     for (final target in _targets ?? const <PushTarget>[]) {
@@ -1917,16 +1917,29 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Turns on the notifications switch of every Open WebUI account that never
   /// stored one, and of the active account; an inactive account that turned
-  /// its switch off keeps it off.
+  /// its switch off keeps it off. The device-level switch Hermes and Direct
+  /// follow goes on too.
+  ///
+  /// An account's switch is a copy of its server's setting, which replaces
+  /// the copy the next time the account loads, so each one turned on here is
+  /// written to its server as well, as the Notifications page does: the
+  /// active account's and every other through a client of its own. Those
+  /// writes run in the background; one that fails is only logged.
   Future<void> _enableAccountNotifications() async {
+    final turnedOn = <String>[];
     try {
       final app = ref.read(appSettingsProvider);
+      final active = currentPreferenceAccountId();
       if (!app.notificationsEnabled) {
         await ref
             .read(appSettingsProvider.notifier)
             .setNotificationsEnabled(true);
+        if (active != null) turnedOn.add(active);
       }
-      final active = currentPreferenceAccountId();
+      if (PreferencesStore.getBool(PreferenceKeys.notificationsEnabled) !=
+          true) {
+        await PreferencesStore.put(PreferenceKeys.notificationsEnabled, true);
+      }
       for (final target in _targets ?? const <PushTarget>[]) {
         if (target is! OpenWebUiPushTarget || target.accountId == active) {
           continue;
@@ -1937,10 +1950,20 @@ class PushCoordinator extends _$PushCoordinator {
         );
         if (PreferencesStore.getBool(key) == null) {
           await PreferencesStore.put(key, true);
+          if (target.hasSession) turnedOn.add(target.accountId);
         }
       }
     } catch (error) {
       _log('push-notifications-enable-failed', error);
+    }
+    for (final accountId in turnedOn) {
+      unawaited(
+        _factory
+            .setOpenWebUiNotificationsEnabled(accountId, enabled: true)
+            .catchError(
+              (Object error) => _log('push-notifications-sync-failed', error),
+            ),
+      );
     }
   }
 
@@ -2161,6 +2184,33 @@ class PushCoordinator extends _$PushCoordinator {
     scope: 'push',
     data: {'errorType': error.runtimeType.toString()},
   );
+}
+
+/// Whether notifications for [scope] are switched on. The notification
+/// router and push both go by this.
+///
+/// An Open WebUI account has a switch of its own, a copy of its server
+/// setting: [activeValue] (the app settings' value) for the active account,
+/// its stored copy for any other.
+///
+/// Hermes and Direct belong to the device rather than to an account, so
+/// they follow the device-level switch: the value stored without an
+/// account. It is what the Notifications page shows and edits while no Open
+/// WebUI account is active, and the page keeps it in step with the active
+/// account's switch otherwise ([SettingsService.setNotificationsEnabled]),
+/// so it is always the one the user set last. One never stored follows
+/// [activeValue].
+bool notificationsEnabledForScope(String scope, {required bool activeValue}) {
+  switch (NotificationScope.tryParse(scope)) {
+    case OpenWebUiNotificationScope(:final accountId):
+      if (accountId == currentPreferenceAccountId()) return activeValue;
+      return openWebUiAccountNotificationsEnabled(accountId);
+    case HermesNotificationScope() || DirectNotificationScope():
+      return PreferencesStore.getBool(PreferenceKeys.notificationsEnabled) ??
+          activeValue;
+    case null:
+      return activeValue;
+  }
 }
 
 /// An Open WebUI account's own notifications switch, read from its stored
