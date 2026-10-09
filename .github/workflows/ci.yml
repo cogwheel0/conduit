@@ -118,6 +118,18 @@ jobs:
           flutter build apk --debug --target-platform android-arm64
           cd android
           ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
+      # The foss build (F-Droid, IzzyOnDroid) must compile without, and
+      # never pull in, Firebase or Google Play services.
+      - name: Android foss build
+        run: |
+          cd android
+          ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
+          ./gradlew -q :app:dependencies --configuration releaseRuntimeClasspath \
+            -PconduitPushVariant=foss > "$RUNNER_TEMP/foss-dependencies.txt"
+          if grep -E 'com\.google\.(firebase|android\.gms|mlkit)' "$RUNNER_TEMP/foss-dependencies.txt"; then
+            echo "::error::The foss build depends on Firebase, Play services or ML Kit"
+            exit 1
+          fi
 
   # Each workspace member analyzes and tests from its own directory, which
   # is what proves the pub workspace actually works per package. They share
@@ -287,3 +299,16 @@ jobs:
       - name: Test
         working-directory: relay
         run: cargo test --locked
+
+  # The iOS half of push notifications: Web Push decryption, the cp/1 payload
+  # and the shared stores the app and its Notification Service Extension use,
+  # checked against push/test-vectors. CryptoKit is Apple-only, hence macOS.
+  swift-push:
+    name: Push Swift core
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Test
+        run: swift test --package-path ios/ConduitPushCore

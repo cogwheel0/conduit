@@ -2761,6 +2761,8 @@
   "notificationSystemDescription": "앱이 백그라운드에 있을 때 앱 외부에 알림을 표시합니다.",
   "notificationSystemTitle": "시스템 알림",
   "notificationViewAction": "보기",
+  "notificationReplyFailedBody": "응답을 완료하지 못했습니다.",
+  "notificationTargetUnavailable": "이 알림의 계정 또는 연결이 더 이상 이 기기에 없습니다.",
   "notificationsEnabledDescription": "앱이 백그라운드에 있을 때와 앱 내에서 알림을 받습니다.",
   "notificationsEnabledTitle": "알림 사용",
   "notificationsPermissionDenied": "알림이 시스템 설정에서 꺼져 있습니다.",

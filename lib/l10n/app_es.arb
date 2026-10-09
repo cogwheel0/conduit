@@ -2983,6 +2983,8 @@
   "notificationSystemDescription": "Mostrar notificaciones fuera de la app cuando está en segundo plano.",
   "notificationSystemTitle": "Notificaciones del sistema",
   "notificationViewAction": "Ver",
+  "notificationReplyFailedBody": "No se pudo completar la respuesta.",
+  "notificationTargetUnavailable": "La cuenta o la conexión de esta notificación ya no está en este dispositivo.",
   "notificationsEnabledDescription": "Recibir alertas cuando la app está en segundo plano y dentro de la app.",
   "notificationsEnabledTitle": "Activar notificaciones",
   "notificationsPermissionDenied": "Las notificaciones están desactivadas en los ajustes del sistema.",

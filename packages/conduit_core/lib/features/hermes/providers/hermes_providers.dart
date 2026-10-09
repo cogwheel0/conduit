@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
 
@@ -2736,9 +2737,61 @@ HermesRunKey legacyHermesRunKey(String assistantMessageId) => (
 /// Tracks the live event subscription + run id for each streaming Hermes
 /// assistant message so a stop request can cancel the right run.
 ///
+/// A Hermes turn this app ran that ended, successfully or not, and was not
+/// stopped.
+///
+/// Announced through [HermesRunRegistry.completions] so the app can notify
+/// about a reply that finished while it was in the background.
+final class HermesTurnCompletion {
+  const HermesTurnCompletion({
+    required this.connectionId,
+    required this.sessionId,
+    required this.message,
+    this.title,
+  });
+
+  /// The saved connection that ran it.
+  final String connectionId;
+
+  /// The server session it belongs to.
+  final String sessionId;
+
+  /// The reply: its content, or its error.
+  final ChatMessage message;
+
+  /// The chat's title, when known.
+  final String? title;
+
+  /// This app's own key for the turn. The server's turn id is unknown here.
+  String get turnKey => message.id;
+
+  bool get failed => message.error != null;
+}
+
 class HermesRunRegistry {
   final Map<HermesRunKey, _ActiveRun> _runs = {};
   final List<void Function()> _whenIdle = [];
+  final StreamController<HermesTurnCompletion> _completions =
+      StreamController<HermesTurnCompletion>.broadcast();
+
+  /// Hermes turns this app ran, as they end without being stopped.
+  Stream<HermesTurnCompletion> get completions => _completions.stream;
+
+  /// The runs stopped through [cancel], [cancelOwned] or [cancelAll], by
+  /// their cancel token.
+  final Expando<bool> _stopped = Expando<bool>('stopped-hermes-runs');
+
+  /// Whether the run of [cancelToken] was stopped -- by the user, a
+  /// connection change or sign-out -- rather than ending on its own.
+  bool wasStopped(CancelToken cancelToken) => _stopped[cancelToken] ?? false;
+
+  /// Announces on [completions] that a turn ended.
+  void announceCompletion(HermesTurnCompletion completion) {
+    if (_completions.isClosed) return;
+    _completions.add(completion);
+  }
+
+  void dispose() => _completions.close();
 
   /// Calls [callback] once no run is active: now, or when the last one ends.
   void whenIdle(void Function() callback) {
@@ -3043,6 +3096,7 @@ class HermesRunRegistry {
 
   Future<void> _cancelDetached(_ActiveRun run) async {
     run.cancelled = true;
+    _stopped[run.cancelToken] = true;
     run.cancelToken.cancel('stopped');
     for (final callback in run.onCancelled) {
       try {
@@ -3149,6 +3203,8 @@ class _ActiveRun {
   bool cleanupReported = false;
 }
 
-final hermesRunRegistryProvider = Provider<HermesRunRegistry>(
-  (ref) => HermesRunRegistry(),
-);
+final hermesRunRegistryProvider = Provider<HermesRunRegistry>((ref) {
+  final registry = HermesRunRegistry();
+  ref.onDispose(registry.dispose);
+  return registry;
+});

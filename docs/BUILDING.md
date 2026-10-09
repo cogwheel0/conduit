@@ -121,6 +121,44 @@ XCODE_XCCONFIG_FILE="$PWD/ios/Flutter/ArmOnly.xcconfig" flutter build ios --rele
 
 `scripts/release.sh` drives the tagged release flow used by the maintainer.
 
+## Push notifications on Android
+
+Android comes in two push builds, chosen with the `conduitPushVariant` Gradle
+property. It is not a product flavor, so `flutter run` and every command above
+keep building `play`.
+
+| Variant | Push delivery | Ships to |
+| --- | --- | --- |
+| `play` (default) | Firebase Cloud Messaging through the Conduit relay, and UnifiedPush | Google Play |
+| `foss` | UnifiedPush only. No Firebase, Google Play services or ML Kit code. | F-Droid, IzzyOnDroid |
+
+```bash
+flutter build apk --release -P conduitPushVariant=foss
+# Gradle directly
+cd android && ./gradlew :app:assembleRelease -PconduitPushVariant=foss
+```
+
+`-P` is short for `--android-project-arg`. Besides FCM, `foss` leaves out ML
+Kit on-device speech recognition (voice input uses the system recognizer) and
+Play services location (`geolocator` falls back to the platform location
+manager).
+
+The `play` build has no `google-services.json` and no google-services plugin.
+It reads its Firebase project from four values, passed as Gradle properties
+(`-P…` or `~/.gradle/gradle.properties`) or environment variables:
+
+| Name | Firebase console value (`google-services.json` key) |
+| --- | --- |
+| `CONDUIT_FCM_PROJECT_ID` | Project ID (`project_id`) |
+| `CONDUIT_FCM_APP_ID` | Android app ID, `1:…:android:…` (`mobilesdk_app_id`) |
+| `CONDUIT_FCM_API_KEY` | Web API key (`current_key`) |
+| `CONDUIT_FCM_SENDER_ID` | Project number (`project_number`) |
+
+Without them the build still succeeds; FCM reports itself unavailable and
+UnifiedPush still works. Firebase only starts once the user turns push on.
+Debug builds use the application ID `app.cogwheel.conduit.debug`, which needs
+its own Android app in the Firebase project for FCM to work.
+
 ## Localization
 
 Translations live in `lib/l10n/*.arb`, configured by `l10n.yaml`. English

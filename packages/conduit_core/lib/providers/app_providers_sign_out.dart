@@ -46,6 +46,27 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.read(openWebUiValidatedIdentityLedgerProvider).clear();
 }
 
+/// Called once the user has signed out: of the Open WebUI account
+/// [accountId], which is then removed, or of everything when it is null. The
+/// host clears what the core cannot name: the notifications posted for it.
+final hostSignedOutProvider = Provider<void Function(String? accountId)>(
+  (ref) => (_) {},
+);
+
+/// Tells the host about a sign-out; its failure is only logged.
+void notifyHostSignedOut(Ref ref, String? accountId) {
+  try {
+    ref.read(hostSignedOutProvider)(accountId);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'host-sign-out-hook-failed',
+      scope: 'auth/accounts',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
 final signOutCoordinatorProvider = Provider<SignOutCoordinator>(
   SignOutCoordinator.new,
 );
@@ -168,6 +189,7 @@ final class SignOutCoordinator {
           directMcpServers.finishAppDataClear();
           hermesConfig.finishAppDataClear();
           _resetProvidersAfterFullAppDataClear(_ref);
+          notifyHostSignedOut(_ref, null);
         case FullAppDataClearOutcome.incomplete:
           directRuns.commitAppDataClear();
           await Future.wait<void>([
@@ -180,6 +202,7 @@ final class SignOutCoordinator {
           // Awaited last: it persists the restart marker that keeps surviving
           // Direct profiles hidden, and must be durable before returning.
           await directProfiles.revokeRuntimeAfterIncompleteAppDataClear();
+          notifyHostSignedOut(_ref, null);
         case FullAppDataClearOutcome.ownershipYielded:
           await disarmIncompleteAppDataClearMarker();
           resumeGlobalAdmission();

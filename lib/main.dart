@@ -144,6 +144,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'platform/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'shared/widgets/sign_out_options_dialog.dart';
 import 'shared/theme/theme_extensions.dart';
 import 'shared/theme/theme_providers.dart';
@@ -426,21 +427,26 @@ void main() {
               }
             };
           }),
-          // Posted notifications deep-link into the account that posted them.
-          hostActiveAccountChangedProvider.overrideWith((ref) {
-            return (_) {
+          // Posted notifications open in the account that posted them, so a
+          // switch keeps them. Signing out of an account clears its own;
+          // signing out of everything clears them all.
+          hostSignedOutProvider.overrideWith((ref) {
+            return (accountId) {
+              final local = ref.read(localNotificationServiceProvider);
+              final clearing = accountId == null
+                  ? local.cancelAll()
+                  : local.cancelScope(
+                      NotificationScope.openWebUi(accountId).value,
+                    );
               unawaited(
-                ref
-                    .read(localNotificationServiceProvider)
-                    .cancelAll()
-                    .catchError((Object error, StackTrace stackTrace) {
-                      DebugLogger.error(
-                        'account-switch-notification-clear-failed',
-                        scope: 'notifications/system',
-                        error: error,
-                        stackTrace: stackTrace,
-                      );
-                    }),
+                clearing.catchError((Object error, StackTrace stackTrace) {
+                  DebugLogger.error(
+                    'sign-out-notification-clear-failed',
+                    scope: 'notifications/system',
+                    error: error,
+                    stackTrace: stackTrace,
+                  );
+                }),
               );
             };
           }),

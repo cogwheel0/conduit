@@ -68,6 +68,10 @@
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
 		<key>AppGroupId</key>
 		<string>$(APP_GROUP_ID)</string>
+		<key>ConduitApsEnvironment</key>
+		<string>$(APS_ENVIRONMENT)</string>
+		<key>ConduitPushFilteringEnabled</key>
+		<string>$(CONDUIT_PUSH_FILTERING_ENABLED)</string>
 		<key>FLTEnableImpeller</key>
 		<true/>
 		<key>FLTEnableWideGamut</key>

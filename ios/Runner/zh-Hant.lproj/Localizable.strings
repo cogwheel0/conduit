@@ -58,3 +58,5 @@
 "native.unablePresentDropdown" = "無法顯示原生下拉選單";
 "native.upload" = "上傳";
 "native.user" = "使用者";
+"push.fallback.title" = "Conduit";
+"push.fallback.body" = "新通知";

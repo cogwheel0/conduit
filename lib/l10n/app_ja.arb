@@ -4499,6 +4499,8 @@
   "notificationSystemDescription": "アプリがバックグラウンドにあるとき、アプリ外に通知を表示します。",
   "notificationSystemTitle": "システム通知",
   "notificationViewAction": "表示",
+  "notificationReplyFailedBody": "返信を完了できませんでした。",
+  "notificationTargetUnavailable": "この通知のアカウントまたは接続は、このデバイスにもうありません。",
   "notificationsEnabledDescription": "アプリがバックグラウンドにあるときやアプリ内で通知を受け取ります。",
   "notificationsEnabledTitle": "通知を有効にする",
   "notificationsPermissionDenied": "通知はシステム設定でオフになっています。",

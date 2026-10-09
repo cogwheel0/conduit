@@ -4805,6 +4805,8 @@
   "notificationSystemDescription": "Zobraziť upozornenia mimo aplikácie, keď je na pozadí.",
   "notificationSystemTitle": "Systémové upozornenia",
   "notificationViewAction": "Zobraziť",
+  "notificationReplyFailedBody": "Odpoveď sa nepodarilo dokončiť.",
+  "notificationTargetUnavailable": "Účet alebo pripojenie tohto oznámenia už v tomto zariadení nie je.",
   "notificationsEnabledDescription": "Dostávať upozornenia, keď je aplikácia na pozadí a v aplikácii.",
   "notificationsEnabledTitle": "Zapnúť upozornenia",
   "notificationsPermissionDenied": "Upozornenia sú vypnuté v systémových nastaveniach.",

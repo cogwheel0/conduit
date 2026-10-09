@@ -93,6 +93,8 @@ class SettingsService {
       PreferenceKeys.notificationChatEnabled;
   static const String _notificationChannelEnabledKey =
       PreferenceKeys.notificationChannelEnabled;
+  static const String _notificationScheduledEnabledKey =
+      PreferenceKeys.notificationScheduledEnabled;
 
   // Settings that name a server's data are stored per Open WebUI account;
   // see account_scoped_preferences.dart. Every read and write below resolves
@@ -213,6 +215,17 @@ class SettingsService {
     return _putPreference(_notificationChannelEnabledKey, value);
   }
 
+  /// Whether Hermes scheduled-task results notify. Device-wide.
+  static Future<bool> getNotificationScheduledEnabled() {
+    return Future.value(
+      _getPreference<bool>(_notificationScheduledEnabledKey) ?? true,
+    );
+  }
+
+  static Future<void> setNotificationScheduledEnabled(bool value) {
+    return _putPreference(_notificationScheduledEnabledKey, value);
+  }
+
   /// Get high contrast preference
   static Future<bool> getHighContrast() {
     final value = _getPreference<bool>(_highContrastKey);
@@ -310,6 +323,7 @@ class SettingsService {
       _notificationSystemKey: settings.notificationSystem,
       _notificationChatEnabledKey: settings.notificationChatEnabled,
       _notificationChannelEnabledKey: settings.notificationChannelEnabled,
+      _notificationScheduledEnabledKey: settings.notificationScheduledEnabled,
     };
 
     // Resolve every account-scoped key now, before the first write yields: a
@@ -808,6 +822,8 @@ class SettingsService {
           get<bool>(_notificationChatEnabledKey) ?? true,
       notificationChannelEnabled:
           get<bool>(_notificationChannelEnabledKey) ?? true,
+      notificationScheduledEnabled:
+          get<bool>(_notificationScheduledEnabledKey) ?? true,
       webSearchEngine: WebSearchEngineChoice.parse(
         get<String>(PreferenceKeys.webSearchEngine),
       ),
@@ -868,6 +884,7 @@ class AppSettings {
   final bool notificationSystem;
   final bool notificationChatEnabled;
   final bool notificationChannelEnabled;
+  final bool notificationScheduledEnabled;
   // On-device web search (Direct models without provider-hosted search).
   final WebSearchEngineChoice webSearchEngine;
   final SafeSearch webSearchSafeSearch;
@@ -914,6 +931,7 @@ class AppSettings {
     this.notificationSystem = true,
     this.notificationChatEnabled = true,
     this.notificationChannelEnabled = true,
+    this.notificationScheduledEnabled = true,
     this.webSearchEngine = WebSearchEngineChoice.auto,
     this.webSearchSafeSearch = SafeSearch.moderate,
     this.webSearchRegion,
@@ -959,6 +977,7 @@ class AppSettings {
     bool? notificationSystem,
     bool? notificationChatEnabled,
     bool? notificationChannelEnabled,
+    bool? notificationScheduledEnabled,
     WebSearchEngineChoice? webSearchEngine,
     SafeSearch? webSearchSafeSearch,
     Object? webSearchRegion = const _DefaultValue(),
@@ -1027,6 +1046,8 @@ class AppSettings {
           notificationChatEnabled ?? this.notificationChatEnabled,
       notificationChannelEnabled:
           notificationChannelEnabled ?? this.notificationChannelEnabled,
+      notificationScheduledEnabled:
+          notificationScheduledEnabled ?? this.notificationScheduledEnabled,
       webSearchEngine: webSearchEngine ?? this.webSearchEngine,
       webSearchSafeSearch: webSearchSafeSearch ?? this.webSearchSafeSearch,
       webSearchRegion: webSearchRegion is _DefaultValue
@@ -1076,6 +1097,7 @@ class AppSettings {
         other.notificationSystem == notificationSystem &&
         other.notificationChatEnabled == notificationChatEnabled &&
         other.notificationChannelEnabled == notificationChannelEnabled &&
+        other.notificationScheduledEnabled == notificationScheduledEnabled &&
         other.webSearchEngine == webSearchEngine &&
         other.webSearchSafeSearch == webSearchSafeSearch &&
         other.webSearchRegion == webSearchRegion &&
@@ -1123,6 +1145,7 @@ class AppSettings {
       notificationSystem,
       notificationChatEnabled,
       notificationChannelEnabled,
+      notificationScheduledEnabled,
       webSearchEngine,
       webSearchSafeSearch,
       webSearchRegion,
@@ -1233,6 +1256,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setNotificationChannelEnabled(bool value) async {
     state = state.copyWith(notificationChannelEnabled: value);
     await SettingsService.setNotificationChannelEnabled(value);
+  }
+
+  Future<void> setNotificationScheduledEnabled(bool value) async {
+    state = state.copyWith(notificationScheduledEnabled: value);
+    await SettingsService.setNotificationScheduledEnabled(value);
   }
 
   /// Applies the three server-synced notification prefs fetched from Open WebUI

@@ -89,8 +89,8 @@ final accountChangeStopRepliesProvider = Provider<void Function()>((ref) {
 });
 
 /// Called after the active Open WebUI account changed, with the new one (or
-/// null). The host clears what the core cannot name: posted notifications,
-/// home-screen widgets.
+/// null), for the host to follow. Posted notifications stay: each opens in
+/// the account that posted it.
 final hostActiveAccountChangedProvider = Provider<void Function(String?)>(
   (ref) => (_) {},
 );
@@ -262,6 +262,7 @@ class OpenWebUiAccountsController {
     final signedIn = await _ref
         .read(authStateManagerProvider.notifier)
         .signOutAccount(accountId, thenActivate: next);
+    notifyHostSignedOut(_ref, accountId);
     // Read again: the sign-out waited on the server, and what is active now
     // is what it left, or what a sign-in made active meanwhile.
     final String? now;

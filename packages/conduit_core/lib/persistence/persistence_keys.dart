@@ -107,6 +107,9 @@ final class PreferenceKeys {
   static const String notificationChatEnabled = 'notification_chat_enabled';
   static const String notificationChannelEnabled =
       'notification_channel_enabled';
+  /// Device-wide, not per account: scheduled tasks come from Hermes.
+  static const String notificationScheduledEnabled =
+      'notification_scheduled_enabled';
 
   // Push notifications. Device-wide, never account-scoped: one toggle covers
   // every account and connection, and no key or token is stored here.

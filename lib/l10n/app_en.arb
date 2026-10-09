@@ -4358,6 +4358,14 @@
   "@notificationViewAction": {
     "description": "Action label on an in-app notification banner that opens the target."
   },
+  "notificationReplyFailedBody": "The reply couldn't be finished.",
+  "@notificationReplyFailedBody": {
+    "description": "Notification body for a reply that failed, when the source gives no detail."
+  },
+  "notificationTargetUnavailable": "The account or connection for this notification is no longer on this device.",
+  "@notificationTargetUnavailable": {
+    "description": "Shown when a tapped notification belongs to an account or connection that was removed from this device."
+  },
   "notificationsPermissionDenied": "Notifications are turned off in system settings.",
   "@notificationsPermissionDenied": {
     "description": "Shown when the user enables notifications but the OS permission was denied."

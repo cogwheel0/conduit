@@ -2983,6 +2983,8 @@
   "notificationSystemDescription": "当应用在后台时在应用外显示通知。",
   "notificationSystemTitle": "系统通知",
   "notificationViewAction": "查看",
+  "notificationReplyFailedBody": "回复未能完成。",
+  "notificationTargetUnavailable": "此通知所属的账户或连接已不在此设备上。",
   "notificationsEnabledDescription": "当应用在后台时以及在应用内接收提醒。",
   "notificationsEnabledTitle": "启用通知",
   "notificationsPermissionDenied": "通知已在系统设置中关闭。",

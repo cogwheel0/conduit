@@ -873,6 +873,7 @@ void main() {
     late _LastAccountAuth auth;
     late ProviderContainer container;
     late List<String?> hostChanges;
+    late List<String?> hostSignOuts;
 
     void start({
       FutureOr<void> Function()? duringSignOut,
@@ -885,6 +886,7 @@ void main() {
         duringAbandon: duringAbandon,
       );
       hostChanges = [];
+      hostSignOuts = [];
       container = ProviderContainer(
         overrides: [
           optimizedStorageServiceProvider.overrideWithValue(storage),
@@ -899,10 +901,30 @@ void main() {
           ),
           accountChangeReplyGuardProvider.overrideWithValue(() => false),
           hostActiveAccountChangedProvider.overrideWithValue(hostChanges.add),
+          hostSignedOutProvider.overrideWithValue(hostSignOuts.add),
         ],
       );
       addTearDown(container.dispose);
     }
+
+    test('signing out of an account tells the host which one', () async {
+      start();
+      storage.active = 'a';
+
+      await container.read(openWebUiAccountsControllerProvider).signOut('b');
+
+      check(hostSignOuts).deepEquals(['b']);
+    });
+
+    test('switching accounts is not a sign-out', () async {
+      start();
+      storage.active = 'a';
+
+      await container.read(openWebUiAccountsControllerProvider).switchTo('b');
+
+      check(hostSignOuts).isEmpty();
+      check(hostChanges).deepEquals(['b']);
+    });
 
     test('a switch landing during the active account\'s sign-out is left '
         'alone', () async {

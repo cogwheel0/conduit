@@ -2983,6 +2983,8 @@
   "notificationSystemDescription": "Mostra le notifiche fuori dall'app quando è in background.",
   "notificationSystemTitle": "Notifiche di sistema",
   "notificationViewAction": "Visualizza",
+  "notificationReplyFailedBody": "Non è stato possibile completare la risposta.",
+  "notificationTargetUnavailable": "L'account o la connessione di questa notifica non è più su questo dispositivo.",
   "notificationsEnabledDescription": "Ricevi avvisi quando l'app è in background e all'interno dell'app.",
   "notificationsEnabledTitle": "Abilita le notifiche",
   "notificationsPermissionDenied": "Le notifiche sono disattivate nelle impostazioni di sistema.",

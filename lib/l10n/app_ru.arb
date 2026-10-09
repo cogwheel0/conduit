@@ -3003,6 +3003,8 @@
   "notificationSystemDescription": "Показывать уведомления вне приложения, когда оно работает в фоне.",
   "notificationSystemTitle": "Системные уведомления",
   "notificationViewAction": "Просмотреть",
+  "notificationReplyFailedBody": "Не удалось завершить ответ.",
+  "notificationTargetUnavailable": "Аккаунта или подключения из этого уведомления больше нет на этом устройстве.",
   "notificationsEnabledDescription": "Получать уведомления, когда приложение работает в фоне и внутри приложения.",
   "notificationsEnabledTitle": "Включить уведомления",
   "notificationsPermissionDenied": "Уведомления отключены в системных настройках.",

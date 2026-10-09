@@ -68,8 +68,10 @@ import '../../features/channels/providers/channel_socket_handler.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
+import '../../features/notifications/providers/direct_notification_bridge.dart';
+import '../../features/notifications/providers/hermes_notification_bridge.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
-import '../../features/notifications/services/local_notification_service.dart';
+import '../../features/notifications/providers/notification_tap_listener.dart';
 import '../../shared/theme/theme_providers.dart';
 
 part 'app_startup_providers.g.dart';
@@ -270,22 +272,10 @@ void _resetUserScopedProviders(Ref ref) {
     ref.invalidate(defaultModelProvider);
     ref.invalidate(backendConfigProvider);
     ref.invalidate(socketServiceManagerProvider);
-    // Clear posted notifications and drop the listener's dedup memory so a
-    // notification can't deep-link into the previous session/server.
-    unawaited(
-      ref.read(localNotificationServiceProvider).cancelAll().catchError((
-        Object e,
-        StackTrace st,
-      ) {
-        DebugLogger.error(
-          'failed to clear notifications on sign-out',
-          scope: 'notifications/system',
-          error: e,
-          stackTrace: st,
-        );
-      }),
-    );
-    ref.invalidate(notificationRouterProvider);
+    // Rebind the socket listener to the next session. Posted notifications
+    // and the router's dedup memory stay: both are keyed by account, and a
+    // tap opens in the account that posted it. Signing out clears that
+    // account's own (see hostSignedOutProvider).
     ref.invalidate(notificationSocketListenerProvider);
     // Selections that name the previous account's folders, prompts, notes or
     // chats.
@@ -1191,10 +1181,13 @@ class AppStartupFlow extends _$AppStartupFlow {
     _keepDirectCompletionRelayAlive();
     // Activate the notification listener (global chat/channel handlers feeding
     // the NotificationRouter). The router gates on the master toggle, so this is
-    // safe to run unconditionally. Then drain any cold-launch notification tap.
+    // safe to run unconditionally. Then drain a cold-launch notification tap,
+    // which may point into this account.
     ref.read(notificationSocketListenerProvider);
     unawaited(
-      ref.read(notificationSocketListenerProvider.notifier).handleLaunchTap(),
+      ref
+          .read(notificationTapListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: true),
     );
     _scheduleDefaultModelPreload(
       keepDefaultModelAutoSelectionAlive: keepDefaultModelAutoSelectionAlive,
@@ -1295,6 +1288,27 @@ class AppStartupFlow extends _$AppStartupFlow {
   void _activate({Duration apiWaitTimeout = const Duration(seconds: 1)}) {
     ref.onDispose(_disposeStartupResources);
     _keepAlive(imageAttachmentCacheLifecycleProvider);
+    // Notification taps open in any account or connection, with or without an
+    // Open WebUI session. A cold-launch tap for Hermes or Direct opens now; one
+    // for Open WebUI waits for its session (see post-auth startup).
+    _keepAlive(notificationTapListenerProvider);
+    // Direct replies run on this device; nothing else notifies about them.
+    // Hermes turns this app ran notify too, deduplicated against push.
+    _keepAlive(directNotificationBridgeProvider);
+    _keepAlive(hermesNotificationBridgeProvider);
+    unawaited(
+      ref
+          .read(notificationTapListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: false)
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'launch-notification-tap-failed',
+              scope: 'notifications/center',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+    );
     _scheduleStartupTasks();
 
     // If the session is already authenticated before startup flow attaches,

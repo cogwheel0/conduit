@@ -58,3 +58,5 @@
 "native.unablePresentDropdown" = "No se puede mostrar el menú nativo";
 "native.upload" = "Subir";
 "native.user" = "Usuario";
+"push.fallback.title" = "Conduit";
+"push.fallback.body" = "Nueva notificación";

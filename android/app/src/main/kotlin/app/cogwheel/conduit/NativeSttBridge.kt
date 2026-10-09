@@ -9,15 +9,6 @@ import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer as AndroidSpeechRecognizer
 import android.util.Log
-import com.google.mlkit.genai.common.DownloadStatus
-import com.google.mlkit.genai.common.FeatureStatus
-import com.google.mlkit.genai.common.audio.AudioSource
-import com.google.mlkit.genai.speechrecognition.SpeechRecognition
-import com.google.mlkit.genai.speechrecognition.SpeechRecognizer as MlKitSpeechRecognizer
-import com.google.mlkit.genai.speechrecognition.SpeechRecognizerOptions
-import com.google.mlkit.genai.speechrecognition.SpeechRecognizerResponse
-import com.google.mlkit.genai.speechrecognition.speechRecognizerOptions
-import com.google.mlkit.genai.speechrecognition.speechRecognizerRequest
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -41,7 +32,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var eventSink: EventChannel.EventSink? = null
     @Volatile
-    private var activeMlKitRecognizer: MlKitSpeechRecognizer? = null
+    private var activeMlKitRecognizer: OnDeviceRecognizer? = null
     private var activePlatformRecognizer: AndroidSpeechRecognizer? = null
     private var recognitionJob: kotlinx.coroutines.Job? = null
     private var platformRestartJob: kotlinx.coroutines.Job? = null
@@ -154,12 +145,15 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     }
 
     private suspend fun checkMlKitAvailability(localeId: String?): Map<String, Any?> {
+        if (!OnDeviceSpeechEngine.isIncluded) {
+            return unavailable("On-device speech recognition is not included in this build")
+        }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return unavailable("Android 12/API 31 is required for ML Kit microphone input")
         }
 
         return withContext(Dispatchers.IO) {
-            val advanced = createRecognizer(localeId, SpeechRecognizerOptions.Mode.MODE_ADVANCED)
+            val advanced = createRecognizer(localeId, OnDeviceMode.ADVANCED)
             try {
                 val advancedStatus = advanced.checkStatus()
                 if (isUsableStatus(advancedStatus)) {
@@ -171,7 +165,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 advanced.close()
             }
 
-            val basic = createRecognizer(localeId, SpeechRecognizerOptions.Mode.MODE_BASIC)
+            val basic = createRecognizer(localeId, OnDeviceMode.BASIC)
             try {
                 val basicStatus = basic.checkStatus()
                 if (isUsableStatus(basicStatus)) {
@@ -261,13 +255,10 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             var committedText = ""
             var doneEmitted = false
             try {
-                val request = speechRecognizerRequest {
-                    audioSource = AudioSource.fromMic()
-                }
-                recognizer.startRecognition(request).collect { response ->
+                recognizer.startRecognition().collect { response ->
                     if (!isCurrentGeneration(generation)) return@collect
                     when (response) {
-                        is SpeechRecognizerResponse.PartialTextResponse -> {
+                        is OnDeviceSpeechEvent.Partial -> {
                             if (emitPartialResults) {
                                 val text = if (accumulateResults) {
                                     mergeText(committedText, response.text)
@@ -277,7 +268,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                                 emitResult(text, false, engineName)
                             }
                         }
-                        is SpeechRecognizerResponse.FinalTextResponse -> {
+                        is OnDeviceSpeechEvent.Final -> {
                             val text = if (accumulateResults) {
                                 committedText = mergeText(committedText, response.text)
                                 committedText
@@ -286,14 +277,14 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                             }
                             emitResult(text, true, engineName)
                         }
-                        is SpeechRecognizerResponse.ErrorResponse -> {
+                        is OnDeviceSpeechEvent.Error -> {
                             emitError(
-                                "MLKIT_ERROR_${response.e.errorCode}",
-                                response.e.message ?: "ML Kit speech recognition failed",
+                                "MLKIT_ERROR_${response.code}",
+                                response.message ?: "ML Kit speech recognition failed",
                                 engineName
                             )
                         }
-                        is SpeechRecognizerResponse.CompletedResponse -> {
+                        is OnDeviceSpeechEvent.Completed -> {
                             doneEmitted = true
                             emitDone(engineName)
                         }
@@ -319,12 +310,12 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     private suspend fun prepareRecognizer(
         localeId: String?,
         generation: Int
-    ): Pair<MlKitSpeechRecognizer, String>? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+    ): Pair<OnDeviceRecognizer, String>? {
+        if (!OnDeviceSpeechEngine.isIncluded || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             return null
         }
 
-        val advanced = createRecognizer(localeId, SpeechRecognizerOptions.Mode.MODE_ADVANCED)
+        val advanced = createRecognizer(localeId, OnDeviceMode.ADVANCED)
         if (!isCurrentGeneration(generation)) {
             advanced.close()
             return null
@@ -334,7 +325,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
         advanced.close()
 
-        val basic = createRecognizer(localeId, SpeechRecognizerOptions.Mode.MODE_BASIC)
+        val basic = createRecognizer(localeId, OnDeviceMode.BASIC)
         if (!isCurrentGeneration(generation)) {
             basic.close()
             return null
@@ -346,17 +337,12 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         return null
     }
 
-    private fun createRecognizer(localeId: String?, mode: Int): MlKitSpeechRecognizer {
-        val locale = parseLocale(localeId)
-        val options = speechRecognizerOptions {
-            this.locale = locale
-            preferredMode = mode
-        }
-        return SpeechRecognition.getClient(options)
+    private fun createRecognizer(localeId: String?, mode: OnDeviceMode): OnDeviceRecognizer {
+        return OnDeviceSpeechEngine.create(parseLocale(localeId), mode)
     }
 
     private suspend fun ensureReady(
-        recognizer: MlKitSpeechRecognizer,
+        recognizer: OnDeviceRecognizer,
         engineName: String,
         generation: Int
     ): Boolean {
@@ -364,8 +350,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             return false
         }
         return when (val status = recognizer.checkStatus()) {
-            FeatureStatus.AVAILABLE -> true
-            FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING -> {
+            OnDeviceStatus.AVAILABLE -> true
+            OnDeviceStatus.DOWNLOADABLE, OnDeviceStatus.DOWNLOADING -> {
                 if (isCurrentGeneration(generation)) {
                     emitStatus("downloading", engineName)
                 }
@@ -378,27 +364,27 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                                     throw CancellationException("Stale recognition generation")
                                 }
                                 when (downloadStatus) {
-                                    is DownloadStatus.DownloadStarted -> {
+                                    is OnDeviceDownload.Started -> {
                                         emitStatus("downloading", engineName)
                                     }
-                                    is DownloadStatus.DownloadCompleted -> {
+                                    is OnDeviceDownload.Completed -> {
                                         ready = true
                                         emitStatus("downloaded", engineName)
                                     }
-                                    is DownloadStatus.DownloadProgress -> {
+                                    is OnDeviceDownload.Progress -> {
                                         emit(
                                             mapOf(
                                                 "type" to "status",
                                                 "message" to "downloading",
                                                 "engine" to engineName,
-                                                "bytesDownloaded" to downloadStatus.totalBytesDownloaded
+                                                "bytesDownloaded" to downloadStatus.bytesDownloaded
                                             )
                                         )
                                     }
-                                    is DownloadStatus.DownloadFailed -> {
+                                    is OnDeviceDownload.Failed -> {
                                         emitError(
-                                            "MLKIT_DOWNLOAD_${downloadStatus.e.errorCode}",
-                                            downloadStatus.e.message ?: "ML Kit speech model download failed",
+                                            "MLKIT_DOWNLOAD_${downloadStatus.code}",
+                                            downloadStatus.message ?: "ML Kit speech model download failed",
                                             engineName
                                         )
                                     }
@@ -430,7 +416,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                     }
                     throw error
                 }
-                ready || recognizer.checkStatus() == FeatureStatus.AVAILABLE
+                ready || recognizer.checkStatus() == OnDeviceStatus.AVAILABLE
             }
             else -> {
                 Log.i(TAG, "ML Kit STT $engineName status unavailable: $status")
@@ -914,10 +900,10 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         return if (normalized == null) Locale.getDefault() else Locale.forLanguageTag(normalized)
     }
 
-    private fun isUsableStatus(status: Int): Boolean {
-        return status == FeatureStatus.AVAILABLE ||
-            status == FeatureStatus.DOWNLOADABLE ||
-            status == FeatureStatus.DOWNLOADING
+    private fun isUsableStatus(status: OnDeviceStatus): Boolean {
+        return status == OnDeviceStatus.AVAILABLE ||
+            status == OnDeviceStatus.DOWNLOADABLE ||
+            status == OnDeviceStatus.DOWNLOADING
     }
 
     private fun mergeText(committed: String, next: String): String {
