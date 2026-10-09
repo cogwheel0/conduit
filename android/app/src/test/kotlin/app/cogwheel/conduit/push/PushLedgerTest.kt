@@ -31,6 +31,17 @@ class PushLedgerTest {
     }
 
     @Test
+    fun theAppsSecondClaimChangesNothing() {
+        // Dart claims again right after posting; on Android a push never
+        // took the key over, so the answer is just false.
+        val ledger = ledger()
+        assertTrue(ledger.claim("owui:a|chat:c:m", "17"))
+        assertFalse(ledger.claim("owui:a|chat:c:m", "17"))
+        assertEquals("17", ledger.claimsFor("owui:a").single().localNotificationId)
+        assertFalse(ledger.claim("owui:a|chat:c:m", null))
+    }
+
+    @Test
     fun claimsExpireAfterThreeDays() {
         val ledger = ledger()
         assertTrue(ledger.claim("k", null))

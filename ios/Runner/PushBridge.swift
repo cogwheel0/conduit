@@ -8,16 +8,20 @@ import UserNotifications
 /// and verified test nonces in App Group files, all shared with the
 /// NotificationService extension through the ConduitPushCore sources. The
 /// application delegate hands over APNs registration and the notifications
-/// the extension decrypted (`conduit_tap` in their user info).
+/// the extension decrypted: those with a `conduit_tap` that the install's
+/// `PushTapKey` proves the extension wrote.
 final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   static let shared = PushBridge()
 
   private static let tokenDefaultsKey = "conduit.push.apnsToken"
   private static let tokenTimeout: TimeInterval = 20
+  /// How long a foreground push waits for Dart before iOS shows it instead.
+  private static let foregroundReplyTimeout: TimeInterval = 2
 
   private let appGroup = ConduitAppGroup.identifier()
   private lazy var keys = PushKeyStore(accessGroup: appGroup)
   private var flutterApi: PushFlutterApi?
+  private var cachedTapKey: PushTapKey?
   private var launchTap: PlatformPushTap?
   private var tokenWaiters: [(Result<PlatformPushToken?, Error>) -> Void] = []
   private var tokenRequest = 0
@@ -40,7 +44,7 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
       seedDebugSubscription()
     #endif
     if let userInfo = launchOptions?[.remoteNotification] as? [AnyHashable: Any],
-      let tap = PushTap(userInfo: userInfo)
+      let tap = verifiedTap(userInfo)
     {
       launchTap = Self.platformTap(tap)
     }
@@ -79,19 +83,44 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
     takeTokenWaiters().forEach { $0(.failure(failure)) }
   }
 
-  /// True when `notification` is a push the extension decrypted. The app is
-  /// in the foreground, so it is not shown here: Dart decides between a
-  /// banner and nothing.
-  func willPresent(_ notification: UNNotification) -> Bool {
-    let userInfo = notification.request.content.userInfo
-    guard let tap = PushTap(userInfo: userInfo) else { return false }
-    let sid = PushEnvelope.sid(in: userInfo) ?? ""
+  /// True when `notification` is a push the extension decrypted, and then
+  /// `completionHandler` is called once, here. The app is in the
+  /// foreground, so Dart decides between a banner and nothing. When Dart
+  /// can't take it (no engine, an error, or no answer in time), iOS shows it.
+  func willPresent(
+    _ notification: UNNotification,
+    completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) -> Bool {
+    let content = notification.request.content
+    guard let tap = verifiedTap(content.userInfo) else { return false }
+    let sid = PushEnvelope.sid(in: content.userInfo) ?? ""
     let message = PlatformPushMessage(sid: sid, scope: tap.scope, payloadJson: tap.payloadJSON)
     let payload = try? PushPayload.parse(Data(tap.payloadJSON.utf8))
+    if let payload, payload.kind == .test, let nonce = payload.nonce {
+      onMain { self.flutterApi?.onTestReceived(sid: sid, nonce: nonce) { _ in } }
+    }
+    let present = PresentationOnce(completionHandler)
+    // A repeat replaces a notification the user already got: keep it in
+    // Notification Center, without asking Dart to alert again.
+    if content.userInfo[PushUserInfoKey.repeated] as? Bool == true {
+      present([.list])
+      return true
+    }
+    var shown: UNNotificationPresentationOptions = [.banner, .list]
+    if configStore()?.load().sound ?? PushConfig.default.sound { shown.insert(.sound) }
     onMain {
-      self.flutterApi?.onForegroundPush(message: message) { _ in }
-      if let payload, payload.kind == .test, let nonce = payload.nonce {
-        self.flutterApi?.onTestReceived(sid: sid, nonce: nonce) { _ in }
+      guard let flutterApi = self.flutterApi else {
+        present(shown)
+        return
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.foregroundReplyTimeout) {
+        present(shown)
+      }
+      flutterApi.onForegroundPush(message: message) { result in
+        switch result {
+        case .success: present([])
+        case .failure: present(shown)
+        }
       }
     }
     return true
@@ -99,7 +128,7 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
 
   /// True when `response` opened a push the extension decrypted.
   func didReceive(_ response: UNNotificationResponse) -> Bool {
-    guard let tap = PushTap(userInfo: response.notification.request.content.userInfo) else {
+    guard let tap = verifiedTap(response.notification.request.content.userInfo) else {
       return false
     }
     if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
@@ -187,9 +216,22 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
     )
   }
 
+  /// Dart claims before it posts and again, with the same id, right after.
+  /// A push the extension showed in between had no local copy to remove
+  /// yet, so the second claim removes it.
   func claimNotification(dedupKey: String, localNotificationId: String?) throws -> Bool {
-    try PushLedger(directory: requireDirectory())
-      .claim(dedupKey, localNotificationId: localNotificationId)
+    let ledger = PushLedger(directory: try requireDirectory())
+    switch try ledger.claimForApp(dedupKey, localNotificationId: localNotificationId) {
+    case .claimed:
+      return true
+    case .taken:
+      return false
+    case .supersededByPush(let localId):
+      let center = UNUserNotificationCenter.current()
+      center.removePendingNotificationRequests(withIdentifiers: [localId])
+      center.removeDeliveredNotifications(withIdentifiers: [localId])
+      return false
+    }
   }
 
   func cancelScope(scope: String) throws {
@@ -237,6 +279,20 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   }
 
   // MARK: - Helpers
+
+  /// The tap in `userInfo`, if the extension signed it. Anything else falls
+  /// through to flutter_local_notifications.
+  private func verifiedTap(_ userInfo: [AnyHashable: Any]) -> PushTap? {
+    guard userInfo[PushUserInfoKey.tap] != nil, let key = tapKey() else { return nil }
+    return PushTap(userInfo: userInfo, key: key)
+  }
+
+  /// Read once; created here if the extension has not yet.
+  private func tapKey() -> PushTapKey? {
+    if let cachedTapKey { return cachedTapKey }
+    cachedTapKey = try? PushTapKey.load(accessGroup: appGroup)
+    return cachedTapKey
+  }
 
   private func deliverTap(_ tap: PlatformPushTap) {
     // Already waiting for takeLaunchTap, from the launch options.
@@ -296,9 +352,14 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   }
 
   /// A Conduit push for `scope`, or a local notification whose
-  /// flutter_local_notifications payload names `scope`.
+  /// flutter_local_notifications payload names `scope`. The extension puts
+  /// the scope on every notification it shows for a known sid, the generic
+  /// ones too; older ones only carry it in their tap.
   private static func notification(_ userInfo: [AnyHashable: Any], belongsTo scope: String) -> Bool {
-    if let tap = PushTap(userInfo: userInfo) { return tap.scope == scope }
+    if let pushScope = userInfo[PushUserInfoKey.scope] as? String { return pushScope == scope }
+    if let tap = userInfo[PushUserInfoKey.tap] as? [String: Any] {
+      return tap["scope"] as? String == scope
+    }
     guard let payload = userInfo["payload"] as? String,
       let fields = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
     else { return false }
@@ -331,6 +392,25 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
 
   private static func platformTransport(_ name: String) -> PlatformPushTransport? {
     PlatformPushTransport.allCases.first { transportName($0) == name }
+  }
+
+  /// Calls a `willPresent` completion handler once, from whichever of Dart's
+  /// answer and the timeout comes first.
+  private final class PresentationOnce {
+    private let lock = NSLock()
+    private var handler: ((UNNotificationPresentationOptions) -> Void)?
+
+    init(_ handler: @escaping (UNNotificationPresentationOptions) -> Void) {
+      self.handler = handler
+    }
+
+    func callAsFunction(_ options: UNNotificationPresentationOptions) {
+      let pending = lock.withLock { () -> ((UNNotificationPresentationOptions) -> Void)? in
+        defer { handler = nil }
+        return handler
+      }
+      pending?(options)
+    }
   }
 
   #if DEBUG

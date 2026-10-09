@@ -27,6 +27,9 @@ enum NotificationSurface {
 /// Claims [dedupKey] before a system notification for it is posted, and says
 /// whether this app may post it. [localNotificationId] is the id the posted
 /// notification will have, so a source that loses the race can remove it.
+/// The router claims again with the same id right after posting: a push that
+/// took the key over in between had nothing to remove yet, so the platform
+/// removes this copy then.
 ///
 /// Push wires this to the native ledger it shares with the notification
 /// service extension, so a socket notification and a push for the same event
@@ -157,6 +160,7 @@ class NotificationRouter {
           playSound: settings.notificationSound,
           id: id,
         );
+        if (!alreadyClaimed) await _claim(notification.dedupKey, '$id');
         return NotificationSurface.system;
       }
       return NotificationSurface.silent;

@@ -379,11 +379,25 @@ void main() {
 
   group('claim', () {
     test('a system notification is claimed under its key and id', () async {
+      var claimsWhenShown = -1;
+      when(
+        () => local.show(
+          any(),
+          playSound: any(named: 'playSound'),
+          id: any(named: 'id'),
+        ),
+      ).thenAnswer((_) async => claimsWhenShown = claims.length);
       final router = build(foreground: false);
       check(
         await router.route(_chat(key: 'owui:acct-1|chat:c:m')),
       ).equals(NotificationSurface.system);
-      check(claims).deepEquals([('owui:acct-1|chat:c:m', '1')]);
+      // Claimed before posting, and again after: a push that took the key
+      // over in between had no copy to remove yet.
+      check(claimsWhenShown).equals(1);
+      check(claims).deepEquals([
+        ('owui:acct-1|chat:c:m', '1'),
+        ('owui:acct-1|chat:c:m', '1'),
+      ]);
       final posted = verify(
         () => local.show(
           any(),

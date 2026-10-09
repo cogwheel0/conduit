@@ -5,7 +5,10 @@ interface PushDelivery {
     /** Runs [block] on the main thread, returning once it ran. */
     fun runOnMain(block: () -> Unit)
 
-    /** Main thread. True while Conduit is in the foreground with its Flutter engine attached. */
+    /**
+     * Main thread. True while Conduit is resumed with its Flutter engine
+     * attached, the same test Dart uses for "in the foreground".
+     */
     fun canForwardToApp(): Boolean
 
     /** Main thread. Hands the push to Dart; [done] gets false when Dart did not take it. */
@@ -26,9 +29,9 @@ interface PushDelivery {
  * 1. Find the subscription by sid. Unknown sids are dropped.
  * 2. Decrypt and parse `cp/1`. Anything malformed is dropped.
  * 3. Drop it if the user turned push, this kind or this account off.
- * 4. In the foreground, Dart decides (banner or nothing).
- * 5. Otherwise claim the dedup key and post, unless something already
- *    showed this message.
+ * 4. Claim the dedup key, unless something already showed this message.
+ * 5. In the foreground, Dart decides (banner or nothing); it routes the push
+ *    as already claimed. Otherwise, or when Dart does not take it, post.
  */
 class PushReceiverCore(
     private val subscriptions: (String) -> PushSubscriptionRecord?,
@@ -61,21 +64,17 @@ class PushReceiverCore(
         }
 
         delivery.runOnMain {
+            if (!ledger.claim(payload.appDedupKey(scope), null)) {
+                delivery.dropped("already shown")
+                return@runOnMain
+            }
             if (delivery.canForwardToApp()) {
                 delivery.forwardToApp(sid, scope, payload.json) { taken ->
-                    if (!taken) postOnce(scope, payload, content)
+                    if (!taken) delivery.post(scope, payload, content)
                 }
             } else {
-                postOnce(scope, payload, content)
+                delivery.post(scope, payload, content)
             }
-        }
-    }
-
-    private fun postOnce(scope: String, payload: PushPayload, content: PushNotificationContent) {
-        if (ledger.claim(payload.appDedupKey(scope), null)) {
-            delivery.post(scope, payload, content)
-        } else {
-            delivery.dropped("already shown")
         }
     }
 }

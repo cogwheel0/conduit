@@ -14,6 +14,12 @@ internal class AtomicBytesFile(private val file: File) {
 
     fun readOrNull(): ByteArray? = if (file.isFile) file.readBytes() else null
 
+    /** False when the file is still there. */
+    fun delete(): Boolean {
+        scratch.delete()
+        return file.delete() || !file.exists()
+    }
+
     fun write(bytes: ByteArray) {
         file.parentFile?.mkdirs()
         FileOutputStream(scratch).use { output ->

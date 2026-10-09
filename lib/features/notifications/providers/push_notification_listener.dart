@@ -71,7 +71,8 @@ class PushNotificationListener extends _$PushNotificationListener {
     unawaited(
       ref
           .read(notificationRouterProvider)
-          // The notification service extension claimed it already.
+          // The platform claimed it before handing it over: the iOS
+          // notification service extension, or the Android receiver.
           .route(notification, alreadyClaimed: true)
           .catchError((Object error, StackTrace stackTrace) {
             DebugLogger.error(
