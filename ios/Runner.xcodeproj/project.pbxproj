@@ -60,6 +60,7 @@
 		D2A0B2312F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2302F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift */; };
 		D2A0B2412F5E4D6C7B8A9012 /* PccBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */; };
 		D2A0B2512F5E4D6C7B8A9012 /* DisplayBoostBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */; };
+		DBC0D65B545D5CC5996C5879 /* PushBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ACFF262BA737A4AE4CBFBFE /* PushBridge.swift */; };
 		E433D197A968E0CBAB1D23AF /* PushConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAE9782FF2DE370E5BD733C /* PushConfigStore.swift */; };
 		E6C41A0C2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
@@ -128,6 +129,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0ACFF262BA737A4AE4CBFBFE /* PushBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushBridge.swift; sourceTree = "<group>"; };
 		0F5EA9DE8742E2062235D887 /* NotificationService.release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NotificationService/NotificationService.release.xcconfig; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
@@ -135,6 +137,7 @@
 		2A77EF27E68BB7EB54F177DB /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		2AF06AFD3A8B2A85B9000E43 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		2C219D22481EC5F0F9827718 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
+		32B31268F38DE756F8DA04EE /* sk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = sk; path = sk.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
@@ -190,6 +193,8 @@
 		D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.debug.xcconfig; sourceTree = "<group>"; };
 		D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.release.xcconfig; sourceTree = "<group>"; };
 		D2A0B3042F5E4D6C7B8A9012 /* ShareExtension.profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.profile.xcconfig; sourceTree = "<group>"; };
+		D3CBDE5CA7708CCABB6B66BE /* sk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = sk; path = sk.lproj/Localizable.strings; sourceTree = "<group>"; };
+		E382C99DDDB3724F17BA1B50 /* cs */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = cs; path = cs.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		E536BB32010750795CF717F1 /* NotificationService.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NotificationService/NotificationService.debug.xcconfig; sourceTree = "<group>"; };
 		E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeImageViewerBridge.swift; sourceTree = "<group>"; };
@@ -225,6 +230,7 @@
 		F1L10N202EE550000000000A /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		F1L10N202EE550000000000B /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 		F1L10N202EE550000000000C /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = pl.lproj/Localizable.strings; sourceTree = "<group>"; };
+		FAA2787A4C936FE80F2BB7FB /* cs */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = cs; path = cs.lproj/Localizable.strings; sourceTree = "<group>"; };
 		FD151D748CDB1AB6792944AE /* PushBase64URL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushBase64URL.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -457,6 +463,7 @@
 				C07D6E81F9707D1BBEDB9BB5 /* PlatformEnvironmentBridge.swift */,
 				C07CD1E93C33B4AE1AD1A0F2 /* FlutterConduitBridgeHost.swift */,
 				C07202B2AF712D67C45FE1BC /* ConduitBridgeHost.swift */,
+				0ACFF262BA737A4AE4CBFBFE /* PushBridge.swift */,
 				C073FA4B620A52333B648A35 /* CookieBridge.swift */,
 				C073CB9E0C18631B25DCC01B /* ConduitAppIntents.swift */,
 				C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */,
@@ -642,6 +649,8 @@
 				ru,
 				"zh-Hans",
 				"zh-Hant",
+				cs,
+				sk,
 				Base,
 			);
 			mainGroup = 97C146E51CF9000F007C117D;
@@ -848,6 +857,7 @@
 				0C5E8496AA3F56AC0F1154BD /* PushReceiver.swift in Sources */,
 				8E72D8D6650D81954FF29055 /* PushSharedFile.swift in Sources */,
 				62004469A729072830B10273 /* WebPushDecryptor.swift in Sources */,
+				DBC0D65B545D5CC5996C5879 /* PushBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -922,6 +932,8 @@
 				F1L10N102EE550000000000A /* zh-Hant */,
 				F1L10N102EE550000000000B /* ja */,
 				F1L10N102EE550000000000C /* pl */,
+				E382C99DDDB3724F17BA1B50 /* cs */,
+				32B31268F38DE756F8DA04EE /* sk */,
 			);
 			name = InfoPlist.strings;
 			sourceTree = "<group>";
@@ -941,6 +953,8 @@
 				F1L10N202EE550000000000A /* zh-Hant */,
 				F1L10N202EE550000000000B /* ja */,
 				F1L10N202EE550000000000C /* pl */,
+				FAA2787A4C936FE80F2BB7FB /* cs */,
+				D3CBDE5CA7708CCABB6B66BE /* sk */,
 			);
 			name = Localizable.strings;
 			sourceTree = "<group>";
@@ -1007,6 +1021,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				APP_GROUP_ID = group.app.cogwheel.conduit.x2662v5dt2.debug;
 				APP_URL_SCHEME = "conduit-debug";
+				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
@@ -1253,6 +1268,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				APP_GROUP_ID = group.app.cogwheel.conduit.x2662v5dt2.debug;
 				APP_URL_SCHEME = "conduit-debug";
+				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
@@ -1279,6 +1295,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRIP_STYLE = "non-global";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -1293,6 +1310,7 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				APP_GROUP_ID = group.app.cogwheel.conduit;
 				APP_URL_SCHEME = conduit;
+				APS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;

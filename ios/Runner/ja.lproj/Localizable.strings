@@ -58,3 +58,5 @@
 "native.unablePresentDropdown" = "ネイティブのドロップダウンを表示できません";
 "native.upload" = "アップロード";
 "native.user" = "ユーザー";
+"push.fallback.title" = "Conduit";
+"push.fallback.body" = "新しい通知";
