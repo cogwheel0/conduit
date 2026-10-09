@@ -15,6 +15,8 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
 
   private static let tokenDefaultsKey = "conduit.push.apnsToken"
   private static let tokenTimeout: TimeInterval = 20
+  /// How long a foreground push waits for Dart before iOS shows it instead.
+  private static let foregroundReplyTimeout: TimeInterval = 2
 
   private let appGroup = ConduitAppGroup.identifier()
   private lazy var keys = PushKeyStore(accessGroup: appGroup)
@@ -81,19 +83,44 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
     takeTokenWaiters().forEach { $0(.failure(failure)) }
   }
 
-  /// True when `notification` is a push the extension decrypted. The app is
-  /// in the foreground, so it is not shown here: Dart decides between a
-  /// banner and nothing.
-  func willPresent(_ notification: UNNotification) -> Bool {
-    let userInfo = notification.request.content.userInfo
-    guard let tap = verifiedTap(userInfo) else { return false }
-    let sid = PushEnvelope.sid(in: userInfo) ?? ""
+  /// True when `notification` is a push the extension decrypted, and then
+  /// `completionHandler` is called once, here. The app is in the
+  /// foreground, so Dart decides between a banner and nothing. When Dart
+  /// can't take it (no engine, an error, or no answer in time), iOS shows it.
+  func willPresent(
+    _ notification: UNNotification,
+    completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) -> Bool {
+    let content = notification.request.content
+    guard let tap = verifiedTap(content.userInfo) else { return false }
+    let sid = PushEnvelope.sid(in: content.userInfo) ?? ""
     let message = PlatformPushMessage(sid: sid, scope: tap.scope, payloadJson: tap.payloadJSON)
     let payload = try? PushPayload.parse(Data(tap.payloadJSON.utf8))
+    if let payload, payload.kind == .test, let nonce = payload.nonce {
+      onMain { self.flutterApi?.onTestReceived(sid: sid, nonce: nonce) { _ in } }
+    }
+    let present = PresentationOnce(completionHandler)
+    // A repeat replaces a notification the user already got: keep it in
+    // Notification Center, without asking Dart to alert again.
+    if content.userInfo[PushUserInfoKey.repeated] as? Bool == true {
+      present([.list])
+      return true
+    }
+    var shown: UNNotificationPresentationOptions = [.banner, .list]
+    if configStore()?.load().sound ?? PushConfig.default.sound { shown.insert(.sound) }
     onMain {
-      self.flutterApi?.onForegroundPush(message: message) { _ in }
-      if let payload, payload.kind == .test, let nonce = payload.nonce {
-        self.flutterApi?.onTestReceived(sid: sid, nonce: nonce) { _ in }
+      guard let flutterApi = self.flutterApi else {
+        present(shown)
+        return
+      }
+      DispatchQueue.main.asyncAfter(deadline: .now() + Self.foregroundReplyTimeout) {
+        present(shown)
+      }
+      flutterApi.onForegroundPush(message: message) { result in
+        switch result {
+        case .success: present([])
+        case .failure: present(shown)
+        }
       }
     }
     return true
@@ -365,6 +392,25 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
 
   private static func platformTransport(_ name: String) -> PlatformPushTransport? {
     PlatformPushTransport.allCases.first { transportName($0) == name }
+  }
+
+  /// Calls a `willPresent` completion handler once, from whichever of Dart's
+  /// answer and the timeout comes first.
+  private final class PresentationOnce {
+    private let lock = NSLock()
+    private var handler: ((UNNotificationPresentationOptions) -> Void)?
+
+    init(_ handler: @escaping (UNNotificationPresentationOptions) -> Void) {
+      self.handler = handler
+    }
+
+    func callAsFunction(_ options: UNNotificationPresentationOptions) {
+      let pending = lock.withLock { () -> ((UNNotificationPresentationOptions) -> Void)? in
+        defer { handler = nil }
+        return handler
+      }
+      pending?(options)
+    }
   }
 
   #if DEBUG
