@@ -70,7 +70,7 @@ impl From<crate::Outcome> for PushResult {
             Outcome::TooLarge => Self::TooLarge,
             Outcome::Throttled => Self::ProviderThrottled,
             Outcome::Rejected => Self::ProviderRejected,
-            Outcome::Unavailable => Self::ProviderUnavailable,
+            Outcome::Unavailable | Outcome::UnavailableFor(_) => Self::ProviderUnavailable,
         }
     }
 }

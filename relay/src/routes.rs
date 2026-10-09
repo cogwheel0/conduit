@@ -433,7 +433,13 @@ async fn push(
     };
     metrics.push(provider, outcome.into());
     if outcome != Outcome::Sent {
-        return error(outcome.status(), outcome.code());
+        let mut response = error(outcome.status(), outcome.code());
+        if let Some(seconds) = outcome.retry_after() {
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from(seconds));
+        }
+        return response;
     }
 
     // An opaque message id: the relay keeps nothing to look it up by.

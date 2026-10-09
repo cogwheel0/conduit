@@ -3,7 +3,8 @@
 //! Messages are data-only, so the app's own receiver decrypts them and decides
 //! what to show.
 
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
@@ -28,8 +29,23 @@ pub enum FcmError {
 }
 
 /// Why no access token could be had. Nothing here carries request data.
-#[derive(Debug)]
-struct TokenUnavailable;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TokenUnavailable {
+    /// A fetch failed, just now or recently enough that it is still
+    /// remembered. Try again in this many seconds.
+    Failed { retry_after: u64 },
+    /// Too many pushes are already waiting for a token.
+    Busy,
+}
+
+impl TokenUnavailable {
+    fn outcome(self) -> Outcome {
+        match self {
+            Self::Failed { retry_after } => Outcome::UnavailableFor(retry_after),
+            Self::Busy => Outcome::Unavailable,
+        }
+    }
+}
 
 pub struct Fcm {
     project_id: String,
@@ -39,14 +55,46 @@ pub struct Fcm {
     api_base: String,
     apps: Vec<String>,
     client: reqwest::Client,
-    token: Mutex<Option<CachedToken>>,
-    /// One refresh at a time; the others wait and reuse its result.
+    token: Mutex<TokenState>,
+    /// One fetch at a time; the pushes waiting for it reuse its result,
+    /// whether a token or a failure.
     refresh: tokio::sync::Mutex<()>,
+    /// Pushes waiting for, or doing, a fetch.
+    waiting: AtomicUsize,
+    max_waiting: usize,
+    /// How long a failed fetch is remembered.
+    backoff: Duration,
+}
+
+#[derive(Default)]
+struct TokenState {
+    current: Option<CachedToken>,
+    /// Until this passes, pushes fail at once instead of each waiting on a
+    /// fetch of its own that would most likely fail the same way.
+    failed_until: Option<Instant>,
 }
 
 struct CachedToken {
     access: Arc<str>,
     refresh_at: Instant,
+}
+
+/// Counts a push in `Fcm::waiting` for as long as it lives.
+struct Waiting<'a>(&'a AtomicUsize);
+
+impl<'a> Waiting<'a> {
+    fn enter(count: &'a AtomicUsize, max: usize) -> Option<Self> {
+        let before = count.fetch_add(1, Ordering::SeqCst);
+        // Dropped straight away when there's no room, which undoes the add.
+        let waiting = Self(count);
+        (before < max).then_some(waiting)
+    }
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 #[derive(Serialize)]
@@ -115,8 +163,11 @@ impl Fcm {
             api_base: config.api_base.clone(),
             apps: config.apps.clone(),
             client: crate::http_client(false).map_err(|_| FcmError::Client)?,
-            token: Mutex::new(None),
+            token: Mutex::new(TokenState::default()),
             refresh: tokio::sync::Mutex::new(()),
+            waiting: AtomicUsize::new(0),
+            max_waiting: config.max_token_waiters,
+            backoff: config.oauth_backoff,
         };
         fcm.assertion().map_err(|_| FcmError::BadKey)?;
         Ok(fcm)
@@ -143,55 +194,83 @@ impl Fcm {
         jsonwebtoken::encode(&Header::new(Algorithm::RS256), &claims, &self.key)
     }
 
-    fn cached(&self, stale: Option<&str>) -> Option<Arc<str>> {
-        let cached = self.token.lock().unwrap_or_else(|e| e.into_inner());
-        let token = cached.as_ref()?;
-        let is_stale = stale.is_some_and(|s| *token.access == *s);
-        (Instant::now() < token.refresh_at && !is_stale).then(|| token.access.clone())
+    fn state(&self) -> MutexGuard<'_, TokenState> {
+        self.token.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The cached token, unless it is due for refresh or `stale`. An error
+    /// while a failed fetch is still remembered.
+    fn cached(&self, stale: Option<&str>) -> Result<Option<Arc<str>>, TokenUnavailable> {
+        let state = self.state();
+        let now = Instant::now();
+        if let Some(token) = &state.current {
+            let is_stale = stale.is_some_and(|s| *token.access == *s);
+            if now < token.refresh_at && !is_stale {
+                return Ok(Some(token.access.clone()));
+            }
+        }
+        match state.failed_until {
+            Some(until) if now < until => Err(TokenUnavailable::Failed {
+                retry_after: whole_seconds(until - now),
+            }),
+            _ => Ok(None),
+        }
     }
 
     /// The cached access token, fetched again near expiry or when it is
     /// `stale` (FCM answered 401 to it).
     async fn access_token(&self, stale: Option<&str>) -> Result<Arc<str>, TokenUnavailable> {
-        if let Some(token) = self.cached(stale) {
+        if let Some(token) = self.cached(stale)? {
             return Ok(token);
         }
+        // A slow token endpoint must not gather every push in the meantime.
+        let _waiting =
+            Waiting::enter(&self.waiting, self.max_waiting).ok_or(TokenUnavailable::Busy)?;
         let _refreshing = self.refresh.lock().await;
-        if let Some(token) = self.cached(stale) {
+        if let Some(token) = self.cached(stale)? {
             return Ok(token);
         }
-        let fetched = self.fetch_token().await?;
+        let Some(fetched) = self.fetch_token().await else {
+            self.state().failed_until = Some(Instant::now() + self.backoff);
+            return Err(TokenUnavailable::Failed {
+                retry_after: whole_seconds(self.backoff),
+            });
+        };
         let access: Arc<str> = fetched.access_token.into();
         // Google's tokens last an hour; never trust a longer answer.
         let lifetime = Duration::from_secs(fetched.expires_in.min(ASSERTION_LIFETIME))
             .saturating_sub(EARLY_REFRESH);
-        *self.token.lock().unwrap_or_else(|e| e.into_inner()) = Some(CachedToken {
-            access: access.clone(),
-            refresh_at: Instant::now() + lifetime,
-        });
+        *self.state() = TokenState {
+            current: Some(CachedToken {
+                access: access.clone(),
+                refresh_at: Instant::now() + lifetime,
+            }),
+            failed_until: None,
+        };
         Ok(access)
     }
 
-    async fn fetch_token(&self) -> Result<TokenResponse, TokenUnavailable> {
-        let assertion = self.assertion().map_err(|_| {
+    /// Logs why it failed; the caller only needs to know that it did.
+    async fn fetch_token(&self) -> Option<TokenResponse> {
+        let Ok(assertion) = self.assertion() else {
             tracing::error!(provider = "fcm", "cannot sign an OAuth assertion");
-            TokenUnavailable
-        })?;
-        let response = self
+            return None;
+        };
+        let Ok(response) = self
             .client
             .post(&self.token_uri)
             .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(format!("grant_type={GRANT_TYPE}&assertion={assertion}"))
             .send()
             .await
-            .map_err(|_| {
-                tracing::warn!(
-                    provider = "fcm",
-                    category = "oauth_network",
-                    "token endpoint unreachable"
-                );
-                TokenUnavailable
-            })?;
+        else {
+            tracing::warn!(
+                provider = "fcm",
+                category = "oauth_network",
+                "token endpoint unreachable"
+            );
+            return None;
+        };
         let status = response.status().as_u16();
         if status != 200 {
             tracing::warn!(
@@ -200,28 +279,31 @@ impl Fcm {
                 status,
                 "token request refused"
             );
-            return Err(TokenUnavailable);
+            return None;
         }
-        response.json::<TokenResponse>().await.map_err(|_| {
+        let token = response.json::<TokenResponse>().await.ok();
+        if token.is_none() {
             tracing::warn!(
                 provider = "fcm",
                 category = "oauth",
                 status,
                 "token response unreadable"
             );
-            TokenUnavailable
-        })
+        }
+        token
     }
 
     pub async fn send(&self, message: &Message<'_>) -> Outcome {
-        let Ok(token) = self.access_token(None).await else {
-            return Outcome::Unavailable;
+        let token = match self.access_token(None).await {
+            Ok(token) => token,
+            Err(err) => return err.outcome(),
         };
         match self.attempt(message, &token).await {
             Attempt::Done(outcome) => outcome,
             Attempt::Unauthorized => {
-                let Ok(fresh) = self.access_token(Some(&token)).await else {
-                    return Outcome::Unavailable;
+                let fresh = match self.access_token(Some(&token)).await {
+                    Ok(fresh) => fresh,
+                    Err(err) => return err.outcome(),
                 };
                 match self.attempt(message, &fresh).await {
                     Attempt::Done(outcome) => outcome,
@@ -290,6 +372,11 @@ impl Fcm {
         }
         Attempt::Done(outcome)
     }
+}
+
+/// Whole seconds, rounded up, for `Retry-After`.
+fn whole_seconds(duration: Duration) -> u64 {
+    (duration.as_millis().div_ceil(1000) as u64).max(1)
 }
 
 /// FCM error codes are a fixed vocabulary; anything else is not logged as-is.

@@ -108,6 +108,11 @@ without it and logs which ones.
 | `FCM_API_BASE` | `https://fcm.googleapis.com` | FCM API origin. |
 | `FCM_TOKEN_URI` | the JSON's `token_uri` | OAuth token endpoint. |
 
+The relay fetches one FCM access token at a time and shares it. If a fetch
+fails, it answers FCM pushes with `503` and `Retry-After` for the next 30
+seconds instead of asking Google again for each one, and it turns away pushes
+beyond 256 waiting on a slow fetch.
+
 ### Rate limits
 
 All limits are kept in memory, per relay instance.

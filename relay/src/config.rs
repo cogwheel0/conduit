@@ -16,6 +16,10 @@ pub const DEFAULT_APNS_HOST_PROD: &str = "https://api.push.apple.com";
 pub const DEFAULT_APNS_HOST_DEV: &str = "https://api.sandbox.push.apple.com";
 pub const DEFAULT_FCM_API_BASE: &str = "https://fcm.googleapis.com";
 pub const DEFAULT_GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
+/// How long a failed FCM access-token fetch is remembered.
+pub const DEFAULT_FCM_OAUTH_BACKOFF: Duration = Duration::from_secs(30);
+/// Pushes that may wait at once for an FCM access token.
+pub const DEFAULT_FCM_TOKEN_WAITERS: usize = 256;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -101,6 +105,12 @@ pub struct FcmConfig {
     pub api_base: String,
     /// Android package names this relay may push to.
     pub apps: Vec<String>,
+    /// After a token fetch fails, pushes fail at once for this long. Not
+    /// read from the environment.
+    pub oauth_backoff: Duration,
+    /// Pushes that may wait for a token fetch at once; more are refused.
+    /// Not read from the environment.
+    pub max_token_waiters: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -320,6 +330,8 @@ fn fcm_config(get: &impl Fn(&str) -> Option<String>) -> Result<Option<FcmConfig>
         token_uri,
         api_base: host(get("FCM_API_BASE"), DEFAULT_FCM_API_BASE),
         apps,
+        oauth_backoff: DEFAULT_FCM_OAUTH_BACKOFF,
+        max_token_waiters: DEFAULT_FCM_TOKEN_WAITERS,
     }))
 }
 
@@ -503,6 +515,8 @@ mod tests {
         assert_eq!(fcm.project_id, "p1");
         assert_eq!(fcm.token_uri, "https://t.example/token");
         assert_eq!(fcm.api_base, DEFAULT_FCM_API_BASE);
+        assert_eq!(fcm.oauth_backoff, Duration::from_secs(30));
+        assert_eq!(fcm.max_token_waiters, 256);
 
         env.insert("FCM_TOKEN_URI", "http://127.0.0.1:9/token".into());
         assert_eq!(

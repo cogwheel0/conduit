@@ -54,6 +54,9 @@ pub enum Outcome {
     Rejected,
     /// The provider is down or unreachable.
     Unavailable,
+    /// The provider is down, and the relay won't try it again for this many
+    /// seconds.
+    UnavailableFor(u64),
 }
 
 impl Outcome {
@@ -64,7 +67,7 @@ impl Outcome {
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Throttled => StatusCode::TOO_MANY_REQUESTS,
             Self::Rejected => StatusCode::BAD_GATEWAY,
-            Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable | Self::UnavailableFor(_) => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
@@ -75,7 +78,15 @@ impl Outcome {
             Self::TooLarge => "too_large",
             Self::Throttled => "provider_throttled",
             Self::Rejected => "provider_rejected",
-            Self::Unavailable => "provider_unavailable",
+            Self::Unavailable | Self::UnavailableFor(_) => "provider_unavailable",
+        }
+    }
+
+    /// Seconds for `Retry-After`, when the relay knows them.
+    pub fn retry_after(self) -> Option<u64> {
+        match self {
+            Self::UnavailableFor(seconds) => Some(seconds),
+            _ => None,
         }
     }
 }

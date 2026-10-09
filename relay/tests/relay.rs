@@ -126,6 +126,9 @@ struct Mock {
     fcm_replies: Mutex<VecDeque<(u16, String)>>,
     oauth_replies: Mutex<VecDeque<(u16, String)>>,
     issued: AtomicUsize,
+    /// Token requests are answered only while this can be read, so a test
+    /// holding it for writing makes Google slow.
+    oauth_gate: tokio::sync::RwLock<()>,
 }
 
 impl Mock {
@@ -192,6 +195,9 @@ async fn mock_provider(State(mock): State<Arc<Mock>>, request: Request) -> Respo
         return StatusCode::NOT_FOUND.into_response();
     };
     log.lock().unwrap().push(recorded);
+    if path == "/token" {
+        let _open = mock.oauth_gate.read().await;
+    }
     let (status, body) = replies.lock().unwrap().pop_front().unwrap_or(default);
     (
         StatusCode::from_u16(status).unwrap(),
@@ -1088,18 +1094,51 @@ async fn fcm_401_refreshes_the_access_token_once() {
     assert_eq!(relay.mock.oauth().len(), 3);
 }
 
+fn retry_after(response: &reqwest::Response) -> Option<u64> {
+    response
+        .headers()
+        .get("retry-after")
+        .map(|v| v.to_str().unwrap().parse().unwrap())
+}
+
 #[tokio::test]
 async fn fcm_token_or_network_failure_is_503() {
     let relay = start().await;
     let endpoint = relay.endpoint("fcm", "prod").await;
     relay.mock.reply_oauth(400, r#"{"error":"invalid_grant"}"#);
+    let failed = relay.push_reply(&endpoint).await;
+    assert_eq!(retry_after(&failed), Some(30));
     assert_eq!(
-        error_code(relay.push_reply(&endpoint).await).await,
+        error_code(failed).await,
         (503, "provider_unavailable".into())
     );
     assert!(relay.mock.fcm().is_empty());
-    // The failure is not cached.
+
+    // The failure is remembered: the next push fails at once, without asking
+    // Google again.
+    let started = Instant::now();
+    let remembered = relay.push_reply(&endpoint).await;
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let wait = retry_after(&remembered).unwrap();
+    assert!((1..=30).contains(&wait), "{wait}");
+    assert_eq!(remembered.status(), 503);
+    assert_eq!(relay.mock.oauth().len(), 1);
+    assert!(relay.mock.fcm().is_empty());
+
+    // Once it is forgotten, the next push fetches again.
+    let (mock_addr, mock) = start_mock().await;
+    let relay = start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
+        config.fcm.as_mut().unwrap().oauth_backoff = Duration::from_millis(300);
+    })
+    .await;
+    let endpoint = relay.endpoint("fcm", "prod").await;
+    relay.mock.reply_oauth(500, "{}");
+    let failed = relay.push_reply(&endpoint).await;
+    assert_eq!(retry_after(&failed), Some(1));
+    assert_eq!(relay.push_reply(&endpoint).await.status(), 503);
+    tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(relay.push_reply(&endpoint).await.status(), 201);
+    assert_eq!(relay.mock.oauth().len(), 2);
 
     let port = closed_port().await;
     let relay = start_with(|env| {
@@ -1108,6 +1147,69 @@ async fn fcm_token_or_network_failure_is_503() {
     .await;
     let endpoint = relay.endpoint("fcm", "prod").await;
     assert_eq!(relay.push_reply(&endpoint).await.status(), 503);
+}
+
+/// Sends a push from its own task, so that several can be in flight at once.
+fn spawn_push(relay: &Relay, endpoint: &str) -> tokio::task::JoinHandle<(u16, Option<u64>)> {
+    let mut request = relay.http.post(endpoint).body(first_case_body());
+    for (name, value) in standard_headers() {
+        request = request.header(name, value);
+    }
+    tokio::spawn(async move {
+        let response = request.send().await.unwrap();
+        (response.status().as_u16(), retry_after(&response))
+    })
+}
+
+async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let started = Instant::now();
+    while !done() {
+        assert!(started.elapsed() < Duration::from_secs(5), "{what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn fcm_token_fetches_are_shared_and_waiters_are_bounded() {
+    let (mock_addr, mock) = start_mock().await;
+    let relay = start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
+        config.fcm.as_mut().unwrap().max_token_waiters = 2;
+    })
+    .await;
+    let endpoint = relay.endpoint("fcm", "prod").await;
+
+    // Google is slow, and then fails.
+    let slow = relay.mock.oauth_gate.write().await;
+    relay.mock.reply_oauth(500, "{}");
+    let fetching = spawn_push(&relay, &endpoint);
+    wait_until("the token fetch started", || relay.mock.oauth().len() == 1).await;
+
+    // Room for one more push to wait; the other two are refused at once.
+    let others: Vec<_> = (0..3).map(|_| spawn_push(&relay, &endpoint)).collect();
+    wait_until("two pushes were refused", || {
+        others.iter().filter(|push| push.is_finished()).count() == 2
+    })
+    .await;
+    assert!(!fetching.is_finished());
+    let mut waiting = None;
+    for push in others {
+        if push.is_finished() {
+            assert_eq!(push.await.unwrap().0, 503);
+        } else {
+            waiting = Some(push);
+        }
+    }
+
+    // The one fetch fails, and the push that waited for it does not try
+    // again: both answer 503 with Retry-After.
+    drop(slow);
+    for push in [fetching, waiting.unwrap()] {
+        let (status, retry_after) = push.await.unwrap();
+        assert_eq!(status, 503);
+        assert!(retry_after.is_some_and(|s| (1..=30).contains(&s)));
+    }
+    assert_eq!(relay.mock.oauth().len(), 1);
+    assert!(relay.mock.fcm().is_empty());
 }
 
 // ---------------------------------------------------------------- push validation
