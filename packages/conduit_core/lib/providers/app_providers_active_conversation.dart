@@ -337,16 +337,13 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
   // Materialize the local row so the next open is DB-first, from the same
   // download. Another user's chat (shared folder) stays network-only: the
   // sync store would otherwise push edits to it and it can never appear in
-  // this user's chat list. [storeIf] is [isReadOnlySharedConversation] on the
-  // raw response.
+  // this user's chat list.
   final currentUserId = ref.read(currentUserProvider2)?.id;
   var fullConversation = await fetchChatNowForOpen(
     ref,
     rawConversationId,
-    storeIf: (response) {
-      final owner = response['user_id']?.toString();
-      return owner == null || owner == currentUserId;
-    },
+    storeIf: (response) =>
+        !isReadOnlySharedOwner(response['user_id']?.toString(), currentUserId),
   );
   if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
     throw OpenWebUiConversationOwnershipException(
