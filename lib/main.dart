@@ -435,9 +435,17 @@ void main() {
               final local = ref.read(localNotificationServiceProvider);
               final clearing = accountId == null
                   ? local.cancelAll()
-                  : local.cancelScope(
-                      NotificationScope.openWebUi(accountId).value,
-                    );
+                  : Future.wait([
+                      local.cancelScope(
+                        NotificationScope.openWebUi(accountId).value,
+                      ),
+                      // Pushes that arrived while the sign-out ran.
+                      ref
+                          .read(pushPlatformPortProvider)
+                          .cancelScope(
+                            NotificationScope.openWebUi(accountId).value,
+                          ),
+                    ]);
               unawaited(
                 clearing.catchError((Object error, StackTrace stackTrace) {
                   DebugLogger.error(
@@ -448,6 +456,29 @@ void main() {
                   );
                 }),
               );
+            };
+          }),
+          // A deleted Hermes connection takes its push subscription and its
+          // posted notifications with it. Push goes first, while the
+          // connection's key still works.
+          hostHermesConnectionRemovingProvider.overrideWith((ref) {
+            return (connectionId) async {
+              await ref
+                  .read(pushSignOutHookProvider)
+                  .beforeHermesConnectionRemoved(connectionId);
+              final scope = NotificationScope.hermes(connectionId).value;
+              try {
+                await ref
+                    .read(localNotificationServiceProvider)
+                    .cancelScope(scope);
+              } catch (error, stackTrace) {
+                DebugLogger.error(
+                  'hermes-removal-notification-clear-failed',
+                  scope: 'notifications/system',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }
             };
           }),
           // The in-memory selection, so a language change applies to the
