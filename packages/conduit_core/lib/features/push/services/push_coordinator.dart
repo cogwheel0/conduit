@@ -1325,8 +1325,9 @@ class PushCoordinator extends _$PushCoordinator {
     };
     try {
       for (final keys in await _platform.listSubscriptions()) {
-        if (keys.scope == scope)
+        if (keys.scope == scope) {
           sids.putIfAbsent(keys.sid, () => keys.transport);
+        }
       }
     } catch (_) {
       // Without the platform's list, the recorded sid is all there is.

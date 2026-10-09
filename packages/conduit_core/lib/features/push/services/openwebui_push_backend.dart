@@ -449,8 +449,9 @@ final class OpenWebUiPushBackend implements PushBackend {
       'your administrator for assistance.';
 
   static PushProbe _probeFailure(DioException error) {
-    if (_isAuthError(error))
+    if (_isAuthError(error)) {
       return const PushProbe(PushProbeOutcome.signInNeeded);
+    }
     return PushProbe(
       PushProbeOutcome.failed,
       failure: _backendError(error).failure,
@@ -465,8 +466,9 @@ final class OpenWebUiPushBackend implements PushBackend {
 
   static String? _detail(DioException error) {
     final data = error.response?.data;
-    if (data is Map && data['detail'] is String)
+    if (data is Map && data['detail'] is String) {
       return data['detail'] as String;
+    }
     return null;
   }
 
