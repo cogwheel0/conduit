@@ -27,7 +27,19 @@ final class PreferenceKeys {
   static const String webSearchSafeSearch = 'web_search_safe_search_v1';
   static const String webSearchRegion = 'web_search_region_v1';
   static const String sendOnEnterKey = 'send_on_enter';
+  /// Holds the active Open WebUI *account* id. The key predates accounts:
+  /// an account's id is the id its server config always had.
   static const String activeServerId = 'active_server_id';
+
+  /// Non-secret display details of saved Open WebUI accounts (name, email,
+  /// avatar, last use), so the account list renders without Keychain reads.
+  static const String openWebUiAccountSummaries =
+      'openwebui_account_summaries_v1';
+
+  /// Set once the device-wide model and chat defaults were copied into the
+  /// account that was active when per-account settings arrived.
+  static const String accountScopedSettingsMigrated =
+      'account_scoped_settings_migrated_v1';
 
   /// Fail-closed marker set before logout touches any remote or local state.
   /// It prevents bearer/credential restoration and proxy-cookie attachment
@@ -38,6 +50,21 @@ final class PreferenceKeys {
   /// surviving Direct profiles hidden and unusable across restarts until the
   /// logout fence is cleared.
   static const String incompleteAppDataClear = 'incomplete_app_data_clear_v1';
+
+  /// Set when a full sign-out could not delete every Open WebUI account
+  /// database. The next start deletes them before any can open.
+  static const String pendingAccountDatabaseWipe =
+      'pending_account_database_wipe_v1';
+
+  /// Accounts signed out of whose data could not all be removed. The next
+  /// start finishes removing what each left.
+  static const String pendingAccountPurges = 'pending_account_purges_v1';
+
+  /// Accounts still saved -- signed out of by the plain logout -- whose chats
+  /// are being deleted or could not all be. Until they are gone, an owner
+  /// marker of theirs certifies nothing, and the next start retries.
+  static const String pendingAccountDataPurges =
+      'pending_account_data_purges_v1';
   static const String appIntentInvocationLedger =
       'app_intent_invocation_ledger_v1';
   static const String themeMode = 'theme_mode';

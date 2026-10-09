@@ -354,14 +354,61 @@ class SecureCredentialStorage {
     }
   }
 
-  /// Server ids that currently hold a vaulted token.
+  /// Server ids that currently hold a vaulted token or vaulted credentials.
   Future<Set<String>> vaultedServerIds() async {
     final all = await _secureStorage.readAll();
     return <String>{
       for (final key in all.keys)
         if (key.startsWith(_serverTokenPrefix))
-          key.substring(_serverTokenPrefix.length),
+          key.substring(_serverTokenPrefix.length)
+        else if (key.startsWith(_serverCredentialsPrefix))
+          key.substring(_serverCredentialsPrefix.length),
     };
+  }
+
+  // The saved sign-in of an account that is not the active one. Like the
+  // token vault, it sits beside the single live slot ([_credentialsKey]) so
+  // the arbitration built around "the saved credentials" keeps one meaning:
+  // the live slot always belongs to the active account, and a switch moves
+  // the payload between the two, byte for byte.
+  static const String _serverCredentialsPrefix = 'user_credentials_server_v1:';
+
+  static String _serverCredentialsKey(String serverId) =>
+      '$_serverCredentialsPrefix$serverId';
+
+  Future<void> saveServerCredentialsPayload(
+    String serverId,
+    String payload,
+  ) async {
+    try {
+      await _secureStorage.write(
+        key: _serverCredentialsKey(serverId),
+        value: payload,
+      );
+    } catch (e) {
+      DebugLogger.error(
+        'save-server-credentials-failed',
+        scope: 'credentials/storage',
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  /// Strict: a platform failure is not "this account has no saved sign-in".
+  Future<String?> getServerCredentialsPayload(String serverId) =>
+      _secureStorage.read(key: _serverCredentialsKey(serverId));
+
+  Future<void> deleteServerCredentials(String serverId) =>
+      _secureStorage.delete(key: _serverCredentialsKey(serverId));
+
+  Future<void> deleteAllServerCredentials() async {
+    final all = await _secureStorage.readAll();
+    for (final key in all.keys) {
+      if (key.startsWith(_serverCredentialsPrefix)) {
+        await _secureStorage.delete(key: key);
+      }
+    }
   }
 
   /// Save the Hermes Agent API key (bearer token for the direct Hermes backend).

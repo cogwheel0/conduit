@@ -1,6 +1,9 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show settledActiveAccountIdProvider;
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_constants.dart';
@@ -96,6 +99,40 @@ void main() {
     ).equals(SidebarTabId.chats);
 
     check(PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab)).equals(1);
+  });
+
+  test('a legacy index does not follow the user to another account', () async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.accountScopedSettingsMigrated: true,
+      PreferenceKeys.activeServerId: 'a',
+      accountScopedPreferenceKey(PreferenceKeys.sidebarActiveTab, 'a'): 2,
+      accountScopedPreferenceKey(PreferenceKeys.sidebarActiveTab, 'b'):
+          SidebarTabId.notes.name,
+    });
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.listen(sidebarActiveTabProvider, (_, _) {});
+    final controller = container.read(sidebarActiveTabProvider.notifier);
+    check(controller.pendingLegacyIndex()).equals(2);
+
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'b');
+    container.invalidate(settledActiveAccountIdProvider);
+
+    check(container.read(settledActiveAccountIdProvider)).equals('b');
+    final persisted = container.read(sidebarActiveTabProvider);
+    check(controller.pendingLegacyIndex()).isNull();
+    check(
+      resolveSidebarTabSelection(
+        persistedTab: persisted,
+        legacyIndex: controller.pendingLegacyIndex(),
+        visibleTabs: const [
+          SidebarTabId.chats,
+          SidebarTabId.notes,
+          SidebarTabId.channels,
+        ],
+      ),
+    ).equals(SidebarTabId.notes);
   });
 
   test(

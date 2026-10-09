@@ -193,7 +193,7 @@ class PersonalizationSettings extends _$PersonalizationSettings {
       _settingsServerId = serverId;
       _settingsSnapshot = updated;
       state = AsyncData(updated);
-      _cachePinnedModelsLocally(updated.pinnedModelIds);
+      _cachePinnedModelsLocally(updated.pinnedModelIds, accountId: serverId);
       ref.invalidate(rawUserSettingsProvider);
       ref.invalidate(userSettingsProvider);
       return updated;
@@ -264,6 +264,7 @@ class PersonalizationSettings extends _$PersonalizationSettings {
         ref
             .read(appSettingsProvider.notifier)
             .applyServerNotificationPrefs(
+              accountId: serverId,
               enabled: settings.notificationEnabled,
               sound: settings.notificationSound,
               soundAlways: settings.notificationSoundAlways,
@@ -290,7 +291,7 @@ class PersonalizationSettings extends _$PersonalizationSettings {
 
     _settingsServerId = serverId;
     _settingsSnapshot = settings;
-    _cachePinnedModelsLocally(settings.pinnedModelIds);
+    _cachePinnedModelsLocally(settings.pinnedModelIds, accountId: serverId);
     return settings;
   }
 
@@ -339,7 +340,12 @@ class PersonalizationSettings extends _$PersonalizationSettings {
     );
   }
 
-  void _cachePinnedModelsLocally(List<String> modelIds) {
+  /// Keeps [modelIds], the pins [accountId]'s server answered with, as that
+  /// account's local copy.
+  void _cachePinnedModelsLocally(
+    List<String> modelIds, {
+    required String? accountId,
+  }) {
     final local = ref.read(appSettingsProvider).pinnedModels;
     if (const ListEquality<Object?>().equals(local, modelIds)) {
       return;
@@ -347,9 +353,15 @@ class PersonalizationSettings extends _$PersonalizationSettings {
 
     unawaited(
       Future<void>.microtask(() async {
-        if (!ref.mounted) {
-          return;
-        }
+        // A switch since would file them under the next account: a write
+        // lands under the account stored as active when it starts. With none
+        // stored it lands device-wide, which the account in use reads until
+        // its own copy is made.
+        if (!ref.mounted) return;
+        final landsUnder =
+            currentPreferenceAccountId() ??
+            ref.read(activeServerProvider).asData?.value?.id;
+        if (landsUnder != accountId) return;
         await ref.read(appSettingsProvider.notifier).setPinnedModels(modelIds);
       }),
     );

@@ -27,12 +27,17 @@ class BackgroundStreamLease {
     required this.kind,
     required this.requiresMicrophone,
     required this.startedAt,
+    this.isReply = false,
   });
 
   final String id;
   final BackgroundStreamKind kind;
   final bool requiresMicrophone;
   final DateTime startedAt;
+
+  /// Whether it keeps a chat reply that is still being written alive, as
+  /// opposed to read-aloud, voice mode or a note being recorded.
+  final bool isReply;
 
   PlatformBackgroundStreamLease toPlatform() {
     return PlatformBackgroundStreamLease(
@@ -72,12 +77,14 @@ List<BackgroundStreamLease> buildBackgroundStreamLeasesForTesting(
   required bool requiresMicrophone,
   required BackgroundStreamKind kind,
   required DateTime startedAt,
+  bool isReply = false,
 }) {
   return _buildBackgroundStreamLeases(
     streamIds,
     requiresMicrophone: requiresMicrophone,
     kind: kind,
     startedAt: startedAt,
+    isReply: isReply,
   );
 }
 
@@ -86,6 +93,7 @@ List<BackgroundStreamLease> _buildBackgroundStreamLeases(
   required bool requiresMicrophone,
   required BackgroundStreamKind kind,
   required DateTime startedAt,
+  bool isReply = false,
 }) {
   return <BackgroundStreamLease>[
     for (final streamId in streamIds)
@@ -95,6 +103,7 @@ List<BackgroundStreamLease> _buildBackgroundStreamLeases(
           kind: kind,
           requiresMicrophone: requiresMicrophone,
           startedAt: startedAt,
+          isReply: isReply,
         ),
   ];
 }
@@ -301,11 +310,13 @@ class BackgroundStreamingHandler implements BackgroundStreamingFlutterApi {
     onMicrophonePermissionFallback?.call();
   }
 
-  /// Start background execution for given stream IDs
+  /// Start background execution for given stream IDs. [isReply] marks the
+  /// leases of chat replies still being written.
   Future<void> startBackgroundExecution(
     List<String> streamIds, {
     bool requiresMicrophone = false,
     BackgroundStreamKind kind = BackgroundStreamKind.chat,
+    bool isReply = false,
   }) async {
     if (!Platform.isIOS && !Platform.isAndroid) return;
     final startedAt = DateTime.now();
@@ -314,6 +325,7 @@ class BackgroundStreamingHandler implements BackgroundStreamingFlutterApi {
       requiresMicrophone: requiresMicrophone,
       kind: kind,
       startedAt: startedAt,
+      isReply: isReply,
     );
     if (newLeases.isEmpty) return;
     final effectiveStreamIds = newLeases
@@ -465,6 +477,19 @@ class BackgroundStreamingHandler implements BackgroundStreamingFlutterApi {
 
   /// Check if any streams are currently active
   bool get hasActiveStreams => _activeLeases.isNotEmpty;
+
+  /// Whether a chat reply is still being written in the background. Reading
+  /// a finished answer aloud, voice mode or a note being recorded hold
+  /// leases too, but leaving the account cuts none of them off mid-reply.
+  bool get hasActiveReplyStreams =>
+      _activeLeases.values.any((lease) => lease.isReply);
+
+  @visibleForTesting
+  void debugSetActiveLeases(Iterable<BackgroundStreamLease> leases) {
+    _activeLeases
+      ..clear()
+      ..addEntries(leases.map((lease) => MapEntry(lease.id, lease)));
+  }
 
   /// Get list of active stream IDs
   List<String> get activeStreamIds => _activeLeases.keys.toList();

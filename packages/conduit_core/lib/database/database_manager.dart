@@ -6,6 +6,8 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'app_database.dart';
@@ -81,6 +83,16 @@ class DatabaseManager {
       <String, _FailedCloseRetryOperation>{};
   final Map<String, Future<void>> _pendingDeletions = <String, Future<void>>{};
   final Map<String, String> _deletingFileOwners = <String, String>{};
+  Future<void>? _serverDatabasesDeletion;
+
+  /// The file names [_serverDatabasesDeletion] deletes; null for all.
+  Set<String>? _serverDatabasesDeletionOnly;
+
+  /// The database files a full sign-out could not delete, which stay closed
+  /// until they are: null when there are none, and `files` null for every
+  /// account database. Recorded in preferences too, for the next start.
+  ({Set<String>? files})? _pendingWipe;
+  Future<void>? _pendingWipeFinish;
 
   /// Sync, lazy-open accessor for [server]'s database.
   AppDatabase openFor(ServerConfig server) => openForServerId(server.id);
@@ -97,6 +109,13 @@ class DatabaseManager {
 
   /// Server-id form of [openForIfReady].
   DatabaseOpenAttempt openForServerIdIfReady(String serverId) {
+    final sweep = _serverDatabasesDeletion;
+    if (sweep != null) {
+      return DatabaseOpenDeferred(sweep);
+    }
+    if (_heldForPendingWipe(serverId)) {
+      return DatabaseOpenDeferred(_afterPendingWipe());
+    }
     final deletion = _pendingDeletions[serverId];
     if (deletion != null) {
       return DatabaseOpenDeferred(deletion);
@@ -123,6 +142,12 @@ class DatabaseManager {
   /// overlapping close so non-reactive code cannot create a second executor
   /// for the same SQLite file.
   AppDatabase openForServerId(String serverId) {
+    if (_serverDatabasesDeletion != null) {
+      throw StateError('Every server database is being deleted.');
+    }
+    if (_heldForPendingWipe(serverId)) {
+      throw StateError('Database for logical id $serverId awaits deletion.');
+    }
     final fileName = _databaseFileName(serverId);
     final deletingOwner = _deletingFileOwners[fileName];
     if (deletingOwner != null) {
@@ -452,6 +477,146 @@ class DatabaseManager {
     );
   }
 
+  /// Deletes the database of every server, open or not: each [fileNameFor]
+  /// file in the database directory with its rollback-journal, `-wal` and
+  /// `-shm` siblings. Nothing else there is touched, the direct-local
+  /// database included. No database opens until this has finished.
+  ///
+  /// It needs no list of servers, so a full sign-out also removes databases
+  /// whose accounts can no longer be read or were already forgotten. With
+  /// [only], just the databases of those file names go.
+  Future<void> deleteAllServerDatabases({Set<String>? only}) {
+    final running = _serverDatabasesDeletion;
+    final runningOnly = _serverDatabasesDeletionOnly;
+    if (running != null &&
+        (runningOnly == null ||
+            (only != null && runningOnly.containsAll(only)))) {
+      return running;
+    }
+    // A narrower sweep is running: this one follows it rather than reporting
+    // its success, and no database opens in between.
+    final deletion = running == null
+        ? _deleteAllServerDatabases(only)
+        : running
+              .then<void>((_) {}, onError: (_, _) {})
+              .then((_) => _deleteAllServerDatabases(only));
+    late final Future<void> sweep;
+    sweep = deletion.whenComplete(() {
+      if (identical(_serverDatabasesDeletion, sweep)) {
+        _serverDatabasesDeletion = null;
+        _serverDatabasesDeletionOnly = null;
+      }
+    });
+    _serverDatabasesDeletion = sweep;
+    _serverDatabasesDeletionOnly = only == null ? null : Set.of(only);
+    return sweep;
+  }
+
+  /// Records that a full sign-out could not delete [files] -- every account
+  /// database when null. They stay closed until [finishPendingWipe] has
+  /// deleted them, in this run or, from the preference, the next.
+  ///
+  /// An account signed in to again in this run has the same file. Opened
+  /// before the wipe finished, what it wrote would go at the next start.
+  Future<void> recordPendingWipe(Set<String>? files) async {
+    // Held before the preference is written, and still held when that write
+    // fails: the files stay closed for this run, the safe side, and
+    // [finishPendingWipe] still deletes them.
+    _pendingWipe = (files: files == null ? null : Set.of(files));
+    await PreferencesStore.putChecked(
+      PreferenceKeys.pendingAccountDatabaseWipe,
+      pendingAccountDatabaseWipeValue(files),
+      bypassAppDataClearBarrier: true,
+    );
+  }
+
+  /// Takes up the wipe an earlier run recorded and did not finish.
+  void resumePendingWipe() {
+    final recorded = PreferencesStore.getString(
+      PreferenceKeys.pendingAccountDatabaseWipe,
+    );
+    if (recorded == null) return;
+    _pendingWipe = (files: pendingAccountDatabaseWipeFiles(recorded));
+  }
+
+  /// Deletes the files a pending wipe names, then forgets it, unless a
+  /// newer sign-out recorded another meanwhile.
+  Future<void> finishPendingWipe() {
+    final pending = _pendingWipe;
+    if (pending == null) return Future<void>.value();
+    return _pendingWipeFinish ??= () async {
+      const key = PreferenceKeys.pendingAccountDatabaseWipe;
+      final recorded = PreferencesStore.getString(key);
+      try {
+        await deleteAllServerDatabases(only: pending.files);
+        if (recorded != null) {
+          await PreferencesStore.putCheckedIf(
+            key,
+            null,
+            canWrite: () => PreferencesStore.getString(key) == recorded,
+            bypassAppDataClearBarrier: true,
+          );
+        }
+        // The files open again only once the record is gone: one left
+        // behind would delete at the next start what they hold from now on.
+        if (identical(_pendingWipe, pending)) _pendingWipe = null;
+      } finally {
+        _pendingWipeFinish = null;
+      }
+    }();
+  }
+
+  bool _heldForPendingWipe(String serverId) {
+    final pending = _pendingWipe;
+    if (pending == null) return false;
+    final files = pending.files;
+    return files == null || files.contains(_databaseFileName(serverId));
+  }
+
+  /// What an open held by a pending wipe waits for. When the wipe fails it
+  /// waits a moment more, so the retry does not spin.
+  Future<void> _afterPendingWipe() => finishPendingWipe().then<void>(
+    (_) {},
+    onError: (Object error, StackTrace stackTrace) {
+      DebugLogger.error(
+        'pending-wipe-failed',
+        scope: 'db/manager',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return Future<void>.delayed(const Duration(seconds: 1));
+    },
+  );
+
+  Future<void> _deleteAllServerDatabases(Set<String>? only) async {
+    // Databases this manager opened go through deleteFor, so their executors
+    // have released the files before they are unlinked.
+    for (final MapEntry(key: fileName, value: serverId)
+        in _fileOwners.entries.toList()) {
+      if (only == null || only.contains(fileName)) await deleteFor(serverId);
+    }
+    final directory = await _databaseDirectory();
+    if (!await directory.exists()) return;
+    final files = await directory
+        .list(followLinks: false)
+        .where((entity) {
+          if (entity is! File) return false;
+          final match = _serverDatabaseFile.firstMatch(
+            p.basename(entity.path),
+          );
+          return match != null && (only == null || only.contains(match[1]));
+        })
+        .toList();
+    for (final file in files) {
+      if (await file.exists()) await file.delete();
+    }
+    DebugLogger.log(
+      'deleted-all',
+      scope: 'db/manager',
+      data: {'files': files.length},
+    );
+  }
+
   Future<void> _retryFailedClose(
     String serverId,
     _FailedDatabaseClose failure,
@@ -662,6 +827,46 @@ class DatabaseManager {
   static String fileNameFor(String serverId) {
     final encoded = base64Url.encode(utf8.encode(serverId)).replaceAll('=', '');
     return 'server_$encoded';
+  }
+
+  /// A [fileNameFor] database file or one of its SQLite siblings.
+  static final RegExp _serverDatabaseFile = RegExp(
+    r'^(server_[A-Za-z0-9_-]+)\.sqlite(-journal|-wal|-shm)?$',
+  );
+
+  /// The [fileNameFor] names of the server databases now in the directory,
+  /// in the form [deleteAllServerDatabases] takes as `only`.
+  Future<Set<String>> serverDatabaseFileNames() async {
+    final directory = await _databaseDirectory();
+    if (!await directory.exists()) return const <String>{};
+    return {
+      await for (final entity in directory.list(followLinks: false))
+        if (entity is File)
+          ?_serverDatabaseFile.firstMatch(p.basename(entity.path))?[1],
+    };
+  }
+}
+
+/// The value a failed full sign-out records: the database files it left
+/// behind, or every file when it could not list them.
+String pendingAccountDatabaseWipeValue(Set<String>? files) =>
+    files == null ? '*' : jsonEncode(files.toList()..sort());
+
+/// The files a pending wipe deletes; null for all of them. Only those listed
+/// go, so an account signed in to after the failed sign-out keeps its data.
+/// A record that cannot be read names none: taken for every file, it would
+/// delete accounts signed in to since.
+Set<String>? pendingAccountDatabaseWipeFiles(String value) {
+  if (value == '*') return null;
+  try {
+    return {for (final name in jsonDecode(value) as List) name as String};
+  } catch (error) {
+    DebugLogger.error(
+      'pending-wipe-record-unreadable',
+      scope: 'db/manager',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    return const <String>{};
   }
 }
 

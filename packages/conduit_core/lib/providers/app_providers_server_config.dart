@@ -42,6 +42,81 @@ Future<ServerConfig?> activeServer(Ref ref) async {
   return fallback.isActive ? fallback : fallback.copyWith(isActive: true);
 }
 
+/// The active Open WebUI account id, changing only once a selection has
+/// settled.
+///
+/// A switch re-resolves [activeServerProvider] through a loading state.
+/// Anything keyed by the active account -- per-account settings, the sidebar
+/// tab -- watches this instead, so it moves straight from one account to the
+/// next without passing through "no account" in between.
+final settledActiveAccountIdProvider =
+    NotifierProvider<SettledActiveAccountId, String?>(
+      SettledActiveAccountId.new,
+    );
+
+class SettledActiveAccountId extends Notifier<String?> {
+  @override
+  String? build() {
+    ref.listen<AsyncValue<ServerConfig?>>(activeServerProvider, (_, next) {
+      if (next.isLoading || !next.hasValue) return;
+      final id = next.value?.id;
+      if (id != state) state = id;
+    });
+    final current = ref.read(activeServerProvider);
+    if (current.hasValue && !current.isLoading) return current.value?.id;
+    final raw = PreferencesStore.getString(PreferenceKeys.activeServerId);
+    return raw == null || raw.isEmpty ? null : raw;
+  }
+}
+
+/// One saved Open WebUI account, as the account list shows it.
+@immutable
+final class OpenWebUiAccountEntry {
+  const OpenWebUiAccountEntry({
+    required this.account,
+    required this.server,
+    required this.summary,
+    required this.isActive,
+    required this.hasSession,
+  });
+
+  final OpenWebUiAccount account;
+  final OpenWebUiServer server;
+  final OpenWebUiAccountSummary summary;
+  final bool isActive;
+
+  /// Whether it can be switched to without signing in: it holds a token or a
+  /// saved sign-in. False for an account that was signed out of, or whose
+  /// sign-in was never finished.
+  final bool hasSession;
+
+  String get id => account.id;
+}
+
+/// Every saved Open WebUI account, in the order they were added.
+final openWebUiAccountsProvider = FutureProvider<List<OpenWebUiAccountEntry>>((
+  ref,
+) async {
+  // Re-read whenever accounts or sessions change; both invalidate this.
+  await ref.watch(serverConfigsProvider.future);
+  final activeId = ref.watch(settledActiveAccountIdProvider);
+  final summaries = ref.watch(openWebUiAccountSummariesProvider);
+  final storage = ref.watch(optimizedStorageServiceProvider);
+  final registry = await storage.getOpenWebUiRegistryStrict();
+  final withSession = await storage.accountIdsWithSession();
+  return [
+    for (final account in registry.accounts)
+      if (registry.server(account.serverId) case final server?)
+        OpenWebUiAccountEntry(
+          account: account,
+          server: server,
+          summary: summaries[account.id] ?? const OpenWebUiAccountSummary(),
+          isActive: account.id == activeId,
+          hasSession: withSession.contains(account.id),
+        ),
+  ];
+});
+
 final serverConnectionStateProvider = Provider<bool>((ref) {
   final activeServer = ref.watch(activeServerProvider);
   return activeServer.maybeWhen(

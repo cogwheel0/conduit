@@ -38,6 +38,10 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
   ref.invalidate(hermesSecretsErrorProvider);
   ref.invalidate(hermesActiveSessionProvider);
   ref.invalidate(hermesApiServiceProvider);
+
+  ref.invalidate(openWebUiAccountSummariesProvider);
+  ref.invalidate(openWebUiAccountsProvider);
+  ref.read(openWebUiValidatedIdentityLedgerProvider).clear();
 }
 
 final signOutCoordinatorProvider = Provider<SignOutCoordinator>(
@@ -123,6 +127,12 @@ final class SignOutCoordinator {
       }
     }
 
+    // Every saved account goes, not just the active one: end their sessions
+    // on the server too, listed now while the registry still names them.
+    final inactiveSessions = await _ref
+        .read(authStateManagerProvider.notifier)
+        .inactiveAccountSessions();
+
     try {
       outcome = await _ref
           .read(authStateManagerProvider.notifier)
@@ -140,6 +150,12 @@ final class SignOutCoordinator {
           // admission barrier and may still lose auth ownership.
           await _ref.read(directLocalDatabasePurgeProvider)();
           directLocalPurgeCompleted = true;
+          await _purgeAccountDatabases();
+          unawaited(
+            _ref
+                .read(authStateManagerProvider.notifier)
+                .revokeSessions(inactiveSessions),
+          );
           await disarmIncompleteAppDataClearMarker();
           directProfiles.finishAppDataClear();
           directMcpServers.finishAppDataClear();
@@ -181,6 +197,51 @@ final class SignOutCoordinator {
         directMcpServers.resumeMutationsAfterAppDataClearAbort();
         hermesConfig.resumeMutationsAfterAppDataClearAbort();
       }
+    }
+  }
+}
+
+extension on SignOutCoordinator {
+  /// Deletes every account's database. Ending a session no longer deletes
+  /// one, so this is what removes them: all of them, whether or not the
+  /// account registry can still name them. If that keeps failing, the next
+  /// start finishes the job before any database opens.
+  Future<void> _purgeAccountDatabases() async {
+    const attempts = 3;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        await _ref.read(openWebUiDatabaseSweepProvider)();
+        return;
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'sign-out-account-database-purge-failed',
+          scope: 'auth/sign-out',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'attempt': attempt},
+        );
+        if (attempt < attempts) {
+          await Future<void>.delayed(Duration(milliseconds: 50 * attempt));
+        }
+      }
+    }
+    // Name the files left, so the next start deletes those and not an account
+    // signed in to after this.
+    Set<String>? leftover;
+    try {
+      leftover = await _ref.read(openWebUiDatabaseFilesProvider)();
+    } catch (_) {}
+    try {
+      // Kept closed in this run too: an account signed in to again here has
+      // the same file, and would lose what it wrote at the next start.
+      await _ref.read(databaseManagerProvider).recordPendingWipe(leftover);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'sign-out-pending-database-wipe-failed',
+        scope: 'auth/sign-out',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 }

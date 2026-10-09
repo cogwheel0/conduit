@@ -7,6 +7,7 @@ import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/knowledge_base.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/core/providers/app_startup_providers.dart';
@@ -19,6 +20,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
+import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:flutter_riverpod/misc.dart';
@@ -278,6 +280,52 @@ void main() {
     check(container.read(knowledgeCacheProvider).bases).isEmpty();
     check(KnowledgeCacheManager().stats()['scopes']).equals(0);
   });
+
+  test(
+    'switching accounts mid-selection does not leave the chat loading',
+    () async {
+      final summary = withChatStorageProvenance(
+        _conversation('pending-chat'),
+        ChatStorageKind.directLocal,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          authTokenProvider3.overrideWithValue('test-token'),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          isAuthLoadingProvider2.overrideWithValue(false),
+          settledActiveAccountIdProvider.overrideWith(_SettledAccount.new),
+          openWebUiAccountStorageIsolationProvider.overrideWith(
+            _NoopAccountStorageIsolation.new,
+          ),
+          selectedModelProvider.overrideWith(_NullSelectedModel.new),
+          apiServiceProvider.overrideWithValue(null),
+          appDatabaseProvider.overrideWithValue(null),
+          loadConversationProvider(
+            conversationScopedId(summary),
+          ).overrideWith((ref) => Completer<Conversation>().future),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(userScopedProviderCleanupProvider);
+
+      final selection = container
+          .read(conversationSelectionProvider.notifier)
+          .select(summary);
+      await _flushMicrotasks(2);
+      check(container.read(isLoadingConversationProvider)).isTrue();
+
+      (container.read(settledActiveAccountIdProvider.notifier)
+              as _SettledAccount)
+          .settle('b');
+      check(
+        (await selection).disposition,
+      ).equals(ConversationSelectionDisposition.canceled);
+
+      check(container.read(isLoadingConversationProvider)).isFalse();
+    },
+  );
 
   test(
     'same-token reauthentication retires only departing attachment owners',
@@ -859,6 +907,13 @@ final class _NoopAccountStorageIsolation
 final class _NullSelectedModel extends SelectedModel {
   @override
   Model? build() => null;
+}
+
+final class _SettledAccount extends SettledActiveAccountId {
+  @override
+  String? build() => 'a';
+
+  void settle(String accountId) => state = accountId;
 }
 
 class _RecordingWarmupConversations extends Conversations {

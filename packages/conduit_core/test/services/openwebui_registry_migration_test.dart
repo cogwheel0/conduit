@@ -183,6 +183,42 @@ void main() {
     check(await newStorage().getSavedCredentialsStrict()).isNull();
   });
 
+  for (final (name, migrate) in <(
+    String,
+    Future<Object?> Function(OptimizedStorageService),
+  )>[
+    ('registry read', (storage) => storage.getOpenWebUiRegistryStrict()),
+    ('user binding', (storage) => storage.bindAccountUser('active', 'user-1')),
+  ]) {
+    test('a sign-in deleted while a $name migrates stays deleted', () async {
+      seedLegacy([
+        server('active', url: 'https://chat.example.com'),
+        server('owner', url: 'https://chat.example.com'),
+      ]);
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'active');
+      secureStore.values[_credentialsKey] = jsonEncode({
+        'serverId': 'owner',
+        'username': 'u',
+        'password': 'p',
+      });
+      const markers = PreferencesOpenWebUiAccountOwnerMarkerStore();
+      for (final id in ['active', 'owner']) {
+        await markers.write(id, (tokenFingerprint: 'fp-$id', userId: 'user-1'));
+      }
+      secureStore.heldReads.add(_credentialsKey);
+      final storage = newStorage();
+
+      final migrating = migrate(storage);
+      await secureStore.heldReadStarted.future;
+      final deleting = storage.deleteSavedCredentials();
+      await pumpEventQueue();
+      secureStore.releaseHeldReads.complete();
+      await Future.wait([migrating, deleting]);
+
+      check(secureStore.values.containsKey(_credentialsKey)).isFalse();
+    });
+  }
+
   test('a sign-in read before any server list names the kept account', () async {
     seedLegacy([
       server('active', url: 'https://chat.example.com'),

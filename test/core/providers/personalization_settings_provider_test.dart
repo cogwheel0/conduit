@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -26,6 +29,63 @@ const _secondServerConfig = ServerConfig(
 
 void main() {
   group('PersonalizationSettings pinned models', () {
+    // Settings land under the stored active account, as in the app.
+    setUp(() {
+      PreferencesStore.debugOverride(
+        InMemoryKeyValueStore({PreferenceKeys.activeServerId: _serverConfig.id}),
+      );
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    // Storage can count the only account active with no id stored for it.
+    test('a settings read keeps its pins with no active account stored',
+        () async {
+      await PreferencesStore.put(PreferenceKeys.activeServerId, null);
+      final api = _PinnedModelsApiService(delaySettingsReads: true);
+      addTearDown(api.dispose);
+      final container = _container(
+        api: api,
+        appSettings: const AppSettings(),
+        activeServer: _serverConfig,
+      );
+      addTearDown(container.dispose);
+      await container.read(activeServerProvider.future);
+
+      final read = container.read(personalizationSettingsProvider.future);
+      await api.waitForSettingsReadCount(1);
+      api.completeSettingsRead(0, ['server-a-pin']);
+      await read;
+      await _flushMicrotasks();
+
+      check(container.read(appSettingsProvider).pinnedModels)
+          .deepEquals(['server-a-pin']);
+    });
+
+    // A switch stores the next account before the API client is rebuilt.
+    test('a settings read finishing as the account changes keeps its pins '
+        'with its account', () async {
+      final api = _PinnedModelsApiService(delaySettingsReads: true);
+      addTearDown(api.dispose);
+      final container = _container(
+        api: api,
+        appSettings: const AppSettings(),
+        activeServer: _serverConfig,
+      );
+      addTearDown(container.dispose);
+
+      final read = container.read(personalizationSettingsProvider.future);
+      await api.waitForSettingsReadCount(1);
+      await PreferencesStore.put(
+        PreferenceKeys.activeServerId,
+        _secondServerConfig.id,
+      );
+      api.completeSettingsRead(0, ['server-a-pin']);
+      await read;
+      await _flushMicrotasks();
+
+      check(container.read(appSettingsProvider).pinnedModels).isEmpty();
+    });
+
     test('no-API toggle preserves existing local pins', () async {
       final container = _container(
         api: null,
@@ -445,6 +505,8 @@ class _ActiveServerNotifier extends Notifier<ServerConfig?> {
   ServerConfig? build() => _initial;
 
   void set(ServerConfig? server) {
+    // Stored first, as a switch does; the write applies in memory at once.
+    unawaited(PreferencesStore.put(PreferenceKeys.activeServerId, server?.id));
     state = server;
   }
 }

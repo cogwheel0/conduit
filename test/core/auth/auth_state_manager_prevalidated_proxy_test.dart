@@ -2085,14 +2085,17 @@ void main() {
           .thenAnswer((_) async {});
       final cleanupEntered = Completer<void>();
       final releaseCleanup = Completer<void>();
-      when(() => storage.clearAuthDataIf(canClear: any(named: 'canClear')))
-          .thenAnswer((invocation) async {
-            cleanupEntered.complete();
-            await releaseCleanup.future;
-            final canClear =
-                invocation.namedArguments[#canClear] as bool Function();
-            return canClear();
-          });
+      when(
+        () => storage.clearActiveAccountAuthDataIf(
+          canClear: any(named: 'canClear'),
+        ),
+      ).thenAnswer((invocation) async {
+        cleanupEntered.complete();
+        await releaseCleanup.future;
+        final canClear =
+            invocation.namedArguments[#canClear] as bool Function();
+        return canClear();
+      });
 
       final api = _SuccessfulAuthApi();
       final container = ProviderContainer(
@@ -3223,7 +3226,8 @@ final class _Storage extends Mock implements OptimizedStorageService {}
 
 void _routeConditionalAuthClearToLegacyMock(_Storage storage) {
   when(
-    () => storage.clearAuthDataIf(canClear: any(named: 'canClear')),
+    () =>
+        storage.clearActiveAccountAuthDataIf(canClear: any(named: 'canClear')),
   ).thenAnswer((invocation) async {
     final canClear = invocation.namedArguments[#canClear] as bool Function();
     if (!canClear()) return false;
