@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use aws_lc_rs::encoding::{AsDer, Pkcs8V1Der};
 use aws_lc_rs::rsa::{KeyPair as RsaKeyPair, KeySize};
@@ -18,10 +18,11 @@ use axum::Router;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use conduit_push_relay::config::Config;
-use conduit_push_relay::AppState;
+use conduit_push_relay::{AppState, ConnectionLimits};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::{json, Value};
-use tokio::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 
 const TEAM_ID: &str = "TEAM123456";
 const KEY_ID: &str = "KEY7654321";
@@ -125,6 +126,9 @@ struct Mock {
     fcm_replies: Mutex<VecDeque<(u16, String)>>,
     oauth_replies: Mutex<VecDeque<(u16, String)>>,
     issued: AtomicUsize,
+    /// Token requests are answered only while this can be read, so a test
+    /// holding it for writing makes Google slow.
+    oauth_gate: tokio::sync::RwLock<()>,
 }
 
 impl Mock {
@@ -191,6 +195,9 @@ async fn mock_provider(State(mock): State<Arc<Mock>>, request: Request) -> Respo
         return StatusCode::NOT_FOUND.into_response();
     };
     log.lock().unwrap().push(recorded);
+    if path == "/token" {
+        let _open = mock.oauth_gate.read().await;
+    }
     let (status, body) = replies.lock().unwrap().pop_front().unwrap_or(default);
     (
         StatusCode::from_u16(status).unwrap(),
@@ -269,24 +276,38 @@ async fn start_with(tweak: impl FnOnce(&mut Env)) -> Relay {
     start_relay(env, mock, mock_addr).await
 }
 
-async fn start_relay(mut env: Env, mock: Arc<Mock>, mock_addr: SocketAddr) -> Relay {
+async fn start_relay(env: Env, mock: Arc<Mock>, mock_addr: SocketAddr) -> Relay {
+    start_relay_with(env, mock, mock_addr, |_| {}).await
+}
+
+/// Starts a relay whose settings `tweak` may change after they are read from
+/// `env`, for the ones that have no variable.
+async fn start_relay_with(
+    mut env: Env,
+    mock: Arc<Mock>,
+    mock_addr: SocketAddr,
+    tweak: impl FnOnce(&mut Config),
+) -> Relay {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     env.entry("RELAY_PUBLIC_URL")
         .or_insert_with(|| base.clone());
 
-    let config = Config::from_lookup(|name| env.get(name).cloned()).unwrap();
+    let mut config = Config::from_lookup(|name| env.get(name).cloned()).unwrap();
+    tweak(&mut config);
     let state = Arc::new(AppState::new(&config).unwrap());
     let metrics_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let metrics = format!("http://{}", metrics_listener.local_addr().unwrap());
     tokio::spawn(conduit_push_relay::serve(
         listener,
         state.clone(),
+        config.connections,
         std::future::pending(),
     ));
     tokio::spawn(conduit_push_relay::serve_metrics(
         metrics_listener,
         state,
+        config.connections,
         std::future::pending(),
     ));
     Relay {
@@ -917,12 +938,14 @@ async fn fcm_push_delivers_the_exact_request() {
         format!("/v1/projects/{PROJECT}/messages:send")
     );
     assert_eq!(sent[0].header("authorization"), Some("Bearer tok-1"));
+    // The `Topic` is not passed on: FCM would keep only four collapse keys
+    // for an offline phone.
     assert_eq!(
         sent[0].json(),
         json!({"message": {
             "token": FCM_TOKEN,
             "data": {"cp_v": "1", "cp_s": SID, "cp_d": URL_SAFE_NO_PAD.encode(&body)},
-            "android": {"priority": "HIGH", "ttl": "86400s", "collapse_key": TOPIC}
+            "android": {"priority": "HIGH", "ttl": "86400s", "restricted_package_name": APP}
         }})
     );
 
@@ -941,9 +964,35 @@ async fn fcm_push_delivers_the_exact_request() {
     assert_eq!(response.status(), 201);
     assert_eq!(
         relay.mock.fcm()[1].json()["message"]["android"],
-        json!({"priority": "NORMAL", "ttl": "259200s"})
+        json!({"priority": "NORMAL", "ttl": "259200s", "restricted_package_name": APP})
     );
     assert_eq!(relay.mock.oauth().len(), 1);
+}
+
+#[tokio::test]
+async fn fcm_pushes_reach_only_the_registered_package() {
+    let beta = format!("{APP}.beta");
+    let relay = start_with(|env| {
+        env.insert("FCM_APPS", format!("{APP},{APP}.beta"));
+    })
+    .await;
+    let mut endpoints = Vec::new();
+    for app in [APP, beta.as_str()] {
+        let response = relay
+            .register(&json!({"provider": "fcm", "token": FCM_TOKEN, "app": app, "env": "prod", "sid": SID}))
+            .await;
+        let body: Value = response.json().await.unwrap();
+        endpoints.push(body["endpoint"].as_str().unwrap().to_owned());
+    }
+    for endpoint in &endpoints {
+        assert_eq!(relay.push_reply(endpoint).await.status(), 201);
+    }
+    // The same token, sealed for two apps: FCM is told which one may get it.
+    let sent = relay.mock.fcm();
+    let package =
+        |i: usize| sent[i].json()["message"]["android"]["restricted_package_name"].clone();
+    assert_eq!(package(0), APP);
+    assert_eq!(package(1), beta.as_str());
 }
 
 #[tokio::test]
@@ -1029,6 +1078,14 @@ async fn fcm_errors_map_to_web_push_statuses() {
             fcm_error(503, "UNAVAILABLE", Some("UNAVAILABLE"), "Unavailable"),
             503,
         ),
+        (
+            404,
+            fcm_error(404, "NOT_FOUND", None, "Requested entity was not found."),
+            410,
+        ),
+        // A 404 that isn't FCM's says nothing about the token.
+        (404, String::new(), 502),
+        (404, "<html><body>Not Found</body></html>".into(), 502),
     ];
     for (fcm_status, fcm_body, expected) in &cases {
         relay.mock.reply_fcm(*fcm_status, fcm_body);
@@ -1063,18 +1120,51 @@ async fn fcm_401_refreshes_the_access_token_once() {
     assert_eq!(relay.mock.oauth().len(), 3);
 }
 
+fn retry_after(response: &reqwest::Response) -> Option<u64> {
+    response
+        .headers()
+        .get("retry-after")
+        .map(|v| v.to_str().unwrap().parse().unwrap())
+}
+
 #[tokio::test]
 async fn fcm_token_or_network_failure_is_503() {
     let relay = start().await;
     let endpoint = relay.endpoint("fcm", "prod").await;
     relay.mock.reply_oauth(400, r#"{"error":"invalid_grant"}"#);
+    let failed = relay.push_reply(&endpoint).await;
+    assert_eq!(retry_after(&failed), Some(30));
     assert_eq!(
-        error_code(relay.push_reply(&endpoint).await).await,
+        error_code(failed).await,
         (503, "provider_unavailable".into())
     );
     assert!(relay.mock.fcm().is_empty());
-    // The failure is not cached.
+
+    // The failure is remembered: the next push fails at once, without asking
+    // Google again.
+    let started = Instant::now();
+    let remembered = relay.push_reply(&endpoint).await;
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let wait = retry_after(&remembered).unwrap();
+    assert!((1..=30).contains(&wait), "{wait}");
+    assert_eq!(remembered.status(), 503);
+    assert_eq!(relay.mock.oauth().len(), 1);
+    assert!(relay.mock.fcm().is_empty());
+
+    // Once it is forgotten, the next push fetches again.
+    let (mock_addr, mock) = start_mock().await;
+    let relay = start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
+        config.fcm.as_mut().unwrap().oauth_backoff = Duration::from_millis(300);
+    })
+    .await;
+    let endpoint = relay.endpoint("fcm", "prod").await;
+    relay.mock.reply_oauth(500, "{}");
+    let failed = relay.push_reply(&endpoint).await;
+    assert_eq!(retry_after(&failed), Some(1));
+    assert_eq!(relay.push_reply(&endpoint).await.status(), 503);
+    tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(relay.push_reply(&endpoint).await.status(), 201);
+    assert_eq!(relay.mock.oauth().len(), 2);
 
     let port = closed_port().await;
     let relay = start_with(|env| {
@@ -1083,6 +1173,69 @@ async fn fcm_token_or_network_failure_is_503() {
     .await;
     let endpoint = relay.endpoint("fcm", "prod").await;
     assert_eq!(relay.push_reply(&endpoint).await.status(), 503);
+}
+
+/// Sends a push from its own task, so that several can be in flight at once.
+fn spawn_push(relay: &Relay, endpoint: &str) -> tokio::task::JoinHandle<(u16, Option<u64>)> {
+    let mut request = relay.http.post(endpoint).body(first_case_body());
+    for (name, value) in standard_headers() {
+        request = request.header(name, value);
+    }
+    tokio::spawn(async move {
+        let response = request.send().await.unwrap();
+        (response.status().as_u16(), retry_after(&response))
+    })
+}
+
+async fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let started = Instant::now();
+    while !done() {
+        assert!(started.elapsed() < Duration::from_secs(5), "{what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn fcm_token_fetches_are_shared_and_waiters_are_bounded() {
+    let (mock_addr, mock) = start_mock().await;
+    let relay = start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
+        config.fcm.as_mut().unwrap().max_token_waiters = 2;
+    })
+    .await;
+    let endpoint = relay.endpoint("fcm", "prod").await;
+
+    // Google is slow, and then fails.
+    let slow = relay.mock.oauth_gate.write().await;
+    relay.mock.reply_oauth(500, "{}");
+    let fetching = spawn_push(&relay, &endpoint);
+    wait_until("the token fetch started", || relay.mock.oauth().len() == 1).await;
+
+    // Room for one more push to wait; the other two are refused at once.
+    let others: Vec<_> = (0..3).map(|_| spawn_push(&relay, &endpoint)).collect();
+    wait_until("two pushes were refused", || {
+        others.iter().filter(|push| push.is_finished()).count() == 2
+    })
+    .await;
+    assert!(!fetching.is_finished());
+    let mut waiting = None;
+    for push in others {
+        if push.is_finished() {
+            assert_eq!(push.await.unwrap().0, 503);
+        } else {
+            waiting = Some(push);
+        }
+    }
+
+    // The one fetch fails, and the push that waited for it does not try
+    // again: both answer 503 with Retry-After.
+    drop(slow);
+    for push in [fetching, waiting.unwrap()] {
+        let (status, retry_after) = push.await.unwrap();
+        assert_eq!(status, 503);
+        assert!(retry_after.is_some_and(|s| (1..=30).contains(&s)));
+    }
+    assert_eq!(relay.mock.oauth().len(), 1);
+    assert!(relay.mock.fcm().is_empty());
 }
 
 // ---------------------------------------------------------------- push validation
@@ -1415,4 +1568,207 @@ async fn metrics_count_by_provider_and_result_only() {
         let labels = line.split_once('{').unwrap().1.split_once('}').unwrap().0;
         assert_eq!(labels.split(',').count(), 2, "{line}");
     }
+}
+
+// ---------------------------------------------------------------- connections
+
+async fn start_with_connections(limits: ConnectionLimits) -> Relay {
+    let (mock_addr, mock) = start_mock().await;
+    start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
+        config.connections = limits;
+    })
+    .await
+}
+
+impl Relay {
+    async fn connect(&self) -> TcpStream {
+        TcpStream::connect(self.base.strip_prefix("http://").unwrap())
+            .await
+            .unwrap()
+    }
+}
+
+const HEALTHZ: &[u8] = b"GET /healthz HTTP/1.1\r\nHost: relay\r\n\r\n";
+
+/// Reads until the relay closes `stream`, and says how long that took from
+/// `since`. Fails the test if it is still open after `limit`.
+async fn wait_for_close(stream: &mut TcpStream, since: Instant, limit: Duration) -> Duration {
+    let mut buf = [0u8; 1024];
+    loop {
+        let left = limit.saturating_sub(since.elapsed());
+        match tokio::time::timeout(left, stream.read(&mut buf)).await {
+            Err(_) => panic!("still open after {limit:?}"),
+            Ok(Ok(0) | Err(_)) => return since.elapsed(),
+            Ok(Ok(_)) => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn clients_that_send_headers_too_slowly_are_dropped() {
+    let relay = start_with_connections(ConnectionLimits {
+        header_read_timeout: Duration::from_millis(500),
+        ..ConnectionLimits::default()
+    })
+    .await;
+    let mut stream = relay.connect().await;
+    let started = Instant::now();
+    stream
+        .write_all(b"POST /v1/register HTTP/1.1\r\nHost: relay\r\nX-Slow: ")
+        .await
+        .unwrap();
+
+    // One header byte every 100 ms, so the headers never finish.
+    let mut received = Vec::new();
+    let mut buf = [0u8; 1024];
+    let closed_after = loop {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "still open after 5 s"
+        );
+        if stream.write_all(b"a").await.is_err() {
+            break started.elapsed();
+        }
+        match tokio::time::timeout(Duration::from_millis(100), stream.read(&mut buf)).await {
+            Err(_) => {}
+            Ok(Ok(0) | Err(_)) => break started.elapsed(),
+            Ok(Ok(n)) => received.extend_from_slice(&buf[..n]),
+        }
+    };
+    assert!(
+        (Duration::from_millis(500)..Duration::from_secs(3)).contains(&closed_after),
+        "closed after {closed_after:?}"
+    );
+    // hyper may say 408 on the way out; the request itself never ran.
+    assert!(
+        received.is_empty() || received.starts_with(b"HTTP/1.1 408"),
+        "{}",
+        String::from_utf8_lossy(&received)
+    );
+    // Other clients are unaffected.
+    assert_eq!(relay.get("/healthz").await.status(), 200);
+}
+
+#[tokio::test]
+async fn clients_that_send_nothing_are_dropped() {
+    let relay = start_with_connections(ConnectionLimits {
+        header_read_timeout: Duration::from_millis(300),
+        ..ConnectionLimits::default()
+    })
+    .await;
+    let started = Instant::now();
+    let mut silent = relay.connect().await;
+    let closed_after = wait_for_close(&mut silent, started, Duration::from_secs(3)).await;
+    assert!(
+        closed_after >= Duration::from_millis(300),
+        "{closed_after:?}"
+    );
+}
+
+#[tokio::test]
+async fn idle_connections_are_closed() {
+    // The header timeout would also close an idle HTTP/1 connection; make it
+    // long so that only the idle bound can.
+    let relay = start_with_connections(ConnectionLimits {
+        header_read_timeout: Duration::from_secs(60),
+        idle_timeout: Duration::from_millis(300),
+        ..ConnectionLimits::default()
+    })
+    .await;
+    let mut stream = relay.connect().await;
+    stream.write_all(HEALTHZ).await.unwrap();
+    let mut buf = [0u8; 1024];
+    let n = stream.read(&mut buf).await.unwrap();
+    assert!(buf[..n].starts_with(b"HTTP/1.1 200"));
+
+    let served = Instant::now();
+    let closed_after = wait_for_close(&mut stream, served, Duration::from_secs(3)).await;
+    assert!(
+        closed_after >= Duration::from_millis(300),
+        "{closed_after:?}"
+    );
+}
+
+#[tokio::test]
+async fn connections_over_the_cap_wait_for_a_free_slot() {
+    let relay = start_with_connections(ConnectionLimits {
+        max_connections: 1,
+        ..ConnectionLimits::default()
+    })
+    .await;
+    let first = relay.connect().await;
+    let mut second = relay.connect().await;
+    second.write_all(HEALTHZ).await.unwrap();
+
+    // The first connection holds the only slot, so the second is not served.
+    let mut buf = [0u8; 1024];
+    let waiting = tokio::time::timeout(Duration::from_millis(300), second.read(&mut buf)).await;
+    assert!(waiting.is_err(), "served over the cap: {waiting:?}");
+
+    drop(first);
+    let n = tokio::time::timeout(Duration::from_secs(5), second.read(&mut buf))
+        .await
+        .expect("served once the slot is free")
+        .unwrap();
+    assert!(
+        buf[..n].starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&buf[..n])
+    );
+}
+
+#[tokio::test]
+async fn shutdown_drops_connections_that_do_not_finish() {
+    let (mock_addr, _mock) = start_mock().await;
+    let mut env = base_env(mock_addr);
+    env.insert("RELAY_PUBLIC_URL", "http://relay.test".into());
+    let config = Config::from_lookup(|name| env.get(name).cloned()).unwrap();
+    let state = Arc::new(AppState::new(&config).unwrap());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let limits = ConnectionLimits {
+        header_read_timeout: Duration::from_secs(60),
+        idle_timeout: Duration::from_secs(60),
+        drain_deadline: Duration::from_millis(300),
+        ..ConnectionLimits::default()
+    };
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(conduit_push_relay::serve(
+        listener,
+        state,
+        limits,
+        async move {
+            let _ = stopped.await;
+        },
+    ));
+
+    // Half a request: HTTP/1 waits for the rest before it closes gracefully.
+    let mut stuck = TcpStream::connect(addr).await.unwrap();
+    stuck
+        .write_all(b"POST /v1/register HTTP/1.1\r\nHost: relay\r\n")
+        .await
+        .unwrap();
+    // A full request behind it, so the stuck one has certainly been accepted.
+    let mut other = TcpStream::connect(addr).await.unwrap();
+    other
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: relay\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    other.read_to_end(&mut response).await.unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 200"));
+
+    let stopping = Instant::now();
+    stop.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .expect("serve returned")
+        .unwrap();
+    let took = stopping.elapsed();
+    assert!(
+        (Duration::from_millis(300)..Duration::from_secs(2)).contains(&took),
+        "shutdown took {took:?}"
+    );
+    wait_for_close(&mut stuck, stopping, Duration::from_secs(2)).await;
+    assert!(TcpStream::connect(addr).await.is_err());
 }

@@ -83,6 +83,7 @@ without it and logs which ones.
 | `RELAY_LISTEN_ADDR` | `0.0.0.0:8080` | Address of the public API. |
 | `RELAY_METRICS_ADDR` | off | Address for Prometheus `/metrics`. Keep it private. |
 | `RELAY_TRUST_FORWARDED_FOR` | `false` | Take the client address for rate limits from the **last** `X-Forwarded-For` entry. Turn it on only when every request comes through your proxy. |
+| `RELAY_MAX_CONNECTIONS` | `4096` | Connections served at once, per listener. More wait in the kernel's queue until one closes. |
 | `RUST_LOG` | `warn` | Log level. |
 
 ### APNs
@@ -107,6 +108,11 @@ without it and logs which ones.
 | `FCM_API_BASE` | `https://fcm.googleapis.com` | FCM API origin. |
 | `FCM_TOKEN_URI` | the JSON's `token_uri` | OAuth token endpoint. |
 
+The relay fetches one FCM access token at a time and shares it. If a fetch
+fails, it answers FCM pushes with `503` and `Retry-After` for the next 30
+seconds instead of asking Google again for each one, and it turns away pushes
+beyond 256 waiting on a slow fetch.
+
 ### Rate limits
 
 All limits are kept in memory, per relay instance.
@@ -116,23 +122,59 @@ All limits are kept in memory, per relay instance.
 | `RELAY_RATE_ENDPOINT_PER_MIN` | `60` | Pushes per minute to one endpoint… |
 | `RELAY_RATE_ENDPOINT_BURST` | `20` | …with bursts of up to this many. |
 | `RELAY_RATE_ENDPOINT_PER_DAY` | `2000` | Pushes per day to one endpoint. |
-| `RELAY_RATE_IP_PER_MIN` | `600` | Pushes per minute from one sender address (IPv6: one /64). |
+| `RELAY_RATE_IP_PER_MIN` | `6000` | Pushes per minute from one sender address (IPv6: one /64), all of which may arrive at once. |
 | `RELAY_RATE_REGISTER_PER_MIN` | `20` | Registrations per minute from one address. |
 
 Over a limit, the relay answers `429` with `Retry-After`.
 
+Each limit tracks at most a million keys (endpoints or addresses), and a
+sweep once a minute drops the ones whose buckets have refilled. If a table
+fills up anyway, requests with a key it doesn't hold yet get `429` until the
+next sweep makes room; keys it already holds carry on as before.
+
+The per-sender limit is high on purpose. One message in an Open WebUI channel
+notifies up to 500 members (the function's default), each on up to 10
+devices, so a single message can be 5000 pushes from one server within
+seconds. A sender's bucket holds a full minute's worth, so that goes through.
+Devices are protected by the per-endpoint limits, which every one of those
+pushes also has to pass. Servers that share an address, behind one NAT for
+example, share this limit.
+
 ## 4. Run it behind TLS
 
-The relay speaks plain HTTP. Put it behind a reverse proxy that terminates
-TLS, and turn the proxy's access log off: the request path *is* the endpoint
-capability, and the relay itself never logs it.
+The relay speaks plain HTTP, so it must sit behind a reverse proxy that
+terminates TLS. Don't expose its port to the internet: the request path *is*
+the endpoint capability, so it needs TLS on the wire. Turn the proxy's access
+log off for the same reason; the relay itself never logs the path.
 
-Keep the secrets in files readable by uid 65532 and out of your shell history:
+The relay also enforces its own timeouts, so a slow or stuck client can't hold
+its connections, whatever the proxy in front does:
+
+- A client has 10 seconds to send a request's headers. It has the same to
+  start its first request on a new connection, or its next one on a kept-alive
+  HTTP/1 connection.
+- A connection with no request in progress for 30 seconds is closed. An
+  HTTP/2 client that has sent nothing for 15 seconds is pinged, and dropped if
+  it doesn't answer within 10.
+- At most `RELAY_MAX_CONNECTIONS` connections are open at once.
+- On shutdown, requests in progress get 20 seconds to finish. Connections
+  still open after that are dropped.
+
+So a proxy that keeps idle connections to the relay open for longer than 10
+seconds can pick one just as the relay closes it, and a push sent on it fails
+with `502`. Keep the proxy's upstream keep-alive below 10 seconds. Caddy's
+default is 2 minutes, which the example below lowers; nginx as configured
+below doesn't reuse upstream connections.
+
+Keep the secrets out of your shell history, in files that only the
+container's user can read. The image runs as distroless's `nonroot` user,
+uid and gid 65532, so the files belong to that id with mode `0400`. The id
+doesn't need to exist on the host:
 
 ```bash
-sudo install -d -m 0755 /etc/conduit-push/secrets
-sudo install -m 0444 AuthKey_XYZ987WVUT.p8 /etc/conduit-push/secrets/apns.p8
-sudo install -m 0444 fcm-service-account.json /etc/conduit-push/secrets/fcm.json
+sudo install -d -m 0750 -o root -g 65532 /etc/conduit-push/secrets
+sudo install -m 0400 -o 65532 -g 65532 AuthKey_XYZ987WVUT.p8 /etc/conduit-push/secrets/apns.p8
+sudo install -m 0400 -o 65532 -g 65532 fcm-service-account.json /etc/conduit-push/secrets/fcm.json
 sudo tee /etc/conduit-push/relay.env >/dev/null <<'EOF'
 RELAY_PUBLIC_URL=https://push.example.com
 RELAY_SEAL_KEYS=1:PASTE_THE_OUTPUT_OF_openssl_rand_-base64_32
@@ -159,12 +201,21 @@ docker run -d --name conduit-push-relay --restart unless-stopped \
 Docker reads `relay.env` itself, so it stays private to root and is not
 mounted into the container.
 
+With rootless Docker or user-namespace remapping, the container's uid 65532
+is a different uid on the host; give the files to that one instead. On
+Kubernetes, mount a Secret volume with `defaultMode: 0440` and set the pod's
+`fsGroup` to 65532.
+
 A [Caddy](https://caddyserver.com) site, which writes no access log unless
 you add a `log` directive and sets `X-Forwarded-For` to the real client:
 
 ```caddyfile
 push.example.com {
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy 127.0.0.1:8080 {
+		transport http {
+			keepalive 5s
+		}
+	}
 }
 ```
 
@@ -243,12 +294,13 @@ What it keeps:
   libraries underneath are held at `warn` whatever `RUST_LOG` says, because at
   lower levels they can print URLs.
 - Rate-limit counters, in memory, keyed by a truncated SHA-256 of the
-  endpoint and by sender address. Each is dropped as soon as it has refilled.
+  endpoint and by sender address. Each is dropped within a minute of having
+  refilled.
 - Metrics: counts of pushes and registrations by provider and result, nothing
   else.
 
 Nothing the relay handles names a person, an account or a server, except the
 sender's IP address, which it uses only for rate limits.
 
-Apple or Google see the device token, the app, the time, the size of the
-encrypted body and the collapse id, as they do for any push.
+Apple or Google see the device token, the app, the time and the size of the
+encrypted body, as they do for any push. Apple also sees the collapse id.
