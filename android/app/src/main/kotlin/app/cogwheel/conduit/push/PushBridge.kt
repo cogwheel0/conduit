@@ -208,8 +208,15 @@ class PushBridge(private val activity: MainActivity) : PushHostApi {
     override fun unifiedPushDistributors(): List<String> = UnifiedPushRegistrar.distributors(context)
 
     override fun registerUnifiedPush(sid: String, distributor: String, callback: (Result<String?>) -> Unit) {
-        UnifiedPushRegistrar.register(context, sid, distributor) { endpoint ->
-            callback(Result.success(endpoint))
+        // Pigeon does not catch exceptions from async methods. The registrar
+        // only throws before it has taken the callback, so this answers once.
+        try {
+            UnifiedPushRegistrar.register(context, sid, distributor) { endpoint ->
+                callback(Result.success(endpoint))
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "UnifiedPush registration failed", error)
+            callback(Result.failure(FlutterError("unified_push_failed", error.message, null)))
         }
     }
 
