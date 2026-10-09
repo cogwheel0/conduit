@@ -110,6 +110,14 @@ class PushCoordinator extends _$PushCoordinator {
       pushLocalizedStringsProvider,
       (_, _) => _scheduleDisplayConfig(),
     );
+    ref.listen<String?>(pushActiveOpenWebUiSessionProvider, (previous, next) {
+      if (next == null || next == previous || !state.enabled) return;
+      final target = _target(PushTarget.openWebUiScope(next));
+      if (target != null &&
+          state.targets[target.scope]?.status == PushStatus.signInNeeded) {
+        unawaited(_reconcile(target));
+      }
+    });
     _lifecycle = ref.read(appLifecycleProvider).changes.listen((phase) {
       if (phase == AppLifecyclePhase.resumed) unawaited(_onResume());
     });

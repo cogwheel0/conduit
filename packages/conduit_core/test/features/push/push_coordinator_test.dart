@@ -201,6 +201,20 @@ void main() {
       check(h.status(_owui.scope)).equals(PushStatus.signInNeeded);
     });
 
+    test('the active account is retried once its session is up', () async {
+      h = await _Harness.start(targets: [_owui]);
+      h.factory.openErrors[_owui.scope] = const PushBackendException(
+        PushFailure(PushFailureReason.serverRejected),
+        signInNeeded: true,
+      );
+      await h.coordinator.setEnabled(true);
+      check(h.status(_owui.scope)).equals(PushStatus.signInNeeded);
+
+      h.factory.openErrors.clear();
+      h.container.read(_sessionProvider.notifier).set('acct-1');
+      await h.until(() => h.status(_owui.scope) == PushStatus.on);
+    });
+
     test(
       'a signed-out account needs sign-in without asking its server',
       () async {
@@ -798,6 +812,15 @@ void main() {
 // Harness
 // ---------------------------------------------------------------------------
 
+final _sessionProvider = NotifierProvider<_Session, String?>(_Session.new);
+
+final class _Session extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void set(String? accountId) => state = accountId;
+}
+
 final _targetsProvider = NotifierProvider<_TargetList, List<PushTarget>>(
   _TargetList.new,
 );
@@ -889,6 +912,9 @@ final class _Harness {
           const PushDeviceDescription(label: 'iOS', platform: 'ios'),
         ),
         appSettingsProvider.overrideWith(_Settings.new),
+        pushActiveOpenWebUiSessionProvider.overrideWith(
+          (ref) => ref.watch(_sessionProvider),
+        ),
       ],
     );
     final harness = _Harness._(container, log, fake, factory, relayAdapter);

@@ -132,6 +132,18 @@ final pushTimingsProvider = Provider<PushTimings>((ref) => const PushTimings());
 
 final pushClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
+/// The Open WebUI account whose live client holds a token, or null.
+///
+/// Push reaches the active account through that client, which may not be up
+/// yet when push first runs after launch; the coordinator retries an account
+/// that needed sign-in once its session is.
+final pushActiveOpenWebUiSessionProvider = Provider<String?>((ref) {
+  final api = ref.watch(apiServiceProvider);
+  final token = api?.authToken;
+  if (api == null || token == null || token.isEmpty) return null;
+  return api.serverConfig.id;
+});
+
 /// Every account and connection push covers, in the order the app lists
 /// them: every saved Open WebUI account (signed out ones show as needing
 /// sign-in), then every saved Hermes connection while Hermes is on.
