@@ -67,6 +67,7 @@ import '../../features/channels/providers/channel_socket_handler.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
+import '../../features/notifications/providers/direct_notification_bridge.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
 import '../../features/notifications/providers/notification_tap_listener.dart';
 import '../../shared/theme/theme_providers.dart';
@@ -1282,6 +1283,8 @@ class AppStartupFlow extends _$AppStartupFlow {
     // Open WebUI session. A cold-launch tap for Hermes or Direct opens now; one
     // for Open WebUI waits for its session (see post-auth startup).
     _keepAlive(notificationTapListenerProvider);
+    // Direct replies run on this device; nothing else notifies about them.
+    _keepAlive(directNotificationBridgeProvider);
     unawaited(
       ref
           .read(notificationTapListenerProvider.notifier)
