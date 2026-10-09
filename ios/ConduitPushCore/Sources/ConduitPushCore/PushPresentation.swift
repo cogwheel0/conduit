@@ -97,7 +97,9 @@ public struct PushPresentation: Equatable {
       title: title,
       subtitle: subtitle,
       body: body,
-      threadIdentifier: payload.group ?? scope,
+      // Scoped like Android's group, so the same chat id in two accounts
+      // never shares a thread.
+      threadIdentifier: payload.group.map { "\(scope)|\($0)" } ?? scope,
       playsSound: config.sound
     )
   }
