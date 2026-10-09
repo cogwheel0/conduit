@@ -136,7 +136,7 @@ pub async fn serve_metrics(
 /// Drops rate-limit state that has fully recovered, once a minute.
 pub fn spawn_eviction(state: Arc<AppState>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(60));
+        let mut tick = tokio::time::interval(ratelimit::SWEEP_INTERVAL);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;

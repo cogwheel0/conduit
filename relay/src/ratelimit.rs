@@ -1,13 +1,19 @@
 //! In-memory token buckets.
 //!
-//! State lives only in this process and is dropped as soon as a bucket has
-//! refilled, since a full bucket is the same as no bucket at all.
+//! State lives only in this process. A sweep every [`SWEEP_INTERVAL`] drops
+//! the buckets that have refilled, since a full bucket is the same as no
+//! bucket at all.
+//!
+//! Each table holds at most a million keys. While one is full, a request with
+//! a new key is refused with 429 until the next sweep makes room. The request
+//! path never scans the table: doing that under the lock on every new key is
+//! exactly what a flood of new keys would want.
 
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::net::IpAddr;
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
@@ -15,6 +21,9 @@ use crate::config::Limits;
 
 /// Keys held per limiter before new keys are refused outright.
 const MAX_ENTRIES: usize = 1_000_000;
+
+/// How often refilled buckets are dropped.
+pub const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rate {
@@ -88,10 +97,8 @@ impl<K: Hash + Eq> Limiter<K> {
     pub fn check_at(&self, key: K, now: Instant) -> Result<(), u64> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !state.contains_key(&key) && state.len() >= self.max_entries {
-            evict_full(&mut state, &self.rates, now);
-            if state.len() >= self.max_entries {
-                return Err(60);
-            }
+            // Full: wait for the sweep rather than scan for room here.
+            return Err(SWEEP_INTERVAL.as_secs());
         }
         let buckets = state.entry(key).or_insert_with(|| {
             self.rates
@@ -119,6 +126,8 @@ impl<K: Hash + Eq> Limiter<K> {
         Ok(())
     }
 
+    /// The sweep: drops every key whose buckets have all refilled. One pass
+    /// over the table, under the lock, once every [`SWEEP_INTERVAL`].
     pub fn evict(&self, now: Instant) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         evict_full(&mut state, &self.rates, now);
@@ -279,10 +288,16 @@ mod tests {
         let t0 = Instant::now();
         limiter.check_at(1, t0).unwrap();
         limiter.check_at(2, t0).unwrap();
-        assert!(limiter.check_at(3, t0).is_err());
-        // Known keys still work, and room frees up once buckets refill.
+        assert_eq!(limiter.check_at(3, t0), Err(60));
+        // Known keys still work.
         assert_eq!(limiter.check_at(1, t0), Ok(()));
-        assert_eq!(limiter.check_at(3, t0 + Duration::from_secs(10)), Ok(()));
+        // Refilled buckets make room only once the sweep has dropped them:
+        // a new key never pays for a scan of the table.
+        let t1 = t0 + Duration::from_secs(10);
+        assert_eq!(limiter.check_at(3, t1), Err(60));
+        assert_eq!(limiter.len(), 2);
+        limiter.evict(t1);
+        assert_eq!(limiter.check_at(3, t1), Ok(()));
     }
 
     #[test]

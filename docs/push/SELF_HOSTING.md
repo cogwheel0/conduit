@@ -127,6 +127,11 @@ All limits are kept in memory, per relay instance.
 
 Over a limit, the relay answers `429` with `Retry-After`.
 
+Each limit tracks at most a million keys (endpoints or addresses), and a
+sweep once a minute drops the ones whose buckets have refilled. If a table
+fills up anyway, requests with a key it doesn't hold yet get `429` until the
+next sweep makes room; keys it already holds carry on as before.
+
 The per-sender limit is high on purpose. One message in an Open WebUI channel
 notifies up to 500 members (the function's default), each on up to 10
 devices, so a single message can be 5000 pushes from one server within
@@ -281,7 +286,8 @@ What it keeps:
   libraries underneath are held at `warn` whatever `RUST_LOG` says, because at
   lower levels they can print URLs.
 - Rate-limit counters, in memory, keyed by a truncated SHA-256 of the
-  endpoint and by sender address. Each is dropped as soon as it has refilled.
+  endpoint and by sender address. Each is dropped within a minute of having
+  refilled.
 - Metrics: counts of pushes and registrations by provider and result, nothing
   else.
 
