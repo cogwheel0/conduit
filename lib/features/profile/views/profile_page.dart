@@ -27,6 +27,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
@@ -469,8 +470,10 @@ class ProfilePage extends ConsumerWidget {
       ),
       _buildAccountOption(
         context,
+        key: const Key('hermes-settings-entry'),
         iconAsset: 'assets/icons/hermes_agent.png',
         title: l10n.hermesAgentSettingsTitle,
+        subtitle: ref.watch(hermesActiveConnectionNameProvider),
         onTap: () => context.pushNamed(RouteNames.hermesSettings),
       ),
       if (!hasOpenWebUiAccount)

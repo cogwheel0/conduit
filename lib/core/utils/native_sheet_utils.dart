@@ -160,6 +160,9 @@ class NativeProfileRootSavedAccount {
 /// Pure, so the open sheet can be rebuilt with the same rows when a setting
 /// it depends on (Advanced) changes while it is up.
 ///
+/// [hermesConnectionName] names the active saved Hermes connection under the
+/// Hermes Agent row.
+///
 /// [otherAccounts] is null when the saved accounts could not be read in
 /// time. There may be several then, and signing out signs out of every one,
 /// so the sign-out row says so; only the accounts known are listed.
@@ -167,6 +170,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   AppLocalizations l10n, {
   required NativeProfileRootAccount? account,
   required NativeProfileRootVisibility visibility,
+  String? hermesConnectionName,
   List<NativeProfileRootSavedAccount>? otherAccounts =
       const <NativeProfileRootSavedAccount>[],
 }) {
@@ -268,6 +272,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
     NativeSheetItemConfig(
       id: NativeSheetRoutes.hermes,
       title: l10n.hermesAgentSettingsTitle,
+      subtitle: hermesConnectionName,
       sfSymbol: 'sparkles',
       iconAsset: 'assets/icons/hermes_agent.png',
       iconSize: 26,

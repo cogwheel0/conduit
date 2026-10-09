@@ -225,6 +225,20 @@ final class HermesLocalDocumentTrustStore {
     });
   }
 
+  /// Removes every record of one connection identity, e.g. when its saved
+  /// connection is deleted.
+  static Future<void> forgetConnectionIdentity(
+    String connectionIdentity,
+  ) async {
+    final connection = connectionIdentity.trim();
+    if (connection.isEmpty) return;
+    final prefix = '${sha256.convert(utf8.encode(connection))}:';
+    await _serializeMutation(() async {
+      _requirePreferencesReady();
+      await _purgeScope(prefix);
+    });
+  }
+
   /// Durably clears stale provenance before allowing a newly created session
   /// that happens to reuse an old server id.
   static Future<void> prepareNewSession({

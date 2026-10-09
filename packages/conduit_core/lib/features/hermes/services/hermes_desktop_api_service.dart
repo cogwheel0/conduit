@@ -410,6 +410,10 @@ final class HermesDesktopApiService
   /// A bot's avatar as a data URL, or null when it has none.
   Future<String?> botAvatar(String profile) => _botAvatar(profile);
 
+  /// A name for this connection suggested by the gateway: the selected
+  /// profile's Bot Mode title, or the profile name.
+  Future<String?> suggestedDisplayName() => _suggestedDisplayName();
+
   /// Opens (creating when needed) a bot's canonical chat and returns its
   /// stored session id. Later calls for that session stay scoped to the bot.
   Future<String> openBotChat(HermesBot bot) => _openBotChat(bot);

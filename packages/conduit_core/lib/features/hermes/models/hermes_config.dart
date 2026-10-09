@@ -111,12 +111,15 @@ final class HermesDesktopCredentials {
 
 /// Immutable configuration for the optional direct Hermes Agent backend.
 ///
-/// Non-secret fields ([enabled], [baseUrl]) persist in shared preferences;
+/// Describes the active saved connection. Non-secret fields persist in shared
+/// preferences ([enabled] globally, the rest in that connection's profile);
 /// [apiKey] and [sessionKey] are secrets held in `SecureCredentialStorage` and
 /// merged in by the config notifier.
 class HermesConfig {
   const HermesConfig({
     this.enabled = false,
+    this.connectionId,
+    this.name,
     this.baseUrl = '',
     this.mode = HermesBackendMode.responsesApi,
     this.desktopAuthKind = HermesDesktopAuthKind.legacyToken,
@@ -129,6 +132,13 @@ class HermesConfig {
 
   /// Whether the Hermes agent is toggled on and should surface in the picker.
   final bool enabled;
+
+  /// Id of the saved connection this config describes; null when no saved
+  /// connection is active, or for a draft that has not been saved yet.
+  final String? connectionId;
+
+  /// Display name of that saved connection.
+  final String? name;
 
   /// Base URL of the Hermes API server, e.g. `http://192.168.1.10:8642/v1`.
   final String baseUrl;
@@ -259,6 +269,8 @@ class HermesConfig {
 
   HermesConfig copyWith({
     bool? enabled,
+    Object? connectionId = _unset,
+    Object? name = _unset,
     String? baseUrl,
     HermesBackendMode? mode,
     HermesDesktopAuthKind? desktopAuthKind,
@@ -272,6 +284,10 @@ class HermesConfig {
   }) {
     return HermesConfig(
       enabled: enabled ?? this.enabled,
+      connectionId: identical(connectionId, _unset)
+          ? this.connectionId
+          : connectionId as String?,
+      name: identical(name, _unset) ? this.name : name as String?,
       baseUrl: baseUrl ?? this.baseUrl,
       mode: mode ?? this.mode,
       desktopAuthKind: desktopAuthKind ?? this.desktopAuthKind,
@@ -292,6 +308,8 @@ class HermesConfig {
   bool operator ==(Object other) =>
       other is HermesConfig &&
       other.enabled == enabled &&
+      other.connectionId == connectionId &&
+      other.name == name &&
       other.baseUrl == baseUrl &&
       other.mode == mode &&
       other.desktopAuthKind == desktopAuthKind &&
@@ -320,6 +338,8 @@ class HermesConfig {
           ..sort((left, right) => left.key.compareTo(right.key));
     return Object.hash(
       enabled,
+      connectionId,
+      name,
       baseUrl,
       mode,
       desktopAuthKind,

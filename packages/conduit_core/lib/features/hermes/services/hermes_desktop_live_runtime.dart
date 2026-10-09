@@ -91,6 +91,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     if (runtimeId == null || requestId == null) return;
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
+      connectionId: config.connectionId,
       runtimeId: runtimeId,
       requestId: requestId,
     );
@@ -252,6 +253,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     await HermesPendingDecisionStore.rebindSession(
       origin: _origin,
+      connectionId: config.connectionId,
       fromStoredSessionId: storedId,
       toStoredSessionId: stored,
       runtimeId: runtime,
@@ -277,6 +279,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       final description = approval['description']?.toString() ?? '';
       await HermesPendingDecisionStore.upsert(
         origin: _origin,
+        connectionId: config.connectionId,
         storedSessionId: binding.storedId,
         runtimeId: binding.runtimeId,
         requestId: approvalId,
@@ -295,6 +298,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     if (clarifyId != null) {
       await HermesPendingDecisionStore.upsert(
         origin: _origin,
+        connectionId: config.connectionId,
         storedSessionId: binding.storedId,
         runtimeId: binding.runtimeId,
         requestId: clarifyId,
@@ -492,6 +496,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     await _restorePersistedSessionProfile(binding.storedId);
     return HermesPendingDecisionStore.forSession(
       origin: _origin,
+      connectionId: config.connectionId,
       storedSessionId: binding.storedId,
     );
   }
@@ -502,6 +507,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     if (_sessionProfiles.containsKey(storedId)) return;
     for (final decision in await HermesPendingDecisionStore.forSession(
       origin: _origin,
+      connectionId: config.connectionId,
       storedSessionId: storedId,
     )) {
       final profile = decision.profile;
@@ -566,6 +572,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _sessionProfiles.remove(id);
     await HermesPendingDecisionStore.clearSession(
       origin: _origin,
+      connectionId: config.connectionId,
       storedSessionId: binding?.storedId ?? id,
     );
   }

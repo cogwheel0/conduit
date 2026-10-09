@@ -211,6 +211,24 @@ final class HermesMixedSessionBindingTrustStore {
     );
   }
 
+  /// Revokes every binding to one Hermes connection identity, e.g. when its
+  /// saved connection is deleted.
+  static Future<void> forgetConnectionIdentity(
+    String connectionIdentity,
+  ) async {
+    if (connectionIdentity.trim().isEmpty) return;
+    final digest = _digest(connectionIdentity);
+    bool bindsConnection(String record) {
+      final parts = record.split(':');
+      return parts.length == 9 && parts[5] == digest;
+    }
+
+    _runtimeRecords.removeWhere(bindsConnection);
+    await _serializeDurableMutation(
+      () => _removeDurableRecords(bindsConnection),
+    );
+  }
+
   @visibleForTesting
   static void debugResetRuntimeState() {
     _runtimeRecords.clear();

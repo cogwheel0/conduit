@@ -43,6 +43,11 @@ class Routes {
   static const String directMcpServerEditor =
       '/profile/direct-connections/mcp/:id';
   static const String hermesSettings = '/profile/hermes';
+
+  /// Editor for one saved Hermes connection; [hermesNewConnectionId] adds one.
+  static const String hermesConnectionEditor =
+      '/profile/hermes/connections/:id';
+  static const String hermesNewConnectionId = 'new';
   static const String hermesJobs = '/profile/hermes/jobs';
   static const String hermesMcp = '/profile/hermes/mcp';
   static const String about = '/profile/about';
@@ -56,6 +61,8 @@ class Routes {
       '/profile/direct-connections/${Uri.encodeComponent(id)}';
   static String directMcpServerEditorPath(String id) =>
       '/profile/direct-connections/mcp/${Uri.encodeComponent(id)}';
+  static String hermesConnectionEditorPath(String id) =>
+      '/profile/hermes/connections/${Uri.encodeComponent(id)}';
 }
 
 /// Friendly names for GoRouter routes to support context.pushNamed.
@@ -94,6 +101,7 @@ class RouteNames {
   static const String directConnectionEditor = 'direct-connection-editor';
   static const String directMcpServerEditor = 'direct-mcp-server-editor';
   static const String hermesSettings = 'hermes-settings';
+  static const String hermesConnectionEditor = 'hermes-connection-editor';
   static const String hermesJobs = 'hermes-jobs';
   static const String hermesMcp = 'hermes-mcp';
   static const String about = 'about';

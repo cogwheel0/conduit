@@ -223,6 +223,7 @@ class NativeSheetHydrationService {
         l10n,
         account: root.account,
         visibility: readNativeProfileRootVisibility(_ref.read),
+        hermesConnectionName: _ref.read(hermesActiveConnectionNameProvider),
         otherAccounts: otherSavedAccountsForNativeSheet(
           _ref.read(openWebUiAccountsProvider).value,
           l10n,

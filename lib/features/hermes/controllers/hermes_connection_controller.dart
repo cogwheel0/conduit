@@ -5,6 +5,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/models/connection_attempt.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 
 export 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
@@ -66,6 +67,7 @@ final class _HermesConnectionState {
     this.sessionKeyDirty = false,
     this.desktopCredentialsDirty = false,
     this.accessHeadersDirty = false,
+    this.nameDirty = false,
     this.showMemoryKey = false,
   });
 
@@ -78,6 +80,7 @@ final class _HermesConnectionState {
   final bool sessionKeyDirty;
   final bool desktopCredentialsDirty;
   final bool accessHeadersDirty;
+  final bool nameDirty;
   final bool showMemoryKey;
 
   _HermesConnectionState copyWith({
@@ -88,6 +91,7 @@ final class _HermesConnectionState {
     bool? sessionKeyDirty,
     bool? desktopCredentialsDirty,
     bool? accessHeadersDirty,
+    bool? nameDirty,
     bool? showMemoryKey,
   }) => _HermesConnectionState(
     operation: operation ?? this.operation,
@@ -100,16 +104,28 @@ final class _HermesConnectionState {
     desktopCredentialsDirty:
         desktopCredentialsDirty ?? this.desktopCredentialsDirty,
     accessHeadersDirty: accessHeadersDirty ?? this.accessHeadersDirty,
+    nameDirty: nameDirty ?? this.nameDirty,
     showMemoryKey: showMemoryKey ?? this.showMemoryKey,
   );
 }
 
 /// Owns the Hermes connection draft, validation, and ordered workflow.
+///
+/// Edits the saved connection named by `initialConfig.connectionId`, or a new
+/// one when that is null; [connectionId] picks up the id once it is saved.
 final class HermesConnectionController extends ChangeNotifier {
   HermesConnectionController({
     required HermesConfig initialConfig,
     required HermesConnectionGateway gateway,
+    HermesConnectionNameSource? initialNameSource,
   }) : _gateway = gateway,
+       _connectionId = initialConfig.connectionId,
+       name = TextEditingController(text: initialConfig.name ?? ''),
+       _nameSource =
+           initialNameSource ??
+           (initialConfig.name == null
+               ? HermesConnectionNameSource.derived
+               : HermesConnectionNameSource.user),
        url = TextEditingController(text: initialConfig.baseUrl),
        _mode = initialConfig.mode,
        _desktopAuthKind = initialConfig.desktopAuthKind,
@@ -120,6 +136,9 @@ final class HermesConnectionController extends ChangeNotifier {
 
   final HermesConnectionGateway _gateway;
 
+  String? _connectionId;
+  final TextEditingController name;
+  HermesConnectionNameSource _nameSource;
   final TextEditingController url;
   final TextEditingController apiKey = TextEditingController();
   final TextEditingController sessionKey = TextEditingController();
@@ -143,7 +162,12 @@ final class HermesConnectionController extends ChangeNotifier {
   bool get sessionKeyDirty => _state.sessionKeyDirty;
   bool get desktopCredentialsDirty => _state.desktopCredentialsDirty;
   bool get accessHeadersDirty => _state.accessHeadersDirty;
+  bool get nameDirty => _state.nameDirty;
   bool get showMemoryKey => _state.showMemoryKey;
+
+  /// The saved connection this draft edits; null until a new one is saved.
+  String? get connectionId => _connectionId;
+  HermesConnectionNameSource get nameSource => _nameSource;
   HermesBackendMode get mode => _mode;
   HermesDesktopAuthKind get desktopAuthKind => _desktopAuthKind;
   String get desktopProfile => _desktopProfile;
@@ -196,6 +220,9 @@ final class HermesConnectionController extends ChangeNotifier {
     return HermesConnectionDraft(
       config: HermesConfig(
         enabled: true,
+        connectionId: _connectionId,
+        // Null keeps the saved name; an empty one derives it from the URL.
+        name: nameDirty ? name.text.trim() : null,
         baseUrl: trimmedUrl,
         mode: _mode,
         desktopAuthKind: _desktopAuthKind,
@@ -216,7 +243,13 @@ final class HermesConnectionController extends ChangeNotifier {
       apiKeyChanged: originChanged || apiKeyDirty,
       sessionKeyChanged: originChanged || sessionKeyDirty,
       desktopCredentialsChanged: originChanged || desktopCredentialsDirty,
+      nameSource: nameDirty ? _nameSource : null,
     );
+  }
+
+  void markNameChanged() {
+    _nameSource = HermesConnectionNameSource.user;
+    _markDraftChanged(nameDirty: true);
   }
 
   void markUrlChanged() => _markDraftChanged();
@@ -288,6 +321,7 @@ final class HermesConnectionController extends ChangeNotifier {
     } catch (_) {
       reachable = false;
     }
+    if (reachable) await _suggestName(operationEpoch, draft.config);
     _publishIfOwned(
       operationEpoch,
       _state.copyWith(
@@ -300,6 +334,30 @@ final class HermesConnectionController extends ChangeNotifier {
     return reachable;
   }
 
+  /// After a successful probe, fills the name with the server's suggestion
+  /// unless the user has typed one. The suggestion is part of the next save.
+  Future<void> _suggestName(int operationEpoch, HermesConfig probed) async {
+    if (!_acceptsNameSuggestion) return;
+    String? suggestion;
+    try {
+      suggestion = await _gateway.suggestDisplayName(probed);
+    } catch (_) {
+      suggestion = null;
+    }
+    if (suggestion == null ||
+        !_ownsOperation(operationEpoch) ||
+        !_acceptsNameSuggestion) {
+      return;
+    }
+    name.text = suggestion;
+    _nameSource = HermesConnectionNameSource.server;
+    _publish(_state.copyWith(nameDirty: true));
+  }
+
+  bool get _acceptsNameSuggestion =>
+      name.text.trim().isEmpty ||
+      _nameSource != HermesConnectionNameSource.user;
+
   Future<bool> save(
     HermesConfig saved, {
     required HermesConnectionMessages messages,
@@ -311,7 +369,8 @@ final class HermesConnectionController extends ChangeNotifier {
     if (operationEpoch == null) return false;
 
     try {
-      await _gateway.persist(draft);
+      final savedId = await _gateway.persist(draft);
+      _connectionId ??= savedId;
       if (!_ownsOperation(operationEpoch)) return true;
       _acceptPersistedDraft(
         operationEpoch,
@@ -388,9 +447,17 @@ final class HermesConnectionController extends ChangeNotifier {
       ),
     );
 
+    // Onboarding has no name field: name the first connection after what the
+    // server reports, when it reports anything.
+    await _suggestName(operationEpoch, draft.config);
+    if (!_ownsOperation(operationEpoch)) {
+      return const HermesConnectionResult(HermesConnectionOutcome.ignored);
+    }
+    final committed = nameDirty ? buildDraft(saved) : draft;
+
     try {
       await _gateway.commitOnboarding(
-        draft,
+        committed,
         isCurrent: () => _ownsOperation(operationEpoch),
       );
       if (!_ownsOperation(operationEpoch)) {
@@ -435,7 +502,7 @@ final class HermesConnectionController extends ChangeNotifier {
       );
     }
 
-    _acceptPersistedDraft(operationEpoch, persistedConfig: draft.config);
+    _acceptPersistedDraft(operationEpoch, persistedConfig: committed.config);
     return const HermesConnectionResult(HermesConnectionOutcome.success);
   }
 
@@ -464,7 +531,8 @@ final class HermesConnectionController extends ChangeNotifier {
 
   HermesConnectionValidationIssue? _validate(HermesConfig saved) {
     final trimmedUrl = url.text.trim();
-    if (HermesConfig.connectionOrigin(trimmedUrl) == null) {
+    if (HermesConfig.connectionOrigin(trimmedUrl) == null ||
+        trimmedUrl.length > kMaxHermesBaseUrlCharacters) {
       return HermesConnectionValidationIssue.invalidUrl;
     }
     final draft = buildDraft(saved).config;
@@ -534,6 +602,7 @@ final class HermesConnectionController extends ChangeNotifier {
         sessionKeyDirty: false,
         desktopCredentialsDirty: false,
         accessHeadersDirty: false,
+        nameDirty: false,
       ),
     );
   }
@@ -543,6 +612,7 @@ final class HermesConnectionController extends ChangeNotifier {
     bool? sessionKeyDirty,
     bool? desktopCredentialsDirty,
     bool? accessHeadersDirty,
+    bool? nameDirty,
   }) {
     if (_state.operation.isBusy) _operationEpoch++;
     _publish(
@@ -554,6 +624,7 @@ final class HermesConnectionController extends ChangeNotifier {
         sessionKeyDirty: sessionKeyDirty,
         desktopCredentialsDirty: desktopCredentialsDirty,
         accessHeadersDirty: accessHeadersDirty,
+        nameDirty: nameDirty,
       ),
     );
   }
@@ -568,6 +639,7 @@ final class HermesConnectionController extends ChangeNotifier {
   void dispose() {
     _isDisposed = true;
     _operationEpoch++;
+    name.dispose();
     url.dispose();
     apiKey.dispose();
     sessionKey.dispose();

@@ -273,6 +273,16 @@ void main() {
       check(resolveRouteRedirect(Routes.notes, settled))
           .equals(Routes.hermesSettings);
       check(resolveRouteRedirect(Routes.hermesSettings, settled)).isNull();
+      // Adding or editing a saved connection is part of recovering.
+      for (final editor in [
+        Routes.hermesConnectionEditorPath(Routes.hermesNewConnectionId),
+        Routes.hermesConnectionEditorPath(
+          'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        ),
+      ]) {
+        check(resolveRouteRedirect(editor, settled)).isNull();
+        check(isHermesOnlyAppLocation(editor)).isTrue();
+      }
     });
 
     test('a usable accountless backend never needs an account', () {

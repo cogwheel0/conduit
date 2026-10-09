@@ -177,7 +177,11 @@ Future<VoiceCallEligibility> resolveVoiceCallEligibility(
           ref.read(preferredBackendProvider) == PreferredBackend.hermes &&
           ref.read(hermesConfigProvider).isUsable) {
         ref.read(isManualModelSelectionProvider.notifier).set(false);
-        ref.read(selectedModelProvider.notifier).set(hermesSyntheticModel());
+        ref
+            .read(selectedModelProvider.notifier)
+            .set(
+              hermesSyntheticModel(name: ref.read(hermesConfigProvider).name),
+            );
       }
       if (ref.read(selectedModelProvider) == null &&
           ref.read(preferredBackendProvider) == PreferredBackend.hermes &&

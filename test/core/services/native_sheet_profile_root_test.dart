@@ -78,6 +78,30 @@ void main() {
       expect(sections.last.title, _l10n.supportConduit);
     });
 
+    test('the Hermes row keeps its title and names the active connection', () {
+      final sections = buildNativeProfileRootSections(
+        _l10n,
+        account: _account,
+        visibility: _everything,
+        hermesConnectionName: 'Home agent',
+      );
+
+      final hermes = _item(sections, NativeSheetRoutes.hermes);
+      expect(hermes.title, _l10n.hermesAgentSettingsTitle);
+      expect(hermes.subtitle, 'Home agent');
+      expect(
+        _item(
+          buildNativeProfileRootSections(
+            _l10n,
+            account: _account,
+            visibility: _everything,
+          ),
+          NativeSheetRoutes.hermes,
+        ).subtitle,
+        isNull,
+      );
+    });
+
     test('Advanced rows use their own symbols and close the sheet', () {
       final sections = buildNativeProfileRootSections(
         _l10n,

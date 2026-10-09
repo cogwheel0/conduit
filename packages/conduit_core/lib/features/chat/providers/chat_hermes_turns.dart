@@ -586,6 +586,115 @@ Future<void> forgetMixedHermesConversationProvenance(
   );
 }
 
+/// The inactive saved connection that owns the active mixed chat's last
+/// trusted Hermes session, or null.
+///
+/// A mixed Open WebUI chat reuses its Hermes session only while the session's
+/// connection identity matches the active connection (see
+/// [reusableHermesSessionId]); otherwise the next turn starts a new session.
+/// When that identity belongs to another saved connection, switching to it
+/// lets the chat continue its session instead.
+HermesConnectionProfile? _hermesConnectionOwningMixedChatSession(dynamic ref) {
+  final controller =
+      ref.read(hermesConfigProvider.notifier) as HermesConfigController;
+  final config = ref.read(hermesConfigProvider) as HermesConfig;
+  // Nothing to switch to with a single saved connection. Checked first so an
+  // ordinary send never builds the account-owner providers below early.
+  if (controller.connections.length < 2) return null;
+  final conversation = ref.read(activeConversationProvider) as Conversation?;
+  if (conversation == null || isNativeHermesConversation(conversation)) {
+    return null;
+  }
+  final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
+  // Metadata is server-controlled, so it only nominates candidates; the
+  // locally stored binding below decides.
+  final nominatesAnotherConnection = messages.any((message) {
+    final identity = message.metadata?[kHermesConnectionIdentityMetadataKey];
+    if (message.role != 'assistant' || identity is! String) return false;
+    final profile = controller.connectionForIdentity(identity);
+    return profile != null && profile.id != config.connectionId;
+  });
+  if (!nominatesAnotherConnection) return null;
+  final owner = _HermesConversationOwner.capture(ref, conversation);
+  if (!owner.usesOpenWebUiBackend) return null;
+  final provenance = _captureHermesMixedSessionProvenance(
+    ref,
+    owner: owner,
+    databaseManager: ref.read(databaseManagerProvider) as DatabaseManager,
+  );
+  final candidate = _lastHermesSessionBinding(
+    messages,
+    provenance,
+  ).connectionIdentity;
+  if (candidate == null) return null;
+  final endpoint = HermesConfigController.connectionEndpoint(config.baseUrl);
+  final current = endpoint == null
+      ? null
+      : HermesLocalDocumentTrustStore.connectionIdentity(
+          endpointIdentity: endpoint,
+          principalId: controller.documentTrustPrincipalId(),
+        );
+  if (candidate == current) return null;
+  final target = controller.connectionForIdentity(candidate);
+  return target == null || target.id == config.connectionId ? null : target;
+}
+
+/// Before a Hermes send, offers to switch to the saved connection that owns
+/// the mixed chat's session. Declining, an unknown connection, or a failed
+/// switch leave the send to start a new session on the active connection.
+///
+/// Must run before the send registers its run: switching cancels every live
+/// Hermes run. Completes synchronously when there is nothing to offer.
+FutureOr<void> _offerHermesConnectionSwitchForMixedChat(dynamic ref) {
+  final HermesConnectionProfile? target;
+  try {
+    target = _hermesConnectionOwningMixedChatSession(ref);
+  } catch (_) {
+    // Provenance lookup needs the OpenWebUI account owner; without it the
+    // session could not be reused anyway.
+    return null;
+  }
+  if (target == null) return null;
+  return _promptHermesConnectionSwitch(ref, target);
+}
+
+@visibleForTesting
+Future<void> offerHermesConnectionSwitchForMixedChatForTest(
+  dynamic ref,
+) async => _offerHermesConnectionSwitchForMixedChat(ref);
+
+Future<void> _promptHermesConnectionSwitch(
+  dynamic ref,
+  HermesConnectionProfile target,
+) async {
+  final conversationId =
+      (ref.read(activeConversationProvider) as Conversation?)?.id;
+  final prompt =
+      ref.read(hermesConnectionSwitchPromptProvider)
+          as HermesConnectionSwitchPrompt;
+  bool accepted;
+  try {
+    accepted = await prompt(target.name);
+  } catch (_) {
+    accepted = false;
+  }
+  if (!accepted ||
+      (ref.read(activeConversationProvider) as Conversation?)?.id !=
+          conversationId) {
+    return;
+  }
+  try {
+    await (ref.read(hermesConfigProvider.notifier) as HermesConfigController)
+        .setActiveConnection(target.id);
+  } catch (error) {
+    DebugLogger.warning(
+      'mixed-chat-connection-switch-failed',
+      scope: 'hermes/connections',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+  }
+}
+
 String? _lastHermesMetadataId(
   Iterable<ChatMessage> messages,
   String key, {

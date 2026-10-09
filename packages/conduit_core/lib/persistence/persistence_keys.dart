@@ -110,7 +110,20 @@ final class PreferenceKeys {
 
   // Hermes Agent (direct second backend) — non-secret config. The API key and
   // long-term memory session key are secrets and live in SecureCredentialStorage.
+  /// Global master switch; applies to whichever saved connection is active.
   static const String hermesEnabled = 'hermes_enabled_v1';
+
+  /// Saved, named Hermes connections (`HermesConnectionsDocument`). Kept in
+  /// preferences rather than secure storage because the router reads it
+  /// synchronously; it holds no secrets.
+  static const String hermesConnections = 'hermes_connections_v1';
+
+  /// Id of the saved Hermes connection the runtime uses.
+  static const String hermesActiveConnectionId =
+      'hermes_active_connection_id_v1';
+
+  // Single-connection settings stored before saved connections existed. Only
+  // read to migrate them into [hermesConnections], then removed.
   static const String hermesBaseUrl = 'hermes_base_url_v1';
   static const String hermesBackendMode = 'hermes_backend_mode_v1';
   static const String hermesDesktopAuthKind = 'hermes_desktop_auth_kind_v1';
@@ -119,12 +132,17 @@ final class PreferenceKeys {
       'hermes_allow_self_signed_certificates_v1';
   static const String hermesLocalDocumentTrust =
       'hermes_local_document_trust_v1';
+
+  /// Legacy global trust principal; migrated into the first saved connection.
   static const String hermesLocalDocumentTrustPrincipal =
       'hermes_local_document_trust_principal_v1';
   static const String hermesMixedSessionBindingTrust =
       'hermes_mixed_session_binding_trust_v1';
   static const String hermesPendingDesktopDecisions =
       'hermes_pending_desktop_decisions_v1';
+
+  /// Keyed by origin, not by saved connection: the WebView cookie store is
+  /// process-global, so two connections on one origin share dashboard cookies.
   static const String hermesDashboardCookieIdentities =
       'hermes_dashboard_cookie_identities_v1';
 

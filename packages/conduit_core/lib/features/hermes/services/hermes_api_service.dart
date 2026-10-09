@@ -1184,6 +1184,17 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     return _boundedHermesMapList(data, envelopeKeys: const <String>['data']);
   }
 
+  /// A name for this connection suggested by the server: the first model id
+  /// it advertises, which the Hermes API server sets to its profile name (or
+  /// `API_SERVER_MODEL_NAME`).
+  Future<String?> suggestedDisplayName() async {
+    for (final model in await getModels()) {
+      final id = validateHermesBoundedString(model['id'], maxCharacters: 128);
+      if (id != null && id.trim().isNotEmpty) return id.trim();
+    }
+    return null;
+  }
+
   /// Lists the agent's skills (`GET /v1/skills`), the slash-commands invokable
   /// in chat input as `/skill-name args`. Read-only, bearer-gated.
   @override

@@ -1040,7 +1040,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final selected = ref.read(selectedModelProvider);
       final model = selected != null && isHermesModel(selected)
           ? selected
-          : hermesSyntheticModel();
+          : hermesSyntheticModel(name: service.config.name);
       final endpoint = HermesConfigController.connectionEndpoint(
         service.config.baseUrl,
       );

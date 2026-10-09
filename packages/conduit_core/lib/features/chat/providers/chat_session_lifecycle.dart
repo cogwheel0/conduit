@@ -98,7 +98,9 @@ Future<void> startNewHermesChat(dynamic ref) async {
   // Hermes is app-owned runtime state; starting it must never wait on an
   // unrelated OpenWebUI model request in mixed-backend setups.
   ref.read(isManualModelSelectionProvider.notifier).set(true);
-  ref.read(selectedModelProvider.notifier).set(hermesSyntheticModel());
+  ref
+      .read(selectedModelProvider.notifier)
+      .set(hermesSyntheticModel(name: ref.read(hermesConfigProvider).name));
 }
 
 /// The models a folder may save as its defaults, and a new draft may start on:

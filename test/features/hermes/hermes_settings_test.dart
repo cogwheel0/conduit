@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -33,6 +34,14 @@ void main() {
         apiKey: 'persisted-secret',
       ).isUsable,
     ).isTrue();
+  });
+
+  test('a server URL too long to save is invalid', () {
+    final controller = _configuredController(_FakeHermesConnectionGateway());
+    addTearDown(controller.dispose);
+    controller.url.text = 'https://hermes.example/${'a' * 2100}';
+
+    check(controller.draftIsUsable(const HermesConfig())).isFalse();
   });
 
   test('custom access headers reach the server in Responses mode', () async {
@@ -545,6 +554,92 @@ void main() {
       },
     );
   }
+
+  group('connection name', () {
+    test('a successful test prefills the server-suggested name', () async {
+      final gateway = _FakeHermesConnectionGateway(
+        suggestedName: 'research-agent',
+        persistedId: 'new-connection',
+      );
+      final controller = _configuredController(gateway);
+      addTearDown(controller.dispose);
+
+      check(
+        await controller.testConnection(
+          saved: const HermesConfig(),
+          messages: _messages,
+        ),
+      ).isTrue();
+
+      check(controller.name.text).equals('research-agent');
+      check(controller.nameSource).equals(HermesConnectionNameSource.server);
+      check(controller.attempt.isVisible).isTrue();
+      final draft = controller.buildDraft(const HermesConfig());
+      check(draft.config.name).equals('research-agent');
+      check(draft.nameSource).equals(HermesConnectionNameSource.server);
+
+      check(
+        await controller.save(const HermesConfig(), messages: _messages),
+      ).isTrue();
+      check(gateway.persistedDraft!.config.name).equals('research-agent');
+      check(controller.connectionId).equals('new-connection');
+    });
+
+    test('a typed name is never replaced by a suggestion', () async {
+      final gateway = _FakeHermesConnectionGateway(suggestedName: 'server');
+      final controller = _configuredController(gateway);
+      addTearDown(controller.dispose);
+      controller.name.text = 'Home';
+      controller.markNameChanged();
+
+      await controller.testConnection(
+        saved: const HermesConfig(),
+        messages: _messages,
+      );
+
+      check(gateway.suggestedFor).isEmpty();
+      check(controller.name.text).equals('Home');
+      check(controller.buildDraft(const HermesConfig()).nameSource)
+          .equals(HermesConnectionNameSource.user);
+    });
+
+    test('a failed test does not ask for a name', () async {
+      final gateway = _FakeHermesConnectionGateway(
+        probeResult: false,
+        suggestedName: 'server',
+      );
+      final controller = _configuredController(gateway);
+      addTearDown(controller.dispose);
+
+      await controller.testConnection(
+        saved: const HermesConfig(),
+        messages: _messages,
+      );
+
+      check(gateway.suggestedFor).isEmpty();
+      check(controller.name.text).isEmpty();
+    });
+
+    test('an unchanged name keeps the saved one', () {
+      final controller = HermesConnectionController(
+        initialConfig: const HermesConfig(
+          connectionId: 'saved',
+          name: 'Saved name',
+          baseUrl: 'https://hermes.example',
+          apiKey: 'key',
+        ),
+        gateway: _FakeHermesConnectionGateway(),
+      );
+      addTearDown(controller.dispose);
+
+      final draft = controller.buildDraft(
+        const HermesConfig(baseUrl: 'https://hermes.example', apiKey: 'key'),
+      );
+      check(draft.config.connectionId).equals('saved');
+      check(draft.config.name).isNull();
+      check(draft.nameSource).isNull();
+    });
+  });
 }
 
 HermesConnectionController _configuredController(
@@ -567,9 +662,14 @@ final class _FakeHermesConnectionGateway implements HermesConnectionGateway {
     this.onPersist,
     this.onActivate,
     this.onCommit,
+    this.suggestedName,
+    this.persistedId,
   });
 
   final bool probeResult;
+  final String? suggestedName;
+  final String? persistedId;
+  final List<HermesConfig> suggestedFor = [];
   final Future<bool> Function(HermesConfig draft)? onProbe;
   final Future<void> Function(HermesConnectionDraft draft)? onPersist;
   final Future<void> Function()? onActivate;
@@ -591,10 +691,17 @@ final class _FakeHermesConnectionGateway implements HermesConnectionGateway {
   }
 
   @override
-  Future<void> persist(HermesConnectionDraft draft) async {
+  Future<String?> persist(HermesConnectionDraft draft) async {
     calls.add('persist');
     persistedDraft = draft;
     await onPersist?.call(draft);
+    return draft.config.connectionId ?? persistedId;
+  }
+
+  @override
+  Future<String?> suggestDisplayName(HermesConfig draft) async {
+    suggestedFor.add(draft);
+    return suggestedName;
   }
 
   @override

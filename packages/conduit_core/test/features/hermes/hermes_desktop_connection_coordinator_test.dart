@@ -96,6 +96,92 @@ void main() {
     check(gateway.socketTickets).deepEquals(['dashboard-ticket']);
     check(gateway.rpcMethods).deepEquals(['model.options']);
   });
+
+  group('connection name suggestion', () {
+    test('uses the Desktop profile title, else its name', () async {
+      final gateway = await _Gateway.start(
+        profiles: [
+          {'name': 'default'},
+          {
+            'name': 'research',
+            'ui_meta': {
+              'hermes-bots': {'title': 'Research Bot'},
+            },
+          },
+          {'name': 'plain'},
+        ],
+      );
+      addTearDown(gateway.close);
+      final container = ProviderContainer(
+        overrides: [hermesConfigProvider.overrideWith(_DisabledConfig.new)],
+      );
+      addTearDown(container.dispose);
+      final connection = container.read(hermesConnectionGatewayProvider);
+
+      HermesConfig draft(String profile) => HermesConfig(
+        baseUrl: gateway.baseUrl,
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+        desktopProfile: profile,
+        desktopCredentials: HermesDesktopCredentials(
+          nativeTokens: HermesDesktopTokenSet(
+            accessToken: 'access',
+            refreshToken: 'refresh',
+            expiresAt: DateTime.now().add(const Duration(hours: 1)),
+          ),
+        ),
+      );
+
+      check(
+        await connection.suggestDisplayName(draft('research')),
+      ).equals('Research Bot');
+      check(await connection.suggestDisplayName(draft('plain'))).equals('plain');
+      check(await connection.suggestDisplayName(draft('missing'))).isNull();
+      // Hermes's unconfigured default profile says nothing about the server.
+      check(await connection.suggestDisplayName(draft('default'))).isNull();
+      check(gateway.rpcMethods).contains('profiles.list');
+    });
+
+    test('uses the first Responses model id', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        request.response.headers.contentType = ContentType.json;
+        if (request.uri.path == '/v1/models') {
+          check(
+            request.headers.value(HttpHeaders.authorizationHeader),
+          ).equals('Bearer key');
+          request.response.write(
+            jsonEncode({
+              'object': 'list',
+              'data': [
+                {'id': 'my-agent', 'object': 'model'},
+                {'id': 'alias', 'object': 'model'},
+              ],
+            }),
+          );
+        } else {
+          request.response.statusCode = HttpStatus.notFound;
+        }
+        await request.response.close();
+      });
+      final container = ProviderContainer(
+        overrides: [hermesConfigProvider.overrideWith(_DisabledConfig.new)],
+      );
+      addTearDown(container.dispose);
+
+      check(
+        await container
+            .read(hermesConnectionGatewayProvider)
+            .suggestDisplayName(
+              HermesConfig(
+                baseUrl: 'http://127.0.0.1:${server.port}/v1',
+                apiKey: 'key',
+              ),
+            ),
+      ).equals('my-agent');
+    });
+  });
 }
 
 final class _DisabledConfig extends HermesConfigController {
@@ -104,18 +190,24 @@ final class _DisabledConfig extends HermesConfigController {
 }
 
 final class _Gateway {
-  _Gateway(this.server);
+  _Gateway(this.server, {this.profiles = const []});
 
   final HttpServer server;
+
+  /// Rows `profiles.list` answers with.
+  final List<Map<String, Object?>> profiles;
   final sockets = <WebSocket>[];
   final ticketAuthorizations = <String?>[];
   final socketTickets = <String?>[];
   final rpcMethods = <String>[];
   String get baseUrl => 'http://127.0.0.1:${server.port}';
 
-  static Future<_Gateway> start() async {
+  static Future<_Gateway> start({
+    List<Map<String, Object?>> profiles = const [],
+  }) async {
     final gateway = _Gateway(
       await HttpServer.bind(InternetAddress.loopbackIPv4, 0),
+      profiles: profiles,
     );
     gateway.server.listen(gateway.handle);
     return gateway;
@@ -144,7 +236,13 @@ final class _Gateway {
         final frame = jsonDecode(raw as String) as Map<String, dynamic>;
         rpcMethods.add(frame['method'] as String);
         socket.add(
-          jsonEncode({'jsonrpc': '2.0', 'id': frame['id'], 'result': {}}),
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'id': frame['id'],
+            'result': frame['method'] == 'profiles.list'
+                ? {'profiles': profiles}
+                : {},
+          }),
         );
       });
       return;

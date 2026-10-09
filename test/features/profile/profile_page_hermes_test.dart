@@ -78,6 +78,51 @@ void main() {
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
+  testWidgets('the Hermes row names the active connection', (tester) async {
+    final originalErrorWidgetBuilder = ErrorWidget.builder;
+    final originalFlutterErrorOnError = FlutterError.onError;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          isAuthLoadingProvider2.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(true),
+          hermesActiveConnectionNameProvider.overrideWithValue('Home agent'),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ProfilePage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final entry = find.byKey(const Key('hermes-settings-entry'));
+    expect(entry, findsOneWidget);
+    // The section keeps its title; the connection is the subtitle.
+    expect(
+      find.descendant(of: entry, matching: find.text('Hermes Agent')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: entry, matching: find.text('Home agent')),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    ErrorWidget.builder = originalErrorWidgetBuilder;
+    FlutterError.onError = originalFlutterErrorOnError;
+  });
+
   testWidgets('direct-only profile exposes Personalization for defaults', (
     tester,
   ) async {

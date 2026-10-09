@@ -8,8 +8,10 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/features/hermes/controllers/hermes_connection_controller.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
@@ -25,12 +27,13 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.hermesEnabled: true,
-      PreferenceKeys.hermesBaseUrl: 'https://one.example/v1',
+      PreferenceKeys.hermesConnections: _connectionsDocument(),
+      PreferenceKeys.hermesActiveConnectionId: _id,
     });
     PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     FlutterSecureStorage.setMockInitialValues({
-      'hermes_api_key_v1': 'key-for-one',
-      'hermes_session_key_v1': 'memory-for-one',
+      _apiKey: 'key-for-one',
+      _sessionKey: 'memory-for-one',
     });
   });
 
@@ -67,8 +70,8 @@ void main() {
           await request.response.close();
         });
         final storage = _FailOnceSecureStorage({
-          'hermes_api_key_v1': 'key-for-one',
-          'hermes_session_key_v1': 'memory-for-one',
+          _apiKey: 'key-for-one',
+          _sessionKey: 'memory-for-one',
         });
         final container = await _readyHermesContainer(storage);
         addTearDown(container.dispose);
@@ -90,10 +93,10 @@ void main() {
         container.read(hermesApiServiceProvider);
         final oldSignIn = controller.nativeCredentialsWriter();
         if (operation == 'sign-out') {
-          storage.failNextDeleteFor = 'hermes_desktop_credentials_v1';
+          storage.failNextDeleteFor = _desktopKey;
           await expectLater(controller.signOutDesktop(), throwsStateError);
         } else {
-          storage.failNextWriteFor = 'hermes_api_key_v1';
+          storage.failNextWriteFor = _apiKey;
           await expectLater(
             controller.saveConnection(
               baseUrl: 'https://replacement.example',
@@ -108,7 +111,7 @@ void main() {
             container.read(hermesApiServiceProvider) as HermesDesktopApiService;
         check(await live.listProfiles()).deepEquals(['default']);
         final persisted =
-            jsonDecode(storage.values['hermes_desktop_credentials_v1']!) as Map;
+            jsonDecode(storage.values[_desktopKey]!) as Map;
         check((persisted['native_tokens'] as Map)['access_token'])
             .equals('refreshed-access');
         check((persisted['native_tokens'] as Map)['refresh_token'])
@@ -148,11 +151,121 @@ void main() {
             ?.accessToken,
       ).equals('rotated');
       final stored = jsonDecode(
-        (await storage.read(key: 'hermes_desktop_credentials_v1'))!,
+        (await storage.read(key: _desktopKey))!,
       ) as Map;
       check((stored['native_tokens'] as Map)['access_token']).equals('rotated');
     },
   );
+
+  // The live client's writer still takes a refresh after a switch, so the
+  // connection epoch does not revoke it; a sign-out must.
+  test('a live client sign-in finishing during sign-out is not saved',
+      () async {
+    final storage = FlutterSecureKeyValueStore();
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    await controller.saveConnection(
+      baseUrl: 'https://one.example/v1',
+      mode: HermesBackendMode.desktopGateway,
+      desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+    );
+    final writeCredentials = controller.credentialsWriterFor(
+      container.read(hermesConfigProvider),
+      live: true,
+    );
+
+    final signOut = controller.signOutDesktop();
+    final rejected = expectLater(
+      writeCredentials(_nativeCredentials('late')),
+      throwsStateError,
+    );
+    await signOut;
+    await rejected;
+
+    check(
+      container.read(hermesConfigProvider).desktopCredentials?.nativeTokens,
+    ).isNull();
+    check(await storage.read(key: _desktopKey)).isNull();
+  });
+
+  test('a live client refresh after a failed sign-out is saved', () async {
+    final storage = _FailOnceSecureStorage({
+      _apiKey: 'key-for-one',
+      _sessionKey: 'memory-for-one',
+    });
+    final container = await _readyHermesContainer(storage);
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    await controller.saveConnection(
+      baseUrl: 'https://one.example/v1',
+      mode: HermesBackendMode.desktopGateway,
+      desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+      desktopCredentialsChanged: true,
+      desktopCredentials: _nativeCredentials('original'),
+    );
+    final writeCredentials = controller.credentialsWriterFor(
+      container.read(hermesConfigProvider),
+      live: true,
+    );
+
+    storage.failNextDeleteFor = _desktopKey;
+    await expectLater(controller.signOutDesktop(), throwsStateError);
+    // The server spent the stored refresh token on this one.
+    await writeCredentials(_nativeCredentials('refreshed'));
+
+    final persisted = jsonDecode(storage.values[_desktopKey]!) as Map;
+    check((persisted['native_tokens'] as Map)['refresh_token'])
+        .equals('refreshed-refresh');
+    check(
+      container
+          .read(hermesConfigProvider)
+          .desktopCredentials
+          ?.nativeTokens
+          ?.refreshToken,
+    ).equals('refreshed-refresh');
+  });
+
+  test('onboarding rollback removes only the connection it saved', () async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.hermesEnabled: false,
+      PreferenceKeys.hermesConnections: _connectionsDocument(),
+    });
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    final container = await _readyHermesContainer(FlutterSecureKeyValueStore());
+    addTearDown(container.dispose);
+    final controller = container.read(hermesConfigProvider.notifier);
+    check(container.read(hermesConfigProvider).connectionId).isNull();
+
+    final commit = container
+        .read(hermesConnectionGatewayProvider)
+        .commitOnboarding(
+          const HermesConnectionDraft(
+            config: HermesConfig(
+              enabled: true,
+              baseUrl: 'https://two.example/v1',
+              apiKey: 'key-for-two',
+            ),
+            apiKeyChanged: true,
+            sessionKeyChanged: false,
+          ),
+          isCurrent: () {
+            final active = container.read(hermesConfigProvider).connectionId;
+            if (active == null) return true;
+            // Saved and active; the user switches to One before it finishes.
+            unawaited(controller.setActiveConnection(_id));
+            return false;
+          },
+        );
+    await expectLater(
+      commit,
+      throwsA(isA<HermesConnectionCommitCancelled>()),
+    );
+
+    check(controller.connections.map((profile) => profile.id))
+        .deepEquals([_id]);
+    check(container.read(hermesConfigProvider).connectionId).equals(_id);
+  });
 
   for (final revocation in [
     'gateway replacement',
@@ -191,7 +304,7 @@ void main() {
         check(
           container.read(hermesConfigProvider).desktopCredentials?.nativeTokens,
         ).isNull();
-        check(await storage.read(key: 'hermes_desktop_credentials_v1'))
+        check(await storage.read(key: _desktopKey))
             .isNull();
       },
     );
@@ -199,9 +312,9 @@ void main() {
 
   test('native credential writer captured during replacement keeps its original gateway', () async {
     final storage = _GatedSecureStorage({
-      'hermes_api_key_v1': 'key-for-one',
-      'hermes_session_key_v1': 'memory-for-one',
-    }, gatedWriteKey: 'hermes_api_key_v1');
+      _apiKey: 'key-for-one',
+      _sessionKey: 'memory-for-one',
+    }, gatedWriteKey: _apiKey);
     addTearDown(storage.releaseAll);
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
@@ -225,7 +338,7 @@ void main() {
         .equals('https://two.example/v1');
     check(container.read(hermesConfigProvider).desktopCredentials?.nativeTokens)
         .isNull();
-    check(storage.values['hermes_desktop_credentials_v1']).isNull();
+    check(storage.values[_desktopKey]).isNull();
   });
 
   test('connection URLs reject query strings and fragments', () async {
@@ -277,18 +390,26 @@ void main() {
     final first = firstContainer.read(hermesConfigProvider.notifier);
     final second = secondContainer.read(hermesConfigProvider.notifier);
 
+    // Without a saved connection each controller keeps its own principal.
     final firstFallback = first.documentTrustPrincipalId();
     final secondFallback = second.documentTrustPrincipalId();
     check(firstFallback == secondFallback).isFalse();
+    check(first.documentTrustPrincipalId()).equals(firstFallback);
+  });
 
-    const durablePrincipal = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      PreferenceKeys.hermesLocalDocumentTrustPrincipal: durablePrincipal,
-    });
-    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+  test('the active connection owns the durable trust principal', () async {
+    final storage = FlutterSecureKeyValueStore();
+    final first = await _readyHermesContainer(storage);
+    final second = await _readyHermesContainer(storage);
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
 
-    check(first.documentTrustPrincipalId()).equals(durablePrincipal);
-    check(second.documentTrustPrincipalId()).equals(durablePrincipal);
+    check(
+      first.read(hermesConfigProvider.notifier).documentTrustPrincipalId(),
+    ).equals(_principal);
+    check(
+      second.read(hermesConfigProvider.notifier).documentTrustPrincipalId(),
+    ).equals(_principal);
   });
 
   test(
@@ -300,20 +421,24 @@ void main() {
       final controller = container.read(hermesConfigProvider.notifier);
       final previousConfig = container.read(hermesConfigProvider);
       final previousPrincipal = controller.documentTrustPrincipalId();
-      await _waitUntil(
-        () =>
-            PreferencesStore.getString(
-              PreferenceKeys.hermesLocalDocumentTrustPrincipal,
-            ) ==
-            previousPrincipal,
-      );
+      check(previousPrincipal).equals(_principal);
 
+      // The rotated principal is written together with the rest of the
+      // profile; reject exactly that write.
       PreferencesStore.debugOverride(
         PreferencesStore.instance,
-        writeInterceptor: (preferences, key, value) async =>
-            key == PreferenceKeys.hermesLocalDocumentTrustPrincipal
-            ? false
-            : null,
+        writeInterceptor: (preferences, key, value) async {
+          if (key != PreferenceKeys.hermesConnections || value is! String) {
+            return null;
+          }
+          final written = HermesConnectionsDocument.decode(value)?.connections
+              .where((profile) => profile.id == _id)
+              .firstOrNull;
+          return written != null &&
+                  written.documentTrustPrincipalId != previousPrincipal
+              ? false
+              : null;
+        },
       );
 
       await expectLater(
@@ -334,18 +459,14 @@ void main() {
       check(failedConfig.desktopAuthKind)
           .equals(previousConfig.desktopAuthKind);
       check(failedConfig.desktopProfile).equals(previousConfig.desktopProfile);
-      check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
-      check(PreferencesStore.getString(PreferenceKeys.hermesBackendMode))
-          .equals(previousConfig.mode.name);
-      check(PreferencesStore.getString(PreferenceKeys.hermesDesktopAuthKind))
-          .equals(previousConfig.desktopAuthKind.name);
-      check(PreferencesStore.getString(PreferenceKeys.hermesDesktopProfile))
-          .equals(previousConfig.desktopProfile);
-      check(
-        PreferencesStore.getString(
-          PreferenceKeys.hermesLocalDocumentTrustPrincipal,
-        ),
-      ).equals(previousPrincipal);
+      check(await storage.read(key: _apiKey)).equals('key-for-one');
+      final stored = _storedProfile()!;
+      check(stored.baseUrl).equals('https://one.example/v1');
+      check(stored.mode).equals(previousConfig.mode);
+      check(stored.desktopAuthKind).equals(previousConfig.desktopAuthKind);
+      check(stored.desktopProfile).equals(previousConfig.desktopProfile);
+      check(stored.documentTrustPrincipalId).equals(previousPrincipal);
+      check(controller.documentTrustPrincipalId()).equals(previousPrincipal);
     },
   );
 
@@ -358,8 +479,7 @@ void main() {
     PreferencesStore.debugOverride(
       PreferencesStore.instance,
       writeInterceptor: (preferences, key, value) async {
-        if (key == PreferenceKeys.hermesBaseUrl &&
-            value == 'https://two.example/v1' &&
+        if (_writtenBaseUrl(key, value) == 'https://two.example/v1' &&
             failNextEndpointWrite) {
           failNextEndpointWrite = false;
           return false;
@@ -381,10 +501,10 @@ void main() {
     check(config.baseUrl).equals('https://one.example/v1');
     check(config.apiKey).equals('key-for-one');
     check(config.sessionKey).equals('memory-for-one');
-    check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
-    check(await storage.read(key: 'hermes_session_key_v1'))
+    check(await storage.read(key: _apiKey)).equals('key-for-one');
+    check(await storage.read(key: _sessionKey))
         .equals('memory-for-one');
-    check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl))
+    check(_storedBaseUrl())
         .equals('https://one.example/v1');
   });
 
@@ -399,12 +519,13 @@ void main() {
       PreferencesStore.debugOverride(
         PreferencesStore.instance,
         writeInterceptor: (preferences, key, value) async {
-          if (key != PreferenceKeys.hermesBaseUrl) return null;
-          if (value == 'https://two.example/v1' && !replacementWriteFailed) {
+          final url = _writtenBaseUrl(key, value);
+          if (url == null) return null;
+          if (url == 'https://two.example/v1' && !replacementWriteFailed) {
             replacementWriteFailed = true;
             return false;
           }
-          if (value == 'https://one.example/v1' &&
+          if (url == 'https://one.example/v1' &&
               replacementWriteFailed &&
               !recoveryWriteFailed) {
             recoveryWriteFailed = true;
@@ -429,9 +550,9 @@ void main() {
 
       check(replacementWriteFailed).isTrue();
       check(recoveryWriteFailed).isTrue();
-      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
-      check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
-      check(await storage.read(key: 'hermes_session_key_v1'))
+      check(_storedBaseUrl()).isNull();
+      check(await storage.read(key: _apiKey)).equals('key-for-one');
+      check(await storage.read(key: _sessionKey))
           .equals('memory-for-one');
       final failedRuntimeConfig = container.read(hermesConfigProvider);
       check(failedRuntimeConfig.baseUrl).isEmpty();
@@ -450,8 +571,8 @@ void main() {
     'origin switch quarantines the endpoint before replacement secrets land',
     () async {
       final storage = _FailOnceSecureStorage({
-        'hermes_api_key_v1': 'key-for-one',
-        'hermes_session_key_v1': 'memory-for-one',
+        _apiKey: 'key-for-one',
+        _sessionKey: 'memory-for-one',
       });
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
@@ -460,8 +581,7 @@ void main() {
       PreferencesStore.debugOverride(
         PreferencesStore.instance,
         writeInterceptor: (preferences, key, value) async {
-          if (key == PreferenceKeys.hermesBaseUrl &&
-              value == 'https://two.example/v1') {
+          if (_writtenBaseUrl(key, value) == 'https://two.example/v1') {
             if (!endpointCommitStarted.isCompleted) {
               endpointCommitStarted.complete();
             }
@@ -482,9 +602,9 @@ void main() {
           );
       await endpointCommitStarted.future.timeout(const Duration(seconds: 1));
 
-      check(storage.values['hermes_api_key_v1']).equals('key-for-two');
-      check(storage.values['hermes_session_key_v1']).equals('memory-for-two');
-      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
+      check(storage.values[_apiKey]).equals('key-for-two');
+      check(storage.values[_sessionKey]).equals('memory-for-two');
+      check(_storedBaseUrl()).isNull();
 
       // A new container at this exact await boundary models process death and
       // restart. Replacement credentials may hydrate, but no endpoint can use
@@ -497,7 +617,7 @@ void main() {
 
       endpointCommitGate.complete();
       await save.timeout(const Duration(seconds: 1));
-      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl))
+      check(_storedBaseUrl())
           .equals('https://two.example/v1');
       check(container.read(hermesApiServiceProvider)).isNotNull();
     },
@@ -507,9 +627,9 @@ void main() {
     'same-origin identity rotation quarantines endpoint between secret writes',
     () async {
       final storage = _GatedSecureStorage(<String, String>{
-        'hermes_api_key_v1': 'key-for-one',
-        'hermes_session_key_v1': 'memory-for-one',
-      }, gatedWriteKey: 'hermes_session_key_v1');
+        _apiKey: 'key-for-one',
+        _sessionKey: 'memory-for-one',
+      }, gatedWriteKey: _sessionKey);
       addTearDown(storage.releaseAll);
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
@@ -527,10 +647,10 @@ void main() {
 
       // The API key has landed while the second secret is still old. A process
       // killed at this exact boundary must restart without a usable endpoint.
-      check(storage.values['hermes_api_key_v1'])
+      check(storage.values[_apiKey])
           .equals('key-for-one-replacement');
-      check(storage.values['hermes_session_key_v1']).equals('memory-for-one');
-      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
+      check(storage.values[_sessionKey]).equals('memory-for-one');
+      check(_storedBaseUrl()).isNull();
 
       final restarted = await _readyHermesContainer(storage);
       addTearDown(restarted.dispose);
@@ -553,8 +673,8 @@ void main() {
     'failed partial secret rollback quarantines the durable endpoint',
     () async {
       final storage = _FailOnceSecureStorage({
-        'hermes_api_key_v1': 'key-for-one',
-        'hermes_session_key_v1': 'memory-for-one',
+        _apiKey: 'key-for-one',
+        _sessionKey: 'memory-for-one',
       });
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
@@ -563,8 +683,8 @@ void main() {
       // and restoring the old API key fails too. This leaves the replacement
       // key in secure storage unless the controller quarantines the endpoint.
       storage.failWriteSequence.addAll(<String>[
-        'hermes_session_key_v1',
-        'hermes_api_key_v1',
+        _sessionKey,
+        _apiKey,
       ]);
 
       await expectLater(
@@ -580,8 +700,8 @@ void main() {
         throwsA(isA<StateError>()),
       );
 
-      check(storage.values['hermes_api_key_v1']).equals('key-for-two');
-      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl)).isNull();
+      check(storage.values[_apiKey]).equals('key-for-two');
+      check(_storedBaseUrl()).isNull();
       final failedRuntimeConfig = container.read(hermesConfigProvider);
       check(failedRuntimeConfig.baseUrl).isEmpty();
       check(failedRuntimeConfig.apiKey).isNull();
@@ -647,8 +767,8 @@ void main() {
       check(config.apiKey).isNull();
       check(config.sessionKey).isNull();
       check(container.read(hermesActiveSessionProvider)).isNull();
-      check(await storage.read(key: 'hermes_api_key_v1')).isNull();
-      check(await storage.read(key: 'hermes_session_key_v1')).isNull();
+      check(await storage.read(key: _apiKey)).isNull();
+      check(await storage.read(key: _sessionKey)).isNull();
     },
   );
 
@@ -676,7 +796,7 @@ void main() {
         container.read(hermesConfigProvider).desktopCredentials?.legacyToken,
       ).equals('token-for-two');
       expect(
-        await storage.read(key: 'hermes_desktop_credentials_v1'),
+        await storage.read(key: _desktopKey),
         contains('secret-for-two'),
       );
     },
@@ -736,7 +856,7 @@ void main() {
           .saveConnection(baseUrl: 'https://one.example/custom/v1');
 
       check(container.read(hermesConfigProvider).apiKey).equals('key-for-one');
-      check(await storage.read(key: 'hermes_api_key_v1')).equals('key-for-one');
+      check(await storage.read(key: _apiKey)).equals('key-for-one');
       check(container.read(hermesActiveSessionProvider)).isNull();
       check(stoppedRuns).deepEquals(['run-one']);
     },
@@ -798,9 +918,9 @@ void main() {
     'connection mutation blocks admission through the credential commit',
     () async {
       final storage = _GatedSecureStorage({
-        'hermes_api_key_v1': 'key-for-one',
-        'hermes_session_key_v1': 'memory-for-one',
-      }, gatedWriteKey: 'hermes_api_key_v1');
+        _apiKey: 'key-for-one',
+        _sessionKey: 'memory-for-one',
+      }, gatedWriteKey: _apiKey);
       addTearDown(storage.releaseAll);
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
@@ -869,8 +989,8 @@ void main() {
 
   test('disable interrupts hydrating and late session-key requests', () async {
     final storage = _GatedSecureStorage({
-      'hermes_api_key_v1': 'key-for-one',
-    }, gatedReadKey: 'hermes_api_key_v1');
+      _apiKey: 'key-for-one',
+    }, gatedReadKey: _apiKey);
     addTearDown(storage.releaseAll);
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
@@ -930,7 +1050,7 @@ void main() {
     check(lateError).isA<StateError>();
     check(lateTokenWasCancelled).equals(true);
     check(container.read(hermesConfigProvider).enabled).isFalse();
-    check(storage.writeCount('hermes_session_key_v1')).equals(0);
+    check(storage.writeCount(_sessionKey)).equals(0);
 
     // Let cold-start hydration finish, then prove the interrupted request did
     // not poison the controller's single-flight slot for a later retry.
@@ -941,15 +1061,15 @@ void main() {
       const Duration(seconds: 1),
     );
     check(retry).isNotEmpty();
-    check(storage.values['hermes_session_key_v1']).equals(retry);
-    check(storage.writeCount('hermes_session_key_v1')).equals(1);
+    check(storage.values[_sessionKey]).equals(retry);
+    check(storage.writeCount(_sessionKey)).equals(1);
   });
 
   test('app-data clear barrier discards late secret hydration', () async {
     final storage = _GatedSecureStorage({
-      'hermes_api_key_v1': 'key-for-one',
-      'hermes_session_key_v1': 'memory-for-one',
-    }, gatedReadKey: 'hermes_api_key_v1');
+      _apiKey: 'key-for-one',
+      _sessionKey: 'memory-for-one',
+    }, gatedReadKey: _apiKey);
     addTearDown(storage.releaseAll);
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
@@ -969,8 +1089,8 @@ void main() {
 
   test('disable interrupts a session-key request without active runs', () async {
     final storage = _GatedSecureStorage({
-      'hermes_api_key_v1': 'key-for-one',
-    }, gatedReadKey: 'hermes_api_key_v1');
+      _apiKey: 'key-for-one',
+    }, gatedReadKey: _apiKey);
     addTearDown(storage.releaseAll);
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
@@ -991,13 +1111,13 @@ void main() {
     );
     await disable.timeout(const Duration(seconds: 1));
     check(container.read(hermesConfigProvider).enabled).isFalse();
-    check(storage.writeCount('hermes_session_key_v1')).equals(0);
+    check(storage.writeCount(_sessionKey)).equals(0);
 
     storage.releaseRead();
     await _waitForHermesSecrets(container);
     await Future<void>.delayed(Duration.zero);
     check(container.read(hermesConfigProvider).sessionKey).isNull();
-    check(storage.writeCount('hermes_session_key_v1')).equals(0);
+    check(storage.writeCount(_sessionKey)).equals(0);
   });
 
   test(
@@ -1057,8 +1177,8 @@ void main() {
 
   test('connection rotation interrupts queued session-key generation', () async {
     final storage = _GatedSecureStorage({
-      'hermes_api_key_v1': 'key-for-one',
-    }, gatedWriteKey: 'hermes_api_key_v1');
+      _apiKey: 'key-for-one',
+    }, gatedWriteKey: _apiKey);
     addTearDown(storage.releaseAll);
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
@@ -1108,28 +1228,28 @@ void main() {
     check(container.read(hermesConfigProvider).apiKey)
         .equals('key-for-one-replacement');
     check(container.read(hermesConfigProvider).sessionKey).isNull();
-    check(storage.values['hermes_session_key_v1']).isNull();
-    check(storage.writeCount('hermes_session_key_v1')).equals(0);
+    check(storage.values[_sessionKey]).isNull();
+    check(storage.writeCount(_sessionKey)).equals(0);
 
     final retry = await controller.ensureSessionKey().timeout(
       const Duration(seconds: 1),
     );
     check(retry).isNotEmpty();
-    check(storage.values['hermes_session_key_v1']).equals(retry);
-    check(storage.writeCount('hermes_session_key_v1')).equals(1);
+    check(storage.values[_sessionKey]).equals(retry);
+    check(storage.writeCount(_sessionKey)).equals(1);
   });
 
   test(
     'failed mutation does not prevent the next mutation from running',
     () async {
       final storage = _FailOnceSecureStorage({
-        'hermes_api_key_v1': 'key-for-one',
-        'hermes_session_key_v1': 'memory-for-one',
+        _apiKey: 'key-for-one',
+        _sessionKey: 'memory-for-one',
       });
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
 
-      storage.failNextWriteFor = 'hermes_api_key_v1';
+      storage.failNextWriteFor = _apiKey;
       final controller = container.read(hermesConfigProvider.notifier);
 
       Future<void> replaceApiKey(String value) => controller.saveConnection(
@@ -1147,7 +1267,7 @@ void main() {
 
       check(container.read(hermesConfigProvider).apiKey)
           .equals('second-replacement');
-      check(storage.values['hermes_api_key_v1']).equals('second-replacement');
+      check(storage.values[_apiKey]).equals('second-replacement');
     },
   );
 
@@ -1155,8 +1275,8 @@ void main() {
     'failed server switch cancels runs and restores old credentials',
     () async {
       final storage = _FailOnceSecureStorage({
-        'hermes_api_key_v1': 'key-for-one',
-        'hermes_session_key_v1': 'memory-for-one',
+        _apiKey: 'key-for-one',
+        _sessionKey: 'memory-for-one',
       });
       final container = await _readyHermesContainer(storage);
       addTearDown(container.dispose);
@@ -1169,7 +1289,7 @@ void main() {
           );
       // Fail the second secure write after the replacement API key has landed,
       // exercising rollback of a genuinely partial server switch.
-      storage.failNextWriteFor = 'hermes_session_key_v1';
+      storage.failNextWriteFor = _sessionKey;
 
       await expectLater(
         container
@@ -1188,9 +1308,9 @@ void main() {
       check(config.baseUrl).equals('https://one.example/v1');
       check(config.apiKey).equals('key-for-one');
       check(config.sessionKey).equals('memory-for-one');
-      check(storage.values['hermes_api_key_v1']).equals('key-for-one');
-      check(storage.values['hermes_session_key_v1']).equals('memory-for-one');
-      check(PreferencesStore.getString(PreferenceKeys.hermesBaseUrl))
+      check(storage.values[_apiKey]).equals('key-for-one');
+      check(storage.values[_sessionKey]).equals('memory-for-one');
+      check(_storedBaseUrl())
           .equals('https://one.example/v1');
       check(activeToken.isCancelled).isTrue();
     },
@@ -1198,8 +1318,8 @@ void main() {
 
   test('secret read failure is exposed and can be retried', () async {
     final storage = _FailOnceSecureStorage({
-      'hermes_api_key_v1': 'key-for-one',
-      'hermes_session_key_v1': 'memory-for-one',
+      _apiKey: 'key-for-one',
+      _sessionKey: 'memory-for-one',
     })..failReads = true;
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
@@ -1472,9 +1592,9 @@ void main() {
     'onboarding rollback snapshots credentials after cold-start hydration',
     () async {
       final storage = _GatedSecureStorage({
-        'hermes_api_key_v1': 'key-for-one',
-        'hermes_session_key_v1': 'memory-for-one',
-      }, gatedReadKey: 'hermes_api_key_v1');
+        _apiKey: 'key-for-one',
+        _sessionKey: 'memory-for-one',
+      }, gatedReadKey: _apiKey);
       addTearDown(storage.releaseAll);
       final container = ProviderContainer(
         overrides: [secureStorageProvider.overrideWithValue(storage)],
@@ -1493,7 +1613,7 @@ void main() {
           apiKeyChanged: true,
           sessionKeyChanged: false,
         ),
-        isCurrent: () => storage.values['hermes_api_key_v1'] != replacement,
+        isCurrent: () => storage.values[_apiKey] != replacement,
       );
 
       await storage.readStarted.future.timeout(const Duration(seconds: 1));
@@ -1503,8 +1623,8 @@ void main() {
         throwsA(isA<HermesConnectionCommitCancelled>()),
       );
 
-      check(storage.values['hermes_api_key_v1']).equals('key-for-one');
-      check(storage.values['hermes_session_key_v1']).equals('memory-for-one');
+      check(storage.values[_apiKey]).equals('key-for-one');
+      check(storage.values[_sessionKey]).equals('memory-for-one');
       final restored = container.read(hermesConfigProvider);
       check(restored.apiKey).equals('key-for-one');
       check(restored.sessionKey).equals('memory-for-one');
@@ -1567,9 +1687,9 @@ void main() {
 
   test('queued Hermes mutation cannot lower app-data clear barrier', () async {
     final storage = _GatedSecureStorage({
-      'hermes_api_key_v1': 'key-for-one',
-      'hermes_session_key_v1': 'memory-for-one',
-    }, gatedWriteKey: 'hermes_api_key_v1');
+      _apiKey: 'key-for-one',
+      _sessionKey: 'memory-for-one',
+    }, gatedWriteKey: _apiKey);
     addTearDown(storage.releaseAll);
     final container = await _readyHermesContainer(storage);
     addTearDown(container.dispose);
@@ -1613,6 +1733,47 @@ void main() {
       throwsStateError,
     );
   });
+}
+
+const _id = '11111111-1111-4111-8111-111111111111';
+const _principal = '22222222-2222-4222-8222-222222222222';
+const _apiKey = 'hermes_api_key_v1:$_id';
+const _sessionKey = 'hermes_session_key_v1:$_id';
+const _desktopKey = 'hermes_desktop_credentials_v1:$_id';
+
+String _connectionsDocument({String baseUrl = 'https://one.example/v1'}) =>
+    jsonEncode({
+      'version': 1,
+      'connections': [
+        {
+          'id': _id,
+          'name': 'One',
+          'name_source': 'user',
+          'base_url': baseUrl,
+          'document_trust_principal_id': _principal,
+        },
+      ],
+    });
+
+HermesConnectionProfile? _storedProfile() => HermesConnectionStore.readDocument()
+    ?.connections
+    .where((profile) => profile.id == _id)
+    .firstOrNull;
+
+/// The saved endpoint, or null while it is quarantined (blank) or absent.
+String? _storedBaseUrl() {
+  final baseUrl = _storedProfile()?.baseUrl;
+  return baseUrl == null || baseUrl.isEmpty ? null : baseUrl;
+}
+
+/// The endpoint a preference write gives the test connection, if the write
+/// is a saved-connection document write.
+String? _writtenBaseUrl(String key, Object? value) {
+  if (key != PreferenceKeys.hermesConnections || value is! String) return null;
+  return HermesConnectionsDocument.decode(value)?.connections
+      .where((profile) => profile.id == _id)
+      .firstOrNull
+      ?.baseUrl;
 }
 
 HermesDesktopCredentials _nativeCredentials(String token) =>

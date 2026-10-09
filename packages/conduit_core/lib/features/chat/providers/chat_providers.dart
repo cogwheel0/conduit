@@ -125,6 +125,7 @@ import 'package:conduit_core/features/chat/utils/follow_ups_socket_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_controller.dart';

@@ -6,6 +6,7 @@ import 'package:conduit_core/utils/unicode_prefix.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 
 enum HermesPendingDesktopDecisionKind {
@@ -30,6 +31,7 @@ final class HermesPendingDesktopDecision {
     this.choices = const <String>[],
     this.multiSelect = false,
     this.profile,
+    this.connectionId,
   });
 
   final String origin;
@@ -50,6 +52,16 @@ final class HermesPendingDesktopDecision {
   /// same-id decision in a different profile.
   final String? profile;
 
+  /// Saved Hermes connection that raised the decision. Null for records
+  /// written before saved connections existed; those match by origin alone.
+  final String? connectionId;
+
+  /// Whether this record belongs to [connectionId] (null matches any).
+  bool belongsTo(String? connectionId) =>
+      connectionId == null ||
+      this.connectionId == null ||
+      this.connectionId == connectionId;
+
   HermesDecisionKind? get decisionKind => switch (kind) {
     HermesPendingDesktopDecisionKind.approval => null,
     HermesPendingDesktopDecisionKind.clarification =>
@@ -59,7 +71,8 @@ final class HermesPendingDesktopDecision {
     HermesPendingDesktopDecisionKind.mcpSetup => HermesDecisionKind.mcpSetup,
   };
 
-  String get identity => '$origin\u0000$storedSessionId\u0000$requestId';
+  String get identity =>
+      '${connectionId ?? ''}\u0000$origin\u0000$storedSessionId\u0000$requestId';
 
   String toStorage() => jsonEncode(<String, Object?>{
     'origin': origin,
@@ -74,6 +87,7 @@ final class HermesPendingDesktopDecision {
     if (choices.isNotEmpty) 'choices': choices,
     if (multiSelect) 'multi_select': true,
     if (profile != null) 'profile': profile,
+    if (connectionId != null) 'connection_id': connectionId,
   });
 
   static HermesPendingDesktopDecision? fromStorage(String source) {
@@ -134,6 +148,10 @@ final class HermesPendingDesktopDecision {
             name,
           _ => null,
         },
+        connectionId: switch (value['connection_id']) {
+          final String id when HermesConnectionProfile.isValidId(id) => id,
+          _ => null,
+        },
       );
     } catch (_) {
       return null;
@@ -165,6 +183,7 @@ final class HermesPendingDecisionStore {
     bool multiSelect = false,
     Iterable<String> sensitiveValues = const <String>[],
     String? profile,
+    String? connectionId,
   }) => _serialize(() async {
     final stored = validateHermesOpaqueIdentifier(storedSessionId);
     final runtime = validateHermesOpaqueIdentifier(runtimeId);
@@ -179,11 +198,21 @@ final class HermesPendingDecisionStore {
       return;
     }
     final records = _read();
-    final identity = '$origin\u0000$stored\u0000$request';
+    final identity =
+        '${connectionId ?? ''}\u0000$origin\u0000$stored\u0000$request';
+    // A record written before saved connections existed is this same request.
+    // The connection adopts it, keeping its choices, instead of listing the
+    // request twice.
+    final legacyIdentity = connectionId == null
+        ? null
+        : '\u0000$origin\u0000$stored\u0000$request';
     HermesPendingDesktopDecision? previous;
+    HermesPendingDesktopDecision? legacy;
     for (final candidate in records) {
       if (candidate.identity == identity) previous = candidate;
+      if (candidate.identity == legacyIdentity) legacy = candidate;
     }
+    previous ??= legacy;
     final sanitizedChoices = _sanitizeChoices(choices)
         .map((choice) => _sanitizePrompt(choice, sensitiveValues))
         .whereType<String>()
@@ -198,6 +227,7 @@ final class HermesPendingDecisionStore {
       // Keep a previously recorded profile when a refresh omits it, so an
       // update can never silently drop a bot chat back to the connection.
       profile: profile ?? previous?.profile,
+      connectionId: connectionId,
       prompt: _sanitizePrompt(prompt, sensitiveValues),
       mcpServer: kind == HermesPendingDesktopDecisionKind.mcpSetup
           ? validateHermesBoundedString(mcpServer, maxCharacters: 128)
@@ -217,7 +247,11 @@ final class HermesPendingDecisionStore {
               : multiSelect),
     );
     records
-      ..removeWhere((candidate) => candidate.identity == record.identity)
+      ..removeWhere(
+        (candidate) =>
+            candidate.identity == record.identity ||
+            candidate.identity == legacyIdentity,
+      )
       ..add(record);
     await _write(records);
   });
@@ -226,9 +260,11 @@ final class HermesPendingDecisionStore {
     required String origin,
     required String runtimeId,
     required String requestId,
+    String? connectionId,
   }) => _remove(
     (record) =>
         record.origin == origin &&
+        record.belongsTo(connectionId) &&
         record.runtimeId == runtimeId &&
         record.requestId == requestId,
   );
@@ -236,25 +272,43 @@ final class HermesPendingDecisionStore {
   static Future<void> clearSession({
     required String origin,
     required String storedSessionId,
+    String? connectionId,
   }) => _remove(
     (record) =>
-        record.origin == origin && record.storedSessionId == storedSessionId,
+        record.origin == origin &&
+        record.belongsTo(connectionId) &&
+        record.storedSessionId == storedSessionId,
   );
 
   static Future<void> clearOrigin(String origin) =>
       _remove((record) => record.origin == origin);
+
+  /// Removes one saved connection's records, plus records written before
+  /// saved connections existed for its [origin].
+  static Future<void> clearConnection({
+    required String connectionId,
+    String? origin,
+  }) => _remove(
+    (record) =>
+        record.connectionId == connectionId ||
+        (record.connectionId == null &&
+            origin != null &&
+            record.origin == origin),
+  );
 
   static Future<void> rebindSession({
     required String origin,
     required String fromStoredSessionId,
     required String toStoredSessionId,
     required String runtimeId,
+    String? connectionId,
   }) => _serialize(() async {
     final records = _read();
     final rebound = <HermesPendingDesktopDecision>[];
     for (final record in records) {
       final candidate =
           record.origin == origin &&
+              record.belongsTo(connectionId) &&
               record.storedSessionId == fromStoredSessionId
           ? HermesPendingDesktopDecision(
               origin: record.origin,
@@ -271,6 +325,7 @@ final class HermesPendingDecisionStore {
               // A rebind (compaction lineage) must not drop the owning bot
               // profile, or the rebound decision answers under the connection.
               profile: record.profile,
+              connectionId: record.connectionId,
             )
           : record;
       rebound.removeWhere(
@@ -284,6 +339,7 @@ final class HermesPendingDecisionStore {
   static Future<List<HermesPendingDesktopDecision>> forSession({
     required String origin,
     required String storedSessionId,
+    String? connectionId,
   }) async {
     var records = const <HermesPendingDesktopDecision>[];
     await _serialize(() async {
@@ -294,6 +350,7 @@ final class HermesPendingDecisionStore {
       records.where(
         (record) =>
             record.origin == origin &&
+            record.belongsTo(connectionId) &&
             record.storedSessionId == storedSessionId,
       ),
     );

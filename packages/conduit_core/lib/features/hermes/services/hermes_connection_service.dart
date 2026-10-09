@@ -1,9 +1,12 @@
+import 'package:collection/collection.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
@@ -19,28 +22,43 @@ final class _RiverpodHermesConnectionGateway
 
   final Ref _ref;
 
-  @override
-  Future<bool> probe(HermesConfig draft) async {
-    if (draft.mode != HermesBackendMode.desktopGateway) {
-      return testHermesDraftConnection(draft);
-    }
+  /// The live service when [draft] is exactly the active Desktop connection.
+  HermesDesktopApiService? _liveDesktopServiceFor(HermesConfig draft) {
     final current = _ref.read(hermesConfigProvider);
     final live = _ref.read(hermesApiServiceProvider);
-    final sameConnection = hermesDesktopConnectionMatches(current, draft);
-    if (sameConnection && live is HermesDesktopApiService) {
-      return live.health();
-    }
-    // During onboarding (and before the Hermes toggle is enabled) there is no
-    // live service, so probe with a throwaway one. Persist a refresh-token
-    // rotation only when the draft is the saved gateway, so testing a
-    // different draft can never overwrite or clear the saved credentials
-    // (issue #683).
-    final persistRotations =
-        sameConnection && draft.desktopCredentials?.nativeTokens != null;
-    final writeCredentials = persistRotations
-        ? _ref.read(hermesConfigProvider.notifier).nativeCredentialsWriter()
+    return draft.connectionId == current.connectionId &&
+            hermesDesktopConnectionMatches(current, draft) &&
+            live is HermesDesktopApiService
+        ? live
         : null;
-    final service = HermesDesktopApiService(
+  }
+
+  /// A throwaway Desktop client for a draft that has no live service, as
+  /// during onboarding, before Hermes is enabled, or for an inactive
+  /// connection.
+  HermesDesktopApiService _temporaryDesktopService(HermesConfig draft) {
+    final current = _ref.read(hermesConfigProvider);
+    final notifier = _ref.read(hermesConfigProvider.notifier);
+    final targetsActive = draft.connectionId == current.connectionId;
+    // Persist a refresh-token rotation only for a saved connection the draft
+    // still matches: testing a different draft can never overwrite or clear
+    // the saved credentials (issue #683). Each writer replaces only the
+    // tokens its client holds, so a client built from tokens another one has
+    // since rotated (a probe, then a name lookup) cannot clear them. An
+    // inactive connection's writer re-checks the stored connection at write
+    // time.
+    final HermesDesktopCredentialsWriter? writeCredentials;
+    if (draft.connectionId == null ||
+        draft.desktopCredentials?.nativeTokens == null) {
+      writeCredentials = null;
+    } else if (targetsActive) {
+      writeCredentials = hermesDesktopConnectionMatches(current, draft)
+          ? notifier.credentialsWriterFor(draft)
+          : null;
+    } else {
+      writeCredentials = notifier.credentialsWriterFor(draft);
+    }
+    return HermesDesktopApiService(
       config: draft.copyWith(enabled: true),
       // Dashboard-cookie gateways answer only through the host's WebView
       // bridge; it opens with the draft's own root and access headers.
@@ -49,6 +67,16 @@ final class _RiverpodHermesConnectionGateway
       ),
       onCredentialsChanged: writeCredentials,
     );
+  }
+
+  @override
+  Future<bool> probe(HermesConfig draft) async {
+    if (draft.mode != HermesBackendMode.desktopGateway) {
+      return testHermesDraftConnection(draft);
+    }
+    final live = _liveDesktopServiceFor(draft);
+    if (live != null) return live.health();
+    final service = _temporaryDesktopService(draft);
     try {
       return await service.health();
     } finally {
@@ -56,23 +84,96 @@ final class _RiverpodHermesConnectionGateway
     }
   }
 
+  /// Names Hermes reports when nothing was configured: the API server's
+  /// default model id and the Desktop default profile. They say nothing about
+  /// the connection, so they never replace a name.
+  static const Set<String> _placeholderNames = {'hermes-agent', 'default'};
+
   @override
-  Future<void> persist(HermesConnectionDraft draft) {
-    return _ref
-        .read(hermesConfigProvider.notifier)
-        .saveConnection(
-          baseUrl: draft.config.baseUrl,
-          mode: draft.config.mode,
-          desktopAuthKind: draft.config.desktopAuthKind,
-          desktopProfile: draft.config.desktopProfile,
-          allowSelfSignedCertificates: draft.config.allowSelfSignedCertificates,
-          apiKeyChanged: draft.apiKeyChanged,
-          apiKey: draft.config.apiKey,
-          sessionKeyChanged: draft.sessionKeyChanged,
-          sessionKey: draft.config.sessionKey,
-          desktopCredentialsChanged: draft.desktopCredentialsChanged,
-          desktopCredentials: draft.config.desktopCredentials,
+  Future<String?> suggestDisplayName(HermesConfig draft) async {
+    try {
+      final suggestion = await _suggestDisplayName(
+        draft,
+      ).timeout(const Duration(seconds: 15));
+      return suggestion == null ||
+              _placeholderNames.contains(suggestion.toLowerCase())
+          ? null
+          : suggestion;
+    } catch (error) {
+      // A name is a convenience; the probe already reported reachability.
+      DebugLogger.warning(
+        'name-suggestion-failed',
+        scope: 'hermes/connections',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return null;
+    }
+  }
+
+  Future<String?> _suggestDisplayName(HermesConfig draft) async {
+    if (draft.mode == HermesBackendMode.desktopGateway) {
+      final live = _liveDesktopServiceFor(draft);
+      if (live != null) {
+        return HermesConnectionProfile.sanitizeName(
+          await live.suggestedDisplayName(),
         );
+      }
+      final service = _temporaryDesktopService(draft);
+      try {
+        return HermesConnectionProfile.sanitizeName(
+          await service.suggestedDisplayName(),
+        );
+      } finally {
+        service.close();
+      }
+    }
+    final service = HermesApiService(config: draft.copyWith(enabled: true));
+    try {
+      return HermesConnectionProfile.sanitizeName(
+        await service.suggestedDisplayName(),
+      );
+    } finally {
+      service.close();
+    }
+  }
+
+  @override
+  Future<String?> persist(HermesConnectionDraft draft) async {
+    final notifier = _ref.read(hermesConfigProvider.notifier);
+    final config = draft.config;
+    final targetId = config.connectionId;
+    if (targetId == null &&
+        _ref.read(hermesConfigProvider).connectionId != null) {
+      // A new connection beside the active one is saved without switching.
+      return notifier.createConnection(
+        baseUrl: config.baseUrl,
+        name: config.name,
+        nameSource: draft.nameSource,
+        mode: config.mode,
+        desktopAuthKind: config.desktopAuthKind,
+        desktopProfile: config.desktopProfile,
+        allowSelfSignedCertificates: config.allowSelfSignedCertificates,
+        apiKey: config.apiKey,
+        sessionKey: config.sessionKey,
+        desktopCredentials: config.desktopCredentials,
+      );
+    }
+    return notifier.saveConnection(
+      connectionId: targetId,
+      baseUrl: config.baseUrl,
+      name: config.name,
+      nameSource: draft.nameSource,
+      mode: config.mode,
+      desktopAuthKind: config.desktopAuthKind,
+      desktopProfile: config.desktopProfile,
+      allowSelfSignedCertificates: config.allowSelfSignedCertificates,
+      apiKeyChanged: draft.apiKeyChanged,
+      apiKey: config.apiKey,
+      sessionKeyChanged: draft.sessionKeyChanged,
+      sessionKey: config.sessionKey,
+      desktopCredentialsChanged: draft.desktopCredentialsChanged,
+      desktopCredentials: config.desktopCredentials,
+    );
   }
 
   @override
@@ -91,34 +192,65 @@ final class _RiverpodHermesConnectionGateway
     }
     if (!isCurrent()) throw const HermesConnectionCommitCancelled();
     final previousConfig = _ref.read(hermesConfigProvider);
+    final previousActiveId = previousConfig.connectionId;
+    final previousProfile = notifier.connections.firstWhereOrNull(
+      (profile) => profile.id == previousActiveId,
+    );
     final previousBackend = _ref.read(preferredBackendProvider);
     final preferredBackend = _ref.read(preferredBackendProvider.notifier);
 
+    // The connection onboarding saved. Not whichever is active at rollback:
+    // a switch elsewhere meanwhile must not get that connection deleted.
+    String? created;
+    Future<void> restoreConnection() async {
+      if (previousActiveId == null) {
+        // Onboarding created the first connection; remove it again.
+        final id = created;
+        if (id != null) await notifier.deleteConnection(id);
+        return;
+      }
+      await notifier.saveConnection(
+        connectionId: previousActiveId,
+        baseUrl: previousConfig.baseUrl,
+        name: previousProfile?.name,
+        nameSource: previousProfile?.nameSource,
+        mode: previousConfig.mode,
+        desktopAuthKind: previousConfig.desktopAuthKind,
+        desktopProfile: previousConfig.desktopProfile,
+        allowSelfSignedCertificates: previousConfig.allowSelfSignedCertificates,
+        apiKeyChanged: true,
+        apiKey: previousConfig.apiKey,
+        sessionKeyChanged: true,
+        sessionKey: previousConfig.sessionKey,
+        desktopCredentialsChanged: true,
+        desktopCredentials: previousConfig.desktopCredentials,
+      );
+    }
+
+    // Onboarding sets up the active connection (or the first one), never a
+    // second connection beside it.
+    final target = HermesConnectionDraft(
+      config: draft.config.copyWith(
+        connectionId: draft.config.connectionId ?? previousActiveId,
+      ),
+      apiKeyChanged: draft.apiKeyChanged,
+      sessionKeyChanged: draft.sessionKeyChanged,
+      desktopCredentialsChanged: draft.desktopCredentialsChanged,
+      nameSource: draft.nameSource,
+    );
+
     await runHermesOnboardingCommit(
       isCurrent: isCurrent,
-      persist: () => persist(draft),
+      persist: () async => created = await persist(target),
       enable: () => notifier.setEnabled(true),
-      ensureSessionKey: draft.config.mode == HermesBackendMode.responsesApi
+      ensureSessionKey: target.config.mode == HermesBackendMode.responsesApi
           ? notifier.ensureSessionKey
           : () async => '',
       selectBackend: () => preferredBackend.set(PreferredBackend.hermes),
       rollback: () => runHermesOnboardingRollback(
         previousEnabled: previousConfig.enabled,
         setEnabled: notifier.setEnabled,
-        restoreConnection: () => notifier.saveConnection(
-          baseUrl: previousConfig.baseUrl,
-          mode: previousConfig.mode,
-          desktopAuthKind: previousConfig.desktopAuthKind,
-          desktopProfile: previousConfig.desktopProfile,
-          allowSelfSignedCertificates:
-              previousConfig.allowSelfSignedCertificates,
-          apiKeyChanged: true,
-          apiKey: previousConfig.apiKey,
-          sessionKeyChanged: true,
-          sessionKey: previousConfig.sessionKey,
-          desktopCredentialsChanged: true,
-          desktopCredentials: previousConfig.desktopCredentials,
-        ),
+        restoreConnection: restoreConnection,
         restoreBackend: () => preferredBackend.set(previousBackend),
       ),
     );

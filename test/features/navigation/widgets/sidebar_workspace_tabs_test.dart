@@ -332,6 +332,33 @@ void main() {
     expect(find.byType(UserAvatar), findsOneWidget);
   });
 
+  testWidgets('Hermes-only profile entry shows the active connection', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(true),
+          hermesActiveConnectionNameProvider.overrideWithValue('Home Lab'),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<UserAvatar>(find.byType(UserAvatar)).fallbackText,
+      'HL',
+    );
+  });
+
   testWidgets('accountless direct profile click opens generic settings', (
     tester,
   ) async {

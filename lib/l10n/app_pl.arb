@@ -7607,6 +7607,52 @@
   "chatDataControlsUnsharedAll": "Usunięto wszystkie linki udostępniania.",
   "chatDataControlsDeletedAll": "Usunięto wszystkie czaty.",
   "notificationTargetMakeDefaultNeedsSave": "Zapisz zmiany, aby ustawić to jako domyślne.",
+  "hermesConnectionsSectionTitle": "Połączenia",
+  "hermesAddConnection": "Dodaj połączenie",
+  "hermesNewConnectionTitle": "Nowe połączenie",
+  "hermesConnectionNameHint": "Wyświetlana w wyborze modelu i na pasku bocznym",
+  "hermesNoConnectionsTitle": "Brak połączeń Hermes",
+  "hermesNoConnectionsSubtitle": "Dodaj serwer Hermes, aby rozmawiać ze swoim agentem.",
+  "hermesActiveConnection": "Aktywne",
+  "hermesUseConnection": "Użyj tego połączenia",
+  "hermesInactiveConnectionNotice": "Przełącz się na to połączenie, aby zobaczyć jego stan i zarządzać serwerem.",
+  "hermesSignInActivatesConnection": "Zalogowanie sprawi, że to połączenie stanie się aktywne.",
+  "hermesDeleteConnectionTitle": "Usunąć połączenie?",
+  "hermesDeleteConnectionMessage": "Spowoduje to usunięcie połączenia „{name}” i zapisanych dla niego danych logowania z tego urządzenia.",
+  "@hermesDeleteConnectionMessage": {
+    "description": "Confirmation message before deleting a saved Hermes connection and its credentials.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Home agent"
+      }
+    }
+  },
+  "hermesDeleteConnectionFailed": "Nie można usunąć tego połączenia.",
+  "hermesSwitchConnectionFailed": "Nie można przełączyć na to połączenie.",
+  "hermesSwitchConnectionTitle": "Przełącz połączenie",
+  "hermesSwitchConnectionPromptTitle": "Przełączyć na „{name}”?",
+  "@hermesSwitchConnectionPromptTitle": {
+    "description": "Title of the dialog asking whether to switch to the Hermes connection that owns a chat session.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Home agent"
+      }
+    }
+  },
+  "hermesSwitchConnectionPromptMessage": "Sesja Hermes tego czatu należy do połączenia „{name}”. Przełącz się, aby ją kontynuować, albo zostań przy obecnym połączeniu, aby rozpocząć nową sesję.",
+  "@hermesSwitchConnectionPromptMessage": {
+    "description": "Message of the dialog asking whether to switch to the Hermes connection that owns this chat's session.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Home agent"
+      }
+    }
+  },
+  "hermesSwitchConnectionConfirm": "Przełącz",
+  "hermesKeepCurrentConnection": "Zostań przy obecnym",
   "accountsTitle": "Konta",
   "accountsAddAccount": "Dodaj konto",
   "accountsManage": "Zarządzaj kontami",

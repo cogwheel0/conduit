@@ -75,12 +75,14 @@ List<Model> sanitizeRemoteHermesModels(Iterable<Model> models) => models
     )
     .toList(growable: false);
 
-/// Builds the synthetic "Hermes Agent" model surfaced in the picker when the
-/// feature is enabled.
-Model hermesSyntheticModel() {
+/// Builds the synthetic Hermes model surfaced in the picker when the feature
+/// is enabled, named after the active saved connection ([name]) or
+/// "Hermes Agent" without one.
+Model hermesSyntheticModel({String? name}) {
+  final trimmed = name?.trim();
   final model = Model(
     id: kHermesDefaultModelId,
-    name: 'Hermes Agent',
+    name: trimmed == null || trimmed.isEmpty ? 'Hermes Agent' : trimmed,
     description: 'Your self-hosted Hermes agent',
     supportsStreaming: true,
     metadata: const {

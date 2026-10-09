@@ -1,4 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoActivityIndicator;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -252,4 +253,32 @@ void main() {
     expect(indicator.semanticsLabel, 'Upload');
     expect(indicator.semanticsValue, '40%');
   });
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('activity progress keeps its radius on ${platform.name}', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      const color = Color(0xFF3366CC);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData(platform: platform),
+          home: const Scaffold(
+            body: Center(
+              child: AdaptiveProgressIndicator.activity(
+                radius: 8,
+                color: color,
+              ),
+            ),
+          ),
+        ),
+      );
+      final spinner = find.byType(CupertinoActivityIndicator);
+      final indicator = tester.widget<CupertinoActivityIndicator>(spinner);
+      expect(indicator.radius, 8);
+      expect(indicator.color, color);
+      expect(tester.getSize(spinner), const Size.square(16));
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+    });
+  }
 }

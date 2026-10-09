@@ -485,3 +485,50 @@ class _SettingsBadge extends StatelessWidget {
     );
   }
 }
+
+/// Explains a secure-storage outage that keeps Hermes credentials unreadable
+/// and offers a retry. Renders nothing while credentials are readable.
+class HermesSecretsErrorBanner extends ConsumerWidget {
+  const HermesSecretsErrorBanner({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final secretsError = ref.watch(hermesSecretsErrorProvider);
+    if (secretsError == null) return const SizedBox.shrink();
+    final secretsLoading = ref.watch(hermesSecretsLoadingProvider);
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return Container(
+      margin: const EdgeInsets.only(bottom: Spacing.lg),
+      padding: const EdgeInsets.all(Spacing.md),
+      decoration: BoxDecoration(
+        color: theme.error.withValues(alpha: 0.08),
+        border: Border.all(color: theme.error.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.lock_outline, color: theme.error),
+          const SizedBox(width: Spacing.sm),
+          Expanded(
+            child: Text(
+              l10n.hermesSecretsUnavailable,
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: theme.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(width: Spacing.sm),
+          ConduitButton(
+            text: l10n.retry,
+            isSecondary: true,
+            isLoading: secretsLoading,
+            onPressed: secretsLoading
+                ? null
+                : () => ref.read(hermesConfigProvider.notifier).retrySecrets(),
+          ),
+        ],
+      ),
+    );
+  }
+}
