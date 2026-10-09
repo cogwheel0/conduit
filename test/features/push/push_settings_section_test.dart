@@ -447,9 +447,16 @@ void main() {
       expect(fake.calls, ['sendTest $_owuiScope']);
       expect(find.text('The test notification arrived.'), findsOneWidget);
 
-      await tester.tap(find.text('All my chats'));
+      await tester.tap(find.byKey(const Key('push-origin-any')));
       await tester.pumpAndSettle();
       expect(fake.calls.last, 'setOrigin $_owuiScope any');
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('push-origin-any')),
+          matching: find.byType(ActiveCheckmark),
+        ),
+        findsOneWidget,
+      );
 
       await tester.tap(
         find.descendant(
@@ -480,6 +487,33 @@ void main() {
       );
       // Hermes has no reply origin choice.
       expect(find.text('All my chats'), findsNothing);
+    });
+
+    testWidgets('a failure says what happens next', (tester) async {
+      await _pump(
+        tester,
+        pushStateWith([
+          _owui(
+            PushStatus.failed,
+            failure: const PushFailure(PushFailureReason.relayError),
+          ),
+        ]),
+      );
+      await tester.tap(_inRow(_owuiScope, find.text('ada@example.com')));
+      await tester.pumpAndSettle();
+      final status = tester.widget<Text>(
+        find.byKey(const Key('push-detail-status')),
+      );
+      expect(status.data, "The push relay couldn't be reached.");
+      final explanation = tester.widget<Text>(
+        find.byKey(const Key('push-detail-explanation')),
+      );
+      expect(
+        explanation.data,
+        'Conduit tries again by itself the next time you open it, or you '
+        'can try again now.',
+      );
+      expect(find.byKey(const Key('push-detail-action')), findsOneWidget);
     });
   });
 

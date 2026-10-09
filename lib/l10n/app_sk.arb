@@ -6111,5 +6111,6 @@
   "notificationScheduledDescription": "Upozorniť, keď naplánovaná úloha Hermes doručí výsledok.",
   "hermesJobNotifyTitle": "Upozorniť ma",
   "hermesJobNotifyDescription": "Poslať push upozornenie, keď táto úloha doručí výsledok.",
-  "pushAskAdminMessage": "Mohol by si na našom serveri Open WebUI nastaviť Conduit Push? Conduit potom môže posielať koncovo šifrované push upozornenia. V Paneli správcu → Funkcie importuj {url} a nastav ID funkcie na {functionId}. Návod: {guide}"
+  "pushAskAdminMessage": "Mohol by si na našom serveri Open WebUI nastaviť Conduit Push? Conduit potom môže posielať koncovo šifrované push upozornenia. V Paneli správcu → Funkcie importuj {url} a nastav ID funkcie na {functionId}. Návod: {guide}",
+  "pushExplainFailed": "Conduit to skúsi znova sám, keď ho nabudúce otvoríte, alebo to môžete skúsiť znova hneď."
 }

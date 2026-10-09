@@ -5805,5 +5805,6 @@
   "notificationScheduledDescription": "Hermes のスケジュールされたタスクが結果を届けたときに通知します。",
   "hermesJobNotifyTitle": "通知する",
   "hermesJobNotifyDescription": "このジョブが結果を届けたときにプッシュ通知を送ります。",
-  "pushAskAdminMessage": "うちの Open WebUI サーバーに Conduit Push を設定してもらえますか? これで Conduit がエンドツーエンドで暗号化されたプッシュ通知を送れるようになります。管理者パネル → 関数 で {url} をインポートし、関数 ID を {functionId} にしてください。設定ガイド: {guide}"
+  "pushAskAdminMessage": "うちの Open WebUI サーバーに Conduit Push を設定してもらえますか? これで Conduit がエンドツーエンドで暗号化されたプッシュ通知を送れるようになります。管理者パネル → 関数 で {url} をインポートし、関数 ID を {functionId} にしてください。設定ガイド: {guide}",
+  "pushExplainFailed": "次に Conduit を開いたときに自動で再試行します。今すぐ再試行することもできます。"
 }

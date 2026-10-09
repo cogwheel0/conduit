@@ -7866,5 +7866,6 @@
         "example": "https://github.com/cogwheel0/conduit/blob/main/docs/push/ADMIN_SETUP.md"
       }
     }
-  }
+  },
+  "pushExplainFailed": "Conduit spróbuje ponownie sam przy następnym otwarciu, albo możesz spróbować ponownie teraz."
 }

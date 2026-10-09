@@ -9075,5 +9075,9 @@
         "example": "https://github.com/cogwheel0/conduit/blob/main/docs/push/ADMIN_SETUP.md"
       }
     }
+  },
+  "pushExplainFailed": "Conduit tries again by itself the next time you open it, or you can try again now.",
+  "@pushExplainFailed": {
+    "description": "Detail-sheet explanation under a push failure (the failure itself is the heading above it); a Retry button follows."
   }
 }

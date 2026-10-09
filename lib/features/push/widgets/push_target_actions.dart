@@ -157,7 +157,8 @@ String pushStatusExplanation(AppLocalizations l10n, PushTargetState target) {
     PushStatus.signInNeeded => l10n.pushExplainSignInNeeded,
     PushStatus.relayUnavailable => l10n.pushExplainRelayUnavailable,
     PushStatus.permissionDenied => l10n.pushExplainPermissionDenied,
-    PushStatus.failed => pushFailureText(l10n, target.failure),
+    // The failure itself is the status line above this.
+    PushStatus.failed => l10n.pushExplainFailed,
   };
 }
 

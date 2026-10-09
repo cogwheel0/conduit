@@ -326,9 +326,11 @@ void main() {
     final row = native
         .items(_detail)
         .singleWhere((item) => item.id == NativeSheetRoutes.pushTargets);
+    expect(row.title, 'Accounts');
     expect(row.subtitle, 'Push needs attention');
     final detail = native.patches.last.detailSheets!.single;
     expect(detail.id, NativeSheetRoutes.pushTargets);
+    expect(detail.title, 'Accounts');
     final rows = [for (final s in detail.sections) ...s.items];
     final owui = rows.singleWhere(
       (item) => item.id == 'push-target:${pushOwuiTarget.scope}',

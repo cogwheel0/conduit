@@ -4289,5 +4289,6 @@
   "notificationScheduledDescription": "Benachrichtigen, wenn eine geplante Hermes-Aufgabe ihr Ergebnis liefert.",
   "hermesJobNotifyTitle": "Benachrichtige mich",
   "hermesJobNotifyDescription": "Eine Push-Benachrichtigung senden, wenn dieser Job ein Ergebnis liefert.",
-  "pushAskAdminMessage": "Könntest du Conduit Push auf unserem Open-WebUI-Server einrichten? Damit kann Conduit Ende-zu-Ende-verschlüsselte Push-Benachrichtigungen senden. Importiere unter Admin-Bereich → Funktionen {url} und setze die Funktions-ID auf {functionId}. Anleitung: {guide}"
+  "pushAskAdminMessage": "Könntest du Conduit Push auf unserem Open-WebUI-Server einrichten? Damit kann Conduit Ende-zu-Ende-verschlüsselte Push-Benachrichtigungen senden. Importiere unter Admin-Bereich → Funktionen {url} und setze die Funktions-ID auf {functionId}. Anleitung: {guide}",
+  "pushExplainFailed": "Conduit versucht es beim nächsten Öffnen von selbst erneut. Du kannst es auch jetzt noch einmal versuchen."
 }

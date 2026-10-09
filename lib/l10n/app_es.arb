@@ -4289,5 +4289,6 @@
   "notificationScheduledDescription": "Avisar cuando una tarea programada de Hermes entregue su resultado.",
   "hermesJobNotifyTitle": "Avisarme",
   "hermesJobNotifyDescription": "Enviar una notificación push cuando esta tarea entregue un resultado.",
-  "pushAskAdminMessage": "¿Podrías configurar Conduit Push en nuestro servidor de Open WebUI? Permite a Conduit enviar notificaciones push con cifrado de extremo a extremo. En Panel de administración → Funciones, importa {url} y pon {functionId} como ID de la función. Guía: {guide}"
+  "pushAskAdminMessage": "¿Podrías configurar Conduit Push en nuestro servidor de Open WebUI? Permite a Conduit enviar notificaciones push con cifrado de extremo a extremo. En Panel de administración → Funciones, importa {url} y pon {functionId} como ID de la función. Guía: {guide}",
+  "pushExplainFailed": "Conduit lo volverá a intentar solo la próxima vez que lo abras, o puedes volver a intentarlo ahora."
 }

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
@@ -16,7 +15,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/utility_components.dart';
-import '../../profile/widgets/adaptive_segmented_selector.dart';
+import '../../profile/widgets/account_actions.dart' show ActiveCheckmark;
 import 'push_target_actions.dart';
 
 /// Opens the detail sheet of the push target [scope].
@@ -145,35 +144,33 @@ class _PushTargetDetailSheetState extends ConsumerState<PushTargetDetailSheet> {
         ),
         if (isOpenWebUi) ...[
           const SizedBox(height: Spacing.md),
-          InsetGroupedSection(
+          // Rows rather than a segmented control: the labels are long in
+          // several languages.
+          InsetGroupedList(
+            key: const Key('push-detail-origin'),
             title: l10n.pushDetailOriginTitle,
             description: l10n.pushDetailOriginDescription,
-            child: AdaptiveSegmentedSelector<PushOrigin>(
-              key: const Key('push-detail-origin'),
-              value: target.origin,
-              showIcons: false,
-              onChanged: (origin) => unawaited(
-                ref
-                    .read(pushCoordinatorProvider.notifier)
-                    .setOrigin(widget.scope, origin),
-              ),
-              options: [
-                (
-                  value: PushOrigin.conduit,
-                  label: l10n.pushOriginConduit,
-                  cupertinoIcon: CupertinoIcons.device_phone_portrait,
-                  materialIcon: Icons.smartphone,
-                  enabled: true,
+            children: [
+              for (final (origin, label) in [
+                (PushOrigin.conduit, l10n.pushOriginConduit),
+                (PushOrigin.any, l10n.pushOriginAny),
+              ])
+                UtilityRow(
+                  key: Key('push-origin-${origin.name}'),
+                  title: label,
+                  selected: target.origin == origin,
+                  trailing: target.origin == origin
+                      ? ActiveCheckmark(semanticLabel: label)
+                      : null,
+                  onTap: target.origin == origin
+                      ? null
+                      : () => unawaited(
+                          ref
+                              .read(pushCoordinatorProvider.notifier)
+                              .setOrigin(widget.scope, origin),
+                        ),
                 ),
-                (
-                  value: PushOrigin.any,
-                  label: l10n.pushOriginAny,
-                  cupertinoIcon: CupertinoIcons.chat_bubble_2,
-                  materialIcon: Icons.forum_outlined,
-                  enabled: true,
-                ),
-              ],
-            ),
+            ],
           ),
         ],
         const SizedBox(height: Spacing.md),

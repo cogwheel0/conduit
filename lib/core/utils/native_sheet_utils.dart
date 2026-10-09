@@ -1150,7 +1150,8 @@ NativeSheetSectionConfig buildNativePushSection(
       if (enabled && push != null)
         NativeSheetItemConfig(
           id: NativeSheetRoutes.pushTargets,
-          title: l10n.pushSectionTitle,
+          // Each account and connection, with its push status.
+          title: l10n.accountsTitle,
           subtitle: attention.isEmpty
               ? null
               : l10n.pushAttentionChip,
@@ -1194,7 +1195,7 @@ NativeSheetDetailConfig buildNativePushTargetsDetail(
 
   return NativeSheetDetailConfig(
     id: NativeSheetRoutes.pushTargets,
-    title: l10n.pushSectionTitle,
+    title: l10n.accountsTitle,
     sections: [
       if (push.enabled && push.permissionDenied)
         NativeSheetSectionConfig(

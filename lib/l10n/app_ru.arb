@@ -4327,5 +4327,6 @@
   "notificationScheduledDescription": "Уведомлять, когда запланированная задача Hermes присылает результат.",
   "hermesJobNotifyTitle": "Уведомить меня",
   "hermesJobNotifyDescription": "Отправлять push-уведомление, когда эта задача присылает результат.",
-  "pushAskAdminMessage": "Можешь настроить Conduit Push на нашем сервере Open WebUI? Это позволит Conduit отправлять push-уведомления со сквозным шифрованием. В разделе Панель администратора → Функции импортируй {url} и укажи ID функции {functionId}. Инструкция: {guide}"
+  "pushAskAdminMessage": "Можешь настроить Conduit Push на нашем сервере Open WebUI? Это позволит Conduit отправлять push-уведомления со сквозным шифрованием. В разделе Панель администратора → Функции импортируй {url} и укажи ID функции {functionId}. Инструкция: {guide}",
+  "pushExplainFailed": "Conduit сам попробует снова при следующем открытии, или вы можете повторить попытку сейчас."
 }

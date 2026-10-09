@@ -4289,5 +4289,6 @@
   "notificationScheduledDescription": "Hermes 排程工作交付結果時通知。",
   "hermesJobNotifyTitle": "通知我",
   "hermesJobNotifyDescription": "此工作交付結果時傳送推播通知。",
-  "pushAskAdminMessage": "可以在我們的 Open WebUI 伺服器上設定 Conduit Push 嗎？這樣 Conduit 就能傳送端對端加密的推播通知。請在「管理員面板 → 函式」中匯入 {url}，並把函式 ID 設為 {functionId}。設定指南：{guide}"
+  "pushAskAdminMessage": "可以在我們的 Open WebUI 伺服器上設定 Conduit Push 嗎？這樣 Conduit 就能傳送端對端加密的推播通知。請在「管理員面板 → 函式」中匯入 {url}，並把函式 ID 設為 {functionId}。設定指南：{guide}",
+  "pushExplainFailed": "Conduit 會在你下次開啟時自動重試，你也可以現在重試。"
 }
