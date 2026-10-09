@@ -72,6 +72,7 @@ import '../../features/notifications/providers/direct_notification_bridge.dart';
 import '../../features/notifications/providers/hermes_notification_bridge.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
 import '../../features/notifications/providers/notification_tap_listener.dart';
+import '../../features/notifications/providers/push_notification_listener.dart';
 import '../../shared/theme/theme_providers.dart';
 
 part 'app_startup_providers.g.dart';
@@ -1189,6 +1190,11 @@ class AppStartupFlow extends _$AppStartupFlow {
           .read(notificationTapListenerProvider.notifier)
           .handleLaunchTap(openWebUiReady: true),
     );
+    unawaited(
+      ref
+          .read(pushNotificationListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: true),
+    );
     _scheduleDefaultModelPreload(
       keepDefaultModelAutoSelectionAlive: keepDefaultModelAutoSelectionAlive,
     );
@@ -1296,6 +1302,9 @@ class AppStartupFlow extends _$AppStartupFlow {
     // Hermes turns this app ran notify too, deduplicated against push.
     _keepAlive(directNotificationBridgeProvider);
     _keepAlive(hermesNotificationBridgeProvider);
+    // Pushes decrypted while the app is open, and push taps, follow the same
+    // rules; so does a push that cold-launched the app.
+    _keepAlive(pushNotificationListenerProvider);
     unawaited(
       ref
           .read(notificationTapListenerProvider.notifier)
@@ -1308,6 +1317,11 @@ class AppStartupFlow extends _$AppStartupFlow {
               stackTrace: stackTrace,
             );
           }),
+    );
+    unawaited(
+      ref
+          .read(pushNotificationListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: false),
     );
     _scheduleStartupTasks();
 

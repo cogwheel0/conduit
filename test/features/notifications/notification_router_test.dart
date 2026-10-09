@@ -405,6 +405,15 @@ void main() {
       await build(foreground: true).route(_chat());
       check(claims).isEmpty();
     });
+
+    test('a push the extension already claimed is posted unclaimed', () async {
+      claimResult = false;
+      final router = build(foreground: false);
+      check(
+        await router.route(_chat(), alreadyClaimed: true),
+      ).equals(NotificationSurface.system);
+      check(claims).isEmpty();
+    });
   });
 
   group('Hermes session window', () {

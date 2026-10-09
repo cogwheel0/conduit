@@ -19,6 +19,7 @@ import 'package:conduit_core/features/channels/providers/channel_providers.dart'
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 import '../services/local_notification_service.dart';
 import '../services/notification_tap_router.dart';
@@ -44,7 +45,34 @@ NotificationRouter notificationRouter(Ref ref) {
     sound: ref.read(notificationSoundServiceProvider),
     showInAppBanner: (n) => _showInAppBanner(ref, n),
     onChannelUnread: (n) => _bumpChannelUnread(ref, n),
+    // The ledger the push extension shares: a socket notification and a push
+    // for the same event never both show.
+    claim: (dedupKey, localNotificationId) =>
+        _claimForPush(ref, dedupKey, localNotificationId),
   );
+}
+
+Future<bool> _claimForPush(
+  Ref ref,
+  String dedupKey,
+  String? localNotificationId,
+) async {
+  try {
+    return await ref
+        .read(pushPlatformPortProvider)
+        .claimNotification(
+          dedupKey,
+          localNotificationId: localNotificationId,
+        );
+  } catch (error) {
+    // Without the ledger nothing else can have shown it.
+    DebugLogger.warning(
+      'push-claim-failed',
+      scope: 'notifications/center',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    return true;
+  }
 }
 
 bool _isAppForeground() {
