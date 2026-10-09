@@ -111,6 +111,7 @@ class NativeProfileRootVisibility {
     this.showScheduledTasks = false,
     this.showPersonalConnections = false,
     this.showChatDataControls = false,
+    this.showNotificationsWithoutAccount = false,
   });
 
   final bool showCalendar;
@@ -119,6 +120,10 @@ class NativeProfileRootVisibility {
   final bool showPersonalConnections;
   final bool showChatDataControls;
 
+  /// Whether Notifications is listed when there is no Open WebUI account
+  /// (with one it always is): a Hermes connection is saved, or push is on.
+  final bool showNotificationsWithoutAccount;
+
   @override
   bool operator ==(Object other) =>
       other is NativeProfileRootVisibility &&
@@ -126,7 +131,9 @@ class NativeProfileRootVisibility {
       other.canManageWorkspace == canManageWorkspace &&
       other.showScheduledTasks == showScheduledTasks &&
       other.showPersonalConnections == showPersonalConnections &&
-      other.showChatDataControls == showChatDataControls;
+      other.showChatDataControls == showChatDataControls &&
+      other.showNotificationsWithoutAccount ==
+          showNotificationsWithoutAccount;
 
   @override
   int get hashCode => Object.hash(
@@ -135,6 +142,7 @@ class NativeProfileRootVisibility {
     showScheduledTasks,
     showPersonalConnections,
     showChatDataControls,
+    showNotificationsWithoutAccount,
   );
 }
 
@@ -172,6 +180,11 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   int? otherAccountCount = 0,
 }) {
   final hasAccount = account != null;
+  final notificationsItem = NativeSheetItemConfig(
+    id: NativeSheetRoutes.notificationSettings,
+    title: l10n.notificationsTitle,
+    sfSymbol: 'bell',
+  );
   final cardItems = <NativeSheetItemConfig>[
     NativeSheetItemConfig(
       id: nativeAccountsDetailId,
@@ -194,11 +207,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         title: l10n.profileTitle,
         sfSymbol: 'person.crop.circle',
       ),
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.notificationSettings,
-        title: l10n.notificationsTitle,
-        sfSymbol: 'bell',
-      ),
+      notificationsItem,
       NativeSheetItemConfig(
         id: NativeSheetRoutes.aiMemory,
         title: nativeAiMemoryTitle(l10n),
@@ -229,6 +238,10 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       title: l10n.voice,
       sfSymbol: 'waveform',
     ),
+    // Device-level notifications, as the Flutter Settings page lists them
+    // without an account.
+    if (!hasAccount && visibility.showNotificationsWithoutAccount)
+      notificationsItem,
   ];
   // Everyday server places: things to open and use, not to configure.
   final placeItems = <NativeSheetItemConfig>[

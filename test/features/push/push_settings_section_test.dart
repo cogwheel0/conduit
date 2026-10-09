@@ -36,6 +36,7 @@ Future<FakePushCoordinator> _pump(
   bool advanced = false,
   List<String> distributors = const [],
   bool settle = true,
+  bool hasOpenWebUiAccount = true,
 }) async {
   tester.view
     ..physicalSize = const Size(900, 3200)
@@ -58,6 +59,7 @@ Future<FakePushCoordinator> _pump(
       ),
       // Webhook destinations are a separate feature.
       notificationTargetsAvailableProvider.overrideWithValue(false),
+      openWebUiAccountAvailableProvider.overrideWithValue(hasOpenWebUiAccount),
     ],
   );
   addTearDown(container.dispose);
@@ -601,6 +603,20 @@ void main() {
     expect(find.text('How push stays private'), findsWidgets);
     expect(find.text('The Conduit relay'), findsOneWidget);
     expect(find.byKey(const Key('push-privacy-read-more')), findsOneWidget);
+  });
+
+  testWidgets('without an Open WebUI account its channels go', (tester) async {
+    await _pump(
+      tester,
+      pushStateWith(const [], enabled: false),
+      hasOpenWebUiAccount: false,
+    );
+    expect(find.text('Channel messages'), findsNothing);
+    expect(find.text('Scheduled tasks'), findsOneWidget);
+    expect(find.byKey(const Key('push-enabled')), findsOneWidget);
+
+    await _pump(tester, pushStateWith(const [], enabled: false));
+    expect(find.text('Channel messages'), findsOneWidget);
   });
 
   testWidgets('the kinds include scheduled tasks', (tester) async {

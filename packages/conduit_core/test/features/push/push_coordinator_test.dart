@@ -819,6 +819,24 @@ void main() {
     });
   });
 
+  group('push state for other screens', () {
+    test('follows a coordinator that starts after it was read', () async {
+      h = await _Harness.start(targets: [_owui], startCoordinator: false);
+      final seen = <PushState?>[];
+      h.container.listen<PushState?>(
+        pushStateIfUsedProvider,
+        (_, next) => seen.add(next),
+        fireImmediately: true,
+      );
+      check(seen).deepEquals([null]);
+
+      h.container.read(pushCoordinatorProvider);
+      await h.until(() => seen.lastOrNull != null);
+      await h.coordinator.setEnabled(true);
+      await h.until(() => seen.last?.enabled == true);
+    });
+  });
+
   group('display config', () {
     test('mirrors settings, labels and strings', () async {
       h = await _Harness.start(targets: [_owui, _hermes]);
@@ -952,6 +970,7 @@ final class _Harness {
     bool unifiedPush = false,
     bool realHermes = false,
     bool keepPreferences = false,
+    bool startCoordinator = true,
     _Platform? platform,
   }) async {
     if (!keepPreferences) {
@@ -1000,6 +1019,7 @@ final class _Harness {
     );
     final harness = _Harness._(container, log, fake, factory, relayAdapter);
     last = harness;
+    if (!startCoordinator) return harness;
     container.listen(pushCoordinatorProvider, (_, _) {});
     await container.read(pushTargetsProvider.future);
     await pumpEventQueue();

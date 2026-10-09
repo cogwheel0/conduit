@@ -125,6 +125,13 @@ class PushCoordinator extends _$PushCoordinator {
       _onPlatformEvent,
       onError: (Object error) => _log('push-platform-event-error', error),
     );
+    // Not from build itself: a provider must not change another while it
+    // builds.
+    scheduleMicrotask(() {
+      if (ref.mounted) {
+        ref.read(pushCoordinatorStartedProvider.notifier).markStarted();
+      }
+    });
     ref.onDispose(() {
       unawaited(_events?.cancel());
       unawaited(_lifecycle?.cancel());

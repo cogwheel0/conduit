@@ -133,16 +133,43 @@ final pushTimingsProvider = Provider<PushTimings>((ref) => const PushTimings());
 
 final pushClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
+/// Set once the push coordinator has started. [pushStateIfUsedProvider]
+/// watches it, because `ref.exists` does not subscribe: without it, an
+/// answer of null computed before the coordinator started would stay.
+final pushCoordinatorStartedProvider =
+    NotifierProvider<PushCoordinatorStarted, bool>(PushCoordinatorStarted.new);
+
+final class PushCoordinatorStarted extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void markStarted() {
+    if (!state) state = true;
+  }
+}
+
 /// Push's state for UI outside the push settings, such as the Accounts page
-/// and the Hermes job editor: null where push was never turned on, so those
-/// screens never start push themselves. In the app the coordinator is kept
-/// alive from launch, so this follows it.
+/// and the Hermes job editor: null where push was never turned on and the
+/// coordinator has not started, so those screens never start push
+/// themselves. In the app the coordinator is started shortly after launch,
+/// and this follows it from then on, including when it starts after this
+/// was first read.
 final pushStateIfUsedProvider = Provider<PushState?>((ref) {
-  if (!ref.exists(pushCoordinatorProvider) &&
+  final started = ref.watch(pushCoordinatorStartedProvider);
+  if (!started &&
+      !ref.exists(pushCoordinatorProvider) &&
       PreferencesStore.getBool(PreferenceKeys.pushEnabled) != true) {
     return null;
   }
   return ref.watch(pushCoordinatorProvider);
+});
+
+/// Whether the Notifications page has anything for a user without an Open
+/// WebUI account: a saved Hermes connection (its replies and scheduled tasks
+/// notify), or push turned on (it can always be turned off there).
+final notificationsWithoutAccountProvider = Provider<bool>((ref) {
+  if (ref.watch(hermesConnectionsProvider).isNotEmpty) return true;
+  return ref.watch(pushStateIfUsedProvider)?.enabled ?? false;
 });
 
 /// The Open WebUI account whose live client holds a token, or null.
