@@ -78,7 +78,7 @@ struct SendRequest<'a> {
 struct FcmMessage<'a> {
     token: &'a str,
     data: Data<'a>,
-    android: Android<'a>,
+    android: Android,
 }
 
 #[derive(Serialize)]
@@ -88,12 +88,14 @@ struct Data<'a> {
     cp_d: &'a str,
 }
 
+/// No `collapse_key`, although the sender's `Topic` would fit: FCM keeps only
+/// four collapse keys per device while it is offline, and every Conduit
+/// message has a `Topic` of its own, so the phone would get back an arbitrary
+/// four. Without one, FCM stores each message.
 #[derive(Serialize)]
-struct Android<'a> {
+struct Android {
     priority: &'static str,
     ttl: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    collapse_key: Option<&'a str>,
 }
 
 enum Attempt {
@@ -248,7 +250,6 @@ impl Fcm {
                 android: Android {
                     priority: priority(message.meta.high_priority),
                     ttl: ttl(message.meta.ttl),
-                    collapse_key: message.meta.topic.as_deref(),
                 },
             },
         };
@@ -519,7 +520,6 @@ mod tests {
                 android: Android {
                     priority: "HIGH",
                     ttl: ttl(60),
-                    collapse_key: None,
                 },
             },
         };

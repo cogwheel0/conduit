@@ -275,5 +275,5 @@ What it keeps:
 Nothing the relay handles names a person, an account or a server, except the
 sender's IP address, which it uses only for rate limits.
 
-Apple or Google see the device token, the app, the time, the size of the
-encrypted body and the collapse id, as they do for any push.
+Apple or Google see the device token, the app, the time and the size of the
+encrypted body, as they do for any push. Apple also sees the collapse id.

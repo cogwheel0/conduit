@@ -197,7 +197,8 @@ If the Notification Service Extension can't run, iOS shows the localized
 fallback ("New notification"), never content.
 
 FCM HTTP v1 request (data only, `android.priority` `HIGH` or `NORMAL`, `android.ttl` = TTL,
-`android.collapse_key` = `Topic`):
+and no `collapse_key`: FCM keeps only four collapse keys per offline device, and every
+message has its own `Topic`, so the device would get an arbitrary four back):
 
 ```json
 {"message": {"token": "<token>", "data": {"cp_v": "1", "cp_s": "<sid>", "cp_d": "<base64url body>"}}}

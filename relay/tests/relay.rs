@@ -932,12 +932,14 @@ async fn fcm_push_delivers_the_exact_request() {
         format!("/v1/projects/{PROJECT}/messages:send")
     );
     assert_eq!(sent[0].header("authorization"), Some("Bearer tok-1"));
+    // The `Topic` is not passed on: FCM would keep only four collapse keys
+    // for an offline phone.
     assert_eq!(
         sent[0].json(),
         json!({"message": {
             "token": FCM_TOKEN,
             "data": {"cp_v": "1", "cp_s": SID, "cp_d": URL_SAFE_NO_PAD.encode(&body)},
-            "android": {"priority": "HIGH", "ttl": "86400s", "collapse_key": TOPIC}
+            "android": {"priority": "HIGH", "ttl": "86400s"}
         }})
     );
 
