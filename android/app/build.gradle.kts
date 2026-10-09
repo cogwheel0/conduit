@@ -14,8 +14,8 @@ if (keystorePropertiesFile.exists()) {
 }
 
 // Which push build this is. "play" (the default) delivers push through
-// Firebase Cloud Messaging; "foss" has no Firebase code, for F-Droid and
-// IzzyOnDroid.
+// Firebase Cloud Messaging and keeps ML Kit speech recognition. "foss" has no
+// Google Play services or Firebase code at all, for F-Droid and IzzyOnDroid.
 // Both ship UnifiedPush. A Gradle property rather than product flavors keeps
 // `flutter run` and every existing build command working unchanged:
 //   flutter build apk -P conduitPushVariant=foss
@@ -78,7 +78,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            // FCM, or the stand-in that reports it unavailable.
+            // FCM, ML Kit, or the stand-ins that report them unavailable.
             kotlin.srcDir("src/$conduitPushVariant/kotlin")
         }
         getByName("test") {
@@ -117,6 +117,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (!isPlayBuild) {
+                proguardFile("proguard-foss.pro")
+            }
         }
         getByName("debug") {
             // signingConfig = signingConfigs.getByName("debug")
@@ -152,19 +155,26 @@ configurations.configureEach {
             .using(module("com.google.crypto.tink:tink-android:1.23.0"))
             .because("tink and tink-android define the same classes")
     }
+    if (!isPlayBuild) {
+        // Nothing may bring Play services or Firebase into the foss build.
+        // geolocator_android declares play-services-location, but checks
+        // for it at runtime and falls back to the platform LocationManager.
+        exclude(group = "com.google.android.gms")
+        exclude(group = "com.google.firebase")
+    }
 }
 
 dependencies {
     // Core library desugaring for flutter_local_notifications
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("androidx.activity:activity:1.12.4")
-    implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     // UnifiedPush ships in both builds. Messages arrive as the raw aes128gcm
     // body; Conduit decrypts them with its own keys.
     implementation("org.unifiedpush.android:connector:3.3.5")
     if (isPlayBuild) {
+        implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
         // Only Cloud Messaging: no Analytics, no google-services plugin.
         implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
         implementation("com.google.firebase:firebase-messaging")
