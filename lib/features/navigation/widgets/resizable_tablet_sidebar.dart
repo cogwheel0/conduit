@@ -265,7 +265,9 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
                 ),
               ),
             ),
-            Expanded(child: widget.content),
+            // The content's routes put a modal barrier over their pages. Its
+            // BlockSemantics would otherwise drop the sidebar painted before it.
+            Expanded(child: Semantics(container: true, child: widget.content)),
           ],
         ),
         if (showResizeHandle)
