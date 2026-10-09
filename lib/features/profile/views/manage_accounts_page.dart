@@ -1,8 +1,10 @@
+import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/widgets.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -61,6 +63,28 @@ class ManageAccountsPage extends ConsumerWidget {
           title: serverDisplayName(group.first.server),
           children: [
             for (final entry in group) _AccountRow(entry: entry),
+            UtilityRow(
+              key: Key('accounts-addresses-${group.first.server.id}'),
+              title: l10n.accountsServerAddresses,
+              subtitle: [
+                for (final endpoint in group.first.server.endpoints)
+                  endpoint.label?.trim().isNotEmpty == true
+                      ? endpoint.label!.trim()
+                      : (Uri.tryParse(endpoint.url)?.host ?? endpoint.url),
+              ].join(' · '),
+              leading: _rowIcon(
+                context,
+                UiUtils.platformIcon(
+                  ios: CupertinoIcons.globe,
+                  android: Icons.lan_outlined,
+                ),
+              ),
+              showChevron: true,
+              onTap: () => context.pushNamed(
+                RouteNames.serverAddresses,
+                extra: group.first.server.id,
+              ),
+            ),
             UtilityRow(
               key: Key('accounts-add-on-${group.first.server.id}'),
               title: l10n.accountsAddOnThisServer,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -12,6 +14,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -37,10 +40,12 @@ ProviderRead _reader({
   String? addingAccountFrom,
   AuthState authSnapshot = const AuthState(status: AuthStatus.unauthenticated),
   String? settledAccount,
+  bool proxySignInForRouteEditing = false,
 }) {
   final values = <ProviderListenable<Object?>, Object?>{
     accountAdditionOriginProvider: addingAccountFrom,
     settledActiveAccountIdProvider: settledAccount,
+    proxySignInForRouteEditingProvider: proxySignInForRouteEditing,
     reviewerModeProvider: reviewerMode,
     activeServerProvider: activeServer,
     authNavigationStateProvider: auth,
@@ -58,6 +63,24 @@ ProviderRead _reader({
     }
     return values[provider] as T;
   };
+}
+
+/// The active server as it reads while it is fetched again: still the one
+/// already known, and loading.
+Future<AsyncValue<ServerConfig?>> _refreshing(ServerConfig server) async {
+  final refetch = Completer<ServerConfig?>();
+  var builds = 0;
+  final provider = FutureProvider<ServerConfig?>(
+    (ref) => builds++ == 0 ? Future.value(server) : refetch.future,
+  );
+  final container = ProviderContainer();
+  addTearDown(container.dispose);
+  await container.read(provider.future);
+  container.invalidate(provider);
+  final refreshing = container.read(provider);
+  check(refreshing.isLoading).isTrue();
+  check(refreshing.value).equals(server);
+  return refreshing;
 }
 
 void main() {
@@ -149,6 +172,25 @@ void main() {
       });
     });
 
+    group('checking a proxy-protected address', () {
+      test('opens the proxy sign-in while the address editor waits on it', () {
+        final read = _reader(proxySignInForRouteEditing: true);
+
+        check(resolveRouteRedirect(Routes.proxyAuth, read)).isNull();
+        // Only that screen.
+        check(resolveRouteRedirect(Routes.authentication, read))
+            .equals(Routes.chat);
+        check(routeRedirectDependencies)
+            .contains(proxySignInForRouteEditingProvider);
+      });
+
+      test('a signed-in visit to the proxy sign-in otherwise goes to chat', () {
+        final read = _reader();
+
+        check(resolveRouteRedirect(Routes.proxyAuth, read)).equals(Routes.chat);
+      });
+    });
+
     test('a signed-out session is sent to authentication', () {
       final read = _reader(auth: AuthNavigationState.needsLogin);
 
@@ -171,6 +213,17 @@ void main() {
           .equals(Routes.connectionIssue);
       check(resolveRouteRedirect(Routes.connectionIssue, read)).isNull();
     });
+
+    test(
+      'a refresh of the active server keeps the user where they are',
+      () async {
+        // Saving one of its addresses, or moving to another, fetches it again.
+        final read = _reader(activeServer: await _refreshing(_server));
+
+        check(resolveRouteRedirect(Routes.profile, read)).isNull();
+        check(resolveRouteRedirect(Routes.chat, read)).isNull();
+      },
+    );
 
     test('a failed or loading server lookup does not strand the user', () {
       final failed = _reader(
@@ -266,6 +319,14 @@ void main() {
 
       check(resolveRouteRedirect(Routes.accounts, hermes)).isNull();
       check(resolveRouteRedirect(Routes.accounts, direct)).isNull();
+      // Manage accounts opens a server's addresses.
+      for (final location in [
+        Routes.serverAddresses,
+        Routes.serverAddressEditor,
+      ]) {
+        check(resolveRouteRedirect(location, hermes)).isNull();
+        check(resolveRouteRedirect(location, direct)).isNull();
+      }
     });
 
     group('the Hermes MCP page', () {

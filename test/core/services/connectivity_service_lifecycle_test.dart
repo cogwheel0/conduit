@@ -223,6 +223,221 @@ void main() {
     }, _RealHttpOverrides());
   });
 
+  // A probe follows an upgrade to HTTPS on the server's host, as the API
+  // client does; the route's own headers go with it, and nowhere else.
+  test('health client keeps the route headers on an upgrade to HTTPS', () async {
+    final dio = createConnectivityHealthClient(
+      const ServerConfig(
+        id: 'route',
+        name: 'Route',
+        url: 'http://chat.example',
+        customHeaders: {'CF-Access-Client-Id': 'route-id'},
+      ),
+    );
+    addTearDown(dio.close);
+    final sent = <String, Object?>{};
+    dio.httpClientAdapter = _HeaderRecorder(sent);
+
+    await dio.getUri<dynamic>(Uri.parse('https://chat.example/health'));
+    await dio.getUri<dynamic>(Uri.parse('https://other.example/health'));
+
+    check(sent['https://chat.example/health']).equals('route-id');
+    check(sent['https://other.example/health']).isNull();
+  });
+
+  group('a route probe', () {
+    /// Serves [handle] on a loopback port for the length of the test.
+    Future<String> serve(
+      Future<void> Function(HttpRequest request) handle,
+    ) async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen(handle);
+      return 'http://${InternetAddress.loopbackIPv4.address}:${server.port}';
+    }
+
+    ServerConfig route(String url) =>
+        ServerConfig(id: 'route', name: 'Route', url: url);
+
+    test('asks a server mounted under a path at that path', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final origin = await serve((request) async {
+          request.response
+            ..statusCode = request.uri.path == '/owui/health'
+                ? HttpStatus.ok
+                : HttpStatus.notFound
+            ..headers.contentType = ContentType.json
+            ..write('{"status":true}');
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route('$origin/owui'))).isTrue();
+        check(await probeServerHealth(route(origin))).isFalse();
+      }, _RealHttpOverrides());
+    });
+
+    // As the API client follows it: a trailing slash, a canonical path, or
+    // an upgrade to HTTPS on the same host.
+    test('follows a redirect on the same address', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final origin = await serve((request) async {
+          if (request.uri.path == '/health') {
+            request.response
+              ..statusCode = HttpStatus.temporaryRedirect
+              ..headers.set(HttpHeaders.locationHeader, '/health/');
+          } else {
+            request.response
+              ..statusCode = request.uri.path == '/health/'
+                  ? HttpStatus.ok
+                  : HttpStatus.notFound
+              ..headers.contentType = ContentType.json
+              ..write('{"status":true}');
+          }
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route(origin))).isTrue();
+      }, _RealHttpOverrides());
+    });
+
+    // Each redirect started a full timeout of its own.
+    test('gives its redirects only the time it has left', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final origin = await serve((request) async {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          final next = switch (request.uri.path) {
+            '/health' => '/a',
+            '/a' => '/b',
+            _ => null,
+          };
+          if (next != null) {
+            request.response
+              ..statusCode = HttpStatus.temporaryRedirect
+              ..headers.set(HttpHeaders.locationHeader, next);
+          } else {
+            request.response
+              ..statusCode = HttpStatus.ok
+              ..headers.contentType = ContentType.json
+              ..write('{"status":true}');
+          }
+          await request.response.close();
+        });
+
+        check(
+          await probeServerHealth(
+            route(origin),
+            timeout: const Duration(milliseconds: 700),
+          ),
+        ).isFalse();
+      }, _RealHttpOverrides());
+    });
+
+    test('does not count a redirect to a sign-in page as the server', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final proxy = await serve((request) async {
+          if (request.uri.path == '/health') {
+            request.response
+              ..statusCode = HttpStatus.found
+              ..headers.set(HttpHeaders.locationHeader, '/login');
+          } else {
+            request.response
+              ..statusCode = HttpStatus.ok
+              ..headers.contentType = ContentType.html
+              ..write('<html><body>Sign in</body></html>');
+          }
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route(proxy))).isFalse();
+      }, _RealHttpOverrides());
+    });
+
+    test('does not follow a redirect to another address', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final requests = <String>[];
+        final elsewhere = await serve((request) async {
+          requests.add(request.uri.path);
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.json
+            ..write('{"status":true}');
+          await request.response.close();
+        });
+        final proxy = await serve((request) async {
+          request.response
+            ..statusCode = HttpStatus.found
+            ..headers.set(HttpHeaders.locationHeader, '$elsewhere/health');
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route(proxy))).isFalse();
+        check(requests).isEmpty();
+      }, _RealHttpOverrides());
+    });
+
+    test('does not count a web page answering 200 as the server', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final portal = await serve((request) async {
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.html
+            ..write('<html><body>Sign in to continue</body></html>');
+          await request.response.close();
+        });
+
+        check(await probeServerHealth(route(portal))).isFalse();
+      }, _RealHttpOverrides());
+    });
+
+    // A response can repeat its content type; asking for its single value
+    // then throws, and a working server would count as not answering.
+    test('reads a repeated content type', () {
+      check(
+        answeredWithWebPage(
+          Headers.fromMap({
+            Headers.contentTypeHeader: [
+              Headers.jsonContentType,
+              Headers.jsonContentType,
+            ],
+          }),
+        ),
+      ).isFalse();
+      check(
+        answeredWithWebPage(
+          Headers.fromMap({
+            Headers.contentTypeHeader: [Headers.jsonContentType, 'text/html'],
+          }),
+        ),
+      ).isTrue();
+    });
+
+    test('keeps a proxy cookie off while logout fences it', () async {
+      await HttpOverrides.runWithHttpOverrides(() async {
+        final cookies = <String?>[];
+        final origin = await serve((request) async {
+          cookies.add(request.headers.value(HttpHeaders.cookieHeader));
+          request.response
+            ..statusCode = HttpStatus.ok
+            ..headers.contentType = ContentType.json
+            ..write('{"status":true}');
+          await request.response.close();
+        });
+        final proxied = route(origin)
+            .copyWith(customHeaders: const {'Cookie': 'proxy_session=secret'});
+
+        check(await probeServerHealth(proxied)).isTrue();
+        check(
+          await probeServerHealth(
+            proxied,
+            suppressCustomCookieHeader: () => true,
+          ),
+        ).isTrue();
+
+        check(cookies).deepEquals(['proxy_session=secret', null]);
+      }, _RealHttpOverrides());
+    });
+  });
+
   test(
     'health client normalizes a scheme-less server with the shared parser',
     () async {
@@ -573,3 +788,32 @@ final class _FailingHealthAdapter implements _RequestCountingAdapter {
 }
 
 final class _RealHttpOverrides extends HttpOverrides {}
+
+/// Records the route header each request went out with, by URL.
+final class _HeaderRecorder implements HttpClientAdapter {
+  _HeaderRecorder(this.sent);
+
+  final Map<String, Object?> sent;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    sent[options.uri.toString()] = options.headers.entries
+        .where((entry) => entry.key.toLowerCase() == 'cf-access-client-id')
+        .map((entry) => entry.value)
+        .firstOrNull;
+    return ResponseBody.fromString(
+      '{"status":true}',
+      HttpStatus.ok,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}

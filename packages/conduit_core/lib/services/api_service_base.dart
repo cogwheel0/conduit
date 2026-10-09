@@ -1,5 +1,87 @@
 part of 'api_service.dart';
 
+/// Reports [response] when it is a proxy in front of [server] turning the
+/// request away, its session there having expired.
+///
+/// Open WebUI answers its API with JSON, its refusals included. A proxy
+/// asking for a sign-in answers with a redirect the client does not follow,
+/// with a page it redirected to elsewhere on the same address, or with a
+/// page refusing access -- as [ApiService.checkHealthWithProxyDetection]
+/// tells one. A page answered without a redirect is left out: Open WebUI's
+/// web app answers an address it does not know, as an older server does a
+/// newer endpoint. So is one after a redirect that kept its path, up to
+/// HTTPS say: that is the same address, and a file's content can be a page.
+void _reportProxyRefusal(
+  Response<dynamic> response,
+  Uri? server,
+  ServerConfig connection,
+) {
+  final options = response.requestOptions;
+  // A replay's refusal passes here inside the replay and again on the way
+  // out of the request it replays; it is one refusal.
+  if (options.extra[_proxyRefusalReportedKey] == true) return;
+  // A replay is judged by where it started: an upgrade to HTTPS on the same
+  // host is still the server's own address.
+  if (!requestUsesServerConnectivityOrigin(
+    sameOriginRedirectStart(options),
+    server,
+  )) {
+    return;
+  }
+  final status = response.statusCode ?? 0;
+  final page = answeredWithWebPage(response.headers);
+  final refused =
+      // Unless the request takes a redirect as its answer: Open WebUI
+      // redirects an image it has no copy of to its default image. Accepting
+      // a redirect's status is not enough -- some requests accept every
+      // status only to read an error's body.
+      (publicHealthRedirectStatusCodes.contains(status) &&
+          options.extra[_redirectIsAnswerKey] != true) ||
+      (page && (status == 401 || status == 403)) ||
+      // Taken elsewhere, to a sign-in.
+      (page &&
+          status >= 200 &&
+          status < 300 &&
+          isSameOriginRedirectReplay(options) &&
+          !_samePath(sameOriginRedirectStart(options), options.uri));
+  if (!refused) return;
+  options.extra[_proxyRefusalReportedKey] = true;
+  ConnectivityService.reportRouteRejected(server, connection: connection);
+}
+
+const _proxyRefusalReportedKey = 'conduit.proxyRefusalReported';
+
+/// Reports [response] when it is a gateway error for [server]: a proxy in
+/// front of it that could not reach it.
+void _reportGatewayFailure(Response<dynamic> response, Uri? server) {
+  final options = response.requestOptions;
+  if (options.extra[_gatewayFailureReportedKey] == true) return;
+  if (!requestUsesServerConnectivityOrigin(
+    sameOriginRedirectStart(options),
+    server,
+  )) {
+    return;
+  }
+  if (!_gatewayErrorStatusCodes.contains(response.statusCode)) return;
+  options.extra[_gatewayFailureReportedKey] = true;
+  ConnectivityService.reportGatewayFailure(server);
+}
+
+const _gatewayErrorStatusCodes = {502, 503, 504};
+const _gatewayFailureReportedKey = 'conduit.gatewayFailureReported';
+
+/// Whether [a] and [b] name one path, a trailing slash aside.
+bool _samePath(Uri a, Uri b) {
+  String trimmed(String path) =>
+      path.endsWith('/') ? path.substring(0, path.length - 1) : path;
+  return trimmed(a.path) == trimmed(b.path);
+}
+
+const _transportFailureReportedKey = 'conduit.transportFailureReported';
+
+/// Set on a request whose answer can be a redirect Open WebUI sends itself.
+const _redirectIsAnswerKey = 'conduit.redirectIsAnswer';
+
 abstract class _ApiServiceBase {
   // Declared here, implemented by the family mixins applied over this base.
   // A mixin cannot see a sibling mixin's members, and three of these are
@@ -25,6 +107,13 @@ abstract class _ApiServiceBase {
   final PublicHealthSocketUpgrader _publicHealthSocketUpgrader;
   final Duration _publicHealthPinnedConnectTimeout;
   final Duration _publicHealthRequestTimeout;
+
+  /// Whether a proxy turning this client's requests away is reported as the
+  /// route in use refusing them. Only the app's own client, the active
+  /// account's on that route, says so: a proxy session is one account's on
+  /// one address, and a client checking an address or signing in another
+  /// account carries a session of its own, or none.
+  final bool _reportsRouteRefusals;
   late final ApiAuthInterceptor _authInterceptor;
   Future<void> _userSettingsMutationQueue = Future<void>.value();
   bool _disposed = false;
@@ -49,6 +138,7 @@ abstract class _ApiServiceBase {
     PublicHealthSocketUpgrader? publicHealthSocketUpgrader,
     Duration publicHealthPinnedConnectTimeout = const Duration(seconds: 30),
     Duration publicHealthRequestTimeout = const Duration(seconds: 30),
+    bool reportsRouteRefusals = false,
   }) : _dio = Dio(
          BaseOptions(
            baseUrl: serverConfig.url,
@@ -65,6 +155,7 @@ abstract class _ApiServiceBase {
          ),
        ),
        _workerManager = workerManager,
+       _reportsRouteRefusals = reportsRouteRefusals,
        _publicHealthAddressResolver =
            publicHealthAddressResolver ??
            ((host) => InternetAddress.lookup(host)),
@@ -121,19 +212,13 @@ abstract class _ApiServiceBase {
       ),
     );
 
-    // 3. Error handling interceptor (transforms errors to standardized format)
-    _dio.interceptors.add(
-      ApiErrorInterceptor(
-        // Was Flutter's kDebugMode; the core cannot reach Flutter, and
-        // `dart.vm.product` is the same signal without it.
-        logErrors: !const bool.fromEnvironment('dart.vm.product'),
-        throwApiErrors: true, // Transform DioExceptions to include ApiError
-      ),
-    );
-
-    // 4. Success pings to relax offline detection. ApiService also supports
-    // absolute image/CDN URLs, so only the configured server origin is allowed
-    // to influence that server's health state.
+    // 3. Success pings to relax offline detection, requests that could not
+    // reach the server, and requests a proxy in front of it turned away.
+    // ApiService also supports absolute image/CDN URLs, so only the
+    // configured server origin is allowed to influence that server's health
+    // state. Ahead of the error handler: it rejects with its own error, which
+    // ends the chain for interceptors after it. After the redirect replay,
+    // which runs a followed redirect through here again.
     final connectivityOrigin = Uri.tryParse(serverConfig.url);
     _dio.interceptors.add(
       InterceptorsWrapper(
@@ -150,13 +235,35 @@ abstract class _ApiServiceBase {
               );
               ConnectivityService.noteSuccessfulTraffic(connectivityOrigin);
             }
+            // Not once retired: a request it let finish went out with the
+            // session it held, which may since have been replaced.
+            // Here too for a request that takes every status as an answer,
+            // a chat completion among them.
+            if (_reportsRouteRefusals && !_disposed) {
+              _reportProxyRefusal(response, connectivityOrigin, serverConfig);
+              _reportGatewayFailure(response, connectivityOrigin);
+            }
           } catch (_) {}
           handler.next(response);
         },
         onError: (error, handler) {
+          final response = error.response;
+          if (response != null && _reportsRouteRefusals && !_disposed) {
+            // Reporting must not replace the request's own error.
+            try {
+              _reportProxyRefusal(response, connectivityOrigin, serverConfig);
+              _reportGatewayFailure(response, connectivityOrigin);
+            } catch (_) {}
+          }
+          // Judged by where a replay started, as a refusal is: an upgrade to
+          // HTTPS on the same host is still the server's own address. A
+          // replay's failure passes here inside the replay and again on the
+          // way out of the request it replays; it is one failure.
           if (error.response == null &&
+              error.requestOptions.extra[_transportFailureReportedKey] !=
+                  true &&
               requestUsesServerConnectivityOrigin(
-                error.requestOptions.uri,
+                sameOriginRedirectStart(error.requestOptions),
                 connectivityOrigin,
               ) &&
               (error.type == DioExceptionType.connectionTimeout ||
@@ -164,10 +271,21 @@ abstract class _ApiServiceBase {
                   error.type == DioExceptionType.receiveTimeout ||
                   error.type == DioExceptionType.connectionError ||
                   error.type == DioExceptionType.unknown)) {
+            error.requestOptions.extra[_transportFailureReportedKey] = true;
             ConnectivityService.reportTransportFailure(connectivityOrigin);
           }
           handler.next(error);
         },
+      ),
+    );
+
+    // 4. Error handling interceptor (transforms errors to standardized format)
+    _dio.interceptors.add(
+      ApiErrorInterceptor(
+        // Was Flutter's kDebugMode; the core cannot reach Flutter, and
+        // `dart.vm.product` is the same signal without it.
+        logErrors: !const bool.fromEnvironment('dart.vm.product'),
+        throwApiErrors: true, // Transform DioExceptions to include ApiError
       ),
     );
   }

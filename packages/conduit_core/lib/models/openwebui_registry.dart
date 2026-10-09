@@ -47,6 +47,26 @@ String openWebUiServerIdentityUrl(String value) {
       .toString();
 }
 
+/// [endpoints] with [route] saved into them: in place of the address of its
+/// id, or at the end when [adding] and there is none.
+///
+/// An edit of an address that is no longer saved fails rather than bringing
+/// it back: it was removed while the edit was being checked, and saving it
+/// would undo that removal, then take the server's sessions to it again.
+List<OpenWebUiEndpoint> withEditedRoute(
+  List<OpenWebUiEndpoint> endpoints,
+  OpenWebUiEndpoint route, {
+  required bool adding,
+}) {
+  final saved = endpoints.any((endpoint) => endpoint.id == route.id);
+  if (!saved && !adding) throw StateError('That address was removed.');
+  return [
+    for (final endpoint in endpoints)
+      endpoint.id == route.id ? route : endpoint,
+    if (!saved) route,
+  ];
+}
+
 /// One way of reaching a server, with everything that can differ per route.
 final class OpenWebUiEndpoint {
   OpenWebUiEndpoint({
@@ -60,7 +80,11 @@ final class OpenWebUiEndpoint {
     this.mtlsPrivateKeyPem,
     this.mtlsPrivateKeyLabel,
     this.mtlsPrivateKeyPassword,
-  }) : customHeaders = Map<String, String>.unmodifiable(customHeaders);
+  }) : customHeaders = Map<String, String>.unmodifiable({
+         // Held by the account that captured it, where a sign-out finds it.
+         for (final entry in customHeaders.entries)
+           if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+       });
 
   final String id;
   final String url;
@@ -78,6 +102,12 @@ final class OpenWebUiEndpoint {
   final String? mtlsPrivateKeyLabel;
   final String? mtlsPrivateKeyPassword;
 
+  /// Whether [config], an account's connection, was made through this route
+  /// as it is now: [sameConnection], apart from the session headers the
+  /// account captured there.
+  bool carries(ServerConfig config) =>
+      sameConnection(_splitConfig(config).connection);
+
   /// Whether [other] reaches the server the same way: same URL, headers, TLS
   /// policy and client identity. Ids and labels are names, not connection.
   bool sameConnection(OpenWebUiEndpoint other) =>
@@ -88,6 +118,16 @@ final class OpenWebUiEndpoint {
       mtlsCertificateLabel == other.mtlsCertificateLabel &&
       mtlsPrivateKeyPem == other.mtlsPrivateKeyPem &&
       mtlsPrivateKeyLabel == other.mtlsPrivateKeyLabel &&
+      mtlsPrivateKeyPassword == other.mtlsPrivateKeyPassword;
+
+  /// Whether a session issued to [other] -- a proxy cookie -- was issued to
+  /// this route too: the same origin URL and client identity. Headers, the
+  /// self-signed policy and the label do not change whom a session is for.
+  bool sameSessionOwner(OpenWebUiEndpoint other) =>
+      openWebUiServerIdentityUrl(url) ==
+          openWebUiServerIdentityUrl(other.url) &&
+      mtlsCertificateChainPem == other.mtlsCertificateChainPem &&
+      mtlsPrivateKeyPem == other.mtlsPrivateKeyPem &&
       mtlsPrivateKeyPassword == other.mtlsPrivateKeyPassword;
 
   /// This endpoint with [other]'s connection settings and its own id/label.
@@ -168,6 +208,41 @@ final class OpenWebUiServer {
   OpenWebUiEndpoint selectedEndpoint(String? selectedEndpointId) =>
       (selectedEndpointId == null ? null : endpoint(selectedEndpointId)) ??
       endpoints.first;
+
+  /// The route a config carrying [url] was projected from: the selected one
+  /// when it has that URL, else another route that does, else the selected
+  /// one.
+  ///
+  /// A config read on one route and saved after the server moved to another
+  /// still describes the first. Writing it over the route in use would carry
+  /// that route's URL, TLS settings and proxy cookie to the wrong host.
+  OpenWebUiEndpoint routeFor(String url, {String? selectedEndpointId}) {
+    final selected = selectedEndpoint(selectedEndpointId);
+    final identity = openWebUiServerIdentityUrl(url);
+    if (openWebUiServerIdentityUrl(selected.url) == identity) return selected;
+    final sameUrl = endpoints.where(
+      (endpoint) => openWebUiServerIdentityUrl(endpoint.url) == identity,
+    );
+    return sameUrl.firstOrNull ?? selected;
+  }
+
+  /// The route [config], an account saved for a sign-in, reaches this
+  /// server through.
+  ///
+  /// Routes can share a URL and differ in headers or client certificate.
+  /// [routeFor] its URL when that route has the whole of [config]'s
+  /// connection; else the first route that does, which is the one an
+  /// account joining the server through [config] is filed under
+  /// ([OpenWebUiRegistry.mergeServerConfigs]); else [routeFor] its URL.
+  OpenWebUiEndpoint routeForConnection(
+    ServerConfig config, {
+    String? selectedEndpointId,
+  }) {
+    final byUrl = routeFor(config.url, selectedEndpointId: selectedEndpointId);
+    final connection = _splitConfig(config).connection;
+    if (byUrl.sameConnection(connection)) return byUrl;
+    return _endpointWithConnection(endpoints, connection) ?? byUrl;
+  }
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
@@ -391,7 +466,9 @@ final class OpenWebUiRegistry {
   /// Writes a list of projections back, the way the one-server code saves.
   ///
   /// Each config is an account. A known account keeps its server and updates
-  /// the endpoint it was projected from; an unknown one joins the saved server
+  /// the endpoint it was projected from (see [OpenWebUiServer.routeFor]),
+  /// which is the selected one unless the config names another of the
+  /// server's routes; an unknown one joins the saved server
   /// that already has an identical endpoint, or gets a server of its own.
   /// Accounts missing from [configs] are removed, and so is any server left
   /// with no account. Projections round-trip exactly: what [projectAll]
@@ -436,8 +513,13 @@ final class OpenWebUiRegistry {
       String endpointId;
       if (existing != null && existingDraft != null) {
         draft = existingDraft;
+        // Not by URL alone: routes can share one, and differ in headers or
+        // client certificate.
         endpointId = draft.original
-            .selectedEndpoint(selectedEndpoints[draft.original.id])
+            .routeForConnection(
+              config,
+              selectedEndpointId: selectedEndpoints[draft.original.id],
+            )
             .id;
         draft.editEndpoint(endpointId, connection);
         draft.rename(config.name);
@@ -492,17 +574,21 @@ final class OpenWebUiRegistry {
     );
   }
 
-  /// This registry without the session headers any account captured, on
-  /// every route: the proxy cookies a sign-out revokes.
-  OpenWebUiRegistry withoutCapturedHeaders() => OpenWebUiRegistry(
-    servers: servers,
-    accounts: [
-      for (final account in accounts)
-        account.copyWith(
-          capturedHeaders: const <String, Map<String, String>>{},
-        ),
-    ],
-  );
+  /// This registry without the session headers captured for [accountId], or
+  /// for every account when it is null, on every route. A projection only
+  /// shows the route in use; a cookie left on another comes back with it.
+  OpenWebUiRegistry withoutCapturedHeaders({String? accountId}) =>
+      OpenWebUiRegistry(
+        servers: servers,
+        accounts: [
+          for (final account in accounts)
+            accountId == null || account.id == accountId
+                ? account.copyWith(
+                    capturedHeaders: const <String, Map<String, String>>{},
+                  )
+                : account,
+        ],
+      );
 
   /// This registry with [account] replacing the stored account of its id.
   OpenWebUiRegistry withAccount(OpenWebUiAccount account) => OpenWebUiRegistry(
@@ -657,11 +743,23 @@ const Object _unset = Object();
   OpenWebUiEndpoint connection,
 ) {
   for (final draft in drafts) {
-    for (final endpoint in draft.currentEndpoints) {
-      if (endpoint.sameConnection(connection)) {
-        return (draft: draft, endpointId: endpoint.id);
-      }
-    }
+    final endpoint = _endpointWithConnection(
+      draft.currentEndpoints,
+      connection,
+    );
+    if (endpoint != null) return (draft: draft, endpointId: endpoint.id);
+  }
+  return null;
+}
+
+/// The first of [endpoints] that reaches its server exactly as
+/// [connection] does.
+OpenWebUiEndpoint? _endpointWithConnection(
+  Iterable<OpenWebUiEndpoint> endpoints,
+  OpenWebUiEndpoint connection,
+) {
+  for (final endpoint in endpoints) {
+    if (endpoint.sameConnection(connection)) return endpoint;
   }
   return null;
 }

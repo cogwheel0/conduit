@@ -5951,5 +5951,22 @@
   "accountsSwitchStopsReply": "Prepnutie účtu ju zastaví.",
   "accountsSignOutStopsReply": "Odhlásenie ju zastaví.",
   "accountsSwitchAnyway": "Napriek tomu prepnúť",
-  "accountsSignOutAnyway": "Napriek tomu sa odhlásiť"
+  "accountsAddressChangeStopsReply": "Zmena používanej adresy ju zastaví.",
+  "accountsAddressChangeAnyway": "Napriek tomu zmeniť",
+  "accountsSignOutAnyway": "Napriek tomu sa odhlásiť",
+  "accountsServerAddresses": "Adresy",
+  "accountsServerAddressesHelp": "Conduit sa pripojí cez prvú adresu, ktorá odpovie, počnúc zhora. Poradie zmeníte potiahnutím.",
+  "accountsAddAddress": "Pridať adresu",
+  "accountsEditAddress": "Upraviť adresu",
+  "accountsSaveAddress": "Uložiť adresu",
+  "accountsAddressInUse": "Používa sa",
+  "accountsAddressName": "Názov (voliteľné)",
+  "accountsAddressNameHint": "Domáca sieť, Tailscale…",
+  "accountsAddressDifferentServer": "Táto adresa vedie na iný server alebo k inému účtu na ňom.",
+  "accountsAddressNeedsSignIn": "Najprv sa prihláste do účtu na tomto serveri, aby bolo možné adresu overiť.",
+  "accountsRemoveAddress": "Odstrániť adresu",
+  "accountsRemoveAddressMessage": "Conduit prestane skúšať túto adresu. Vaše účty zostanú prihlásené.",
+  "accountsAddressConfirmTitle": "Overiť túto adresu?",
+  "accountsAddressConfirmMessage": "Aby Conduit overil, že {host} je tento server, pošle mu reláciu účtu uloženého v tomto zariadení. Pokračujte, len ak tejto adrese dôverujete.",
+  "accountsAddressConfirmAction": "Overiť adresu"
 }

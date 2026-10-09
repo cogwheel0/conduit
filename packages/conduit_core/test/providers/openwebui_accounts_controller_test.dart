@@ -3,6 +3,11 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show isChatStreamingProvider;
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show kDirectTransport;
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -487,6 +492,7 @@ void main() {
     test('keeps an account that has signed in before', () async {
       accounts = [entry('a', hasSession: false), entry('b')];
       final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
 
       check(await container_.read(pendingSignInAbandonableProvider.future))
           .isFalse();
@@ -504,9 +510,16 @@ void main() {
         entry('b', hasSession: false),
       ];
       final container_ = container();
+      container_.read(accountAdditionOriginProvider.notifier).begin('b');
 
       check(await container_.read(pendingSignInAbandonableProvider.future))
           .isFalse();
+      check(
+        await container_
+            .read(openWebUiAccountsControllerProvider)
+            .abandonPendingSignIn(),
+      ).isFalse();
+      check(auth.abandoned).isEmpty();
     });
   });
 
@@ -1001,6 +1014,31 @@ void main() {
     check(await second).isFalse();
     check(auth.abandoned).deepEquals(['c']);
     check(storage.active).equals('c');
+  });
+
+  // Changing the address in use cuts off only what arrives through it.
+  test('only an Open WebUI reply holds up a change of address', () {
+    bool holdsUp(Map<String, dynamic> metadata) {
+      final container = ProviderContainer(
+        overrides: [isChatStreamingProvider.overrideWithValue(true)],
+      );
+      addTearDown(container.dispose);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            Conversation(
+              id: 'chat',
+              title: 'Chat',
+              createdAt: DateTime.utc(2026, 10, 8),
+              updatedAt: DateTime.utc(2026, 10, 8),
+              metadata: metadata,
+            ),
+          );
+      return container.read(addressChangeReplyGuardProvider)();
+    }
+
+    check(holdsUp(const <String, dynamic>{})).isTrue();
+    check(holdsUp(const {'backend': kDirectTransport})).isFalse();
   });
 
   test('cancelling an addition goes back to the account signed in to last', () async {

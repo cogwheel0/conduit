@@ -30,6 +30,7 @@ import '../../features/notes/views/note_editor_page.dart';
 import '../../features/profile/views/about_page.dart';
 import '../../features/profile/views/account_settings_page.dart';
 import '../../features/profile/views/manage_accounts_page.dart';
+import '../../features/profile/views/server_addresses_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
@@ -298,6 +299,35 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.accounts,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const ManageAccountsPage()),
+    ),
+    GoRoute(
+      path: Routes.serverAddresses,
+      name: RouteNames.serverAddresses,
+      pageBuilder: (context, state) {
+        final serverId = state.extra;
+        return _buildPlatformPage(
+          state: state,
+          child: serverId is String
+              ? ServerAddressesPage(serverId: serverId)
+              : const ManageAccountsPage(),
+        );
+      },
+    ),
+    GoRoute(
+      path: Routes.serverAddressEditor,
+      name: RouteNames.serverAddressEditor,
+      pageBuilder: (context, state) {
+        final request = state.extra;
+        return _buildPlatformPage(
+          state: state,
+          child: request is ServerAddressEditorRequest
+              ? ServerConnectionPage(
+                  routesOfServerId: request.serverId,
+                  endpointId: request.endpointId,
+                )
+              : const ManageAccountsPage(),
+        );
+      },
     ),
     GoRoute(
       path: Routes.appearanceSettings,

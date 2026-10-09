@@ -10,6 +10,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:conduit_core/models/server_config.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/network/same_origin_redirect_interceptor.dart'
+    show isCredentialSafeRedirectTarget;
 
 import 'package:conduit_core/providers/app_providers.dart';
 
@@ -23,6 +25,10 @@ part 'connectivity_service.g.dart';
 /// - [online]: Server is reachable
 /// - [offline]: No network or server unreachable
 enum ConnectivityStatus { online, offline }
+
+/// A request a proxy turned away from [server], and the connection it was
+/// sent over when known; see [ConnectivityService.routeRejections].
+typedef RouteRejection = ({Uri server, ServerConfig? connection});
 
 /// Simplified connectivity service that monitors network and server health.
 ///
@@ -454,11 +460,19 @@ class ConnectivityService {
       StreamController<Uri>.broadcast(sync: true);
   static final StreamController<Uri> _transportFailures =
       StreamController<Uri>.broadcast(sync: true);
+  static final StreamController<RouteRejection> _routeRejections =
+      StreamController<RouteRejection>.broadcast(sync: true);
+  static final StreamController<Uri> _gatewayFailures =
+      StreamController<Uri>.broadcast(sync: true);
 
   static String? _originKey(Uri? uri) {
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return null;
     return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}:${uri.port}';
   }
+
+  /// The scheme, host and port [uri] reaches, as failures and traffic are
+  /// matched to a server here; null when it has none.
+  static String? originKey(Uri? uri) => _originKey(uri);
 
   /// Records successful server traffic so the fallback health timer does not
   /// wake the radio merely to prove a connection that normal API work already
@@ -479,9 +493,46 @@ class ConnectivityService {
     }
   }
 
+  /// Requests that failed to reach their server, by server URI. Lets an
+  /// observer react to a route going away without creating this service.
+  static Stream<Uri> get transportFailures => _transportFailures.stream;
+
   static void reportTransportFailure(Uri? serverUri) {
     if (serverUri != null && !_transportFailures.isClosed) {
       _transportFailures.add(serverUri);
+    }
+  }
+
+  /// Requests a proxy in front of their server answered for it with a
+  /// gateway error, by server URI: the proxy could not reach the server,
+  /// which another of its addresses may still reach. The address answered,
+  /// so connectivity ignores it; the route resolver checks the server's
+  /// addresses again, without holding this one back.
+  static Stream<Uri> get gatewayFailures => _gatewayFailures.stream;
+
+  static void reportGatewayFailure(Uri? serverUri) {
+    if (serverUri != null && !_gatewayFailures.isClosed) {
+      _gatewayFailures.add(serverUri);
+    }
+  }
+
+  /// Requests a proxy in front of their server turned away, by server URI:
+  /// its session there expired, and it answers with its sign-in instead of
+  /// the server. The address answered, so this says nothing about whether
+  /// the server can be reached and connectivity ignores it; the route
+  /// resolver tries the server's other addresses.
+  static Stream<RouteRejection> get routeRejections =>
+      _routeRejections.stream;
+
+  /// Reports [serverUri] refusing a request, sent as [connection] when the
+  /// client knows it: routes to one server can share a URL and differ in
+  /// headers or client certificate.
+  static void reportRouteRejected(
+    Uri? serverUri, {
+    ServerConfig? connection,
+  }) {
+    if (serverUri != null && !_routeRejections.isClosed) {
+      _routeRejections.add((server: serverUri, connection: connection));
     }
   }
 
@@ -660,8 +711,15 @@ Dio createConnectivityHealthClient(
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          if (ConnectivityService._originKey(options.uri) !=
-              ConnectivityService._originKey(serverUri)) {
+          // Kept where the API client keeps them: the server's own origin,
+          // or an upgrade to HTTPS on its host that a probe follows.
+          final target = options.uri;
+          final sameServer =
+              ConnectivityService._originKey(target) ==
+                  ConnectivityService._originKey(serverUri) ||
+              (serverUri != null &&
+                  isCredentialSafeRedirectTarget(serverUri, target));
+          if (!sameServer) {
             options.headers.removeWhere(
               (name, _) => customHeaderNames.contains(name.toLowerCase()),
             );
@@ -692,6 +750,93 @@ Dio createConnectivityHealthClient(
     userAgent: ConduitUserAgent.value,
   );
   return dio;
+}
+
+const int _probeRedirectLimit = 3;
+const Set<int> _probeRedirectStatusCodes = {301, 302, 303, 307, 308};
+
+/// Whether [headers] say the answer is a web page -- a proxy's sign-in, a
+/// captive portal -- where Open WebUI answers its API with JSON. Read as a
+/// list: a response can repeat the header, and asking for its single value
+/// then throws.
+bool answeredWithWebPage(Headers headers) =>
+    (headers[Headers.contentTypeHeader] ?? const <String>[]).any(
+      (type) => type.toLowerCase().contains('text/html'),
+    );
+
+/// Whether [server] answers its health check within [timeout], over exactly
+/// the URL, headers and TLS settings it carries.
+///
+/// For choosing between the routes to one server: a route answers or it does
+/// not. A redirect is followed only where the API client would follow it --
+/// on the same host and port, or up to HTTPS on that host -- and counts as
+/// not answering anywhere else, for the reason the health client refuses
+/// redirects. A web page does not answer either: a proxy's sign-in page or a
+/// captive portal answers 200 with HTML, where Open WebUI answers with JSON.
+///
+/// [suppressCustomCookieHeader] is the incomplete-logout fence, as for
+/// [createConnectivityHealthClient]: while it holds, a captured proxy cookie
+/// stays off the probe.
+Future<bool> probeServerHealth(
+  ServerConfig server, {
+  Duration timeout = const Duration(seconds: 4),
+  bool Function()? suppressCustomCookieHeader,
+}) async {
+  if (ServerTlsHttpClientFactory.parseBaseUri(server.url) == null) {
+    return false;
+  }
+  final dio = createConnectivityHealthClient(
+    server,
+    suppressCustomCookieHeader: suppressCustomCookieHeader,
+  );
+  final cancelToken = CancelToken();
+  try {
+    // Relative to the client's base URL, so a server mounted under a path
+    // (https://host/owui) is asked there and not at the host's root.
+    final options = Options(
+      sendTimeout: timeout,
+      receiveTimeout: timeout,
+      followRedirects: false,
+      validateStatus: (status) => status != null && status < 500,
+    );
+    // One deadline for the probe, its redirects included: a route checked
+    // alongside others must not hold the answer up beyond it.
+    final deadline = DateTime.now().add(timeout);
+    var response = await dio
+        .get<dynamic>('/health', options: options, cancelToken: cancelToken)
+        .timeout(timeout);
+    for (
+      var hop = 0;
+      hop < _probeRedirectLimit &&
+          _probeRedirectStatusCodes.contains(response.statusCode);
+      hop++
+    ) {
+      final from = response.requestOptions.uri;
+      final location =
+          (response.headers['location'] ?? const <String>[])
+              .firstOrNull;
+      final to = location == null ? null : Uri.tryParse(location);
+      final target = to == null ? null : from.resolveUri(to);
+      if (target == null || !isCredentialSafeRedirectTarget(from, target)) {
+        return false;
+      }
+      final left = deadline.difference(DateTime.now());
+      if (left <= Duration.zero) return false;
+      response = await dio
+          .getUri<dynamic>(
+            target,
+            options: options.copyWith(sendTimeout: left, receiveTimeout: left),
+            cancelToken: cancelToken,
+          )
+          .timeout(left);
+    }
+    return response.statusCode == 200 && !answeredWithWebPage(response.headers);
+  } catch (_) {
+    if (!cancelToken.isCancelled) cancelToken.cancel('Route probe ended');
+    return false;
+  } finally {
+    dio.close(force: true);
+  }
 }
 
 // Riverpod notifier for connectivity status

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:collection/collection.dart' show MapEquality;
 import 'package:hive_ce/hive.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -49,13 +50,22 @@ typedef ServerSessionOwnershipSnapshot = ({
   bool requireActive,
 });
 
-/// The registry as a transaction found it, and whether reads of it were
-/// fenced then. A rollback puts back exactly this: rebuilding it from the
-/// projected configs would lose what they do not carry, such as an
-/// account's proven user and the ids of its server and routes.
+/// The registry as a transaction found it, whether reads of it were fenced
+/// then, and the route each server was reached through. A rollback puts back
+/// exactly this: rebuilding it from the projected configs would lose what
+/// they do not carry, such as an account's proven user and the ids of its
+/// server and routes.
+/// Session headers a proxy sign-in captured for an account on one route.
+typedef _RouteSession = ({
+  String accountId,
+  String routeId,
+  Map<String, String> headers,
+});
+
 typedef _RegistrySnapshot = ({
   OpenWebUiRegistry registry,
   bool readsSuppressed,
+  Map<String, String> selection,
 });
 
 typedef _StagedServerConfigCandidate = ({
@@ -232,6 +242,11 @@ class OptimizedStorageService {
   /// so it holds [_authStateLock] as well.
   bool _registryMigrationSettled = false;
   int _serverOwnershipRevision = 0;
+
+  /// Moves when a sign-out has revoked captured proxy cookies; see
+  /// [sessionRevocationRevision]. Not [_serverOwnershipRevision], which an
+  /// address being saved or chosen moves too.
+  int _sessionRevocationRevision = 0;
   int _nextServerConfigCandidateTransactionId = 0;
   _StagedServerConfigCandidate? _stagedServerConfigCandidate;
 
@@ -254,6 +269,12 @@ class OptimizedStorageService {
   static const String _activeServerIdKey = PreferenceKeys.activeServerId;
   static const String _serverConfigsCacheKey = 'server_configs_v1';
   static const String _registryCacheKey = 'openwebui_registry_v1';
+
+  /// Which route each saved server is being reached through, by server id.
+  /// A server missing here uses its first route. Kept in memory and as a
+  /// preference hint, so a cold start goes straight to the route that last
+  /// answered instead of waiting on probes.
+  Map<String, String>? _selectedEndpoints;
   static const String _themeModeKey = PreferenceKeys.themeMode;
   static const String _themePaletteKey = PreferenceKeys.themePalette;
   static const String _localeCodeKey = PreferenceKeys.localeCode;
@@ -1088,9 +1109,11 @@ class OptimizedStorageService {
         // Judge ownership by what the save will store, not by what was passed:
         // accounts on one server share its endpoint, so an edit made through
         // one account moves every other account on that server too.
+        // Through the routes in use, as the current configs were projected.
+        final selection = _endpointSelection();
         final nextConfigs = (await _registryForWriteUnlocked())
-            .mergeServerConfigs(sanitizedConfigs)
-            .projectAll();
+            .mergeServerConfigs(sanitizedConfigs, selectedEndpoints: selection)
+            .projectAll(selectedEndpoints: selection);
         final rawActiveServerId = _rawStoredActiveServerId();
         final currentActiveId = _effectiveActiveServerId(
           configs: currentConfigs,
@@ -1209,30 +1232,6 @@ class OptimizedStorageService {
       return null;
     }
     return null;
-  }
-
-  ServerConfig _revokeServerConfigAuthArtifacts(ServerConfig config) {
-    // Only Open WebUI *session* credentials are revoked here. The legacy
-    // apiKey bearer and app-captured proxy session cookies (merged into a
-    // Cookie custom header by the reverse-proxy flow) authenticate a signed-in
-    // session and must not survive logout. Everything else on the config is a
-    // connection prerequisite, not a session credential: user-configured
-    // custom headers (Cloudflare Access service tokens, Authelia header
-    // gates) and the mTLS client identity are required just to reach the
-    // sign-in page, so scrubbing them would strand the user before re-login.
-    // They are preserved exactly like the server URL.
-    final hasCookieHeader = config.customHeaders.keys.any(
-      (key) => key.toLowerCase() == 'cookie',
-    );
-    if (config.apiKey == null && !hasCookieHeader) return config;
-    final sanitizedHeaders = hasCookieHeader
-        ? Map<String, String>.fromEntries(
-            config.customHeaders.entries.where(
-              (entry) => entry.key.toLowerCase() != 'cookie',
-            ),
-          )
-        : config.customHeaders;
-    return config.copyWith(apiKey: null, customHeaders: sanitizedHeaders);
   }
 
   /// What a sign-out that keeps server details keeps of [registry]: every
@@ -1380,10 +1379,14 @@ class OptimizedStorageService {
             if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
           }
           // Selecting an account with its server edited moves every account
-          // on that server, the one just filed away included.
+          // on that server, the one just filed away included. Judged on the
+          // routes in use, which is where the save applies the edit.
+          final selection = _endpointSelection();
           await _dropVaultedSessionsOfMovedAccountsUnlocked(
-            current: registry.projectAll(),
-            next: registry.mergeServerConfigs(nextConfigs).projectAll(),
+            current: registry.projectAll(selectedEndpoints: selection),
+            next: registry
+                .mergeServerConfigs(nextConfigs, selectedEndpoints: selection)
+                .projectAll(selectedEndpoints: selection),
             skip: selected.id,
             undo: vaultUndo,
           );
@@ -1399,6 +1402,9 @@ class OptimizedStorageService {
           // enough to complete sign-in, while never merging baseline headers.
           await _saveServerConfigsUnlocked(nextConfigs);
           if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
+
+          // A rollback puts the route in use back with the registry.
+          await _selectRouteOfUnlocked(selected);
 
           await _writeActiveServerIdWithoutConfigSync(selected.id);
           if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
@@ -1496,7 +1502,10 @@ class OptimizedStorageService {
     try {
       final base = await _registryForWriteUnlocked();
       await _saveRegistryUnlocked(
-        base.mergeServerConfigs(configs),
+        base.mergeServerConfigs(
+          configs,
+          selectedEndpoints: _endpointSelection(),
+        ),
         authorizeReads: authorizeReads,
       );
       DebugLogger.log(
@@ -2030,12 +2039,18 @@ class OptimizedStorageService {
           );
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
           // A candidate can keep a saved account's id with its server moved,
-          // which moves every account on that server.
+          // which moves every account on that server; on the routes in use.
+          final selection = _endpointSelection();
           await _dropVaultedSessionsOfMovedAccountsUnlocked(
-            current: previousRegistry.registry.projectAll(),
+            current: previousRegistry.registry.projectAll(
+              selectedEndpoints: selection,
+            ),
             next: previousRegistry.registry
-                .mergeServerConfigs(committedConfigs)
-                .projectAll(),
+                .mergeServerConfigs(
+                  committedConfigs,
+                  selectedEndpoints: selection,
+                )
+                .projectAll(selectedEndpoints: selection),
             undo: vaultUndo,
           );
 
@@ -2051,6 +2066,9 @@ class OptimizedStorageService {
 
           await _saveServerConfigsUnlocked(committedConfigs);
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
+
+          // The proxy proved this session on the candidate's address.
+          await _selectRouteOfUnlocked(committedCandidate);
 
           await _writeActiveServerIdWithoutConfigSync(candidate.id);
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
@@ -2300,6 +2318,7 @@ class OptimizedStorageService {
     final sanitized = (
       registry: registry.registry.withoutCapturedHeaders(),
       readsSuppressed: registry.readsSuppressed,
+      selection: registry.selection,
     );
     await attempt(
       () => _restoreServerSessionUnlocked(
@@ -2311,6 +2330,9 @@ class OptimizedStorageService {
         tokenAlreadyDeleted: true,
       ),
     );
+    // If that restore failed, whatever the commit wrote is still there.
+    if (restoreConfigs) await attempt(_scrubServerConfigAuthArtifactsUnlocked);
+    _sessionRevocationRevision++;
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -2370,6 +2392,351 @@ class OptimizedStorageService {
   // ---------------------------------------------------------------------------
   // Accounts
   // ---------------------------------------------------------------------------
+
+  Map<String, String> _endpointSelection() {
+    final cached = _selectedEndpoints;
+    if (cached != null) return cached;
+    final selection = <String, String>{};
+    final raw = PreferencesStore.getString(PreferenceKeys.openWebUiEndpointHint);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          for (final entry in decoded.entries) {
+            if (entry.value is String) {
+              selection[entry.key.toString()] = entry.value as String;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return _selectedEndpoints = selection;
+  }
+
+  /// The route each saved server is currently reached through.
+  Map<String, String> get endpointSelection =>
+      Map.unmodifiable(_endpointSelection());
+
+  /// Reaches [serverId] through [endpointId] from now on.
+  ///
+  /// Not an edit: the accounts, their sessions and their data stay exactly
+  /// as they are, only the URL, headers and TLS settings their configs carry
+  /// change. The ownership revision still moves, so a sign-in validated
+  /// against the previous route cannot commit against this one, and a staged
+  /// sign-in candidate, whose baseline was read on the previous route, is
+  /// dropped for the same reason.
+  ///
+  /// With [expectedCurrentId], only while the server is still reached
+  /// through that route: a check of the routes that began on it must not
+  /// replace one a sign-in selected since. With [canCommit], only while it
+  /// still allows the change, asked as it is made.
+  Future<bool> selectEndpoint(
+    String serverId,
+    String endpointId, {
+    String? expectedCurrentId,
+    bool Function()? canCommit,
+  }) {
+    // Its read can run the migration too.
+    return _synchronizedServerConfigsRead(() async {
+      final registry = await _registryForWriteUnlocked();
+      final server = registry.server(serverId);
+      if (server == null || server.endpoint(endpointId) == null) return false;
+      final selection = _endpointSelection();
+      final current = server.selectedEndpoint(selection[serverId]).id;
+      if (current == endpointId ||
+          (expectedCurrentId != null && current != expectedCurrentId) ||
+          (canCommit != null && !canCommit())) {
+        return false;
+      }
+      selection[serverId] = endpointId;
+      _serverOwnershipRevision++;
+      _stagedServerConfigCandidate = null;
+      _cacheManager.invalidate(_activeServerIdKey);
+      _cacheRegistry(registry);
+      await _writeEndpointHint();
+      return true;
+    });
+  }
+
+  /// Reaches the server of [config], an account just saved for a sign-in,
+  /// through the route [config] was saved to.
+  ///
+  /// The sign-in was checked on the address it names, and its proxy cookie
+  /// is kept for that route. A server already saved with that address among
+  /// its others can be using another one, and through it the sign-in would
+  /// reach neither the client it was checked with nor its cookie. Taking it
+  /// to the route in use instead would send what the user typed for one
+  /// address to another without asking.
+  Future<void> _selectRouteOfUnlocked(ServerConfig config) async {
+    final registry = await _registryForWriteUnlocked();
+    final account = registry.account(config.id);
+    final server = account == null ? null : registry.server(account.serverId);
+    if (server == null) return;
+    final selection = _endpointSelection();
+    // Not by URL alone: routes can share one, and differ in headers or
+    // client certificate.
+    final route = server.routeForConnection(
+      config,
+      selectedEndpointId: selection[server.id],
+    );
+    if (route.id == server.selectedEndpoint(selection[server.id]).id) return;
+    selection[server.id] = route.id;
+    _serverOwnershipRevision++;
+    _cacheManager.invalidate(_activeServerIdKey);
+    _cacheRegistry(registry);
+    await _writeEndpointHint();
+  }
+
+  /// Remembers the routes in use for the next launch. Only a hint: losing it
+  /// costs a cold start one round of probes.
+  Future<void> _writeEndpointHint() async {
+    try {
+      await PreferencesStore.put(
+        PreferenceKeys.openWebUiEndpointHint,
+        jsonEncode(_endpointSelection()),
+      );
+    } catch (error) {
+      DebugLogger.warning(
+        'endpoint-hint-write-failed',
+        scope: 'storage/optimized/registry',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+  }
+
+  /// Saves [server]'s name and routes: added, removed, reordered or edited.
+  ///
+  /// Accounts keep their sessions. Adding a route is the user saying this
+  /// URL reaches the same server; the caller checks that before saving. A
+  /// removed route takes its captured proxy cookies with it, and so does a
+  /// route edited to another origin or client identity. The route in use
+  /// stays in use, wherever it moves in the order, and a removed route that
+  /// was in use gives way to the first remaining one.
+  Future<void> saveServer(OpenWebUiServer server) {
+    if (server.endpoints.isEmpty) {
+      throw ArgumentError('A server needs at least one route.');
+    }
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() => _saveServerUnlocked(server)),
+    );
+  }
+
+  /// Applies [edit] to [serverId]'s routes as they are stored when the edit
+  /// runs, and saves the result as [saveServer] does.
+  ///
+  /// For edits made from a list on screen: two started before the first
+  /// lands would otherwise each save the list as it was, and the second
+  /// would bring back what the first removed.
+  Future<void> editServerEndpoints(
+    String serverId,
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit,
+  ) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(
+        () => _editServerEndpointsUnlocked(serverId, edit),
+      ),
+    );
+  }
+
+  /// Applies [edit] as [editServerEndpoints] does, and in the same write
+  /// keeps the session headers a proxy sign-in captured for [accountId] on
+  /// [routeId], a route the edit saves.
+  ///
+  /// A route behind a proxy is refused without its cookie, so the two are
+  /// saved together or not at all. Returns false, saving neither, once a
+  /// sign-out has revoked cookies since [sessionRevision] was read (see
+  /// [sessionRevocationRevision]), or when [accountId] is not an account of
+  /// the server.
+  Future<bool> editServerEndpointsWithSession(
+    String serverId,
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
+    required String accountId,
+    required String routeId,
+    required Map<String, String> headers,
+    required int sessionRevision,
+  }) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        if (sessionRevision != _sessionRevocationRevision) {
+          DebugLogger.info(
+            'endpoint-cookie-dropped-after-sign-out',
+            scope: 'storage/optimized/registry',
+          );
+          return false;
+        }
+        final account = (await _registryForWriteUnlocked()).account(
+          accountId,
+        );
+        if (account == null || account.serverId != serverId) return false;
+        await _editServerEndpointsUnlocked(
+          serverId,
+          edit,
+          session: (
+            accountId: accountId,
+            routeId: routeId,
+            headers: {
+              for (final entry in headers.entries)
+                if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+            },
+          ),
+        );
+        return true;
+      }),
+    );
+  }
+
+  Future<void> _editServerEndpointsUnlocked(
+    String serverId,
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
+    _RouteSession? session,
+  }) async {
+    final stored = (await _registryForWriteUnlocked()).server(serverId);
+    if (stored == null) {
+      throw StateError('That server is no longer saved.');
+    }
+    final endpoints = edit(stored.endpoints);
+    if (endpoints.isEmpty) {
+      throw ArgumentError('A server needs at least one route.');
+    }
+    await _saveServerUnlocked(
+      OpenWebUiServer(id: stored.id, name: stored.name, endpoints: endpoints),
+      session: session,
+    );
+  }
+
+  /// Saves [server], keeping [session]'s headers on its route when given.
+  Future<void> _saveServerUnlocked(
+    OpenWebUiServer server, {
+    _RouteSession? session,
+  }) async {
+    final registry = await _registryForWriteUnlocked();
+    final stored = registry.server(server.id);
+    if (stored == null) {
+      throw StateError('That server is no longer saved.');
+    }
+    final routes = {for (final endpoint in server.endpoints) endpoint.id};
+    // An edited route keeps its id. Its cookies were issued to the old
+    // host, for every account on the server: they must not follow it to
+    // a new one.
+    final keepsCookies = {
+      for (final endpoint in server.endpoints)
+        if (stored.endpoint(endpoint.id) case final before?
+            when before.sameSessionOwner(endpoint))
+          endpoint.id,
+    };
+    final next = OpenWebUiRegistry(
+      servers: [
+        for (final existing in registry.servers)
+          existing.id == server.id ? server : existing,
+      ],
+      accounts: [
+        for (final account in registry.accounts)
+          account.serverId == server.id
+              ? account.copyWith(
+                  capturedHeaders: {
+                    for (final entry in account.capturedHeaders.entries)
+                      if (keepsCookies.contains(entry.key))
+                        entry.key: entry.value,
+                    if (session != null &&
+                        session.accountId == account.id &&
+                        routes.contains(session.routeId))
+                      session.routeId: session.headers,
+                  },
+                )
+              : account,
+      ],
+    );
+    final selection = _endpointSelection();
+    final previous = selection[server.id];
+    // With nothing selected the first route is used, so a reorder would
+    // move the client at once, cutting off a reply the route resolver
+    // waits for. Pin the route in use instead; the resolver's check
+    // after the edit moves it when it should.
+    final inUse = stored.selectedEndpoint(previous).id;
+    if (routes.contains(inUse)) {
+      selection[server.id] = inUse;
+    } else {
+      selection.remove(server.id);
+    }
+    try {
+      await _saveRegistryUnlocked(next);
+    } catch (_) {
+      // The stored routes are unchanged; so is the one in use.
+      if (previous == null) {
+        selection.remove(server.id);
+      } else {
+        selection[server.id] = previous;
+      }
+      rethrow;
+    }
+    _stagedServerConfigCandidate = null;
+    await _writeEndpointHint();
+  }
+
+  /// Counts the sign-outs that revoked captured proxy cookies.
+  ///
+  /// A cookie captured to check an address is saved after the check, which
+  /// can outlast a sign-out. Read this before capturing it and pass it to
+  /// [saveEndpointSessionHeaders], which then refuses a cookie captured
+  /// before a sign-out finished. It moves when the sign-out ends, so a read
+  /// while one is still running sees it move too.
+  int get sessionRevocationRevision => _sessionRevocationRevision;
+
+  /// Keeps the session headers a proxy sign-in captured for [accountId] on
+  /// [route], one of its server's routes as just saved. Returns whether it
+  /// kept them.
+  ///
+  /// It keeps nothing once a sign-out has revoked cookies since
+  /// [sessionRevision] was read (see [sessionRevocationRevision]), or once
+  /// the route stored under [route]'s id no longer reaches the origin and
+  /// client identity the cookie was issued for: another save of the same
+  /// address moved it, and the cookie must not follow it there.
+  Future<bool> saveEndpointSessionHeaders({
+    required String accountId,
+    required OpenWebUiEndpoint route,
+    required Map<String, String> headers,
+    required int sessionRevision,
+  }) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        if (sessionRevision != _sessionRevocationRevision) {
+          DebugLogger.info(
+            'endpoint-cookie-dropped-after-sign-out',
+            scope: 'storage/optimized/registry',
+          );
+          return false;
+        }
+        final registry = await _registryForWriteUnlocked();
+        final account = registry.account(accountId);
+        final stored = account == null
+            ? null
+            : registry.server(account.serverId)?.endpoint(route.id);
+        if (account == null || stored == null) return false;
+        if (!stored.sameSessionOwner(route)) {
+          DebugLogger.info(
+            'endpoint-cookie-dropped-after-address-moved',
+            scope: 'storage/optimized/registry',
+          );
+          return false;
+        }
+        final captured = {
+          for (final entry in headers.entries)
+            if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+        };
+        await _saveRegistryUnlocked(
+          registry.withAccount(
+            account.copyWith(
+              capturedHeaders: {
+                ...account.capturedHeaders,
+                route.id: captured,
+              },
+            ),
+          ),
+        );
+        return true;
+      }),
+    );
+  }
 
   /// The saved servers and accounts. Strict: a Keychain failure propagates
   /// rather than reading as "nothing saved".
@@ -2713,7 +3080,9 @@ class OptimizedStorageService {
           bypassReadSuppression: true,
         );
         final activeId = _effectiveActiveServerId(
-          configs: registry.projectAll(),
+          configs: registry.projectAll(
+            selectedEndpoints: _endpointSelection(),
+          ),
           rawActiveServerId: rawActiveId,
         );
         if (activeId != expectedSourceAccountId) return false;
@@ -2892,7 +3261,7 @@ class OptimizedStorageService {
     final registry = await _getRegistryStrictUnlocked(
       bypassReadSuppression: bypassReadSuppression,
     );
-    return registry.projectAll();
+    return registry.projectAll(selectedEndpoints: _endpointSelection());
   }
 
   Future<OpenWebUiRegistry> _getRegistryStrictUnlocked({
@@ -2932,12 +3301,24 @@ class OptimizedStorageService {
   Future<_RegistrySnapshot> _snapshotRegistryUnlocked() async => (
     registry: await _registryForWriteUnlocked(),
     readsSuppressed: _serverConfigsReadSuppressed,
+    selection: Map<String, String>.unmodifiable(_endpointSelection()),
   );
 
   /// Writes [snapshot] back as it was taken. Reads fenced then stay fenced,
-  /// whatever the transaction being undone did to the fence.
+  /// whatever the transaction being undone did to the fence, and each server
+  /// goes back to the route it was reached through.
   Future<void> _restoreRegistryUnlocked(_RegistrySnapshot snapshot) async {
-    await _saveRegistryUnlocked(snapshot.registry, authorizeReads: false);
+    final selectionChanged = !const MapEquality<String, String>().equals(
+      _endpointSelection(),
+      snapshot.selection,
+    );
+    // Before the write, which projects the configs it caches through it.
+    if (selectionChanged) _selectedEndpoints = Map.of(snapshot.selection);
+    try {
+      await _saveRegistryUnlocked(snapshot.registry, authorizeReads: false);
+    } finally {
+      if (selectionChanged) await _writeEndpointHint();
+    }
     _serverConfigsReadSuppressed = snapshot.readsSuppressed;
   }
 
@@ -3781,56 +4162,38 @@ class OptimizedStorageService {
       // Like every step here, a failed read is recorded and the rest still
       // runs: the staged candidate and the cached user data go regardless.
       await attempt(() async {
-        final (configs, activeId) = await activeAccount();
+        final (_, activeId) = await activeAccount();
         if (activeId == null) return;
         await attempt(() => _deleteVaultedSessionUnlocked(activeId));
-        await attempt(() async {
-          var changed = false;
-          final sanitized = [
-            for (final config in configs)
-              if (config.id == activeId)
-                () {
-                  final revoked = _revokeServerConfigAuthArtifacts(config);
-                  changed = revoked != config;
-                  return revoked;
-                }()
-              else
-                config,
-          ];
-          if (changed) {
-            await _saveServerConfigsUnlocked(sanitized, authorizeReads: false);
-          }
-        });
+        await attempt(
+          () => _scrubServerConfigAuthArtifactsUnlocked(accountId: activeId),
+        );
       });
       _stagedServerConfigCandidate = null;
     });
     await attempt(_clearUserScopedCacheEntries);
+    // Every step above is attempted, so this runs however they went.
+    _sessionRevocationRevision++;
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
   }
 
-  Future<void> _scrubServerConfigAuthArtifactsUnlocked() async {
-    // After a wipe whose delete failed, the old registry is still stored,
-    // cookies and all. What the wipe meant to leave goes over it: a copy
-    // with only its secrets taken out would keep what the wipe removed.
-    final leftByWipe = _registryLeftByWipe;
-    if (leftByWipe != null) {
-      await _saveRegistryUnlocked(leftByWipe, authorizeReads: false);
-      return;
-    }
-    final configs = await _getServerConfigsStrictUnlockedBypassingSuppression();
-    var changed = false;
-    final sanitized = configs
-        .map((config) {
-          final revoked = _revokeServerConfigAuthArtifacts(config);
-          if (revoked == config) return config;
-          changed = true;
-          return revoked;
-        })
-        .toList(growable: false);
-    if (changed) {
-      await _saveServerConfigsUnlocked(sanitized, authorizeReads: false);
+  /// Revokes the proxy cookies captured for [accountId], or for every
+  /// account, on every route of their servers. Scrubbing the projected
+  /// configs would reach only the routes in use. The registry never stores a
+  /// legacy apiKey, so the cookies are all there is to revoke.
+  ///
+  /// After a wipe whose delete failed, the old registry is still stored,
+  /// cookies and all, under the one writes build on: written over, the wipe
+  /// is finished.
+  Future<void> _scrubServerConfigAuthArtifactsUnlocked({
+    String? accountId,
+  }) async {
+    final registry = await _registryForWriteUnlocked();
+    final scrubbed = registry.withoutCapturedHeaders(accountId: accountId);
+    if (scrubbed != registry || _registryLeftByWipe != null) {
+      await _saveRegistryUnlocked(scrubbed, authorizeReads: false);
     }
   }
 
@@ -3864,6 +4227,7 @@ class OptimizedStorageService {
       _stagedServerConfigCandidate = null;
     });
     await attempt(_clearUserScopedCacheEntries);
+    _sessionRevocationRevision++;
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -3949,6 +4313,7 @@ class OptimizedStorageService {
       bypassReadSuppression: true,
     );
     var retainedRegistry = OpenWebUiRegistry.empty;
+    var retainedSelection = const <String, String>{};
     String? retainedActiveServerId;
     if (preserveServerDetails) {
       await attempt(() async {
@@ -3958,6 +4323,7 @@ class OptimizedStorageService {
           _registryLeftByWipe ??
               await _getRegistryStrictUnlocked(bypassReadSuppression: true),
         );
+        retainedSelection = Map.of(_endpointSelection());
         retainedActiveServerId = _effectiveActiveServerId(
           configs: retainedRegistry.projectAll(),
           rawActiveServerId: initiatingServerId,
@@ -4025,6 +4391,7 @@ class OptimizedStorageService {
         false,
         ttl: _credentialsFlagTtl,
       );
+      _selectedEndpoints = null;
       _cacheRegistry(OpenWebUiRegistry.empty);
       _registryLeftByWipe = retainedRegistry;
       _cacheActiveServerId(null);
@@ -4034,6 +4401,14 @@ class OptimizedStorageService {
       var configsRestored = false;
       var activeIdRestored = false;
       await attempt(() async {
+        // Every route is kept, so each server stays on the one it was
+        // reached through. Only for this run: the launch hint went with the
+        // other preferences, and the next launch probes again.
+        _selectedEndpoints = Map.of(retainedSelection)
+          ..removeWhere(
+            (serverId, endpointId) =>
+                retainedRegistry.server(serverId)?.endpoint(endpointId) == null,
+          );
         await _saveRegistryUnlocked(retainedRegistry, authorizeReads: false);
         configsRestored = true;
       });
@@ -4056,6 +4431,7 @@ class OptimizedStorageService {
       }
     }
 
+    _sessionRevocationRevision++;
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -4176,7 +4552,9 @@ class OptimizedStorageService {
   }
 
   void _cacheRegistry(OpenWebUiRegistry registry) {
-    final configs = registry.projectAll();
+    final configs = registry.projectAll(
+      selectedEndpoints: _endpointSelection(),
+    );
     _cacheManager.write('server_config_count', configs.length);
     _cacheManager.write(_registryCacheKey, registry, ttl: _serverConfigsTtl);
     _cacheManager.write(

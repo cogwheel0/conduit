@@ -12,6 +12,7 @@ const _redirectStatusCodes = {
 };
 const _maximumHops = 5;
 const _hopExtraKey = 'conduit.sameOriginRedirectHops';
+const _startExtraKey = 'conduit.sameOriginRedirectStart';
 
 int _effectiveHttpPort(Uri uri) {
   if (uri.hasPort) return uri.port;
@@ -60,7 +61,9 @@ RequestOptions? nextSameOriginRedirectRequest({
   final redirected = options.copyWith(
     path: target.toString(),
     queryParameters: const <String, dynamic>{},
-    extra: Map<String, dynamic>.of(options.extra)..[_hopExtraKey] = hops + 1,
+    extra: Map<String, dynamic>.of(options.extra)
+      ..[_hopExtraKey] = hops + 1
+      ..putIfAbsent(_startExtraKey, () => options.uri.toString()),
     headers: Map<String, dynamic>.of(options.headers),
   );
   if (convertsToGet) {
@@ -73,6 +76,19 @@ RequestOptions? nextSameOriginRedirectRequest({
     });
   }
   return redirected;
+}
+
+/// Whether [options] replays a redirect [SameOriginRedirectInterceptor]
+/// followed.
+bool isSameOriginRedirectReplay(RequestOptions options) =>
+    options.extra.containsKey(_hopExtraKey);
+
+/// Where the request [options] replays started, before the redirects
+/// [SameOriginRedirectInterceptor] followed; its own address otherwise. A
+/// replay can have moved from HTTP to HTTPS on the same host.
+Uri sameOriginRedirectStart(RequestOptions options) {
+  final start = options.extra[_startExtraKey];
+  return (start is String ? Uri.tryParse(start) : null) ?? options.uri;
 }
 
 /// Replays only credential-safe, idempotent redirects surfaced by Dio.

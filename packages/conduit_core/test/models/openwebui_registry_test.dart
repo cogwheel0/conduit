@@ -200,6 +200,89 @@ void main() {
       check(viaProxy.customHeaders)
           .deepEquals({'X-Gate': 'g', 'Cookie': 'session=1'});
     });
+
+    test('a config read on a route not in use is saved to that route', () {
+      final registry = OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 's',
+            name: 'Home',
+            endpoints: [
+              OpenWebUiEndpoint(id: 'lan', url: 'http://10.0.0.2:3000'),
+              OpenWebUiEndpoint(id: 'proxy', url: 'https://chat.example.com'),
+            ],
+          ),
+        ],
+        accounts: [OpenWebUiAccount(id: 'a', serverId: 's')],
+      );
+      // Read while the proxy route was in use; saved once the LAN is.
+      final viaProxy = registry.project(
+        'a',
+        selectedEndpoints: const {'s': 'proxy'},
+      )!;
+
+      final next = registry.mergeServerConfigs([
+        viaProxy.copyWith(customHeaders: const {'Cookie': 'session=2'}),
+      ]);
+
+      check(next.servers.single.endpoints.map((endpoint) => endpoint.url))
+          .deepEquals(['http://10.0.0.2:3000', 'https://chat.example.com']);
+      check(next.account('a')!.capturedHeaders).deepEquals({
+        'proxy': {'Cookie': 'session=2'},
+      });
+      check(next.project('a')!.customHeaders).isEmpty();
+    });
+
+    test('a config read on a route sharing the URL in use is saved to it', () {
+      final registry = OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 's',
+            name: 'Home',
+            endpoints: [
+              OpenWebUiEndpoint(id: 'main', url: 'https://chat.example.com'),
+              OpenWebUiEndpoint(
+                id: 'tenant',
+                url: 'https://chat.example.com',
+                customHeaders: const {'X-Tenant': 'b'},
+              ),
+            ],
+          ),
+        ],
+        accounts: [OpenWebUiAccount(id: 'a', serverId: 's')],
+      );
+      // Read while the tenant route was in use; saved once main is.
+      final viaTenant = registry.project(
+        'a',
+        selectedEndpoints: const {'s': 'tenant'},
+      )!;
+
+      final next = registry.mergeServerConfigs([
+        viaTenant.copyWith(
+          customHeaders: const {'X-Tenant': 'b', 'Cookie': 'session=2'},
+        ),
+      ], selectedEndpoints: const {'s': 'main'});
+
+      check(
+        next.servers.single.endpoints.map((endpoint) => endpoint.customHeaders),
+      ).deepEquals([
+        const <String, String>{},
+        const {'X-Tenant': 'b'},
+      ]);
+      check(next.account('a')!.capturedHeaders).deepEquals({
+        'tenant': {'Cookie': 'session=2'},
+      });
+    });
+  });
+
+  test('an address never keeps a session header', () {
+    final route = OpenWebUiEndpoint(
+      id: 'e',
+      url: 'https://chat.example.com',
+      customHeaders: const {'X-Gate': 'g', 'cookie': 'proxy=1'},
+    );
+
+    check(route.customHeaders).deepEquals({'X-Gate': 'g'});
   });
 
   group('fromLegacyServerConfigs', () {
@@ -298,6 +381,35 @@ void main() {
           '"accounts":[]}',
         ),
       ).throws<FormatException>();
+    });
+  });
+
+  group('withEditedRoute', () {
+    final lan = OpenWebUiEndpoint(id: 'lan', url: 'http://10.0.0.2:3000');
+    final proxy = OpenWebUiEndpoint(id: 'proxy', url: 'https://proxy.example');
+    final edited = OpenWebUiEndpoint(
+      id: 'proxy',
+      url: 'https://edited.example',
+    );
+
+    test('saves an edit in place', () {
+      check(withEditedRoute([proxy, lan], edited, adding: false))
+          .deepEquals([edited, lan]);
+    });
+
+    // Removed while the edit was being checked; saving would bring it back.
+    test('fails for an address no longer saved', () {
+      check(() => withEditedRoute([lan], edited, adding: false))
+          .throws<StateError>();
+    });
+
+    test('appends only an addition', () {
+      check(withEditedRoute([lan], proxy, adding: true))
+          .deepEquals([lan, proxy]);
+      // An addition saved already, by a save that went wrong after it, is
+      // saved in place rather than twice.
+      check(withEditedRoute([proxy, lan], edited, adding: true))
+          .deepEquals([edited, lan]);
     });
   });
 

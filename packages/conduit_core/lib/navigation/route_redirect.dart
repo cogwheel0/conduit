@@ -9,6 +9,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show proxySignInForRouteEditingProvider;
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -27,6 +29,7 @@ final List<ProviderListenable<Object?>> routeRedirectDependencies = [
   // the Hermes config becomes usable (secrets finish loading).
   preferredBackendProvider,
   accountAdditionOriginProvider,
+  proxySignInForRouteEditingProvider,
   hermesConfigProvider,
   hermesSecretsLoadingProvider,
   effectiveDirectConnectionProfilesProvider,
@@ -47,6 +50,10 @@ bool _isAccountlessBackendLocation(String location) {
       // The saved accounts are on the device: switching to one still
       // signed in needs no session on the active account.
       location == Routes.accounts ||
+      // A server's addresses are on the device too, and Manage accounts
+      // opens them.
+      location == Routes.serverAddresses ||
+      location == Routes.serverAddressEditor ||
       location == Routes.audioSettings ||
       location == Routes.appearanceSettings ||
       location == Routes.chatSettings ||
@@ -133,7 +140,8 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
   if (authState == AuthNavigationState.authenticated &&
       isAuthLocation(location) &&
       location != Routes.connectionIssue &&
-      !_isAddingAccountFromActive(read)) {
+      !_isAddingAccountFromActive(read) &&
+      !_isProxySignInForRouteEditing(location, read)) {
     return Routes.chat;
   }
 
@@ -142,7 +150,11 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
     return null;
   }
 
-  if (activeServerAsync.isLoading) {
+  // A refresh of the server already known keeps the user where they are:
+  // re-reading its addresses, or moving to another of them, does not change
+  // whose app this is, and an account change shows its own loading through
+  // auth. Only a first lookup holds the splash.
+  if (activeServerAsync.isLoading && !activeServerAsync.hasValue) {
     // Avoid redirect loops: do not override explicit auth routes while loading
     if (isAuthLocation(location)) return null;
     if (prefersDirect && !directUsable) {
@@ -198,7 +210,7 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
     return location == Routes.connectionIssue ? null : Routes.connectionIssue;
   }
 
-  final activeServer = activeServerAsync.asData?.value;
+  final activeServer = activeServerAsync.value;
   final hasActiveServer = activeServer != null;
   // A preferred Direct backend is usable only while at least one validated,
   // enabled profile has resolved. With an authenticated OpenWebUI session we
@@ -320,6 +332,7 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
       if (isAuthLocation(location) && _isAddingAccountFromActive(read)) {
         return null;
       }
+      if (_isProxySignInForRouteEditing(location, read)) return null;
       // Avoid unnecessary redirects if already on a non-auth route
       if (isAuthLocation(location) ||
           location == Routes.splash ||
@@ -367,6 +380,11 @@ bool _isAddingAccountFromActive(ProviderRead read) {
       : active.value?.id;
   return origin == activeId;
 }
+
+/// Whether [location] is the proxy sign-in the address editor opened to check
+/// a proxy-protected address, which it does while signed in.
+bool _isProxySignInForRouteEditing(String location, ProviderRead read) =>
+    location == Routes.proxyAuth && read(proxySignInForRouteEditingProvider);
 
 bool isAuthLocation(String location) {
   return location == Routes.serverConnection ||

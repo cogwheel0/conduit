@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show File, HandshakeException, HttpException, SocketException;
 
@@ -16,14 +17,20 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../platform/webview_cookie_helper.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
-import 'package:conduit_core/models/openwebui_registry.dart'
-    show OpenWebUiRegistry, OpenWebUiServer, openWebUiServerIdentityUrl;
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/auth/openwebui_address_check.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show
+        logoutFenceSuppressesCookies,
+        openWebUiRouteResolverProvider,
+        proxySignInForRouteEditingProvider,
+        reloadAfterRoutesEdited;
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show
         accountAdditionOriginProvider,
@@ -46,9 +53,13 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import 'proxy_auth_page.dart';
 import '../../../shared/widgets/connection_components.dart';
+import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../profile/widgets/account_actions.dart'
-    show abandonAddedAccount, confirmLeavingActiveAccount;
+    show
+        abandonAddedAccount,
+        confirmChangingAddressInUse,
+        confirmLeavingActiveAccount;
 
 const int _maxConnectionProviderDetailCharacters = 300;
 const int _maxConnectionErrorCharacters = 640;
@@ -230,12 +241,148 @@ Object? _serverConnectionResponseErrorDetail(Object? data) => switch (data) {
   _ => null,
 };
 
+/// A client for checking an address typed into this page, through
+/// [container]'s providers.
+///
+/// An address being edited is checked with the proxy cookie the server's
+/// accounts keep there. An incomplete logout keeps that cookie off every
+/// other client, and a check can outlast the page into one.
+@visibleForTesting
+ApiService buildAddressCheckApi(
+  ProviderContainer container,
+  ServerConfig config, {
+  String? authToken,
+}) => ApiService(
+  serverConfig: config,
+  workerManager: container.read(workerManagerProvider),
+  authToken: authToken,
+  shouldSuppressCookieCustomHeader: logoutFenceSuppressesCookies(
+    container.read,
+  ),
+);
+
+/// Checks that [address] reaches the saved server [serverId]
+/// ([checkOpenWebUiAddress]) with its accounts' sessions: the live one of
+/// the active account and those kept for the others.
+///
+/// Active as storage counts it, which keeps no id for an account only
+/// flagged active or the only one saved; its session is the live one, not
+/// one kept for an inactive account. Returns what the check found and that
+/// account's id. Throws when storage cannot be read.
+@visibleForTesting
+Future<({OpenWebUiAddressCheckResult found, String? activeAccountId})>
+checkSavedServerAddress(
+  ProviderContainer container, {
+  required OpenWebUiRegistry registry,
+  required String serverId,
+  required String address,
+  required Future<bool> Function(Uri address) confirmSendingSession,
+  required Future<String> Function(String accountId, String token) userAt,
+}) async {
+  final storage = container.read(optimizedStorageServiceProvider);
+  final activeAccountId = await storage.getEffectiveActiveServerId();
+  final found = await checkOpenWebUiAddress(
+    registry: registry,
+    serverId: serverId,
+    address: address,
+    activeAccountId: activeAccountId,
+    liveToken: container.read(authTokenProvider3),
+    keptTokenFor: storage.vaultedTokenFor,
+    accountsWithSession: await storage.accountIdsWithSession(),
+    confirmSendingSession: confirmSendingSession,
+    userAt: userAt,
+  );
+  return (found: found, activeAccountId: activeAccountId);
+}
+
+/// Saves [route], an address of the server [serverId] that has just been
+/// checked -- in place of the address of its id, or as a new one when
+/// [adding] -- and keeps the proxy cookie in [headers] for [cookieOwner], the
+/// account whose session proved it (see
+/// [OptimizedStorageService.editServerEndpointsWithSession]).
+///
+/// The address and its cookie are saved together: saved without it, an
+/// address behind a proxy would be refused. When the cookie cannot be kept
+/// nothing is saved, and the address in use stays where it was; a failure is
+/// rethrown for the editor to report. Returns false when there is no
+/// [cookieOwner] to keep the cookie for, or storage declined it, a sign-out
+/// having revoked cookies since [sessionRevision].
+@visibleForTesting
+Future<bool> saveCheckedAddress(
+  ProviderContainer container, {
+  required String serverId,
+  required OpenWebUiEndpoint route,
+  required bool adding,
+  required String? cookieOwner,
+  required Map<String, String> headers,
+  required int sessionRevision,
+}) async {
+  final storage = container.read(optimizedStorageServiceProvider);
+  // Onto the routes as stored now, not as read before the check, which can
+  // take a while; an address removed meanwhile stays removed.
+  List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) =>
+      withEditedRoute(endpoints, route, adding: adding);
+  final bool saved;
+  if (headers.keys.any(isCapturedSessionHeader)) {
+    saved =
+        cookieOwner != null &&
+        await storage.editServerEndpointsWithSession(
+          serverId,
+          edit,
+          accountId: cookieOwner,
+          routeId: route.id,
+          headers: headers,
+          sessionRevision: sessionRevision,
+        );
+  } else {
+    await storage.editServerEndpoints(serverId, edit);
+    saved = true;
+  }
+  if (!saved) return false;
+  // The addresses shown and the route in use follow it, and the clients
+  // when the active connection changed.
+  await reloadAfterRoutesEdited(container, serverId, endpointId: route.id);
+  return true;
+}
+
+/// The account of [serverId] a proxy sign-in on one of its addresses is kept
+/// for: the one whose session proved the address, else -- with nothing to
+/// prove -- the active account when it is one of the server's, else the
+/// server's only account. None when it could be any of several.
+///
+/// Accounts still being signed in to are not counted: none is a user yet.
+@visibleForTesting
+String? addressCookieOwner(
+  OpenWebUiRegistry registry, {
+  required String serverId,
+  required String? provedBy,
+  required String? activeAccountId,
+}) {
+  if (provedBy != null) return provedBy;
+  final accounts = [
+    for (final account in registry.accountsOn(serverId))
+      if (account.userId != null) account.id,
+  ];
+  if (accounts.contains(activeAccountId)) return activeAccountId;
+  return accounts.length == 1 ? accounts.single : null;
+}
+
 class ServerConnectionPage extends ConsumerStatefulWidget {
   const ServerConnectionPage({
     super.key,
     this.addingAccount = false,
     this.serverId,
+    this.routesOfServerId,
+    this.endpointId,
   });
+
+  /// Adding or editing one address of the saved server with this id, rather
+  /// than connecting to sign in. The address is checked the same way, then
+  /// saved as a route to that server.
+  final String? routesOfServerId;
+
+  /// The address being edited; null adds a new one.
+  final String? endpointId;
 
   /// Connecting to sign in to another account while one is signed in. The
   /// form starts empty -- or from [serverId]'s saved route -- rather than
@@ -287,6 +434,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   /// Ends the account addition this page was opened for, as it goes.
   void Function()? _endAccountAddition;
+  final TextEditingController _routeLabelController = TextEditingController();
+
+  /// The id an address added here is saved under. One per editor, so saving
+  /// again after a save that stored the address and then failed edits it
+  /// rather than adding it twice.
+  final String _addedEndpointId = const Uuid().v4();
+
+  bool get _editingRoutes => widget.routesOfServerId != null;
 
   /// The saved server the form was filled in from, when it was.
   OpenWebUiServer? _savedServer;
@@ -295,7 +450,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   void initState() {
     super.initState();
     _urlController.addListener(_resetTransientAttempt);
-    if (widget.addingAccount) {
+    if (_editingRoutes) {
+      _prefillFromRoute();
+    } else if (widget.addingAccount) {
       // openAddAccount began the addition before opening this page, which the
       // router needs; the page only ends it when it goes.
       _endAccountAddition = ref
@@ -305,6 +462,231 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     } else {
       _prefillFromState();
     }
+  }
+
+  Future<void> _prefillFromRoute() async {
+    final endpointId = widget.endpointId;
+    if (endpointId == null) return;
+    // As for a saved server's: what the user typed while it is read stays.
+    final untouched = (_formContents(), _routeLabelController.text);
+    final OpenWebUiRegistry registry;
+    try {
+      registry = await ref
+          .read(optimizedStorageServiceProvider)
+          .getOpenWebUiRegistryStrict();
+    } catch (error, stackTrace) {
+      // Nothing awaits this; say why the form starts empty.
+      DebugLogger.error(
+        'route-edit-prefill-failed',
+        scope: 'auth/accounts',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      setState(() {
+        _connectionError = AppLocalizations.of(context)!.errorMessage;
+      });
+      return;
+    }
+    final endpoint = registry
+        .server(widget.routesOfServerId!)
+        ?.endpoint(endpointId);
+    if (!mounted || endpoint == null) return;
+    if ((_formContents(), _routeLabelController.text) != untouched) return;
+    _routeLabelController.text = endpoint.label ?? '';
+    _applyEndpoint(endpoint);
+  }
+
+  void _applyEndpoint(OpenWebUiEndpoint endpoint) {
+    setState(() {
+      _urlController.text = endpoint.url;
+      _customHeaders
+        ..clear()
+        ..addAll(endpoint.customHeaders);
+      _showAdvancedSettings =
+          endpoint.allowSelfSignedCertificates ||
+          endpoint.customHeaders.isNotEmpty ||
+          (!kIsWeb && endpoint.mtlsPrivateKeyPem != null);
+      _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
+      _mtlsCertificateChainPem = kIsWeb
+          ? null
+          : endpoint.mtlsCertificateChainPem;
+      _mtlsCertificateLabel = kIsWeb ? null : endpoint.mtlsCertificateLabel;
+      _mtlsPrivateKeyPem = kIsWeb ? null : endpoint.mtlsPrivateKeyPem;
+      _mtlsPrivateKeyLabel = kIsWeb ? null : endpoint.mtlsPrivateKeyLabel;
+      _mtlsPrivateKeyPasswordController.text = kIsWeb
+          ? ''
+          : (endpoint.mtlsPrivateKeyPassword ?? '');
+    });
+  }
+
+  /// Saves [verified] -- an address that answered as an Open WebUI server --
+  /// as a route to the server being edited.
+  ///
+  /// The address must also know the server's accounts: a token one of them
+  /// holds has to name the same user through it. Otherwise it is another
+  /// server (or another account behind the same proxy), and every account on
+  /// this one would start sending its session there. Returns whether it
+  /// saved.
+  ///
+  /// [sessionRevision] is [OptimizedStorageService.sessionRevocationRevision]
+  /// as it was before the address was first contacted: a proxy cookie
+  /// captured for it is not kept once a sign-out has revoked cookies since.
+  Future<bool> _saveRoute(ServerConfig verified, int sessionRevision) async {
+    final l10n = AppLocalizations.of(context)!;
+    // The editor can be left while a save runs, and the widget's ref is gone
+    // with it; what follows the save must still run.
+    final container = ProviderScope.containerOf(context, listen: false);
+    final storage = container.read(optimizedStorageServiceProvider);
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    final server = registry.server(widget.routesOfServerId!);
+    if (server == null) throw StateError('That server is no longer saved.');
+
+    final (:found, :activeAccountId) = await checkSavedServerAddress(
+      container,
+      registry: registry,
+      serverId: server.id,
+      address: verified.url,
+      confirmSendingSession: (address) async {
+        if (!mounted) return false;
+        return ThemedDialogs.confirm(
+          context,
+          title: l10n.accountsAddressConfirmTitle,
+          message: l10n.accountsAddressConfirmMessage(address.authority),
+          confirmText: l10n.accountsAddressConfirmAction,
+        );
+      },
+      userAt: (accountId, token) async {
+        // Each account's token travels with its own proxy cookie only.
+        final probe = buildAddressCheckApi(
+          container,
+          _withKeptCookie(verified, registry, [accountId]),
+          authToken: token,
+        );
+        try {
+          final user = await probe.getCurrentUser(
+            suppressAuthFailureNotification: true,
+          );
+          return user.id;
+        } finally {
+          probe.dispose();
+        }
+      },
+    );
+    final (result: check, :provedBy) = found;
+    if (check != OpenWebUiAddressCheck.sameServer &&
+        check != OpenWebUiAddressCheck.nothingToProtect) {
+      final refusal = switch (check) {
+        OpenWebUiAddressCheck.differentServer =>
+          l10n.accountsAddressDifferentServer,
+        OpenWebUiAddressCheck.needsSignIn => l10n.accountsAddressNeedsSignIn,
+        // Nothing was sent, as the user chose; the form stays as it is.
+        OpenWebUiAddressCheck.declined ||
+        OpenWebUiAddressCheck.sameServer ||
+        OpenWebUiAddressCheck.nothingToProtect => null,
+      };
+      if (mounted) setState(() => _connectionError = refusal);
+      return false;
+    }
+
+    final label = _routeLabelController.text.trim();
+    final route = OpenWebUiEndpoint(
+      id: widget.endpointId ?? _addedEndpointId,
+      url: verified.url,
+      label: label.isEmpty ? null : label,
+      customHeaders: {
+        for (final entry in verified.customHeaders.entries)
+          if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+      },
+      allowSelfSignedCertificates: verified.allowSelfSignedCertificates,
+      mtlsCertificateChainPem: verified.mtlsCertificateChainPem,
+      mtlsCertificateLabel: verified.mtlsCertificateLabel,
+      mtlsPrivateKeyPem: verified.mtlsPrivateKeyPem,
+      mtlsPrivateKeyLabel: verified.mtlsPrivateKeyLabel,
+      mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
+    );
+    // Left while the address was checked: Back abandons the edit, and the
+    // address the server's accounts use stays as it was.
+    if (!mounted) return false;
+    // A proxy sign-in on this address belongs to the account whose session
+    // proved it, which need not be the active one.
+    final cookieOwner = addressCookieOwner(
+      registry,
+      serverId: server.id,
+      provedBy: provedBy,
+      activeAccountId: activeAccountId,
+    );
+    if (cookieOwner == null &&
+        verified.customHeaders.keys.any(isCapturedSessionHeader)) {
+      // Kept for none of them, the address would be saved for the proxy to
+      // refuse. Once one of them is signed in to, it is that one's.
+      setState(() => _connectionError = l10n.accountsAddressNeedsSignIn);
+      return false;
+    }
+    // Saved, the address in use moves the clients off it, ending a reply
+    // arriving through them; that is asked first.
+    final inUse = container.read(openWebUiRouteResolverProvider);
+    if (widget.endpointId != null &&
+        inUse.serverId == server.id &&
+        inUse.endpointId == widget.endpointId &&
+        !await confirmChangingAddressInUse(context, container)) {
+      return false;
+    }
+    if (!mounted) return false;
+    final cookieKept = await saveCheckedAddress(
+      container,
+      serverId: server.id,
+      route: route,
+      adding: widget.endpointId == null,
+      cookieOwner: cookieOwner,
+      headers: verified.customHeaders,
+      sessionRevision: sessionRevision,
+    );
+    if (!cookieKept) {
+      // Not saved: the proxy sign-in that lets requests through it was
+      // revoked; signing in through the proxy again captures a new one.
+      if (mounted) setState(() => _connectionError = l10n.proxyAuthFailed);
+      return false;
+    }
+    if (mounted) {
+      ConduitHaptics.success();
+      context.pop();
+    }
+    return true;
+  }
+
+  /// [draft] with the proxy cookie kept on the address being edited, the
+  /// active account's when it is on the server, else another account's.
+  /// Unchanged while adding an address, or once [draft] reaches somewhere
+  /// else ([keptAddressSessionHeaders]).
+  Future<ServerConfig> _withKeptAddressCookie(ServerConfig draft) async {
+    final serverId = widget.routesOfServerId;
+    if (serverId == null || widget.endpointId == null) return draft;
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    // As storage counts it, as the check of the address does.
+    final activeId = await storage.getEffectiveActiveServerId();
+    return _withKeptCookie(draft, registry, [
+      ?activeId,
+      for (final account in registry.accountsOn(serverId)) account.id,
+    ]);
+  }
+
+  ServerConfig _withKeptCookie(
+    ServerConfig draft,
+    OpenWebUiRegistry registry,
+    Iterable<String> accountIds,
+  ) {
+    final kept = keptAddressSessionHeaders(
+      registry: registry,
+      serverId: widget.routesOfServerId!,
+      endpointId: widget.endpointId,
+      draft: draft,
+      accountIds: accountIds,
+    );
+    return kept.isEmpty
+        ? draft
+        : draft.copyWith(customHeaders: {...draft.customHeaders, ...kept});
   }
 
   Future<void> _prefillFromSavedServer() async {
@@ -337,26 +719,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     if (!mounted || endpoint == null) return;
     _savedServer = server;
     if (_formContents() != untouched) return;
-    setState(() {
-      _urlController.text = endpoint.url;
-      _customHeaders
-        ..clear()
-        ..addAll(endpoint.customHeaders);
-      _showAdvancedSettings =
-          endpoint.allowSelfSignedCertificates ||
-          endpoint.customHeaders.isNotEmpty ||
-          (!kIsWeb && endpoint.mtlsPrivateKeyPem != null);
-      _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
-      _mtlsCertificateChainPem = kIsWeb
-          ? null
-          : endpoint.mtlsCertificateChainPem;
-      _mtlsCertificateLabel = kIsWeb ? null : endpoint.mtlsCertificateLabel;
-      _mtlsPrivateKeyPem = kIsWeb ? null : endpoint.mtlsPrivateKeyPem;
-      _mtlsPrivateKeyLabel = kIsWeb ? null : endpoint.mtlsPrivateKeyLabel;
-      _mtlsPrivateKeyPasswordController.text = kIsWeb
-          ? ''
-          : (endpoint.mtlsPrivateKeyPassword ?? '');
-    });
+    _applyEndpoint(endpoint);
   }
 
   /// What the connection form holds, to tell whether it has been edited.
@@ -412,6 +775,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
     _urlController.removeListener(_resetTransientAttempt);
     _urlController.dispose();
+    _routeLabelController.dispose();
     _headerKeyController.dispose();
     _headerValueController.dispose();
     _mtlsPrivateKeyPasswordController.dispose();
@@ -422,6 +786,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _connectToServer() async {
     if (_isConnecting) return;
     final l10n = AppLocalizations.of(context)!;
+    // Before anything is awaited: a sign-out from here on, during the checks
+    // or the proxy sign-in, revokes whatever cookie they capture. Only an
+    // address being edited keeps one.
+    final sessionRevision = _editingRoutes
+        ? ref.read(optimizedStorageServiceProvider).sessionRevocationRevision
+        : 0;
 
     DebugLogger.log('Connect button pressed', scope: 'auth/connection');
 
@@ -457,6 +827,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     });
 
     ApiService? connectionApi;
+    var checkHeaders = const <String, String>{};
     try {
       final rawUrl = _urlController.text.trim();
       String url = _validateAndFormatUrl(rawUrl);
@@ -479,10 +850,17 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         mtlsPrivateKeyPassword: _normalizedMtlsPrivateKeyPassword,
       );
 
+      // An edit that still reaches the address as stored passes its proxy
+      // with the cookie the server's accounts keep there. A fresh proxy
+      // sign-in below starts from tempConfig, without it.
+      final checkConfig = await _withKeptAddressCookie(tempConfig);
+      if (!mounted) return;
+      checkHeaders = checkConfig.customHeaders;
+
       final workerManager = ref.read(workerManagerProvider);
-      final api = ApiService(
-        serverConfig: tempConfig,
-        workerManager: workerManager,
+      final api = buildAddressCheckApi(
+        ProviderScope.containerOf(context, listen: false),
+        checkConfig,
       );
       connectionApi = api;
 
@@ -504,7 +882,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         );
         api.dispose();
         connectionApi = null;
-        await _handleProxyAuth(tempConfig, workerManager);
+        await _handleProxyAuth(tempConfig, workerManager, sessionRevision);
         return;
       }
 
@@ -534,6 +912,14 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         throw Exception(l10n.serverNotOpenWebUI);
       }
 
+      // Left while the address was checked: the save works through this
+      // page, and it is gone.
+      if (!mounted) return;
+      if (_editingRoutes) {
+        await _saveRoute(tempConfig, sessionRevision);
+        return;
+      }
+
       DebugLogger.log(
         'Server validation passed, navigating to auth page',
         scope: 'auth/connection',
@@ -557,7 +943,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       );
       if (mounted) {
         setState(() {
-          _connectionError = _formatConnectionError(e);
+          _connectionError = _formatConnectionError(
+            e,
+            sensitiveValues: [..._customHeaders.values, ...checkHeaders.values],
+          );
         });
         ConduitHaptics.error();
       }
@@ -581,6 +970,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _handleProxyAuth(
     ServerConfig tempConfig,
     WorkerManager workerManager,
+    int sessionRevision,
   ) async {
     // Check if WebView is supported
     if (!isWebViewSupported) {
@@ -598,10 +988,22 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
     if (!mounted) return;
 
-    final result = await context.pushNamed<ProxyAuthResult>(
-      RouteNames.proxyAuth,
-      extra: proxyConfig,
-    );
+    // Addresses are edited signed in, and the router keeps a signed-in user
+    // off sign-in screens; the editor lets the proxy sign-in through while it
+    // waits on it.
+    final routeEditing = _editingRoutes
+        ? ref.read(proxySignInForRouteEditingProvider.notifier)
+        : null;
+    routeEditing?.begin();
+    final ProxyAuthResult? result;
+    try {
+      result = await context.pushNamed<ProxyAuthResult>(
+        RouteNames.proxyAuth,
+        extra: proxyConfig,
+      );
+    } finally {
+      routeEditing?.end();
+    }
 
     if (!mounted) return;
 
@@ -667,6 +1069,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         scope: 'auth/connection',
       );
 
+      // What the proxy sign-in captured, kept out of any error shown.
+      final proxySensitiveValues = <String>[
+        ...updatedHeaders.values,
+        ...?result.cookies?.values,
+        if ((result.jwtToken ?? '').isNotEmpty) result.jwtToken!,
+      ];
       final BackendConfig? backendConfig;
       try {
         backendConfig = await apiWithCookies.verifyAndGetConfig();
@@ -677,11 +1085,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           data: {'errorType': error.runtimeType.toString()},
         );
         if (mounted) {
-          final proxySensitiveValues = <String>[
-            ...updatedHeaders.values,
-            ...?result.cookies?.values,
-            if ((result.jwtToken ?? '').isNotEmpty) result.jwtToken!,
-          ];
           setState(() {
             _connectionError = _formatConnectionError(
               error,
@@ -701,6 +1104,34 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             _isConnecting = false;
           });
         }
+        return;
+      }
+
+      if (!mounted) return;
+      if (_editingRoutes) {
+        final bool saved;
+        try {
+          saved = await _saveRoute(configWithCookies, sessionRevision);
+        } catch (error) {
+          // Here, not in the caller's handler: that one knows only the
+          // headers from before the proxy sign-in.
+          DebugLogger.error(
+            'proxy-route-save-error',
+            scope: 'auth/connection',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+          if (mounted) {
+            setState(() {
+              _connectionError = _formatConnectionError(
+                error,
+                sensitiveValues: proxySensitiveValues,
+              );
+              _isConnecting = false;
+            });
+          }
+          return;
+        }
+        if (!saved && mounted) setState(() => _isConnecting = false);
         return;
       }
 
@@ -1291,8 +1722,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         if (!didPop) _goBack();
       },
       child: UtilityPageScaffold.auth(
-        title: l10n.backendChooserOpenWebUITitle,
-        onTitleLongPress: _toggleReviewerMode,
+        title: !_editingRoutes
+            ? l10n.backendChooserOpenWebUITitle
+            : widget.endpointId == null
+            ? l10n.accountsAddAddress
+            : l10n.accountsEditAddress,
+        onTitleLongPress: _editingRoutes ? null : _toggleReviewerMode,
         backNavigation: UtilityBackNavigation(
           label: l10n.back,
           buttonKey: const ValueKey<String>('server-connection-back-button'),
@@ -1308,7 +1743,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 _buildReviewerModeSection(),
                 const SizedBox(height: Spacing.xl),
               ],
-              _buildServerForm(),
+              // An address is saved as it was checked, and the editor then
+              // closes: an edit made during the check would be lost.
+              IgnorePointer(
+                ignoring: _editingRoutes && _isConnecting,
+                child: ExcludeFocus(
+                  excluding: _editingRoutes && _isConnecting,
+                  child: _buildServerForm(),
+                ),
+              ),
             ],
           ),
         ),
@@ -1323,7 +1766,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// Users adding Open WebUI next to a working Apple, Direct, or Hermes
   /// backend came from chat; only first-time setup returns to the backend
   /// chooser. Adding another account goes back to chat too, first dropping
-  /// the added account if its sign-in began and never finished.
+  /// the added account if its sign-in began and never finished. Editing an
+  /// address goes back to the addresses it was opened from.
   Future<void> _goBack() async {
     if (_goingBack) return;
     _goingBack = true;
@@ -1364,7 +1808,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       }
     }
     if (!mounted) return;
-    if (widget.addingAccount && context.canPop()) {
+    if ((widget.addingAccount || _editingRoutes) && context.canPop()) {
       context.pop();
       return;
     }
@@ -1450,6 +1894,19 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (_editingRoutes) ...[
+          InsetGroupedSection(
+            flat: true,
+            child: AccessibleFormField(
+              key: const ValueKey<String>('server-route-label-field'),
+              label: l10n.accountsAddressName,
+              hint: l10n.accountsAddressNameHint,
+              controller: _routeLabelController,
+              textInputAction: TextInputAction.next,
+            ),
+          ),
+          const SizedBox(height: Spacing.md),
+        ],
         InsetGroupedSection(
           flat: true,
           child: AccessibleFormField(
@@ -1835,6 +2292,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     return ConduitButton(
       text: _isConnecting
           ? AppLocalizations.of(context)!.connecting
+          : _editingRoutes
+          ? AppLocalizations.of(context)!.accountsSaveAddress
           : AppLocalizations.of(context)!.connectToServerButton,
       onPressed: _isConnecting || _urlController.text.trim().isEmpty
           ? null

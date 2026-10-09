@@ -5,6 +5,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:go_router/go_router.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/widgets.dart';
@@ -87,13 +88,51 @@ Future<void> switchToSavedAccount(
 Future<bool> confirmLeavingActiveAccount(
   BuildContext context,
   WidgetRef ref,
-) async {
-  if (!ref.read(accountChangeReplyGuardProvider)()) return true;
-  if (!await _confirmSwitchStopsReply(context) || !context.mounted) {
-    return false;
-  }
+) => _mayStopReply(
+  context,
+  ref.read,
+  guard: accountChangeReplyGuardProvider,
+  stop: accountChangeStopRepliesProvider,
+  confirm: () => _confirmSwitchStopsReply(context),
+);
+
+/// Whether the address the active account uses may be changed or removed:
+/// at once when no reply is being written, else once the user agrees to
+/// stop it, which this then does. The clients move off the address with the
+/// change, and a reply arriving through them would end without a word.
+Future<bool> confirmChangingAddressInUse(
+  BuildContext context,
+  ProviderContainer container,
+) => _mayStopReply(
+  context,
+  container.read,
+  // Only the replies arriving through the address: a Direct or Hermes one
+  // runs on.
+  guard: addressChangeReplyGuardProvider,
+  stop: addressChangeStopRepliesProvider,
+  confirm: () {
+    final l10n = AppLocalizations.of(context)!;
+    return ThemedDialogs.confirm(
+      context,
+      title: l10n.accountsReplyInProgressTitle,
+      message: l10n.accountsAddressChangeStopsReply,
+      confirmText: l10n.accountsAddressChangeAnyway,
+      isDestructive: true,
+    );
+  },
+);
+
+Future<bool> _mayStopReply(
+  BuildContext context,
+  T Function<T>(ProviderListenable<T> provider) read, {
+  required ProviderListenable<bool Function()> guard,
+  required ProviderListenable<void Function()> stop,
+  required Future<bool> Function() confirm,
+}) async {
+  if (!read(guard)()) return true;
+  if (!await confirm() || !context.mounted) return false;
   try {
-    ref.read(accountChangeStopRepliesProvider)();
+    read(stop)();
   } catch (error, stackTrace) {
     DebugLogger.error(
       'account-change-stop-replies-failed',

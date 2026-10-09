@@ -4129,5 +4129,22 @@
   "accountsSwitchStopsReply": "Ein Kontowechsel bricht sie ab.",
   "accountsSignOutStopsReply": "Das Abmelden bricht sie ab.",
   "accountsSwitchAnyway": "Trotzdem wechseln",
-  "accountsSignOutAnyway": "Trotzdem abmelden"
+  "accountsAddressChangeStopsReply": "Eine Änderung der verwendeten Adresse bricht sie ab.",
+  "accountsAddressChangeAnyway": "Trotzdem ändern",
+  "accountsSignOutAnyway": "Trotzdem abmelden",
+  "accountsServerAddresses": "Adressen",
+  "accountsServerAddressesHelp": "Conduit probiert die Adressen von oben nach unten und verbindet sich über die erste, die antwortet. Ziehe sie, um die Reihenfolge zu ändern.",
+  "accountsAddAddress": "Adresse hinzufügen",
+  "accountsEditAddress": "Adresse bearbeiten",
+  "accountsSaveAddress": "Adresse speichern",
+  "accountsAddressInUse": "In Verwendung",
+  "accountsAddressName": "Name (optional)",
+  "accountsAddressNameHint": "Heimnetz, Tailscale…",
+  "accountsAddressDifferentServer": "Diese Adresse führt zu einem anderen Server oder zu einem anderen Konto darauf.",
+  "accountsAddressNeedsSignIn": "Melde dich zuerst bei einem Konto auf diesem Server an, damit die Adresse geprüft werden kann.",
+  "accountsRemoveAddress": "Adresse entfernen",
+  "accountsRemoveAddressMessage": "Conduit versucht diese Adresse nicht mehr. Deine Konten bleiben angemeldet.",
+  "accountsAddressConfirmTitle": "Diese Adresse prüfen?",
+  "accountsAddressConfirmMessage": "Um sicherzugehen, dass {host} dieser Server ist, schickt Conduit dorthin die Sitzung eines hier gespeicherten Kontos. Fahre nur fort, wenn du dieser Adresse vertraust.",
+  "accountsAddressConfirmAction": "Adresse prüfen"
 }

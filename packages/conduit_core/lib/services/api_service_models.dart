@@ -327,6 +327,7 @@ mixin _ModelsApi on _ApiServiceBase {
           responseType: ResponseType.bytes,
           followRedirects: false,
           validateStatus: (status) => status != null && status < 400,
+          extra: const {_redirectIsAnswerKey: true},
         ),
       );
       final data = response.data;

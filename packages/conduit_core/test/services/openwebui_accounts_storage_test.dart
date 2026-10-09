@@ -1429,14 +1429,661 @@ void main() {
     );
     check(stored.account('a')?.userId).equals('user-1');
   });
+
+  group('routes to a server', () {
+    /// Keeps [cookie] for [accountId] on [server]'s `proxy` route.
+    Future<bool> keepCookie(
+      OpenWebUiServer server,
+      String accountId,
+      String cookie,
+    ) => storage.saveEndpointSessionHeaders(
+      accountId: accountId,
+      route: server.endpoint('proxy')!,
+      headers: {'Cookie': cookie},
+      sessionRevision: storage.sessionRevocationRevision,
+    );
+
+    Future<OpenWebUiServer> addRoute(String id, String url) async {
+      final server =
+          (await storage.getOpenWebUiRegistryStrict()).servers.single;
+      final next = OpenWebUiServer(
+        id: server.id,
+        name: server.name,
+        endpoints: [
+          ...server.endpoints,
+          OpenWebUiEndpoint(id: id, url: url),
+        ],
+      );
+      await storage.saveServer(next);
+      return next;
+    }
+
+    test('adding and reordering routes keeps every session', () async {
+      await storage.saveServerConfigs([account('a'), account('b')]);
+      await signIn('b');
+      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+      await storage.saveAuthToken('token-a');
+
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await storage.saveServer(
+        OpenWebUiServer(
+          id: server.id,
+          name: server.name,
+          endpoints: server.endpoints.reversed.toList(),
+        ),
+      );
+
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await vaultedToken('b')).equals('token-b');
+      // Still on the route it was using; the route resolver moves it.
+      check((await storage.getServerConfigs()).first.url)
+          .equals('https://chat.example.com');
+    });
+
+    group('signing in on a route in use that is not the first', () {
+      late ServerConfig onLan;
+
+      setUp(() async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        await signIn('b');
+        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+        await storage.saveAuthToken('token-a');
+        final server = await addRoute('lan', 'http://10.0.0.2:3000');
+        await storage.selectEndpoint(server.id, 'lan');
+        onLan = (await storage.getServerConfigs()).firstWhere(
+          (config) => config.id == 'a',
+        );
+      });
+
+      ServerConfig withNewCertificate(ServerConfig config) => config.copyWith(
+        mtlsCertificateChainPem: 'new-chain',
+        mtlsPrivateKeyPem: 'new-key',
+      );
+
+      test('with nothing changed keeps the other accounts\' sessions', () async {
+        await storage.selectUnauthenticatedServerConfig(onLan, publish: () {});
+
+        check(await vaultedToken('b')).equals('token-b');
+      });
+
+      test('with a new client certificate ends the sessions kept aside '
+          'there', () async {
+        await storage.selectUnauthenticatedServerConfig(
+          withNewCertificate(onLan),
+          publish: () {},
+        );
+
+        check(await vaultedToken('b')).isNull();
+      });
+
+      test('through a proxy with a new client certificate ends them too', () async {
+        final candidate = withNewCertificate(onLan);
+        final staged = await storage.stageServerConfigCandidate(candidate);
+
+        check(
+          await storage.commitServerConfigCandidateSession(
+            candidate: candidate,
+            transactionId: staged.transactionId,
+            token: 'token-a-again',
+            canCommit: () => true,
+            publish: () {},
+          ),
+        ).isTrue();
+        check(await vaultedToken('b')).isNull();
+      });
+    });
+
+    group('signing in through a route not in use', () {
+      const proxyUrl = 'https://proxy.example.com';
+
+      Future<OpenWebUiServer> withProxyRoute() async {
+        await storage.saveServerConfigs([account('a')]);
+        await signIn('a');
+        return addRoute('proxy', proxyUrl);
+      }
+
+      ServerConfig viaProxy(String id) => ServerConfig(
+        id: id,
+        name: 'Chat',
+        url: proxyUrl,
+        customHeaders: const {'Cookie': 'p=1'},
+      );
+
+      // Through the route in use the account matched neither the address
+      // it was checked on nor its cookie, and sign-in refused it.
+      test('reaches the server through that route', () async {
+        final server = await withProxyRoute();
+
+        check(
+          await storage.selectUnauthenticatedServerConfig(
+            viaProxy('new'),
+            publish: () {},
+          ),
+        ).isTrue();
+
+        final config = (await storage.getServerConfigs()).firstWhere(
+          (config) => config.id == 'new',
+        );
+        check(config.url).equals(proxyUrl);
+        check(config.customHeaders).deepEquals({'Cookie': 'p=1'});
+        check(storage.endpointSelection).deepEquals({server.id: 'proxy'});
+        check(PreferencesStore.getString(PreferenceKeys.openWebUiEndpointHint))
+            .isNotNull()
+            .contains('"proxy"');
+      });
+
+      test('that fails keeps the route in use', () async {
+        final server = await withProxyRoute();
+        final hint = PreferencesStore.getString(
+          PreferenceKeys.openWebUiEndpointHint,
+        );
+
+        await check(
+          storage.selectUnauthenticatedServerConfig(
+            viaProxy('new'),
+            publish: () => throw StateError('publish failed'),
+          ),
+        ).throws<StateError>();
+
+        check(storage.endpointSelection).deepEquals({
+          server.id: server.endpoints.first.id,
+        });
+        check(
+          PreferencesStore.getString(PreferenceKeys.openWebUiEndpointHint),
+        ).equals(hint);
+        check((await storage.getServerConfigs()).single.url)
+            .equals('https://chat.example.com');
+      });
+
+      test('through a proxy reaches the server through that route', () async {
+        final server = await withProxyRoute();
+        final candidate = viaProxy('new');
+        final staged = await storage.stageServerConfigCandidate(candidate);
+
+        check(
+          await storage.commitServerConfigCandidateSession(
+            candidate: candidate,
+            transactionId: staged.transactionId,
+            token: 'token-new',
+            canCommit: () => true,
+            publish: () {},
+          ),
+        ).isTrue();
+
+        check(storage.endpointSelection).deepEquals({server.id: 'proxy'});
+        check(
+          (await storage.getServerConfigs())
+              .firstWhere((config) => config.id == 'new')
+              .customHeaders,
+        ).deepEquals({'Cookie': 'p=1'});
+      });
+
+      // Kept on the route in use for sharing its URL, the account reached
+      // the server with that route's headers and without its cookie, and
+      // sign-in refused it.
+      test('with the URL of the one in use reaches that route', () async {
+        await storage.saveServerConfigs([account('a')]);
+        await signIn('a');
+        final server =
+            (await storage.getOpenWebUiRegistryStrict()).servers.single;
+        await storage.saveServer(
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [
+              ...server.endpoints,
+              OpenWebUiEndpoint(
+                id: 'tenant',
+                url: server.endpoints.single.url,
+                customHeaders: const {'X-Tenant': 'b'},
+              ),
+            ],
+          ),
+        );
+        final candidate = ServerConfig(
+          id: 'new',
+          name: 'Chat',
+          url: server.endpoints.single.url,
+          customHeaders: const {'X-Tenant': 'b', 'Cookie': 'p=1'},
+        );
+
+        check(
+          await storage.selectUnauthenticatedServerConfig(
+            candidate,
+            publish: () {},
+          ),
+        ).isTrue();
+
+        check(storage.endpointSelection).deepEquals({server.id: 'tenant'});
+        check(
+          (await storage.getServerConfigs())
+              .firstWhere((config) => config.id == 'new')
+              .customHeaders,
+        ).deepEquals({'X-Tenant': 'b', 'Cookie': 'p=1'});
+      });
+    });
+
+    test('a sign-in validated on one route cannot commit on another', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      final ownership = await storage.captureServerSessionOwnership(
+        validatedConfig: (await storage.getServerConfigs()).single,
+        requireActive: true,
+      );
+
+      check(await storage.selectEndpoint(server.id, 'lan')).isTrue();
+
+      check(
+        await storage.commitExistingServerSession(
+          ownership: ownership!,
+          token: 'token-a',
+          canCommit: () => true,
+          publish: () {},
+        ),
+      ).isFalse();
+      check((await storage.getServerConfigs()).single.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
+    test('a sign-in staged on one route cannot commit on another', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      final candidate = (await storage.getServerConfigs()).single.copyWith(
+        customHeaders: const {'Cookie': 'proxy=1'},
+      );
+      final staged = await storage.stageServerConfigCandidate(candidate);
+
+      check(await storage.selectEndpoint(server.id, 'lan')).isTrue();
+
+      check(
+        await storage.commitServerConfigCandidateSession(
+          candidate: candidate,
+          transactionId: staged.transactionId,
+          token: 'token-a',
+          canCommit: () => true,
+          publish: () {},
+        ),
+      ).isFalse();
+      check(await storage.getAuthTokenStrict()).isNull();
+      check((await storage.getServerConfigs()).single.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
+    test('a config read before the route changed is saved to its own route, '
+        'keeping the session', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await signIn('a', password: 'pw-a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      final stale = (await storage.getServerConfigs()).single;
+
+      check(await storage.selectEndpoint(server.id, 'lan')).isTrue();
+      await storage.saveServerConfigs([
+        stale.copyWith(
+          customHeaders: {...stale.customHeaders, 'Cookie': 'x=1'},
+        ),
+      ]);
+
+      check(await storage.getAuthTokenStrict()).equals('token-a');
+      check(await storage.getSavedCredentialsStrict()).isNotNull();
+      final registry = await storage.getOpenWebUiRegistryStrict();
+      check(registry.servers.single.endpoint('lan')!.url)
+          .equals('http://10.0.0.2:3000');
+      check(registry.account('a')!.capturedHeaders).deepEquals({
+        server.endpoints.first.id: {'Cookie': 'x=1'},
+      });
+      final inUse = (await storage.getServerConfigs()).single;
+      check(inUse.url).equals('http://10.0.0.2:3000');
+      check(inUse.customHeaders).isEmpty();
+    });
+
+    test('a captured proxy cookie travels only on its own route', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('proxy', 'https://proxy.example.com');
+
+      check(
+        await storage.saveEndpointSessionHeaders(
+          accountId: 'a',
+          route: server.endpoint('proxy')!,
+          headers: const {'Cookie': 'authelia=1', 'X-Other': 'dropped'},
+          sessionRevision: storage.sessionRevocationRevision,
+        ),
+      ).isTrue();
+
+      check((await storage.getServerConfigs()).single.customHeaders).isEmpty();
+      await storage.selectEndpoint(server.id, 'proxy');
+      check((await storage.getServerConfigs()).single.customHeaders)
+          .deepEquals({'Cookie': 'authelia=1'});
+    });
+
+    group('an address edited', () {
+      Future<OpenWebUiServer> cookiesOnProxy() async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        final server = await addRoute('proxy', 'https://proxy.example.com');
+        for (final id in ['a', 'b']) {
+          await keepCookie(server, id, 'session=$id');
+        }
+        return server;
+      }
+
+      Future<void> editProxy(
+        OpenWebUiServer server,
+        OpenWebUiEndpoint Function(OpenWebUiEndpoint) edit,
+      ) async {
+        await storage.saveServer(
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [
+              for (final endpoint in server.endpoints)
+                endpoint.id == 'proxy' ? edit(endpoint) : endpoint,
+            ],
+          ),
+        );
+        await storage.selectEndpoint(server.id, 'proxy');
+      }
+
+      test('to another host drops every account\'s cookie on it', () async {
+        final server = await cookiesOnProxy();
+
+        await editProxy(
+          server,
+          (proxy) =>
+              OpenWebUiEndpoint(id: proxy.id, url: 'https://elsewhere.example'),
+        );
+
+        final configs = await storage.getServerConfigs();
+        check(configs).length.equals(2);
+        for (final config in configs) {
+          check(config.url).equals('https://elsewhere.example');
+          check(config.customHeaders).isEmpty();
+        }
+      });
+
+      test('only by name keeps its cookies', () async {
+        final server = await cookiesOnProxy();
+
+        await editProxy(
+          server,
+          (proxy) =>
+              OpenWebUiEndpoint(id: proxy.id, url: proxy.url, label: 'Proxy'),
+        );
+
+        final configs = await storage.getServerConfigs();
+        check(configs.map((config) => config.customHeaders['Cookie']))
+            .deepEquals(['session=a', 'session=b']);
+      });
+
+      // Another save of the same address moved it while this one was
+      // being checked.
+      test('to another host keeps a cookie proved before off it', () async {
+        final server = await cookiesOnProxy();
+        final revision = storage.sessionRevocationRevision;
+
+        await editProxy(
+          server,
+          (proxy) =>
+              OpenWebUiEndpoint(id: proxy.id, url: 'https://elsewhere.example'),
+        );
+        check(
+          await storage.saveEndpointSessionHeaders(
+            accountId: 'a',
+            route: server.endpoint('proxy')!,
+            headers: const {'Cookie': 'late'},
+            sessionRevision: revision,
+          ),
+        ).isFalse();
+
+        final config = (await storage.getServerConfigs()).firstWhere(
+          (config) => config.id == 'a',
+        );
+        check(config.url).equals('https://elsewhere.example');
+        check(config.customHeaders).isEmpty();
+      });
+    });
+
+    test('edits made from the same list both land', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await addRoute('tailscale', 'http://home.ts.net:3000');
+
+      Future<void> remove(String id) => storage.editServerEndpoints(
+        server.id,
+        (endpoints) => [
+          for (final endpoint in endpoints)
+            if (endpoint.id != id) endpoint,
+        ],
+      );
+      await Future.wait([remove('lan'), remove('tailscale')]);
+
+      final registry = await storage.getOpenWebUiRegistryStrict();
+      check(registry.servers.single.endpoints.map((endpoint) => endpoint.id))
+          .deepEquals([server.endpoints.first.id]);
+    });
+
+    test('an address removed while being edited stays removed', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('proxy', 'https://proxy.example.com');
+      final edited = OpenWebUiEndpoint(
+        id: 'proxy',
+        url: 'https://edited.example.com',
+      );
+
+      await storage.editServerEndpoints(
+        server.id,
+        (endpoints) => [
+          for (final endpoint in endpoints)
+            if (endpoint.id != 'proxy') endpoint,
+        ],
+      );
+      await check(
+        storage.editServerEndpoints(
+          server.id,
+          (endpoints) => withEditedRoute(endpoints, edited, adding: false),
+        ),
+      ).throws<StateError>();
+
+      final registry = await storage.getOpenWebUiRegistryStrict();
+      check(registry.servers.single.endpoints.map((endpoint) => endpoint.id))
+          .deepEquals([server.endpoints.first.id]);
+    });
+
+    test('a failed save leaves the route in use as it was', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await storage.selectEndpoint(server.id, 'lan');
+
+      secure.failNextRegistryWrite = true;
+      await check(
+        storage.saveServer(
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: [server.endpoints.first],
+          ),
+        ),
+      ).throws<StateError>();
+
+      check(storage.endpointSelection).deepEquals({server.id: 'lan'});
+      check((await storage.getServerConfigs()).single.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
+    group('signing out', () {
+      // a and b each keep a cookie on the proxy route, which is not in use.
+      Future<OpenWebUiServer> cookiesOnProxy() async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        final server = await addRoute('proxy', 'https://proxy.example.com');
+        for (final id in ['a', 'b']) {
+          await keepCookie(server, id, 'session=$id');
+        }
+        await signIn('a');
+        return server;
+      }
+
+      // An address check that outlasts the sign-out would otherwise put the
+      // cookie it captured back.
+      for (final (whom, signOut) in <(String, Future<void> Function())>[
+        (
+          'the active account',
+          () => storage.clearActiveAccountAuthDataIf(canClear: () => true),
+        ),
+        ('every account', () => storage.clearAuthData()),
+        (
+          'every account, keeping server details',
+          () => storage.clearAllIf(
+            canClear: () => true,
+            preserveServerDetails: true,
+          ),
+        ),
+      ]) {
+        test('of $whom keeps a proxy cookie proved before it out', () async {
+          final server = await cookiesOnProxy();
+          final revision = storage.sessionRevocationRevision;
+
+          await signOut();
+          check(
+            await storage.saveEndpointSessionHeaders(
+              accountId: 'a',
+              route: server.endpoint('proxy')!,
+              headers: const {'Cookie': 'late'},
+              sessionRevision: revision,
+            ),
+          ).isFalse();
+
+          final registry = await storage.getOpenWebUiRegistryStrict();
+          check(registry.account('a')!.capturedHeaders).isEmpty();
+        });
+      }
+
+      test('of every account clears cookies on routes not in use', () async {
+        final server = await cookiesOnProxy();
+
+        await storage.clearAuthData();
+        await storage.selectEndpoint(server.id, 'proxy');
+
+        for (final config in await storage.getServerConfigs()) {
+          check(config.customHeaders).isEmpty();
+        }
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        for (final account in registry.accounts) {
+          check(account.capturedHeaders).isEmpty();
+        }
+      });
+
+      test('of the active account clears its cookies alone', () async {
+        final server = await cookiesOnProxy();
+
+        check(await storage.clearActiveAccountAuthDataIf(canClear: () => true))
+            .isTrue();
+        await storage.selectEndpoint(server.id, 'proxy');
+
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        check(registry.account('a')!.capturedHeaders).isEmpty();
+        check(registry.account('b')!.capturedHeaders).deepEquals({
+          'proxy': {'Cookie': 'session=b'},
+        });
+      });
+
+      test('a rollback failing closed clears cookies on every route', () async {
+        await cookiesOnProxy();
+
+        await check(
+          storage.selectUnauthenticatedServerConfig(
+            account('c', url: 'https://other.example.com'),
+            publish: () {
+              // The rollback's own restore of the configs then fails too.
+              secure.failNextRegistryWrite = true;
+              throw StateError('publish failed');
+            },
+          ),
+        ).throws<ServerConfigSessionRollbackException>();
+
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        for (final account in registry.accounts) {
+          check(account.capturedHeaders).isEmpty();
+        }
+      });
+
+      test('a rollback failing closed keeps a proxy cookie proved before it '
+          'out', () async {
+        final server = await cookiesOnProxy();
+        final revision = storage.sessionRevocationRevision;
+
+        await check(
+          storage.selectUnauthenticatedServerConfig(
+            account('c', url: 'https://other.example.com'),
+            publish: () {
+              secure.failNextRegistryWrite = true;
+              throw StateError('publish failed');
+            },
+          ),
+        ).throws<ServerConfigSessionRollbackException>();
+        check(
+          await storage.saveEndpointSessionHeaders(
+            accountId: 'a',
+            route: server.endpoint('proxy')!,
+            headers: const {'Cookie': 'late'},
+            sessionRevision: revision,
+          ),
+        ).isFalse();
+
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        check(registry.account('a')!.capturedHeaders).isEmpty();
+      });
+    });
+
+    test('a sign-out keeping server details keeps every route, and the one '
+        'in use', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await storage.selectEndpoint(server.id, 'lan');
+
+      check(
+        await storage.clearAllIf(
+          canClear: () => true,
+          preserveServerDetails: true,
+        ),
+      ).isTrue();
+
+      final kept = (await storage.getOpenWebUiRegistryStrict()).servers.single;
+      check(kept.endpoints.map((endpoint) => endpoint.id))
+          .deepEquals(server.endpoints.map((endpoint) => endpoint.id));
+      check((await storage.getServerConfigs()).single.url)
+          .equals('http://10.0.0.2:3000');
+    });
+
+    test('removing the route in use falls back to the first', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+      await storage.selectEndpoint(server.id, 'lan');
+
+      await storage.saveServer(
+        OpenWebUiServer(
+          id: server.id,
+          name: server.name,
+          endpoints: [server.endpoints.first],
+        ),
+      );
+
+      check((await storage.getServerConfigs()).single.url)
+          .equals('https://chat.example.com');
+      check(storage.endpointSelection).isEmpty();
+    });
+  });
 }
 
 /// Refuses writes to [refusedKey], and reads of [unreadableKey], once set,
 /// as a locked Keychain does; [refusedOnceKey] refuses its next write only.
+/// With [failNextRegistryWrite], fails the next write of the saved-server
+/// registry once, as a briefly unavailable one does.
 final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedKey;
   String? refusedOnceKey;
   String? unreadableKey;
+  var failNextRegistryWrite = false;
   bool refusesDeleteAll = false;
 
   /// Runs before each write, and refuses it by throwing.
@@ -1455,6 +2102,10 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
     if (key == refusedOnceKey) {
       refusedOnceKey = null;
       throw StateError('keychain refused $key');
+    }
+    if (failNextRegistryWrite && key == 'openwebui_registry_v1') {
+      failNextRegistryWrite = false;
+      throw StateError('Keychain unavailable');
     }
     return super.write(key: key, value: value);
   }
