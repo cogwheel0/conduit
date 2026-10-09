@@ -5,6 +5,9 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 import 'package:path/path.dart' as p;
@@ -703,6 +706,208 @@ void main() {
 
       alphaDatabase.failClose = false;
       await manager.closeActive();
+    });
+  });
+
+  group('deleteAllServerDatabases', () {
+    test('with only, deletes those databases, open or not, and keeps the '
+        'rest', () async {
+      final open = manager.openFor(_server('alpha'));
+      await open.customSelect('SELECT 1').get();
+      final alpha = fileFor(DatabaseManager.fileNameFor('alpha'));
+      final beta = fileFor(DatabaseManager.fileNameFor('beta'))
+        ..writeAsStringSync('data');
+      final gamma = fileFor(DatabaseManager.fileNameFor('gamma'))
+        ..writeAsStringSync('data');
+      check(await manager.serverDatabaseFileNames()).deepEquals({
+        DatabaseManager.fileNameFor('alpha'),
+        DatabaseManager.fileNameFor('beta'),
+        DatabaseManager.fileNameFor('gamma'),
+      });
+
+      await manager.deleteAllServerDatabases(
+        only: {
+          DatabaseManager.fileNameFor('alpha'),
+          DatabaseManager.fileNameFor('beta'),
+        },
+      );
+
+      check(alpha.existsSync()).isFalse();
+      check(beta.existsSync()).isFalse();
+      check(gamma.existsSync()).isTrue();
+      // The open one was closed before its file went.
+      await _waitForClosed(open);
+    });
+
+    test(
+      'deletes every server database, open or not, and nothing else',
+      () async {
+        final open = manager.openFor(_server('alpha'));
+        await open.customSelect('SELECT 1').get();
+        final alpha = fileFor(DatabaseManager.fileNameFor('alpha'));
+        // Never opened in this run, e.g. an account the registry lost.
+        final beta = fileFor(DatabaseManager.fileNameFor('beta'));
+        final directLocal = fileFor('direct_local_v1');
+        final unrelated = File(p.join(tempDir.path, 'server_notes.txt'));
+        for (final file in [
+          beta,
+          File('${beta.path}-journal'),
+          File('${beta.path}-wal'),
+          File('${beta.path}-shm'),
+          directLocal,
+          File('${directLocal.path}-wal'),
+          unrelated,
+        ]) {
+          file.writeAsStringSync('data');
+        }
+
+        final sweep = manager.deleteAllServerDatabases();
+        // Nothing may open over files that are being deleted, including a
+        // server this manager never opened.
+        check(
+          manager.openForServerIdIfReady('beta'),
+        ).isA<DatabaseOpenDeferred>();
+        check(() => manager.openFor(_server('beta'))).throws<StateError>();
+        await sweep;
+
+        check(alpha.existsSync()).isFalse();
+        check(beta.existsSync()).isFalse();
+        check(File('${beta.path}-journal').existsSync()).isFalse();
+        check(File('${beta.path}-wal').existsSync()).isFalse();
+        check(File('${beta.path}-shm').existsSync()).isFalse();
+        check(directLocal.existsSync()).isTrue();
+        check(File('${directLocal.path}-wal').existsSync()).isTrue();
+        check(unrelated.existsSync()).isTrue();
+        await _waitForClosed(open);
+        check(
+          manager.openForServerIdIfReady('alpha'),
+        ).isA<DatabaseOpenReady>();
+      },
+    );
+
+    test('a full sweep requested during a narrower one deletes every '
+        'database', () async {
+      final alpha = fileFor(DatabaseManager.fileNameFor('alpha'))
+        ..writeAsStringSync('data');
+      final beta = fileFor(DatabaseManager.fileNameFor('beta'))
+        ..writeAsStringSync('data');
+
+      final narrow = manager.deleteAllServerDatabases(
+        only: {DatabaseManager.fileNameFor('alpha')},
+      );
+      final full = manager.deleteAllServerDatabases();
+      await narrow;
+      // Nothing opens between the two.
+      check(
+        manager.openForServerIdIfReady('beta'),
+      ).isA<DatabaseOpenDeferred>();
+      await full;
+
+      check(alpha.existsSync()).isFalse();
+      check(beta.existsSync()).isFalse();
+    });
+
+    test('a pending wipe finishes before its account\'s database reopens', () async {
+      PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+      await PreferencesStore.ensureInitialized();
+      addTearDown(PreferencesStore.debugReset);
+      final alpha = fileFor(DatabaseManager.fileNameFor('alpha'))
+        ..writeAsStringSync('signed out');
+      // A full sign-out could not delete it.
+      await manager.recordPendingWipe({DatabaseManager.fileNameFor('alpha')});
+
+      // Signed in to again in the same run: the file goes first.
+      final attempt = manager.openForServerIdIfReady('alpha');
+      check(attempt).isA<DatabaseOpenDeferred>();
+      check(() => manager.openForServerId('alpha')).throws<StateError>();
+      await (attempt as DatabaseOpenDeferred).retryAfter;
+      check(alpha.existsSync()).isFalse();
+      check(
+        PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).isFalse();
+      final reopened = manager.openForServerIdIfReady('alpha');
+      final database = (reopened as DatabaseOpenReady).database;
+      await database.customStatement('CREATE TABLE queued (body TEXT)');
+      await manager.closeActive();
+
+      // The next start keeps what the account wrote since.
+      final restarted = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) =>
+            AppDatabase(NativeDatabase(fileFor(fileName))),
+      )..resumePendingWipe();
+      await restarted.finishPendingWipe();
+      check(alpha.existsSync()).isTrue();
+      check(
+        restarted.openForServerIdIfReady('alpha'),
+      ).isA<DatabaseOpenReady>();
+      await restarted.closeActive();
+    });
+
+    test(
+      'a wipe whose record cannot be cleared keeps its files closed',
+      () async {
+        PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+        await PreferencesStore.ensureInitialized();
+        addTearDown(PreferencesStore.debugReset);
+        await manager.recordPendingWipe({DatabaseManager.fileNameFor('alpha')});
+        PreferencesStore.debugOverride(
+          PreferencesStore.instance,
+          writeInterceptor: (_, key, value) async =>
+              key == PreferenceKeys.pendingAccountDatabaseWipe && value == null
+              ? false
+              : null,
+        );
+
+        await check(manager.finishPendingWipe()).throws<StateError>();
+
+        // Opened now, what the account writes would go at the next start.
+        check(
+          manager.openForServerIdIfReady('alpha'),
+        ).isA<DatabaseOpenDeferred>();
+      },
+    );
+
+    test('an unreadable wipe record deletes nothing', () async {
+      PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+      await PreferencesStore.ensureInitialized();
+      addTearDown(PreferencesStore.debugReset);
+      final alpha = fileFor(DatabaseManager.fileNameFor('alpha'))
+        ..writeAsStringSync('signed in to since');
+      await PreferencesStore.put(
+        PreferenceKeys.pendingAccountDatabaseWipe,
+        '["server_al',
+      );
+
+      final restarted = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) =>
+            AppDatabase(NativeDatabase(fileFor(fileName))),
+      )..resumePendingWipe();
+      await restarted.finishPendingWipe();
+
+      check(alpha.existsSync()).isTrue();
+      check(
+        PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).isFalse();
+    });
+
+    test('a wipe a newer sign-out recorded is kept', () async {
+      PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
+      await PreferencesStore.ensureInitialized();
+      addTearDown(PreferencesStore.debugReset);
+      await manager.recordPendingWipe({DatabaseManager.fileNameFor('alpha')});
+
+      final finishing = manager.finishPendingWipe();
+      await manager.recordPendingWipe(null);
+      await finishing;
+
+      check(
+        PreferencesStore.getString(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).equals('*');
+      final attempt = manager.openForServerIdIfReady('beta');
+      check(attempt).isA<DatabaseOpenDeferred>();
+      await (attempt as DatabaseOpenDeferred).retryAfter;
     });
   });
 

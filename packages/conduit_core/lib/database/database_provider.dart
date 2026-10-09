@@ -6,9 +6,12 @@ import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
@@ -65,6 +68,11 @@ class OpenWebUiDatabaseAccessNotifier
 
   void beginPurge() => state = OpenWebUiDatabaseAccessPhase.purging;
 
+  /// Back to the state a cold start is in: only the auth cache may read, so
+  /// the next account's saved session can restore while chat and sync stay
+  /// closed until it is certified.
+  void reenterBootstrap() => state = OpenWebUiDatabaseAccessPhase.bootstrap;
+
   void close() => state = OpenWebUiDatabaseAccessPhase.closed;
 
   void open() => state = OpenWebUiDatabaseAccessPhase.open;
@@ -107,8 +115,33 @@ final directLocalDatabaseProvider = Provider<AppDatabase>((ref) {
 
 /// Owns per-server database lifecycle; never recreated (keepAlive).
 @Riverpod(keepAlive: true)
-DatabaseManager databaseManager(Ref ref) =>
-    DatabaseManager(opener: () => ref.read(databaseOpenerProvider));
+DatabaseManager databaseManager(Ref ref) {
+  final manager = DatabaseManager(
+    opener: () => ref.read(databaseOpenerProvider),
+  );
+  // Every account database opens through this manager, so starting here
+  // finishes an earlier sign-out's deletion before any of them can open.
+  if (PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe)) {
+    manager.resumePendingWipe();
+    unawaited(_finishPendingAccountDatabaseWipe(manager));
+  }
+  return manager;
+}
+
+Future<void> _finishPendingAccountDatabaseWipe(DatabaseManager manager) async {
+  try {
+    await manager.finishPendingWipe();
+    DebugLogger.info('pending-wipe-finished', scope: 'db/manager');
+  } catch (error, stackTrace) {
+    // The flag stays, so the next start tries again.
+    DebugLogger.error(
+      'pending-wipe-failed',
+      scope: 'db/manager',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+}
 
 typedef OpenWebUiDatabasePurge = Future<void> Function(String serverId);
 
@@ -117,6 +150,21 @@ final openWebUiDatabasePurgeProvider = Provider<OpenWebUiDatabasePurge>((ref) {
   final manager = ref.watch(databaseManagerProvider);
   return manager.deleteFor;
 });
+
+typedef OpenWebUiDatabaseSweep = Future<void> Function();
+
+/// Testable boundary deleting every Open WebUI account's database, used by
+/// the full-data sign-out.
+final openWebUiDatabaseSweepProvider = Provider<OpenWebUiDatabaseSweep>((ref) {
+  final manager = ref.watch(databaseManagerProvider);
+  return manager.deleteAllServerDatabases;
+});
+
+/// The account database files now on disk, for a sign-out that could not
+/// delete them to name what is left.
+final openWebUiDatabaseFilesProvider = Provider<Future<Set<String>> Function()>(
+  (ref) => ref.watch(databaseManagerProvider).serverDatabaseFileNames,
+);
 
 /// The active server's database, or null when no active server / reviewer
 /// mode (mirrors `apiServiceProvider`'s gate).

@@ -21,7 +21,11 @@ class SecureCredentialStorage {
   final SecureKeyValueStore _secureStorage;
 
   static const String _credentialsKey = 'user_credentials_v2';
+
+  /// The one-server layout's config list. Read once, to build the registry,
+  /// then deleted.
   static const String _serverConfigsKey = 'server_configs_v2';
+  static const String _openWebUiRegistryKey = 'openwebui_registry_v1';
   static const String _authTokenKey = 'auth_token_v2';
   static const String _hermesApiKeyKey = 'hermes_api_key_v1';
   static const String _hermesSessionKeyKey = 'hermes_session_key_v1';
@@ -350,14 +354,61 @@ class SecureCredentialStorage {
     }
   }
 
-  /// Server ids that currently hold a vaulted token.
+  /// Server ids that currently hold a vaulted token or vaulted credentials.
   Future<Set<String>> vaultedServerIds() async {
     final all = await _secureStorage.readAll();
     return <String>{
       for (final key in all.keys)
         if (key.startsWith(_serverTokenPrefix))
-          key.substring(_serverTokenPrefix.length),
+          key.substring(_serverTokenPrefix.length)
+        else if (key.startsWith(_serverCredentialsPrefix))
+          key.substring(_serverCredentialsPrefix.length),
     };
+  }
+
+  // The saved sign-in of an account that is not the active one. Like the
+  // token vault, it sits beside the single live slot ([_credentialsKey]) so
+  // the arbitration built around "the saved credentials" keeps one meaning:
+  // the live slot always belongs to the active account, and a switch moves
+  // the payload between the two, byte for byte.
+  static const String _serverCredentialsPrefix = 'user_credentials_server_v1:';
+
+  static String _serverCredentialsKey(String serverId) =>
+      '$_serverCredentialsPrefix$serverId';
+
+  Future<void> saveServerCredentialsPayload(
+    String serverId,
+    String payload,
+  ) async {
+    try {
+      await _secureStorage.write(
+        key: _serverCredentialsKey(serverId),
+        value: payload,
+      );
+    } catch (e) {
+      DebugLogger.error(
+        'save-server-credentials-failed',
+        scope: 'credentials/storage',
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  /// Strict: a platform failure is not "this account has no saved sign-in".
+  Future<String?> getServerCredentialsPayload(String serverId) =>
+      _secureStorage.read(key: _serverCredentialsKey(serverId));
+
+  Future<void> deleteServerCredentials(String serverId) =>
+      _secureStorage.delete(key: _serverCredentialsKey(serverId));
+
+  Future<void> deleteAllServerCredentials() async {
+    final all = await _secureStorage.readAll();
+    for (final key in all.keys) {
+      if (key.startsWith(_serverCredentialsPrefix)) {
+        await _secureStorage.delete(key: key);
+      }
+    }
   }
 
   /// Hermes secrets are scoped to one saved connection:
@@ -723,13 +774,18 @@ class SecureCredentialStorage {
     return List<int>.unmodifiable(persisted);
   }
 
-  /// Save server configurations securely
-  Future<void> saveServerConfigs(String configsJson) async {
+  /// Persists the saved Open WebUI servers and accounts. The document holds
+  /// custom headers, captured proxy cookies and mTLS keys, so it never goes
+  /// to preferences.
+  Future<void> saveOpenWebUiRegistry(String registryJson) async {
     try {
-      await _secureStorage.write(key: _serverConfigsKey, value: configsJson);
+      await _secureStorage.write(
+        key: _openWebUiRegistryKey,
+        value: registryJson,
+      );
     } catch (e) {
       DebugLogger.error(
-        'save-configs-failed',
+        'save-registry-failed',
         scope: 'credentials/server-configs',
         error: e,
       );
@@ -737,7 +793,29 @@ class SecureCredentialStorage {
     }
   }
 
-  /// Get server configurations
+  /// Reads the Open WebUI registry. A platform failure propagates: it is not
+  /// evidence that no server is saved.
+  Future<String?> getOpenWebUiRegistry() async {
+    try {
+      return await _secureStorage.read(key: _openWebUiRegistryKey);
+    } catch (e) {
+      DebugLogger.error(
+        'read-registry-failed',
+        scope: 'credentials/server-configs',
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> deleteOpenWebUiRegistry() =>
+      _secureStorage.delete(key: _openWebUiRegistryKey);
+
+  /// Removes the one-server config list once the registry has replaced it.
+  Future<void> deleteLegacyServerConfigs() =>
+      _secureStorage.delete(key: _serverConfigsKey);
+
+  /// Get the one-server layout's config list, if it is still stored.
   Future<String?> getServerConfigs() async {
     try {
       final storedConfigs = await _secureStorage.read(key: _serverConfigsKey);

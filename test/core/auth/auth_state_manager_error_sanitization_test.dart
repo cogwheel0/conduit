@@ -57,14 +57,17 @@ void main() {
               .thenAnswer((_) async => null);
           when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
           when(() => storage.clearAuthData()).thenAnswer((_) async {});
-          when(() => storage.clearAuthDataIf(canClear: any(named: 'canClear')))
-              .thenAnswer((invocation) async {
-                final canClear =
-                    invocation.namedArguments[#canClear] as bool Function();
-                if (!canClear()) return false;
-                await storage.clearAuthData();
-                return true;
-              });
+          when(
+            () => storage.clearActiveAccountAuthDataIf(
+              canClear: any(named: 'canClear'),
+            ),
+          ).thenAnswer((invocation) async {
+            final canClear =
+                invocation.namedArguments[#canClear] as bool Function();
+            if (!canClear()) return false;
+            await storage.clearAuthData();
+            return true;
+          });
 
           final api = _ReflectingAuthApi(mode);
           _stubOwnershipCapture(storage, api.serverConfig);

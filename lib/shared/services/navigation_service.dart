@@ -53,6 +53,12 @@ chatDataControlsNativeSheetNavigationRequest = (
   extra: NativeSheetNavigationOrigin(),
 );
 
+/// Manage accounts opens the same way, from the native Settings sheet.
+const NativeSheetNavigationRequest accountsNativeSheetNavigationRequest = (
+  routeName: RouteNames.accounts,
+  extra: NativeSheetNavigationOrigin(),
+);
+
 /// Service for handling navigation throughout the app.
 ///
 /// With GoRouter in place, this class mostly provides convenient wrappers

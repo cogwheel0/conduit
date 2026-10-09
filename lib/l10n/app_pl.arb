@@ -7652,5 +7652,65 @@
     }
   },
   "hermesSwitchConnectionConfirm": "Przełącz",
-  "hermesKeepCurrentConnection": "Zostań przy obecnym"
+  "hermesKeepCurrentConnection": "Zostań przy obecnym",
+  "accountsTitle": "Konta",
+  "accountsAddAccount": "Dodaj konto",
+  "accountsManage": "Zarządzaj kontami",
+  "accountsSignedOut": "Wylogowano",
+  "accountsActive": "Aktywne",
+  "accountsAddAccountTitle": "Dodaj konto",
+  "accountsAddAccountMessage": "Zaloguj się na inne konto na zapisanym serwerze lub połącz się z nowym.",
+  "accountsNewServer": "Nowy serwer",
+  "accountsAddOnThisServer": "Dodaj konto na tym serwerze",
+  "accountsSwitch": "Przełącz",
+  "accountsSignOutOf": "Wyloguj się z konta {name}",
+  "@accountsSignOutOf": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "accountsSignOutConfirmTitle": "Wylogować się z konta {name}?",
+  "@accountsSignOutConfirmTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "accountsSignOutConfirmMessage": "Konto i zapisane przez nie czaty zostaną usunięte z tego urządzenia. Twoje pozostałe konta będą nadal zalogowane.",
+  "accountsSignOutAll": "Wyloguj się ze wszystkich kont",
+  "accountsReplyInProgressTitle": "Odpowiedź jest nadal generowana",
+  "accountsSwitchStopsReply": "Przełączenie konta ją zatrzyma.",
+  "accountsSignOutStopsReply": "Wylogowanie ją zatrzyma.",
+  "accountsSwitchAnyway": "Przełącz mimo to",
+  "accountsAddressChangeStopsReply": "Zmiana używanego adresu ją zatrzyma.",
+  "accountsAddressChangeAnyway": "Zmień mimo to",
+  "accountsSignOutAnyway": "Wyloguj się mimo to",
+  "accountsServerAddresses": "Adresy",
+  "accountsServerAddressesHelp": "Conduit łączy się przez pierwszy adres, który odpowie, zaczynając od góry. Przeciągnij, aby zmienić kolejność.",
+  "accountsAddAddress": "Dodaj adres",
+  "accountsEditAddress": "Edytuj adres",
+  "accountsSaveAddress": "Zapisz adres",
+  "accountsAddressInUse": "Używany",
+  "accountsAddressName": "Nazwa (opcjonalnie)",
+  "accountsAddressNameHint": "Sieć domowa, Tailscale…",
+  "accountsAddressDifferentServer": "Ten adres prowadzi do innego serwera lub do innego konta na nim.",
+  "accountsAddressNeedsSignIn": "Najpierw zaloguj się na konto na tym serwerze, aby można było sprawdzić adres.",
+  "accountsRemoveAddress": "Usuń adres",
+  "accountsRemoveAddressMessage": "Conduit przestanie próbować tego adresu. Twoje konta będą nadal zalogowane.",
+  "accountsAddressConfirmTitle": "Sprawdzić ten adres?",
+  "accountsAddressConfirmMessage": "Aby upewnić się, że {host} to ten serwer, Conduit wyśle tam sesję konta zapisanego na tym urządzeniu. Kontynuuj tylko wtedy, gdy ufasz temu adresowi.",
+  "@accountsAddressConfirmMessage": {
+    "placeholders": {
+      "host": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "accountsAddressConfirmAction": "Sprawdź adres"
 }

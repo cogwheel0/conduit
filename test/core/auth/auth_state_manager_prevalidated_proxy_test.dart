@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -1122,6 +1124,162 @@ void main() {
     },
   );
 
+  // A check of the server's addresses moved it off one whose proxy turned
+  // requests away. Only the server accepting the session through the new
+  // one signs back in; a refusal there leaves the session kept, for Retry,
+  // and is not asked again for the same issue: the route refusing it too
+  // would move the server back.
+  test('a connection issue signs back in once a new route accepts', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    addTearDown(PreferencesStore.debugReset);
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
+    when(
+      () => storage.captureServerSessionOwnership(
+        validatedConfig: any(named: 'validatedConfig'),
+        requireActive: true,
+      ),
+    ).thenAnswer(
+      (_) async =>
+          (revision: 1, serverConfig: previousConfig, requireActive: true),
+    );
+    when(
+      () => storage.commitExistingServerSession(
+        ownership: any(named: 'ownership'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        rememberedCredentials: any(named: 'rememberedCredentials'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      await publish();
+      return true;
+    });
+    final api = _SuccessfulAuthApi();
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(api),
+        activeServerProvider.overrideWith((ref) async => previousConfig),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(api.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    final notifier = container.read(authStateManagerProvider.notifier);
+    check(await notifier.login('user', 'password')).isTrue();
+    notifier.onAuthIssue();
+
+    final request = RequestOptions(path: '/api/v1/auths/');
+    api.currentUserFailure = DioException(
+      requestOptions: request,
+      response: Response<void>(requestOptions: request, statusCode: 401),
+      type: DioExceptionType.badResponse,
+    );
+    check(await notifier.recheckSessionAfterRouteChange()).isFalse();
+    final refused = container.read(authStateManagerProvider).requireValue;
+    check(refused.status).equals(AuthStatus.error);
+    check(refused.token).equals(token);
+    check(refused.user).equals(user);
+
+    api.currentUserFailure = null;
+    final asked = api.currentUserCalls;
+    check(await notifier.recheckSessionAfterRouteChange()).isFalse();
+    check(api.currentUserCalls).equals(asked);
+
+    check(await notifier.login('user', 'password')).isTrue();
+    notifier.onAuthIssue();
+    check(await notifier.recheckSessionAfterRouteChange()).isTrue();
+    final restored = container.read(authStateManagerProvider).requireValue;
+    check(restored.status).equals(AuthStatus.authenticated);
+    check(restored.token).equals(token);
+    check(restored.user).equals(user);
+  });
+
+  test('a session accepted on a route moved away from meanwhile keeps the '
+      'connection issue', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    addTearDown(PreferencesStore.debugReset);
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    when(() => storage.saveLocalUserWithAvatar(user, avatarUrl: null))
+        .thenAnswer((_) async {});
+    when(
+      () => storage.captureServerSessionOwnership(
+        validatedConfig: any(named: 'validatedConfig'),
+        requireActive: true,
+      ),
+    ).thenAnswer(
+      (_) async =>
+          (revision: 1, serverConfig: previousConfig, requireActive: true),
+    );
+    when(
+      () => storage.commitExistingServerSession(
+        ownership: any(named: 'ownership'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        rememberedCredentials: any(named: 'rememberedCredentials'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      await publish();
+      return true;
+    });
+    final moved = _SuccessfulAuthApi();
+    final api = _SuccessfulAuthApi();
+    var inUse = api;
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWith((ref) => inUse),
+        activeServerProvider.overrideWith((ref) async => previousConfig),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(api.dispose);
+    addTearDown(moved.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    final notifier = container.read(authStateManagerProvider.notifier);
+    check(await notifier.login('user', 'password')).isTrue();
+    notifier.onAuthIssue();
+
+    final gate = api.currentUserGate = Completer<void>();
+    final asked = api.currentUserCalls;
+    final recheck = notifier.recheckSessionAfterRouteChange();
+    while (api.currentUserCalls == asked) {
+      await pumpEventQueue();
+    }
+    // The server moves on to another address while the first is asked.
+    inUse = moved;
+    container.invalidate(apiServiceProvider);
+    gate.complete();
+
+    check(await recheck).isFalse();
+    final kept = container.read(authStateManagerProvider).requireValue;
+    check(kept.status).equals(AuthStatus.error);
+    check(kept.token).equals(token);
+  });
+
   test(
     'successful refresh carries newer session ownership past delayed logout',
     () async {
@@ -2085,14 +2243,17 @@ void main() {
           .thenAnswer((_) async {});
       final cleanupEntered = Completer<void>();
       final releaseCleanup = Completer<void>();
-      when(() => storage.clearAuthDataIf(canClear: any(named: 'canClear')))
-          .thenAnswer((invocation) async {
-            cleanupEntered.complete();
-            await releaseCleanup.future;
-            final canClear =
-                invocation.namedArguments[#canClear] as bool Function();
-            return canClear();
-          });
+      when(
+        () => storage.clearActiveAccountAuthDataIf(
+          canClear: any(named: 'canClear'),
+        ),
+      ).thenAnswer((invocation) async {
+        cleanupEntered.complete();
+        await releaseCleanup.future;
+        final canClear =
+            invocation.namedArguments[#canClear] as bool Function();
+        return canClear();
+      });
 
       final api = _SuccessfulAuthApi();
       final container = ProviderContainer(
@@ -3094,6 +3255,216 @@ void main() {
     check(settled.user).isNull();
     check(settled.isLoading).isFalse();
   });
+
+  // A trusted-proxy sign-in for an added account commits it as the active
+  // one. Left while that commit waited on storage, the addition ended, but
+  // the commit went on to make the new account active after the user left.
+  test('a proxy sign-in for an addition left mid-commit keeps the account it '
+      'was added from', () async {
+    const addedToken = 'added-proxy-token';
+    const addedUser = User(
+      id: 'added-user',
+      username: 'added',
+      email: 'added@example.test',
+      role: 'user',
+    );
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    for (final signedIn in [user, addedUser]) {
+      when(
+        () => storage.saveLocalUserWithAvatar(
+          signedIn,
+          avatarUrl: any(named: 'avatarUrl'),
+        ),
+      ).thenAnswer((_) async {});
+    }
+    var stageCall = 40;
+    when(() => storage.stageServerConfigCandidate(any())).thenAnswer(
+      (_) async => (
+        configs: const [previousConfig],
+        activeServerId: previousConfig.id,
+        transactionId: ++stageCall,
+      ),
+    );
+    when(
+      () => storage.discardServerConfigCandidate(
+        candidate: any(named: 'candidate'),
+        transactionId: any(named: 'transactionId'),
+      ),
+    ).thenAnswer((_) async => true);
+    final addedCommitEntered = Completer<void>();
+    final releaseAddedCommit = Completer<void>();
+    final published = <String>[];
+    when(
+      () => storage.commitServerConfigCandidateSession(
+        candidate: any(named: 'candidate'),
+        transactionId: any(named: 'transactionId'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final committing =
+          invocation.namedArguments[#candidate] as ServerConfig;
+      final canCommit =
+          invocation.namedArguments[#canCommit] as bool Function();
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      if (committing.id == candidate.id) {
+        addedCommitEntered.complete();
+        await releaseAddedCommit.future;
+      }
+      // As the storage does: a commit no longer owned leaves the account
+      // active before it as it was.
+      if (!canCommit()) return false;
+      await publish();
+      published.add(committing.id);
+      return true;
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    // The account the addition begins from is signed in.
+    check(
+      await container
+          .read(authStateManagerProvider.notifier)
+          .commitPrevalidatedProxySession(
+            serverConfig: previousConfig,
+            token: token,
+            user: user,
+          ),
+    ).isTrue();
+
+    final addition = container.read(accountAdditionOriginProvider.notifier)
+      ..begin(previousConfig.id);
+    final adding = container
+        .read(authActionsProvider)
+        .commitPrevalidatedProxySession(
+          serverConfig: candidate,
+          token: addedToken,
+          user: addedUser,
+          canCommit: addition.stillInProgress(),
+        );
+    await addedCommitEntered.future;
+    // The user leaves the connection page, which ends the addition.
+    addition.end(previousConfig.id);
+    releaseAddedCommit.complete();
+
+    check(await adding).isFalse();
+    check(published).deepEquals([previousConfig.id]);
+    final auth = container.read(authStateManagerProvider).requireValue;
+    check(auth.status).equals(AuthStatus.authenticated);
+    check(auth.token).equals(token);
+    check(auth.user).equals(user);
+    check(auth.isLoading).isFalse();
+  });
+
+  // Stopped by its addition ending rather than by a newer sign-in, the
+  // proxy sign-in still owns the loading state it set, and settles it.
+  test('a proxy sign-in for an addition already left settles back', () async {
+    const addedUser = User(
+      id: 'added-user',
+      username: 'added',
+      email: 'added@example.test',
+      role: 'user',
+    );
+    final storage = _Storage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        user,
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    var stageCall = 60;
+    when(() => storage.stageServerConfigCandidate(any())).thenAnswer(
+      (_) async => (
+        configs: const [previousConfig],
+        activeServerId: previousConfig.id,
+        transactionId: ++stageCall,
+      ),
+    );
+    when(
+      () => storage.discardServerConfigCandidate(
+        candidate: any(named: 'candidate'),
+        transactionId: any(named: 'transactionId'),
+      ),
+    ).thenAnswer((_) async => true);
+    when(
+      () => storage.commitServerConfigCandidateSession(
+        candidate: any(named: 'candidate'),
+        transactionId: any(named: 'transactionId'),
+        token: any(named: 'token'),
+        canCommit: any(named: 'canCommit'),
+        publish: any(named: 'publish'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+      ),
+    ).thenAnswer((invocation) async {
+      final canCommit =
+          invocation.namedArguments[#canCommit] as bool Function();
+      final publish =
+          invocation.namedArguments[#publish] as FutureOr<void> Function();
+      if (!canCommit()) return false;
+      await publish();
+      return true;
+    });
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        defaultModelProvider.overrideWith((ref) async => null),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await _waitForAuthStatus(container, AuthStatus.unauthenticated);
+    check(
+      await container
+          .read(authStateManagerProvider.notifier)
+          .commitPrevalidatedProxySession(
+            serverConfig: previousConfig,
+            token: token,
+            user: user,
+          ),
+    ).isTrue();
+
+    final addition = container.read(accountAdditionOriginProvider.notifier)
+      ..begin(previousConfig.id);
+    final stillAdding = addition.stillInProgress();
+    // Left before the sign-in it began reaches auth.
+    addition.end(previousConfig.id);
+
+    check(
+      await container
+          .read(authActionsProvider)
+          .commitPrevalidatedProxySession(
+            serverConfig: candidate,
+            token: 'added-proxy-token',
+            user: addedUser,
+            canCommit: stillAdding,
+          ),
+    ).isFalse();
+    final auth = container.read(authStateManagerProvider).requireValue;
+    check(auth.isLoading).isFalse();
+    check(auth.status).equals(AuthStatus.authenticated);
+    check(auth.token).equals(token);
+  });
 }
 
 enum _MixedAuthMode { password, token, ldap }
@@ -3175,6 +3546,9 @@ final class _SuccessfulAuthApi extends ApiService {
   final Completer<void>? releaseLogout;
   final Object? logoutFailure;
   Object? loginFailure;
+  Object? currentUserFailure;
+  int currentUserCalls = 0;
+  Completer<void>? currentUserGate;
   String loginToken = 'validated-proxy-token';
 
   @override
@@ -3201,12 +3575,17 @@ final class _SuccessfulAuthApi extends ApiService {
     bool suppressAuthFailureNotification = false,
     String? candidateAuthToken,
     ApiAuthSnapshot? authSnapshot,
-  }) async => const User(
-    id: 'user',
-    username: 'user',
-    email: 'user@example.test',
-    role: 'user',
-  );
+  }) async {
+    currentUserCalls++;
+    if (currentUserGate case final gate?) await gate.future;
+    if (currentUserFailure case final failure?) throw failure;
+    return const User(
+      id: 'user',
+      username: 'user',
+      email: 'user@example.test',
+      role: 'user',
+    );
+  }
 
   @override
   Future<bool> checkHealth() async => true;
@@ -3223,7 +3602,8 @@ final class _Storage extends Mock implements OptimizedStorageService {}
 
 void _routeConditionalAuthClearToLegacyMock(_Storage storage) {
   when(
-    () => storage.clearAuthDataIf(canClear: any(named: 'canClear')),
+    () =>
+        storage.clearActiveAccountAuthDataIf(canClear: any(named: 'canClear')),
   ).thenAnswer((invocation) async {
     final canClear = invocation.namedArguments[#canClear] as bool Function();
     if (!canClear()) return false;

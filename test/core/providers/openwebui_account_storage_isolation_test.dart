@@ -5,6 +5,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_manager.dart';
@@ -373,6 +374,8 @@ _harness({
   OpenWebUiAccountCacheClear? accountCacheClear,
   OpenWebUiDatabasePurge? databasePurge,
   OpenWebUiPostCertificationSyncKickoff? postCertificationSyncKickoff,
+  Override? apiOverride,
+  Override? activeServerOverride,
   List<Override> additionalOverrides = const <Override>[],
 }) async {
   if (!PreferencesStore.isReady) {
@@ -420,10 +423,11 @@ _harness({
   final container = ProviderContainer(
     overrides: [
       reviewerModeProvider.overrideWithValue(false),
-      activeServerProvider.overrideWith(
-        (ref) async => ref.watch(_serverSelectionProvider),
-      ),
-      apiServiceProvider.overrideWithValue(null),
+      activeServerOverride ??
+          activeServerProvider.overrideWith(
+            (ref) async => ref.watch(_serverSelectionProvider),
+          ),
+      apiOverride ?? apiServiceProvider.overrideWithValue(null),
       socketServiceProvider.overrideWithValue(null),
       databaseManagerProvider.overrideWithValue(manager),
       directLocalDatabaseProvider.overrideWithValue(direct),
@@ -433,6 +437,7 @@ _harness({
         accountCacheClear ?? () async {},
       ),
       openWebUiCertifiedUserPersistProvider.overrideWithValue((_) async {}),
+      openWebUiAccountUserBindProvider.overrideWithValue((_, _) async {}),
       openWebUiPostCertificationSyncKickoffProvider.overrideWithValue(
         postCertificationSyncKickoff ?? () {},
       ),
@@ -469,8 +474,12 @@ _harness({
     await container
         .read(openWebUiAccountStorageIsolationProvider.notifier)
         .settled;
-    check(container.read(openWebUiDatabaseAccessProvider))
-        .equals(OpenWebUiDatabaseAccessPhase.closed);
+    // Closed for chat either way: a terminal state with nothing proven yet
+    // waits in bootstrap, a failed purge in closed.
+    check(const [
+      OpenWebUiDatabaseAccessPhase.bootstrap,
+      OpenWebUiDatabaseAccessPhase.closed,
+    ]).contains(container.read(openWebUiDatabaseAccessProvider));
   }
 
   return (
@@ -483,6 +492,19 @@ _harness({
     serverSelection: container.read(_serverSelectionProvider.notifier),
     markerStore: markerStore,
   );
+}
+
+/// Account summaries whose write fails after a turn, as one refused during
+/// a sign-out does.
+final class _FailingAccountSummaries extends OpenWebUiAccountSummaries {
+  @override
+  Map<String, OpenWebUiAccountSummary> build() => const {};
+
+  @override
+  Future<void> recordUser(String accountId, User user) async {
+    await Future<void>.delayed(Duration.zero);
+    throw StateError('preference writes are closed');
+  }
 }
 
 final class _ThrowingActiveConversation extends ActiveConversationNotifier {
@@ -513,7 +535,7 @@ void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
 
   test(
-    'visible-state scrub logs each best-effort failure and keeps purging',
+    'visible-state scrub logs each best-effort failure and still closes the account',
     () async {
       final previousDebugPrint = debugPrint;
       final logs = <String>[];
@@ -552,8 +574,11 @@ void main() {
                 message.contains('visible-state-provider-reset-failed'),
           ),
         ).isTrue();
+        // The session ended: the database closes, but stays for the same
+        // user to sign back in to.
         check(harness.container.read(openWebUiDatabaseAccessProvider))
-            .equals(OpenWebUiDatabaseAccessPhase.closed);
+            .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
+        check(harness.container.read(appDatabaseProvider)).isNull();
       } finally {
         debugPrint = previousDebugPrint;
       }
@@ -1376,15 +1401,22 @@ void main() {
           .read(openWebUiAccountStorageIsolationProvider.notifier)
           .settled;
 
+      // Closed, not deleted: whoever signs in next is judged by the marker.
       check(container.read(openWebUiDatabaseAccessProvider))
-          .equals(OpenWebUiDatabaseAccessPhase.closed);
+          .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
       check(container.read(activeConversationProvider)).isNull();
       check(container.read(chatMessagesProvider)).isEmpty();
       check(postLogoutEmissions.every((ids) => !ids.contains('account-a-chat')))
           .isTrue();
 
+      // B's marker check finds A's database and deletes it before opening.
       harness.auth.publish(_authenticated('token-b', _userB));
       await Future<void>.delayed(Duration.zero);
+      check(container.read(openWebUiDatabaseAccessProvider))
+          .not((it) => it.equals(OpenWebUiDatabaseAccessPhase.open));
+      await container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
       check(container.read(openWebUiDatabaseAccessProvider))
           .equals(OpenWebUiDatabaseAccessPhase.open);
 
@@ -1456,18 +1488,20 @@ void main() {
         },
       );
 
-      harness.auth.publish(const AuthState(status: AuthStatus.unauthenticated));
-      await Future<void>.delayed(Duration.zero);
-      await harness.container
-          .read(openWebUiAccountStorageIsolationProvider.notifier)
-          .settled;
+      // Another user turning up on the open account is what still purges it:
+      // the database belongs to someone else.
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .settled;
+      }
 
       check(revocationWrites).equals(2);
       check(cacheClearCalls).equals(2);
       check(purgeCalls).equals(1);
-      check(harness.markerStore.read(_server.id)).isNull();
-      check(harness.container.read(openWebUiDatabaseAccessProvider))
-          .equals(OpenWebUiDatabaseAccessPhase.closed);
+      check(harness.markerStore.read(_server.id)?.userId).equals(_userB.id);
     },
   );
 
@@ -1872,4 +1906,1209 @@ void main() {
           .identicalTo(localRemap);
     },
   );
+
+  group('saved accounts', () {
+    Future<List<String>> openWebUiChatIds(ProviderContainer container) async {
+      final chats = await container.read(conversationsProvider.future);
+      return [
+        for (final chat in chats)
+          if (chat.id != 'direct-chat') chat.id,
+      ];
+    }
+
+    Future<void> switchTo(
+      ({
+        ProviderContainer container,
+        _MutableAuthStateManager auth,
+        AppDatabase serverA,
+        AppDatabase serverB,
+        AppDatabase direct,
+        DatabaseManager manager,
+        _ServerSelection serverSelection,
+        _MemoryAccountOwnerMarkerStore markerStore,
+      })
+      harness,
+      ServerConfig server,
+      AuthState auth,
+    ) async {
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.loading, isLoading: true),
+      );
+      isolation.beginAccountSwitch();
+      harness.serverSelection.set(server);
+      harness.auth.publish(auth);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+    }
+
+    test('signing out of the open account overtaken by a switch leaves the '
+        'next one open', () async {
+      final releasePurge = Completer<void>();
+      final harness = await _harness(
+        databasePurge: (_) => releasePurge.future,
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final purging = harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .purgeAccount(_server.id);
+      await Future<void>.delayed(Duration.zero);
+
+      // B certifies while A's files are still being deleted.
+      await switchTo(harness, _serverTwo, _authenticated('token-b', _userB));
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      releasePurge.complete();
+      await purging;
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+    });
+
+    test('an announced switch opens the next account with its data', () async {
+      final harness = await _harness();
+      await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-a-chat']);
+
+      await switchTo(harness, _serverTwo, _authenticated('token-b', _userB));
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-b-chat']);
+
+      // And back again: A's data was never deleted.
+      await switchTo(harness, _server, _authenticated('token-a', _userA));
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.markerStore.read(_server.id)).isNotNull();
+    });
+
+    test(
+      'a new token for the same user keeps the data only when the server vouched for it',
+      () async {
+        final harness = await _harness();
+        await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+        harness.markerStore.markers[_serverTwo.id] =
+            openWebUiAccountOwnerMarker(token: 'old-b', userId: _userB.id)!;
+        harness.container
+            .read(openWebUiValidatedIdentityLedgerProvider)
+            .record(token: 'new-b', userId: _userB.id);
+
+        await switchTo(harness, _serverTwo, _authenticated('new-b', _userB));
+
+        check(harness.container.read(openWebUiDatabaseAccessProvider))
+            .equals(OpenWebUiDatabaseAccessPhase.open);
+        check(await openWebUiChatIds(harness.container))
+            .deepEquals(['account-b-chat']);
+        check(
+          harness.markerStore.read(_serverTwo.id)?.tokenFingerprint,
+        ).equals(openWebUiAccountTokenFingerprint('new-b'));
+      },
+    );
+
+    test('a new token nobody vouched for purges before opening', () async {
+      final harness = await _harness();
+      await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'old-b',
+        userId: _userB.id,
+      )!;
+
+      await switchTo(harness, _serverTwo, _authenticated('new-b', _userB));
+
+      check(await openWebUiChatIds(harness.container)).isEmpty();
+    });
+
+    test('another user on the account purges it before opening', () async {
+      final harness = await _harness();
+      await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      harness.container
+          .read(openWebUiValidatedIdentityLedgerProvider)
+          .record(token: 'token-a2', userId: _userA.id);
+
+      await switchTo(harness, _serverTwo, _authenticated('token-a2', _userA));
+
+      check(await openWebUiChatIds(harness.container)).isEmpty();
+    });
+
+    test('a session ending keeps the database for the same user', () async {
+      final harness = await _harness();
+
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.tokenExpired, error: 'expired'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
+
+      harness.container
+          .read(openWebUiValidatedIdentityLedgerProvider)
+          .record(token: 'token-a2', userId: _userA.id);
+      harness.auth.publish(_authenticated('token-a2', _userA));
+      for (var i = 0; i < 3; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .settled;
+      }
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-a-chat']);
+    });
+
+    test(
+      'a sign-in that adds an account never purges the one it left',
+      () async {
+        final purged = <String>[];
+        final harness = await _harness(
+          databasePurge: (serverId) async => purged.add(serverId),
+          // The app's API client lags the selection: while it re-resolves,
+          // the client is rebuilt from the server just left.
+          apiOverride: apiServiceProvider.overrideWith(
+            (ref) => ref.watch(_apiSelectionProvider),
+          ),
+        );
+        harness.container
+            .read(_apiSelectionProvider.notifier)
+            .set(ApiService(serverConfig: _server, workerManager: WorkerManager()));
+        await PreferencesStore.put(
+          PreferenceKeys.activeServerId,
+          _serverTwo.id,
+        );
+
+        // The way a proxy sign-in commits: the selection re-resolves and the
+        // new identity is published before it has settled.
+        harness.serverSelection.set(_serverTwo);
+        harness.auth.publish(_authenticated('token-n', _userB));
+        for (var i = 0; i < 5; i++) {
+          await Future<void>.delayed(Duration.zero);
+          await harness.container
+              .read(openWebUiAccountStorageIsolationProvider.notifier)
+              .settled;
+        }
+
+        check(purged).not((it) => it.contains(_server.id));
+        check(harness.markerStore.read(_server.id)).isNotNull();
+        check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+            .equals(_serverTwo.id);
+      },
+    );
+
+    test(
+      'an unannounced arrival on an account that is theirs keeps its data',
+      () async {
+        final harness = await _harness();
+        await _seedChat(harness.serverB, id: 'account-b-chat', title: 'B');
+        harness.markerStore.markers[_serverTwo.id] =
+            openWebUiAccountOwnerMarker(token: 'token-b', userId: _userB.id)!;
+        await PreferencesStore.put(
+          PreferenceKeys.activeServerId,
+          _serverTwo.id,
+        );
+
+        // A saved sign-in for another account committing straight over the
+        // open one, with no switch announced first.
+        harness.serverSelection.set(_serverTwo);
+        harness.auth.publish(_authenticated('token-b', _userB));
+        for (var i = 0; i < 5; i++) {
+          await Future<void>.delayed(Duration.zero);
+          await harness.container
+              .read(openWebUiAccountStorageIsolationProvider.notifier)
+              .settled;
+        }
+
+        check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+            .equals(_serverTwo.id);
+        final chats = await harness.container.read(
+          conversationsProvider.future,
+        );
+        check(chats.map((chat) => chat.id)).contains('account-b-chat');
+        check(harness.markerStore.read(_server.id)).isNotNull();
+      },
+    );
+
+    test('a purge overtaken by a switch leaves the next account\'s cache', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        PreferenceKeys.activeServerId: _server.id,
+      });
+      PreferencesStore.debugReset();
+      HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+      final preferences = await FlutterKeyValueStore.load();
+      Completer<void>? holdTrustWrite;
+      PreferencesStore.debugOverride(
+        preferences,
+        writeInterceptor: (_, key, value) async {
+          if (key == PreferenceKeys.hermesMixedSessionBindingTrust) {
+            await holdTrustWrite?.future;
+          }
+          return null;
+        },
+      );
+      addTearDown(() {
+        HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+        PreferencesStore.debugReset();
+      });
+      final marker = openWebUiAccountOwnerMarker(
+        token: 'token-a',
+        userId: _userA.id,
+      )!;
+      await HermesMixedSessionBindingTrustStore.remember(
+        storageAccountIdentity:
+            HermesMixedSessionBindingTrustStore.durableStorageAccountIdentity(
+              serverId: _server.id,
+              userId: _userA.id,
+              tokenFingerprint: marker.tokenFingerprint,
+            ),
+        conversationId: 'account-a-chat',
+        assistantMessageId: 'assistant-a',
+        sessionId: 'session-a',
+        connectionIdentity: 'connection-a',
+      );
+      final clearedWhileActive = <String?>[];
+      final harness = await _harness(
+        accountCacheClear: () async => clearedWhileActive.add(
+          PreferencesStore.getString(PreferenceKeys.activeServerId),
+        ),
+        databasePurge: (_) async {},
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      // Another user on the open account starts its purge, which stops
+      // revoking the old owner's trust.
+      final hold = holdTrustWrite = Completer<void>();
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      // Meanwhile the app switches to another account.
+      isolation.beginAccountSwitch();
+      await PreferencesStore.put(PreferenceKeys.activeServerId, _serverTwo.id);
+      hold.complete();
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(clearedWhileActive).not((it) => it.contains(_serverTwo.id));
+    });
+
+    // Switching away and back can let a newer purge reopen the account; a
+    // retry of the older one would then delete what it opened.
+    test('a purge overtaken by a switch tries no more', () async {
+      final firstFailed = Completer<void>();
+      var purges = 0;
+      final harness = await _harness(
+        databasePurge: (_) async {
+          purges++;
+          if (!firstFailed.isCompleted) {
+            firstFailed.complete();
+            throw StateError('Database locked');
+          }
+        },
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      // Another user on the open account: its data is purged.
+      harness.auth.publish(_authenticated('token-b', _userB));
+      await firstFailed.future;
+      isolation.beginAccountSwitch();
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+
+      check(purges).equals(1);
+    });
+
+    // After a password change: the account stays, so it can be signed in to
+    // again while its files are still being deleted.
+    test('a sign-in landing while a kept account is purged waits for it',
+        () async {
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async {
+          purged.add(serverId);
+          await releasePurge.future;
+        },
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+
+      final purge = isolation.purgeAccount(_server.id, keepsRecord: true);
+      for (var i = 0; i < 5 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(purged).deepEquals([_server.id]);
+      // The logout ends the session; a sign-in follows while the files go.
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await Future<void>.delayed(Duration.zero);
+      harness.auth.publish(_authenticated('token-a', _userA));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.purging);
+      check(
+        harness.container.read(openWebUiCertifiedDatabaseServerProvider),
+      ).isNull();
+
+      releasePurge.complete();
+      await purge;
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+    });
+
+    // A proxy sign-in can make another account active without announcing
+    // the switch.
+    test('another account signing in while a kept account is purged keeps '
+        'its data', () async {
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async {
+          purged.add(serverId);
+          if (serverId == _server.id) await releasePurge.future;
+        },
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+
+      final purge = isolation.purgeAccount(_server.id, keepsRecord: true);
+      for (var i = 0; i < 5 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await PreferencesStore.put(PreferenceKeys.activeServerId, _serverTwo.id);
+      harness.serverSelection.set(_serverTwo);
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      releasePurge.complete();
+      await purge;
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+
+      check(purged).deepEquals([_server.id]);
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+    });
+
+    // The trust write and the delete both failing leave its owner marker;
+    // trusted, it would open the chats the logout meant to delete.
+    test('a logout purge that fails keeps its chats closed to the next '
+        'sign-in', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+      var refuseTrustWrites = true;
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async =>
+            refuseTrustWrites &&
+                key == PreferenceKeys.hermesMixedSessionBindingTrust
+            ? false
+            : null,
+      );
+      addTearDown(() {
+        HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+        PreferencesStore.debugReset();
+      });
+      var failPurge = true;
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async {
+          purged.add(serverId);
+          if (failPurge) throw StateError('Database locked');
+        },
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+
+      await check(
+        isolation.purgeAccount(_server.id, keepsRecord: true),
+      ).throws<StateError>();
+      check(harness.markerStore.read(_server.id)).isNotNull();
+
+      refuseTrustWrites = false;
+      failPurge = false;
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await Future<void>.delayed(Duration.zero);
+      harness.auth.publish(_authenticated('token-a', _userA));
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+
+      // Deleted again before it opened.
+      check(purged).deepEquals([_server.id, _server.id]);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountDataPurges),
+      ).isNull();
+    });
+
+    test('a logout purge left by an earlier run is finished at start, '
+        'keeping the account', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_serverTwo.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final purged = <String>[];
+      final cleared = <String>[];
+      await _harness(
+        databasePurge: (accountId) async => purged.add(accountId),
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () async => {_server.id, _serverTwo.id},
+          ),
+          openWebUiAccountPrivateDataClearProvider.overrideWithValue(
+            (accountId) async => cleared.add(accountId),
+          ),
+        ],
+      );
+      List<String>? pending() => PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountDataPurges,
+      );
+      for (var i = 0; i < 40 && pending() != null; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_serverTwo.id]);
+      check(cleared).isEmpty();
+      check(pending()).isNull();
+    });
+
+    // A proxy sign-in commits another account without announcing the switch;
+    // its identity can arrive while the selection is still re-resolving.
+    test('an unannounced sign-in is judged against the account it lands in',
+        () async {
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async => purged.add(serverId),
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+
+      await PreferencesStore.put(PreferenceKeys.activeServerId, _serverTwo.id);
+      harness.serverSelection.set(_serverTwo);
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+
+      check(purged).isEmpty();
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+    });
+
+    // An account switch invalidates the selection, which keeps the account
+    // being left as its value until it resolves.
+    test('a sign-in landing while the selection refreshes is judged against '
+        'the account it lands in', () async {
+      var selected = _server;
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async => purged.add(serverId),
+        activeServerOverride: activeServerProvider.overrideWith(
+          (ref) async => selected,
+        ),
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+
+      await PreferencesStore.put(PreferenceKeys.activeServerId, _serverTwo.id);
+      selected = _serverTwo;
+      harness.container.invalidate(activeServerProvider);
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+
+      check(purged).isEmpty();
+      check(harness.markerStore.read(_server.id)).isNotNull();
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_serverTwo.id);
+    });
+
+    test('a purge while the selection refreshes deletes the account it '
+        'lands in', () async {
+      var selected = _server;
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async => purged.add(serverId),
+        activeServerOverride: activeServerProvider.overrideWith(
+          (ref) async => selected,
+        ),
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      await isolation.settled;
+
+      await PreferencesStore.put(PreferenceKeys.activeServerId, _serverTwo.id);
+      selected = _serverTwo;
+      harness.container.invalidate(activeServerProvider);
+      check(harness.container.read(activeServerProvider).value?.id)
+          .equals(_server.id);
+      harness.container
+          .read(openWebUiCachedAccountOwnerMismatchProvider.notifier)
+          .set(true);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+
+      check(purged).deepEquals([_serverTwo.id]);
+      check(harness.markerStore.read(_server.id)).isNotNull();
+    });
+
+    test('a logout purge left by an earlier run is finished while another '
+        'account is purged', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_serverTwo.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (accountId) async {
+          purged.add(accountId);
+          if (accountId == _server.id) await releasePurge.future;
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      List<String>? pending() => PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountDataPurges,
+      );
+
+      final purge = isolation.purgeAccount(_server.id, keepsRecord: true);
+      for (var i = 0; i < 5 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      savedIds.complete({_server.id, _serverTwo.id});
+      for (var i = 0; i < 40 && purged.length < 2; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_server.id, _serverTwo.id]);
+      check(pending()).isNotNull().deepEquals([_server.id]);
+      releasePurge.complete();
+      await purge;
+      check(pending()).isNull();
+    });
+
+    // A purge that holds no gate, of an account not in use, is as much in
+    // progress as one that does.
+    test('a logout purge left by an earlier run is not started again while '
+        'one deletes it', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_serverTwo.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (accountId) async {
+          purged.add(accountId);
+          await releasePurge.future;
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      final purge = isolation.purgeAccount(_serverTwo.id, keepsRecord: true);
+      for (var i = 0; i < 5 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      savedIds.complete({_server.id, _serverTwo.id});
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_serverTwo.id]);
+      releasePurge.complete();
+      await purge;
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountDataPurges),
+      ).isNull();
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+    });
+
+    test('a logout purge that failed before the retry reached it is '
+        'retried', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_serverTwo.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (accountId) async {
+          purged.add(accountId);
+          if (purged.length == 1) throw StateError('Database locked');
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      List<String>? pending() => PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountDataPurges,
+      );
+
+      await check(
+        isolation.purgeAccount(_serverTwo.id, keepsRecord: true),
+      ).throws<StateError>();
+      savedIds.complete({_server.id, _serverTwo.id});
+      for (var i = 0; i < 20 && pending() != null; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_serverTwo.id, _serverTwo.id]);
+      check(pending()).isNull();
+    });
+
+    test('a purge at start that failed is retried by the logout record it '
+        'left', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_server.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final purged = <String>[];
+      await _harness(
+        expectInitiallyOpen: false,
+        // Each of the start's three attempts fails.
+        databasePurge: (accountId) async {
+          purged.add(accountId);
+          if (purged.length <= 3) throw StateError('Database locked');
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      check(purged).length.equals(3);
+      List<String>? pending() => PreferencesStore.getStringList(
+        PreferenceKeys.pendingAccountDataPurges,
+      );
+
+      savedIds.complete({_server.id});
+      for (var i = 0; i < 20 && pending() != null; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).length.equals(4);
+      check(pending()).isNull();
+    });
+
+    // The sign-in at start purges what the logout left, still deleting it
+    // when the retry reaches it; the retry leaves that one to it.
+    test('a logout purge running at start is not started again', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [
+          _server.id,
+          _serverTwo.id,
+        ],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (accountId) async {
+          purged.add(accountId);
+          if (accountId == _server.id && !savedIds.isCompleted) {
+            savedIds.complete({_server.id, _serverTwo.id});
+            for (var i = 0; i < 10; i++) {
+              await Future<void>.value();
+            }
+          }
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_server.id, _serverTwo.id]);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountDataPurges),
+      ).isNull();
+    });
+
+    test('a purge recorded before its account goes is kept for the next '
+        'start, and one that cannot be is refused', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      var refuse = false;
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async =>
+            refuse && key == PreferenceKeys.pendingAccountPurges
+            ? false
+            : null,
+      );
+      addTearDown(PreferencesStore.debugReset);
+      final harness = await _harness();
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      await isolation.recordAccountPurge(_serverTwo.id);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNotNull().deepEquals([_serverTwo.id]);
+
+      refuse = true;
+      await check(isolation.recordAccountPurge('third')).throws<Object>();
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNotNull().deepEquals([_serverTwo.id]);
+    });
+
+    // The sign-in at start purges what the logout left; the retry, reading
+    // its list from before, must not purge the database opened since.
+    test('a logout purge already finished at start is not retried', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_server.id],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final savedIds = Completer<Set<String>>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (accountId) async => purged.add(accountId),
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => savedIds.future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+      check(purged).deepEquals([_server.id]);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+
+      savedIds.complete({_server.id});
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals([_server.id]);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+    });
+
+    // Opened with the record still there, its new chats would go at the next
+    // start.
+    test('an account whose logout record cannot be cleared stays closed',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountDataPurges}': [_server.id],
+      });
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async =>
+            key == PreferenceKeys.pendingAccountDataPurges ? false : null,
+      );
+      addTearDown(PreferencesStore.debugReset);
+      final purged = <String>[];
+      final harness = await _harness(
+        expectInitiallyOpen: false,
+        databasePurge: (accountId) async => purged.add(accountId),
+        additionalOverrides: [
+          // The start's own retry stays out of the way.
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () => Completer<Set<String>>().future,
+          ),
+        ],
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        await isolation.settled;
+      }
+
+      check(purged).isNotEmpty();
+      check(
+        harness.container.read(openWebUiCertifiedDatabaseServerProvider),
+      ).isNull();
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .not((it) => it.equals(OpenWebUiDatabaseAccessPhase.open));
+    });
+
+    test('a session ending mid-purge keeps the files closed', () async {
+      final releasePurge = Completer<void>();
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async {
+          purged.add(serverId);
+          await releasePurge.future;
+        },
+      );
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      // Another user on the open account: its database is purged.
+      harness.auth.publish(_authenticated('token-b', _userB));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(purged).deepEquals([_server.id]);
+
+      // The session ends while the files are still being deleted.
+      harness.auth.publish(
+        const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await Future<void>.delayed(Duration.zero);
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.purging);
+
+      // Signing back in waits for the purge, then opens a fresh database.
+      harness.auth.publish(_authenticated('token-b2', _userB));
+      releasePurge.complete();
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+        await isolation.settled;
+      }
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(harness.container.read(openWebUiCertifiedDatabaseServerProvider))
+          .equals(_server.id);
+    });
+
+    test(
+      'signing out of the account still open deletes only its data',
+      () async {
+        final purged = <String>[];
+        final cleared = <String>[];
+        final harness = await _harness(
+          databasePurge: (serverId) async => purged.add(serverId),
+          additionalOverrides: [
+            openWebUiAccountPrivateDataClearProvider.overrideWithValue(
+              (accountId) async => cleared.add(accountId),
+            ),
+          ],
+        );
+
+        await harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .purgeAccount(_server.id);
+
+        check(purged).deepEquals([_server.id]);
+        // Its settings go with it, as an inactive account's do.
+        check(cleared).deepEquals([_server.id]);
+        check(harness.markerStore.read(_server.id)).isNull();
+        check(
+          harness.container.read(openWebUiCertifiedDatabaseServerProvider),
+        ).isNull();
+        check(harness.container.read(openWebUiDatabaseAccessProvider))
+            .equals(OpenWebUiDatabaseAccessPhase.bootstrap);
+      },
+    );
+
+    test('a failing account summary write is not left uncaught', () async {
+      final harness = await _harness(
+        additionalOverrides: [
+          openWebUiAccountSummariesProvider.overrideWith(
+            _FailingAccountSummaries.new,
+          ),
+        ],
+      );
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+      await Future<void>.delayed(Duration.zero);
+
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+    });
+
+    // The account is already gone from the list the user could sign out of
+    // it again from.
+    test('a purge that fails part-way runs its other steps and is kept for '
+        'the next start', () async {
+      final cleared = <String>[];
+      final harness = await _harness(
+        databasePurge: (_) async => throw StateError('Database locked'),
+        additionalOverrides: [
+          openWebUiAccountPrivateDataClearProvider.overrideWithValue(
+            (accountId) async => cleared.add(accountId),
+          ),
+        ],
+      );
+
+      await check(
+        harness.container
+            .read(openWebUiAccountStorageIsolationProvider.notifier)
+            .purgeAccount('signed-out'),
+      ).throws<StateError>();
+
+      check(cleared).deepEquals(['signed-out']);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNotNull().deepEquals(['signed-out']);
+    });
+
+    test('a purge left by an earlier run is finished at start', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountPurges}': ['signed-out'],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final purged = <String>[];
+      await _harness(
+        databasePurge: (accountId) async => purged.add(accountId),
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () async => {_server.id},
+          ),
+        ],
+      );
+      for (var i = 0; i < 20 && purged.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals(['signed-out']);
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNull();
+    });
+
+    test('a purge keeps the owner marker until the trust it finds is gone',
+        () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+      var refuseTrustWrites = true;
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async =>
+            refuseTrustWrites &&
+                key == PreferenceKeys.hermesMixedSessionBindingTrust
+            ? false
+            : null,
+      );
+      addTearDown(() {
+        HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
+        PreferencesStore.debugReset();
+      });
+      final harness = await _harness();
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+      final isolation = harness.container.read(
+        openWebUiAccountStorageIsolationProvider.notifier,
+      );
+
+      await check(isolation.purgeAccount(_serverTwo.id)).throws<StateError>();
+      check(harness.markerStore.read(_serverTwo.id)).isNotNull();
+
+      // The retry finds the trust through the marker, then removes both.
+      refuseTrustWrites = false;
+      await isolation.purgeAccount(_serverTwo.id);
+      check(harness.markerStore.read(_serverTwo.id)).isNull();
+      check(
+        PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges),
+      ).isNull();
+    });
+
+    test('a purge left by an earlier run that fails again does not hold up '
+        'the others', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'flutter.${PreferenceKeys.pendingAccountPurges}': [
+          'locked',
+          'signed-out',
+        ],
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      addTearDown(PreferencesStore.debugReset);
+      final purged = <String>[];
+      await _harness(
+        databasePurge: (accountId) async {
+          if (accountId == 'locked') throw StateError('Database locked');
+          purged.add(accountId);
+        },
+        additionalOverrides: [
+          openWebUiSavedAccountIdsProvider.overrideWithValue(
+            () async => {_server.id},
+          ),
+        ],
+      );
+      List<String>? pending() =>
+          PreferencesStore.getStringList(PreferenceKeys.pendingAccountPurges);
+      for (var i = 0; i < 40 && (pending()?.length ?? 0) > 1; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(purged).deepEquals(['signed-out']);
+      check(pending()).isNotNull().deepEquals(['locked']);
+    });
+
+    // Settings scoped to an account read the kept id; an account active
+    // only as storage counts it would read the device's meanwhile.
+    test('certifying an account keeps it as the active account', () async {
+      final kept = <String>[];
+      final harness = await _harness(
+        additionalOverrides: [
+          openWebUiActiveAccountRecordProvider.overrideWithValue(
+            (accountId) async => kept.add(accountId),
+          ),
+        ],
+      );
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+      await Future<void>.delayed(Duration.zero);
+
+      check(kept).deepEquals([_server.id]);
+    });
+
+    test('certifying an account records it as the one just used', () async {
+      final harness = await _harness();
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .settled;
+      await Future<void>.delayed(Duration.zero);
+
+      final summary = harness.container.read(
+        openWebUiAccountSummariesProvider,
+      )[_server.id];
+      check(summary?.lastUsedAt).isNotNull();
+    });
+
+    test('purging an inactive account leaves the active one open', () async {
+      final purged = <String>[];
+      final harness = await _harness(
+        databasePurge: (serverId) async => purged.add(serverId),
+      );
+      harness.markerStore.markers[_serverTwo.id] = openWebUiAccountOwnerMarker(
+        token: 'token-b',
+        userId: _userB.id,
+      )!;
+
+      await harness.container
+          .read(openWebUiAccountStorageIsolationProvider.notifier)
+          .purgeAccount(_serverTwo.id);
+
+      check(purged).deepEquals([_serverTwo.id]);
+      check(harness.markerStore.read(_serverTwo.id)).isNull();
+      check(harness.markerStore.read(_server.id)).isNotNull();
+      check(harness.container.read(openWebUiDatabaseAccessProvider))
+          .equals(OpenWebUiDatabaseAccessPhase.open);
+      check(await openWebUiChatIds(harness.container))
+          .deepEquals(['account-a-chat']);
+    });
+  });
 }

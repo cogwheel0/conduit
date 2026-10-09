@@ -1,8 +1,14 @@
+import 'dart:async';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit/platform/webview_cookie_helper.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
@@ -12,7 +18,9 @@ import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dar
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'support/adaptive_auth_harness.dart';
 
@@ -491,6 +499,272 @@ void main() {
     await harness.unmount(tester);
   });
 
+  testWidgets('sign-in fills in the saved username', (tester) async {
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      savedUsername: 'ada@example.com',
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('ada@example.com'), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
+
+  testWidgets('adding an account does not fill in the username of the one '
+      'it was added from', (tester) async {
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      savedUsername: 'ada@example.com',
+      addingAccountFrom: 'ada-account',
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('ada@example.com'), findsNothing);
+
+    await harness.unmount(tester);
+  });
+
+  // The first attempt makes the added account the active one, which stopped a
+  // reply still being written in the account it was added from unasked.
+  testWidgets('signing in to an added account asks before stopping a reply', (
+    tester,
+  ) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final actions = _RejectingAuthActions();
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLdap: true),
+      authActions: actions,
+      addingAccountFrom: 'ada-account',
+      replyBeingWritten: true,
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('LDAP'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byKey(const ValueKey('ldap_form')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), 'grace');
+    await tester.enterText(fields.at(1), 'password');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.pumpAndSettle();
+    expect(find.text('A reply is still being written'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    check(harness.repliesStopped).equals(0);
+    check(actions.ldapAttempts).isEmpty();
+    verifyNever(
+      () => harness.storage.selectUnauthenticatedServerConfig(
+        any(),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        publish: any(named: 'publish'),
+      ),
+    );
+
+    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Switch anyway'));
+    // The attempt waits on timers (server selection) that pumpAndSettle does
+    // not advance.
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    check(harness.repliesStopped).equals(1);
+    check(actions.ldapAttempts).deepEquals([('grace', 'password')]);
+
+    await harness.unmount(tester);
+  });
+
+  // While the first attempt saves the added account's server, the account it
+  // was added from is still active, so Back only closes the page. Going on
+  // back to chat ended the addition, but the save went on to make the new
+  // account active, signed out, and sign-in opened again over chat.
+  testWidgets('leaving an addition while its server is saved keeps the '
+      'account it was added from', (tester) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    // The harness's active account is the one the addition began from.
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore({PreferenceKeys.activeServerId: server.id}),
+    );
+    addTearDown(PreferencesStore.debugReset);
+    final actions = _RejectingAuthActions();
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLdap: true),
+      authActions: actions,
+      addingAccountFrom: server.id,
+    );
+    addTearDown(harness.dispose);
+    final saveHeld = Completer<void>();
+    var committed = false;
+    when(
+      () => harness.storage.selectUnauthenticatedServerConfig(
+        any(),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        publish: any(named: 'publish'),
+      ),
+    ).thenAnswer((invocation) async {
+      await saveHeld.future;
+      // As the storage does: a save that no longer owns its attempt leaves
+      // the account active before it as it was.
+      final canCommit =
+          invocation.namedArguments[#canCommit] as bool Function()?;
+      if (canCommit != null && !canCommit()) return false;
+      committed = true;
+      return true;
+    });
+
+    await tester.pumpWidget(harness.build(initialLocation: Routes.addServer));
+    await tester.pumpAndSettle();
+    unawaited(harness.router.pushNamed<void>(RouteNames.authentication));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('LDAP'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byKey(const ValueKey('ldap_form')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), 'grace');
+    await tester.enterText(fields.at(1), 'password');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sign in with LDAP'));
+    // The attempt shows progress until the save finishes.
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('authentication-back-button')),
+    );
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+    expect(find.byType(AuthenticationPage), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('server-connection-back-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('chat')), findsOneWidget);
+
+    saveHeld.complete();
+    await tester.pumpAndSettle();
+
+    check(committed).isFalse();
+    check(actions.ldapAttempts).isEmpty();
+    expect(find.byKey(const ValueKey<String>('chat')), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
+
+  // Cancel while sign-in is prepared ends the addition and makes the account
+  // it began from active again; signing in then would save this user's
+  // session under that account.
+  testWidgets('an addition left while sign-in is prepared signs nothing in', (
+    tester,
+  ) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final actions = _RejectingAuthActions();
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLdap: true),
+      authActions: actions,
+      addingAccountFrom: 'ada-account',
+    );
+    addTearDown(harness.dispose);
+    late ProviderContainer container;
+    when(
+      () => harness.storage.selectUnauthenticatedServerConfig(
+        any(),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        publish: any(named: 'publish'),
+      ),
+    ).thenAnswer((_) async {
+      // Saved; Cancel lands while the rest is prepared.
+      container.read(accountAdditionOriginProvider.notifier).end('ada-account');
+      return true;
+    });
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+    container = ProviderScope.containerOf(
+      tester.element(find.byType(AuthenticationPage)),
+    );
+    await tester.tap(find.text('LDAP'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byKey(const ValueKey('ldap_form')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), 'grace');
+    await tester.enterText(fields.at(1), 'password');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sign in with LDAP'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    check(actions.ldapAttempts).isEmpty();
+
+    await harness.unmount(tester);
+  });
+
+  // Cancel was the only way off the page that dropped the added account; the
+  // system back and the edge swipe left it active and signed out.
+  testWidgets('system back drops an added account that never signed in', (
+    tester,
+  ) async {
+    final accounts = _RecordingAccountsController();
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      abandonablePendingSignIn: true,
+      accountsController: accounts,
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(harness.build(initialLocation: Routes.chat));
+    await tester.pumpAndSettle();
+    unawaited(harness.router.pushNamed<void>(RouteNames.authentication));
+    await tester.pumpAndSettle();
+    expect(find.byType(AuthenticationPage), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    check(accounts.abandons).equals(1);
+    expect(find.byType(AuthenticationPage), findsNothing);
+    expect(find.byKey(const ValueKey<String>('chat')), findsOneWidget);
+
+    await harness.unmount(tester);
+  });
+
   testWidgets('sign-in hides unsupported saved server addresses', (
     tester,
   ) async {
@@ -530,5 +804,17 @@ class _RejectingAuthActions extends Fake implements AuthActions {
   }) async {
     ldapAttempts.add((username, password));
     return false;
+  }
+}
+
+/// Records each request to drop an added account that never signed in.
+class _RecordingAccountsController extends Fake
+    implements OpenWebUiAccountsController {
+  int abandons = 0;
+
+  @override
+  Future<bool> abandonPendingSignIn() async {
+    abandons++;
+    return true;
   }
 }

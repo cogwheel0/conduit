@@ -87,6 +87,34 @@ void main() {
     },
   );
 
+  // Nothing awaited the read, so its failure reached only the zone and the
+  // form sat empty without a word.
+  testWidgets('adding an account says when the saved server cannot be read', (
+    tester,
+  ) async {
+    final harness = AdaptiveAuthHarness(
+      server: _server,
+      savedServersError: Exception('The keychain is locked.'),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(harness.build(initialLocation: Routes.chat));
+    await tester.pumpAndSettle();
+    harness.router.goNamed(RouteNames.addServer, extra: _server.id);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
+    // Leave first: the page ends the addition after it goes, which needs the
+    // providers still there.
+    harness.router.go(Routes.chat);
+    await tester.pumpAndSettle();
+    await harness.unmount(tester);
+  });
+
   testWidgets('Android auth back surface stays at toolbar action size', (
     tester,
   ) async {

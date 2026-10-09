@@ -8397,5 +8397,167 @@
   "hermesKeepCurrentConnection": "Keep current",
   "@hermesKeepCurrentConnection": {
     "description": "Button that keeps the current Hermes connection instead of switching."
+  },
+  "accountsTitle": "Accounts",
+  "@accountsTitle": {
+    "description": "Heading of the list of saved Open WebUI accounts on the profile page and of the page that manages them."
+  },
+  "accountsAddAccount": "Add account",
+  "@accountsAddAccount": {
+    "description": "Row and button that starts signing in to another Open WebUI account, on a saved server or a new one."
+  },
+  "accountsManage": "Manage accounts",
+  "@accountsManage": {
+    "description": "Row on the profile page that opens the page listing every saved Open WebUI account, grouped by server."
+  },
+  "accountsSignedOut": "Signed out",
+  "@accountsSignedOut": {
+    "description": "Status shown under a saved Open WebUI account that has no session: switching to it asks for a sign-in."
+  },
+  "accountsActive": "Active",
+  "@accountsActive": {
+    "description": "Accessibility label for the checkmark next to the Open WebUI account the app is currently using."
+  },
+  "accountsAddAccountTitle": "Add an account",
+  "@accountsAddAccountTitle": {
+    "description": "Title of the sheet that asks where to add another Open WebUI account: on a saved server or on a new one."
+  },
+  "accountsAddAccountMessage": "Sign in to another account on a saved server, or connect to a new one.",
+  "@accountsAddAccountMessage": {
+    "description": "Explanation in the sheet that asks where to add another Open WebUI account."
+  },
+  "accountsNewServer": "New server",
+  "@accountsNewServer": {
+    "description": "Option in the add-account sheet that connects to an Open WebUI server that is not saved yet."
+  },
+  "accountsAddOnThisServer": "Add account on this server",
+  "@accountsAddOnThisServer": {
+    "description": "Row under a saved Open WebUI server on the accounts page that starts signing in to another account on it."
+  },
+  "accountsSwitch": "Switch",
+  "@accountsSwitch": {
+    "description": "Action that makes the chosen saved Open WebUI account the one the app uses."
+  },
+  "accountsSignOutOf": "Sign out of {name}",
+  "@accountsSignOutOf": {
+    "description": "Destructive row that signs out of one saved Open WebUI account and removes it from this device. {name} is the account's display name.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "accountsSignOutConfirmTitle": "Sign out of {name}?",
+  "@accountsSignOutConfirmTitle": {
+    "description": "Title of the confirmation before signing out of one Open WebUI account. {name} is the account's display name.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
+  "accountsSignOutConfirmMessage": "This removes the account and the chats it saved on this device. Your other accounts stay signed in.",
+  "@accountsSignOutConfirmMessage": {
+    "description": "Body of the confirmation before signing out of one Open WebUI account while others remain saved."
+  },
+  "accountsSignOutAll": "Sign out of all accounts",
+  "@accountsSignOutAll": {
+    "description": "Destructive row that signs out of every saved account and clears the app's data, as signing out did before several accounts could be saved."
+  },
+  "accountsReplyInProgressTitle": "A reply is still being written",
+  "@accountsReplyInProgressTitle": {
+    "description": "Title of the confirmation shown when leaving the current account would stop a reply that is still streaming."
+  },
+  "accountsSwitchStopsReply": "Switching accounts stops it.",
+  "@accountsSwitchStopsReply": {
+    "description": "Body of the confirmation shown before switching accounts while a reply is still streaming."
+  },
+  "accountsSignOutStopsReply": "Signing out stops it.",
+  "@accountsSignOutStopsReply": {
+    "description": "Body of the confirmation shown before signing out of the current account while a reply is still streaming."
+  },
+  "accountsSwitchAnyway": "Switch anyway",
+  "@accountsSwitchAnyway": {
+    "description": "Confirms switching accounts even though it stops the reply that is still streaming."
+  },
+  "accountsAddressChangeStopsReply": "Changing the address in use stops it.",
+  "@accountsAddressChangeStopsReply": {
+    "description": "Body of the confirmation shown before saving or removing the server address in use while a reply is still streaming."
+  },
+  "accountsAddressChangeAnyway": "Change anyway",
+  "@accountsAddressChangeAnyway": {
+    "description": "Confirms changing or removing the server address in use even though it stops the reply that is still streaming."
+  },
+  "accountsSignOutAnyway": "Sign out anyway",
+  "@accountsSignOutAnyway": {
+    "description": "Confirms signing out of the current account even though it stops the reply that is still streaming."
+  },
+  "accountsServerAddresses": "Addresses",
+  "@accountsServerAddresses": {
+    "description": "Row under a saved Open WebUI server, and title of the page, listing the addresses (URLs) the server can be reached at, such as a LAN address, a Tailscale name and a public domain."
+  },
+  "accountsServerAddressesHelp": "Conduit connects through the first address that answers, from the top. Drag to change the order.",
+  "@accountsServerAddressesHelp": {
+    "description": "Explanation under the list of addresses of one Open WebUI server."
+  },
+  "accountsAddAddress": "Add address",
+  "@accountsAddAddress": {
+    "description": "Row and page title for adding another address (URL) at which the same Open WebUI server can be reached."
+  },
+  "accountsEditAddress": "Edit address",
+  "@accountsEditAddress": {
+    "description": "Title of the page that edits one saved address (URL) of an Open WebUI server."
+  },
+  "accountsSaveAddress": "Save address",
+  "@accountsSaveAddress": {
+    "description": "Button that checks an address of an Open WebUI server and saves it."
+  },
+  "accountsAddressInUse": "In use",
+  "@accountsAddressInUse": {
+    "description": "Badge on the address of an Open WebUI server that the app is connected through right now."
+  },
+  "accountsAddressName": "Name (optional)",
+  "@accountsAddressName": {
+    "description": "Label of the optional field naming an address of an Open WebUI server, such as Home network or Tailscale."
+  },
+  "accountsAddressNameHint": "Home network, Tailscale…",
+  "@accountsAddressNameHint": {
+    "description": "Placeholder in the optional name field of an Open WebUI server address."
+  },
+  "accountsAddressDifferentServer": "This address reaches a different server, or a different account on it.",
+  "@accountsAddressDifferentServer": {
+    "description": "Error shown when a new address of an Open WebUI server answers as another server: the signed-in account is not recognized there."
+  },
+  "accountsAddressNeedsSignIn": "Sign in to an account on this server first, so the address can be checked.",
+  "@accountsAddressNeedsSignIn": {
+    "description": "Error shown when a new address of an Open WebUI server cannot be checked: the server's accounts keep a saved sign-in but are not signed in."
+  },
+  "accountsRemoveAddress": "Remove address",
+  "@accountsRemoveAddress": {
+    "description": "Destructive action that removes one address of an Open WebUI server."
+  },
+  "accountsRemoveAddressMessage": "Conduit stops trying this address. Your accounts stay signed in.",
+  "@accountsRemoveAddressMessage": {
+    "description": "Body of the confirmation before removing one address of an Open WebUI server."
+  },
+  "accountsAddressConfirmTitle": "Check this address?",
+  "@accountsAddressConfirmTitle": {
+    "description": "Title of the confirmation shown before a new address of a saved Open WebUI server, on a host none of its addresses uses, is checked by sending it a saved account's session."
+  },
+  "accountsAddressConfirmMessage": "To make sure {host} is this server, Conduit sends it the session of an account saved here. Continue only if you trust this address.",
+  "@accountsAddressConfirmMessage": {
+    "description": "Body of the confirmation shown before a saved account's session is sent to a new address to check that it reaches the same Open WebUI server. {host} is the new address's host name, with its port when it has one.",
+    "placeholders": {
+      "host": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "accountsAddressConfirmAction": "Check address",
+  "@accountsAddressConfirmAction": {
+    "description": "Confirms sending a saved account's session to a new address of an Open WebUI server, to check that it reaches the same server."
   }
 }

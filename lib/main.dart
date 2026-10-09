@@ -84,6 +84,10 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 
 import 'core/utils/native_sheet_utils.dart'
     show
+        nativeAccountAddActionId,
+        nativeAccountManageActionId,
+        nativeAccountSignOutActionId,
+        nativeAccountSwitchActionId,
         nativeAdvancedFeaturesId,
         nativeCitationShowTitlesId,
         nativeMemoryEditorActionPrefix,
@@ -102,7 +106,11 @@ import 'features/chat/voice_mode/chat_voice_audio_session_coordinator.dart';
 import 'features/chat/voice_mode/chat_voice_mode_controller.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show chatWakelockCoordinatorProvider, restoreDefaultModel;
+    show
+        chatWakelockCoordinatorProvider,
+        isChatStreamingProvider,
+        localChatGenerationActiveProvider,
+        restoreDefaultModel;
 import 'package:conduit_core/features/release_notes/release_notes_bootstrap.dart';
 
 import 'features/release_notes/release_notes_coordinator.dart';
@@ -148,6 +156,11 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show openWebUiRouteResolverProvider;
+import 'core/services/background_streaming_handler.dart';
+import 'features/profile/widgets/account_actions.dart';
 
 const bool _enableFlutterDriverExtension = bool.fromEnvironment(
   'ENABLE_FLUTTER_DRIVER_EXTENSION',
@@ -371,6 +384,52 @@ void main() {
           signOutResetTargetsProvider.overrideWithValue(
             themePreferenceResetTargets,
           ),
+          // A reply streaming in the background (screen locked, another chat
+          // open) is cut off by an account switch just like a visible one.
+          accountChangeReplyGuardProvider.overrideWith((ref) {
+            return () {
+              try {
+                return ref.read(isChatStreamingProvider) ||
+                    ref.read(localChatGenerationActiveProvider) ||
+                    BackgroundStreamingHandler.instance.hasActiveReplyStreams;
+              } catch (_) {
+                return false;
+              }
+            };
+          }),
+          // Replies still being written in the background are Open WebUI's,
+          // which arrive through the active account's address.
+          addressChangeReplyGuardProvider.overrideWith((ref) {
+            return () {
+              try {
+                return (ref.read(isChatStreamingProvider) &&
+                        conversationUsesOpenWebUiStorage(
+                          ref.read(activeConversationProvider),
+                        )) ||
+                    BackgroundStreamingHandler.instance.hasActiveReplyStreams;
+              } catch (_) {
+                return false;
+              }
+            };
+          }),
+          // Posted notifications deep-link into the account that posted them.
+          hostActiveAccountChangedProvider.overrideWith((ref) {
+            return (_) {
+              unawaited(
+                ref
+                    .read(localNotificationServiceProvider)
+                    .cancelAll()
+                    .catchError((Object error, StackTrace stackTrace) {
+                      DebugLogger.error(
+                        'account-switch-notification-clear-failed',
+                        scope: 'notifications/system',
+                        error: error,
+                        stackTrace: stackTrace,
+                      );
+                    }),
+              );
+            };
+          }),
           // The in-memory selection, so a language change applies to the
           // next request before the preference write lands.
           appLanguageTagProvider.overrideWith(
@@ -488,6 +547,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   void initState() {
     super.initState();
     ref.read(userScopedProviderCleanupProvider);
+    ref.read(openWebUiDuplicateAccountReconcilerProvider);
+    ref.read(openWebUiRouteResolverProvider);
     ref.read(quickActionsCoordinatorProvider);
     ref.read(chatWakelockCoordinatorProvider);
     _nativeSheetSubscription = NativeSheetBridge.instance.events.listen(
@@ -526,6 +587,39 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       case NativeEditProfileCommitted():
         unawaited(_handleNativeEditProfileCommitted(event));
     }
+  }
+
+  /// The native Settings rows for saved Open WebUI accounts. Returns
+  /// whether [actionId] was one of them.
+  Future<bool> _handleNativeAccountAction(String actionId, Object? value) async {
+    final context = NavigationService.context;
+    switch (actionId) {
+      case nativeAccountSwitchActionId:
+        if (context == null || value is! String) return true;
+        await switchToSavedAccount(context, ref, value);
+        return true;
+      case nativeAccountAddActionId:
+        if (context == null) return true;
+        await showAddAccountSheet(context, ref);
+        return true;
+      case nativeAccountManageActionId:
+        final request = accountsNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return true;
+      case nativeAccountSignOutActionId:
+        if (context == null) return true;
+        final accounts = await ref.read(openWebUiAccountsProvider.future);
+        final active = accounts.where((entry) => entry.isActive).firstOrNull;
+        if (active == null || !context.mounted) return true;
+        await signOutOfSavedAccount(context, ref, active);
+        return true;
+    }
+    return false;
   }
 
   Future<void> _handleNativeSheetLogoutRequested({
@@ -628,6 +722,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         NavigationService.openOpenWebUIConnectFromNativeSheet();
         return;
       }
+
+      if (await _handleNativeAccountAction(event.id, value)) return;
 
       if (event.id == NativeSheetRoutes.directConnections) {
         final request = directConnectionsNativeSheetNavigationRequest;

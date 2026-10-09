@@ -4,12 +4,39 @@ part of 'app_providers.dart';
 @Riverpod(keepAlive: true)
 Future<Model?> defaultModel(Ref ref) async {
   Model? resolved;
+  var ownerRetries = 0;
   while (true) {
     final reviewerAtStart = ref.read(reviewerModeProvider);
     final selectedAtStart = ref.read(selectedModelProvider);
     final manualAtStart = ref.read(isManualModelSelectionProvider);
+    final apiAtStart = ref.read(apiServiceProvider);
+    final ownerAtStart = apiAtStart == null
+        ? null
+        : captureOpenWebUiCacheOwnership(
+            ref,
+            api: apiAtStart,
+            requireAuthenticated: false,
+          );
     final candidate = await _resolveDefaultModel(ref);
     if (!ref.mounted) return null;
+
+    // A session that settled while this ran -- the same account and token,
+    // its database certified meanwhile -- makes the resolver drop its result
+    // as another owner's, and nothing asks again. Resolve once more for it,
+    // unless the selection moved meanwhile. A different session is left to
+    // its own resolution.
+    if (ownerAtStart != null &&
+        ownerRetries < 2 &&
+        !openWebUiCacheOwnershipIsCurrent(ref, ownerAtStart) &&
+        ref.read(isAuthenticatedProvider2) &&
+        ref.read(authTokenProvider3) == ownerAtStart.authToken &&
+        ref.read(activeServerProvider).value?.id ==
+            ownerAtStart.activeServerId &&
+        identical(ref.read(selectedModelProvider), selectedAtStart) &&
+        !ref.read(isManualModelSelectionProvider)) {
+      ownerRetries++;
+      continue;
+    }
 
     if (ref.read(reviewerModeProvider) != reviewerAtStart) {
       final latestSelected = ref.read(selectedModelProvider);

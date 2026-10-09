@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import '../../../shared/services/input_validation_service.dart';
@@ -15,6 +16,8 @@ import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../profile/widgets/account_actions.dart'
+    show abandonAddedAccount, confirmLeavingActiveAccount;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -119,6 +122,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   String? _loginError;
   bool _isSigningIn = false;
   bool _serverConfigSaved = false;
+
+  /// Whether the addition this page's server was saved for is still under
+  /// way, when it was saved for one.
+  bool Function()? _additionInProgress;
 
   ConnectionAttemptState get _attemptState {
     final l10n = AppLocalizations.of(context)!;
@@ -253,6 +260,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Future<void> _loadSavedCredentials() async {
+    // While another account is added, the saved sign-in is the one of the
+    // account it was added from, not of the one being signed in to.
+    if (ref.read(accountAdditionOriginProvider) != null) return;
     final storage = ref.read(optimizedStorageServiceProvider);
     final savedCredentials = await storage.getSavedCredentials();
     if (mounted && savedCredentials != null) {
@@ -277,6 +287,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     final l10n = AppLocalizations.of(context)!;
     if (!_formKey.currentState!.validate()) return;
+    if (!await _mayLeaveActiveAccount() || !mounted) return;
 
     setState(() {
       _isSigningIn = true;
@@ -290,6 +301,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         await _saveServerConfig(_serverConfig!);
         _serverConfigSaved = true;
       }
+      if (!await _signInTargetStillSelected()) {
+        throw StateError('The selected server changed before sign-in was ready.');
+      }
+      if (!mounted) return;
 
       final actions = ref.read(authActionsProvider);
       bool success;
@@ -345,10 +360,59 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     }
   }
 
+  /// Back to server setup, except while adding another account: then back
+  /// to where that began, or -- once this sign-in has become the active
+  /// account -- Cancel, which drops it and returns to the previous account.
+  UtilityBackNavigation _backNavigation(
+    AppLocalizations l10n, {
+    required bool abandonable,
+  }) {
+    const key = ValueKey<String>('authentication-back-button');
+    if (abandonable) {
+      return UtilityBackNavigation(
+        label: l10n.cancel,
+        buttonKey: key,
+        onPressed: _cancelAddition,
+      );
+    }
+    if (ref.watch(accountAdditionOriginProvider) != null && context.canPop()) {
+      return UtilityBackNavigation(
+        label: l10n.back,
+        buttonKey: key,
+        onPressed: () => context.pop(),
+      );
+    }
+    return UtilityBackNavigation(
+      label: l10n.backToServerSetup,
+      buttonKey: key,
+      onPressed: () => context.go(Routes.serverConnection),
+    );
+  }
+
+  /// The first attempt makes the server's new account the active one. While
+  /// another account is added that leaves the one it was added from, and
+  /// stops a reply still being written there, so ask first.
+  Future<bool> _mayLeaveActiveAccount() async {
+    if (_serverConfig == null ||
+        _serverConfigSaved ||
+        ref.read(accountAdditionOriginProvider) == null) {
+      return true;
+    }
+    return confirmLeavingActiveAccount(context, ref);
+  }
+
   Future<void> _saveServerConfig(ServerConfig config) async {
+    // Saved for an added account, the server is that addition's. Left while
+    // the save is slow -- Back is then only Back, with the account it was
+    // added from still active -- the addition ends, and so must the save:
+    // it would make the new account active, signed out, over chat.
+    final addition = ref.read(accountAdditionOriginProvider) == null
+        ? null
+        : ref.read(accountAdditionOriginProvider.notifier).stillInProgress();
+    _additionInProgress = addition;
     await ref
         .read(authStateManagerProvider.notifier)
-        .selectUnauthenticatedServerConfig(config);
+        .selectUnauthenticatedServerConfig(config, canCommit: addition);
 
     final selectedServer = await ref.read(activeServerProvider.future);
     if (!authenticationServerMatchesSelection(selectedServer, config)) {
@@ -365,6 +429,40 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       await ref
           .read(backendConfigProvider.notifier)
           .cacheForServer(backendConfig, config.id);
+    }
+  }
+
+  /// Whether what this sign-in signs in to is still selected. Cancel, or
+  /// Back, while it is prepared ends the addition and makes the account it
+  /// began from active again; a sign-in then would save this user's session
+  /// under that account.
+  ///
+  /// Unreadable, it is not known to be: false, which each sign-in reports as
+  /// a failure, letting the user try again.
+  Future<bool> _signInTargetStillSelected() async {
+    final addition = _additionInProgress;
+    if (addition != null && !addition()) return false;
+    final config = _serverConfig;
+    if (config == null) return true;
+    try {
+      final selected = await ref.read(activeServerProvider.future);
+      return mounted && authenticationServerMatchesSelection(selected, config);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'sign-in-selection-read-failed',
+        scope: 'auth/page',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
+  }
+
+  /// Cancel: drops the added account and returns to the account it was
+  /// added from, or stays and says so when it could not be dropped.
+  Future<void> _cancelAddition() async {
+    if (!await abandonAddedAccount(context, ref) && mounted) {
+      setState(() => _loginError = AppLocalizations.of(context)!.errorMessage);
     }
   }
 
@@ -426,26 +524,32 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     });
 
     final l10n = AppLocalizations.of(context)!;
+    final abandonable =
+        ref.watch(pendingSignInAbandonableProvider).value ?? false;
 
-    return UtilityPageScaffold.auth(
-      title: l10n.signIn,
-      backNavigation: UtilityBackNavigation(
-        label: l10n.backToServerSetup,
-        buttonKey: const ValueKey<String>('authentication-back-button'),
-        onPressed: () => context.go(Routes.serverConnection),
-      ),
-      bottomAction: _buildSignInButton(),
-      body: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildHeader(),
-            const SizedBox(height: Spacing.xl),
-            _buildAuthMethodSection(),
-            const SizedBox(height: Spacing.xl),
-            _buildAuthForm(),
-          ],
+    // The system back and the edge swipe leave as Cancel does, so they cannot
+    // leave an added account that never signed in as the active one.
+    return PopScope(
+      canPop: !abandonable,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _cancelAddition();
+      },
+      child: UtilityPageScaffold.auth(
+        title: l10n.signIn,
+        backNavigation: _backNavigation(l10n, abandonable: abandonable),
+        bottomAction: _buildSignInButton(),
+        body: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(),
+              const SizedBox(height: Spacing.xl),
+              _buildAuthMethodSection(),
+              const SizedBox(height: Spacing.xl),
+              _buildAuthForm(),
+            ],
+          ),
         ),
       ),
     );
@@ -768,6 +872,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   Future<void> _navigateToSso() async {
     if (!mounted || _isSigningIn) return;
+    if (!await _mayLeaveActiveAccount() || !mounted) return;
     setState(() {
       _isSigningIn = true;
       _loginError = null;
@@ -797,6 +902,15 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         return;
       }
       if (!mounted) return;
+    }
+    if (!await _signInTargetStillSelected() || !mounted) {
+      if (mounted) {
+        setState(() {
+          _loginError = AppLocalizations.of(context)!.genericSignInFailed;
+          _isSigningIn = false;
+        });
+      }
+      return;
     }
 
     await context.pushNamed(RouteNames.ssoAuth, extra: _serverConfig);

@@ -117,6 +117,63 @@ final openWebUiAccountOwnerMarkerStoreProvider =
       (ref) => const PreferencesOpenWebUiAccountOwnerMarkerStore(),
     );
 
+/// Token/user pairs the server itself has accepted during this process.
+///
+/// An owner marker pins an account's database to a user *and* a token, so a
+/// new token for the same user -- a silent re-login after the old one
+/// expired, or a sign-in that lands in an existing account -- no longer
+/// matches it. Purging the database there would throw away that user's
+/// offline history and queued sends for nothing. This ledger is the proof
+/// that lets those cases through: a pair is recorded only after a request to
+/// the server succeeded with that token and returned that user, never from a
+/// cached user, and it lives only in memory.
+final class OpenWebUiValidatedIdentityLedger {
+  static const int _capacity = 16;
+  final List<String> _entries = <String>[];
+
+  void record({required String token, required String userId}) {
+    final key = _key(token, userId);
+    if (key == null) return;
+    _entries
+      ..remove(key)
+      ..add(key);
+    if (_entries.length > _capacity) _entries.removeAt(0);
+  }
+
+  bool vouchesFor({required String token, required String? userId}) {
+    final key = _key(token, userId);
+    return key != null && _entries.contains(key);
+  }
+
+  void clear() => _entries.clear();
+
+  static String? _key(String token, String? userId) {
+    final normalized = userId?.trim();
+    if (token.isEmpty || normalized == null || normalized.isEmpty) return null;
+    return '${openWebUiAccountTokenFingerprint(token)}:$normalized';
+  }
+}
+
+final openWebUiValidatedIdentityLedgerProvider =
+    Provider<OpenWebUiValidatedIdentityLedger>(
+      (ref) => OpenWebUiValidatedIdentityLedger(),
+    );
+
+/// Whether [marker] may be carried over to [token]: it names the same user,
+/// and the server has accepted [token] for that user in this process.
+bool openWebUiAccountOwnerMarkerCarriesOver({
+  required OpenWebUiAccountOwnerMarker? marker,
+  required String token,
+  required String? userId,
+  required OpenWebUiValidatedIdentityLedger ledger,
+}) {
+  final normalized = userId?.trim();
+  return marker != null &&
+      normalized != null &&
+      marker.userId == normalized &&
+      ledger.vouchesFor(token: token, userId: normalized);
+}
+
 final openWebUiCachedAccountOwnerMismatchProvider =
     NotifierProvider<OpenWebUiCachedAccountOwnerMismatch, bool>(
       OpenWebUiCachedAccountOwnerMismatch.new,
