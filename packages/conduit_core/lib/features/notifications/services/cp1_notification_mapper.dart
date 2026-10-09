@@ -116,9 +116,10 @@ AppNotification? appNotificationFromCp1Json(
 const List<String> _textKeys = ['t', 'b', 'a', 'g', 'n'];
 
 /// The channel headline the socket path builds too: the author, then the
-/// channel (`#name`) in brackets when the payload names one.
+/// channel (`#name`) in brackets when the payload names one. A direct message
+/// names its sender as the title, so it shows the author alone.
 String _channelTitle(String author, String channel) {
   if (author.isEmpty) return channel;
-  if (channel.isEmpty) return author;
+  if (channel.isEmpty || channel == author) return author;
   return '$author ($channel)';
 }

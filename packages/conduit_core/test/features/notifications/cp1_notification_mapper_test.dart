@@ -110,6 +110,17 @@ void main() {
       check(n.title).equals('Zoë 🦊 (#général)');
     });
 
+    test('a direct message names only its sender', () {
+      final n = appNotificationFromCp1({
+        ..._reply(ids: const {'channel': 'dm-1', 'msg': 'm-1'}),
+        'k': 'channel',
+        't': 'Zoë',
+        'a': 'Zoë',
+        'dk': 'channel:dm-1:m-1',
+      }, scope: 'owui:acct-1')!;
+      check(n.title).equals('Zoë');
+    });
+
     test('a Hermes reply opens its session', () {
       final n = mapCase('hermes_reply');
       check(n.kind).equals(NotificationKind.chatCompletion);
