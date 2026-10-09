@@ -72,6 +72,13 @@ final class _ReachableGateway implements HermesConnectionGateway {
   Future<String?> suggestDisplayName(HermesConfig draft) async => null;
 }
 
+/// Hermes that cannot be turned on: its secure storage is locked, say.
+final class _EnableFails extends HermesConfigController {
+  @override
+  Future<void> setEnabled(bool enabled) async =>
+      throw StateError('secure storage unavailable');
+}
+
 final class _SettledOnAlex extends SettledActiveAccountId {
   @override
   String? build() => 'alex-home';
@@ -300,6 +307,46 @@ void main() {
     check(container.read(hermesActiveConnectionIdProvider)).equals(added.id);
     check(container.read(hermesEnabledProvider)).isTrue();
     expect(find.byType(AccountSheet), findsNothing);
+  });
+
+  // Connect saved the connection and then failed to turn Hermes on; the
+  // button became Save, which only saved again and never turned it on.
+  testWidgets('Connect stays Connect after it saved but could not finish', (
+    tester,
+  ) async {
+    final gateway = _ReachableGateway();
+    final container = await pumpSheet(
+      tester,
+      const AddAccountRequest(AccountKind.hermes),
+      overrides: [
+        hermesConnectionGatewayProvider.overrideWithValue(gateway),
+        hermesConfigProvider.overrideWith(_EnableFails.new),
+      ],
+    );
+    gateway.container = container;
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('hermes-server-url-field')),
+      'https://lab.example',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('hermes-api-key-field')),
+      'lab-key',
+    );
+    await tester.pump();
+    final submit = find.byKey(const ValueKey<String>('hermes-sheet-submit'));
+
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AccountSheet), findsOne);
+    expect(
+      find.descendant(of: submit, matching: find.text('Connect Hermes')),
+      findsOne,
+    );
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    // Connect again, from its test, not a bare save.
+    check(gateway.probes).equals(2);
   });
 
   testWidgets('switching tabs keeps what was typed in each', (tester) async {

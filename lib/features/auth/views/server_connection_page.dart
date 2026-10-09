@@ -510,6 +510,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       _applyConfig(config);
     } else {
       await _prefillFromSavedServer();
+      // Unread, the form stays empty and says why: connecting would only
+      // ask for an address over that.
+      if (!mounted || _urlController.text.trim().isEmpty) return;
     }
     // Pushed from the page, which must be in the tree first.
     await WidgetsBinding.instance.endOfFrame;
@@ -945,6 +948,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         api.dispose();
         connectionApi = null;
         if (_embedded) {
+          // Left while the address was checked: the sheet is gone.
+          if (!mounted) return;
           // Its sign-in is a page of its own: the connection page goes on
           // from here.
           widget.onChecked!(ServerConnectionHandoff(config: tempConfig));

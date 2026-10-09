@@ -155,6 +155,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
 
   bool get _embedded => widget.onFinished != null;
 
+  /// Opened in the account sheet to add a connection. It stays the adding
+  /// form after a Connect that saved the connection but failed to put it in
+  /// use, so the next Connect finishes the job rather than only saving.
+  bool get _addingInSheet => _embedded && widget.connectionId == null;
+
   /// Whether this editor's connection is the active one.
   bool get _editsActive {
     final id = _controller.connectionId;
@@ -517,7 +522,10 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         gap,
       ] else
         const HermesSecretsErrorBanner(),
-      if (!widget.isOnboarding && existing && !editsActive) ...[
+      if (!widget.isOnboarding &&
+          !_addingInSheet &&
+          existing &&
+          !editsActive) ...[
         InsetGroupedList(
           footer: l10n.hermesInactiveConnectionNotice,
           children: [
@@ -743,7 +751,7 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         const SizedBox(height: Spacing.lg),
         const HermesServerStatusSection(),
       ],
-      if (!widget.isOnboarding && existing) ...[
+      if (!widget.isOnboarding && !_addingInSheet && existing) ...[
         gap,
         InsetGroupedList(
           useNativeSurface: PlatformInfo.isIOS,
@@ -772,11 +780,11 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
           if (controller.attempt.isVisible) const SizedBox(height: Spacing.sm),
           ConduitButton(
             key: const ValueKey<String>('hermes-sheet-submit'),
-            text: existing ? l10n.save : l10n.hermesConnectAction,
+            text: _addingInSheet ? l10n.hermesConnectAction : l10n.save,
             isFullWidth: true,
             isLoading: busy,
             onPressed: draftUsable && !busy
-                ? (existing ? _saveInSheet : _connectInSheet)
+                ? (_addingInSheet ? _connectInSheet : _saveInSheet)
                 : null,
           ),
         ],

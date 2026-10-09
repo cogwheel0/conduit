@@ -146,6 +146,34 @@ void main() {
     await harness.unmount(tester);
   });
 
+  // The sheet named a saved server the page could not read: it connected
+  // anyway, with no address, and asked for one over the reason.
+  testWidgets('a saved server the sheet named but cannot be read says so, '
+      'and asks for no address', (tester) async {
+    final harness = AdaptiveAuthHarness(
+      server: _server,
+      savedServersError: Exception('The keychain is locked.'),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(harness.build(initialLocation: Routes.chat));
+    await tester.pumpAndSettle();
+    harness.router.goNamed(
+      RouteNames.addServer,
+      extra: ServerConnectionHandoff(serverId: _server.id),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Something went wrong. Please try again.'),
+      findsOneWidget,
+    );
+    expect(find.text('This field is required'), findsNothing);
+    harness.router.go(Routes.chat);
+    await tester.pumpAndSettle();
+    await harness.unmount(tester);
+  });
+
   testWidgets('a first account\'s server, checked in the sheet, goes on to '
       'its sign-in too', (tester) async {
     final harness = AdaptiveAuthHarness(server: _server);
