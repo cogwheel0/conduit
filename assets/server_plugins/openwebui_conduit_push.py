@@ -257,6 +257,10 @@ ID_KEYS = ("chat", "msg", "channel", "session", "turn", "job", "run")
 TITLE_LIMIT = 100
 BODY_LIMIT = 200
 AUTHOR_LIMIT = 64
+# A preview is cleaned from at most this many characters. Some of the patterns
+# below backtrack on long runs of unclosed markup, and a channel message or a
+# reply can be any length, so they never see more than this.
+CLEAN_INPUT_LIMIT = 4000
 ELLIPSIS = "…"
 
 _BLOCKS = [
@@ -266,8 +270,13 @@ _BLOCKS = [
     # A fence left open by a truncated or still-streaming reply runs to the end.
     re.compile(r"(^|\n)[ \t]*(```|~~~).*?(\n[ \t]*\2[ \t]*(?=\n|$)|$)", re.DOTALL),
 ]
-_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
-_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+# The start of a block that CLEAN_INPUT_LIMIT cut off before its end.
+_OPEN_BLOCK = re.compile(r"<(?:details|think|thinking)\b", re.IGNORECASE)
+# Link text can't contain brackets and a target can't contain parentheses,
+# except one nested pair as in Wikipedia URLs. That keeps each attempt short,
+# so a run of unclosed "[" or "(" takes linear time, not quadratic.
+_IMAGE = re.compile(r"!\[([^\[\]]*)\]\([^()]*(?:\([^()]*\)[^()]*)*\)")
+_LINK = re.compile(r"\[([^\[\]]+)\]\([^()]*(?:\([^()]*\)[^()]*)*\)")
 _TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(\s[^<>]*)?/?>")
 _LINE_MARKER = re.compile(r"^[ \t]*(#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+)", re.MULTILINE)
 _EMPHASIS = re.compile(r"(\*\*|__|~~|`)")
@@ -275,17 +284,30 @@ _SPACE = re.compile(r"\s+")
 
 
 def clean_text(text: Optional[str]) -> str:
-    """Turns a Markdown reply into one line of plain text for a preview."""
+    """Turns a Markdown reply into one line of plain text for a preview.
+
+    Only the first CLEAN_INPUT_LIMIT characters are read. When that cuts the
+    text short, a reasoning block it leaves open is dropped to the end, like
+    an open code fence, and the result ends in an ellipsis.
+    """
     if not text:
         return ""
+    cut = len(text) > CLEAN_INPUT_LIMIT
+    if cut:
+        text = text[:CLEAN_INPUT_LIMIT]
     for pattern in _BLOCKS:
         text = pattern.sub("\n", text)
+    if cut:
+        opened = _OPEN_BLOCK.search(text)
+        if opened:
+            text = text[: opened.start()]
     text = _IMAGE.sub(lambda m: m.group(1), text)
     text = _LINK.sub(lambda m: m.group(1), text)
     text = _TAG.sub("", text)
     text = _LINE_MARKER.sub("", text)
     text = _EMPHASIS.sub("", text)
-    return _SPACE.sub(" ", text).strip()
+    text = _SPACE.sub(" ", text).strip()
+    return text + ELLIPSIS if cut and text else text
 
 
 def clip(text: Optional[str], limit: int) -> str:
@@ -413,8 +435,9 @@ _HIDDEN = re.compile(
     re.IGNORECASE,
 )
 _SOLUTION_MARKER = re.compile(r"<\|(?:begin|end)_of_solution\|>")
-# Channel mentions are stored as <@U:id|Label>; a preview shows @Label.
-_MENTION = re.compile(r"<([@#])[A-Z]:([^|>]+)(?:\|([^>]+))?>")
+# Channel mentions are stored as <@U:id|Label>; a preview shows @Label. Neither
+# part may contain "<", so a run of unclosed "<@U:" takes linear time.
+_MENTION = re.compile(r"<([@#])[A-Z]:([^|<>]+)(?:\|([^<>]+))?>")
 
 
 class _Subscription(object):
@@ -615,11 +638,17 @@ def _strip_hidden(text: str) -> str:
 
 
 def _preview(raw: Any) -> str:
-    """Plain-text preview of an event's Markdown text."""
+    """Plain-text preview of an event's Markdown text.
+
+    A stored channel message can be any length, so only its first
+    cp.CLEAN_INPUT_LIMIT characters reach the regexes below.
+    """
     text = _text(raw)
     truncated = len(text) == EVENT_TEXT_LIMIT + 3 and text.endswith("...")
     if truncated:
         text = text[:EVENT_TEXT_LIMIT]
+    elif len(text) > cp.CLEAN_INPUT_LIMIT:
+        text, truncated = text[: cp.CLEAN_INPUT_LIMIT], True
     text = _MENTION.sub(lambda m: m.group(1) + (m.group(3) or m.group(2)), text)
     text = cp.clean_text(_strip_hidden(text))
     return text + cp.ELLIPSIS if truncated and text else text

@@ -99,8 +99,9 @@ _HIDDEN = re.compile(
     re.IGNORECASE,
 )
 _SOLUTION_MARKER = re.compile(r"<\|(?:begin|end)_of_solution\|>")
-# Channel mentions are stored as <@U:id|Label>; a preview shows @Label.
-_MENTION = re.compile(r"<([@#])[A-Z]:([^|>]+)(?:\|([^>]+))?>")
+# Channel mentions are stored as <@U:id|Label>; a preview shows @Label. Neither
+# part may contain "<", so a run of unclosed "<@U:" takes linear time.
+_MENTION = re.compile(r"<([@#])[A-Z]:([^|<>]+)(?:\|([^<>]+))?>")
 
 
 class _Subscription(object):
@@ -301,11 +302,17 @@ def _strip_hidden(text: str) -> str:
 
 
 def _preview(raw: Any) -> str:
-    """Plain-text preview of an event's Markdown text."""
+    """Plain-text preview of an event's Markdown text.
+
+    A stored channel message can be any length, so only its first
+    cp.CLEAN_INPUT_LIMIT characters reach the regexes below.
+    """
     text = _text(raw)
     truncated = len(text) == EVENT_TEXT_LIMIT + 3 and text.endswith("...")
     if truncated:
         text = text[:EVENT_TEXT_LIMIT]
+    elif len(text) > cp.CLEAN_INPUT_LIMIT:
+        text, truncated = text[: cp.CLEAN_INPUT_LIMIT], True
     text = _MENTION.sub(lambda m: m.group(1) + (m.group(3) or m.group(2)), text)
     text = cp.clean_text(_strip_hidden(text))
     return text + cp.ELLIPSIS if truncated and text else text

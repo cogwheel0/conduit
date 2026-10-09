@@ -592,6 +592,41 @@ def test_channel_reads_encrypted_valves_and_survives_a_failed_batch_read(world, 
     assert sorted(post.url for post in world.posts) == sorted([devices["b"].endpoint, devices["c"].endpoint])
 
 
+MEGABYTE = 1_000_000
+FAST_ENOUGH_S = 0.25  # 50 KB of "[" used to take seconds
+
+
+def _elapsed(fn, *args):
+    start = time.perf_counter()
+    fn(*args)
+    return time.perf_counter() - start
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["[" * MEGABYTE, "![" * (MEGABYTE // 2), "<@U:" * (MEGABYTE // 4), "<@U:x|" * (MEGABYTE // 6),
+     "<details>" * (MEGABYTE // 9), "<think " * (MEGABYTE // 7)],
+    ids=["brackets", "images", "mentions", "labelled_mentions", "details", "think"],
+)
+def test_preview_of_a_huge_message_is_fast(plugin, text):
+    assert _elapsed(plugin._preview, text) < FAST_ENOUGH_S
+    assert _elapsed(plugin._MENTION.sub, "", text) < FAST_ENOUGH_S
+
+
+def test_preview_reads_only_the_start_of_a_long_message(plugin):
+    preview = plugin._preview("Hi <@U:b|Bob>, " + "[" * MEGABYTE)
+    assert preview.startswith("Hi @Bob, [[[") and preview.endswith("…")
+    assert plugin._preview("Look: <think>" + "secret " * 1000) == "Look:…"
+
+
+def test_huge_channel_message_notifies_with_a_short_preview(world, fn):
+    devices = channel_world(world)
+    world.messages["msg1"]["content"] = "Hi <@U:b|Bob>, " + "[" * MEGABYTE
+    assert _elapsed(lambda: dispatch(fn, **posted(world))) < 1.0
+    payload = devices["b"].open(world.posts_to(devices["b"])[0])
+    assert payload["b"].startswith("Hi @Bob, [[[") and len(payload["b"]) == 200
+
+
 def test_webhook_messages_notify_every_member(world, fn):
     devices = channel_world(world)
     dispatch(fn, **posted(world, actor_name="CI bot", actor_id="hook1", actor_type="webhook"))
