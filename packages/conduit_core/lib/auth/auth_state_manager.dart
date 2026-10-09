@@ -3340,12 +3340,6 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<void> logout() async {
-    // While the session still works: the account's push subscription is
-    // removed from its server with its own token. Bounded; never throws.
-    final accountId = ref.read(apiServiceProvider)?.serverConfig.id;
-    if (accountId != null) {
-      await ref.read(pushSignOutHookProvider).beforeOpenWebUiSignOut(accountId);
-    }
     await _runLogout(clearAllAppData: false, keepServerDetails: true);
   }
 
@@ -3552,6 +3546,15 @@ class AuthStateManager extends _$AuthStateManager {
         // as another locked iteration before publishing any local result.
         DebugLogger.auth('Logout clearing a resurrected revoked session');
       }
+    }
+
+    // While the session still works, and before the restart fence below
+    // drops a proxy's cookies: the account's push subscription is removed
+    // from its server with its own token. Bounded; never throws. Signing out
+    // of everything did this already, and without push nothing waits.
+    final pushHook = ref.read(pushSignOutHookProvider);
+    if (!clearAllAppData && logoutApi != null && pushHook.inUse) {
+      await pushHook.beforeOpenWebUiSignOut(logoutApi.serverConfig.id);
     }
 
     try {

@@ -258,7 +258,8 @@ class OpenWebUiAccountsController {
     }
     // While the session still works: the account's push subscription is
     // removed from its server with its own token. Bounded; never throws.
-    await _ref.read(pushSignOutHookProvider).beforeOpenWebUiSignOut(accountId);
+    final pushHook = _ref.read(pushSignOutHookProvider);
+    if (pushHook.inUse) await pushHook.beforeOpenWebUiSignOut(accountId);
     final signedIn = await _ref
         .read(authStateManagerProvider.notifier)
         .signOutAccount(accountId, thenActivate: next);

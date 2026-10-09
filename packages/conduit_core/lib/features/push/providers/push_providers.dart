@@ -183,7 +183,9 @@ final class PushSignOutHook {
 
   final Ref _ref;
 
-  bool get _pushInUse =>
+  /// Whether push was ever set up on this device. Without it the hooks
+  /// return at once, and callers that must not yield can skip them.
+  bool get inUse =>
       PreferencesStore.getBool(PreferenceKeys.pushEnabled) == true ||
       (PreferencesStore.getString(PreferenceKeys.pushTargets)?.isNotEmpty ??
           false);
@@ -203,7 +205,7 @@ final class PushSignOutHook {
       _ref.read(pushCoordinatorProvider.notifier);
 
   Future<void> _run(Future<void> Function() body) async {
-    if (!_pushInUse) return;
+    if (!inUse) return;
     try {
       await body().timeout(_ref.read(pushTimingsProvider).signOutTimeout);
     } catch (error) {
