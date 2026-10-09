@@ -2983,6 +2983,8 @@
   "notificationSystemDescription": "Benachrichtigungen außerhalb der App anzeigen, wenn sie im Hintergrund läuft.",
   "notificationSystemTitle": "Systembenachrichtigungen",
   "notificationViewAction": "Ansehen",
+  "notificationReplyFailedBody": "Die Antwort konnte nicht abgeschlossen werden.",
+  "notificationTargetUnavailable": "Das Konto oder die Verbindung dieser Benachrichtigung ist nicht mehr auf diesem Gerät.",
   "notificationsEnabledDescription": "Benachrichtigungen erhalten, wenn die App im Hintergrund läuft und in der App.",
   "notificationsEnabledTitle": "Benachrichtigungen aktivieren",
   "notificationsPermissionDenied": "Benachrichtigungen sind in den Systemeinstellungen deaktiviert.",

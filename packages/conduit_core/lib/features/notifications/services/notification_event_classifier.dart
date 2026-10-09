@@ -1,4 +1,10 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 import '../models/app_notification.dart';
+import '../models/notification_scope.dart';
+import 'notification_preview_text.dart';
 
 /// Pure translator from raw Open WebUI socket envelopes to [AppNotification]s.
 ///
@@ -13,6 +19,10 @@ import '../models/app_notification.dart';
 /// non-terminal frames, self-authored messages, malformed envelopes — and never
 /// throws on unexpected shapes, so schema drift degrades to "no notification"
 /// rather than a crash.
+///
+/// `scope` names the Open WebUI account whose socket delivered the event
+/// (`owui:<accountId>`, see [NotificationScope]). Dedup keys are the ones a
+/// push for the same event carries (docs/push/PROTOCOL.md §2), prefixed by it.
 class NotificationEventClassifier {
   const NotificationEventClassifier();
 
@@ -23,6 +33,7 @@ class NotificationEventClassifier {
   AppNotification? classifyChatEvent(
     Map<String, dynamic> event, {
     required String currentUserId,
+    required String scope,
   }) {
     final envelope = _asMap(event['data']);
     if (envelope == null) return null;
@@ -42,16 +53,21 @@ class NotificationEventClassifier {
 
     final content = _asString(data['content']);
     final title = _asString(data['title']);
+    // The envelope names the assistant message the frame belongs to, which is
+    // what a push for the same reply keys on. Without it, key on a digest of
+    // the content: a replayed identical terminal frame dedupes, while a later
+    // distinct response in the same chat still notifies.
+    final messageId =
+        _asNonEmptyString(event['message_id']) ?? _contentDigest(content);
 
     return AppNotification(
       kind: NotificationKind.chatCompletion,
+      scope: scope,
       title: title,
-      body: content,
+      body: notificationPreviewText(content),
       sourceId: chatId,
-      // Completion frames carry no stable message id, so key on the chat plus
-      // the content: a replayed identical terminal frame dedupes, while a later
-      // distinct response in the same chat still notifies.
-      dedupKey: 'chat:$chatId:${content.hashCode}',
+      dedupKey: '$scope|chat:$chatId:$messageId',
+      group: 'chat:$chatId',
     );
   }
 
@@ -63,6 +79,7 @@ class NotificationEventClassifier {
   AppNotification? classifyChannelEvent(
     Map<String, dynamic> event, {
     required String currentUserId,
+    required String scope,
   }) {
     final envelope = _asMap(event['data']);
     if (envelope == null) return null;
@@ -87,14 +104,15 @@ class NotificationEventClassifier {
 
     return AppNotification(
       kind: NotificationKind.channelMessage,
+      scope: scope,
       title: _channelTitle(event, author),
-      body: content,
+      body: notificationPreviewText(content),
       sourceId: channelId,
       // Channel messages carry a stable id; fall back to content keying only if
       // the server omits it.
-      dedupKey: messageId != null
-          ? 'channel:$channelId:$messageId'
-          : 'channel:$channelId:${content.hashCode}',
+      dedupKey:
+          '$scope|channel:$channelId:${messageId ?? _contentDigest(content)}',
+      group: 'channel:$channelId',
     );
   }
 
@@ -113,6 +131,11 @@ class NotificationEventClassifier {
     }
     return authorName;
   }
+
+  /// A digest of [content] that is the same in every process, unlike
+  /// [String.hashCode].
+  static String _contentDigest(String content) =>
+      sha1.convert(utf8.encode(content)).toString();
 
   static Map<String, dynamic>? _asMap(Object? value) =>
       value is Map<String, dynamic> ? value : null;

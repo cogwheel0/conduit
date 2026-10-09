@@ -2,6 +2,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:dio/dio.dart' show DioException;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -313,14 +314,28 @@ Future<void> openHermesSession(
   HermesSessionSummary session, {
   HermesBot? bot,
   String? botAvatar,
+}) => openHermesSessionReading(
+  context,
+  ref.read,
+  session,
+  bot: bot,
+  botAvatar: botAvatar,
+);
+
+/// [openHermesSession] for a caller that reads providers without a widget
+/// ref, such as a tapped notification.
+Future<void> openHermesSessionReading(
+  BuildContext context,
+  T Function<T>(ProviderListenable<T> provider) read,
+  HermesSessionSummary session, {
+  HermesBot? bot,
+  String? botAvatar,
 }) async {
-  final openEpoch = ref
-      .read(hermesSessionNavigationEpochProvider.notifier)
-      .bump();
-  final configController = ref.read(hermesConfigProvider.notifier);
+  final openEpoch = read(hermesSessionNavigationEpochProvider.notifier).bump();
+  final configController = read(hermesConfigProvider.notifier);
   final admission = configController.captureSessionActionAdmission();
   if (admission == null) return;
-  final service = ref.read(hermesApiServiceProvider);
+  final service = read(hermesApiServiceProvider);
   if (service == null) return;
   final trustPrincipalId = configController.documentTrustPrincipalId();
 
@@ -359,7 +374,7 @@ Future<void> openHermesSession(
 
   var hermesModel = hermesSyntheticModel(name: service.config.name);
   try {
-    final models = await ref.read(modelsProvider.future);
+    final models = await read(modelsProvider.future);
     for (final model in models) {
       if (isHermesModel(model)) {
         hermesModel = model;
@@ -374,9 +389,9 @@ Future<void> openHermesSession(
   // Connection edits rebuild the service. Never bind a transcript fetched
   // with an old endpoint or principal into the newly configured account.
   if (!context.mounted ||
-      openEpoch != ref.read(hermesSessionNavigationEpochProvider) ||
+      openEpoch != read(hermesSessionNavigationEpochProvider) ||
       !configController.sessionActionAdmissionIsCurrent(admission) ||
-      !identical(ref.read(hermesApiServiceProvider), service) ||
+      !identical(read(hermesApiServiceProvider), service) ||
       configController.documentTrustPrincipalId() != trustPrincipalId) {
     return;
   }
@@ -412,12 +427,12 @@ Future<void> openHermesSession(
     );
   }
 
-  ref.read(hermesActiveSessionProvider.notifier).set(session.id);
+  read(hermesActiveSessionProvider.notifier).set(session.id);
   // Mark as a manual selection (same as startNewHermesChat) so the default-
   // model restoration that fires on conversation-open can't race past this
   // and overwrite the Hermes model with the user's OWUI default.
-  ref.read(isManualModelSelectionProvider.notifier).set(true);
-  ref.read(selectedModelProvider.notifier).set(hermesModel);
+  read(isManualModelSelectionProvider.notifier).set(true);
+  read(selectedModelProvider.notifier).set(hermesModel);
 
   final now = DateTime.now();
   // `local:` prefix keeps the OpenWebUI socket/Drift machinery out of this chat
@@ -439,7 +454,7 @@ Future<void> openHermesSession(
       },
     ),
   );
-  ref.read(activeConversationProvider.notifier).set(conversation);
+  read(activeConversationProvider.notifier).set(conversation);
 
   if (context.mounted) {
     NavigationService.router.go(Routes.chat);

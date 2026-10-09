@@ -301,6 +301,31 @@ void main() {
     check(container.read(registered)).equals(2);
   });
 
+  test('signing out of everything tells the host about all of it', () async {
+    final signedOut = <String?>[];
+    final container = ProviderContainer(
+      overrides: [
+        authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+        directConnectionProfilesProvider.overrideWith(_EmptyDirectProfiles.new),
+        hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+        directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
+        hostSignedOutProvider.overrideWithValue(signedOut.add),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await container.read(directConnectionProfilesProvider.future);
+    container.read(hermesConfigProvider);
+
+    await container
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: true);
+
+    // Null: every account and connection, so every notification goes.
+    check(signedOut).deepEquals([null]);
+  });
+
   test('an incomplete clear leaves the restart marker armed', () async {
     final container = ProviderContainer(
       overrides: [

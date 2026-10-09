@@ -2983,6 +2983,8 @@
   "notificationSystemDescription": "Meldingen buiten de app tonen wanneer deze op de achtergrond draait.",
   "notificationSystemTitle": "Systeemmeldingen",
   "notificationViewAction": "Bekijken",
+  "notificationReplyFailedBody": "Het antwoord kon niet worden voltooid.",
+  "notificationTargetUnavailable": "Het account of de verbinding van deze melding staat niet meer op dit apparaat.",
   "notificationsEnabledDescription": "Ontvang meldingen wanneer de app op de achtergrond draait en in de app.",
   "notificationsEnabledTitle": "Meldingen inschakelen",
   "notificationsPermissionDenied": "Meldingen zijn uitgeschakeld in de systeeminstellingen.",

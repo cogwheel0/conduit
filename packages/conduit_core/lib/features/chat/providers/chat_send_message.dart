@@ -842,6 +842,13 @@ Future<void> _sendMessageInternal(
             _isDirectConversationOwnerActive(ref, failedOwner)) {
           notifier.updateMessageById(assistantMessageId, (_) => failedSnapshot);
         }
+        await _announceDirectRunCompletion(
+          ref,
+          registry,
+          reservation,
+          owner: failedOwner,
+          message: failedSnapshot,
+        );
       }
       rethrow;
     } finally {
