@@ -60,7 +60,7 @@ final class NotificationService: UNNotificationServiceExtension {
       if let localId = delivery.replacesLocalNotificationId {
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [localId])
       }
-      finish(with: Self.decrypted(original, delivery: delivery))
+      finish(with: Self.decrypted(original, delivery: delivery, tapKey: Self.tapKey(appGroup)))
     case .reject(let reason):
       let drop = reason.mayDrop && PushSharedContainer.isFilteringEnabled()
       Self.log.notice(
@@ -84,10 +84,21 @@ final class NotificationService: UNNotificationServiceExtension {
     handler?(content)
   }
 
+  /// The key taps are signed with. Without it the notification has no tap.
+  private static func tapKey(_ appGroup: String) -> PushTapKey? {
+    do {
+      return try PushTapKey.load(accessGroup: appGroup)
+    } catch {
+      log.error("No tap key; the notification will not open its item")
+      return nil
+    }
+  }
+
   /// The decrypted notification, with the tap payload the app reads.
   private static func decrypted(
     _ original: UNNotificationContent,
-    delivery: PushDelivery
+    delivery: PushDelivery,
+    tapKey: PushTapKey?
   ) -> UNNotificationContent {
     let content = mutableCopy(of: original)
     let shown = delivery.presentation
@@ -101,10 +112,15 @@ final class NotificationService: UNNotificationServiceExtension {
     // The ciphertext is no longer needed; the sid tells the app which
     // subscription the push came from.
     userInfo[PushUserInfoKey.envelope] = ["v": PushPayload.version, "s": delivery.sid]
-    userInfo[PushUserInfoKey.tap] = PushTap(
-      scope: delivery.scope,
-      payloadJSON: delivery.payload.json
-    ).userInfoValue
+    // Without the key there is no tap, so the app does not open it.
+    if let tapKey {
+      userInfo[PushUserInfoKey.tap] = PushTap(
+        scope: delivery.scope,
+        payloadJSON: delivery.payload.json
+      ).userInfoValue(signedWith: tapKey)
+    } else {
+      userInfo.removeValue(forKey: PushUserInfoKey.tap)
+    }
     content.userInfo = userInfo
     return content
   }

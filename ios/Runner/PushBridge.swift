@@ -8,7 +8,8 @@ import UserNotifications
 /// and verified test nonces in App Group files, all shared with the
 /// NotificationService extension through the ConduitPushCore sources. The
 /// application delegate hands over APNs registration and the notifications
-/// the extension decrypted (`conduit_tap` in their user info).
+/// the extension decrypted: those with a `conduit_tap` that the install's
+/// `PushTapKey` proves the extension wrote.
 final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   static let shared = PushBridge()
 
@@ -18,6 +19,7 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   private let appGroup = ConduitAppGroup.identifier()
   private lazy var keys = PushKeyStore(accessGroup: appGroup)
   private var flutterApi: PushFlutterApi?
+  private var cachedTapKey: PushTapKey?
   private var launchTap: PlatformPushTap?
   private var tokenWaiters: [(Result<PlatformPushToken?, Error>) -> Void] = []
   private var tokenRequest = 0
@@ -40,7 +42,7 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
       seedDebugSubscription()
     #endif
     if let userInfo = launchOptions?[.remoteNotification] as? [AnyHashable: Any],
-      let tap = PushTap(userInfo: userInfo)
+      let tap = verifiedTap(userInfo)
     {
       launchTap = Self.platformTap(tap)
     }
@@ -84,7 +86,7 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   /// banner and nothing.
   func willPresent(_ notification: UNNotification) -> Bool {
     let userInfo = notification.request.content.userInfo
-    guard let tap = PushTap(userInfo: userInfo) else { return false }
+    guard let tap = verifiedTap(userInfo) else { return false }
     let sid = PushEnvelope.sid(in: userInfo) ?? ""
     let message = PlatformPushMessage(sid: sid, scope: tap.scope, payloadJson: tap.payloadJSON)
     let payload = try? PushPayload.parse(Data(tap.payloadJSON.utf8))
@@ -99,7 +101,7 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
 
   /// True when `response` opened a push the extension decrypted.
   func didReceive(_ response: UNNotificationResponse) -> Bool {
-    guard let tap = PushTap(userInfo: response.notification.request.content.userInfo) else {
+    guard let tap = verifiedTap(response.notification.request.content.userInfo) else {
       return false
     }
     if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
@@ -251,6 +253,20 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
 
   // MARK: - Helpers
 
+  /// The tap in `userInfo`, if the extension signed it. Anything else falls
+  /// through to flutter_local_notifications.
+  private func verifiedTap(_ userInfo: [AnyHashable: Any]) -> PushTap? {
+    guard userInfo[PushUserInfoKey.tap] != nil, let key = tapKey() else { return nil }
+    return PushTap(userInfo: userInfo, key: key)
+  }
+
+  /// Read once; created here if the extension has not yet.
+  private func tapKey() -> PushTapKey? {
+    if let cachedTapKey { return cachedTapKey }
+    cachedTapKey = try? PushTapKey.load(accessGroup: appGroup)
+    return cachedTapKey
+  }
+
   private func deliverTap(_ tap: PlatformPushTap) {
     // Already waiting for takeLaunchTap, from the launch options.
     guard launchTap != tap else { return }
@@ -311,7 +327,9 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   /// A Conduit push for `scope`, or a local notification whose
   /// flutter_local_notifications payload names `scope`.
   private static func notification(_ userInfo: [AnyHashable: Any], belongsTo scope: String) -> Bool {
-    if let tap = PushTap(userInfo: userInfo) { return tap.scope == scope }
+    if let tap = userInfo[PushUserInfoKey.tap] as? [String: Any] {
+      return tap["scope"] as? String == scope
+    }
     guard let payload = userInfo["payload"] as? String,
       let fields = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
     else { return false }

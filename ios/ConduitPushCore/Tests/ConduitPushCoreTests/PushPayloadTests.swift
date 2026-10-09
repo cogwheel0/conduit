@@ -133,12 +133,33 @@ final class PushPayloadTests: XCTestCase {
     }
   }
 
-  func testTapRoundTripsThroughUserInfo() throws {
+  func testATapOpensOnlyWithTheExtensionsSignature() throws {
+    let key = try PushTapKey.load(storage: MemorySecretStorage())
     let tap = PushTap(scope: "owui:acct-1", payloadJSON: #"{"v":1}"#)
-    let userInfo: [AnyHashable: Any] = [PushUserInfoKey.tap: tap.userInfoValue]
+    let signed = tap.userInfoValue(signedWith: key)
 
-    XCTAssertEqual(PushTap(userInfo: userInfo), tap)
-    XCTAssertNil(PushTap(userInfo: [:]))
-    XCTAssertNil(PushTap(userInfo: [PushUserInfoKey.tap: ["scope": "x"]]))
+    XCTAssertEqual(PushTap(userInfo: [PushUserInfoKey.tap: signed], key: key), tap)
+
+    // Unsigned, as a push the extension never saw could carry it.
+    var unsigned = signed
+    unsigned.removeValue(forKey: "sig")
+    XCTAssertNil(PushTap(userInfo: [PushUserInfoKey.tap: unsigned], key: key))
+    // Signed by another install.
+    let other = try PushTapKey.load(storage: MemorySecretStorage())
+    XCTAssertNil(PushTap(userInfo: [PushUserInfoKey.tap: tap.userInfoValue(signedWith: other)], key: key))
+    // Another scope or payload under the same signature.
+    for (field, value) in [("scope", "owui:acct-2"), ("payload", #"{"v":2}"#), ("sig", "AAAA")] {
+      var changed = signed
+      changed[field] = value
+      XCTAssertNil(PushTap(userInfo: [PushUserInfoKey.tap: changed], key: key), field)
+    }
+    // The scope and payload can't trade bytes.
+    let shifted = PushTap(scope: "owui:acct-1{", payloadJSON: #""v":1}"#)
+    var swapped = shifted.userInfoValue(signedWith: key)
+    swapped["sig"] = signed["sig"]
+    XCTAssertNil(PushTap(userInfo: [PushUserInfoKey.tap: swapped], key: key))
+
+    XCTAssertNil(PushTap(userInfo: [:], key: key))
+    XCTAssertNil(PushTap(userInfo: [PushUserInfoKey.tap: ["scope": "x"]], key: key))
   }
 }

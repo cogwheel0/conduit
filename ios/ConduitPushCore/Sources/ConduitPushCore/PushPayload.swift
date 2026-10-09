@@ -103,7 +103,8 @@ public struct PushPayload: Equatable {
 public enum PushUserInfoKey {
   /// The relay's envelope: `{"v": 1, "s": sid, "d": base64url body}`.
   public static let envelope = "cp"
-  /// Set on every decrypted notification: `{"scope": …, "payload": cp/1 JSON}`.
+  /// Set on every decrypted notification: `{"scope": …, "payload": cp/1
+  /// JSON, "sig": …}`, signed with the install's `PushTapKey`.
   public static let tap = "conduit_tap"
 }
 
@@ -139,15 +140,25 @@ public struct PushTap: Equatable {
     self.payloadJSON = payloadJSON
   }
 
-  public init?(userInfo: [AnyHashable: Any]) {
+  /// The tap in `userInfo`, only if `key` proves the extension wrote it.
+  /// Anything else that sets `conduit_tap`, such as a push sent without
+  /// `mutable-content` so the extension never ran, is ignored.
+  public init?(userInfo: [AnyHashable: Any], key: PushTapKey) {
     guard let fields = userInfo[PushUserInfoKey.tap] as? [String: Any],
       let scope = fields["scope"] as? String,
-      let payload = fields["payload"] as? String
+      let payload = fields["payload"] as? String,
+      let encoded = fields["sig"] as? String,
+      let signature = Data(base64URLEncoded: encoded),
+      key.isValidSignature(signature, scope: scope, payloadJSON: payload)
     else { return nil }
     self.init(scope: scope, payloadJSON: payload)
   }
 
-  public var userInfoValue: [String: String] {
-    ["scope": scope, "payload": payloadJSON]
+  public func userInfoValue(signedWith key: PushTapKey) -> [String: String] {
+    [
+      "scope": scope,
+      "payload": payloadJSON,
+      "sig": key.signature(scope: scope, payloadJSON: payloadJSON).base64URLEncodedString(),
+    ]
   }
 }
