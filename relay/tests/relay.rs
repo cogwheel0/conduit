@@ -1046,6 +1046,14 @@ async fn fcm_errors_map_to_web_push_statuses() {
             fcm_error(503, "UNAVAILABLE", Some("UNAVAILABLE"), "Unavailable"),
             503,
         ),
+        (
+            404,
+            fcm_error(404, "NOT_FOUND", None, "Requested entity was not found."),
+            410,
+        ),
+        // A 404 that isn't FCM's says nothing about the token.
+        (404, String::new(), 502),
+        (404, "<html><body>Not Found</body></html>".into(), 502),
     ];
     for (fcm_status, fcm_body, expected) in &cases {
         relay.mock.reply_fcm(*fcm_status, fcm_body);

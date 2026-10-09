@@ -378,14 +378,19 @@ pub fn parse_error(body: &[u8]) -> FcmErrorInfo {
 }
 
 /// Maps an FCM answer other than 401 (which refreshes the access token).
+///
+/// A 404 means the token is gone only when FCM's own error says so. A bare
+/// 404, or one in some other shape, more likely means `FCM_API_BASE` or a
+/// proxy is wrong, and calling that `Gone` would have every sender delete
+/// every Android subscription.
 pub fn map_response(status: u16, error: &FcmErrorInfo) -> Outcome {
     let code = error.code.as_deref();
     let invalid_argument =
         error.status.as_deref() == Some("INVALID_ARGUMENT") || code == Some("INVALID_ARGUMENT");
     match status {
         200..=299 => Outcome::Sent,
-        404 => Outcome::Gone,
         _ if code == Some("UNREGISTERED") => Outcome::Gone,
+        404 if error.status.as_deref() == Some("NOT_FOUND") => Outcome::Gone,
         403 if code == Some("SENDER_ID_MISMATCH") => Outcome::Gone,
         400 if invalid_argument && error.about_token => Outcome::Gone,
         429 => Outcome::Throttled,
@@ -447,14 +452,28 @@ mod tests {
     #[test]
     fn responses_map_to_relay_outcomes() {
         let token_msg = "The registration token is not a valid FCM registration token";
-        let cases: [(u16, Vec<u8>, Outcome); 12] = [
+        let cases: [(u16, Vec<u8>, Outcome); 17] = [
             (200, b"{}".to_vec(), Outcome::Sent),
             (
                 404,
                 error("NOT_FOUND", Some("UNREGISTERED"), "gone"),
                 Outcome::Gone,
             ),
-            (404, Vec::new(), Outcome::Gone),
+            (404, error("NOT_FOUND", None, "not found"), Outcome::Gone),
+            (
+                404,
+                error("UNKNOWN", Some("UNREGISTERED"), "gone"),
+                Outcome::Gone,
+            ),
+            // Not FCM talking: a wrong base URL, a proxy, a routing glitch.
+            (404, Vec::new(), Outcome::Rejected),
+            (404, b"<html>Not Found</html>".to_vec(), Outcome::Rejected),
+            (404, br#"{"error":"not found"}"#.to_vec(), Outcome::Rejected),
+            (
+                404,
+                error("UNIMPLEMENTED", None, "no such method"),
+                Outcome::Rejected,
+            ),
             (
                 400,
                 error("INVALID_ARGUMENT", Some("UNREGISTERED"), "gone"),
