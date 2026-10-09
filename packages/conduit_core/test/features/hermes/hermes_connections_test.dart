@@ -514,6 +514,42 @@ void main() {
           .equals('alpha-key');
     });
 
+    test('a delete that can neither clear the dashboard sign-in nor put the '
+        'connection back moves off it', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final secrets = _Secrets({
+        'hermes_api_key_v1:$_a': 'alpha-key',
+        'hermes_api_key_v1:$_b': 'beta-key',
+      });
+      final cookies = _RecordingCookieJar(clears: false);
+      final container = await _ready(secrets, cookies: cookies);
+      addTearDown(container.dispose);
+      // The list without Alpha is saved; saving Alpha back into it fails.
+      var listWrites = 0;
+      PreferencesStore.debugOverride(
+        PreferencesStore.instance,
+        writeInterceptor: (_, key, _) async =>
+            key == PreferenceKeys.hermesConnections && ++listWrites > 1
+            ? false
+            : null,
+      );
+
+      await check(
+        container.read(hermesConfigProvider.notifier).deleteConnection(_a),
+      ).throws<StateError>();
+
+      check(container.read(hermesConfigProvider).connectionId).equals(_b);
+      check(container.read(hermesConfigProvider).apiKey).equals('beta-key');
+      check(HermesConnectionStore.readActiveId()).equals(_b);
+      check(
+        container.read(hermesConnectionsProvider).map((profile) => profile.id),
+      ).deepEquals([_b]);
+      check(await secrets.read(key: 'hermes_api_key_v1:$_a')).isNull();
+    });
+
     test(
       'clears dashboard cookies only when no connection shares the origin',
       () async {

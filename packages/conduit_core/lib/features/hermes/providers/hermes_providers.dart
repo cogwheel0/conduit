@@ -1183,6 +1183,18 @@ class HermesConfigController extends Notifier<HermesConfig> {
             }
           }
 
+          // Moves the runtime off the deleted connection.
+          void leaveDeleted() {
+            if (!wasActive) return;
+            if (replacement == null) {
+              state = HermesConfig(enabled: state.enabled);
+              _releaseRuntimeSession();
+              ref.read(hermesConnectionGenerationProvider.notifier).bump();
+            } else {
+              _activateRuntime(replacement, replacementSecrets);
+            }
+          }
+
           if (wasActive) {
             // Repoint the runtime first: an active id must never name a
             // profile that is gone, and if the document write below fails the
@@ -1214,8 +1226,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
               clearStackTrace = stackTrace;
             }
             if (!cleared) {
+              var restored = false;
               try {
                 await _writeProfiles(kept);
+                restored = true;
               } catch (error) {
                 DebugLogger.warning(
                   'deleted-connection-restore-failed',
@@ -1223,22 +1237,21 @@ class HermesConfigController extends Notifier<HermesConfig> {
                   data: {'errorType': error.runtimeType.toString()},
                 );
               }
-              await keepActive();
+              if (restored) {
+                await keepActive();
+              } else {
+                // It stays deleted, so nothing may go on using it: the active
+                // id already names its replacement.
+                leaveDeleted();
+                await _discardConnectionData(target);
+              }
               if (clearError != null) {
                 Error.throwWithStackTrace(clearError, clearStackTrace!);
               }
               throw StateError('Hermes dashboard cookies could not be cleared.');
             }
           }
-          if (wasActive) {
-            if (replacement == null) {
-              state = HermesConfig(enabled: state.enabled);
-              _releaseRuntimeSession();
-              ref.read(hermesConnectionGenerationProvider.notifier).bump();
-            } else {
-              _activateRuntime(replacement, replacementSecrets);
-            }
-          }
+          leaveDeleted();
           DebugLogger.log('connection-deleted', scope: 'hermes/connections');
           await _discardConnectionData(target);
         }
