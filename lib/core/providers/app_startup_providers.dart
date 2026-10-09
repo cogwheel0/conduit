@@ -68,6 +68,7 @@ import 'package:conduit_core/features/direct_connections/direct_connections.dart
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 import '../../features/notifications/providers/notification_socket_listener.dart';
+import '../../features/notifications/providers/notification_tap_listener.dart';
 import '../../features/notifications/services/local_notification_service.dart';
 import '../../shared/theme/theme_providers.dart';
 
@@ -1183,10 +1184,13 @@ class AppStartupFlow extends _$AppStartupFlow {
     _keepDirectCompletionRelayAlive();
     // Activate the notification listener (global chat/channel handlers feeding
     // the NotificationRouter). The router gates on the master toggle, so this is
-    // safe to run unconditionally. Then drain any cold-launch notification tap.
+    // safe to run unconditionally. Then drain a cold-launch notification tap,
+    // which may point into this account.
     ref.read(notificationSocketListenerProvider);
     unawaited(
-      ref.read(notificationSocketListenerProvider.notifier).handleLaunchTap(),
+      ref
+          .read(notificationTapListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: true),
     );
     _scheduleDefaultModelPreload(
       keepDefaultModelAutoSelectionAlive: keepDefaultModelAutoSelectionAlive,
@@ -1287,6 +1291,23 @@ class AppStartupFlow extends _$AppStartupFlow {
   void _activate({Duration apiWaitTimeout = const Duration(seconds: 1)}) {
     ref.onDispose(_disposeStartupResources);
     _keepAlive(imageAttachmentCacheLifecycleProvider);
+    // Notification taps open in any account or connection, with or without an
+    // Open WebUI session. A cold-launch tap for Hermes or Direct opens now; one
+    // for Open WebUI waits for its session (see post-auth startup).
+    _keepAlive(notificationTapListenerProvider);
+    unawaited(
+      ref
+          .read(notificationTapListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: false)
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'launch-notification-tap-failed',
+              scope: 'notifications/center',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+    );
     _scheduleStartupTasks();
 
     // If the session is already authenticated before startup flow attaches,
