@@ -2649,14 +2649,25 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
       ref.read(hermesApiServiceProvider) ??
       (throw StateError('Hermes is not configured'));
 
-  Future<void> create({
+  /// Creates a job and answers it as the server returned it, or null when
+  /// the answer named no job.
+  Future<HermesJob?> create({
     required String name,
     required String prompt,
     required String schedule,
   }) async {
     final service = _service;
-    await service.createJob(name: name, prompt: prompt, schedule: schedule);
+    final created = await service.createJob(
+      name: name,
+      prompt: prompt,
+      schedule: schedule,
+    );
     ref.invalidateSelf();
+    // The API server wraps the job as {"job": …}; the dashboard does not.
+    final job = created['job'];
+    return HermesJob.fromJson(
+      job is Map ? Map<String, dynamic>.from(job) : created,
+    );
   }
 
   Future<void> edit(

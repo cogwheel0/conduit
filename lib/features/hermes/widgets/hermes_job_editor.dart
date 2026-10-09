@@ -1,3 +1,4 @@
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -5,26 +6,40 @@ import '../../../l10n/app_localizations_en.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
 
+/// What the job editor returns. [notify] is the "Notify me" switch, or null
+/// when the editor did not offer it.
+typedef HermesJobDraft = ({
+  String name,
+  String prompt,
+  String schedule,
+  bool? notify,
+});
+
 /// Shows the create/edit dialog for a scheduled Hermes job and returns the
 /// entered name, prompt, and schedule, or null if cancelled.
-Future<({String name, String prompt, String schedule})?> showHermesJobEditor(
+///
+/// With [initialNotify], the dialog also offers "Notify me", which sends a
+/// push when the job delivers; leave it null where push can't reach the
+/// connection.
+Future<HermesJobDraft?> showHermesJobEditor(
   BuildContext context, {
   String? initialName,
   String? initialPrompt,
   String? initialSchedule,
+  bool? initialNotify,
 }) {
-  return ThemedDialogs.showCustom<
-    ({String name, String prompt, String schedule})
-  >(
+  return ThemedDialogs.showCustom<HermesJobDraft>(
     context: context,
     builder: (context) => _HermesJobEditorDialog(
       initialName: initialName,
       initialPrompt: initialPrompt,
       initialSchedule: initialSchedule,
+      initialNotify: initialNotify,
     ),
   );
 }
@@ -34,11 +49,13 @@ class _HermesJobEditorDialog extends StatefulWidget {
     this.initialName,
     this.initialPrompt,
     this.initialSchedule,
+    this.initialNotify,
   });
 
   final String? initialName;
   final String? initialPrompt;
   final String? initialSchedule;
+  final bool? initialNotify;
 
   @override
   State<_HermesJobEditorDialog> createState() => _HermesJobEditorDialogState();
@@ -49,10 +66,12 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
   late final TextEditingController _prompt;
   late final TextEditingController _schedule;
   bool _showErrors = false;
+  bool? _notify;
 
   @override
   void initState() {
     super.initState();
+    _notify = widget.initialNotify;
     _name = TextEditingController(text: widget.initialName ?? '');
     _prompt = TextEditingController(text: widget.initialPrompt ?? '');
     _schedule = TextEditingController(
@@ -78,7 +97,9 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
       setState(() => _showErrors = true);
       return;
     }
-    Navigator.of(context).pop((name: name, prompt: prompt, schedule: schedule));
+    Navigator.of(
+      context,
+    ).pop((name: name, prompt: prompt, schedule: schedule, notify: _notify));
   }
 
   String? _errorText(
@@ -163,6 +184,21 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
                 ),
               ),
             ),
+            if (_notify case final notify?) ...[
+              const SizedBox(height: Spacing.sm),
+              UtilityRow(
+                key: const Key('hermes-job-notify'),
+                title: l10n.hermesJobNotifyTitle,
+                subtitle: l10n.hermesJobNotifyDescription,
+                padding: EdgeInsets.zero,
+                toggled: notify,
+                trailing: AdaptiveSwitch(
+                  value: notify,
+                  onChanged: (value) => setState(() => _notify = value),
+                ),
+                onTap: () => setState(() => _notify = !notify),
+              ),
+            ],
           ],
         ),
       ),
