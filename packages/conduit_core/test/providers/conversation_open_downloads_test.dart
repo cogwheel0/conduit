@@ -302,4 +302,89 @@ void main() {
       check(cycles).isEmpty();
     });
   });
+
+  group('reopening a large stored chat with the real sync engine', () {
+    final large = 'x' * (kOpenRefreshDirectPullMaxPayloadLength + 1);
+
+    Future<void> waitFor(FutureOr<bool> Function() condition) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (!await condition()) {
+        if (DateTime.now().isAfter(deadline)) fail('waitFor timed out');
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    // Waits for the cycle the open started: a list read after the open, then
+    // the engine idle again. Requesting a cycle here would start one itself.
+    Future<void> openCycleFinished(
+      ProviderContainer container,
+      int listReads,
+    ) => waitFor(
+      () =>
+          client.chatListPageRequests > listReads &&
+          container.read(syncEngineProvider).phase == SyncPhase.idle,
+    );
+
+    test('an edit made on the server reaches the open chat', () async {
+      server.seedChat(
+        id: 'large',
+        blob: _blob('large', content: large),
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      final container = open();
+      final engine = container.read(syncEngineProvider.notifier);
+      check((await engine.requestPull(reason: 'initial'))?.success)
+          .equals(true);
+      server.seedChat(
+        id: 'large',
+        blob: _blob('large', content: '${large}edited'),
+        createdAt: 100,
+        updatedAt: 300,
+      );
+      final listReads = client.chatListPageRequests;
+      client.chatFetchStarts.clear();
+
+      final opened = await container.read(
+        loadConversationProvider('large').future,
+      );
+      await openCycleFinished(container, listReads);
+
+      check(opened.messages.single.content).equals(large);
+      final stored = await db.messagesDao.getForChat('large');
+      check(stored.single.content).equals('${large}edited');
+      check(client.chatFetchStarts).deepEquals(['large']);
+    });
+
+    test('an unchanged chat is not downloaded again', () async {
+      server.seedChat(
+        id: 'large',
+        blob: _blob('large', content: large),
+        createdAt: 100,
+        updatedAt: 100,
+      );
+      // A newer chat moves the watermark past the overlap window, so the
+      // cycle has no reason to re-read the large one.
+      server.seedChat(
+        id: 'newer',
+        blob: _blob('newer'),
+        createdAt: 200,
+        updatedAt: 200,
+      );
+      final container = open();
+      final engine = container.read(syncEngineProvider.notifier);
+      check((await engine.requestPull(reason: 'initial'))?.success)
+          .equals(true);
+      final listReads = client.chatListPageRequests;
+      client.chatFetchStarts.clear();
+
+      final opened = await container.read(
+        loadConversationProvider('large').future,
+      );
+      await openCycleFinished(container, listReads);
+
+      check(opened.messages.single.content).equals(large);
+      check(client.chatFetchStarts).not((it) => it.contains('large'));
+    });
+  });
 }
