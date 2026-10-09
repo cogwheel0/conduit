@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:meta/meta.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
@@ -16,18 +17,37 @@ import 'package:conduit_core/features/push/services/openwebui_push_backend.dart'
 import 'package:conduit_core/features/push/services/push_backend.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 
 /// Opens a [PushBackend] for one target. Each backend is short-lived: the
 /// coordinator closes it after one pass.
 abstract interface class PushBackendFactory {
-  /// Throws [PushBackendException] with `signInNeeded` when the target's
-  /// session is gone or expired.
+  /// A backend for the server [target] names. Throws [PushBackendException]
+  /// with `signInNeeded` when the target's session is gone or expired.
+  ///
+  /// A Hermes [target] is reached with the settings it was listed with: once
+  /// its connection is edited to another server, profile or key, only the
+  /// settings [retain] kept from before reach the old server, and without
+  /// them this throws `connection_changed` rather than reach the new one.
   Future<PushBackend> open(PushTarget target);
+
+  /// Remembers, for this process, how to reach [target]'s server as it is
+  /// now, so its subscription can still be removed there after the
+  /// connection is edited. Never throws.
+  Future<void> retain(PushTarget target);
 
   /// A Hermes client for the saved connection [connectionId], for cron jobs.
   /// The caller closes it.
   Future<HermesBackendService> openHermesService(String connectionId);
+
+  /// Writes the Open WebUI account [accountId]'s own notifications switch to
+  /// its server, as the Notifications page does, through a client of its
+  /// own (the account need not be the active one).
+  Future<void> setOpenWebUiNotificationsEnabled(
+    String accountId, {
+    required bool enabled,
+  });
 }
 
 /// Builds backends from the app's own sessions and saved connections.
@@ -40,14 +60,31 @@ final class AppPushBackendFactory implements PushBackendFactory {
 
   final Ref _ref;
 
+  /// Hermes settings by connection, then by [HermesPushTarget.serverIdentity],
+  /// the last few each, so an edited connection's old server stays reachable
+  /// until its subscription is gone. In memory only.
+  final Map<String, Map<String, HermesConfig>> _retainedHermes = {};
+  static const int _retainedPerConnection = 3;
+
   @override
   Future<PushBackend> open(PushTarget target) => switch (target) {
     OpenWebUiPushTarget() => _openWebUi(target),
     HermesPushTarget() => _hermes(target),
   };
 
-  Future<PushBackend> _openWebUi(OpenWebUiPushTarget target) async {
-    final session = await _openWebUiSession(target.accountId);
+  @override
+  Future<void> retain(PushTarget target) async {
+    if (target is! HermesPushTarget) return;
+    try {
+      await hermesConfigFor(target);
+    } catch (_) {
+      // Nothing to remember; removing the old subscription falls back to a
+      // tombstone for its own server.
+    }
+  }
+
+  Future<ApiService> _openWebUiApi(String accountId) async {
+    final session = await _openWebUiSession(accountId);
     if (session == null) throw _signInNeeded;
     final token = session.token;
     if (TokenValidator.validateTokenFormat(token).isExpired) {
@@ -58,11 +95,29 @@ final class AppPushBackendFactory implements PushBackendFactory {
       workerManager: _ref.read(workerManagerProvider),
     );
     api.updateAuthToken(token);
+    return api;
+  }
+
+  Future<PushBackend> _openWebUi(OpenWebUiPushTarget target) async {
+    final api = await _openWebUiApi(target.accountId);
     return OpenWebUiPushBackend(
       dio: api.dio,
       bundledFunction: _ref.read(pushOpenWebUiFunctionSourceProvider),
       onClose: api.dispose,
     );
+  }
+
+  @override
+  Future<void> setOpenWebUiNotificationsEnabled(
+    String accountId, {
+    required bool enabled,
+  }) async {
+    final api = await _openWebUiApi(accountId);
+    try {
+      await api.updateUserNotificationSettings(notificationEnabled: enabled);
+    } finally {
+      api.dispose();
+    }
   }
 
   /// The account's token with the server it belongs to: the live client's
@@ -125,8 +180,62 @@ final class AppPushBackendFactory implements PushBackendFactory {
     };
   }
 
+  /// The settings that reach [target]'s server: the connection's saved ones
+  /// while they still name it, else those kept from before it was edited.
+  /// Throws `connection_changed` when neither does.
+  @visibleForTesting
+  Future<HermesConfig> hermesConfigFor(HermesPushTarget target) async {
+    final connectionId = target.connectionId;
+    HermesConfig? current;
+    String? identity;
+    try {
+      // The principal is read before and after the settings: an edit that
+      // lands in between leaves them unpaired, and they are not used.
+      final principal = _principalOf(connectionId);
+      final config = await _hermesConfig(connectionId);
+      if (principal != null && principal == _principalOf(connectionId)) {
+        current = config;
+        identity = HermesPushTarget.identityOf(
+          baseUrl: config.baseUrl,
+          mode: config.mode,
+          desktopProfile: config.desktopProfile,
+          credentialsRevision: principal,
+        );
+      }
+    } on PushBackendException catch (error) {
+      if (error.failure.detail != 'no_connection') rethrow;
+    }
+    if (current != null && identity == target.serverIdentity) {
+      final kept = _retainedHermes.putIfAbsent(connectionId, () => {});
+      kept
+        ..remove(identity)
+        ..[identity!] = current;
+      while (kept.length > _retainedPerConnection) {
+        kept.remove(kept.keys.first);
+      }
+      return current;
+    }
+    final kept = _retainedHermes[connectionId]?[target.serverIdentity];
+    if (kept != null) return kept;
+    throw const PushBackendException(
+      PushFailure(
+        PushFailureReason.serverRejected,
+        detail: 'connection_changed',
+      ),
+    );
+  }
+
+  /// The saved connection's credentials revision (its document-trust
+  /// principal), which [HermesPushTarget.credentialsRevision] carries.
+  String? _principalOf(String connectionId) {
+    for (final profile in _ref.read(hermesConnectionsProvider)) {
+      if (profile.id == connectionId) return profile.documentTrustPrincipalId;
+    }
+    return null;
+  }
+
   Future<PushBackend> _hermes(HermesPushTarget target) async {
-    final config = await _hermesConfig(target.connectionId);
+    final config = await hermesConfigFor(target);
     switch (config.mode) {
       case HermesBackendMode.responsesApi:
         final key = config.apiKey?.trim() ?? '';
