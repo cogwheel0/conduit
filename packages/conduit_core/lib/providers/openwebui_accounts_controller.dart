@@ -23,6 +23,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         stopOpenWebUiMainResponse;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -255,6 +256,9 @@ class OpenWebUiAccountsController {
         data: {'errorType': error.runtimeType.toString()},
       );
     }
+    // While the session still works: the account's push subscription is
+    // removed from its server with its own token. Bounded; never throws.
+    await _ref.read(pushSignOutHookProvider).beforeOpenWebUiSignOut(accountId);
     final signedIn = await _ref
         .read(authStateManagerProvider.notifier)
         .signOutAccount(accountId, thenActivate: next);

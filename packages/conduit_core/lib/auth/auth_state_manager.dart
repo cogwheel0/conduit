@@ -29,6 +29,7 @@ import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 part 'auth_state_manager.g.dart';
 
@@ -3339,6 +3340,12 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   Future<void> logout() async {
+    // While the session still works: the account's push subscription is
+    // removed from its server with its own token. Bounded; never throws.
+    final accountId = ref.read(apiServiceProvider)?.serverConfig.id;
+    if (accountId != null) {
+      await ref.read(pushSignOutHookProvider).beforeOpenWebUiSignOut(accountId);
+    }
     await _runLogout(clearAllAppData: false, keepServerDetails: true);
   }
 

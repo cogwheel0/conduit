@@ -129,6 +129,11 @@ final class SignOutCoordinator {
       }
     }
 
+    // Before any session ends or anything is wiped: push subscriptions are
+    // removed from their servers while the sessions still work. Bounded;
+    // never throws.
+    await _ref.read(pushSignOutHookProvider).beforeFullSignOut();
+
     // Every saved account goes, not just the active one: end their sessions
     // on the server too, listed now while the registry still names them.
     final inactiveSessions = await _ref
