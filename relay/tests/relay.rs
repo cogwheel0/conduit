@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use aws_lc_rs::encoding::{AsDer, Pkcs8V1Der};
 use aws_lc_rs::rsa::{KeyPair as RsaKeyPair, KeySize};
@@ -18,10 +18,11 @@ use axum::Router;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use conduit_push_relay::config::Config;
-use conduit_push_relay::AppState;
+use conduit_push_relay::{AppState, ConnectionLimits};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::{json, Value};
-use tokio::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 
 const TEAM_ID: &str = "TEAM123456";
 const KEY_ID: &str = "KEY7654321";
@@ -269,24 +270,38 @@ async fn start_with(tweak: impl FnOnce(&mut Env)) -> Relay {
     start_relay(env, mock, mock_addr).await
 }
 
-async fn start_relay(mut env: Env, mock: Arc<Mock>, mock_addr: SocketAddr) -> Relay {
+async fn start_relay(env: Env, mock: Arc<Mock>, mock_addr: SocketAddr) -> Relay {
+    start_relay_with(env, mock, mock_addr, |_| {}).await
+}
+
+/// Starts a relay whose settings `tweak` may change after they are read from
+/// `env`, for the ones that have no variable.
+async fn start_relay_with(
+    mut env: Env,
+    mock: Arc<Mock>,
+    mock_addr: SocketAddr,
+    tweak: impl FnOnce(&mut Config),
+) -> Relay {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     env.entry("RELAY_PUBLIC_URL")
         .or_insert_with(|| base.clone());
 
-    let config = Config::from_lookup(|name| env.get(name).cloned()).unwrap();
+    let mut config = Config::from_lookup(|name| env.get(name).cloned()).unwrap();
+    tweak(&mut config);
     let state = Arc::new(AppState::new(&config).unwrap());
     let metrics_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let metrics = format!("http://{}", metrics_listener.local_addr().unwrap());
     tokio::spawn(conduit_push_relay::serve(
         listener,
         state.clone(),
+        config.connections,
         std::future::pending(),
     ));
     tokio::spawn(conduit_push_relay::serve_metrics(
         metrics_listener,
         state,
+        config.connections,
         std::future::pending(),
     ));
     Relay {
@@ -1415,4 +1430,207 @@ async fn metrics_count_by_provider_and_result_only() {
         let labels = line.split_once('{').unwrap().1.split_once('}').unwrap().0;
         assert_eq!(labels.split(',').count(), 2, "{line}");
     }
+}
+
+// ---------------------------------------------------------------- connections
+
+async fn start_with_connections(limits: ConnectionLimits) -> Relay {
+    let (mock_addr, mock) = start_mock().await;
+    start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
+        config.connections = limits;
+    })
+    .await
+}
+
+impl Relay {
+    async fn connect(&self) -> TcpStream {
+        TcpStream::connect(self.base.strip_prefix("http://").unwrap())
+            .await
+            .unwrap()
+    }
+}
+
+const HEALTHZ: &[u8] = b"GET /healthz HTTP/1.1\r\nHost: relay\r\n\r\n";
+
+/// Reads until the relay closes `stream`, and says how long that took from
+/// `since`. Fails the test if it is still open after `limit`.
+async fn wait_for_close(stream: &mut TcpStream, since: Instant, limit: Duration) -> Duration {
+    let mut buf = [0u8; 1024];
+    loop {
+        let left = limit.saturating_sub(since.elapsed());
+        match tokio::time::timeout(left, stream.read(&mut buf)).await {
+            Err(_) => panic!("still open after {limit:?}"),
+            Ok(Ok(0) | Err(_)) => return since.elapsed(),
+            Ok(Ok(_)) => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn clients_that_send_headers_too_slowly_are_dropped() {
+    let relay = start_with_connections(ConnectionLimits {
+        header_read_timeout: Duration::from_millis(500),
+        ..ConnectionLimits::default()
+    })
+    .await;
+    let mut stream = relay.connect().await;
+    let started = Instant::now();
+    stream
+        .write_all(b"POST /v1/register HTTP/1.1\r\nHost: relay\r\nX-Slow: ")
+        .await
+        .unwrap();
+
+    // One header byte every 100 ms, so the headers never finish.
+    let mut received = Vec::new();
+    let mut buf = [0u8; 1024];
+    let closed_after = loop {
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "still open after 5 s"
+        );
+        if stream.write_all(b"a").await.is_err() {
+            break started.elapsed();
+        }
+        match tokio::time::timeout(Duration::from_millis(100), stream.read(&mut buf)).await {
+            Err(_) => {}
+            Ok(Ok(0) | Err(_)) => break started.elapsed(),
+            Ok(Ok(n)) => received.extend_from_slice(&buf[..n]),
+        }
+    };
+    assert!(
+        (Duration::from_millis(500)..Duration::from_secs(3)).contains(&closed_after),
+        "closed after {closed_after:?}"
+    );
+    // hyper may say 408 on the way out; the request itself never ran.
+    assert!(
+        received.is_empty() || received.starts_with(b"HTTP/1.1 408"),
+        "{}",
+        String::from_utf8_lossy(&received)
+    );
+    // Other clients are unaffected.
+    assert_eq!(relay.get("/healthz").await.status(), 200);
+}
+
+#[tokio::test]
+async fn clients_that_send_nothing_are_dropped() {
+    let relay = start_with_connections(ConnectionLimits {
+        header_read_timeout: Duration::from_millis(300),
+        ..ConnectionLimits::default()
+    })
+    .await;
+    let started = Instant::now();
+    let mut silent = relay.connect().await;
+    let closed_after = wait_for_close(&mut silent, started, Duration::from_secs(3)).await;
+    assert!(
+        closed_after >= Duration::from_millis(300),
+        "{closed_after:?}"
+    );
+}
+
+#[tokio::test]
+async fn idle_connections_are_closed() {
+    // The header timeout would also close an idle HTTP/1 connection; make it
+    // long so that only the idle bound can.
+    let relay = start_with_connections(ConnectionLimits {
+        header_read_timeout: Duration::from_secs(60),
+        idle_timeout: Duration::from_millis(300),
+        ..ConnectionLimits::default()
+    })
+    .await;
+    let mut stream = relay.connect().await;
+    stream.write_all(HEALTHZ).await.unwrap();
+    let mut buf = [0u8; 1024];
+    let n = stream.read(&mut buf).await.unwrap();
+    assert!(buf[..n].starts_with(b"HTTP/1.1 200"));
+
+    let served = Instant::now();
+    let closed_after = wait_for_close(&mut stream, served, Duration::from_secs(3)).await;
+    assert!(
+        closed_after >= Duration::from_millis(300),
+        "{closed_after:?}"
+    );
+}
+
+#[tokio::test]
+async fn connections_over_the_cap_wait_for_a_free_slot() {
+    let relay = start_with_connections(ConnectionLimits {
+        max_connections: 1,
+        ..ConnectionLimits::default()
+    })
+    .await;
+    let first = relay.connect().await;
+    let mut second = relay.connect().await;
+    second.write_all(HEALTHZ).await.unwrap();
+
+    // The first connection holds the only slot, so the second is not served.
+    let mut buf = [0u8; 1024];
+    let waiting = tokio::time::timeout(Duration::from_millis(300), second.read(&mut buf)).await;
+    assert!(waiting.is_err(), "served over the cap: {waiting:?}");
+
+    drop(first);
+    let n = tokio::time::timeout(Duration::from_secs(5), second.read(&mut buf))
+        .await
+        .expect("served once the slot is free")
+        .unwrap();
+    assert!(
+        buf[..n].starts_with(b"HTTP/1.1 200"),
+        "{}",
+        String::from_utf8_lossy(&buf[..n])
+    );
+}
+
+#[tokio::test]
+async fn shutdown_drops_connections_that_do_not_finish() {
+    let (mock_addr, _mock) = start_mock().await;
+    let mut env = base_env(mock_addr);
+    env.insert("RELAY_PUBLIC_URL", "http://relay.test".into());
+    let config = Config::from_lookup(|name| env.get(name).cloned()).unwrap();
+    let state = Arc::new(AppState::new(&config).unwrap());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let limits = ConnectionLimits {
+        header_read_timeout: Duration::from_secs(60),
+        idle_timeout: Duration::from_secs(60),
+        drain_deadline: Duration::from_millis(300),
+        ..ConnectionLimits::default()
+    };
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(conduit_push_relay::serve(
+        listener,
+        state,
+        limits,
+        async move {
+            let _ = stopped.await;
+        },
+    ));
+
+    // Half a request: HTTP/1 waits for the rest before it closes gracefully.
+    let mut stuck = TcpStream::connect(addr).await.unwrap();
+    stuck
+        .write_all(b"POST /v1/register HTTP/1.1\r\nHost: relay\r\n")
+        .await
+        .unwrap();
+    // A full request behind it, so the stuck one has certainly been accepted.
+    let mut other = TcpStream::connect(addr).await.unwrap();
+    other
+        .write_all(b"GET /healthz HTTP/1.1\r\nHost: relay\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    other.read_to_end(&mut response).await.unwrap();
+    assert!(response.starts_with(b"HTTP/1.1 200"));
+
+    let stopping = Instant::now();
+    stop.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .expect("serve returned")
+        .unwrap();
+    let took = stopping.elapsed();
+    assert!(
+        (Duration::from_millis(300)..Duration::from_secs(2)).contains(&took),
+        "shutdown took {took:?}"
+    );
+    wait_for_close(&mut stuck, stopping, Duration::from_secs(2)).await;
+    assert!(TcpStream::connect(addr).await.is_err());
 }

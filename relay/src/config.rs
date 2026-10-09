@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
@@ -39,6 +40,43 @@ pub struct Config {
     pub fcm: Option<FcmConfig>,
     pub trust_forwarded_for: bool,
     pub limits: Limits,
+    pub connections: ConnectionLimits,
+}
+
+/// How the listeners treat connections. Only `max_connections` comes from
+/// the environment; the timeouts are fixed, and tests shorten them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConnectionLimits {
+    /// Connections served at once. Past this, new connections wait in the
+    /// kernel's accept queue until one closes.
+    pub max_connections: u32,
+    /// HTTP/1: how long a client has to send a request's headers, and to
+    /// start the next request on a kept-alive connection. A connection's first
+    /// request must also start within this, whatever the protocol.
+    pub header_read_timeout: Duration,
+    /// How long a connection may go without a request in progress before it
+    /// is closed.
+    pub idle_timeout: Duration,
+    /// HTTP/2: how often to ping the client, and how long to wait for the
+    /// answer before giving the connection up for dead.
+    pub keep_alive_interval: Duration,
+    pub keep_alive_timeout: Duration,
+    /// How long requests already in progress get to finish, on shutdown or
+    /// after a connection is closed for idling. Then the connection is dropped.
+    pub drain_deadline: Duration,
+}
+
+impl Default for ConnectionLimits {
+    fn default() -> Self {
+        Self {
+            max_connections: 4096,
+            header_read_timeout: Duration::from_secs(10),
+            idle_timeout: Duration::from_secs(30),
+            keep_alive_interval: Duration::from_secs(15),
+            keep_alive_timeout: Duration::from_secs(10),
+            drain_deadline: Duration::from_secs(20),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -162,6 +200,13 @@ impl Config {
             ip_per_min: limit("RELAY_RATE_IP_PER_MIN", defaults.ip_per_min)?,
             register_per_min: limit("RELAY_RATE_REGISTER_PER_MIN", defaults.register_per_min)?,
         };
+        let connections = ConnectionLimits {
+            max_connections: limit(
+                "RELAY_MAX_CONNECTIONS",
+                ConnectionLimits::default().max_connections,
+            )?,
+            ..ConnectionLimits::default()
+        };
 
         Ok(Self {
             listen_addr,
@@ -173,6 +218,7 @@ impl Config {
             fcm: fcm_config(&get)?,
             trust_forwarded_for,
             limits,
+            connections,
         })
     }
 }
@@ -384,6 +430,8 @@ mod tests {
         assert!(config.metrics_addr.is_none());
         assert!(!config.trust_forwarded_for);
         assert_eq!(config.limits, Limits::default());
+        assert_eq!(config.connections, ConnectionLimits::default());
+        assert_eq!(config.connections.max_connections, 4096);
     }
 
     #[test]
@@ -470,14 +518,23 @@ mod tests {
         env.insert("RELAY_TRUST_FORWARDED_FOR", "true".into());
         env.insert("RELAY_RATE_ENDPOINT_BURST", "3".into());
         env.insert("RELAY_METRICS_ADDR", "127.0.0.1:9100".into());
+        env.insert("RELAY_MAX_CONNECTIONS", "100".into());
         let config = load(&env).unwrap();
         assert!(config.trust_forwarded_for);
         assert_eq!(config.limits.endpoint_burst, 3);
         assert_eq!(config.metrics_addr, Some("127.0.0.1:9100".parse().unwrap()));
+        assert_eq!(config.connections.max_connections, 100);
+        assert_eq!(
+            config.connections.header_read_timeout,
+            ConnectionLimits::default().header_read_timeout
+        );
 
         env.insert("RELAY_RATE_ENDPOINT_BURST", "0".into());
         assert!(load(&env).is_err());
         env.remove("RELAY_RATE_ENDPOINT_BURST");
+        env.insert("RELAY_MAX_CONNECTIONS", "0".into());
+        assert!(load(&env).is_err());
+        env.remove("RELAY_MAX_CONNECTIONS");
         env.insert("RELAY_TRUST_FORWARDED_FOR", "maybe".into());
         assert!(load(&env).is_err());
     }

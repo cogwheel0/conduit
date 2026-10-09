@@ -83,6 +83,7 @@ without it and logs which ones.
 | `RELAY_LISTEN_ADDR` | `0.0.0.0:8080` | Address of the public API. |
 | `RELAY_METRICS_ADDR` | off | Address for Prometheus `/metrics`. Keep it private. |
 | `RELAY_TRUST_FORWARDED_FOR` | `false` | Take the client address for rate limits from the **last** `X-Forwarded-For` entry. Turn it on only when every request comes through your proxy. |
+| `RELAY_MAX_CONNECTIONS` | `4096` | Connections served at once, per listener. More wait in the kernel's queue until one closes. |
 | `RUST_LOG` | `warn` | Log level. |
 
 ### APNs
@@ -123,9 +124,29 @@ Over a limit, the relay answers `429` with `Retry-After`.
 
 ## 4. Run it behind TLS
 
-The relay speaks plain HTTP. Put it behind a reverse proxy that terminates
-TLS, and turn the proxy's access log off: the request path *is* the endpoint
-capability, and the relay itself never logs it.
+The relay speaks plain HTTP, so it must sit behind a reverse proxy that
+terminates TLS. Don't expose its port to the internet: the request path *is*
+the endpoint capability, so it needs TLS on the wire. Turn the proxy's access
+log off for the same reason; the relay itself never logs the path.
+
+The relay also enforces its own timeouts, so a slow or stuck client can't hold
+its connections, whatever the proxy in front does:
+
+- A client has 10 seconds to send a request's headers. It has the same to
+  start its first request on a new connection, or its next one on a kept-alive
+  HTTP/1 connection.
+- A connection with no request in progress for 30 seconds is closed. An
+  HTTP/2 client that has sent nothing for 15 seconds is pinged, and dropped if
+  it doesn't answer within 10.
+- At most `RELAY_MAX_CONNECTIONS` connections are open at once.
+- On shutdown, requests in progress get 20 seconds to finish. Connections
+  still open after that are dropped.
+
+So a proxy that keeps idle connections to the relay open for longer than 10
+seconds can pick one just as the relay closes it, and a push sent on it fails
+with `502`. Keep the proxy's upstream keep-alive below 10 seconds. Caddy's
+default is 2 minutes, which the example below lowers; nginx as configured
+below doesn't reuse upstream connections.
 
 Keep the secrets in files readable by uid 65532 and out of your shell history:
 
@@ -164,7 +185,11 @@ you add a `log` directive and sets `X-Forwarded-For` to the real client:
 
 ```caddyfile
 push.example.com {
-	reverse_proxy 127.0.0.1:8080
+	reverse_proxy 127.0.0.1:8080 {
+		transport http {
+			keepalive 5s
+		}
+	}
 }
 ```
 

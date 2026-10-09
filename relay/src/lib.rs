@@ -7,7 +7,6 @@
 //! `docs/push/PROTOCOL.md` for the contract.
 
 use std::future::Future;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -21,8 +20,10 @@ pub mod metrics;
 pub mod ratelimit;
 pub mod routes;
 pub mod seal;
+mod server;
 pub mod webpush;
 
+pub use config::ConnectionLimits;
 pub use routes::{AppState, StartupError};
 
 /// One push, ready to hand to a provider.
@@ -100,27 +101,25 @@ pub(crate) fn http_client(http2_only: bool) -> reqwest::Result<reqwest::Client> 
     }
 }
 
-/// Serves the public API until `shutdown` resolves.
+/// Serves the public API until `shutdown` resolves and the connections still
+/// open have drained, or `drain_deadline` has passed.
 pub async fn serve(
     listener: TcpListener,
     state: Arc<AppState>,
-    shutdown: impl Future<Output = ()> + Send + 'static,
-) -> std::io::Result<()> {
-    let app = routes::router(state).into_make_service_with_connect_info::<SocketAddr>();
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await
+    limits: ConnectionLimits,
+    shutdown: impl Future<Output = ()>,
+) {
+    server::serve(listener, routes::router(state), limits, shutdown).await;
 }
 
-/// Serves `/metrics` until `shutdown` resolves.
+/// Serves `/metrics` the same way.
 pub async fn serve_metrics(
     listener: TcpListener,
     state: Arc<AppState>,
-    shutdown: impl Future<Output = ()> + Send + 'static,
-) -> std::io::Result<()> {
-    axum::serve(listener, routes::metrics_router(state))
-        .with_graceful_shutdown(shutdown)
-        .await
+    limits: ConnectionLimits,
+    shutdown: impl Future<Output = ()>,
+) {
+    server::serve(listener, routes::metrics_router(state), limits, shutdown).await;
 }
 
 /// Drops rate-limit state that has fully recovered, once a minute.
