@@ -100,13 +100,17 @@ Open the function's gear icon in **Admin Panel → Functions**.
 | `timeout_s` | 5 | Seconds to wait for each push endpoint. |
 | `max_channel_recipients` | 500 | The most people one channel message notifies. 0 turns channel notifications off. |
 
-Endpoints must be `https`. Unless allowed above, each endpoint passes Open
-WebUI's own address check: the one Open WebUI uses for web fetches and webhooks,
-which honors `ENABLE_LOCAL_WEB_FETCH` and `WEB_FETCH_FILTER_LIST`. The function
-sends through Open WebUI's SSRF-safe HTTP session, which checks each address
-again when the connection opens, so a DNS change can't point an endpoint at an
-internal address. That second check doesn't apply to traffic sent through a
-proxy, because the proxy resolves the name.
+Endpoints must be `https`. Unless allowed above, each endpoint must pass Open
+WebUI's own URL check (the one it uses for web fetches, which applies
+`WEB_FETCH_FILTER_LIST`), and every address its host resolves to must be
+public. The function enforces that second rule itself, so it holds even when
+`ENABLE_LOCAL_WEB_FETCH` is on. It checks again on the addresses each
+connection actually uses, so a DNS change can't point an endpoint at an
+internal address. Through a proxy (`HTTPS_PROXY`), that second check covers
+only the connection to your proxy, which may be on a private address; the
+proxy resolves the endpoint itself. A host your server can't resolve at all,
+for example because only the proxy can, shows as `blocked`; list it in
+`extra_allowed_hosts`.
 
 ## Turning it on for users
 
@@ -131,7 +135,7 @@ are:
 
 | Status | Meaning |
 |---|---|
-| `blocked` | The endpoint is on a private address, or Open WebUI's address check rejected it. See `allow_private_endpoints` and `extra_allowed_hosts`. |
+| `blocked` | The endpoint is on a private address, its host doesn't resolve, or Open WebUI's URL check rejected it. See `allow_private_endpoints` and `extra_allowed_hosts`. |
 | `invalid` | The stored subscription is malformed. The function removed it; Conduit registers the device again. |
 | `gone` | The endpoint answered 404 or 410: the app was uninstalled or its push token changed. The function removed it. |
 | `timeout`, `network` | The endpoint couldn't be reached in `timeout_s` seconds. Check outbound HTTPS and proxies. |

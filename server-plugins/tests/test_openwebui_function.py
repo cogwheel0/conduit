@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -93,6 +94,7 @@ class World:
         self.access = {}
         self.titles = {}
         self.blocked_hosts = set()
+        self.dns = {}  # host -> addresses; any other name resolves to a public address
         self.validated = []
         self.responses = {}
         self.posts = []
@@ -154,8 +156,11 @@ class _Post:
         return False
 
 
-def _install(monkeypatch, world):
-    """Puts stand-ins for the Open WebUI modules the function imports into sys.modules."""
+def _install(monkeypatch, world, real_aiohttp=False):
+    """Puts stand-ins for the Open WebUI modules the function imports into sys.modules.
+
+    Unless `real_aiohttp`, aiohttp and DNS are faked too.
+    """
 
     def module(name, **attrs):
         mod = types.ModuleType(name)
@@ -247,19 +252,37 @@ def _install(monkeypatch, world):
     module("open_webui.models.messages", Messages=Messages())
     module("open_webui.models.chats", Chats=Chats())
     module("open_webui.routers.channels", get_channel_users_with_access=get_channel_users_with_access)
-    module(
-        "open_webui.retrieval.web.utils",
-        validate_url=validate_url,
-        get_ssrf_safe_session=lambda: Session(world, safe=True),
-    )
+    # The function must not rely on Open WebUI's SSRF-safe session, so none is offered.
+    module("open_webui.retrieval.web.utils", validate_url=validate_url)
     module("open_webui.utils.valves", decrypt_valves=decrypt_valves)
     module("open_webui.env", AIOHTTP_CLIENT_SESSION_SSL=True)
+    if real_aiohttp:
+        return
+
+    class TCPConnector:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    module("aiohttp.abc", AbstractResolver=object)
     module(
         "aiohttp",
-        ClientSession=lambda trust_env=False, **kw: Session(world, safe=False),
+        # A session is "safe" when it connects through the function's public-only connector.
+        ClientSession=lambda trust_env=False, connector=None, **kw: Session(world, safe=connector is not None),
         ClientTimeout=ClientTimeout,
         ClientError=type("ClientError", (Exception,), {}),
+        TCPConnector=TCPConnector,
+        ThreadedResolver=object,
     )
+
+    def getaddrinfo(host, port, *args, **kwargs):
+        if host not in world.dns:
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+        if not world.dns[host]:
+            raise socket.gaierror("no such host")
+        return [(socket.AF_INET6 if ":" in a else socket.AF_INET, socket.SOCK_STREAM, 6, "", (a, port))
+                for a in world.dns[host]]
+
+    monkeypatch.setattr(socket, "getaddrinfo", getaddrinfo)
 
 
 def load_function(monkeypatch):
@@ -809,6 +832,155 @@ def test_admin_can_allow_private_endpoints(world, fn):
     dispatch(fn, admin={"allow_private_endpoints": True}, **finished(msg="m2"))
     assert len(world.posts) == 2 and not any(post.safe for post in world.posts)
     assert world.validated == []
+
+
+def test_private_endpoints_stay_blocked_when_open_webui_allows_local_fetch(world, fn, plugin):
+    # With ENABLE_LOCAL_WEB_FETCH on, Open WebUI's validate_url passes private hosts.
+    world.dns.update({
+        "intranet.example": ["10.1.2.3"], "mixed.example": ["93.184.216.34", "192.168.0.7"],
+        "mapped.example": ["::ffff:10.0.0.1"], "nat64.example": ["64:ff9b::a00:1"], "nowhere.example": [],
+    })
+    inside = [Device(host=host, origin="any") for host in (
+        "10.0.0.5", "127.1", "[::1]", "intranet.example", "mixed.example", "mapped.example", "nat64.example",
+        "nowhere.example")]
+    relay, rebound = Device(origin="any"), Device(origin="any")
+    world.subscribe("u1", relay, rebound, *inside)
+    # The address check at connect time refuses a host that now resolves inside.
+    world.responses[rebound.endpoint] = plugin._BlockedAddress("not a public address")
+    dispatch(fn, **finished())
+    assert sorted(post.url for post in world.posts) == sorted([relay.endpoint, rebound.endpoint])
+    assert all(post.safe for post in world.posts)
+    status = world.status("u1")
+    assert status[relay.sid]["err"] is None
+    assert {device.sid for device in inside + [rebound]} == {sid for sid, s in status.items() if s["err"] == "blocked"}
+
+    world.posts.clear()
+    dispatch(fn, admin={"extra_allowed_hosts": "intranet.example"}, **finished(msg="m2"))
+    by_url = {post.url: post for post in world.posts}
+    assert by_url[inside[3].endpoint].safe is False and by_url[relay.endpoint].safe is True
+
+
+@pytest.mark.parametrize("address,public", [
+    ("93.184.216.34", True), ("2606:2800:220:1::", True), ("64:ff9b::5db8:d822", True),
+    ("10.0.0.1", False), ("127.0.0.1", False), ("169.254.169.254", False), ("100.64.0.1", False),
+    ("0.0.0.0", False), ("::1", False), ("fe80::1%en0", False), ("fc00::1", False),
+    ("::ffff:10.0.0.1", False), ("::a00:1", False), ("2002:a00:1::", False), ("64:ff9b::a00:1", False),
+    ("64:ff9b:1:a00:0:100::", False), ("2001:0:4136:e378:8000:63bf:f5ff:fffe", False), ("nonsense", False),
+])
+def test_public_address_rule(plugin, address, public):
+    assert plugin._is_public_address(address) is public
+
+
+@pytest.mark.parametrize("host,address", [
+    ("10.0.0.5", "10.0.0.5"), ("127.1", "127.0.0.1"), ("2130706433", "127.0.0.1"), ("0x7f.1", "127.0.0.1"),
+    ("[::1]", "::1"), ("relay.example", None), ("", None),
+])
+def test_literal_addresses(plugin, host, address):
+    found = plugin._literal_address(host)
+    assert (str(found) if found is not None else None) == address
+
+
+# The public-only connector, against the real aiohttp (skipped where it isn't installed).
+
+
+@pytest.fixture
+def real_plugin(monkeypatch):
+    pytest.importorskip("aiohttp")
+    _install(monkeypatch, World(), real_aiohttp=True)
+    for name in list(os.environ):
+        if name.lower().endswith("_proxy"):
+            monkeypatch.delenv(name)
+    monkeypatch.setenv("no_proxy", "*")  # and never the system's proxy settings
+    return load_function(monkeypatch)
+
+
+async def _post_through_safe_session(plugin, url):
+    sessions = plugin._Sessions()
+    try:
+        return await plugin._post(sessions.get(False), url, b"x", {}, 5)
+    finally:
+        await sessions.close()
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "127.1", "[::1]", "[::ffff:127.0.0.1]"])
+def test_connector_refuses_addresses_that_are_not_public(real_plugin, host):
+    async def run():
+        connections = []
+        server = await asyncio.start_server(lambda reader, writer: connections.append(writer.close()), "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            with pytest.raises(ValueError):
+                await _post_through_safe_session(real_plugin, "https://%s:%d/v1/push/x" % (host, port))
+        finally:
+            server.close()
+        return connections
+
+    assert asyncio.run(run()) == []
+
+
+@pytest.mark.parametrize("proxy_host", ["127.0.0.1", "localhost"])
+def test_connector_lets_the_admins_proxy_through(real_plugin, monkeypatch, proxy_host):
+    async def run():
+        lines = []
+
+        async def proxy(reader, writer):
+            lines.append(await reader.readline())
+            writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(proxy, "127.0.0.1", 0)
+        monkeypatch.delenv("no_proxy")
+        monkeypatch.setenv("https_proxy", "http://%s:%d" % (proxy_host, server.sockets[0].getsockname()[1]))
+        try:
+            with pytest.raises(Exception) as caught:
+                await _post_through_safe_session(real_plugin, "https://relay.example/v1/push/x")
+        finally:
+            server.close()
+        return lines, caught.value
+
+    lines, error = asyncio.run(run())
+    assert lines == [b"CONNECT relay.example:443 HTTP/1.1\r\n"]
+    assert not isinstance(error, ValueError)
+
+
+def test_resolver_checks_every_answer_it_connects_to(real_plugin, monkeypatch):
+    import aiohttp
+
+    answers = {
+        "public.example": ["93.184.216.34", "2606:2800:220:1::"],
+        "rebound.example": ["93.184.216.34", "10.0.0.1"],
+        "nat64.example": ["64:ff9b::a00:1"],
+        "proxy.example": ["10.0.0.9"],
+        "empty.example": [],
+    }
+
+    class Answers:
+        async def resolve(self, host, port=0, family=socket.AF_INET):
+            return [{"hostname": host, "host": a, "port": port, "family": 0, "proto": 0, "flags": 0}
+                    for a in answers[host.rstrip(".").lower()]]
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(aiohttp, "ThreadedResolver", Answers)
+    resolver = real_plugin._public_classes()[1]()
+
+    async def run():
+        found = await resolver.resolve("public.example", 443)
+        assert [entry["host"] for entry in found] == answers["public.example"]
+        for host in ("rebound.example", "nat64.example", "proxy.example", "empty.example"):
+            with pytest.raises(ValueError):
+                await resolver.resolve(host, 443)
+        token = real_plugin._PROXY_HOST.set("proxy.example")
+        try:  # The admin's own proxy may well be on a private address.
+            assert await resolver.resolve("Proxy.Example.", 3128)
+            with pytest.raises(ValueError):
+                await resolver.resolve("rebound.example", 443)
+        finally:
+            real_plugin._PROXY_HOST.reset(token)
+
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize(
