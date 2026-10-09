@@ -17,8 +17,9 @@ const String kHermesDefaultConnectionName = 'Hermes Agent';
 
 const int kMaxHermesConnectionNameCharacters = 80;
 
-/// Longest server URL a saved connection keeps. Longer stored values are
-/// treated as damaged, so saving one is refused rather than lost on reload.
+/// Longest server URL a connection can be saved with. A longer one stored
+/// before saved connections existed carries over and is kept, so the upgrade
+/// never loses it; only a new URL is held to this.
 const int kMaxHermesBaseUrlCharacters = 2048;
 
 /// Upper bound for saved connections. The document lives in preferences and is
@@ -141,10 +142,7 @@ final class HermesConnectionProfile {
     final id = value['id'];
     if (id is! String || !isValidId(id)) return null;
     final rawBaseUrl = value['base_url'];
-    final baseUrl =
-        rawBaseUrl is String && rawBaseUrl.length <= kMaxHermesBaseUrlCharacters
-        ? rawBaseUrl.trim()
-        : '';
+    final baseUrl = rawBaseUrl is String ? rawBaseUrl.trim() : '';
     final rawProfile = value['desktop_profile'];
     final desktopProfile =
         rawProfile is String && HermesConfig.isValidDesktopProfile(rawProfile)

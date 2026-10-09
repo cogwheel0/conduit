@@ -123,6 +123,28 @@ void main() {
       },
     );
 
+    test('keeps a server URL longer than a new one may be', () async {
+      final longUrl = 'https://legacy.example/${'a' * 2100}';
+      PreferencesStore.debugOverride(
+        InMemoryKeyValueStore(<String, Object?>{
+          PreferenceKeys.hermesEnabled: true,
+          PreferenceKeys.hermesBaseUrl: longUrl,
+        }),
+      );
+      final secrets = _Secrets({'hermes_api_key_v1': 'legacy-key'});
+      final container = await _ready(secrets);
+      addTearDown(container.dispose);
+      check(container.read(hermesConfigProvider).baseUrl).equals(longUrl);
+
+      // A restart reads it back from the saved connection.
+      final restarted = await _ready(secrets);
+      addTearDown(restarted.dispose);
+      check(restarted.read(hermesConfigProvider).baseUrl).equals(longUrl);
+      check(
+        HermesConnectionStore.readDocument()!.connections.single.baseUrl,
+      ).equals(longUrl);
+    });
+
     test(
       'a failed secret copy keeps the legacy key and retries on the next load',
       () async {
