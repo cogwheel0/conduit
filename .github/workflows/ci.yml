@@ -118,6 +118,18 @@ jobs:
           flutter build apk --debug --target-platform android-arm64
           cd android
           ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
+      # The foss build (F-Droid, IzzyOnDroid) must compile without, and
+      # never pull in, Firebase or Google Play services.
+      - name: Android foss build
+        run: |
+          cd android
+          ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
+          ./gradlew -q :app:dependencies --configuration releaseRuntimeClasspath \
+            -PconduitPushVariant=foss > "$RUNNER_TEMP/foss-dependencies.txt"
+          if grep -E 'com\.google\.(firebase|android\.gms|mlkit)' "$RUNNER_TEMP/foss-dependencies.txt"; then
+            echo "::error::The foss build depends on Firebase, Play services or ML Kit"
+            exit 1
+          fi
 
   # Each workspace member analyzes and tests from its own directory, which
   # is what proves the pub workspace actually works per package. They share

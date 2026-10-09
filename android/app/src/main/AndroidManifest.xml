@@ -129,6 +129,17 @@
             </intent-filter>
         </activity>
         
+        <!-- UnifiedPush (both builds). The connector instance is the push
+             subscription's sid. The play build adds its FCM service from
+             src/play/AndroidManifest.xml. -->
+        <service
+            android:name=".push.ConduitUnifiedPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Background streaming service -->
         <service
             android:name=".BackgroundStreamingService"
