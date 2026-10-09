@@ -1245,6 +1245,11 @@ abstract class PushHostApi {
   @async
   String? registerUnifiedPush(String sid, String distributor);
   void unregisterUnifiedPush(String sid);
+
+  /// Stops using [transport] until a token is asked for again: Android turns
+  /// FCM's auto-init off, deletes the token and stops starting Firebase at
+  /// launch; iOS unregisters from APNs.
+  void releaseTransport(PlatformPushTransport transport);
 }
 
 @FlutterApi()

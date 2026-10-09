@@ -281,6 +281,10 @@ abstract interface class PushPlatformPort {
   Future<String?> registerUnifiedPush(String sid, String distributor);
   Future<void> unregisterUnifiedPush(String sid);
 
+  /// Stops using [transport] until a token is asked for again. On Android,
+  /// releasing FCM also stops Firebase from starting at launch.
+  Future<void> releaseTransport(PushTransport transport);
+
   /// Tokens, foreground pushes, taps, test receipts, unregistrations and
   /// UnifiedPush endpoint changes. A broadcast stream.
   Stream<PushPlatformEvent> get events;
@@ -353,6 +357,9 @@ class UnsupportedPushPlatform implements PushPlatformPort {
 
   @override
   Future<void> unregisterUnifiedPush(String sid) async {}
+
+  @override
+  Future<void> releaseTransport(PushTransport transport) async {}
 
   @override
   Stream<PushPlatformEvent> get events =>

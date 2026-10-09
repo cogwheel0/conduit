@@ -172,6 +172,7 @@ class PushCoordinator extends _$PushCoordinator {
           _release(scope, target: _target(scope)),
       ]);
       _publishTargets();
+      await _releaseRelayTransports();
     }
   }
 
@@ -306,7 +307,13 @@ class PushCoordinator extends _$PushCoordinator {
       ),
     );
     _environment = null;
-    if (state.enabled) await _reconcileAll(full: false, everyTarget: true);
+    if (!state.enabled) return;
+    await _reconcileAll(full: false, everyTarget: true);
+    // Moved off FCM: Firebase stops starting at launch.
+    if (state.effectiveTransport != PushTransport.fcm &&
+        !_records.values.any((r) => r.transport == PushTransport.fcm)) {
+      await _releaseTransports(const [PushTransport.fcm]);
+    }
   }
 
   /// Installed UnifiedPush distributors (package names). Android only.
@@ -400,6 +407,7 @@ class PushCoordinator extends _$PushCoordinator {
     await _settings.saveTombstones(const []);
     await _settings.setLastFullReconcile(null);
     _scheduleDisplayConfig();
+    await _releaseRelayTransports();
   }
 
   // ---------------------------------------------------------------------
@@ -465,6 +473,9 @@ class PushCoordinator extends _$PushCoordinator {
     _scheduleDisplayConfig();
     if (!state.enabled) {
       await _sweepNative();
+      // Push may have been turned off by a version that could not stop
+      // APNs or FCM.
+      if (_hasTransports == true) await _releaseRelayTransports();
       return;
     }
     await _reconcileAll(full: _fullReconcileDue());
@@ -1467,6 +1478,29 @@ class PushCoordinator extends _$PushCoordinator {
     try {
       await _platform.cancelScope(scope);
     } catch (_) {}
+  }
+
+  /// Stops APNs and FCM once nothing uses them: no token, and on Android no
+  /// Firebase at launch.
+  Future<void> _releaseRelayTransports() =>
+      _releaseTransports(const [PushTransport.apns, PushTransport.fcm]);
+
+  Future<void> _releaseTransports(List<PushTransport> transports) async {
+    List<PushTransport> available;
+    try {
+      available = await _platform.availableTransports();
+    } catch (_) {
+      return;
+    }
+    for (final transport in transports) {
+      if (!available.contains(transport)) continue;
+      try {
+        await _platform.releaseTransport(transport);
+      } catch (error) {
+        _log('push-release-transport-failed', error);
+      }
+    }
+    _environment = null;
   }
 
   Future<void> _deleteNative(String sid, PushTransport? transport) async {

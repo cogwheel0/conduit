@@ -17,4 +17,7 @@ internal object FcmTransport {
     fun requestToken(context: Context, callback: (Result<String?>) -> Unit) {
         callback(Result.success(null))
     }
+
+    @Suppress("UNUSED_PARAMETER")
+    fun release(context: Context) = Unit
 }

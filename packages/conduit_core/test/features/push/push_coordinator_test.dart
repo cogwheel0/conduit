@@ -562,6 +562,8 @@ void main() {
       );
       check(h.record(_owui.scope).transport).equals(PushTransport.unifiedPush);
       check(h.status(_owui.scope)).equals(PushStatus.on);
+      // Off FCM: Firebase stops starting at launch.
+      check(h.log).contains('release fcm');
       check(h.log).contains(
         'registerUp ${h.record(_owui.scope).sid} org.unifiedpush.distributor.ntfy',
       );
@@ -652,6 +654,12 @@ void main() {
       await h.coordinator.setEnabled(true);
       await h.coordinator.setEnabled(false);
 
+      // APNs is let go only after every subscription is gone.
+      check(h.log.last).equals('release apns');
+      check(
+        h.log.lastIndexOf('release apns'),
+      ).isGreaterThan(h.log.lastIndexOf('cancelScope ${_hermes.scope}'));
+
       check(h.platform.subscriptions).isEmpty();
       check(h.server(_owui).subscriptions).isEmpty();
       check(h.server(_hermes).subscriptions).isEmpty();
@@ -718,6 +726,11 @@ void main() {
       check(fresh).not((it) => it.equals(sid));
       check(h.server(_owui).subscriptions.keys).deepEquals([fresh]);
       check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('push off at start lets go of APNs too', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.until(() => h.log.contains('release apns'));
     });
 
     test('push off at start deletes keys nothing uses', () async {
@@ -1149,6 +1162,10 @@ final class _Platform implements PushPlatformPort {
   @override
   Future<void> unregisterUnifiedPush(String sid) async =>
       log.add('unregisterUp $sid');
+
+  @override
+  Future<void> releaseTransport(PushTransport transport) async =>
+      log.add('release ${transport.name}');
 
   @override
   Stream<PushPlatformEvent> get events => _events.stream;

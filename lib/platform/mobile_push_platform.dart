@@ -149,6 +149,10 @@ class MobilePushPlatform implements PushPlatformPort, PushFlutterApi {
   Future<void> unregisterUnifiedPush(String sid) =>
       _call(() => _host.unregisterUnifiedPush(sid));
 
+  @override
+  Future<void> releaseTransport(PushTransport transport) =>
+      _call(() => _host.releaseTransport(_platformTransport(transport)));
+
   // PushFlutterApi
 
   @override
