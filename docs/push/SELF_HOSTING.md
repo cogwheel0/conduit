@@ -117,10 +117,18 @@ All limits are kept in memory, per relay instance.
 | `RELAY_RATE_ENDPOINT_PER_MIN` | `60` | Pushes per minute to one endpoint… |
 | `RELAY_RATE_ENDPOINT_BURST` | `20` | …with bursts of up to this many. |
 | `RELAY_RATE_ENDPOINT_PER_DAY` | `2000` | Pushes per day to one endpoint. |
-| `RELAY_RATE_IP_PER_MIN` | `600` | Pushes per minute from one sender address (IPv6: one /64). |
+| `RELAY_RATE_IP_PER_MIN` | `6000` | Pushes per minute from one sender address (IPv6: one /64), all of which may arrive at once. |
 | `RELAY_RATE_REGISTER_PER_MIN` | `20` | Registrations per minute from one address. |
 
 Over a limit, the relay answers `429` with `Retry-After`.
+
+The per-sender limit is high on purpose. One message in an Open WebUI channel
+notifies up to 500 members (the function's default), each on up to 10
+devices, so a single message can be 5000 pushes from one server within
+seconds. A sender's bucket holds a full minute's worth, so that goes through.
+Devices are protected by the per-endpoint limits, which every one of those
+pushes also has to pass. Servers that share an address, behind one NAT for
+example, share this limit.
 
 ## 4. Run it behind TLS
 

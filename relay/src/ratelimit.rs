@@ -184,6 +184,8 @@ impl RateLimits {
                 Rate::per_minute(limits.endpoint_per_min, limits.endpoint_burst),
                 Rate::per_day(limits.endpoint_per_day),
             ]),
+            // A whole minute's worth as the burst, so a channel fan-out can
+            // go out at once.
             ip: Limiter::new(vec![Rate::per_minute(limits.ip_per_min, limits.ip_per_min)]),
             register: Limiter::new(vec![Rate::per_minute(
                 limits.register_per_min,
@@ -281,6 +283,17 @@ mod tests {
         // Known keys still work, and room frees up once buckets refill.
         assert_eq!(limiter.check_at(1, t0), Ok(()));
         assert_eq!(limiter.check_at(3, t0 + Duration::from_secs(10)), Ok(()));
+    }
+
+    #[test]
+    fn default_sender_limit_fits_a_channel_fan_out() {
+        // One Open WebUI channel message: 500 recipients, 10 devices each.
+        let limits = RateLimits::new(&Limits::default());
+        let sender: IpAddr = "192.0.2.1".parse().unwrap();
+        let t0 = Instant::now();
+        for _ in 0..5000 {
+            assert_eq!(limits.ip.check_at(sender, t0), Ok(()));
+        }
     }
 
     #[test]

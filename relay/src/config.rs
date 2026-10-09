@@ -118,7 +118,10 @@ impl Default for Limits {
             endpoint_per_min: 60,
             endpoint_burst: 20,
             endpoint_per_day: 2000,
-            ip_per_min: 600,
+            // One Open WebUI channel message can be 500 recipients with up to
+            // 10 devices each: 5000 pushes from one server at once. The
+            // per-endpoint limits are what protect devices.
+            ip_per_min: 6000,
             register_per_min: 20,
         }
     }
