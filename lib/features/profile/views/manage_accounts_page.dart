@@ -2,6 +2,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,7 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../hermes/widgets/hermes_connection_switcher.dart';
+import '../../push/widgets/push_attention_chip.dart';
 import '../widgets/account_actions.dart';
 import '../widgets/account_sheet.dart';
 import '../widgets/settings_page_scaffold.dart';
@@ -172,6 +174,7 @@ class _HermesCard extends ConsumerWidget {
         for (final connection in connections)
           _HermesConnectionRow(
             key: Key('accounts-hermes-${connection.id}'),
+            connectionId: connection.id,
             name: connection.name,
             summary: hermesConnectionSummary(connection),
             desktop: connection.mode == HermesBackendMode.desktopGateway,
@@ -197,6 +200,7 @@ class _HermesCard extends ConsumerWidget {
 class _HermesConnectionRow extends StatelessWidget {
   const _HermesConnectionRow({
     super.key,
+    required this.connectionId,
     required this.name,
     required this.summary,
     required this.desktop,
@@ -205,6 +209,7 @@ class _HermesConnectionRow extends StatelessWidget {
     required this.onEdit,
   });
 
+  final String connectionId;
   final String name;
   final String summary;
   final bool desktop;
@@ -234,9 +239,13 @@ class _HermesConnectionRow extends StatelessWidget {
       selected: inUse,
       preserveTrailingSemantics: true,
       onTap: inUse ? null : onTap,
-      trailing: inUse
-          ? ActiveCheckmark(semanticLabel: l10n.accountsActive)
-          : null,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PushAttentionChip(scope: PushTarget.hermesScope(connectionId)),
+          if (inUse) ActiveCheckmark(semanticLabel: l10n.accountsActive),
+        ],
+      ),
     );
     return Semantics(
       customSemanticsActions: {CustomSemanticsAction(label: l10n.edit): onEdit},
