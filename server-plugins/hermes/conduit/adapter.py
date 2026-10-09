@@ -4,7 +4,9 @@ It has no inbound chat. It exists so that:
 
 * cron jobs can ``deliver: conduit``. The live adapter's ``send`` and the
   out-of-process ``standalone_send`` both turn the job's output into an
-  encrypted ``cron`` push for every subscribed device;
+  encrypted ``cron`` push for every subscribed device. The agent's
+  ``send_message`` tool reaches the same two entry points, so its text
+  arrives the same way, titled "Hermes" because it names no job;
 * Conduit can manage subscriptions over the API server:
   ``POST [/p/<profile>]/api/platforms/conduit/events``. That route does not
   check ``API_SERVER_KEY`` itself, so ``verify_http_event_request`` compares
@@ -44,6 +46,7 @@ HOME_ENV = "CONDUIT_HOME_CHANNEL"
 HOME_CHAT_ID = "devices"
 HOME_NAME = "Conduit devices"
 MIN_KEY_LENGTH = 16
+UNSCHEDULED_TITLE = "Hermes"
 
 # cron/scheduler_delivery.py wraps output unless ``cron.wrap_response: false``:
 # a header, the output, and a one-line footer. Only the header is matched with a
@@ -91,10 +94,13 @@ def parse_cron_content(content: str, job_id: Optional[str] = None) -> Tuple[str,
 def push_cron(home: Path, content: str, job_id: Optional[str] = None) -> Tuple[bool, str, str]:
     """Pushes one cron delivery to every device that wants cron pushes.
 
+    Text that names no cron job, which is what the agent's ``send_message``
+    tool sends, is titled "Hermes" rather than shown as a job's output.
     Returns ``(delivered, dedup_key, error_category)``.
     """
     job, name, body = parse_cron_content(content, job_id)
-    push = sender.cron_payload(job, str(int(time.time() * 1000)), name, body)
+    title = name if job else UNSCHEDULED_TITLE
+    push = sender.cron_payload(job, str(int(time.time() * 1000)), title, body)
     delivered, error = sender.summarize(sender.deliver(home, push))
     return delivered, push["dk"], error
 

@@ -799,7 +799,21 @@ def test_cron_unwrapped_output_without_a_job(env):
     env.subscribe(device)
     assert run(env.adapter.standalone_send(PlatformConfig(), "devices", "Plain output"))["success"]
     payload = device.open(env.relay.requests[0])
-    assert (payload["t"], payload["b"], payload["g"]) == ("", "Plain output", "cron:")
+    # No job: most likely the agent's send_message tool, so it isn't shown as a job's output.
+    assert (payload["k"], payload["t"], payload["b"], payload["g"]) == ("cron", "Hermes", "Plain output", "cron:")
+
+
+def test_send_message_through_the_live_adapter_is_titled_hermes(env):
+    device = Device("a")
+    env.subscribe(device)
+    env.hermes.jobs["j9"] = {"id": "j9", "name": "Nightly backup"}
+    adapter = env.adapter.ConduitAdapter(PlatformConfig(enabled=True))
+    # send_message passes no job id; cron's live lane always does.
+    assert run(adapter.send("devices", "Hi from the agent", metadata=None)).success
+    assert run(adapter.send("devices", "Done.", metadata={"job_id": "j9"})).success
+    assert run(adapter.send("devices", "Done.", metadata={"job_id": "gone"})).success
+    titles = [(p["t"], p["ids"]["job"]) for p in map(device.open, env.relay.requests)]
+    assert titles == [("Hermes", ""), ("Nightly backup", "j9"), ("", "gone")]
 
 
 # -- adapter and API-server auth -------------------------------------------------
