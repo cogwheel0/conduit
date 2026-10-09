@@ -127,7 +127,8 @@ def deliver(
 ) -> List[Tuple[str, int]]:
     """Sends ``push`` to every subscription that wants its kind (or just ``only_sid``).
 
-    Returns ``(sid, status)`` pairs and deletes subscriptions that answer 404/410.
+    Returns ``(sid, status)`` pairs and deletes the subscriptions whose
+    endpoint answered 404/410, by ``(sid, endpoint)``.
     """
     store = Store(home)
     now = time.time() if now is None else now
@@ -137,18 +138,20 @@ def deliver(
         targets = [s for s in subs if s.get("sid") == only_sid]
     else:
         targets = [s for s in subs if _wants(s, kind)]
-    results = [(str(s.get("sid")), post(s, push)) for s in targets]
-    dead = [sid for sid, status in results if status in DEAD_STATUSES]
+    answers = [(s, post(s, push)) for s in targets]
+    dead = [(s.get("sid"), s.get("endpoint")) for s, status in answers if status in DEAD_STATUSES]
+    pruned = 0
     if dead:
         try:
-            store.remove(dead, now)
+            pruned = store.remove_dead(dead, now)
         except Exception as error:
             logger.warning("conduit push: could not prune subscriptions (%s)", type(error).__name__)
+    results = [(str(s.get("sid")), status) for s, status in answers]
     if results:
         sent = sum(1 for _, status in results if 200 <= status < 300)
         logger.info(
             "conduit push: kind=%s sent=%d failed=%d pruned=%d",
-            kind, sent, len(results) - sent - len(dead), len(dead),
+            kind, sent, len(results) - sent - len(dead), pruned,
         )
     return results
 

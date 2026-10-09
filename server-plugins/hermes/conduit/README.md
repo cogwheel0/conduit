@@ -15,7 +15,7 @@ clients) never trigger a push, and cron runs only reach your phone through
 This repository is a read-only mirror of `server-plugins/hermes/conduit/` in the
 Conduit repository. Changes and issues belong there.
 
-## Privacy
+## Privacy and security
 
 - Each notification is a short JSON message (a title, a preview of at most 200
   characters, and ids). It is encrypted **on your Hermes server** to a key that
@@ -32,6 +32,17 @@ Conduit repository. Changes and issues belong there.
 - Logs record only counts and error categories, never endpoints, keys or text.
 - The plugin uses only `httpx` and `cryptography`, which already ship with
   Hermes. It runs no commands and adds no tools for the agent.
+- **The agent can put text on your phone.** Registering `conduit` as a
+  platform makes it a target for the agent's own `send_message` tool, and for
+  cron jobs the agent creates. Whatever the agent writes there is pushed to
+  every subscribed device. So anyone who can prompt this Hermes profile, on
+  any platform it listens on (Telegram, Discord, a shared API key, ...), may
+  be able to make text of their choosing appear on your lock screen. Such a
+  message is titled "Hermes" instead of a job name. That label is a hint, not
+  a guarantee: the agent can also write text that looks like a cron delivery,
+  or create a real job. Treat these notifications like any other message from
+  the agent, and enable this plugin only on profiles that just trusted people
+  can prompt.
 
 The protocol is documented in `docs/push/PROTOCOL.md` in the Conduit repository.
 
@@ -75,7 +86,8 @@ The notification shows the job's name as its title and the start of its output
 as the preview. Failure notices for a job go wherever its delivery (or
 `failure_deliver`) target points, so they reach your devices too. A job set to
 `deliver: all` also includes `conduit`. If the agent itself uses its message
-tool to reach `conduit`, that arrives as a scheduled-task notification too.
+tool to reach `conduit`, that arrives as a notification titled "Hermes" (see
+[Privacy and security](#privacy-and-security)).
 
 Cron delivery works with the gateway running, and without it: the desktop app
 and `hermes serve` run cron themselves.

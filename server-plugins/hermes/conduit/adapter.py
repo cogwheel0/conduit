@@ -4,7 +4,9 @@ It has no inbound chat. It exists so that:
 
 * cron jobs can ``deliver: conduit``. The live adapter's ``send`` and the
   out-of-process ``standalone_send`` both turn the job's output into an
-  encrypted ``cron`` push for every subscribed device;
+  encrypted ``cron`` push for every subscribed device. The agent's
+  ``send_message`` tool reaches the same two entry points, so its text
+  arrives the same way, titled "Hermes" because it names no job;
 * Conduit can manage subscriptions over the API server:
   ``POST [/p/<profile>]/api/platforms/conduit/events``. That route does not
   check ``API_SERVER_KEY`` itself, so ``verify_http_event_request`` compares
@@ -44,13 +46,15 @@ HOME_ENV = "CONDUIT_HOME_CHANNEL"
 HOME_CHAT_ID = "devices"
 HOME_NAME = "Conduit devices"
 MIN_KEY_LENGTH = 16
+UNSCHEDULED_TITLE = "Hermes"
 
-# cron/scheduler_delivery.py wraps output unless ``cron.wrap_response: false``.
-_CRON_WRAPPER = re.compile(
-    r"\ACronjob Response: (?P<name>[^\n]*)\n\(job_id: (?P<job>[^)\n]*)\)\n-+\n\n(?P<body>.*?)"
-    r"(?:\n\nTo stop or manage this job, send me a new message[^\n]*)?\s*\Z",
-    re.DOTALL,
-)
+# cron/scheduler_delivery.py wraps output unless ``cron.wrap_response: false``:
+# a header, the output, and a one-line footer. Only the header is matched with a
+# regex, on a bounded prefix; the footer is found with rfind. One regex over the
+# whole output backtracked quadratically on a long run of whitespace.
+_CRON_HEADER = re.compile(r"Cronjob Response: (?P<name>[^\n]*)\n\(job_id: (?P<job>[^)\n]*)\)\n-+\n\n")
+_CRON_HEADER_LIMIT = 4096
+_CRON_FOOTER = "\n\nTo stop or manage this job, send me a new message"
 
 
 def _hermes_home() -> Path:
@@ -74,10 +78,15 @@ def _job_name(job_id: str) -> str:
 def parse_cron_content(content: str, job_id: Optional[str] = None) -> Tuple[str, str, str]:
     """``(job_id, job_name, body)`` from what cron hands a platform."""
     text = (content or "").strip()
-    match = _CRON_WRAPPER.match(text)
+    match = _CRON_HEADER.match(text, 0, _CRON_HEADER_LIMIT)
     if match:
+        body = text[match.end():]
+        footer = body.rfind(_CRON_FOOTER)
+        # The footer is the last line; anything after it means it is part of the output.
+        if footer >= 0 and not body[footer + len(_CRON_FOOTER):].partition("\n")[2].strip():
+            body = body[:footer]
         job = job_id or match.group("job").strip()
-        return job, match.group("name").strip(), match.group("body").strip()
+        return job, match.group("name").strip(), body.strip()
     job = str(job_id or "")
     return job, _job_name(job) if job else "", text
 
@@ -85,10 +94,13 @@ def parse_cron_content(content: str, job_id: Optional[str] = None) -> Tuple[str,
 def push_cron(home: Path, content: str, job_id: Optional[str] = None) -> Tuple[bool, str, str]:
     """Pushes one cron delivery to every device that wants cron pushes.
 
+    Text that names no cron job, which is what the agent's ``send_message``
+    tool sends, is titled "Hermes" rather than shown as a job's output.
     Returns ``(delivered, dedup_key, error_category)``.
     """
     job, name, body = parse_cron_content(content, job_id)
-    push = sender.cron_payload(job, str(int(time.time() * 1000)), name, body)
+    title = name if job else UNSCHEDULED_TITLE
+    push = sender.cron_payload(job, str(int(time.time() * 1000)), title, body)
     delivered, error = sender.summarize(sender.deliver(home, push))
     return delivered, push["dk"], error
 
