@@ -19,6 +19,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
 
 import '../services/local_notification_service.dart';
@@ -65,10 +66,8 @@ void _showInAppBanner(Ref ref, AppNotification notification) {
     message: message,
     type: AdaptiveSnackBarType.info,
     action: l10n.notificationViewAction,
-    onActionPressed: () => _handleTap(
-      ref,
-      NotificationTap(kind: notification.kind, sourceId: notification.sourceId),
-    ),
+    onActionPressed: () =>
+        _handleTap(ref, NotificationTap.fromNotification(notification)),
   );
 }
 
@@ -94,7 +93,9 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
     switch (tap.kind) {
       case NotificationKind.channelMessage:
         NavigationService.navigateToChannel(tap.sourceId);
-      case NotificationKind.chatCompletion:
+      case NotificationKind.scheduledTask || NotificationKind.pushTest:
+        return;
+      case NotificationKind.chatCompletion || NotificationKind.replyFailed:
         final ownership = captureOpenWebUiConversationRead(ref);
         if (ownership == null) return;
         final outgoing = ref.read(activeConversationProvider);
@@ -215,10 +216,21 @@ class NotificationSocketListener extends _$NotificationSocketListener {
 
   String get _currentUserId => ref.read(currentUserProvider).value?.id ?? '';
 
+  /// The scope of the account whose socket this is: the active one. Null
+  /// before an account settles, when nothing can be attributed to one.
+  String? get _scope {
+    final accountId = ref.read(settledActiveAccountIdProvider);
+    if (accountId == null || accountId.isEmpty) return null;
+    return NotificationScope.openWebUi(accountId).value;
+  }
+
   void _onChatEvent(Map<String, dynamic> event) {
+    final scope = _scope;
+    if (scope == null) return;
     final notification = _classifier.classifyChatEvent(
       event,
       currentUserId: _currentUserId,
+      scope: scope,
     );
     if (notification != null) _route(notification);
   }
@@ -228,9 +240,12 @@ class NotificationSocketListener extends _$NotificationSocketListener {
     // Until the current user resolves we can't run the self-author filter, so
     // skip rather than risk notifying the user for their own messages.
     if (userId.isEmpty) return;
+    final scope = _scope;
+    if (scope == null) return;
     final notification = _classifier.classifyChannelEvent(
       event,
       currentUserId: userId,
+      scope: scope,
     );
     if (notification != null) _route(notification);
   }

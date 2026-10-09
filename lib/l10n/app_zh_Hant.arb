@@ -2983,6 +2983,8 @@
   "notificationSystemDescription": "當應用程式在背景時於應用程式外顯示通知。",
   "notificationSystemTitle": "系統通知",
   "notificationViewAction": "檢視",
+  "notificationReplyFailedBody": "回覆未能完成。",
+  "notificationTargetUnavailable": "此通知所屬的帳號或連線已不在此裝置上。",
   "notificationsEnabledDescription": "當應用程式在背景時以及在應用程式內接收提醒。",
   "notificationsEnabledTitle": "啟用通知",
   "notificationsPermissionDenied": "通知已在系統設定中關閉。",
