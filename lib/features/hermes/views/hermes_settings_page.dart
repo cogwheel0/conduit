@@ -413,17 +413,25 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     final l10n = AppLocalizations.of(context)!;
     final controller = _connectionController;
     if (controller == null) {
+      final loading = [
+        if (_loadFailed)
+          ..._loadFailure(l10n)
+        else
+          const Padding(
+            padding: EdgeInsets.all(Spacing.xl),
+            child: Center(child: AdaptiveProgressIndicator()),
+          ),
+      ];
+      // In the account sheet, inside its form's list: no page of its own.
+      if (_embedded) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: loading,
+        );
+      }
       return UtilityPageScaffold.settings(
         title: l10n.hermesAgentSettingsTitle,
-        children: [
-          if (_loadFailed)
-            ..._loadFailure(l10n)
-          else
-            const Padding(
-              padding: EdgeInsets.all(Spacing.xl),
-              child: Center(child: AdaptiveProgressIndicator()),
-            ),
-        ],
+        children: loading,
       );
     }
     // An editor whose connection stops being active (switched elsewhere)

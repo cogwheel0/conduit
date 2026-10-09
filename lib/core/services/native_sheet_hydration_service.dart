@@ -123,13 +123,14 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   showChatDataControls: read(chatDataControlsEntryVisibleProvider),
 );
 
-/// What the account card atop the native Settings root says, read now.
-({String title, String? subtitle}) readNativeAccountCard(
+/// Whom the account card atop the native Settings root is for, and what it
+/// says, read now.
+({AccountCardKind kind, String title, String? subtitle}) readNativeAccountCard(
   NativeSheetProviderReader read,
   AppLocalizations l10n, {
   required NativeProfileRootAccount? account,
 }) {
-  final card = accountCardSummary(
+  return accountCardSummary(
     l10n,
     signedInName: account?.displayName,
     accounts: read(openWebUiAccountsProvider).value ?? const [],
@@ -138,7 +139,6 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
         ? read(hermesActiveConnectionIdProvider)
         : null,
   );
-  return (title: card.title, subtitle: card.subtitle);
 }
 
 /// The saved Open WebUI accounts besides the active one, read now; null
@@ -274,7 +274,16 @@ class NativeSheetHydrationService {
         l10n,
         account: root.account,
         visibility: readNativeProfileRootVisibility(_ref.read),
-        card: readNativeAccountCard(_ref.read, l10n, account: root.account),
+        card: switch (readNativeAccountCard(
+          _ref.read,
+          l10n,
+          account: root.account,
+        )) {
+          (:final title, :final subtitle, kind: _) => (
+            title: title,
+            subtitle: subtitle,
+          ),
+        },
         otherAccountCount: readNativeOtherAccountCount(_ref.read),
       ),
     );

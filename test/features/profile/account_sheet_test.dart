@@ -29,6 +29,7 @@ import 'package:material_ui/material_ui.dart';
 import '../direct_connections/direct_connections_ui_test_support.dart';
 
 const _home = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const _work = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 final _homeServer = OpenWebUiServer(
   id: 'home',
@@ -442,6 +443,51 @@ void main() {
     expect(find.byKey(const Key('account-sheet-kind')), findsNothing);
     expect(find.text('Edit connection'), findsOne);
     expect(find.byKey(const Key('account-sheet-direct')), findsOne);
-    expect(find.byKey(const Key('direct-editor-save-button')), findsOne);
+    // The form's own Save; the sheet adds one only for iOS's toolbar Save.
+    expect(
+      find.descendant(
+        of: find.byType(AccountSheet),
+        matching: find.text('Save'),
+      ),
+      findsOne,
+    );
+  });
+
+  // An inactive connection loads before its form shows, and that wait was
+  // a page of its own, which the sheet's list could not lay out.
+  testWidgets('an inactive Hermes connection is edited in the sheet', (
+    tester,
+  ) async {
+    PreferencesStore.debugOverride(
+      InMemoryKeyValueStore(<String, Object?>{
+        PreferenceKeys.hermesEnabled: true,
+        PreferenceKeys.hermesConnections: HermesConnectionsDocument(
+          connections: const [
+            HermesConnectionProfile(
+              id: _home,
+              name: 'Home agent',
+              baseUrl: 'https://home.example',
+              documentTrustPrincipalId: 'aaaaaaaa-0000-4000-8000-000000000000',
+            ),
+            HermesConnectionProfile(
+              id: _work,
+              name: 'Work agent',
+              baseUrl: 'https://work.example',
+              documentTrustPrincipalId: 'bbbbbbbb-0000-4000-8000-000000000000',
+            ),
+          ],
+        ).encode(),
+        PreferenceKeys.hermesActiveConnectionId: _home,
+      }),
+    );
+
+    await pumpSheet(tester, const EditHermesConnectionRequest(_work));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Work agent'), findsWidgets);
+    expect(
+      find.byKey(const ValueKey<String>('hermes-server-url-field')),
+      findsOne,
+    );
   });
 }

@@ -574,7 +574,9 @@ class _DirectConnectionEditorPageState
                 ),
               ],
             )
-          : _embedded
+          // iOS saves from the toolbar, which the sheet does not have; the
+          // other platforms' form has its own Save.
+          : _embedded && PlatformInfo.isIOS
           ? ConduitButton(
               key: const ValueKey<String>('direct-editor-save-button'),
               text: l10n.save,

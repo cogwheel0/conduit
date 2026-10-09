@@ -141,34 +141,35 @@ class ActiveCheckmark extends StatelessWidget {
 }
 
 /// Makes [connectionId] the Hermes connection in use, turning Hermes on
-/// first when it is off.
+/// when it is off. It is switched to first: a switch that fails leaves
+/// Hermes as it was, rather than on with the connection it was meant to
+/// leave.
 Future<void> useHermesConnection(
   BuildContext context,
   WidgetRef ref,
   String connectionId,
 ) async {
-  if (!ref.read(hermesEnabledProvider)) {
-    try {
-      await ref.read(hermesConfigProvider.notifier).setEnabled(true);
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'hermes-enable-failed',
-        scope: 'profile/accounts',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (context.mounted) {
-        UiUtils.showMessage(
-          context,
-          AppLocalizations.of(context)!.errorMessage,
-        );
-      }
-      return;
-    }
+  if (ref.read(hermesActiveConnectionIdProvider) != connectionId) {
+    if (!await switchHermesConnection(context, ref, connectionId)) return;
     if (!context.mounted) return;
   }
-  if (ref.read(hermesActiveConnectionIdProvider) == connectionId) return;
-  await switchHermesConnection(context, ref, connectionId);
+  if (ref.read(hermesEnabledProvider)) return;
+  try {
+    await ref.read(hermesConfigProvider.notifier).setEnabled(true);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'hermes-enable-failed',
+      scope: 'profile/accounts',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (context.mounted) {
+      UiUtils.showMessage(
+        context,
+        AppLocalizations.of(context)!.errorMessage,
+      );
+    }
+  }
 }
 
 /// Signs out of every account, after asking whether to keep the servers'
