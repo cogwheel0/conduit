@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -310,12 +311,48 @@ class LocalNotificationService {
     }
   }
 
-  /// Clears all posted message notifications — used on logout / server switch
-  /// to avoid cross-server deep links.
+  /// Clears all posted message notifications — used when signing out of
+  /// everything, so nothing deep-links into data that is gone.
   Future<void> cancelAll() async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     await _plugin.cancelAll();
   }
+
+  /// Clears the posted notifications of one account or connection ([scope],
+  /// see [NotificationScope]), leaving every other one in place. Notifications
+  /// posted before they carried a scope go too: which account they belong to
+  /// is no longer known.
+  Future<void> cancelScope(String scope) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+    if (!_initialized) await initialize();
+    try {
+      final active = await _plugin.getActiveNotifications();
+      for (final notification in notificationsInScope(active, scope)) {
+        await _plugin.cancel(id: notification.id!, tag: notification.tag);
+      }
+    } catch (e, st) {
+      DebugLogger.error(
+        'failed to clear scoped notifications',
+        error: e,
+        stackTrace: st,
+        scope: 'notifications/system',
+      );
+    }
+  }
+
+  /// Which of the posted [active] notifications [cancelScope] clears for
+  /// [scope]: this app's message notifications of that scope, and those
+  /// without one. Others (a voice call's, say) are left alone.
+  @visibleForTesting
+  static List<ActiveNotification> notificationsInScope(
+    List<ActiveNotification> active,
+    String scope,
+  ) => [
+    for (final notification in active)
+      if (notification.id != null)
+        if (NotificationTap.tryDecode(notification.payload) case final tap?)
+          if (tap.scope == null || tap.scope == scope) notification,
+  ];
 
   void dispose() {
     _taps.close();

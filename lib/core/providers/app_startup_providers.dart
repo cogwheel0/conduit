@@ -69,7 +69,6 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 import '../../features/notifications/providers/notification_socket_listener.dart';
 import '../../features/notifications/providers/notification_tap_listener.dart';
-import '../../features/notifications/services/local_notification_service.dart';
 import '../../shared/theme/theme_providers.dart';
 
 part 'app_startup_providers.g.dart';
@@ -270,22 +269,10 @@ void _resetUserScopedProviders(Ref ref) {
     ref.invalidate(defaultModelProvider);
     ref.invalidate(backendConfigProvider);
     ref.invalidate(socketServiceManagerProvider);
-    // Clear posted notifications and drop the listener's dedup memory so a
-    // notification can't deep-link into the previous session/server.
-    unawaited(
-      ref.read(localNotificationServiceProvider).cancelAll().catchError((
-        Object e,
-        StackTrace st,
-      ) {
-        DebugLogger.error(
-          'failed to clear notifications on sign-out',
-          scope: 'notifications/system',
-          error: e,
-          stackTrace: st,
-        );
-      }),
-    );
-    ref.invalidate(notificationRouterProvider);
+    // Rebind the socket listener to the next session. Posted notifications
+    // and the router's dedup memory stay: both are keyed by account, and a
+    // tap opens in the account that posted it. Signing out clears that
+    // account's own (see hostSignedOutProvider).
     ref.invalidate(notificationSocketListenerProvider);
     // Selections that name the previous account's folders, prompts, notes or
     // chats.
