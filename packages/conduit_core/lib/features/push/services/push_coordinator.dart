@@ -465,11 +465,7 @@ class PushCoordinator extends _$PushCoordinator {
     for (final scope in _records.keys.toList()) {
       if (!live.contains(scope)) unawaited(_release(scope, forget: true));
     }
-    try {
-      _hasTransports = (await _platform.availableTransports()).isNotEmpty;
-    } catch (_) {
-      _hasTransports = false;
-    }
+    await _refreshTransports();
     _scheduleDisplayConfig();
     if (!state.enabled) {
       await _sweepNative();
@@ -482,8 +478,31 @@ class PushCoordinator extends _$PushCoordinator {
   }
 
   Future<void> _onResume() async {
-    if (!state.enabled || _targets == null) return;
+    // A UnifiedPush distributor may have been installed meanwhile.
+    if (!state.enabled) {
+      await _refreshTransports();
+      return;
+    }
+    if (_targets == null) return;
     await _reconcileAll(full: _fullReconcileDue(), throttle: true);
+  }
+
+  /// Which transports this device offers, for the settings to say whether
+  /// push can work before it is turned on.
+  Future<void> _refreshTransports() async {
+    List<PushTransport> transports;
+    try {
+      transports = await _platform.availableTransports();
+    } catch (_) {
+      transports = const [];
+    }
+    _hasTransports = transports.isNotEmpty;
+    _update(
+      (s) => s.copyWith(
+        availableTransports: transports,
+        transportsChecked: true,
+      ),
+    );
   }
 
   bool _fullReconcileDue() {
@@ -1131,7 +1150,12 @@ class PushCoordinator extends _$PushCoordinator {
     }
     _hasTransports = transports.isNotEmpty;
     final relay = _relay;
-    _update((s) => s.copyWith(availableTransports: transports));
+    _update(
+      (s) => s.copyWith(
+        availableTransports: transports,
+        transportsChecked: true,
+      ),
+    );
     if (transports.isEmpty) {
       return _blockedEnvironment(
         relay == null ? PushStatus.relayUnavailable : PushStatus.failed,

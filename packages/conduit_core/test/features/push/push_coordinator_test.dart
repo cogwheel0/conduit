@@ -233,6 +233,27 @@ void main() {
       },
     );
 
+    test('the settings know whether push can work before it is on', () async {
+      h = await _Harness.start(targets: [_owui], relay: false);
+      await h.until(() => h.state.transportsChecked);
+      check(h.state.available).isFalse();
+      h.dispose();
+
+      h = await _Harness.start(targets: [_owui]);
+      await h.until(() => h.state.transportsChecked);
+      check(h.state.available).isTrue();
+      h.dispose();
+
+      // UnifiedPush needs no relay.
+      h = await _Harness.start(
+        targets: [_owui],
+        relay: false,
+        unifiedPush: true,
+      );
+      await h.until(() => h.state.transportsChecked);
+      check(h.state.available).isTrue();
+    });
+
     test('a build without a relay cannot use APNs', () async {
       h = await _Harness.start(targets: [_owui], relay: false);
       await h.coordinator.setEnabled(true);
