@@ -187,9 +187,22 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
     )
   }
 
+  /// Dart claims before it posts and again, with the same id, right after.
+  /// A push the extension showed in between had no local copy to remove
+  /// yet, so the second claim removes it.
   func claimNotification(dedupKey: String, localNotificationId: String?) throws -> Bool {
-    try PushLedger(directory: requireDirectory())
-      .claim(dedupKey, localNotificationId: localNotificationId)
+    let ledger = PushLedger(directory: try requireDirectory())
+    switch try ledger.claimForApp(dedupKey, localNotificationId: localNotificationId) {
+    case .claimed:
+      return true
+    case .taken:
+      return false
+    case .supersededByPush(let localId):
+      let center = UNUserNotificationCenter.current()
+      center.removePendingNotificationRequests(withIdentifiers: [localId])
+      center.removeDeliveredNotifications(withIdentifiers: [localId])
+      return false
+    }
   }
 
   func cancelScope(scope: String) throws {
