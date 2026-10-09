@@ -1754,6 +1754,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
   }) async {
     final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
     await _requestAndConsumeBounded(
@@ -1779,6 +1780,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
             maxCharacters: kMaxHermesJobScheduleCharacters,
           ),
         'enabled': ?enabled,
+        'deliver': ?deliver,
       },
     );
   }

@@ -53,12 +53,15 @@ abstract interface class HermesBackendService {
     required String prompt,
     required String schedule,
   });
+  /// [deliver] replaces the job's delivery targets, a comma-separated list
+  /// such as `local,conduit`.
   Future<void> updateJob(
     String id, {
     String? name,
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
   });
   Future<void> deleteJob(String id);
   Future<void> pauseJob(String id);
