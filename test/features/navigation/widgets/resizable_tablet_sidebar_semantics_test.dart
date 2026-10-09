@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:checks/checks.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +18,7 @@ void main() {
           drawer: Semantics(
             button: true,
             label: 'Sidebar row',
+            onTap: () {},
             child: const SizedBox.expand(),
           ),
           // The app's detail pane is go_router's shell navigator.
@@ -30,6 +33,13 @@ void main() {
 
       check(find.bySemanticsLabel('Detail page').evaluate()).length.equals(1);
       check(find.bySemanticsLabel('Sidebar row').evaluate()).length.equals(1);
+      // The rows stay operable, not just labelled.
+      check(
+        tester
+            .getSemantics(find.bySemanticsLabel('Sidebar row'))
+            .getSemanticsData()
+            .hasAction(ui.SemanticsAction.tap),
+      ).isTrue();
     } finally {
       semanticsHandle.dispose();
     }
