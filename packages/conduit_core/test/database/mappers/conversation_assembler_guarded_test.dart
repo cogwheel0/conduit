@@ -2,6 +2,8 @@
 /// that offloads large-conversation assembly off the UI isolate.
 library;
 
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
@@ -89,6 +91,42 @@ void main() {
       check(capturedEnvelope).isNotNull();
       check(identical(result, syncResult)).isTrue();
     });
+
+    test(
+      'a few messages over the payload threshold: offload IS called',
+      () async {
+        final (chat, realMessages) = await seedFixture();
+
+        // Few messages, one carrying inline data past the size threshold.
+        final first = realMessages.first;
+        final large = <MessageRow>[
+          first.copyWith(
+            payload: jsonEncode({
+              ...jsonDecode(first.payload) as Map<String, dynamic>,
+              'content': 'x' * (kLocalConversationWorkerPayloadThreshold + 1),
+            }),
+          ),
+          ...realMessages.skip(1),
+        ];
+        check(large.length).isLessThan(kLocalConversationWorkerThreshold);
+
+        var offloadCallCount = 0;
+        final syncResult = assembleConversation(chat, realMessages);
+        Future<Conversation> offload(Object? envelope) async {
+          offloadCallCount++;
+          return syncResult;
+        }
+
+        final result = await assembleConversationGuarded(
+          chat,
+          large,
+          offload: offload,
+        );
+
+        check(offloadCallCount).equals(1);
+        check(identical(result, syncResult)).isTrue();
+      },
+    );
 
     test('messages.length > threshold, offload null: falls back to synchronous parse without throwing', () async {
       final (chat, realMessages) = await seedFixture();

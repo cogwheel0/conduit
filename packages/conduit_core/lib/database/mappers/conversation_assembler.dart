@@ -24,6 +24,11 @@ import '../models/chat_transcript_window.dart';
 /// re-exports this constant for callers that already import from there.
 const int kLocalConversationWorkerThreshold = 100;
 
+/// Characters of stored message JSON above which [assembleConversationGuarded]
+/// also offloads, whatever the message count: a few messages can carry
+/// megabytes of inline image data. Matches `ApiService`'s 50 KiB threshold.
+const int kLocalConversationWorkerPayloadThreshold = 50 * 1024;
+
 /// Inverse of `ChatsDao.upsertServerChat`'s decomposition: rebuilds
 /// [ChatRows] from a [ChatRow] + its [MessageRow]s (payload jsonDecoded per
 /// row; bookkeeping from `blobMeta` per amendment A3; `'{}'` blobMeta -> all
@@ -111,7 +116,8 @@ typedef ConversationParseOffload = Future<Conversation> Function(
 );
 
 /// Contract-enforcing wrapper around [assembleConversation]: offloads via
-/// [offload] when `messages.length` exceeds [kLocalConversationWorkerThreshold],
+/// [offload] when `messages.length` exceeds [kLocalConversationWorkerThreshold]
+/// or their stored JSON exceeds [kLocalConversationWorkerPayloadThreshold],
 /// otherwise parses synchronously inline.
 ///
 /// Callers that cannot supply an offload pass `null` and accept the documented
@@ -121,10 +127,20 @@ Future<Conversation> assembleConversationGuarded(
   List<MessageRow> messages, {
   required ConversationParseOffload? offload,
 }) {
-  if (offload != null && messages.length > kLocalConversationWorkerThreshold) {
+  if (offload != null && _assemblyNeedsWorker(messages)) {
     return offload(buildChatResponseEnvelope(chat, messages));
   }
   return Future.value(assembleConversation(chat, messages));
+}
+
+bool _assemblyNeedsWorker(List<MessageRow> messages) {
+  if (messages.length > kLocalConversationWorkerThreshold) return true;
+  var payloadLength = 0;
+  for (final message in messages) {
+    payloadLength += message.payload.length;
+    if (payloadLength > kLocalConversationWorkerPayloadThreshold) return true;
+  }
+  return false;
 }
 
 /// Parses a bounded active-branch window through the same OpenWebUI mapper as a
