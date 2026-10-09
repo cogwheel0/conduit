@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageKind;
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -14,6 +16,7 @@ import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/services/local_reply_notifications.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -89,8 +92,15 @@ final class _ScriptedHermesApi extends HermesApiService {
   }
 }
 
-ProviderContainer _container(HermesApiService service) => ProviderContainer(
+ProviderContainer _container(
+  HermesApiService service, {
+  List<String>? watched,
+}) => ProviderContainer(
   overrides: [
+    if (watched != null)
+      pushHermesSessionWatchProvider.overrideWithValue(
+        (connectionId, sessionId) => watched.add('$connectionId $sessionId'),
+      ),
     openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
     appDatabaseProvider.overrideWith((ref) {
       final database = AppDatabase(NativeDatabase.memory());
@@ -109,6 +119,7 @@ ProviderContainer _container(HermesApiService service) => ProviderContainer(
 Future<List<HermesTurnCompletion>> _runTurn(
   ProviderContainer container, {
   Future<void> Function(HermesRunRegistry registry)? whileRunning,
+  bool inOpenWebUiChat = false,
 }) async {
   final registry = container.read(hermesRunRegistryProvider);
   final announced = <HermesTurnCompletion>[];
@@ -122,19 +133,30 @@ Future<List<HermesTurnCompletion>> _runTurn(
     isStreaming: true,
     metadata: const <String, dynamic>{'transport': kHermesTransport},
   );
-  final conversation = markNativeHermesConversation(
-    Conversation(
-      id: 'local:hermes_s-1',
-      title: 'Refactor plan',
-      createdAt: DateTime.utc(2026, 10, 10),
-      updatedAt: DateTime.utc(2026, 10, 10),
-      messages: <ChatMessage>[placeholder],
-      metadata: const <String, dynamic>{
-        'backend': 'hermes',
-        'hermesSessionId': 's-1',
-      },
-    ),
-  );
+  final conversation = inOpenWebUiChat
+      ? withChatStorageProvenance(
+          Conversation(
+            id: 'server-chat',
+            title: 'Server chat',
+            createdAt: DateTime.utc(2026, 10, 10),
+            updatedAt: DateTime.utc(2026, 10, 10),
+            messages: <ChatMessage>[placeholder],
+          ),
+          ChatStorageKind.openWebUi,
+        )
+      : markNativeHermesConversation(
+          Conversation(
+            id: 'local:hermes_s-1',
+            title: 'Refactor plan',
+            createdAt: DateTime.utc(2026, 10, 10),
+            updatedAt: DateTime.utc(2026, 10, 10),
+            messages: <ChatMessage>[placeholder],
+            metadata: const <String, dynamic>{
+              'backend': 'hermes',
+              'hermesSessionId': 's-1',
+            },
+          ),
+        );
   container.read(activeConversationProvider.notifier).set(conversation);
   container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
     placeholder,
@@ -190,6 +212,35 @@ void main() {
     );
     // The push for this turn keys on the server's turn id.
     check(notification.sharesPushDedupKey).isFalse();
+  });
+
+  test('a turn in a native Hermes chat is watched for push', () async {
+    final watched = <String>[];
+    final container = _container(
+      _ScriptedHermesApi(const <HermesRunEvent>[HermesRunDone()]),
+      watched: watched,
+    );
+    addTearDown(container.dispose);
+
+    await _runTurn(container);
+
+    check(watched).isNotEmpty();
+    check(watched.first).startsWith('conn-1 ');
+  });
+
+  test('a Hermes turn in an Open WebUI chat is never watched', () async {
+    final watched = <String>[];
+    final container = _container(
+      _ScriptedHermesApi(const <HermesRunEvent>[HermesRunDone()]),
+      watched: watched,
+    );
+    addTearDown(container.dispose);
+
+    final announced = await _runTurn(container, inOpenWebUiChat: true);
+
+    // It belongs to that chat, which Open WebUI notifies about.
+    check(watched).isEmpty();
+    check(announced).isEmpty();
   });
 
   test('a failed turn is announced as failed', () async {
