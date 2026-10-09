@@ -565,7 +565,8 @@ class PullSync {
   ///
   /// When [storeIf] rejects the response, nothing is stored and the
   /// conversation is parsed straight from that same response, so a caller
-  /// that may not keep the chat still downloads it only once.
+  /// that may not keep the chat still downloads it only once. A read that a
+  /// bulk change has since outdated comes back as null, as when storing.
   Future<Conversation?> pullChat(
     String chatId, {
     bool Function(Map<String, dynamic> response)? storeIf,
@@ -573,6 +574,10 @@ class PullSync {
     final resp = await fetchChatRaw(chatId);
     if (resp == null) return null;
     if (storeIf != null && !storeIf(resp)) {
+      final fetchedGeneration = _generationsAtFetch[resp];
+      if (fetchedGeneration != null && fetchedGeneration != _locks.generation) {
+        return null;
+      }
       final parseOffload = _parseOffload;
       if (parseOffload != null) return parseOffload(resp);
       return parseFullConversationModel(resp);

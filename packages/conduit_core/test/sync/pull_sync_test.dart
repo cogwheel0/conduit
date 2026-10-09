@@ -1428,6 +1428,30 @@ void main() {
       check(await db.chatsDao.getChat('x')).isNull();
     });
 
+    test(
+      'a chat read before it comes back as absent even when not stored',
+      () async {
+        server.seedChat(
+          id: 'x',
+          blob: blobFor('x'),
+          createdAt: 100,
+          updatedAt: 200,
+        );
+        final late = _LateReadClient(server);
+        final latePull = PullSync(client: late, db: db, locks: locks);
+        final gate = Completer<void>();
+        late.readGate = gate.future;
+
+        final opening = latePull.pullChat('x', storeIf: (_) => false);
+        await late.readTaken.future;
+        await deleteAllOnServer();
+        gate.complete();
+
+        check(await opening).isNull();
+        check(await db.chatsDao.getChat('x')).isNull();
+      },
+    );
+
     test('a read that begins after the change is stored as usual', () async {
       server.seedChat(
         id: 'y',
