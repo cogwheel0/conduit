@@ -262,3 +262,24 @@ jobs:
       - name: Test
         working-directory: server-plugins
         run: ../.venv/bin/python -m pytest -q
+
+  # The push relay: a stateless Rust service that turns Web Push into APNs
+  # and FCM. Uses the runner's rustup; its tests read push/test-vectors/.
+  relay:
+    name: Push relay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup default stable
+      - name: Check formatting
+        working-directory: relay
+        run: cargo fmt --check
+      - name: Lint
+        working-directory: relay
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Test
+        working-directory: relay
+        run: cargo test --locked
