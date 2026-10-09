@@ -30,6 +30,17 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return (_forChat(chatId)).get();
   }
 
+  /// Total characters of stored message JSON for [chatId], 0 when it has no
+  /// rows. Sizes a chat without decoding any message.
+  Future<int> payloadLengthForChat(String chatId) async {
+    final total = messages.payload.length.sum();
+    final query = selectOnly(messages)
+      ..addColumns([total])
+      ..where(messages.chatId.equals(chatId));
+    final row = await query.getSingle();
+    return row.read(total) ?? 0;
+  }
+
   Future<MessageRow?> getMessage(String chatId, String messageId) {
     return _messageById(chatId, messageId);
   }

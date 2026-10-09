@@ -709,6 +709,58 @@ void main() {
         check((await db.chatsDao.getChat('chat-1'))!.lastReadAt).equals(140);
       },
     );
+
+    test(
+      'a response storeIf rejects comes back from its one download unstored',
+      () async {
+        server.seedChat(
+          id: 'chat-1',
+          blob: blobFor('chat-1', messageCount: 3),
+          createdAt: 100,
+          updatedAt: 150,
+        );
+        final owners = <Object?>[];
+
+        final conversation = await pull.pullChat(
+          'chat-1',
+          storeIf: (response) {
+            owners.add(response['user_id']);
+            return false;
+          },
+        );
+
+        check(conversation).isNotNull();
+        check(conversation!.id).equals('chat-1');
+        check(conversation.messages.length).equals(3);
+        check(conversation.userId).equals(FakeOpenWebUiServer.userId);
+        check(owners).deepEquals([FakeOpenWebUiServer.userId]);
+        check(client.chatFetchStarts).deepEquals(['chat-1']);
+        check(await allChats()).isEmpty();
+        check(await allMessages()).isEmpty();
+      },
+    );
+
+    test(
+      'a response storeIf accepts is stored from its one download',
+      () async {
+        server.seedChat(
+          id: 'chat-1',
+          blob: blobFor('chat-1', messageCount: 3),
+          createdAt: 100,
+          updatedAt: 150,
+        );
+
+        final conversation = await pull.pullChat(
+          'chat-1',
+          storeIf: (_) => true,
+        );
+
+        check(conversation!.messages.length).equals(3);
+        check((await db.chatsDao.getChat('chat-1'))!.bodySynced).isTrue();
+        check(await allMessages()).length.equals(3);
+        check(client.chatFetchStarts).deepEquals(['chat-1']);
+      },
+    );
   });
 
   group('three-way merge on pull (§7.4)', () {

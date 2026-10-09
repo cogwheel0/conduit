@@ -5,6 +5,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/sync/chat_locks.dart';
@@ -561,9 +562,21 @@ class PullSync {
   /// change (deletion reconcile is Phase 3). Otherwise lock + upsert
   /// (`listLastReadAt: null` — the max() rule preserves the local value) and
   /// return the assembled [Conversation].
-  Future<Conversation?> pullChat(String chatId) async {
+  ///
+  /// When [storeIf] rejects the response, nothing is stored and the
+  /// conversation is parsed straight from that same response, so a caller
+  /// that may not keep the chat still downloads it only once.
+  Future<Conversation?> pullChat(
+    String chatId, {
+    bool Function(Map<String, dynamic> response)? storeIf,
+  }) async {
     final resp = await fetchChatRaw(chatId);
     if (resp == null) return null;
+    if (storeIf != null && !storeIf(resp)) {
+      final parseOffload = _parseOffload;
+      if (parseOffload != null) return parseOffload(resp);
+      return parseFullConversationModel(resp);
+    }
     final id = resp['id'] is String ? resp['id'] as String : chatId;
     try {
       return await _locks.runExclusive(id, () async {

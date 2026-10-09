@@ -11,6 +11,7 @@ import 'package:conduit_core/sync/sync_engine.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:dio/dio.dart' show DioException;
 
 // kLocalConversationWorkerThreshold is defined in
 // mappers/conversation_assembler.dart and re-exported here for callers that
@@ -55,6 +56,123 @@ void schedulePullChatNow(
       stackTrace: stackTrace,
       data: {'id': id},
     );
+  }
+}
+
+/// Stored message JSON longer than this is checked for server changes with a
+/// pull cycle instead of being downloaded again on every open. A cycle reads
+/// the recent, archived, folder and note lists (about 12 KB compressed on a
+/// typical account); a chat this size costs more than that to download, while
+/// smaller chats are cheaper to fetch directly.
+const int kOpenRefreshDirectPullMaxPayloadLength = 64 * 1024;
+
+/// Background freshening for a stored OpenWebUI chat that was just opened.
+///
+/// A large, clean, fully stored chat joins a pull cycle: the cycle lists what
+/// changed since the last one and fetches this chat only if the server's copy
+/// moved, and the open chat's message watch shows the result. Anything else
+/// takes the single-chat pull. Either way a change made before the open is
+/// seen, because the list is read after it. Awaiting this only sizes the chat.
+Future<void> scheduleOpenedChatRefresh(
+  dynamic ref,
+  String id, {
+  OpenWebUiConversationReadSnapshot? ownership,
+}) async {
+  final effectiveOwnership = ownership ?? captureOpenWebUiConversationRead(ref);
+  if (effectiveOwnership == null ||
+      !openWebUiConversationReadIsCurrent(ref, effectiveOwnership)) {
+    return;
+  }
+  final db = effectiveOwnership.database;
+  var checkWithCycle = false;
+  if (db != null) {
+    try {
+      final chat = await db.chatsDao.getChat(id);
+      checkWithCycle =
+          chat != null &&
+          chat.bodySynced &&
+          !chat.dirty &&
+          !chat.deleted &&
+          await db.messagesDao.payloadLengthForChat(id) >
+              kOpenRefreshDirectPullMaxPayloadLength;
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'open-refresh-size-failed',
+        scope: 'db/conversation',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'id': id},
+      );
+    }
+  }
+  if (!checkWithCycle) {
+    schedulePullChatNow(ref, id, ownership: effectiveOwnership);
+    return;
+  }
+  if (!openWebUiConversationReadIsCurrent(ref, effectiveOwnership)) return;
+  DebugLogger.log(
+    'open-refresh-cycle',
+    scope: 'db/conversation',
+    data: {'id': id},
+  );
+  try {
+    final future =
+        ref
+                .read(syncEngineProvider.notifier)
+                .requestPull(reason: 'open-large-chat')
+            as Future<Object?>;
+    unawaited(
+      future.catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'background-pull-failed',
+          scope: 'db/conversation',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': id},
+        );
+        return null;
+      }),
+    );
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'background-pull-unavailable',
+      scope: 'db/conversation',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'id': id},
+    );
+  }
+}
+
+/// First open of an OpenWebUI chat with no stored body: one download through
+/// the sync engine, which stores the chat when [storeIf] accepts the raw
+/// response, so the next open is DB-first without fetching it a second time.
+///
+/// Returns null when the engine yields nothing (inert or unavailable, a 404,
+/// a read outdated by a bulk change) or fails for a reason other than the
+/// network, so the caller can fall back to its direct fetch. Network failures
+/// propagate, as they would from that fetch.
+Future<Conversation?> fetchChatNowForOpen(
+  dynamic ref,
+  String id, {
+  required bool Function(Map<String, dynamic> response) storeIf,
+}) async {
+  try {
+    final future =
+        ref.read(syncEngineProvider.notifier).fetchChatNow(id, storeIf: storeIf)
+            as Future<Conversation?>;
+    return await future;
+  } on DioException {
+    rethrow;
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'open-fetch-failed',
+      scope: 'db/conversation',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'id': id},
+    );
+    return null;
   }
 }
 

@@ -297,11 +297,19 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
       },
     );
     if (located.location.storage == ChatStorageKind.openWebUi) {
-      schedulePullChatNow(
+      await scheduleOpenedChatRefresh(
         ref,
         rawConversationId,
         ownership: openWebUiOwnership,
       );
+      // Sizing the refresh awaited the database; recheck before handing out
+      // this account's chat.
+      if (openWebUiOwnership == null ||
+          !openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
+        throw OpenWebUiConversationOwnershipException(
+          OpenWebUiConversationOwnershipFailureReason.changedWhileLoading,
+        );
+      }
     }
     return local;
   }
@@ -326,26 +334,50 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
     scope: 'conversation',
     data: {'id': conversationId},
   );
-  final fullConversation = await api.getConversation(rawConversationId);
+  // Materialize the local row so the next open is DB-first, from the same
+  // download. Another user's chat (shared folder) stays network-only: the
+  // sync store would otherwise push edits to it and it can never appear in
+  // this user's chat list. [storeIf] is [isReadOnlySharedConversation] on the
+  // raw response.
+  final currentUserId = ref.read(currentUserProvider2)?.id;
+  var fullConversation = await fetchChatNowForOpen(
+    ref,
+    rawConversationId,
+    storeIf: (response) {
+      final owner = response['user_id']?.toString();
+      return owner == null || owner == currentUserId;
+    },
+  );
   if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
     throw OpenWebUiConversationOwnershipException(
       OpenWebUiConversationOwnershipFailureReason.changedWhileFetching,
     );
+  }
+  if (fullConversation == null) {
+    // The sync engine had nothing to give: fetch directly and store it in the
+    // background instead.
+    fullConversation = await api.getConversation(rawConversationId);
+    if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
+      throw OpenWebUiConversationOwnershipException(
+        OpenWebUiConversationOwnershipFailureReason.changedWhileFetching,
+      );
+    }
+    if (!isReadOnlySharedConversation(
+      fullConversation,
+      ref.read(currentUserProvider2)?.id,
+    )) {
+      schedulePullChatNow(
+        ref,
+        rawConversationId,
+        ownership: openWebUiOwnership,
+      );
+    }
   }
   DebugLogger.log(
     'load-ok',
     scope: 'conversation',
     data: {'messages': fullConversation.messages.length},
   );
-  // Materialize the local row so the next open is DB-first. Another user's
-  // chat (shared folder) stays network-only: the sync store would otherwise
-  // push edits to it and it can never appear in this user's chat list.
-  if (!isReadOnlySharedConversation(
-    fullConversation,
-    ref.read(currentUserProvider2)?.id,
-  )) {
-    schedulePullChatNow(ref, rawConversationId, ownership: openWebUiOwnership);
-  }
 
   return withChatStorageProvenance(fullConversation, ChatStorageKind.openWebUi);
 }
