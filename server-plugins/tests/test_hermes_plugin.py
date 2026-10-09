@@ -996,6 +996,64 @@ def test_dashboard_profiles(dashboard, tmp_path):
     assert dashboard.api.handle_events(body, "bad name!") == (400, {"ok": False, "error": "invalid_profile"})
 
 
+class _StreamedRequest:
+    """Starlette's Request as the events route uses it, counting chunks read."""
+
+    def __init__(self, chunks, content_length=None) -> None:
+        self.headers = {} if content_length is None else {"content-length": str(content_length)}
+        self.chunks = list(chunks)
+        self.read = 0
+
+    async def stream(self):
+        for chunk in self.chunks:
+            self.read += 1
+            yield chunk
+
+
+def test_dashboard_refuses_large_bodies_while_reading(dashboard):
+    route = dashboard.api.router.routes[("POST", "/v1/events")]
+    declared = _StreamedRequest([b"{}"], content_length=10 ** 9)
+    response = run(route(declared, profile=None))
+    assert (response.status_code, response.content) == (413, {"ok": False, "error": "too_large"})
+    assert declared.read == 0
+
+    chunked = _StreamedRequest([b"x" * 4096] * 1000)  # 4 MB without a Content-Length
+    response = run(route(chunked, profile=None))
+    assert response.status_code == 413 and chunked.read == 5
+
+    lying = _StreamedRequest([b"x" * 4096] * 1000, content_length=2)
+    assert run(route(lying, profile=None)).status_code == 413 and lying.read == 5
+
+    hello = _StreamedRequest([b'{"op": ', b'"hello"}'], content_length=15)
+    response = run(route(hello, profile=None))
+    assert (response.status_code, response.content["plugin"]) == (200, "conduit")
+
+    at_limit = _StreamedRequest([b" " * (16384 - 15), b'{"op": "hello"}'], content_length="junk")
+    assert run(route(at_limit, profile=None)).status_code == 200
+
+
+def test_dashboard_body_cap_with_starlette(dashboard):
+    requests = pytest.importorskip("starlette.requests")
+
+    def request(chunks, headers=()):
+        messages = [{"type": "http.request", "body": c, "more_body": i < len(chunks) - 1} for i, c in enumerate(chunks)]
+        received = []
+
+        async def receive():
+            received.append(1)
+            return messages[len(received) - 1]
+
+        scope = {"type": "http", "method": "POST", "path": "/", "headers": list(headers), "query_string": b""}
+        return requests.Request(scope, receive), received
+
+    big, received = request([b"x" * 4096] * 1000)
+    assert run(dashboard.api.read_capped(big)) is None and len(received) == 5
+    declared, received = request([b"{}"], [(b"content-length", b"999999")])
+    assert run(dashboard.api.read_capped(declared)) is None and received == []
+    small, _ = request([b'{"op":', b'"hello"}'])
+    assert run(dashboard.api.read_capped(small)) == b'{"op":"hello"}'
+
+
 def test_dashboard_rejects_bad_bodies(dashboard):
     api = dashboard.api
     assert api.handle_events(b"x" * 20000, None) == (413, {"ok": False, "error": "too_large"})
