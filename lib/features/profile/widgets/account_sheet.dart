@@ -75,7 +75,31 @@ class _AccountSheetState extends State<AccountSheet> {
   final _extent = DraggableScrollableController();
   late final _expandOnPush = _ExpandOnPush(_expand);
 
+  /// Where the sheet stood when a finger went down on it.
+  double? _pressedAt;
+
   void _close() => Navigator.of(context).maybePop();
+
+  void _pressed(PointerDownEvent _) {
+    _pressedAt = _extent.isAttached ? _extent.size : null;
+  }
+
+  /// A drag on the form lifts the sheet before it scrolls anything. Let go
+  /// short of the top, the sheet would settle back where it opened, the form
+  /// unscrolled; so a drag that lifted it carries it the rest of the way.
+  ///
+  /// A finger's release reaches this before the drag ends, so the size read
+  /// is where the drag left the sheet; the opening is animated a frame later,
+  /// after the settling it replaces has begun.
+  void _released(PointerEvent _) {
+    final start = _pressedAt;
+    _pressedAt = null;
+    if (start == null || !_extent.isAttached) return;
+    if (_extent.size <= start + 0.005) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _expand();
+    });
+  }
 
   /// A page opened inside the sheet gets all of it; only the first page
   /// grows it by scrolling.
@@ -122,25 +146,31 @@ class _AccountSheetState extends State<AccountSheet> {
             maxChildSize: _fullSize,
             snap: true,
             snapSizes: const [_openSize],
-            builder: (context, scrollController) => ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(AppBorderRadius.bottomSheet),
-              ),
-              child: ColoredBox(
-                color: theme.groupedBackground,
-                child: _AccountSheetScope(
-                  scrollController: scrollController,
-                  close: _close,
-                  // Back closes a page opened inside the sheet before the
-                  // sheet itself.
-                  child: NavigatorPopHandler(
-                    onPopWithResult: (_) => _navigator.currentState?.maybePop(),
-                    child: Navigator(
-                      key: _navigator,
-                      observers: [_expandOnPush],
-                      onGenerateRoute: (_) => PageRouteBuilder<void>(
-                        pageBuilder: (_, _, _) =>
-                            _AccountSheetRoot(request: widget.request),
+            builder: (context, scrollController) => Listener(
+              onPointerDown: _pressed,
+              onPointerUp: _released,
+              onPointerCancel: _released,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(AppBorderRadius.bottomSheet),
+                ),
+                child: ColoredBox(
+                  color: theme.groupedBackground,
+                  child: _AccountSheetScope(
+                    scrollController: scrollController,
+                    close: _close,
+                    // Back closes a page opened inside the sheet before the
+                    // sheet itself.
+                    child: NavigatorPopHandler(
+                      onPopWithResult: (_) =>
+                          _navigator.currentState?.maybePop(),
+                      child: Navigator(
+                        key: _navigator,
+                        observers: [_expandOnPush],
+                        onGenerateRoute: (_) => PageRouteBuilder<void>(
+                          pageBuilder: (_, _, _) =>
+                              _AccountSheetRoot(request: widget.request),
+                        ),
                       ),
                     ),
                   ),

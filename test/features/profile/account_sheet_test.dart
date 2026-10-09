@@ -315,6 +315,61 @@ void main() {
     expect(find.text('https://lab.example'), findsOne);
   });
 
+  group('dragging the form', () {
+    double sheetHeight(WidgetTester tester) => tester
+        .getSize(
+          find
+              .descendant(
+                of: find.byType(DraggableScrollableSheet),
+                matching: find.byType(ClipRRect),
+              )
+              .first,
+        )
+        .height;
+
+    Future<void> slowDrag(WidgetTester tester, double dy) async {
+      final form = find
+          .descendant(
+            of: find.byType(DraggableScrollableSheet),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final gesture = await tester.startGesture(tester.getCenter(form));
+      for (var moved = 0.0; moved.abs() < dy.abs(); moved += dy.sign * 10) {
+        await gesture.moveBy(Offset(0, dy.sign * 10));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      // Held still before letting go: no fling to carry it.
+      await tester.pump(const Duration(milliseconds: 200));
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    // Let go short of the top, the sheet settled back where it opened and
+    // the form had not moved: a short scroll did nothing.
+    testWidgets('a short upward drag opens the sheet the rest of the way', (
+      tester,
+    ) async {
+      await pumpSheet(tester, const AddAccountRequest(AccountKind.hermes));
+      final opened = sheetHeight(tester);
+
+      await slowDrag(tester, -100);
+
+      check(sheetHeight(tester)).isGreaterThan(opened);
+      // 95% of the 2400-pixel-high test screen.
+      check(sheetHeight(tester)).equals(2280);
+    });
+
+    testWidgets('a downward drag does not open it', (tester) async {
+      await pumpSheet(tester, const AddAccountRequest(AccountKind.hermes));
+      final opened = sheetHeight(tester);
+
+      await slowDrag(tester, 40);
+
+      check(sheetHeight(tester)).isLessOrEqual(opened);
+    });
+  });
+
   testWidgets('a Direct provider is edited in the sheet, without tabs', (
     tester,
   ) async {
