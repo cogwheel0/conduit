@@ -60,6 +60,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit_core/features/chat/providers/remap_route_sync_provider.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 
 import '../../features/channels/providers/channel_socket_handler.dart';
@@ -1033,6 +1034,13 @@ class AppStartupFlow extends _$AppStartupFlow {
       const Duration(milliseconds: 64),
       homeWidgetCoordinatorProvider,
       label: 'home-widget',
+    );
+    // Push setup runs once accounts and connections are known, and stays
+    // idle while push is off.
+    _scheduleDeferredKeepAlive(
+      const Duration(milliseconds: 72),
+      pushCoordinatorProvider,
+      label: 'push-coordinator',
     );
     _scheduleAfterDelay(
       const Duration(milliseconds: 80),

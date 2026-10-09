@@ -4167,5 +4167,14 @@
   "accountsRemoveAddressMessage": "Conduit 將不再嘗試此位址。你的帳戶會保持登入狀態。",
   "accountsAddressConfirmTitle": "要檢查此位址嗎？",
   "accountsAddressConfirmMessage": "為確認 {host} 就是這台伺服器，Conduit 會將此裝置上已儲存帳戶的工作階段傳送給它。僅在你信任此位址時繼續。",
-  "accountsAddressConfirmAction": "檢查位址"
+  "accountsAddressConfirmAction": "檢查位址",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "新通知",
+  "pushReplyTitle": "新回覆",
+  "pushReplyFailedTitle": "回覆失敗",
+  "pushReplyFailedBody": "回覆未能完成。",
+  "pushChannelTitle": "新訊息",
+  "pushCronTitle": "排程工作",
+  "pushTestTitle": "推播通知已可使用",
+  "pushTestBody": "這則測試通知來自你的伺服器。"
 }

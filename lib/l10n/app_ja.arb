@@ -5683,5 +5683,14 @@
   "accountsRemoveAddressMessage": "Conduit はこのアドレスを試さなくなります。アカウントはサインインしたままです。",
   "accountsAddressConfirmTitle": "このアドレスを確認しますか？",
   "accountsAddressConfirmMessage": "{host} がこのサーバーであることを確かめるため、Conduit はこのデバイスに保存されたアカウントのセッションをそこへ送信します。このアドレスを信頼できる場合のみ続行してください。",
-  "accountsAddressConfirmAction": "アドレスを確認"
+  "accountsAddressConfirmAction": "アドレスを確認",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "新しい通知",
+  "pushReplyTitle": "新しい返信",
+  "pushReplyFailedTitle": "返信に失敗しました",
+  "pushReplyFailedBody": "返信を完了できませんでした。",
+  "pushChannelTitle": "新しいメッセージ",
+  "pushCronTitle": "スケジュールされたタスク",
+  "pushTestTitle": "プッシュ通知は正常に動作しています",
+  "pushTestBody": "このテスト通知はあなたのサーバーから届きました。"
 }

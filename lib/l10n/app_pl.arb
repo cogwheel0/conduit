@@ -7722,5 +7722,14 @@
       }
     }
   },
-  "accountsAddressConfirmAction": "Sprawdź adres"
+  "accountsAddressConfirmAction": "Sprawdź adres",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nowe powiadomienie",
+  "pushReplyTitle": "Nowa odpowiedź",
+  "pushReplyFailedTitle": "Odpowiedź nie powiodła się",
+  "pushReplyFailedBody": "Nie udało się dokończyć odpowiedzi.",
+  "pushChannelTitle": "Nowa wiadomość",
+  "pushCronTitle": "Zadanie zaplanowane",
+  "pushTestTitle": "Powiadomienia push działają",
+  "pushTestBody": "To powiadomienie testowe przyszło z Twojego serwera."
 }

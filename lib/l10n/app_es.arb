@@ -4167,5 +4167,14 @@
   "accountsRemoveAddressMessage": "Conduit dejará de probar esta dirección. Tus cuentas seguirán con la sesión iniciada.",
   "accountsAddressConfirmTitle": "¿Comprobar esta dirección?",
   "accountsAddressConfirmMessage": "Para asegurarse de que {host} es este servidor, Conduit le envía la sesión de una cuenta guardada aquí. Continúa solo si confías en esta dirección.",
-  "accountsAddressConfirmAction": "Comprobar dirección"
+  "accountsAddressConfirmAction": "Comprobar dirección",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Nueva notificación",
+  "pushReplyTitle": "Nueva respuesta",
+  "pushReplyFailedTitle": "La respuesta falló",
+  "pushReplyFailedBody": "No se pudo completar la respuesta.",
+  "pushChannelTitle": "Nuevo mensaje",
+  "pushCronTitle": "Tarea programada",
+  "pushTestTitle": "Las notificaciones push funcionan",
+  "pushTestBody": "Esta notificación de prueba llegó desde tu servidor."
 }

@@ -3939,5 +3939,14 @@
   "accountsRemoveAddressMessage": "Conduit이 더 이상 이 주소를 시도하지 않습니다. 계정은 로그인 상태로 유지됩니다.",
   "accountsAddressConfirmTitle": "이 주소를 확인할까요?",
   "accountsAddressConfirmMessage": "{host}이(가) 이 서버인지 확인하기 위해 Conduit이 이 기기에 저장된 계정의 세션을 해당 주소로 보냅니다. 이 주소를 신뢰하는 경우에만 계속하세요.",
-  "accountsAddressConfirmAction": "주소 확인"
+  "accountsAddressConfirmAction": "주소 확인",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "새 알림",
+  "pushReplyTitle": "새 응답",
+  "pushReplyFailedTitle": "응답 실패",
+  "pushReplyFailedBody": "응답을 완료하지 못했습니다.",
+  "pushChannelTitle": "새 메시지",
+  "pushCronTitle": "예약된 작업",
+  "pushTestTitle": "푸시 알림이 작동합니다",
+  "pushTestBody": "이 테스트 알림은 사용자의 서버에서 보냈습니다."
 }

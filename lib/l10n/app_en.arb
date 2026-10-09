@@ -8573,5 +8573,41 @@
   "accountsAddressConfirmAction": "Check address",
   "@accountsAddressConfirmAction": {
     "description": "Confirms sending a saved account's session to a new address of an Open WebUI server, to check that it reaches the same server."
+  },
+  "pushFallbackTitle": "Conduit",
+  "@pushFallbackTitle": {
+    "description": "Title of a push notification that could not be decrypted on this device, or that has no title. Usually the app name."
+  },
+  "pushFallbackBody": "New notification",
+  "@pushFallbackBody": {
+    "description": "Body of a push notification that could not be decrypted on this device; it never shows any content."
+  },
+  "pushReplyTitle": "New reply",
+  "@pushReplyTitle": {
+    "description": "Title of a push notification for a finished reply when the chat has no title."
+  },
+  "pushReplyFailedTitle": "Reply failed",
+  "@pushReplyFailedTitle": {
+    "description": "Title of a push notification for a reply that failed, when the chat has no title."
+  },
+  "pushReplyFailedBody": "The reply couldn't be finished.",
+  "@pushReplyFailedBody": {
+    "description": "Body of a push notification for a reply that failed, when the server gives no detail."
+  },
+  "pushChannelTitle": "New message",
+  "@pushChannelTitle": {
+    "description": "Title of a push notification for a channel message when the channel has no name."
+  },
+  "pushCronTitle": "Scheduled task",
+  "@pushCronTitle": {
+    "description": "Title of a push notification for a Hermes scheduled task result when the job has no name."
+  },
+  "pushTestTitle": "Push notifications work",
+  "@pushTestTitle": {
+    "description": "Title of the test push notification Conduit asks the user's server to send while setting up push."
+  },
+  "pushTestBody": "This test notification came from your server.",
+  "@pushTestBody": {
+    "description": "Body of the test push notification Conduit asks the user's server to send while setting up push."
   }
 }

@@ -4167,5 +4167,14 @@
   "accountsRemoveAddressMessage": "Conduit 将不再尝试此地址。你的账户将保持登录状态。",
   "accountsAddressConfirmTitle": "要检查此地址吗？",
   "accountsAddressConfirmMessage": "为确认 {host} 就是这台服务器，Conduit 会向它发送此设备上已保存账户的会话。仅在你信任此地址时继续。",
-  "accountsAddressConfirmAction": "检查地址"
+  "accountsAddressConfirmAction": "检查地址",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "新通知",
+  "pushReplyTitle": "新回复",
+  "pushReplyFailedTitle": "回复失败",
+  "pushReplyFailedBody": "回复未能完成。",
+  "pushChannelTitle": "新消息",
+  "pushCronTitle": "计划任务",
+  "pushTestTitle": "推送通知已可用",
+  "pushTestBody": "这条测试通知来自你的服务器。"
 }

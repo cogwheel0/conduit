@@ -4205,5 +4205,14 @@
   "accountsRemoveAddressMessage": "Conduit перестанет пробовать этот адрес. Вход в ваши аккаунты сохранится.",
   "accountsAddressConfirmTitle": "Проверить этот адрес?",
   "accountsAddressConfirmMessage": "Чтобы убедиться, что {host} — это тот же сервер, Conduit отправит туда сеанс аккаунта, сохранённого на этом устройстве. Продолжайте, только если доверяете этому адресу.",
-  "accountsAddressConfirmAction": "Проверить адрес"
+  "accountsAddressConfirmAction": "Проверить адрес",
+  "pushFallbackTitle": "Conduit",
+  "pushFallbackBody": "Новое уведомление",
+  "pushReplyTitle": "Новый ответ",
+  "pushReplyFailedTitle": "Ошибка ответа",
+  "pushReplyFailedBody": "Не удалось завершить ответ.",
+  "pushChannelTitle": "Новое сообщение",
+  "pushCronTitle": "Запланированная задача",
+  "pushTestTitle": "Push-уведомления работают",
+  "pushTestBody": "Это тестовое уведомление пришло с вашего сервера."
 }
