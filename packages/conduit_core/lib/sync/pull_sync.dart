@@ -5,6 +5,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/sync/chat_locks.dart';
@@ -70,6 +71,28 @@ int _chatMessageCount(Map<String, dynamic> response) {
   if (history is! Map) return 0;
   final messages = history['messages'];
   return messages is Map ? messages.length : 0;
+}
+
+/// Whether the strings in a response's history messages total more than
+/// [limit] characters. Counts without encoding and stops once past [limit],
+/// so a few messages carrying inline image data are caught cheaply.
+bool _chatMessageTextExceeds(Map<String, dynamic> response, int limit) {
+  final chat = response['chat'];
+  if (chat is! Map) return false;
+  final history = chat['history'];
+  if (history is! Map) return false;
+  var total = 0;
+  bool exceeds(Object? node) {
+    if (node is String) {
+      total += node.length;
+      return total > limit;
+    }
+    if (node is Map) return node.values.any(exceeds);
+    if (node is List) return node.any(exceeds);
+    return false;
+  }
+
+  return exceeds(history['messages']);
 }
 
 int? _parseServerEpochSeconds(Object? value) {
@@ -561,9 +584,26 @@ class PullSync {
   /// change (deletion reconcile is Phase 3). Otherwise lock + upsert
   /// (`listLastReadAt: null` — the max() rule preserves the local value) and
   /// return the assembled [Conversation].
-  Future<Conversation?> pullChat(String chatId) async {
+  ///
+  /// When [storeIf] rejects the response, nothing is stored and the
+  /// conversation is parsed straight from that same response, so a caller
+  /// that may not keep the chat still downloads it only once. A read that a
+  /// bulk change has since outdated comes back as null, as when storing.
+  Future<Conversation?> pullChat(
+    String chatId, {
+    bool Function(Map<String, dynamic> response)? storeIf,
+  }) async {
     final resp = await fetchChatRaw(chatId);
     if (resp == null) return null;
+    if (storeIf != null && !storeIf(resp)) {
+      final fetchedGeneration = _generationsAtFetch[resp];
+      if (fetchedGeneration != null && fetchedGeneration != _locks.generation) {
+        return null;
+      }
+      final parseOffload = _parseOffload;
+      if (parseOffload != null) return parseOffload(resp);
+      return parseFullConversationModel(resp);
+    }
     final id = resp['id'] is String ? resp['id'] as String : chatId;
     try {
       return await _locks.runExclusive(id, () async {
@@ -658,7 +698,11 @@ class PullSync {
     final rowsParser = _rowsParseOffload;
     final rows =
         rowsParser != null &&
-            _chatMessageCount(resp) > kLocalConversationWorkerThreshold
+            (_chatMessageCount(resp) > kLocalConversationWorkerThreshold ||
+                _chatMessageTextExceeds(
+                  resp,
+                  kLocalConversationWorkerPayloadThreshold,
+                ))
         ? await rowsParser(resp)
         : _chatRowsFromResponse(resp);
 

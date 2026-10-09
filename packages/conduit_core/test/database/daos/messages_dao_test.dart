@@ -599,4 +599,21 @@ void main() {
       },
     );
   });
+
+  group('payloadLengthForChat', () {
+    test('sums one chat\'s stored message JSON and nothing else', () async {
+      await db.chatsDao.upsertServerChat(
+        rows: buildLinearChatRows(chatId: 'sized', count: 3),
+      );
+      await db.chatsDao.upsertServerChat(
+        rows: buildLinearChatRows(chatId: 'other', count: 5),
+      );
+      final rows = await db.messagesDao.getForChat('sized');
+
+      check(
+        await db.messagesDao.payloadLengthForChat('sized'),
+      ).equals(rows.fold<int>(0, (total, row) => total + row.payload.length));
+      check(await db.messagesDao.payloadLengthForChat('missing')).equals(0);
+    });
+  });
 }

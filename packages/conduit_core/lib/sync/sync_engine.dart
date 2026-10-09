@@ -551,19 +551,34 @@ class SyncEngine extends _$SyncEngine {
   }
 
   /// Immediate, not debounced; serialization comes from [ChatLocks].
-  Future<Conversation?> pullChatNow(String chatId) async {
+  Future<Conversation?> pullChatNow(String chatId) =>
+      _pullChatNow(chatId, reason: 'pullChatNow');
+
+  /// [pullChatNow] for a caller that may not keep the chat: one download,
+  /// stored only when [storeIf] accepts the raw response. Returns null when
+  /// the engine is unavailable, so callers keep their direct-fetch fallback.
+  Future<Conversation?> fetchChatNow(
+    String chatId, {
+    required bool Function(Map<String, dynamic> response) storeIf,
+  }) => _pullChatNow(chatId, reason: 'fetchChatNow', storeIf: storeIf);
+
+  Future<Conversation?> _pullChatNow(
+    String chatId, {
+    required String reason,
+    bool Function(Map<String, dynamic> response)? storeIf,
+  }) async {
     if (!_refreshBoundDependencies()) return null;
     if (_inert) {
       DebugLogger.log(
         'inert',
         scope: 'sync/engine',
-        data: {'reason': 'pullChatNow', 'chatId': chatId},
+        data: {'reason': reason, 'chatId': chatId},
       );
       return null;
     }
     final pull = _buildPullSync();
     if (pull == null) return null;
-    return pull.pullChat(chatId);
+    return pull.pullChat(chatId, storeIf: storeIf);
   }
 
   PullSync? _buildPullSync({SyncItemProgressCallback? onProgress}) {

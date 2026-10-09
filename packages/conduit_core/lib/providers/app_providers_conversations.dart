@@ -886,10 +886,12 @@ final folderConversationSummariesProvider =
 bool isReadOnlySharedConversation(
   Conversation? conversation,
   String? currentUserId,
-) {
-  final owner = conversation?.userId;
-  return owner != null && owner != currentUserId;
-}
+) => isReadOnlySharedOwner(conversation?.userId, currentUserId);
+
+/// [isReadOnlySharedConversation] for a chat's owner id, so a raw response's
+/// `user_id` can be checked before it is parsed.
+bool isReadOnlySharedOwner(String? owner, String? currentUserId) =>
+    owner != null && owner != currentUserId;
 
 /// Whether the current chat session is temporary (not persisted to server).
 ///
