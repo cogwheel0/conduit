@@ -259,6 +259,8 @@ jobs:
           .venv/bin/pip install -r server-plugins/requirements-test.txt
       - name: Check test vectors are up to date
         run: .venv/bin/python push/test-vectors/generate.py --check
+      - name: Check the Hermes plugin's copy of the shared library is up to date
+        run: .venv/bin/python server-plugins/hermes/sync.py --check
       - name: Test
         working-directory: server-plugins
         run: ../.venv/bin/python -m pytest -q
