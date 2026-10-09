@@ -8617,5 +8617,467 @@
   "pushTestBody": "This test notification came from your server.",
   "@pushTestBody": {
     "description": "Body of the test push notification Conduit asks the user's server to send while setting up push."
+  },
+  "pushSectionTitle": "Push notifications",
+  "@pushSectionTitle": {
+    "description": "Header of the Push notifications group on the Notifications settings page, and title of its native iOS detail."
+  },
+  "pushEnabledTitle": "Push notifications",
+  "@pushEnabledTitle": {
+    "description": "Title of the switch that turns end-to-end encrypted push notifications on for every account and connection."
+  },
+  "pushEnabledDescription": "Get notified while Conduit is closed. End-to-end encrypted.",
+  "@pushEnabledDescription": {
+    "description": "Subtitle of the push notifications switch."
+  },
+  "pushUnavailableBuild": "Not available in this build",
+  "@pushUnavailableBuild": {
+    "description": "Shown instead of the push switch subtitle, and as a target status, when this build of the app has no way to deliver push notifications."
+  },
+  "pushUnavailableAndroid": "Not available in this build without a UnifiedPush distributor",
+  "@pushUnavailableAndroid": {
+    "description": "Shown on Android instead of the push switch subtitle when push can only work through a UnifiedPush distributor and none is installed."
+  },
+  "pushGetDistributor": "Get a UnifiedPush distributor",
+  "@pushGetDistributor": {
+    "description": "Row that opens the UnifiedPush website listing distributor apps."
+  },
+  "pushPrivacyTitle": "How push stays private",
+  "@pushPrivacyTitle": {
+    "description": "Row and page title for a short explanation of what each party can see of push notifications."
+  },
+  "pushStatusOff": "Off",
+  "@pushStatusOff": {
+    "description": "Push status of an account or connection while push is off."
+  },
+  "pushStatusOptedOut": "Turned off on this device",
+  "@pushStatusOptedOut": {
+    "description": "Push status of an account or connection the user switched push off for on this device."
+  },
+  "pushStatusSettingUp": "Setting up…",
+  "@pushStatusSettingUp": {
+    "description": "Push status while the app registers this device with the server."
+  },
+  "pushStatusVerifying": "Sending a test notification…",
+  "@pushStatusVerifying": {
+    "description": "Push status while the server sends a test push to check delivery."
+  },
+  "pushStatusOn": "On",
+  "@pushStatusOn": {
+    "description": "Push status when a test push arrived and push works for the account or connection."
+  },
+  "pushStatusNeedsAdminSetup": "Needs your admin to set up",
+  "@pushStatusNeedsAdminSetup": {
+    "description": "Push status when the Open WebUI server lacks the Conduit Push function and the user is not an admin."
+  },
+  "pushStatusCanInstall": "Not set up on this server",
+  "@pushStatusCanInstall": {
+    "description": "Push status when the Open WebUI server lacks the Conduit Push function and the user, an admin, can install it."
+  },
+  "pushStatusUpdateAvailable": "On · Update available",
+  "@pushStatusUpdateAvailable": {
+    "description": "Push status when push works and a newer Conduit Push function comes with the app."
+  },
+  "pushStatusPluginsDisabled": "Functions are turned off on this server",
+  "@pushStatusPluginsDisabled": {
+    "description": "Push status when the Open WebUI server runs with functions (plugins) disabled."
+  },
+  "pushStatusServerTooOldOpenWebUi": "Needs Open WebUI 0.10 or newer",
+  "@pushStatusServerTooOldOpenWebUi": {
+    "description": "Push status when the Open WebUI server is older than the version push needs."
+  },
+  "pushStatusServerTooOldHermes": "Needs a newer version of Hermes",
+  "@pushStatusServerTooOldHermes": {
+    "description": "Push status when the Hermes server is too old for push."
+  },
+  "pushStatusNeedsHermesPlugin": "Needs the Conduit plugin in Hermes",
+  "@pushStatusNeedsHermesPlugin": {
+    "description": "Push status when the Hermes connection lacks the Conduit plugin."
+  },
+  "pushStatusRestartHermes": "Restart Hermes to finish",
+  "@pushStatusRestartHermes": {
+    "description": "Push status after the Hermes plugin was installed and Hermes must restart to load it."
+  },
+  "pushStatusSignInNeeded": "Sign in to use push",
+  "@pushStatusSignInNeeded": {
+    "description": "Push status when the account's or connection's session ended."
+  },
+  "pushStatusPermissionDenied": "Notifications are blocked",
+  "@pushStatusPermissionDenied": {
+    "description": "Push status and row title when the system does not allow Conduit to show notifications."
+  },
+  "pushStatusNotificationsOff": "On · Notifications are off for this account",
+  "@pushStatusNotificationsOff": {
+    "description": "Push status when push works but the account's own notifications switch is off, so pushes are not shown."
+  },
+  "pushActionSetUp": "Set up",
+  "@pushActionSetUp": {
+    "description": "Button that installs the Conduit Push function on an Open WebUI server, after a confirmation."
+  },
+  "pushActionAskAdmin": "Ask your admin",
+  "@pushActionAskAdmin": {
+    "description": "Button that shares setup instructions with the Open WebUI admin."
+  },
+  "pushActionUpdate": "Update",
+  "@pushActionUpdate": {
+    "description": "Button that updates the Conduit Push function on an Open WebUI server, after a confirmation."
+  },
+  "pushActionInstall": "Install",
+  "@pushActionInstall": {
+    "description": "Button that installs the Conduit plugin or function, after a confirmation."
+  },
+  "pushActionCopyCommand": "Copy command",
+  "@pushActionCopyCommand": {
+    "description": "Button that copies the command that installs the Conduit plugin in Hermes."
+  },
+  "pushExplainOn": "Notifications for this account reach this device even while Conduit is closed.",
+  "@pushExplainOn": {
+    "description": "Detail sheet explanation when push works."
+  },
+  "pushExplainOptedOut": "Push is turned off for this account on this device.",
+  "@pushExplainOptedOut": {
+    "description": "Detail sheet explanation when push is off for this account or connection."
+  },
+  "pushExplainSettingUp": "Conduit is registering this device with the server.",
+  "@pushExplainSettingUp": {
+    "description": "Detail sheet explanation while push is being set up."
+  },
+  "pushExplainVerifying": "The server is sending a test notification to this device.",
+  "@pushExplainVerifying": {
+    "description": "Detail sheet explanation while a test push is on its way."
+  },
+  "pushExplainNotificationsOff": "Push is set up, but notifications are turned off for this account, so they aren't shown.",
+  "@pushExplainNotificationsOff": {
+    "description": "Detail sheet explanation when push works but the account's notifications switch is off."
+  },
+  "pushExplainNeedsAdminSetup": "Push needs the open-source Conduit Push function on this server, and only an admin can install it. Send your admin the setup link.",
+  "@pushExplainNeedsAdminSetup": {
+    "description": "Detail sheet explanation when a non-admin's Open WebUI server lacks the function."
+  },
+  "pushExplainCanInstall": "Push needs the open-source Conduit Push function on this server. You're an admin, so you can install it now.",
+  "@pushExplainCanInstall": {
+    "description": "Detail sheet explanation when an admin's Open WebUI server lacks the function."
+  },
+  "pushExplainUpdateAvailable": "Push works. This app comes with a newer version of the Conduit Push function.",
+  "@pushExplainUpdateAvailable": {
+    "description": "Detail sheet explanation when an update of the function is available."
+  },
+  "pushExplainPluginsDisabled": "This Open WebUI server runs with functions turned off, so Conduit Push can't run on it. An admin can turn them on.",
+  "@pushExplainPluginsDisabled": {
+    "description": "Detail sheet explanation when the server disables functions."
+  },
+  "pushExplainServerTooOld": "This server is too old for push notifications. Update it to use them.",
+  "@pushExplainServerTooOld": {
+    "description": "Detail sheet explanation when the server is too old."
+  },
+  "pushExplainNeedsHermesPlugin": "Push needs the open-source Conduit plugin in Hermes. Conduit can install it through the Hermes dashboard.",
+  "@pushExplainNeedsHermesPlugin": {
+    "description": "Detail sheet explanation when a dashboard Hermes connection lacks the plugin."
+  },
+  "pushExplainHermesCommand": "Push needs the open-source Conduit plugin in Hermes. Run this command on the computer that runs Hermes:",
+  "@pushExplainHermesCommand": {
+    "description": "Detail sheet explanation, followed by a command, when an API-key Hermes connection lacks the plugin."
+  },
+  "pushExplainRestartHermes": "The plugin is installed. Restart Hermes to finish; Conduit checks again by itself.",
+  "@pushExplainRestartHermes": {
+    "description": "Detail sheet explanation while Hermes needs a restart."
+  },
+  "pushExplainSignInNeeded": "Sign in to this account again to use push.",
+  "@pushExplainSignInNeeded": {
+    "description": "Detail sheet explanation when the session ended."
+  },
+  "pushExplainRelayUnavailable": "This build of Conduit can't deliver push notifications.",
+  "@pushExplainRelayUnavailable": {
+    "description": "Detail sheet explanation when the build has no push relay."
+  },
+  "pushExplainPermissionDenied": "Allow notifications for Conduit in system settings.",
+  "@pushExplainPermissionDenied": {
+    "description": "Explanation when the system blocks notifications for Conduit."
+  },
+  "pushFailureNoTransport": "This device has no way to receive push notifications.",
+  "@pushFailureNoTransport": {
+    "description": "Push failure: no delivery service is available."
+  },
+  "pushFailureNoToken": "This device didn't get a push token. Check the connection and try again.",
+  "@pushFailureNoToken": {
+    "description": "Push failure: Apple or Google did not issue a device token."
+  },
+  "pushFailureDistributor": "The UnifiedPush distributor didn't answer.",
+  "@pushFailureDistributor": {
+    "description": "Push failure: the UnifiedPush distributor app gave no endpoint."
+  },
+  "pushFailureRelay": "The push relay couldn't be reached.",
+  "@pushFailureRelay": {
+    "description": "Push failure: the push relay failed."
+  },
+  "pushFailureRelayBusy": "The push relay is busy. Try again later.",
+  "@pushFailureRelayBusy": {
+    "description": "Push failure: the push relay is rate limiting."
+  },
+  "pushFailureServerUnreachable": "The server couldn't be reached.",
+  "@pushFailureServerUnreachable": {
+    "description": "Push failure: the Open WebUI or Hermes server could not be reached."
+  },
+  "pushFailureServerRejected": "The server refused the request.",
+  "@pushFailureServerRejected": {
+    "description": "Push failure: the server answered with an error."
+  },
+  "pushFailureHermesAuth": "Hermes didn't accept the API key.",
+  "@pushFailureHermesAuth": {
+    "description": "Push failure: Hermes rejected the API key."
+  },
+  "pushFailureSubscriptionLost": "The server didn't keep this device's subscription.",
+  "@pushFailureSubscriptionLost": {
+    "description": "Push failure: the subscription was not stored on the server."
+  },
+  "pushFailureInstall": "Installing didn't work.",
+  "@pushFailureInstall": {
+    "description": "Push failure: installing the function or plugin failed."
+  },
+  "pushFailureTestTimeout": "The test notification didn't arrive.",
+  "@pushFailureTestTimeout": {
+    "description": "Push failure: the test push never reached this device."
+  },
+  "pushFailureDelivery": "The server couldn't deliver the test notification.",
+  "@pushFailureDelivery": {
+    "description": "Push failure: the server reported a delivery error."
+  },
+  "pushFailurePlatform": "This device couldn't store its push keys.",
+  "@pushFailurePlatform": {
+    "description": "Push failure: the device key store failed."
+  },
+  "pushFailureUnknown": "Something went wrong.",
+  "@pushFailureUnknown": {
+    "description": "Push failure without a known reason."
+  },
+  "pushInstallOpenWebUiTitle": "Install Conduit Push?",
+  "@pushInstallOpenWebUiTitle": {
+    "description": "Title of the confirmation before installing the Conduit Push function on an Open WebUI server."
+  },
+  "pushInstallOpenWebUiMessage": "This installs the open-source Conduit Push function on this server and turns it on, so everyone here can get push notifications in Conduit. It encrypts each notification on the server before it leaves.",
+  "@pushInstallOpenWebUiMessage": {
+    "description": "Body of the confirmation before installing the Conduit Push function."
+  },
+  "pushUpdateOpenWebUiTitle": "Update Conduit Push?",
+  "@pushUpdateOpenWebUiTitle": {
+    "description": "Title of the confirmation before updating the Conduit Push function."
+  },
+  "pushUpdateOpenWebUiMessage": "This replaces the Conduit Push function on this server with the version that comes with this app. Existing subscriptions are kept.",
+  "@pushUpdateOpenWebUiMessage": {
+    "description": "Body of the confirmation before updating the Conduit Push function."
+  },
+  "pushInstallHermesTitle": "Install the Conduit plugin?",
+  "@pushInstallHermesTitle": {
+    "description": "Title of the confirmation before installing the Conduit plugin into Hermes."
+  },
+  "pushInstallHermesMessage": "This installs the open-source Conduit plugin into Hermes from GitHub and turns it on. Hermes checks plugins before installing them. Restart Hermes once to finish.",
+  "@pushInstallHermesMessage": {
+    "description": "Body of the confirmation before installing the Conduit plugin into Hermes."
+  },
+  "pushViewSource": "View source",
+  "@pushViewSource": {
+    "description": "Row in an install confirmation that opens the source code being installed."
+  },
+  "pushHermesCommandLabel": "Command",
+  "@pushHermesCommandLabel": {
+    "description": "Label of the Hermes install command shown in the detail sheet."
+  },
+  "pushDetailSendTest": "Send test notification",
+  "@pushDetailSendTest": {
+    "description": "Row in a push detail sheet that sends a test push to this device."
+  },
+  "pushTestArrived": "The test notification arrived.",
+  "@pushTestArrived": {
+    "description": "Message after a test push arrived."
+  },
+  "pushTestMissing": "The test notification didn't arrive.",
+  "@pushTestMissing": {
+    "description": "Message after a test push did not arrive in time."
+  },
+  "pushDetailUseForAccount": "Use push for this account",
+  "@pushDetailUseForAccount": {
+    "description": "Switch in a push detail sheet that turns push on or off for one Open WebUI account on this device."
+  },
+  "pushDetailUseForConnection": "Use push for this connection",
+  "@pushDetailUseForConnection": {
+    "description": "Switch in a push detail sheet that turns push on or off for one Hermes connection on this device."
+  },
+  "pushDetailOriginTitle": "Replies from",
+  "@pushDetailOriginTitle": {
+    "description": "Header of the choice of which Open WebUI replies send a push."
+  },
+  "pushDetailOriginDescription": "Which finished replies send a push notification.",
+  "@pushDetailOriginDescription": {
+    "description": "Description of the choice of which Open WebUI replies send a push."
+  },
+  "pushOriginConduit": "Chats started in Conduit",
+  "@pushOriginConduit": {
+    "description": "Option: only replies to chats started from Conduit send a push."
+  },
+  "pushOriginAny": "All my chats",
+  "@pushOriginAny": {
+    "description": "Option: replies to every chat of the account send a push."
+  },
+  "pushDiagnosticsTitle": "Diagnostics",
+  "@pushDiagnosticsTitle": {
+    "description": "Heading of the technical details in a push detail sheet."
+  },
+  "pushDiagnosticsTransport": "Delivery",
+  "@pushDiagnosticsTransport": {
+    "description": "Diagnostics label: how pushes reach this device (APNs, FCM or UnifiedPush)."
+  },
+  "pushDiagnosticsServer": "Server version",
+  "@pushDiagnosticsServer": {
+    "description": "Diagnostics label: the server's version."
+  },
+  "pushDiagnosticsPlugin": "Plugin version",
+  "@pushDiagnosticsPlugin": {
+    "description": "Diagnostics label: the installed Conduit function's or plugin's version."
+  },
+  "pushDiagnosticsVerified": "Last verified",
+  "@pushDiagnosticsVerified": {
+    "description": "Diagnostics label: when a test push last arrived."
+  },
+  "pushDiagnosticsServerReport": "Server report",
+  "@pushDiagnosticsServerReport": {
+    "description": "Diagnostics label: what the server recorded about delivering to this device."
+  },
+  "pushDiagnosticsError": "Last error",
+  "@pushDiagnosticsError": {
+    "description": "Diagnostics label: the last setup error."
+  },
+  "pushDeliveryTitle": "Push delivery",
+  "@pushDeliveryTitle": {
+    "description": "Header of the Android choice of how pushes are delivered."
+  },
+  "pushDeliveryAutomatic": "Automatic",
+  "@pushDeliveryAutomatic": {
+    "description": "Delivery option: Google's service when available, otherwise UnifiedPush."
+  },
+  "pushDeliveryFcm": "Google (FCM)",
+  "@pushDeliveryFcm": {
+    "description": "Delivery option: Firebase Cloud Messaging."
+  },
+  "pushDeliveryUnifiedPush": "UnifiedPush",
+  "@pushDeliveryUnifiedPush": {
+    "description": "Delivery option: a UnifiedPush distributor app."
+  },
+  "pushDistributorTitle": "UnifiedPush distributor",
+  "@pushDistributorTitle": {
+    "description": "Header of the list of installed UnifiedPush distributor apps."
+  },
+  "pushNoDistributor": "No UnifiedPush distributor is installed.",
+  "@pushNoDistributor": {
+    "description": "Shown when no UnifiedPush distributor app is installed."
+  },
+  "pushResetKeys": "Reset push keys",
+  "@pushResetKeys": {
+    "description": "Row that deletes every push key and sets push up again."
+  },
+  "pushResetKeysDescription": "Remove this device from every server and set push up again with new keys.",
+  "@pushResetKeysDescription": {
+    "description": "Subtitle of the Reset push keys row."
+  },
+  "pushResetKeysConfirmTitle": "Reset push keys?",
+  "@pushResetKeysConfirmTitle": {
+    "description": "Title of the confirmation before resetting push keys."
+  },
+  "pushResetKeysConfirmMessage": "Conduit removes this device from every server, deletes its push keys, and sets push up again with new ones.",
+  "@pushResetKeysConfirmMessage": {
+    "description": "Body of the confirmation before resetting push keys."
+  },
+  "pushResetKeysConfirm": "Reset",
+  "@pushResetKeysConfirm": {
+    "description": "Confirms resetting push keys."
+  },
+  "pushPrivacyIntro": "Each push notification is encrypted on your own server, to a key that never leaves this device. Nothing in between can read it.",
+  "@pushPrivacyIntro": {
+    "description": "Opening paragraph of the push privacy explainer."
+  },
+  "pushPrivacyServerTitle": "Your server",
+  "@pushPrivacyServerTitle": {
+    "description": "Push privacy explainer section about the user's own server."
+  },
+  "pushPrivacyServerBody": "It already has your chats. For push it also keeps this device's push address, its public key, a random device id and a label such as \"iOS\". It decides what goes in a notification: a title and a short preview.",
+  "@pushPrivacyServerBody": {
+    "description": "Push privacy explainer: what the user's server stores and sends."
+  },
+  "pushPrivacyRelayTitle": "The Conduit relay",
+  "@pushPrivacyRelayTitle": {
+    "description": "Push privacy explainer section about the Conduit push relay."
+  },
+  "pushPrivacyRelayBody": "It passes encrypted notifications on to Apple or Google. It sees when your server sends and a rounded size, never titles, text, accounts or servers. It is open source and keeps no logs or database.",
+  "@pushPrivacyRelayBody": {
+    "description": "Push privacy explainer: what the relay sees."
+  },
+  "pushPrivacyProvidersTitle": "Apple and Google",
+  "@pushPrivacyProvidersTitle": {
+    "description": "Push privacy explainer section about Apple's and Google's push services."
+  },
+  "pushPrivacyProvidersBody": "They deliver the encrypted notification and can't read it. If it can't be decrypted, your phone only shows \"New notification\".",
+  "@pushPrivacyProvidersBody": {
+    "description": "Push privacy explainer: what Apple and Google see."
+  },
+  "pushPrivacyUnifiedPushTitle": "UnifiedPush",
+  "@pushPrivacyUnifiedPushTitle": {
+    "description": "Push privacy explainer section about UnifiedPush on Android."
+  },
+  "pushPrivacyUnifiedPushBody": "On Android you can use a UnifiedPush distributor instead. Your server then sends to it directly, without the Conduit relay or Google.",
+  "@pushPrivacyUnifiedPushBody": {
+    "description": "Push privacy explainer: UnifiedPush skips the relay."
+  },
+  "pushPrivacyOffTitle": "Turning push off",
+  "@pushPrivacyOffTitle": {
+    "description": "Push privacy explainer section about turning push off."
+  },
+  "pushPrivacyOffBody": "Turning push off, signing out or removing an account removes this device from the server and deletes its keys, so nothing sent later can be read.",
+  "@pushPrivacyOffBody": {
+    "description": "Push privacy explainer: what turning push off does."
+  },
+  "pushPrivacyReadMore": "Read the full details",
+  "@pushPrivacyReadMore": {
+    "description": "Row that opens the full push threat model document."
+  },
+  "pushAttentionChip": "Push needs attention",
+  "@pushAttentionChip": {
+    "description": "Chip on an account or connection in Accounts when its push setup needs the user; tapping it opens push details."
+  },
+  "notificationScheduledTitle": "Scheduled tasks",
+  "@notificationScheduledTitle": {
+    "description": "Toggle title for notifications when a Hermes scheduled task delivers."
+  },
+  "notificationScheduledDescription": "Notify when a Hermes scheduled task delivers its result.",
+  "@notificationScheduledDescription": {
+    "description": "Toggle description for scheduled task notifications."
+  },
+  "hermesJobNotifyTitle": "Notify me",
+  "@hermesJobNotifyTitle": {
+    "description": "Switch in the Hermes job editor that sends a push notification when the job delivers."
+  },
+  "hermesJobNotifyDescription": "Send a push notification when this job delivers.",
+  "@hermesJobNotifyDescription": {
+    "description": "Description of the Notify me switch in the Hermes job editor."
+  },
+  "pushAskAdminMessage": "Could you set up Conduit Push on our Open WebUI server? It lets Conduit send end-to-end encrypted push notifications. In Admin Panel → Functions, import {url} and set the function ID to {functionId}. Setup guide: {guide}",
+  "@pushAskAdminMessage": {
+    "description": "Message shared with the Open WebUI admin asking them to install the Conduit Push function. {url} is the raw file to import, {functionId} the id to use, {guide} the setup guide link.",
+    "placeholders": {
+      "url": {
+        "type": "String",
+        "example": "https://raw.githubusercontent.com/cogwheel0/conduit/main/server-plugins/openwebui/conduit_push.py"
+      },
+      "functionId": {
+        "type": "String",
+        "example": "conduit_push"
+      },
+      "guide": {
+        "type": "String",
+        "example": "https://github.com/cogwheel0/conduit/blob/main/docs/push/ADMIN_SETUP.md"
+      }
+    }
+  },
+  "pushExplainFailed": "Conduit tries again by itself the next time you open it, or you can try again now.",
+  "@pushExplainFailed": {
+    "description": "Detail-sheet explanation under a push failure (the failure itself is the heading above it); a Retry button follows."
   }
 }

@@ -14,6 +14,9 @@ import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 import '../widgets/hermes_job_editor.dart';
 import '../widgets/hermes_session_tile.dart' show openHermesSession;
@@ -134,7 +137,12 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
 
   Future<void> _createJob() async {
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
-    final result = await showHermesJobEditor(context);
+    final connectionId = _pushConnectionId(ref);
+    // A new job notifies by default where push reaches this connection.
+    final result = await showHermesJobEditor(
+      context,
+      initialNotify: connectionId == null ? null : true,
+    );
     if (result == null || !mounted || _creating) return;
     if (ref.read(hermesApiServiceProvider) == null) {
       UiUtils.showMessage(context, l10n.hermesJobCreateFailed, isError: true);
@@ -143,18 +151,52 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
     setState(() => _creating = true);
     await runHermesJobMutation(
       context,
-      action: () => ref
-          .read(hermesJobsProvider.notifier)
-          .create(
-            name: result.name,
-            prompt: result.prompt,
-            schedule: result.schedule,
-          ),
+      action: () async {
+        final job = await ref
+            .read(hermesJobsProvider.notifier)
+            .create(
+              name: result.name,
+              prompt: result.prompt,
+              schedule: result.schedule,
+            );
+        if (job != null && connectionId != null && result.notify == true) {
+          await _setJobNotify(ref, connectionId, job, notify: true);
+        }
+      },
       failureMessage: l10n.hermesJobCreateFailed,
       successMessage: l10n.hermesJobCreated,
     );
     if (mounted) setState(() => _creating = false);
   }
+}
+
+/// The connection in use when push works for it, so a job's "Notify me"
+/// can reach this device; null otherwise.
+String? _pushConnectionId(WidgetRef ref) {
+  final connectionId = ref.read(hermesActiveConnectionIdProvider);
+  final push = ref.read(pushStateIfUsedProvider);
+  if (connectionId == null || push == null || !push.enabled) return null;
+  final target = push.targets[PushTarget.hermesScope(connectionId)];
+  return target?.status == PushStatus.on && !target!.optedOut
+      ? connectionId
+      : null;
+}
+
+Future<void> _setJobNotify(
+  WidgetRef ref,
+  String connectionId,
+  HermesJob job, {
+  required bool notify,
+}) async {
+  await ref
+      .read(pushCoordinatorProvider.notifier)
+      .setHermesJobNotify(
+        connectionId: connectionId,
+        jobId: job.id,
+        deliver: job.deliveryTarget,
+        notify: notify,
+      );
+  ref.invalidate(hermesJobsProvider);
 }
 
 enum _JobMutation { toggle, run, edit, delete }
@@ -462,23 +504,32 @@ class _JobCardState extends ConsumerState<_JobCard> {
   );
 
   Future<void> _editJob() async {
+    final connectionId = _pushConnectionId(ref);
+    final notifies = PushCoordinator.hermesJobNotifies(job.deliveryTarget);
     final result = await showHermesJobEditor(
       context,
       initialName: job.name ?? job.displayName,
       initialPrompt: job.prompt,
       initialSchedule: job.schedule,
+      initialNotify: connectionId == null ? null : notifies,
     );
     if (result == null || !mounted) return;
     await _runMutation(
       mutation: _JobMutation.edit,
-      action: () => ref
-          .read(hermesJobsProvider.notifier)
-          .edit(
-            job.id,
-            name: result.name,
-            prompt: result.prompt,
-            schedule: result.schedule,
-          ),
+      action: () async {
+        await ref
+            .read(hermesJobsProvider.notifier)
+            .edit(
+              job.id,
+              name: result.name,
+              prompt: result.prompt,
+              schedule: result.schedule,
+            );
+        final notify = result.notify;
+        if (connectionId != null && notify != null && notify != notifies) {
+          await _setJobNotify(ref, connectionId, job, notify: notify);
+        }
+      },
       failureMessage: _l10n(context).hermesJobUpdateFailed,
       successMessage: _l10n(context).hermesJobUpdated,
     );

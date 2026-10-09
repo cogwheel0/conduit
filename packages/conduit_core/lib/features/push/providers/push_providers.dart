@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/services/push_backend_factory.dart';
 import 'package:conduit_core/features/push/services/push_coordinator.dart';
@@ -131,6 +132,18 @@ final class PushTimings {
 final pushTimingsProvider = Provider<PushTimings>((ref) => const PushTimings());
 
 final pushClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
+/// Push's state for UI outside the push settings, such as the Accounts page
+/// and the Hermes job editor: null where push was never turned on, so those
+/// screens never start push themselves. In the app the coordinator is kept
+/// alive from launch, so this follows it.
+final pushStateIfUsedProvider = Provider<PushState?>((ref) {
+  if (!ref.exists(pushCoordinatorProvider) &&
+      PreferencesStore.getBool(PreferenceKeys.pushEnabled) != true) {
+    return null;
+  }
+  return ref.watch(pushCoordinatorProvider);
+});
 
 /// The Open WebUI account whose live client holds a token, or null.
 ///

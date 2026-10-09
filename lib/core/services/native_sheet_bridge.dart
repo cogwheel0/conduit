@@ -125,6 +125,7 @@ class NativeSheetRoutes {
   static const helpAbout = 'help-about';
   static const about = 'about';
   static const notificationSettings = 'notification-settings';
+  static const pushTargets = 'push-targets';
   static const workspace = 'workspace-entry';
   static const releaseNotesManual = 'release-notes-manual';
   static const openSourceLicenses = 'open-source-licenses';

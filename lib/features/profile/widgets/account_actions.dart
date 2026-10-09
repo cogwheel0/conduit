@@ -11,6 +11,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
@@ -22,6 +23,7 @@ import '../../../core/utils/account_display.dart';
 import '../../auth/views/server_connection_page.dart'
     show ServerConnectionHandoff;
 import '../../hermes/widgets/hermes_connection_switcher.dart';
+import '../../push/widgets/push_attention_chip.dart';
 import 'account_sheet.dart';
 
 export '../../../core/utils/account_display.dart';
@@ -94,6 +96,7 @@ class SavedAccountRow extends ConsumerWidget {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              PushAttentionChip(scope: PushTarget.openWebUiScope(entry.id)),
               if (entry.isActive)
                 ActiveCheckmark(semanticLabel: l10n.accountsActive),
               if (showSignOut)

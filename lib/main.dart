@@ -95,11 +95,15 @@ import 'core/utils/native_sheet_utils.dart'
         nativeCitationShowTitlesId,
         nativeMemoryEditorActionPrefix,
         nativeMemoryEditorNewActionId,
-        nativeNotificationTargetsActionId;
+        nativeNotificationTargetsActionId,
+        nativePushEnabledId,
+        nativePushPrivacyActionId,
+        nativePushTargetActionId;
 import 'shared/utils/ui_utils.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
 import 'features/push/push_host_bindings.dart';
+import 'features/push/widgets/push_target_detail_sheet.dart';
 
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 
@@ -917,6 +921,26 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == nativePushTargetActionId && value is String) {
+        _openNativePushTarget(value);
+        return;
+      }
+
+      if (event.id == nativePushPrivacyActionId) {
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            RouteNames.pushPrivacy,
+            extra: const NativeSheetNavigationOrigin(),
+          ),
+        );
+        return;
+      }
+
+      if (event.id == nativePushEnabledId && value is bool) {
+        await _setNativePushEnabled(value);
+        return;
+      }
+
       if (event.id == nativeMemoryEditorNewActionId ||
           event.id.startsWith(nativeMemoryEditorActionPrefix)) {
         await _openNativeMemoryEditor(event.id);
@@ -1227,6 +1251,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationChannelEnabled(value);
           }
+        case 'notification-scheduled':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setNotificationScheduledEnabled(value);
+          }
         case 'transport-auto':
           await ref
               .read(appSettingsProvider.notifier)
@@ -1347,6 +1377,54 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         extra: const NativeSheetNavigationOrigin(),
       ),
     );
+  }
+
+  /// Turns push on or off from the native Notifications sheet. The sheet
+  /// shows the push targets row once push is on, and their statuses once
+  /// setup has run, so it is refreshed at both points.
+  Future<void> _setNativePushEnabled(bool value) async {
+    final coordinator = ref.read(pushCoordinatorProvider.notifier);
+    final hydration = ref.read(nativeSheetHydrationServiceProvider);
+    Future<void> refresh() async {
+      await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
+      await hydration.hydrateDetail(NativeSheetRoutes.pushTargets);
+    }
+
+    final setup = coordinator.setEnabled(value);
+    // The switch flips first; setup goes on in the background.
+    for (var i = 0; i < 20; i++) {
+      if (ref.read(pushCoordinatorProvider).enabled == value) break;
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+    await refresh();
+    unawaited(
+      setup
+          .then((_) => refresh())
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'native-push-toggle-failed',
+              scope: 'native-sheet',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+    );
+  }
+
+  /// Opens one push target's detail sheet, with its one-tap fixes, over the
+  /// Notifications page, once the native sheet has closed.
+  void _openNativePushTarget(String scope) {
+    unawaited(
+      NavigationService.router.pushNamed<void>(
+        RouteNames.notificationSettings,
+        extra: const NativeSheetNavigationOrigin(),
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = NavigationService.navigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      unawaited(showPushTargetDetailSheet(context, scope));
+    });
   }
 
   /// Opens the Flutter memory editor, which the native sheet cannot match with

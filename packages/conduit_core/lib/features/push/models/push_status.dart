@@ -367,6 +367,7 @@ final class PushState {
     this.enabled = false,
     this.relayConfigured = false,
     this.availableTransports = const [],
+    this.transportsChecked = false,
     this.androidTransport,
     this.distributor,
     this.effectiveTransport,
@@ -381,6 +382,19 @@ final class PushState {
   /// cannot be used; UnifiedPush still can.
   final bool relayConfigured;
   final List<PushTransport> availableTransports;
+
+  /// Whether [availableTransports] was read from the platform yet.
+  final bool transportsChecked;
+
+  /// Whether push can work in this build on this device: the relay reaches
+  /// APNs or FCM, or a UnifiedPush distributor is installed. True until the
+  /// transports were checked.
+  bool get available =>
+      !transportsChecked ||
+      availableTransports.contains(PushTransport.unifiedPush) ||
+      (relayConfigured &&
+          (availableTransports.contains(PushTransport.apns) ||
+              availableTransports.contains(PushTransport.fcm)));
 
   /// The Android delivery service the user chose, or null for automatic
   /// (FCM when available, otherwise UnifiedPush).
@@ -404,6 +418,7 @@ final class PushState {
     bool? enabled,
     bool? relayConfigured,
     List<PushTransport>? availableTransports,
+    bool? transportsChecked,
     PushAndroidTransport? androidTransport,
     bool clearAndroidTransport = false,
     String? distributor,
@@ -416,6 +431,7 @@ final class PushState {
     enabled: enabled ?? this.enabled,
     relayConfigured: relayConfigured ?? this.relayConfigured,
     availableTransports: availableTransports ?? this.availableTransports,
+    transportsChecked: transportsChecked ?? this.transportsChecked,
     androidTransport: clearAndroidTransport
         ? null
         : androidTransport ?? this.androidTransport,

@@ -172,6 +172,7 @@ class PushCoordinator extends _$PushCoordinator {
           _release(scope, target: _target(scope)),
       ]);
       _publishTargets();
+      await _releaseRelayTransports();
     }
   }
 
@@ -252,20 +253,22 @@ class PushCoordinator extends _$PushCoordinator {
     return false;
   }
 
-  /// Sends a test push and waits for it. Answers whether it arrived.
+  /// Sends a test push and waits for it. Answers whether it arrived. Asks
+  /// for notification permission first when it is missing.
   Future<bool> sendTest(String scope) async {
     final target = _target(scope);
     if (target == null || !state.enabled) return false;
+    await _askPermissionIfMissing();
     await _reconcile(target, forceTest: true);
     return _isOn(scope);
   }
 
-  /// Runs one target's setup again, asking for permission again if it was
-  /// denied.
+  /// Runs one target's setup again, asking for permission again if it is
+  /// missing.
   Future<void> retry(String scope) async {
     final target = _target(scope);
     if (target == null || !state.enabled) return;
-    if (state.permissionDenied) await _requestPermission();
+    await _askPermissionIfMissing();
     _environment = null;
     await _reconcile(target, resubscribe: true);
   }
@@ -304,7 +307,13 @@ class PushCoordinator extends _$PushCoordinator {
       ),
     );
     _environment = null;
-    if (state.enabled) await _reconcileAll(full: false, everyTarget: true);
+    if (!state.enabled) return;
+    await _reconcileAll(full: false, everyTarget: true);
+    // Moved off FCM: Firebase stops starting at launch.
+    if (state.effectiveTransport != PushTransport.fcm &&
+        !_records.values.any((r) => r.transport == PushTransport.fcm)) {
+      await _releaseTransports(const [PushTransport.fcm]);
+    }
   }
 
   /// Installed UnifiedPush distributors (package names). Android only.
@@ -398,6 +407,7 @@ class PushCoordinator extends _$PushCoordinator {
     await _settings.saveTombstones(const []);
     await _settings.setLastFullReconcile(null);
     _scheduleDisplayConfig();
+    await _releaseRelayTransports();
   }
 
   // ---------------------------------------------------------------------
@@ -455,22 +465,44 @@ class PushCoordinator extends _$PushCoordinator {
     for (final scope in _records.keys.toList()) {
       if (!live.contains(scope)) unawaited(_release(scope, forget: true));
     }
-    try {
-      _hasTransports = (await _platform.availableTransports()).isNotEmpty;
-    } catch (_) {
-      _hasTransports = false;
-    }
+    await _refreshTransports();
     _scheduleDisplayConfig();
     if (!state.enabled) {
       await _sweepNative();
+      // Push may have been turned off by a version that could not stop
+      // APNs or FCM.
+      if (_hasTransports == true) await _releaseRelayTransports();
       return;
     }
     await _reconcileAll(full: _fullReconcileDue());
   }
 
   Future<void> _onResume() async {
-    if (!state.enabled || _targets == null) return;
+    // A UnifiedPush distributor may have been installed meanwhile.
+    if (!state.enabled) {
+      await _refreshTransports();
+      return;
+    }
+    if (_targets == null) return;
     await _reconcileAll(full: _fullReconcileDue(), throttle: true);
+  }
+
+  /// Which transports this device offers, for the settings to say whether
+  /// push can work before it is turned on.
+  Future<void> _refreshTransports() async {
+    List<PushTransport> transports;
+    try {
+      transports = await _platform.availableTransports();
+    } catch (_) {
+      transports = const [];
+    }
+    _hasTransports = transports.isNotEmpty;
+    _update(
+      (s) => s.copyWith(
+        availableTransports: transports,
+        transportsChecked: true,
+      ),
+    );
   }
 
   bool _fullReconcileDue() {
@@ -1118,15 +1150,21 @@ class PushCoordinator extends _$PushCoordinator {
     }
     _hasTransports = transports.isNotEmpty;
     final relay = _relay;
-    _update((s) => s.copyWith(availableTransports: transports));
+    _update(
+      (s) => s.copyWith(
+        availableTransports: transports,
+        transportsChecked: true,
+      ),
+    );
     if (transports.isEmpty) {
       return _blockedEnvironment(
         relay == null ? PushStatus.relayUnavailable : PushStatus.failed,
         const PushFailure(PushFailureReason.noTransport),
       );
     }
-    if (_permissionGranted == null) await _requestPermission();
-    if (_permissionGranted == false) {
+    // Automatic passes never prompt: only the user turning push on, retrying
+    // or sending a test does.
+    if (!await _checkPermission()) {
       return _blockedEnvironment(PushStatus.permissionDenied, null);
     }
 
@@ -1239,6 +1277,7 @@ class PushCoordinator extends _$PushCoordinator {
     }
   }
 
+  /// Shows the system prompt. Only for a user action.
   Future<void> _requestPermission() async {
     try {
       _permissionGranted = await _platform.requestPermission();
@@ -1248,6 +1287,30 @@ class PushCoordinator extends _$PushCoordinator {
       return;
     }
     _update((s) => s.copyWith(permissionDenied: _permissionGranted == false));
+  }
+
+  /// Prompts only when notifications are not allowed already.
+  Future<void> _askPermissionIfMissing() async {
+    if (await _checkPermission()) return;
+    await _requestPermission();
+    // A denial is shown by the setup that follows.
+    _environment = null;
+  }
+
+  /// Whether notifications are allowed, without prompting. A platform that
+  /// cannot tell falls back to the answer of this process's last prompt.
+  Future<bool> _checkPermission() async {
+    bool? granted;
+    try {
+      granted = await _platform.hasPermission();
+    } catch (error) {
+      _log('push-permission-check-failed', error);
+    }
+    granted ??= _permissionGranted;
+    final allowed = granted ?? false;
+    _permissionGranted = allowed;
+    _update((s) => s.copyWith(permissionDenied: !allowed));
+    return allowed;
   }
 
   Future<bool> _install(PushTarget target) async {
@@ -1439,6 +1502,29 @@ class PushCoordinator extends _$PushCoordinator {
     try {
       await _platform.cancelScope(scope);
     } catch (_) {}
+  }
+
+  /// Stops APNs and FCM once nothing uses them: no token, and on Android no
+  /// Firebase at launch.
+  Future<void> _releaseRelayTransports() =>
+      _releaseTransports(const [PushTransport.apns, PushTransport.fcm]);
+
+  Future<void> _releaseTransports(List<PushTransport> transports) async {
+    List<PushTransport> available;
+    try {
+      available = await _platform.availableTransports();
+    } catch (_) {
+      return;
+    }
+    for (final transport in transports) {
+      if (!available.contains(transport)) continue;
+      try {
+        await _platform.releaseTransport(transport);
+      } catch (error) {
+        _log('push-release-transport-failed', error);
+      }
+    }
+    _environment = null;
   }
 
   Future<void> _deleteNative(String sid, PushTransport? transport) async {
