@@ -589,10 +589,22 @@ class PushCoordinator extends _$PushCoordinator {
     }
     final now = _now();
     final targets = _targets ?? const <PushTarget>[];
+    // An endpoint made for an older token, relay key or distributor is dead
+    // (one distributor at a time: a new one drops the others' registrations),
+    // and the platform does not always say so: catch those here too.
+    final environment = full || everyTarget ? null : await _env();
+    if (!ref.mounted) return;
+    bool stale(PushTarget target) {
+      if (environment == null || environment.status != null) return false;
+      final record = _record(target.scope);
+      return record.endpoint != null && !_endpointCurrent(record, environment);
+    }
+
     await Future.wait([
       for (final target in targets)
         if (full ||
             everyTarget ||
+            stale(target) ||
             (!_isOn(target.scope) &&
                 (!throttle || _mayRetry(target.scope, now))))
           _reconcile(target),
@@ -937,21 +949,8 @@ class PushCoordinator extends _$PushCoordinator {
     _Environment environment,
   ) async {
     final transport = environment.transport!;
-    final String fingerprint;
-    if (transport == PushTransport.unifiedPush) {
-      fingerprint = _fingerprint('unifiedPush:${environment.distributor}');
-    } else {
-      fingerprint = _fingerprint(environment.token!.token);
-    }
-    final activeKid = environment.relayInfo?.activeKid;
-    final current =
-        record.endpoint != null &&
-        record.transport == transport &&
-        record.tokenFingerprint == fingerprint &&
-        (transport == PushTransport.unifiedPush ||
-            activeKid == null ||
-            (record.kid ?? 0) >= activeKid);
-    if (current) {
+    final fingerprint = _endpointFingerprint(environment);
+    if (_endpointCurrent(record, environment)) {
       if (keys.endpoint != record.endpoint) {
         await _platformCall(
           () => _platform.setEndpoint(keys.sid, record.endpoint!, transport),
@@ -1019,6 +1018,30 @@ class PushCoordinator extends _$PushCoordinator {
       fingerprint: fingerprint,
       kid: kid,
     );
+  }
+
+  /// What an endpoint for [environment] was made from: the device token, or
+  /// the UnifiedPush distributor. Only its SHA-256 is kept.
+  static String _endpointFingerprint(_Environment environment) =>
+      environment.transport == PushTransport.unifiedPush
+      ? _fingerprint('unifiedPush:${environment.distributor}')
+      : _fingerprint(environment.token!.token);
+
+  /// Whether [record]'s endpoint still works for [environment]: same
+  /// transport, same token or distributor, and a relay key that is not older
+  /// than the relay's active one.
+  static bool _endpointCurrent(
+    PushSubscriptionRecord record,
+    _Environment environment,
+  ) {
+    final transport = environment.transport!;
+    final activeKid = environment.relayInfo?.activeKid;
+    return record.endpoint != null &&
+        record.transport == transport &&
+        record.tokenFingerprint == _endpointFingerprint(environment) &&
+        (transport == PushTransport.unifiedPush ||
+            activeKid == null ||
+            (record.kid ?? 0) >= activeKid);
   }
 
   static _Stop _relayStop(PushRelayException error) => switch (error.kind) {

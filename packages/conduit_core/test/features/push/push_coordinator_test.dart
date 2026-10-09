@@ -509,6 +509,26 @@ void main() {
           .deepEquals(['org.unifiedpush.distributor.ntfy']);
     });
 
+    test('a token that changed while the app was closed is caught', () async {
+      h = await _Harness.start(targets: [_owui, _owui2]);
+      await h.coordinator.setEnabled(true);
+      final platform = h.platform;
+      h.dispose();
+
+      platform.token = 'cc' * 32;
+      h = await _Harness.start(
+        targets: [_owui, _owui2],
+        keepPreferences: true,
+        platform: platform,
+      );
+      await h.until(
+        () => h.relay.registrations.length == 2 && h.allOn(),
+      );
+      check(
+        h.relay.registrations.map((r) => r['token']).toSet(),
+      ).deepEquals({'cc' * 32});
+    });
+
     test('a restart within a day checks only what is not on', () async {
       h = await _Harness.start(targets: [_owui, _owui2]);
       h.server(_owui2).probe = const PushProbe(
