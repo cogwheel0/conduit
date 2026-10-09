@@ -163,6 +163,7 @@ void main() {
             () => _DirectProfiles(direct),
           ),
           applePccPlatformSupportedProvider.overrideWithValue(false),
+          reviewerModeProvider.overrideWithValue(false),
         ],
         child: MaterialApp.router(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -362,12 +363,11 @@ void main() {
     expect(find.byKey(const Key('accounts-direct-add')), findsOne);
     expect(find.byKey(const Key('accounts-sign-out-all')), findsNothing);
 
-    // A first Open WebUI account is connected to, not added beside one.
+    // Its server is entered in the account sheet.
     await tester.tap(find.byKey(const Key('accounts-openwebui-add')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('account-sheet-new-server')));
-    await tester.pumpAndSettle();
-    check(location()).equals(Routes.serverConnection);
+    expect(find.byType(AccountSheet), findsOne);
+    expect(find.byKey(const Key('account-sheet-openwebui')), findsOne);
   });
 
   testWidgets('with one account, Settings signs out of it, not this page', (

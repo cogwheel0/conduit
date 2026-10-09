@@ -19,6 +19,8 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../../core/utils/account_display.dart';
+import '../../auth/views/server_connection_page.dart'
+    show ServerConnectionHandoff;
 import '../../hermes/widgets/hermes_connection_switcher.dart';
 import 'account_sheet.dart';
 
@@ -355,7 +357,8 @@ Future<void> signOutOfSavedAccount(
 }
 
 /// Opens the connection page to add an account on the saved server
-/// [serverId], or on a new one.
+/// [serverId], or on a new one -- carrying on from [handoff] when the
+/// account sheet checked the server first.
 ///
 /// The router keeps a signed-in user away from sign-in pages unless an
 /// account is being added, and it decides that as the page opens, so the
@@ -363,18 +366,26 @@ Future<void> signOutOfSavedAccount(
 /// the router's location rather than being pushed: the router redirects
 /// from its location, so over chat a finished sign-in would stay on screen,
 /// and the new account's first, signed-out attempt would replace the stack.
-void openAddAccount(BuildContext context, WidgetRef ref, {String? serverId}) {
+void openAddAccount(
+  BuildContext context,
+  WidgetRef ref, {
+  String? serverId,
+  ServerConnectionHandoff? handoff,
+}) {
   ref
       .read(accountAdditionOriginProvider.notifier)
       .begin(ref.read(settledActiveAccountIdProvider));
-  context.goNamed(RouteNames.addServer, extra: serverId);
+  context.goNamed(RouteNames.addServer, extra: handoff ?? serverId);
 }
 
 /// Opens the connection page for a first Open WebUI account, next to a
-/// Hermes or Direct backend in use. With no account to come back to there is
-/// no addition to begin.
-void connectFirstOpenWebUiAccount(BuildContext context) =>
-    context.goNamed(RouteNames.serverConnection);
+/// Hermes or Direct backend in use -- carrying on from [handoff] when the
+/// account sheet checked the server first. With no account to come back to
+/// there is no addition to begin.
+void connectFirstOpenWebUiAccount(
+  BuildContext context, {
+  ServerConnectionHandoff? handoff,
+}) => context.goNamed(RouteNames.serverConnection, extra: handoff);
 
 /// Drops the added account whose sign-in never finished, which makes the
 /// account it was added from active again, and returns to chat.

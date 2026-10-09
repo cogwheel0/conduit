@@ -2,6 +2,8 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
+import 'package:conduit/features/auth/views/server_connection_page.dart';
+import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
@@ -112,6 +114,55 @@ void main() {
     // providers still there.
     harness.router.go(Routes.chat);
     await tester.pumpAndSettle();
+    await harness.unmount(tester);
+  });
+
+  // The account sheet checks a server itself, and hands it on: the page it
+  // opens goes straight to that server's sign-in.
+  testWidgets('a server the account sheet checked goes on to its sign-in', (
+    tester,
+  ) async {
+    final harness = AdaptiveAuthHarness(server: _server);
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(harness.build(initialLocation: Routes.chat));
+    await tester.pumpAndSettle();
+    harness.router.goNamed(
+      RouteNames.addServer,
+      extra: const ServerConnectionHandoff(
+        config: _server,
+        authFlow: AuthFlowConfig(serverConfig: _server),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AuthenticationPage), findsOneWidget);
+    // Back from sign-in finds the address it was checked at.
+    harness.router.pop();
+    await tester.pumpAndSettle();
+    expect(find.text(_server.url), findsOneWidget);
+    harness.router.go(Routes.chat);
+    await tester.pumpAndSettle();
+    await harness.unmount(tester);
+  });
+
+  testWidgets('a first account\'s server, checked in the sheet, goes on to '
+      'its sign-in too', (tester) async {
+    final harness = AdaptiveAuthHarness(server: _server);
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(harness.build(initialLocation: Routes.chat));
+    await tester.pumpAndSettle();
+    harness.router.goNamed(
+      RouteNames.serverConnection,
+      extra: const ServerConnectionHandoff(
+        config: _server,
+        authFlow: AuthFlowConfig(serverConfig: _server),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AuthenticationPage), findsOneWidget);
     await harness.unmount(tester);
   });
 

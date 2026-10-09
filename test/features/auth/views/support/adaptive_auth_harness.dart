@@ -157,14 +157,25 @@ class AdaptiveAuthHarness {
         GoRoute(
           path: Routes.serverConnection,
           name: RouteNames.serverConnection,
-          builder: (_, _) => const ServerConnectionPage(),
+          builder: (_, state) => ServerConnectionPage(
+            handoff: state.extra is ServerConnectionHandoff
+                ? state.extra as ServerConnectionHandoff
+                : null,
+          ),
         ),
         GoRoute(
           path: Routes.addServer,
           name: RouteNames.addServer,
           builder: (_, state) => ServerConnectionPage(
             addingAccount: true,
-            serverId: state.extra is String ? state.extra as String : null,
+            serverId: switch (state.extra) {
+              final String serverId => serverId,
+              ServerConnectionHandoff(:final serverId) => serverId,
+              _ => null,
+            },
+            handoff: state.extra is ServerConnectionHandoff
+                ? state.extra as ServerConnectionHandoff
+                : null,
           ),
         ),
         GoRoute(

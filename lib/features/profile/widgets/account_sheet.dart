@@ -13,6 +13,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_sheets.dart';
+import '../../auth/views/server_connection_page.dart';
 import '../../direct_connections/views/direct_connection_editor_page.dart';
 import '../../hermes/views/hermes_settings_page.dart';
 import 'account_actions.dart';
@@ -345,7 +346,9 @@ class _SheetHeader extends StatelessWidget {
   }
 }
 
-/// Signs in to another account on a saved server, or connects to a new one.
+/// Signs in to another account on a saved server, or on a new one: its
+/// address and connection options are filled in and checked here, and
+/// sign-in opens as a page once the server answers.
 class _OpenWebUiForm extends ConsumerWidget {
   const _OpenWebUiForm({required this.close});
 
@@ -360,42 +363,48 @@ class _OpenWebUiForm extends ConsumerWidget {
       for (final entry in accounts.value ?? const <OpenWebUiAccountEntry>[])
         entry.server.id: entry.server,
     }.values;
-    // The sheet goes first; the flow it opens becomes the router's location.
-    void add(String? serverId) {
+    // The sheet goes first; the connection page it opens becomes the
+    // router's location, and carries on to sign-in.
+    void carryOn(ServerConnectionHandoff handoff) {
       close();
       if (accounts.hasValue && servers.isEmpty) {
-        connectFirstOpenWebUiAccount(context);
+        connectFirstOpenWebUiAccount(context, handoff: handoff);
       } else {
-        openAddAccount(context, ref, serverId: serverId);
+        openAddAccount(context, ref, handoff: handoff);
       }
     }
 
+    final style = AppTypography.bodyMediumStyle.copyWith(
+      color: theme.textSecondary,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
           l10n.accountsAddAccountMessage,
           textAlign: TextAlign.center,
-          style: AppTypography.bodyMediumStyle.copyWith(
-            color: theme.textSecondary,
-          ),
+          style: style,
         ),
         const SizedBox(height: Spacing.lg),
-        for (final server in servers) ...[
-          ConduitButton(
-            key: Key('account-sheet-server-${server.id}'),
-            text: l10n.accountsContinueWith(serverDisplayName(server)),
-            isFullWidth: true,
-            onPressed: () => add(server.id),
+        if (servers.isNotEmpty) ...[
+          for (final server in servers) ...[
+            ConduitButton(
+              key: Key('account-sheet-server-${server.id}'),
+              text: l10n.accountsContinueWith(serverDisplayName(server)),
+              isFullWidth: true,
+              onPressed: () =>
+                  carryOn(ServerConnectionHandoff(serverId: server.id)),
+            ),
+            const SizedBox(height: Spacing.sm),
+          ],
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+            child: Text(l10n.or, textAlign: TextAlign.center, style: style),
           ),
-          const SizedBox(height: Spacing.sm),
         ],
-        ConduitButton(
-          key: const Key('account-sheet-new-server'),
-          text: l10n.accountsNewServer,
-          isSecondary: servers.isNotEmpty,
-          isFullWidth: true,
-          onPressed: () => add(null),
+        ServerConnectionPage(
+          key: const Key('account-sheet-openwebui'),
+          onChecked: carryOn,
         ),
       ],
     );

@@ -197,8 +197,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     GoRoute(
       path: Routes.serverConnection,
       name: RouteNames.serverConnection,
-      pageBuilder: (context, state) =>
-          _buildPlatformPage(state: state, child: const ServerConnectionPage()),
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: ServerConnectionPage(
+          handoff: state.extra is ServerConnectionHandoff
+              ? state.extra as ServerConnectionHandoff
+              : null,
+        ),
+      ),
     ),
     GoRoute(
       path: Routes.addServer,
@@ -207,7 +213,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         state: state,
         child: ServerConnectionPage(
           addingAccount: true,
-          serverId: state.extra is String ? state.extra as String : null,
+          serverId: switch (state.extra) {
+            final String serverId => serverId,
+            ServerConnectionHandoff(:final serverId) => serverId,
+            _ => null,
+          },
+          handoff: state.extra is ServerConnectionHandoff
+              ? state.extra as ServerConnectionHandoff
+              : null,
         ),
       ),
     ),

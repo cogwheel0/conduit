@@ -1,7 +1,9 @@
 import 'package:checks/checks.dart';
+import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/profile/widgets/account_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/connection_components.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -123,7 +125,9 @@ void main() {
         GoRoute(
           path: Routes.addServer,
           name: RouteNames.addServer,
-          builder: (_, state) => Text('add on ${state.extra}'),
+          builder: (_, state) => Text(
+            'add on ${(state.extra! as ServerConnectionHandoff).serverId}',
+          ),
         ),
         GoRoute(
           path: Routes.serverConnection,
@@ -141,6 +145,7 @@ void main() {
           ),
           openWebUiAccountsProvider.overrideWith((ref) async => accounts),
           settledActiveAccountIdProvider.overrideWith(_SettledOnAlex.new),
+          reviewerModeProvider.overrideWithValue(false),
           ...overrides,
         ],
         child: MaterialApp.router(
@@ -181,7 +186,7 @@ void main() {
         findsOne,
       );
     }
-    expect(find.byKey(const Key('account-sheet-new-server')), findsOne);
+    expect(find.byKey(const Key('account-sheet-openwebui')), findsOne);
   });
 
   testWidgets('continuing on a saved server adds an account to it', (
@@ -212,15 +217,34 @@ void main() {
     check(container.read(accountAdditionOriginProvider)).equals('alex-home');
   });
 
-  testWidgets('with no Open WebUI account, a new server is a first one', (
-    tester,
-  ) async {
+  // HTTP fails in tests: the check reaches no server.
+  testWidgets('a new server is checked in the sheet, which says there when '
+      'it does not answer', (tester) async {
     await pumpSheet(tester, const AddAccountRequest());
+    expect(find.byKey(const Key('account-sheet-openwebui')), findsOne);
 
-    await tester.tap(find.byKey(const Key('account-sheet-new-server')));
-    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('server-url-field')),
+      'https://unreachable.example',
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('server-connection-continue')),
+    );
+    await tester.pump();
+    expect(find.text('Connecting...'), findsWidgets);
+    // The check's requests run on the real clock, its waits on the test's.
+    for (var i = 0; i < 60; i++) {
+      if (find.text('Connecting...').evaluate().isEmpty) break;
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(seconds: 1));
+    }
 
-    expect(find.text('connect'), findsOne);
+    expect(find.byType(AccountSheet), findsOne);
+    expect(find.text('Connecting...'), findsNothing);
+    expect(find.byType(ConnectionAttemptBanner), findsOne);
   });
 
   testWidgets('Direct tests a provider, saves it, and closes', (tester) async {

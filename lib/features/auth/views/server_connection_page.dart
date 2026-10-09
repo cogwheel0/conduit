@@ -367,6 +367,23 @@ String? addressCookieOwner(
   return accounts.length == 1 ? accounts.single : null;
 }
 
+/// What the account sheet hands the connection page to carry on from.
+///
+/// With [authFlow], the sheet checked [config]'s server and the page goes
+/// straight on to sign-in. Without, the page connects as it opens: to
+/// [config], whose proxy wants its own sign-in, or else to the saved server
+/// [serverId].
+@immutable
+class ServerConnectionHandoff {
+  const ServerConnectionHandoff({this.config, this.authFlow, this.serverId})
+    : assert(authFlow == null || config != null),
+      assert(config != null || serverId != null);
+
+  final ServerConfig? config;
+  final AuthFlowConfig? authFlow;
+  final String? serverId;
+}
+
 class ServerConnectionPage extends ConsumerStatefulWidget {
   const ServerConnectionPage({
     super.key,
@@ -374,7 +391,17 @@ class ServerConnectionPage extends ConsumerStatefulWidget {
     this.serverId,
     this.routesOfServerId,
     this.endpointId,
+    this.handoff,
+    this.onChecked,
   });
+
+  /// What the account sheet checked, to carry on from.
+  final ServerConnectionHandoff? handoff;
+
+  /// Set when the form is part of the account sheet: it brings no page of
+  /// its own, starts empty, and hands each server it checks -- or finds
+  /// behind a proxy -- here rather than going on to sign in itself.
+  final void Function(ServerConnectionHandoff checked)? onChecked;
 
   /// Adding or editing one address of the saved server with this id, rather
   /// than connecting to sign in. The address is checked the same way, then
@@ -443,6 +470,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   bool get _editingRoutes => widget.routesOfServerId != null;
 
+  bool get _embedded => widget.onChecked != null;
+
   /// The saved server the form was filled in from, when it was.
   OpenWebUiServer? _savedServer;
 
@@ -452,15 +481,46 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     _urlController.addListener(_resetTransientAttempt);
     if (_editingRoutes) {
       _prefillFromRoute();
+    } else if (_embedded) {
+      // A new server: the sheet offers the saved ones itself.
     } else if (widget.addingAccount) {
       // openAddAccount began the addition before opening this page, which the
       // router needs; the page only ends it when it goes.
       _endAccountAddition = ref
           .read(accountAdditionOriginProvider.notifier)
           .endLater();
-      _prefillFromSavedServer();
+      if (widget.handoff case final handoff?) {
+        unawaited(_carryOn(handoff));
+      } else {
+        _prefillFromSavedServer();
+      }
+    } else if (widget.handoff case final handoff?) {
+      unawaited(_carryOn(handoff));
     } else {
       _prefillFromState();
+    }
+  }
+
+  /// Carries on from what the account sheet checked: on to sign-in when the
+  /// server passed, else connecting from here -- through its proxy's
+  /// sign-in, or to the saved server the sheet named.
+  Future<void> _carryOn(ServerConnectionHandoff handoff) async {
+    final config = handoff.config;
+    if (config != null) {
+      _applyConfig(config);
+    } else {
+      await _prefillFromSavedServer();
+    }
+    // Pushed from the page, which must be in the tree first.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final authFlow = handoff.authFlow;
+    if (authFlow != null) {
+      unawaited(
+        context.pushNamed(RouteNames.authentication, extra: authFlow),
+      );
+    } else {
+      await _connectToServer();
     }
   }
 
@@ -743,25 +803,27 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _prefillFromState() async {
     final activeServer = await ref.read(activeServerProvider.future);
     if (!mounted || activeServer == null) return;
+    _applyConfig(activeServer);
+  }
+
+  void _applyConfig(ServerConfig config) {
     setState(() {
-      _urlController.text = activeServer.url;
+      _urlController.text = config.url;
       _customHeaders
         ..clear()
-        ..addAll(activeServer.customHeaders);
+        ..addAll(config.customHeaders);
       _showAdvancedSettings =
-          activeServer.allowSelfSignedCertificates ||
-          activeServer.customHeaders.isNotEmpty ||
-          (!kIsWeb && activeServer.hasMutualTlsCredentials);
-      _allowSelfSignedCertificates = activeServer.allowSelfSignedCertificates;
-      _mtlsCertificateChainPem = kIsWeb
-          ? null
-          : activeServer.mtlsCertificateChainPem;
-      _mtlsCertificateLabel = kIsWeb ? null : activeServer.mtlsCertificateLabel;
-      _mtlsPrivateKeyPem = kIsWeb ? null : activeServer.mtlsPrivateKeyPem;
-      _mtlsPrivateKeyLabel = kIsWeb ? null : activeServer.mtlsPrivateKeyLabel;
+          config.allowSelfSignedCertificates ||
+          config.customHeaders.isNotEmpty ||
+          (!kIsWeb && config.hasMutualTlsCredentials);
+      _allowSelfSignedCertificates = config.allowSelfSignedCertificates;
+      _mtlsCertificateChainPem = kIsWeb ? null : config.mtlsCertificateChainPem;
+      _mtlsCertificateLabel = kIsWeb ? null : config.mtlsCertificateLabel;
+      _mtlsPrivateKeyPem = kIsWeb ? null : config.mtlsPrivateKeyPem;
+      _mtlsPrivateKeyLabel = kIsWeb ? null : config.mtlsPrivateKeyLabel;
       _mtlsPrivateKeyPasswordController.text = kIsWeb
           ? ''
-          : (activeServer.mtlsPrivateKeyPassword ?? '');
+          : (config.mtlsPrivateKeyPassword ?? '');
     });
   }
 
@@ -882,6 +944,12 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         );
         api.dispose();
         connectionApi = null;
+        if (_embedded) {
+          // Its sign-in is a page of its own: the connection page goes on
+          // from here.
+          widget.onChecked!(ServerConnectionHandoff(config: tempConfig));
+          return;
+        }
         await _handleProxyAuth(tempConfig, workerManager, sessionRevision);
         return;
       }
@@ -933,7 +1001,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           serverConfig: tempConfig,
           backendConfig: backendConfig,
         );
-        context.pushNamed(RouteNames.authentication, extra: authFlowConfig);
+        if (_embedded) {
+          widget.onChecked!(
+            ServerConnectionHandoff(
+              config: tempConfig,
+              authFlow: authFlowConfig,
+            ),
+          );
+        } else {
+          context.pushNamed(RouteNames.authentication, extra: authFlowConfig);
+        }
       }
     } catch (e) {
       DebugLogger.error(
@@ -1711,6 +1788,19 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Widget build(BuildContext context) {
     final reviewerMode = ref.watch(reviewerModeProvider);
     final l10n = AppLocalizations.of(context)!;
+    if (_embedded) {
+      return Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildServerForm(),
+            const SizedBox(height: Spacing.lg),
+            _buildConnectButton(),
+          ],
+        ),
+      );
+    }
     // Kept current for Back, which waits for it.
     if (widget.addingAccount) ref.watch(pendingSignInAbandonableProvider);
 
@@ -2290,10 +2380,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   Widget _buildConnectButton() {
     return ConduitButton(
+      key: _embedded
+          ? const ValueKey<String>('server-connection-continue')
+          : null,
       text: _isConnecting
           ? AppLocalizations.of(context)!.connecting
           : _editingRoutes
           ? AppLocalizations.of(context)!.accountsSaveAddress
+          : _embedded
+          ? AppLocalizations.of(context)!.continueAction
           : AppLocalizations.of(context)!.connectToServerButton,
       onPressed: _isConnecting || _urlController.text.trim().isEmpty
           ? null
