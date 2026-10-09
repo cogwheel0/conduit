@@ -250,7 +250,9 @@ def _parse_subscription(raw: Any) -> Tuple[str, Optional[_Subscription]]:
     )
 
 
-def _select(raw_list: List[Any], now: int, cap: int) -> Tuple[List[_Subscription], Set[int], List[str]]:
+def _select(
+    raw_list: List[Any], now: int, cap: int, parse: Any = _parse_subscription
+) -> Tuple[List[_Subscription], Set[int], List[str]]:
     """Normalizes a stored subscription list.
 
     Drops malformed entries and entries not seen for 30 days, keeps the newest
@@ -262,7 +264,7 @@ def _select(raw_list: List[Any], now: int, cap: int) -> Tuple[List[_Subscription
     invalid: List[str] = []
     fresh: List[Tuple[int, _Subscription]] = []
     for index, raw in enumerate(raw_list):
-        state, sub = _parse_subscription(raw)
+        state, sub = parse(raw)
         if state == "unsupported":
             keep.add(index)
         elif state == "invalid":
@@ -285,6 +287,64 @@ def _select(raw_list: List[Any], now: int, cap: int) -> Tuple[List[_Subscription
     chosen = sorted(chosen[: max(int(cap), 1)], key=lambda pair: pair[0])
     keep.update(index for index, _ in chosen)
     return [sub for _, sub in chosen], keep, invalid
+
+
+class _ParseCache(object):
+    """_parse_subscription by stored entry, so a second pass over a fresh read
+    of the same list only parses the entries that changed in between."""
+
+    def __init__(self):
+        self._parsed: Dict[str, Tuple[str, Optional[_Subscription]]] = {}
+
+    def __call__(self, raw: Any) -> Tuple[str, Optional[_Subscription]]:
+        key = json.dumps(raw, sort_keys=True, separators=(",", ":"), default=str)
+        if key not in self._parsed:
+            self._parsed[key] = _parse_subscription(raw)
+        return self._parsed[key]
+
+
+def _merge_commit(
+    stored: Dict[str, Any],
+    now: int,
+    cap: int,
+    statuses: Dict[str, Dict[str, Any]],
+    dead: Set[Tuple[str, str]],
+    parse: Any,
+) -> bool:
+    """Applies delivery results to one read of a user's valves, in place.
+
+    Drops the entries _select drops and those whose (sid, endpoint) answered
+    404 or 410, forgets the status of devices that are gone, and records the
+    new statuses. Returns whether anything changed.
+    """
+    raw_list = _parse_list(stored.get("subscriptions"))
+    status = _parse_dict(stored.get("status"))
+    changed = False
+    if raw_list is not None:
+        _, keep, _ = _select(raw_list, now, cap, parse)
+        kept = [
+            raw
+            for index, raw in enumerate(raw_list)
+            if index in keep and (_attr(raw, "sid"), _attr(raw, "endpoint")) not in dead
+        ]
+        if len(kept) != len(raw_list):
+            stored["subscriptions"] = _dumps(kept)
+            changed = True
+        live = {_attr(raw, "sid") for raw in kept} | set(statuses)
+        for sid in [sid for sid in status if sid not in live]:
+            del status[sid]
+            changed = True
+    for sid, entry in statuses.items():
+        previous = status.get(sid) if isinstance(status.get(sid), dict) else {}
+        entry = dict(entry)
+        if "nonce" not in entry and isinstance(previous.get("nonce"), str):
+            entry["nonce"] = previous["nonce"]
+        if not previous or _status_key(previous) != _status_key(entry):
+            status[sid] = entry
+            changed = True
+    if changed:
+        stored["status"] = _dumps(status)
+    return changed
 
 
 def _strip_hidden(text: str) -> str:
@@ -941,42 +1001,31 @@ class Event:
     ) -> None:
         """Records delivery status and prunes dead or stale subscriptions.
 
-        Reads the valves again under a per-user lock, so a device that subscribed
-        meanwhile is kept. Writes only when something changed, through the model
-        method, which doesn't publish an event, so nothing loops.
+        Under a per-user lock it works the change out on one read of the
+        valves. If anything changes, it reads them again just before writing
+        and applies the change to that fresh copy, reusing the first pass's
+        parsing, so a device that subscribed meanwhile is kept and the gap
+        between the read that is written back and the write is as short as it
+        can be.
+
+        It can't close that gap. The lock only orders this worker's commits,
+        and Open WebUI has no compare-and-set, so a write that lands inside it
+        is overwritten: from another worker, or from the app saving the valves
+        over REST, for example a device subscribing.
+
+        Writes go through the model method, which doesn't publish an event, so
+        nothing loops.
         """
         from open_webui.models.functions import Functions
 
+        now = int(time.time())
+        cap = valves.max_subscriptions_per_user
+        parse = _ParseCache()
         async with self._user_lock(user_id):
             stored = await _read_user_valves(function_id, user_id)
-            if stored is None:
+            if stored is None or not _merge_commit(stored, now, cap, statuses, dead, parse):
                 return
-            raw_list = _parse_list(stored.get("subscriptions"))
-            status = _parse_dict(stored.get("status"))
-            changed = False
-            if raw_list is not None:
-                _, keep, _ = _select(raw_list, int(time.time()), valves.max_subscriptions_per_user)
-                kept = [
-                    raw
-                    for index, raw in enumerate(raw_list)
-                    if index in keep and (_attr(raw, "sid"), _attr(raw, "endpoint")) not in dead
-                ]
-                if len(kept) != len(raw_list):
-                    stored["subscriptions"] = _dumps(kept)
-                    changed = True
-                live = {_attr(raw, "sid") for raw in kept} | set(statuses)
-                for sid in [sid for sid in status if sid not in live]:
-                    del status[sid]
-                    changed = True
-            for sid, entry in statuses.items():
-                previous = status.get(sid) if isinstance(status.get(sid), dict) else {}
-                entry = dict(entry)
-                if "nonce" not in entry and isinstance(previous.get("nonce"), str):
-                    entry["nonce"] = previous["nonce"]
-                if not previous or _status_key(previous) != _status_key(entry):
-                    status[sid] = entry
-                    changed = True
-            if not changed:
+            fresh = await _read_user_valves(function_id, user_id)
+            if fresh is None or not _merge_commit(fresh, now, cap, statuses, dead, parse):
                 return
-            stored["status"] = _dumps(status)
-            await Functions.update_user_valves_by_id_and_user_id(function_id, user_id, stored)
+            await Functions.update_user_valves_by_id_and_user_id(function_id, user_id, fresh)

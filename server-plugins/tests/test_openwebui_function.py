@@ -103,6 +103,7 @@ class World:
         self.fail = set()
         self.gate = None
         self.calls = []
+        self.after_read = {}  # nth valves read -> what happens right after it
 
     def subscribe(self, user_id, *devices, status=None, raw=None):
         entries = raw if raw is not None else [device.entry for device in devices]
@@ -177,7 +178,12 @@ def _install(monkeypatch, world, real_aiohttp=False):
         async def get_user_valves_by_id_and_user_id(self, id, user_id, db=None):
             check("get_user_valves")
             assert id == FID
-            return copy.deepcopy(world.valves.get(user_id, {}))
+            found = copy.deepcopy(world.valves.get(user_id, {}))
+            # Something else writing right after this read, e.g. the app over REST.
+            after = world.after_read.pop(world.calls.count("get_user_valves"), None)
+            if after is not None:
+                after()
+            return found
 
         async def update_user_valves_by_id_and_user_id(self, id, user_id, valves, db=None):
             check("update_user_valves")
@@ -689,6 +695,37 @@ def test_pruning_keeps_a_device_that_resubscribed_meanwhile(world, fn):
     dispatch(fn, **finished())
     assert world.stored("u1") == [renewed]
     assert world.status("u1")[phone.sid]["code"] == 410
+
+
+def test_commit_applies_its_change_to_a_fresh_read(world, fn, plugin, monkeypatch):
+    gone, fine, newcomer = Device(origin="any"), Device(origin="any"), Device(origin="any")
+    world.subscribe("u1", gone, fine)
+    world.responses[gone.endpoint] = 410
+    parsed_by_commit = []
+    parse = plugin._parse_subscription
+    monkeypatch.setattr(plugin, "_parse_subscription", lambda raw: parsed_by_commit.append(raw["sid"]) or parse(raw))
+
+    def app_subscribes_a_device():
+        stored = world.valves["u1"]
+        stored["subscriptions"] = json.dumps(world.stored("u1") + [newcomer.entry])
+
+    # Read 1 finds the targets; read 2 is the commit's first look, and the app
+    # writes right after it.
+    world.after_read[2] = app_subscribes_a_device
+    dispatch(fn, **finished())
+    assert [entry["sid"] for entry in world.stored("u1")] == [fine.sid, newcomer.sid]
+    assert {sid: s["err"] for sid, s in world.status("u1").items()} == {gone.sid: "gone", fine.sid: None}
+    assert world.calls.count("get_user_valves") == 3 and len(world.writes) == 1
+    # The fresh read only parses what changed since the first look.
+    assert parsed_by_commit == [gone.sid, fine.sid, newcomer.sid]
+
+    # Nothing to change: one look, no second read and no write.
+    delivered = {"code": 201, "at": int(time.time()), "err": None}
+    world.subscribe("u1", fine, newcomer, status={fine.sid: delivered, newcomer.sid: delivered})
+    world.calls.clear()
+    writes = len(world.writes)
+    dispatch(fn, **finished(msg="m2"))
+    assert world.calls.count("get_user_valves") == 2 and len(world.writes) == writes
 
 
 def test_status_is_written_only_when_it_changes(world, fn):
