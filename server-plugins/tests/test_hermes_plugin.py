@@ -743,6 +743,37 @@ def test_cron_respects_subscription_events(env):
     assert env.relay.requests == []
 
 
+CRON_HEADER = "Cronjob Response: Brief\n(job_id: j1)\n-------------\n\n"
+CRON_FOOTER = '\n\nTo stop or manage this job, send me a new message (e.g. "stop reminder Brief").'
+
+
+@pytest.mark.parametrize("output,body", [
+    ("Sunny.", "Sunny."),
+    ("Sunny." + CRON_FOOTER, "Sunny."),
+    ("Sunny.  \n" + CRON_FOOTER + "\n\n  ", "Sunny."),
+    ("Sunny." + CRON_FOOTER + "\nMore output.", "Sunny." + CRON_FOOTER + "\nMore output."),
+    ("A" + CRON_FOOTER + "\nB" + CRON_FOOTER, "A" + CRON_FOOTER + "\nB"),
+])
+def test_cron_wrapper_parsing(env, output, body):
+    assert env.adapter.parse_cron_content(CRON_HEADER + output) == ("j1", "Brief", body)
+    assert env.adapter.parse_cron_content(CRON_HEADER + output, "meta") == ("meta", "Brief", body)
+
+
+@pytest.mark.parametrize("filler", [" ", "\n", " \n", "-", "\n\nTo stop"], ids=repr)
+def test_cron_wrapper_parsing_is_linear(env, filler):
+    content = CRON_HEADER + "x" + filler * (1_000_000 // len(filler)) + "y" + CRON_FOOTER
+    start = time.perf_counter()
+    job, name, body = env.adapter.parse_cron_content(content)
+    payload = env.sender.cron_payload(job, "1", name, body)
+    assert time.perf_counter() - start < 0.25  # a 40 KB whitespace run used to take 4 s
+    assert (job, name) == ("j1", "Brief") and body.endswith("y") and len(payload["b"]) <= 200
+
+
+def test_cron_wrapper_header_is_read_from_a_bounded_prefix(env):
+    long_name = "Cronjob Response: " + "n" * 10_000 + "\n(job_id: j1)\n---\n\nBody"
+    assert env.adapter.parse_cron_content(long_name) == ("", "", long_name)
+
+
 def test_cron_unwrapped_output_without_a_job(env):
     device = Device("a")
     env.subscribe(device)
