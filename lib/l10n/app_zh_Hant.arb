@@ -4138,6 +4138,8 @@
   "accountsAddAccountTitle": "新增帳戶",
   "accountsAddAccountMessage": "登入已儲存伺服器上的其他帳戶，或連線到新的伺服器。",
   "accountsNewServer": "新伺服器",
+  "accountsContinueWith": "使用 {server} 繼續",
+  "accountsKindDirect": "直接",
   "accountsAddOnThisServer": "在此伺服器上新增帳戶",
   "accountsSwitch": "切換",
   "accountsSignOutOf": "登出 {name}",

@@ -4176,6 +4176,8 @@
   "accountsAddAccountTitle": "Добавить аккаунт",
   "accountsAddAccountMessage": "Войдите в другой аккаунт на сохранённом сервере или подключитесь к новому.",
   "accountsNewServer": "Новый сервер",
+  "accountsContinueWith": "Продолжить с {server}",
+  "accountsKindDirect": "Напрямую",
   "accountsAddOnThisServer": "Добавить аккаунт на этом сервере",
   "accountsSwitch": "Переключиться",
   "accountsSignOutOf": "Выйти из аккаунта {name}",

@@ -8430,6 +8430,20 @@
   "@accountsNewServer": {
     "description": "Option in the add-account sheet that connects to an Open WebUI server that is not saved yet."
   },
+  "accountsContinueWith": "Continue with {server}",
+  "@accountsContinueWith": {
+    "description": "Button in the add-account sheet that signs in to another account on a saved Open WebUI server. {server} is the server's name.",
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "Home Lab"
+      }
+    }
+  },
+  "accountsKindDirect": "Direct",
+  "@accountsKindDirect": {
+    "description": "Short tab label in the add-account sheet for adding a Direct connection to a model provider (OpenAI-compatible, Ollama, OpenRouter). Keep it short: it shares a segmented control with 'Open WebUI' and 'Hermes'."
+  },
   "accountsAddOnThisServer": "Add account on this server",
   "@accountsAddOnThisServer": {
     "description": "Row under a saved Open WebUI server on the accounts page that starts signing in to another account on it."

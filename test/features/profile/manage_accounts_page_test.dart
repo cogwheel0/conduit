@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/profile/views/manage_accounts_page.dart';
+import 'package:conduit/features/profile/widgets/account_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
@@ -344,9 +345,11 @@ void main() {
     expect(find.bySemanticsLabel('Active'), findsNothing);
     expect(find.byKey(const Key('accounts-direct-add')), findsNothing);
 
+    // Edited in the account sheet, not on a page of its own.
     await tester.tap(find.byKey(const Key('accounts-direct-desk')));
     await tester.pumpAndSettle();
-    expect(find.text('direct editor desk'), findsOne);
+    expect(find.byType(AccountSheet), findsOne);
+    expect(find.byKey(const Key('account-sheet-direct')), findsOne);
   });
 
   testWidgets('every card shows when empty, offering to add its first', (
@@ -361,6 +364,8 @@ void main() {
 
     // A first Open WebUI account is connected to, not added beside one.
     await tester.tap(find.byKey(const Key('accounts-openwebui-add')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('account-sheet-new-server')));
     await tester.pumpAndSettle();
     check(location()).equals(Routes.serverConnection);
   });

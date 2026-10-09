@@ -1,6 +1,5 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
@@ -15,15 +14,16 @@ import 'package:flutter/widgets.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../../core/utils/account_display.dart';
 import '../../hermes/widgets/hermes_connection_switcher.dart';
+import 'account_sheet.dart';
 
 export '../../../core/utils/account_display.dart';
+export 'account_sheet.dart' show AccountKind;
 
 /// The avatar of an account the app is not signed in to: the image saved the
 /// last time it was active when that image travels with it (a data URL, as
@@ -411,72 +411,10 @@ Future<bool> abandonAddedAccount(BuildContext context, WidgetRef ref) async {
   return true;
 }
 
-/// Asks where to add an account -- a saved server or a new one -- and opens
-/// the connection page for it.
-Future<void> showAddAccountSheet(BuildContext context, WidgetRef ref) async {
-  final l10n = AppLocalizations.of(context)!;
-  List<OpenWebUiServer>? read;
-  try {
-    final entries = await ref.read(openWebUiAccountsProvider.future);
-    read = {
-      for (final entry in entries) entry.server.id: entry.server,
-    }.values.toList(growable: false);
-  } catch (_) {}
-  if (!context.mounted) return;
-  // Unreadable, there may be servers to add to: add as to one.
-  final servers = read;
-  if (servers == null) {
-    openAddAccount(context, ref);
-    return;
-  }
-  if (servers.isEmpty) {
-    connectFirstOpenWebUiAccount(context);
-    return;
-  }
-
-  final theme = context.conduitTheme;
-  final choice = await showAdaptiveSelectionSheet<String>(
-    context: context,
-    builder: (sheetContext) => AdaptiveSelectionSheet(
-      title: l10n.accountsAddAccountTitle,
-      description: l10n.accountsAddAccountMessage,
-      itemCount: servers.length + 1,
-      itemBuilder: (itemContext, index) {
-        if (index == servers.length) {
-          return AdaptiveSelectionTile(
-            key: const Key('add-account-new-server'),
-            title: l10n.accountsNewServer,
-            selected: false,
-            leading: Icon(
-              UiUtils.platformIcon(
-                ios: CupertinoIcons.add_circled,
-                android: Icons.add_circle_outline,
-              ),
-              color: theme.buttonPrimary,
-            ),
-            onTap: () => Navigator.of(sheetContext).pop(''),
-          );
-        }
-        final server = servers[index];
-        final host = Uri.tryParse(server.endpoints.first.url)?.host;
-        final name = serverDisplayName(server);
-        return AdaptiveSelectionTile(
-          key: Key('add-account-server-${server.id}'),
-          title: name,
-          subtitle: host == null || host == name ? null : host,
-          selected: false,
-          leading: Icon(
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.cloud,
-              android: Icons.dns_outlined,
-            ),
-            color: theme.iconSecondary,
-          ),
-          onTap: () => Navigator.of(sheetContext).pop(server.id),
-        );
-      },
-    ),
-  );
-  if (choice == null || !context.mounted) return;
-  openAddAccount(context, ref, serverId: choice.isEmpty ? null : choice);
-}
+/// Opens the account sheet to add an account or connection, on the tab for
+/// [kind].
+Future<void> showAddAccountSheet(
+  BuildContext context,
+  WidgetRef ref, {
+  AccountKind kind = AccountKind.openWebUi,
+}) => showAccountSheet(context, AddAccountRequest(kind));

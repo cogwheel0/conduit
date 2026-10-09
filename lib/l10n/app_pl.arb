@@ -7661,6 +7661,16 @@
   "accountsAddAccountTitle": "Dodaj konto",
   "accountsAddAccountMessage": "Zaloguj się na inne konto na zapisanym serwerze lub połącz się z nowym.",
   "accountsNewServer": "Nowy serwer",
+  "accountsContinueWith": "Kontynuuj z {server}",
+  "@accountsContinueWith": {
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "Home Lab"
+      }
+    }
+  },
+  "accountsKindDirect": "Bezpośrednie",
   "accountsAddOnThisServer": "Dodaj konto na tym serwerze",
   "accountsSwitch": "Przełącz",
   "accountsSignOutOf": "Wyloguj się z konta {name}",

@@ -4138,6 +4138,8 @@
   "accountsAddAccountTitle": "Konto hinzufügen",
   "accountsAddAccountMessage": "Melde dich bei einem weiteren Konto auf einem gespeicherten Server an oder verbinde dich mit einem neuen.",
   "accountsNewServer": "Neuer Server",
+  "accountsContinueWith": "Weiter mit {server}",
+  "accountsKindDirect": "Direkt",
   "accountsAddOnThisServer": "Konto auf diesem Server hinzufügen",
   "accountsSwitch": "Wechseln",
   "accountsSignOutOf": "{name} abmelden",

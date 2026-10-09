@@ -5654,6 +5654,8 @@
   "accountsAddAccountTitle": "アカウントを追加",
   "accountsAddAccountMessage": "保存済みのサーバーで別のアカウントにサインインするか、新しいサーバーに接続します。",
   "accountsNewServer": "新しいサーバー",
+  "accountsContinueWith": "{server} で続ける",
+  "accountsKindDirect": "ダイレクト",
   "accountsAddOnThisServer": "このサーバーにアカウントを追加",
   "accountsSwitch": "切り替え",
   "accountsSignOutOf": "{name} からサインアウト",

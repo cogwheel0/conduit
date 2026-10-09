@@ -36,11 +36,18 @@ class DirectConnectionEditorPage extends ConsumerStatefulWidget {
     required this.mode,
     this.isOnboarding = false,
     this.entry = DirectEditorEntry.overview,
+    this.onFinished,
   });
 
   final DirectConnectionEditorMode mode;
   final bool isOnboarding;
   final DirectEditorEntry entry;
+
+  /// Set when the editor is part of the account sheet rather than a page: it
+  /// brings no page of its own, a new connection is set up as in onboarding,
+  /// and this is called, rather than going back, once it is saved or
+  /// deleted.
+  final VoidCallback? onFinished;
 
   @override
   ConsumerState<DirectConnectionEditorPage> createState() =>
@@ -64,6 +71,12 @@ class _DirectConnectionEditorPageState
   String? get _operationError => _editorState.operationError;
 
   bool _workflowCreated = false;
+
+  bool get _embedded => widget.onFinished != null;
+
+  /// Whether a new connection is being set up, as onboarding does: the
+  /// provider first, and one button that tests and saves it.
+  bool get _setup => widget.isOnboarding || (_embedded && _mode.isNew);
 
   @override
   void didChangeDependencies() {
@@ -174,7 +187,11 @@ class _DirectConnectionEditorPageState
     );
     if (!mounted) return;
     if (result.succeeded) {
-      unawaited(Navigator.of(context).maybePop(true));
+      if (_embedded) {
+        widget.onFinished!();
+      } else {
+        unawaited(Navigator.of(context).maybePop(true));
+      }
       return;
     }
     if (result.outcome == DirectEditorActionOutcome.failed) {
@@ -194,7 +211,9 @@ class _DirectConnectionEditorPageState
   void _handleSaveResult(DirectEditorActionResult result) {
     if (!mounted) return;
     if (result.succeeded) {
-      if (widget.isOnboarding) {
+      if (_embedded) {
+        widget.onFinished!();
+      } else if (widget.isOnboarding) {
         context.goNamed(
           RouteNames.directConnections,
           queryParameters: const {'onboarding': 'true'},
@@ -295,6 +314,16 @@ class _DirectConnectionEditorPageState
     Widget bottomAction = const SizedBox.shrink(),
     Widget? trailing,
   }) {
+    if (_embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ...children,
+          const SizedBox(height: Spacing.lg),
+          bottomAction,
+        ],
+      );
+    }
     if (widget.isOnboarding) {
       final l10n = AppLocalizations.of(context)!;
       return UtilityPageScaffold.auth(
@@ -342,7 +371,8 @@ class _DirectConnectionEditorPageState
         directDraftValidationMessage(l10n, _form.errors.form) ??
         _form.errors.profile;
     final content = <Widget>[
-      if (!widget.isOnboarding && !_mode.isNew && !PlatformInfo.isIOS)
+      // The sheet names the connection already.
+      if (!_setup && !_embedded && !_mode.isNew && !PlatformInfo.isIOS)
         UtilityIdentityHeader(
           leading: ConnectionMark(
             child: Icon(
@@ -370,20 +400,20 @@ class _DirectConnectionEditorPageState
                 )
               : null,
         ),
-      if (!widget.isOnboarding && !_mode.isNew && !PlatformInfo.isIOS)
+      if (!_setup && !_embedded && !_mode.isNew && !PlatformInfo.isIOS)
         const SizedBox(height: Spacing.xl),
-      if (!widget.isOnboarding) ...[
+      if (!_setup) ...[
         if (PlatformInfo.isIOS)
           DirectConnectionGeneralSection(form: _form)
         else
           DirectConnectionAvailabilitySection(form: _form),
         SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
       ],
-      if (widget.isOnboarding || !PlatformInfo.isIOS) ...[
-        DirectConnectionProviderSection(form: _form, flat: widget.isOnboarding),
+      if (_setup || !PlatformInfo.isIOS) ...[
+        DirectConnectionProviderSection(form: _form, flat: _setup),
         SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
       ],
-      DirectConnectionDetailsSection(form: _form, flat: widget.isOnboarding),
+      DirectConnectionDetailsSection(form: _form, flat: _setup),
       if (formError != null) ...[
         const SizedBox(height: Spacing.lg),
         KeyedSubtree(
@@ -412,9 +442,9 @@ class _DirectConnectionEditorPageState
       SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
       DirectConnectionAdvancedSettingsSection(
         form: _form,
-        flat: widget.isOnboarding,
+        flat: _setup,
       ),
-      if (!widget.isOnboarding) ...[
+      if (!_setup) ...[
         SizedBox(height: PlatformInfo.isIOS ? Spacing.md : Spacing.lg),
         if (PlatformInfo.isIOS) ...[
           InsetGroupedList(
@@ -526,7 +556,7 @@ class _DirectConnectionEditorPageState
             child: child,
           ),
       ],
-      bottomAction: widget.isOnboarding
+      bottomAction: _setup
           ? Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -544,8 +574,22 @@ class _DirectConnectionEditorPageState
                 ),
               ],
             )
+          : _embedded
+          ? ConduitButton(
+              key: const ValueKey<String>('direct-editor-save-button'),
+              text: l10n.save,
+              isFullWidth: true,
+              isLoading: _saving,
+              onPressed:
+                  _testing ||
+                      _deleting ||
+                      _form.authentication ==
+                          DirectAuthenticationMode.unsupported
+                  ? null
+                  : _save,
+            )
           : const SizedBox.shrink(),
-      trailing: !widget.isOnboarding && PlatformInfo.isIOS
+      trailing: !_setup && !_embedded && PlatformInfo.isIOS
           ? CupertinoButton(
               key: const ValueKey<String>('direct-editor-save-toolbar-button'),
               padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),

@@ -7,6 +7,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
@@ -18,6 +19,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../hermes/widgets/hermes_connection_switcher.dart';
 import '../widgets/account_actions.dart';
+import '../widgets/account_sheet.dart';
 import '../widgets/settings_page_scaffold.dart';
 
 /// Every account and connection, a card for each place they live: one per
@@ -106,7 +108,7 @@ class ManageAccountsPage extends ConsumerWidget {
             _AddRow(
               key: const Key('accounts-openwebui-add'),
               title: l10n.connectOpenWebUITitle,
-              onTap: () => connectFirstOpenWebUiAccount(context),
+              onTap: () => showAddAccountSheet(context, ref),
             ),
           ],
         ),
@@ -175,15 +177,17 @@ class _HermesCard extends ConsumerWidget {
             desktop: connection.mode == HermesBackendMode.desktopGateway,
             inUse: enabled && connection.id == activeId,
             onTap: () => useHermesConnection(context, ref, connection.id),
+            onEdit: () => showAccountSheet(
+              context,
+              EditHermesConnectionRequest(connection.id),
+            ),
           ),
         if (connections.isEmpty)
           _AddRow(
             key: const Key('accounts-hermes-add'),
             title: l10n.hermesAddConnection,
-            onTap: () => context.pushNamed(
-              RouteNames.hermesConnectionEditor,
-              pathParameters: {'id': Routes.hermesNewConnectionId},
-            ),
+            onTap: () =>
+                showAddAccountSheet(context, ref, kind: AccountKind.hermes),
           ),
       ],
     );
@@ -198,6 +202,7 @@ class _HermesConnectionRow extends StatelessWidget {
     required this.desktop,
     required this.inUse,
     required this.onTap,
+    required this.onEdit,
   });
 
   final String name;
@@ -206,10 +211,13 @@ class _HermesConnectionRow extends StatelessWidget {
   final bool inUse;
   final VoidCallback onTap;
 
+  /// A long press edits the connection; a tap only puts it in use.
+  final VoidCallback onEdit;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return UtilityRow(
+    final row = UtilityRow(
       title: name,
       subtitle: summary,
       leading: _RowGlyph(
@@ -229,6 +237,12 @@ class _HermesConnectionRow extends StatelessWidget {
       trailing: inUse
           ? ActiveCheckmark(semanticLabel: l10n.accountsActive)
           : null,
+    );
+    return Semantics(
+      customSemanticsActions: {
+        CustomSemanticsAction(label: l10n.edit): onEdit,
+      },
+      child: GestureDetector(onLongPress: onEdit, child: row),
     );
   }
 }
@@ -250,10 +264,6 @@ class _DirectCard extends ConsumerWidget {
     final applePcc = apple && ref.watch(applePccEnabledProvider);
     final saved = profiles.value ?? const <DirectConnectionProfile>[];
     void openDirect() => context.pushNamed(RouteNames.directConnections);
-    void openEditor(String id) => context.pushNamed(
-      RouteNames.directConnectionEditor,
-      pathParameters: {'id': id},
-    );
     final appleIcon = UiUtils.platformIcon(
       ios: CupertinoIcons.device_phone_portrait,
       android: Icons.phone_iphone,
@@ -314,7 +324,10 @@ class _DirectCard extends ConsumerWidget {
                     ),
             ),
             showChevron: true,
-            onTap: () => openEditor(profile.id),
+            onTap: () => showAccountSheet(
+              context,
+              EditDirectConnectionRequest(profile.id),
+            ),
           ),
         // Not offered while the saved ones are unread or unreadable: the
         // Direct page says which, and adds from there.
@@ -322,7 +335,8 @@ class _DirectCard extends ConsumerWidget {
           _AddRow(
             key: const Key('accounts-direct-add'),
             title: l10n.addDirectConnection,
-            onTap: () => openEditor('new'),
+            onTap: () =>
+                showAddAccountSheet(context, ref, kind: AccountKind.direct),
           ),
       ],
     );
