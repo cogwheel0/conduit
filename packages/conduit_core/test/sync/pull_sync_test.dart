@@ -5,7 +5,9 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart'
-    show kLocalConversationWorkerThreshold;
+    show
+        kLocalConversationWorkerPayloadThreshold,
+        kLocalConversationWorkerThreshold;
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
@@ -170,6 +172,55 @@ void main() {
       check((await db.messagesDao.getForChat('threshold')).length)
           .equals(kLocalConversationWorkerThreshold);
     });
+
+    test(
+      'a few messages carrying large inline data also use the worker',
+      () async {
+        var offloadCalls = 0;
+        final workerManager = WorkerManager();
+        addTearDown(workerManager.dispose);
+        pull = PullSync(
+          client: client,
+          db: db,
+          locks: locks,
+          rowsParseOffload: (response) {
+            offloadCalls++;
+            return workerManager.schedule(
+              parseChatRowsWorker,
+              response,
+              debugLabel: 'test.pull.normalizeChatRows',
+            );
+          },
+        );
+        final inline = blobFor('inline');
+        final messages =
+            (inline['history'] as Map<String, dynamic>)['messages']
+                as Map<String, dynamic>;
+        (messages['inline-m2'] as Map<String, dynamic>)['content'] =
+            'x' * (kLocalConversationWorkerPayloadThreshold + 1);
+        server.seedChat(
+          id: 'inline',
+          blob: inline,
+          createdAt: 100,
+          updatedAt: 200,
+        );
+        server.seedChat(
+          id: 'small',
+          blob: blobFor('small'),
+          createdAt: 50,
+          updatedAt: 100,
+        );
+
+        final result = await pull.run();
+
+        check(result.success).isTrue();
+        check(offloadCalls).equals(1);
+        final stored = await db.messagesDao.getForChat('inline');
+        check(stored.length).equals(2);
+        check(stored.last.content.length)
+            .equals(kLocalConversationWorkerPayloadThreshold + 1);
+      },
+    );
 
     test('first-run full pull (watermark 0) lands every chat', () async {
       server.seedChat(

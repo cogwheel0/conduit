@@ -73,6 +73,28 @@ int _chatMessageCount(Map<String, dynamic> response) {
   return messages is Map ? messages.length : 0;
 }
 
+/// Whether the strings in a response's history messages total more than
+/// [limit] characters. Counts without encoding and stops once past [limit],
+/// so a few messages carrying inline image data are caught cheaply.
+bool _chatMessageTextExceeds(Map<String, dynamic> response, int limit) {
+  final chat = response['chat'];
+  if (chat is! Map) return false;
+  final history = chat['history'];
+  if (history is! Map) return false;
+  var total = 0;
+  bool exceeds(Object? node) {
+    if (node is String) {
+      total += node.length;
+      return total > limit;
+    }
+    if (node is Map) return node.values.any(exceeds);
+    if (node is List) return node.any(exceeds);
+    return false;
+  }
+
+  return exceeds(history['messages']);
+}
+
 int? _parseServerEpochSeconds(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
@@ -676,7 +698,11 @@ class PullSync {
     final rowsParser = _rowsParseOffload;
     final rows =
         rowsParser != null &&
-            _chatMessageCount(resp) > kLocalConversationWorkerThreshold
+            (_chatMessageCount(resp) > kLocalConversationWorkerThreshold ||
+                _chatMessageTextExceeds(
+                  resp,
+                  kLocalConversationWorkerPayloadThreshold,
+                ))
         ? await rowsParser(resp)
         : _chatRowsFromResponse(resp);
 
