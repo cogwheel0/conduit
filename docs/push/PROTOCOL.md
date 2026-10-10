@@ -224,15 +224,17 @@ the same body to it. The connector instance is the `sid`.
    (shown as a passive generic notification until Apple grants the filtering
    entitlement).
 2. Decrypt, parse `cp/1`, and build the app-wide dedup key.
-3. Claim the key in the shared ledger. If it was already shown, drop the push.
+3. A `test` push records `n` so the app can mark the subscription as
+   verified, even if the steps below don't show it.
+4. If the user switched push, this kind or this account off on the device,
+   drop the push (shown as a passive generic notification until Apple grants
+   the filtering entitlement). A dropped push claims nothing.
+5. Claim the key in the shared ledger. If it was already shown, drop the push.
    Until Apple grants the filtering entitlement, iOS instead shows it again
    with its decrypted content, silently and as passive, because a push with
    the same `Topic` replaces the earlier notification on screen.
-4. If the user switched this kind or this account off on the device, drop the push.
-5. Show it: title `t` (or a localized fallback for the kind), body `b`, and the
+6. Show it: title `t` (or a localized fallback for the kind), body `b`, and the
    account label as the subtitle when more than one account is subscribed.
    The thread or group is `<scope>|<g>`, so one server can't merge its
    notifications into another account's. A tap opens the item in that account;
    on iOS the extension signs the tap so the app only acts on taps it wrote.
-6. A `test` push also records `n` so the app can mark the subscription as
-   verified.
