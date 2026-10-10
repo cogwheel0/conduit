@@ -1478,6 +1478,55 @@ void main() {
       );
       check(h.server(_owui).subscriptions.keys).deepEquals([mine.sid]);
     });
+
+    test('a setup that finishes while lost keys are checked stays', () async {
+      h = await _Harness.start(targets: [_owui], fcm: true, unifiedPush: true);
+      await h.coordinator.setEnabled(true);
+      check(h.record(_owui.scope).transport).equals(PushTransport.fcm);
+      final lostSid = h.record(_owui.scope).sid!;
+      h.dispose();
+
+      // The key store started over. While the check waits for the FCM
+      // token, the user switches delivery to UnifiedPush, which sets push up
+      // again with new keys.
+      final tokenGate = Completer<void>();
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        fcm: true,
+        unifiedPush: true,
+        platform: _Platform([])
+          .._next = 50
+          ..tokenGate = tokenGate,
+      );
+      await h.until(
+        () => h.log.contains('token-waiting ${PushTransport.fcm}'),
+      );
+      await h.coordinator.setAndroidTransport(
+        PushAndroidTransport.unifiedPush,
+        distributor: 'org.unifiedpush.distributor.ntfy',
+      );
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      final newSid = h.record(_owui.scope).sid!;
+      check(newSid).not((it) => it.equals(lostSid));
+      final subscribes = h.server(_owui).subscribes;
+
+      h.platform.tokenGate = null;
+      tokenGate.complete();
+      // The lost subscription is removed from its server...
+      await h.until(
+        () =>
+            h.server(_owui).unsubscribes.contains(lostSid) &&
+            h.settingsStore.tombstones().isEmpty,
+      );
+      await pumpEventQueue();
+      // ...and the new one is left as it was: not removed, not set up again.
+      check(h.server(_owui).unsubscribes).not((it) => it.contains(newSid));
+      check(h.server(_owui).subscriptions.keys).deepEquals([newSid]);
+      check(h.record(_owui.scope).sid).equals(newSid);
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      check(h.server(_owui).subscribes).equals(subscribes);
+    });
   });
 
   group('push state for other screens', () {
@@ -1858,8 +1907,16 @@ final class _Platform implements PushPlatformPort {
   Future<bool?> hasPermission() async =>
       permissionStatus == null ? permission : permissionStatus!();
 
+  /// Holds [currentToken] until completed.
+  Completer<void>? tokenGate;
+
   @override
   Future<PushDeviceToken?> currentToken(PushTransport transport) async {
+    final gate = tokenGate;
+    if (gate != null) {
+      log.add('token-waiting $transport');
+      await gate.future;
+    }
     final error = tokenError;
     if (error != null) throw error;
     return PushDeviceToken(

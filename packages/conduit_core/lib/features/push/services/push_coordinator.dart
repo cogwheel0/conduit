@@ -617,8 +617,17 @@ class PushCoordinator extends _$PushCoordinator {
   /// subscriptions are this device's own ([_keysLostHere]), so they are
   /// tombstoned to be removed from their servers, and the device keeps its
   /// id and the tombstones it already had.
+  ///
+  /// Only the subscriptions recorded before anything here is awaited count
+  /// as lost. A setup that finishes meanwhile (the user switched delivery to
+  /// UnifiedPush, say) made its keys on this device, so its subscription is
+  /// neither tombstoned nor forgotten here.
   Future<void> _recoverFromRestore() async {
-    if (!_records.values.any((record) => record.hasSubscription)) return;
+    final missing = {
+      for (final entry in _records.entries)
+        if (entry.value.hasSubscription) entry.key: entry.value,
+    };
+    if (missing.isEmpty) return;
     final List<PushSubscriptionKeys> native;
     try {
       native = await _platform.listSubscriptions();
@@ -626,19 +635,25 @@ class PushCoordinator extends _$PushCoordinator {
       return;
     }
     if (native.isNotEmpty || !ref.mounted) return;
-    if (await _keysLostHere()) {
+    if (await _keysLostHere(missing.values)) {
       if (!ref.mounted) return;
       DebugLogger.warning('push-keys-lost', scope: 'push');
-      for (final MapEntry(key: scope, value: record) in _records.entries) {
-        final sid = record.sid;
-        if (sid == null) continue;
-        await _addTombstone(sid, scope, server: record.serverFingerprint);
+      for (final MapEntry(key: scope, value: record) in missing.entries) {
+        await _addTombstone(
+          record.sid!,
+          scope,
+          server: record.serverFingerprint,
+        );
       }
-      _records = {
-        for (final entry in _records.entries)
-          if (entry.value.hasChoices)
-            entry.key: entry.value.withoutSubscription(),
-      };
+      for (final MapEntry(key: scope, value: lost) in missing.entries) {
+        final current = _records[scope];
+        if (current == null || current.sid != lost.sid) continue;
+        if (current.hasChoices) {
+          _records[scope] = current.withoutSubscription();
+        } else {
+          _records.remove(scope);
+        }
+      }
       await _settings.saveRecords(_records);
       await _settings.setLastFullReconcile(null);
       _publishTargets();
@@ -657,16 +672,16 @@ class PushCoordinator extends _$PushCoordinator {
     _publishTargets();
   }
 
-  /// Whether a subscription was registered with this device's current APNs
+  /// Whether one of [missing] was registered with this device's current APNs
   /// or FCM token, which no other device has: the keys that went missing
   /// were made here. A UnifiedPush endpoint proves nothing (its distributor
   /// is in the preferences that a backup carries), and neither does a
   /// token that cannot be read. Only asked while push is on, since reading
   /// a token can register for one again.
-  Future<bool> _keysLostHere() async {
+  Future<bool> _keysLostHere(Iterable<PushSubscriptionRecord> missing) async {
     if (!state.enabled) return false;
     final fingerprints = <PushTransport, Set<String>>{};
-    for (final record in _records.values) {
+    for (final record in missing) {
       final transport = record.transport;
       final fingerprint = record.tokenFingerprint;
       if (record.sid == null ||
