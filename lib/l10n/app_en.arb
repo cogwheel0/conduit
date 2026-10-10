@@ -1684,7 +1684,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Always send recordings to your Open WebUI server for transcription.",
+  "sttEngineServerDescription": "Send recordings to the chat's server for transcription: Open WebUI, Hermes, or the Voice provider for Direct chats.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1768,7 +1768,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Create speech using your Open WebUI server.",
+  "ttsEngineServerDescription": "Create speech on the chat's server: Open WebUI, Hermes, or the Voice provider for Direct chats.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -1779,6 +1779,38 @@
   "ttsServerUnavailableWarning": "Connect to a server with text-to-speech enabled to use this option.",
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
+  },
+  "voiceProviderTitle": "Voice provider",
+  "@voiceProviderTitle": {
+    "description": "Title of the setting that picks the Direct connection used for speech in Direct and Apple chats."
+  },
+  "voiceProviderDescription": "Direct and Apple chats use this connection when Speech to text or Text to speech is set to Server.",
+  "@voiceProviderDescription": {
+    "description": "Explains what the Voice provider setting does."
+  },
+  "voiceProviderConnection": "Connection",
+  "@voiceProviderConnection": {
+    "description": "Label of the row that picks the Voice provider's Direct connection."
+  },
+  "voiceProviderNone": "None",
+  "@voiceProviderNone": {
+    "description": "Shown when no Voice provider is chosen; also the picker option that clears it."
+  },
+  "voiceProviderNoConnections": "Add an OpenAI-compatible Direct connection to choose it here.",
+  "@voiceProviderNoConnections": {
+    "description": "Shown when no Direct connection can be the Voice provider."
+  },
+  "voiceProviderTranscriptionModel": "Transcription model",
+  "@voiceProviderTranscriptionModel": {
+    "description": "Label of the field for the speech-to-text model name."
+  },
+  "voiceProviderSpeechModel": "Speech model",
+  "@voiceProviderSpeechModel": {
+    "description": "Label of the field for the text-to-speech model name."
+  },
+  "voiceProviderModelsHint": "Use the model names your provider lists. A direction left empty uses this device instead.",
+  "@voiceProviderModelsHint": {
+    "description": "Hint under the Voice provider's model fields."
   },
   "ttsSettings": "Text to speech",
   "@ttsSettings": {

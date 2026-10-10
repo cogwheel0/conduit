@@ -71,6 +71,7 @@ import 'platform/carplay_service.dart';
 import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
@@ -85,6 +86,7 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
         nativeAccountSignOutActionId,
         nativeAccountSwitchActionId,
@@ -1060,6 +1062,21 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await notifier.setTtsEngineSelection(TtsEngine.device);
             await _refreshNativeVoiceDetail();
           }
+        case 'voice-provider-connection':
+          if (value is String) {
+            await _chooseNativeVoiceProvider(value);
+            await _refreshNativeVoiceDetail();
+          }
+        case final id when nativeVoiceProviderFieldIds.containsKey(id):
+          final current = ref.read(appSettingsProvider).directVoiceProvider;
+          if (value is String && current != null) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setDirectVoiceProvider(
+                  current.withField(nativeVoiceProviderFieldIds[id]!, value),
+                );
+            await _refreshNativeVoiceDetail();
+          }
         case 'theme-light':
           switch (value) {
             case 'system':
@@ -1206,6 +1223,23 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   String? _normalizeOptionalNativeText(String? value) {
     final trimmed = value?.trim();
     return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// Makes the connection with [profileId] the Voice provider, or clears it.
+  Future<void> _chooseNativeVoiceProvider(String profileId) async {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    final profile = (ref.read(directConnectionProfilesProvider).value ?? [])
+        .where(canBeVoiceProvider)
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+    await notifier.setDirectVoiceProvider(
+      profile == null
+          ? null
+          : DirectVoiceProviderSettings.forConnection(
+              profile,
+              current: ref.read(appSettingsProvider).directVoiceProvider,
+            ),
+    );
   }
 
   Future<void> _refreshNativeVoiceDetail() {

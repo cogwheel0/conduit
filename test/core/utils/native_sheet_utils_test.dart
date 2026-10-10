@@ -1,4 +1,6 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
@@ -118,6 +120,84 @@ void main() {
       }
     }
   }
+
+  group('native Voice provider', () {
+    final openAi = DirectConnectionProfile(
+      id: 'voice',
+      name: 'OpenAI',
+      adapterKey: kOpenAiCompatibleAdapterKey,
+      baseUrl: 'https://api.openai.com/v1',
+    );
+
+    Iterable<NativeSheetItemConfig> items(NativeSheetDetailConfig detail) =>
+        detail.sections.expand((section) => section.items);
+
+    test('shows its model fields only once a connection is chosen', () {
+      final none = buildNativeAudioSheetParts(
+        l10n,
+        const AppSettings(),
+        voiceProviderCandidates: [openAi],
+      );
+      check(
+        items(none.voiceProviderDetail).map((item) => item.id),
+      ).deepEquals(['voice-provider-connection']);
+
+      final chosen = buildNativeAudioSheetParts(
+        l10n,
+        AppSettings(
+          directVoiceProvider: DirectVoiceProviderSettings.forConnection(
+            openAi,
+          ),
+        ),
+        voiceProviderCandidates: [openAi],
+      );
+      final fields = {
+        for (final item in items(chosen.voiceProviderDetail))
+          item.id: item.value,
+      };
+      check(fields).deepEquals({
+        'voice-provider-connection': 'voice',
+        'voice-provider-transcription-model': 'whisper-1',
+        'voice-provider-speech-model': 'tts-1',
+        'voice-provider-speech-voice': 'alloy',
+      });
+      check(
+        nativeVoiceProviderFieldIds.keys.toSet(),
+      ).deepEquals(fields.keys.toSet()..remove('voice-provider-connection'));
+    });
+
+    test('a removed connection reads as none', () {
+      final parts = buildNativeAudioSheetParts(
+        l10n,
+        const AppSettings(
+          directVoiceProvider: DirectVoiceProviderSettings(profileId: 'gone'),
+        ),
+        voiceProviderCandidates: [openAi],
+      );
+
+      final row = parts.mainSections
+          .expand((section) => section.items)
+          .singleWhere((item) => item.id == NativeSheetRoutes.voiceProvider);
+      check(row.subtitle).equals(l10n.voiceProviderNone);
+      check(
+        items(parts.voiceProviderDetail).map((item) => item.id),
+      ).deepEquals(['voice-provider-connection']);
+    });
+
+    test('server voices are offered only where the backend lists them', () {
+      bool offersPicker({required bool serverOffersVoiceChoice}) =>
+          buildNativeAudioSheetParts(
+                l10n,
+                const AppSettings(ttsEngine: TtsEngine.server),
+                serverOffersVoiceChoice: serverOffersVoiceChoice,
+              ).mainSections
+              .expand((section) => section.items)
+              .any((item) => item.id == 'tts-voice-picker');
+
+      check(offersPicker(serverOffersVoiceChoice: true)).isTrue();
+      check(offersPicker(serverOffersVoiceChoice: false)).isFalse();
+    });
+  });
 
   test('native speech-rate slider shows its value only once', () {
     final parts = buildNativeAudioSheetParts(l10n, const AppSettings());

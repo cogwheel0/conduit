@@ -8,7 +8,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
+import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/utils/tts_voice_utils.dart';
 import '../../../l10n/app_localizations.dart';
@@ -22,6 +25,7 @@ import '../widgets/customization_tile.dart';
 import '../widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/stt_language_picker.dart';
+import 'voice_provider_settings_page.dart';
 
 bool shouldShowDeviceSttLanguageSetting(
   TargetPlatform platform,
@@ -45,7 +49,36 @@ class AudioSettingsPage extends ConsumerWidget {
         _buildSttSection(context, ref, settings),
         settingsSectionGap,
         _buildTtsSection(context, ref, settings),
+        settingsSectionGap,
+        _buildVoiceProviderTile(context, ref, settings),
       ],
+    );
+  }
+
+  Widget _buildVoiceProviderTile(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    return InsetGroupedSection(
+      footer: l10n.voiceProviderDescription,
+      child: CustomizationTile(
+        leading: SettingsIconBadge(
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.waveform,
+            android: Icons.graphic_eq,
+          ),
+          color: context.conduitTheme.buttonPrimary,
+        ),
+        title: l10n.voiceProviderTitle,
+        subtitle: voiceProviderSubtitle(
+          l10n,
+          settings.directVoiceProvider,
+          voiceProviderCandidates(ref),
+        ),
+        onTap: () => context.pushNamed(RouteNames.voiceProviderSettings),
+      ),
     );
   }
 
@@ -238,7 +271,12 @@ class AudioSettingsPage extends ConsumerWidget {
     final ttsService = ref.watch(textToSpeechServiceProvider);
     final deviceAvailable =
         ttsService.deviceEngineAvailable || !ttsService.isInitialized;
-    final serverAvailable = ttsService.serverEngineAvailable;
+    final serverSpeech = ref.watch(serverSpeechProviderProvider);
+    final serverAvailable = serverSpeech?.canSynthesize == true;
+    // Only Open WebUI lists voices; the others speak with their own.
+    final showsVoicePicker =
+        settings.ttsEngine == TtsEngine.device ||
+        serverSpeech?.offersVoiceChoice == true;
 
     final warnings = <String>[
       if (settings.ttsEngine == TtsEngine.device && !deviceAvailable)
@@ -298,19 +336,21 @@ class AudioSettingsPage extends ConsumerWidget {
             ],
           ),
         ),
-        const SizedBox(height: Spacing.sm),
-        CustomizationTile(
-          leading: SettingsIconBadge(
-            icon: UiUtils.platformIcon(
-              ios: CupertinoIcons.speaker_3,
-              android: Icons.record_voice_over,
+        if (showsVoicePicker) ...[
+          const SizedBox(height: Spacing.sm),
+          CustomizationTile(
+            leading: SettingsIconBadge(
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.speaker_3,
+                android: Icons.record_voice_over,
+              ),
+              color: theme.buttonPrimary,
             ),
-            color: theme.buttonPrimary,
+            title: l10n.ttsVoice,
+            subtitle: _voiceSubtitle(l10n, settings),
+            onTap: () => _showVoicePickerSheet(context, ref, settings),
           ),
-          title: l10n.ttsVoice,
-          subtitle: _voiceSubtitle(l10n, settings),
-          onTap: () => _showVoicePickerSheet(context, ref, settings),
-        ),
+        ],
         if (settings.ttsEngine == TtsEngine.device) ...[
           const SizedBox(height: Spacing.sm),
           InsetGroupedSection(

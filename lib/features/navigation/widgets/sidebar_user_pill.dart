@@ -30,6 +30,8 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
     show directConnectionProfilesProvider;
 import '../../../shared/services/navigation_service.dart';
 
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
@@ -727,7 +729,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
   }) {
     final l10n = AppLocalizations.of(context)!;
     final appSettings = ref.read(appSettingsProvider);
-    final nativeAudio = buildNativeAudioSheetParts(l10n, appSettings);
+    final nativeAudio = buildNativeAudioSheetParts(
+      l10n,
+      appSettings,
+      voiceProviderCandidates:
+          (ref.read(directConnectionProfilesProvider).value ?? const [])
+              .where(canBeVoiceProvider)
+              .toList(growable: false),
+      serverOffersVoiceChoice:
+          ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
+    );
     final appearanceTitle = nativeAppearanceTitle(l10n);
     final chatsTitle = nativeChatsTitle(l10n);
     final aiMemoryTitle = nativeAiMemoryTitle(l10n);
@@ -846,6 +857,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           sections: nativeAudio.mainSections,
         ),
         nativeAudio.voicePickerDetail,
+        nativeAudio.voiceProviderDetail,
         buildNativeLoadingDetail(
           l10n: l10n,
           id: NativeSheetRoutes.chats,

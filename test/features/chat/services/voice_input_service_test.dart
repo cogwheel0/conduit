@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/features/chat/server_speech/openwebui_server_speech.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
@@ -253,7 +254,7 @@ void main() {
     final recorder = _FakeServerVadRecorder();
     final service = _SupportedVoiceInputService(
       nativeStt: nativeStt,
-      api: _MockApiService(),
+      serverSpeech: () => OpenWebUiServerSpeech(_MockApiService()),
       serverVadRecorderFactory: () => recorder,
       supportsNativeResponseWaitCapture: true,
     );
@@ -280,7 +281,7 @@ void main() {
       final recorder = _FakeServerVadRecorder();
       final service = _SupportedVoiceInputService(
         nativeStt: _FakeNativeSttService(),
-        api: _MockApiService(),
+        serverSpeech: () => OpenWebUiServerSpeech(_MockApiService()),
         serverVadRecorderFactory: () => recorder,
       );
       service.updatePreference(SttPreference.serverOnly);
@@ -780,7 +781,7 @@ class _FakeServerVadRecorder implements AudioCapturePort {
 class _SupportedVoiceInputService extends VoiceInputService {
   _SupportedVoiceInputService({
     required super.nativeStt,
-    super.api,
+    super.serverSpeech,
     super.serverVadRecorderFactory,
     this.deviceLocaleTag = 'en-US',
     this.usesAutomaticNativeLanguage = true,

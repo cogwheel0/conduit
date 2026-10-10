@@ -11,6 +11,7 @@ import 'package:conduit_core/models/model.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -1197,7 +1198,12 @@ class AppCustomizationPage extends ConsumerWidget {
     final ttsService = ref.watch(textToSpeechServiceProvider);
     final bool deviceAvailable =
         ttsService.deviceEngineAvailable || !ttsService.isInitialized;
-    final bool serverAvailable = ttsService.serverEngineAvailable;
+    final serverSpeech = ref.watch(serverSpeechProviderProvider);
+    final bool serverAvailable = serverSpeech?.canSynthesize == true;
+    // Only Open WebUI lists voices; the others speak with their own.
+    final bool showsVoicePicker =
+        settings.ttsEngine == TtsEngine.device ||
+        serverSpeech?.offersVoiceChoice == true;
     final bool deviceSelectable = deviceAvailable;
     final bool serverSelectable = serverAvailable;
     final ttsDescription = _ttsPreferenceDescription(l10n, settings);
@@ -1305,19 +1311,20 @@ class AppCustomizationPage extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Voice Selection
-              CustomizationTile(
-                leading: _buildIconBadge(
-                  context,
-                  UiUtils.platformIcon(
-                    ios: CupertinoIcons.speaker_3,
-                    android: Icons.record_voice_over,
+              if (showsVoicePicker)
+                CustomizationTile(
+                  leading: _buildIconBadge(
+                    context,
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.speaker_3,
+                      android: Icons.record_voice_over,
+                    ),
+                    color: theme.buttonPrimary,
                   ),
-                  color: theme.buttonPrimary,
+                  title: l10n.ttsVoice,
+                  subtitle: _ttsVoiceSubtitle(l10n, settings),
+                  onTap: () => _showVoicePickerSheet(context, ref, settings),
                 ),
-                title: l10n.ttsVoice,
-                subtitle: _ttsVoiceSubtitle(l10n, settings),
-                onTap: () => _showVoicePickerSheet(context, ref, settings),
-              ),
               if (settings.ttsEngine == TtsEngine.device) ...[
                 const SizedBox(height: Spacing.md),
                 // Speech rate is device-only. Server TTS uses backend defaults.

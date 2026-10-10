@@ -63,6 +63,8 @@ import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
 import '../../shared/services/navigation_service.dart';
 
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
 import '../../shared/theme/theme_providers.dart';
@@ -680,6 +682,7 @@ class NativeSheetHydrationService {
         await _hydrateNativeAiMemoryDetail(ctx, l10n);
         return;
       case NativeSheetRoutes.voice:
+      case NativeSheetRoutes.voiceProvider:
         await _hydrateNativeVoiceDetail(l10n);
         return;
       case NativeSheetRoutes.helpAbout:
@@ -1202,6 +1205,12 @@ class NativeSheetHydrationService {
       l10n,
       appSettings,
       ttsVoices: ttsVoices,
+      voiceProviderCandidates:
+          (_ref.read(directConnectionProfilesProvider).value ?? const [])
+              .where(canBeVoiceProvider)
+              .toList(growable: false),
+      serverOffersVoiceChoice:
+          _ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
     );
     await _applyNativeDetail(
       NativeSheetDetailConfig(
@@ -1209,7 +1218,10 @@ class NativeSheetHydrationService {
         title: l10n.voice,
         sections: nativeAudio.mainSections,
       ),
-      detailSheets: [nativeAudio.voicePickerDetail],
+      detailSheets: [
+        nativeAudio.voicePickerDetail,
+        nativeAudio.voiceProviderDetail,
+      ],
     );
   }
 

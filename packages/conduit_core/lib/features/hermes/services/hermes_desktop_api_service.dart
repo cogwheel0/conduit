@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
@@ -29,6 +30,7 @@ import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 
 part 'hermes_desktop_administration.dart';
+part 'hermes_desktop_audio.dart';
 part 'hermes_desktop_auth_rest.dart';
 part 'hermes_desktop_bots.dart';
 part 'hermes_desktop_event_projection.dart';
@@ -360,7 +362,8 @@ final class HermesDesktopApiService
   bool _isProfileScopedRestPath(String path) =>
       path.startsWith('/api/sessions') ||
       path.startsWith('/api/cron') ||
-      path.startsWith('/api/mcp');
+      path.startsWith('/api/mcp') ||
+      path.startsWith('/api/audio');
 
   @override
   Future<bool> health() => _authHealth();
@@ -403,6 +406,15 @@ final class HermesDesktopApiService
       _runtimeSessionIdsReferToSameBinding(left, right);
   @override
   Future<String> forkSession(String id) => _runtimeForkSession(id);
+
+  /// The text the gateway's speech-to-text heard in [audio]; empty when it
+  /// heard none.
+  Future<String> transcribeAudio(Uint8List audio, {required String mimeType}) =>
+      _audioTranscribe(audio, mimeType: mimeType);
+
+  /// [text] spoken by the gateway's text-to-speech.
+  Future<({Uint8List bytes, String mimeType})> speak(String text) =>
+      _audioSpeak(text);
 
   /// Bot Mode roster; empty when the gateway does not support Bot Mode.
   Future<List<HermesBot>> listBots() => _listBots();

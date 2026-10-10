@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:riverpod/riverpod.dart';
@@ -8,6 +9,7 @@ import '../providers/app_providers.dart' show settledActiveAccountIdProvider;
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/web_search/models/web_search_preferences.dart';
 import 'package:conduit_core/models/animation_settings.dart';
 import 'package:conduit_ddgs/conduit_ddgs.dart' show SafeSearch;
@@ -817,7 +819,19 @@ class SettingsService {
       webSearchRegion: get<String>(
         PreferenceKeys.webSearchRegion,
       ),
+      directVoiceProvider: _parseDirectVoiceProvider(
+        get<String>(PreferenceKeys.directVoiceProvider),
+      ),
     );
+  }
+
+  static DirectVoiceProviderSettings? _parseDirectVoiceProvider(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return DirectVoiceProviderSettings.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return null;
+    }
   }
 }
 
@@ -874,6 +888,10 @@ class AppSettings {
 
   /// `null` follows the device locale; see [resolveWebSearchRegion].
   final String? webSearchRegion;
+
+  /// The Direct connection that speaks and listens for Direct and Apple
+  /// chats, or `null` when none is chosen.
+  final DirectVoiceProviderSettings? directVoiceProvider;
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
@@ -917,6 +935,7 @@ class AppSettings {
     this.webSearchEngine = WebSearchEngineChoice.auto,
     this.webSearchSafeSearch = SafeSearch.moderate,
     this.webSearchRegion,
+    this.directVoiceProvider,
   });
 
   AppSettings copyWith({
@@ -962,6 +981,7 @@ class AppSettings {
     WebSearchEngineChoice? webSearchEngine,
     SafeSearch? webSearchSafeSearch,
     Object? webSearchRegion = const _DefaultValue(),
+    Object? directVoiceProvider = const _DefaultValue(),
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
@@ -1032,6 +1052,9 @@ class AppSettings {
       webSearchRegion: webSearchRegion is _DefaultValue
           ? this.webSearchRegion
           : webSearchRegion as String?,
+      directVoiceProvider: directVoiceProvider is _DefaultValue
+          ? this.directVoiceProvider
+          : directVoiceProvider as DirectVoiceProviderSettings?,
     );
   }
 
@@ -1079,6 +1102,7 @@ class AppSettings {
         other.webSearchEngine == webSearchEngine &&
         other.webSearchSafeSearch == webSearchSafeSearch &&
         other.webSearchRegion == webSearchRegion &&
+        other.directVoiceProvider == directVoiceProvider &&
         _listEquals(other.pinnedModels, pinnedModels) &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
@@ -1126,6 +1150,7 @@ class AppSettings {
       webSearchEngine,
       webSearchSafeSearch,
       webSearchRegion,
+      directVoiceProvider,
       Object.hashAllUnordered(quickPills),
       Object.hashAll(pinnedModels),
     ]);
@@ -1398,6 +1423,18 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     final value = code == kWebSearchRegionAuto ? null : code;
     state = state.copyWith(webSearchRegion: value);
     await SettingsService._putOrRemove(PreferenceKeys.webSearchRegion, value);
+  }
+
+  /// Chooses the Voice provider for Direct and Apple chats; `null` clears it.
+  Future<void> setDirectVoiceProvider(
+    DirectVoiceProviderSettings? value,
+  ) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(directVoiceProvider: value);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.directVoiceProvider,
+      value == null ? null : jsonEncode(value.toJson()),
+    );
   }
 
   Future<void> setSendOnEnter(bool value) async {
