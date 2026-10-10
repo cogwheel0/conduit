@@ -1984,6 +1984,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       'chat:message:files',
       'chat:message:embeds',
       'chat:message:follow_ups',
+      'chat:message:voice',
       'chat:outlet',
       'chat:completed',
       'chat:title',
@@ -5541,6 +5542,11 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
             .where((model) => model.isNotEmpty)
             .toList(growable: false)
       : const <String>[];
+  final voice = messageVoiceRecord(message);
+  final metadata = voice == null
+      ? message.metadata
+      : (Map<String, dynamic>.of(message.metadata!)
+          ..remove(kMessageVoiceMetadataKey));
   return MessageRowData(
     id: message.id,
     chatId: chatId,
@@ -5573,8 +5579,10 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
       // A user turn's saved model list is what makes Open WebUI render its
       // answers as a comparison; without it the saved merge is hidden.
       if (userModels.isNotEmpty) 'models': userModels,
-      if (message.metadata != null && message.metadata!.isNotEmpty)
-        'metadata': message.metadata,
+      if (metadata != null && metadata.isNotEmpty) 'metadata': metadata,
+      // Open WebUI reads a call's spoken transcripts from `meta.voice` and
+      // replays them to the chat model; metadata only mirrors them.
+      if (voice != null) 'meta': <String, dynamic>{'voice': voice},
       if (message.output != null && message.output!.isNotEmpty)
         'output': message.output,
       'files': ?sanitizedFiles,

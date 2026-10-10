@@ -205,6 +205,44 @@ void main() {
       check(config.oauthProviders.github).equals('GitHub');
     });
 
+    test('reads realtime calls from Open WebUI 0.12 and keeps them cached', () {
+      final config = BackendConfig.fromJson({
+        'audio': {
+          'stt': {'engine': 'openai'},
+          'realtime': {
+            'enabled': true,
+            'model': 'gpt-realtime-2.1-mini',
+            'voice': 'marin',
+          },
+        },
+      });
+
+      check(config.enableRealtimeCall).equals(true);
+      check(config.realtimeCallModel).equals('gpt-realtime-2.1-mini');
+      check(config.realtimeCallVoice).equals('marin');
+
+      // The app caches the flat form and reads it back on the next launch.
+      final cached = BackendConfig.fromJson(config.toJson());
+      check(cached.enableRealtimeCall).equals(true);
+      check(cached.realtimeCallModel).equals('gpt-realtime-2.1-mini');
+      check(cached.realtimeCallVoice).equals('marin');
+    });
+
+    test('a server without realtime calls leaves them unknown', () {
+      // Open WebUI 0.11 and signed-out configs send no `audio.realtime`.
+      final config = BackendConfig.fromJson({
+        'audio': {
+          'stt': {'engine': 'openai'},
+          'tts': {'engine': 'openai'},
+        },
+      });
+
+      check(config.enableRealtimeCall).isNull();
+      check(config.realtimeCallModel).isNull();
+      check(BackendConfig.fromJson(config.toJson()).enableRealtimeCall)
+          .isNull();
+    });
+
     test('explicit nested audio feature flags override engine inference', () {
       final config = BackendConfig.fromJson({
         'features': {'enable_audio_input': false, 'enable_audio_output': false},

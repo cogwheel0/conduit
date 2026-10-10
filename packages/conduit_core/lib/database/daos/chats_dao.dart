@@ -1615,7 +1615,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             model: Value(message.model),
             createdAt: message.createdAt,
             orderIndex: orderIndex,
-            payload: jsonEncode(message.payload),
+            payload: jsonEncode(
+              withStoredMessageMeta(message.payload, existing?.payload),
+            ),
             dirty: Value(enqueueUpdate),
           ),
         );
