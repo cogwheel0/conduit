@@ -1683,22 +1683,24 @@ class PushCoordinator extends _$PushCoordinator {
       _log('push-cancel-scope-failed', error);
     }
     if (!ref.mounted) return;
+    // The user may have changed a choice while the cleanup above waited.
+    final current = _record(scope);
     if (forget && !(_targets?.any((t) => t.scope == scope) ?? false)) {
-      final keep = record.hasChoices && !_choicesToDrop.contains(scope);
+      final keep = current.hasChoices && !_choicesToDrop.contains(scope);
       _choicesToDrop.remove(scope);
       if (keep) {
-        _records[scope] = record.withoutSubscription();
+        _records[scope] = current.withoutSubscription();
       } else {
         _records.remove(scope);
       }
       await _settings.saveRecords(_records);
       _update((s) => s.copyWith(targets: Map.of(s.targets)..remove(scope)));
     } else {
-      await _saveRecord(scope, record.withoutSubscription());
+      await _saveRecord(scope, current.withoutSubscription());
       _setTarget(
         scope,
         (t) => t.copyWith(
-          status: record.optedOut ? PushStatus.off : status,
+          status: current.optedOut ? PushStatus.off : status,
           clearFailure: true,
           clearDiagnostics: true,
           clearVerifiedAt: true,

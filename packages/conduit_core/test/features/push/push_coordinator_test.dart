@@ -1362,6 +1362,34 @@ void main() {
       check(h.record(_hermes.scope).optedOut).isTrue();
     });
 
+    test('an opt-out made while Hermes is being turned off is kept', () async {
+      h = await _Harness.start(targets: [_owui, _hermes]);
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_hermes.scope).sid!;
+      final gate = Completer<void>();
+      h.server(_hermes).unsubscribeGate = gate;
+
+      h.setTargets([_owui]);
+      await h.until(() => h.log.contains('unsubscribe-waiting $sid'));
+      // The removal is still waiting on its server when the user opts out.
+      await h.coordinator.setTargetOptedOut(_hermes.scope, true);
+      check(h.record(_hermes.scope).optedOut).isTrue();
+      h.server(_hermes).unsubscribeGate = null;
+      gate.complete();
+      await h.until(() => h.log.contains('unsubscribe ${_hermes.scope} $sid'));
+      await pumpEventQueue();
+      check(h.record(_hermes.scope))
+        ..has((r) => r.optedOut, 'optedOut').isTrue()
+        ..has((r) => r.sid, 'sid').isNull();
+
+      h.setTargets([_owui, _hermes]);
+      await h.until(() => h.state.targets.containsKey(_hermes.scope));
+      await pumpEventQueue();
+      check(h.target(_hermes.scope).optedOut).isTrue();
+      check(h.status(_hermes.scope)).equals(PushStatus.off);
+      check(h.server(_hermes).subscriptions).isEmpty();
+    });
+
     test('an opt-out survives a restart with the connection list empty', () async {
       h = await _Harness.start(targets: [_hermes]);
       await h.coordinator.setEnabled(true);
