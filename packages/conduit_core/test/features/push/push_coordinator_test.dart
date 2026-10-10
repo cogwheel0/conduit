@@ -1210,6 +1210,25 @@ void main() {
           .equals(PushOrigin.any);
     });
 
+    test('an origin chosen before a first setup has keys is sent', () async {
+      h = await _Harness.start(targets: [_owui]);
+      final gate = Completer<void>();
+      h.platform.createGate = gate;
+      final setup = h.coordinator.setEnabled(true);
+      await h.until(() => h.log.contains('create-waiting ${_owui.scope}'));
+      check(h.record(_owui.scope).sid).isNull();
+
+      // With no sid yet, this queues no resubscribe of its own.
+      await h.coordinator.setOrigin(_owui.scope, PushOrigin.any);
+      h.platform.createGate = null;
+      gate.complete();
+      await setup;
+
+      check(h.server(_owui).subscriptions.values.single.origin)
+          .equals(PushOrigin.any);
+      check(h.record(_owui.scope).origin).equals(PushOrigin.any);
+    });
+
     test('a kind turned off during a setup reaches the server', () async {
       h = await _Harness.start(targets: [_owui]);
       final gate = Completer<void>();
@@ -1723,11 +1742,19 @@ final class _Platform implements PushPlatformPort {
     );
   }
 
+  /// Holds [createSubscription] until completed.
+  Completer<void>? createGate;
+
   @override
   Future<PushSubscriptionKeys> createSubscription(
     String scope, {
     Duration age = Duration.zero,
   }) async {
+    final gate = createGate;
+    if (gate != null) {
+      log.add('create-waiting $scope');
+      await gate.future;
+    }
     final sid = 'sid${_next++}'.padRight(22, '_');
     log.add('create $scope');
     return subscriptions[sid] = PushSubscriptionKeys(

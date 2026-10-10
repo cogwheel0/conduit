@@ -964,7 +964,9 @@ class PushCoordinator extends _$PushCoordinator {
           events: events,
           label: device.label,
           platform: device.platform,
-          origin: record.origin,
+          // The latest choice: one made before this setup saved a sid
+          // queued no resubscribe of its own.
+          origin: _record(scope).origin,
         );
         try {
           if (needTest) {
