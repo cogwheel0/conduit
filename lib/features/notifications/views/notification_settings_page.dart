@@ -15,6 +15,7 @@ import '../../profile/widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../services/local_notification_service.dart';
 import '../widgets/notification_targets_section.dart';
+import '../../push/widgets/push_settings_section.dart';
 
 /// Notification preferences. The master toggle requests OS permission on
 /// opt-in. The three Open WebUI-aligned prefs (master / sound / sound-always)
@@ -73,6 +74,7 @@ class NotificationSettingsPage extends ConsumerWidget {
             ),
           ],
         ),
+        const PushSettingsSection(),
         settingsSectionGap,
         InsetGroupedList(
           children: [
@@ -116,6 +118,12 @@ class NotificationSettingsPage extends ConsumerWidget {
               subtitle: l10n.notificationChannelDescription,
               value: settings.notificationChannelEnabled,
               onChanged: notifier.setNotificationChannelEnabled,
+            ),
+            tile(
+              title: l10n.notificationScheduledTitle,
+              subtitle: l10n.notificationScheduledDescription,
+              value: settings.notificationScheduledEnabled,
+              onChanged: notifier.setNotificationScheduledEnabled,
             ),
           ],
         ),

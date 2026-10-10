@@ -46,6 +46,10 @@ import 'package:conduit_core/features/workspace/providers/workspace_capabilities
     show workspaceCapabilitiesProvider;
 
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
+import '../../features/push/widgets/push_target_actions.dart'
+    show pushTargetTitle;
 
 import '../utils/model_icon_utils.dart';
 import '../utils/model_logos.dart';
@@ -698,6 +702,9 @@ class NativeSheetHydrationService {
       case NativeSheetRoutes.notificationSettings:
         await _hydrateNativeNotificationsDetail(l10n);
         return;
+      case NativeSheetRoutes.pushTargets:
+        await _hydrateNativePushTargetsDetail(l10n);
+        return;
       case 'advanced-prompt-overrides':
         await _hydrateNativeAdvancedPromptDetail(ctx, l10n);
         return;
@@ -1129,9 +1136,20 @@ class NativeSheetHydrationService {
             : NativeSheetItemKind.info,
         value: s.notificationChannelEnabled,
       ),
+      NativeSheetItemConfig(
+        id: 'notification-scheduled',
+        title: l10n.notificationScheduledTitle,
+        subtitle: l10n.notificationScheduledDescription,
+        sfSymbol: 'clock',
+        kind: s.notificationsEnabled
+            ? NativeSheetItemKind.toggle
+            : NativeSheetItemKind.info,
+        value: s.notificationScheduledEnabled,
+      ),
     ];
     return [
       NativeSheetSectionConfig(items: [masterItem]),
+      buildNativePushSection(l10n, _ref.read(pushStateIfUsedProvider)),
       NativeSheetSectionConfig(items: deliveryItems),
       NativeSheetSectionConfig(items: soundItems),
       NativeSheetSectionConfig(items: contentItems),
@@ -1150,6 +1168,7 @@ class NativeSheetHydrationService {
           title: l10n.notificationsTitle,
           sections: _nativeNotificationToggleSections(l10n),
         ),
+        detailSheets: _nativePushDetailSheets(l10n),
       );
       if (!await _showNativeNotificationTargets()) return;
       final count = await _nativeNotificationTargetsCount();
@@ -1169,6 +1188,7 @@ class NativeSheetHydrationService {
             buildNativeNotificationTargetsSection(l10n, count: count),
           ],
         ),
+        detailSheets: _nativePushDetailSheets(l10n),
       );
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -1182,6 +1202,38 @@ class NativeSheetHydrationService {
         l10n.unableToLoadOpenWebuiSettings,
       );
     }
+  }
+
+  /// The push targets detail the Notifications sheet's push row opens.
+  List<NativeSheetDetailConfig> _nativePushDetailSheets(
+    AppLocalizations l10n,
+  ) {
+    final push = _ref.read(pushStateIfUsedProvider);
+    if (push == null || !push.enabled) return const [];
+    return [_nativePushTargetsDetail(l10n, push)];
+  }
+
+  NativeSheetDetailConfig _nativePushTargetsDetail(
+    AppLocalizations l10n,
+    PushState push,
+  ) {
+    final accounts = {
+      for (final entry
+          in _ref.read(openWebUiAccountsProvider).asData?.value ??
+              const <OpenWebUiAccountEntry>[])
+        entry.id: entry,
+    };
+    return buildNativePushTargetsDetail(
+      l10n,
+      push,
+      titleOf: (target) => pushTargetTitle(l10n, target, accounts),
+    );
+  }
+
+  Future<void> _hydrateNativePushTargetsDetail(AppLocalizations l10n) async {
+    final push = _ref.read(pushStateIfUsedProvider);
+    if (push == null) return;
+    await _applyNativeDetail(_nativePushTargetsDetail(l10n, push));
   }
 
   Future<void> _hydrateNativeVoiceDetail(AppLocalizations l10n) async {

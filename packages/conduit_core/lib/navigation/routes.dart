@@ -25,6 +25,7 @@ class Routes {
   static const String serverAddresses = '/profile/accounts/addresses';
   static const String serverAddressEditor = '/profile/accounts/address';
   static const String notificationSettings = '/profile/notifications';
+  static const String pushPrivacy = '/profile/notifications/push-privacy';
   static const String appearanceSettings = '/profile/appearance';
   static const String chatSettings = '/profile/chat';
   static const String dataConnectionSettings = '/profile/data-connection';
@@ -86,6 +87,7 @@ class RouteNames {
   static const String serverAddresses = 'server-addresses';
   static const String serverAddressEditor = 'server-address-editor';
   static const String notificationSettings = 'notification-settings';
+  static const String pushPrivacy = 'push-privacy';
   static const String appearanceSettings = 'appearance-settings';
   static const String chatSettings = 'chat-settings';
   static const String dataConnectionSettings = 'data-connection-settings';

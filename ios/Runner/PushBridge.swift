@@ -226,6 +226,16 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
 
   func unregisterUnifiedPush(sid: String) throws {}
 
+  /// Push was turned off: stop receiving APNs pushes until a token is asked
+  /// for again. The stored token goes too, so the next one is reported.
+  func releaseTransport(transport: PlatformPushTransport) throws {
+    guard transport == .apns else { return }
+    UserDefaults.standard.removeObject(forKey: Self.tokenDefaultsKey)
+    onMain {
+      UIApplication.shared.unregisterForRemoteNotifications()
+    }
+  }
+
   // MARK: - Helpers
 
   private func deliverTap(_ tap: PlatformPushTap) {

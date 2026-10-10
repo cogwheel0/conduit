@@ -1165,6 +1165,8 @@ func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
         // in a sheet of its own, which cannot present over this one.
         || actionId == "account-switch" || actionId == "account-add"
         || actionId == "account-sign-out" || actionId == "account-direct-edit"
+        // A push target's detail is a Flutter sheet over the Notifications page.
+        || actionId == "push-target"
 }
 
 final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {

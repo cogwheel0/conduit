@@ -21,6 +21,10 @@ import 'package:conduit_core/providers/app_providers.dart'
 
 import '../../features/hermes/widgets/hermes_connection_switcher.dart'
     show hermesConnectionSummary;
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
+import '../../features/push/widgets/push_target_actions.dart'
+    show pushStatusText, pushTargetBusy, pushTargetNeedsAttention;
 import 'account_display.dart';
 import 'tts_voice_utils.dart';
 
@@ -1104,6 +1108,111 @@ NativeSheetSectionConfig buildNativeNotificationTargetsSection(
   return NativeSheetSectionConfig(
     footer: l10n.notificationTargetsDescription,
     items: [buildNativeNotificationTargetsItem(l10n, count: count)],
+  );
+}
+
+/// Control id of the native push switch.
+const nativePushEnabledId = 'push-enabled';
+
+/// Control id a native push target row sends, with the target's scope as its
+/// value, to open that target's Flutter detail sheet.
+const nativePushTargetActionId = 'push-target';
+
+/// Control id the native "How push stays private" row sends.
+const nativePushPrivacyActionId = 'push-privacy';
+
+/// The Push notifications group of the native Notifications sheet: the
+/// switch, and while push is on, a row into the per-target detail. [push] is
+/// null where push was never turned on.
+NativeSheetSectionConfig buildNativePushSection(
+  AppLocalizations l10n,
+  PushState? push,
+) {
+  final available = push?.available ?? true;
+  final enabled = push?.enabled ?? false;
+  final attention = [
+    for (final target in push?.targets.values ?? const <PushTargetState>[])
+      if (pushTargetNeedsAttention(target)) target,
+  ];
+  return NativeSheetSectionConfig(
+    title: l10n.pushSectionTitle,
+    items: [
+      NativeSheetItemConfig(
+        id: nativePushEnabledId,
+        title: l10n.pushEnabledTitle,
+        subtitle: available
+            ? l10n.pushEnabledDescription
+            : l10n.pushUnavailableBuild,
+        sfSymbol: 'bell.badge',
+        kind: available ? NativeSheetItemKind.toggle : NativeSheetItemKind.info,
+        value: enabled,
+      ),
+      if (enabled && push != null)
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.pushTargets,
+          // Each account and connection, with its push status.
+          title: l10n.accountsTitle,
+          subtitle: attention.isEmpty
+              ? null
+              : l10n.pushAttentionChip,
+          sfSymbol: attention.isEmpty
+              ? 'checkmark.circle'
+              : 'exclamationmark.triangle',
+        ),
+      NativeSheetItemConfig(
+        id: nativePushPrivacyActionId,
+        title: l10n.pushPrivacyTitle,
+        sfSymbol: 'lock.shield',
+        dismissOnSelect: true,
+        actionId: nativePushPrivacyActionId,
+      ),
+    ],
+  );
+}
+
+/// The native list of push targets: each row says its status and opens the
+/// target's Flutter detail sheet, which has the one-tap fixes.
+NativeSheetDetailConfig buildNativePushTargetsDetail(
+  AppLocalizations l10n,
+  PushState push, {
+  required String Function(PushTarget target) titleOf,
+}) {
+  NativeSheetItemConfig row(PushTargetState target) => NativeSheetItemConfig(
+    id: '$nativePushTargetActionId:${target.scope}',
+    title: titleOf(target.target),
+    subtitle: pushStatusText(l10n, target),
+    sfSymbol: pushTargetBusy(target)
+        ? 'hourglass'
+        : pushTargetNeedsAttention(target)
+        ? 'exclamationmark.triangle'
+        : target.status == PushStatus.on
+        ? 'checkmark.circle'
+        : 'bell.slash',
+    dismissOnSelect: true,
+    actionId: nativePushTargetActionId,
+    actionValue: target.scope,
+  );
+
+  return NativeSheetDetailConfig(
+    id: NativeSheetRoutes.pushTargets,
+    title: l10n.accountsTitle,
+    sections: [
+      if (push.enabled && push.permissionDenied)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'push-permission-denied',
+              title: l10n.pushStatusPermissionDenied,
+              subtitle: l10n.pushExplainPermissionDenied,
+              sfSymbol: 'bell.slash',
+              kind: NativeSheetItemKind.info,
+            ),
+          ],
+        ),
+      NativeSheetSectionConfig(
+        items: [for (final target in push.targets.values) row(target)],
+      ),
+    ],
   );
 }
 

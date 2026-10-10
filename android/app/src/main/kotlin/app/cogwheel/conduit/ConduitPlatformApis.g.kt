@@ -5423,6 +5423,12 @@ interface PushHostApi {
    */
   fun registerUnifiedPush(sid: String, distributor: String, callback: (Result<String?>) -> Unit)
   fun unregisterUnifiedPush(sid: String)
+  /**
+   * Stops using [transport] until a token is asked for again: Android turns
+   * FCM's auto-init off, deletes the token and stops starting Firebase at
+   * launch; iOS unregisters from APNs.
+   */
+  fun releaseTransport(transport: PlatformPushTransport)
 
   companion object {
     /** The codec used by PushHostApi. */
@@ -5686,6 +5692,24 @@ interface PushHostApi {
             val sidArg = args[0] as String
             val wrapped: List<Any?> = try {
               api.unregisterUnifiedPush(sidArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.PushHostApi.releaseTransport$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val transportArg = args[0] as PlatformPushTransport
+            val wrapped: List<Any?> = try {
+              api.releaseTransport(transportArg)
               listOf(null)
             } catch (exception: Throwable) {
               ConduitPlatformApisPigeonUtils.wrapError(exception)

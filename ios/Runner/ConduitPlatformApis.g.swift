@@ -5233,6 +5233,10 @@ protocol PushHostApi {
   /// the distributor refuses or does not answer in time.
   func registerUnifiedPush(sid: String, distributor: String, completion: @escaping (Result<String?, Error>) -> Void)
   func unregisterUnifiedPush(sid: String) throws
+  /// Stops using [transport] until a token is asked for again: Android turns
+  /// FCM's auto-init off, deletes the token and stops starting Firebase at
+  /// launch; iOS unregisters from APNs.
+  func releaseTransport(transport: PlatformPushTransport) throws
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -5478,6 +5482,24 @@ class PushHostApiSetup {
       }
     } else {
       unregisterUnifiedPushChannel.setMessageHandler(nil)
+    }
+    /// Stops using [transport] until a token is asked for again: Android turns
+    /// FCM's auto-init off, deletes the token and stops starting Firebase at
+    /// launch; iOS unregisters from APNs.
+    let releaseTransportChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.PushHostApi.releaseTransport\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      releaseTransportChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let transportArg = args[0] as! PlatformPushTransport
+        do {
+          try api.releaseTransport(transport: transportArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      releaseTransportChannel.setMessageHandler(nil)
     }
   }
 }
