@@ -588,9 +588,14 @@ def test_thread_replies_and_chat_messages_do_not_notify(world, fn):
     assert world.posts == [] and world.calls == []
 
 
-def test_falls_back_to_members_without_the_access_helper(world, fn, monkeypatch):
-    devices = channel_world(world, kind=None, access=("a", "b"))
+def test_standard_channels_stay_quiet_without_the_access_helper(world, fn, monkeypatch):
+    # Membership alone doesn't prove read access, so a member who lost it isn't sent the preview.
+    channel_world(world, kind=None, access=("a", "b"))
     monkeypatch.setitem(sys.modules, "open_webui.routers.channels", None)
+    dispatch(fn, **posted(world))
+    assert world.posts == []
+    # Group channels need no access check: their members are their readers.
+    devices = channel_world(world, kind="group")
     dispatch(fn, **posted(world))
     assert sorted(post.url for post in world.posts) == sorted([devices["b"].endpoint, devices["c"].endpoint])
 

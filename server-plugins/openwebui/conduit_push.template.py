@@ -768,8 +768,9 @@ class Event:
             # Standard channels: members who still have read access, as Open WebUI's
             # own channel notifications do. Group and DM access is membership.
             allowed = await self._read_access(channel)
-            if allowed is not None:
-                recipients = [uid for uid in recipients if uid in allowed]
+            if allowed is None:
+                return  # Membership alone doesn't prove read access.
+            recipients = [uid for uid in recipients if uid in allowed]
         sender_id = None if actor.get("type") == "webhook" else (_text(actor.get("id")) or _text(_attr(message, "user_id")))
         recipients = [uid for uid in recipients if uid and uid != sender_id][:limit]
         if not recipients:
@@ -847,7 +848,7 @@ class Event:
         try:
             from open_webui.routers.channels import get_channel_users_with_access
         except Exception:
-            self._warn_once("access", "conduit push: channel access helper missing, notifying channel members")
+            self._warn_once("access", "conduit push: channel access helper missing, standard channels won't notify")
             return None
         users = await get_channel_users_with_access(channel, "read")
         return {_text(_attr(user, "id")) for user in users or []}
