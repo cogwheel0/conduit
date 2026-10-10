@@ -12,6 +12,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../services/notification_router.dart';
 import '../services/notification_tap_router.dart';
 import 'notification_socket_listener.dart';
+import 'notification_tap_listener.dart';
 
 part 'push_notification_listener.g.dart';
 
@@ -110,14 +111,18 @@ class PushNotificationListener extends _$PushNotificationListener {
   /// Opens the push notification that cold-launched the app, once.
   ///
   /// Same rule as the local notification launch tap: one into an Open WebUI
-  /// account waits for a call that says its session is up ([openWebUiReady]);
-  /// one for Hermes opens on the first call.
+  /// account waits for a call that says its session is up ([openWebUiReady]),
+  /// unless it is for another saved account and the active one is signed out
+  /// ([launchTapOpensWhileSignedOut]); one for Hermes opens on the first call.
   Future<void> handleLaunchTap({required bool openWebUiReady}) async {
     final tap = await (_launchTap ??= _takeLaunchTap());
     if (tap == null || _launchTapOpened || !ref.mounted) return;
-    final needsOpenWebUi =
-        NotificationScope.tryParse(tap.scope) is OpenWebUiNotificationScope;
-    if (needsOpenWebUi && !openWebUiReady) return;
+    final scope = NotificationScope.tryParse(tap.scope);
+    if (scope is OpenWebUiNotificationScope &&
+        !openWebUiReady &&
+        !launchTapOpensWhileSignedOut(ref, scope)) {
+      return;
+    }
     _launchTapOpened = true;
     await _open(tap);
   }
