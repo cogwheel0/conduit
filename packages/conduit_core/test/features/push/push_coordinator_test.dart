@@ -1064,6 +1064,48 @@ void main() {
       check(h.server(_owui).subscriptions.keys).deepEquals([sid]);
     });
 
+    test('turning push on while it is being removed keeps APNs', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_owui.scope).sid!;
+      final gate = Completer<void>();
+      h.server(_owui).unsubscribeGate = gate;
+      final off = h.coordinator.setEnabled(false);
+      await h.until(() => h.log.contains('unsubscribe-waiting $sid'));
+      final released = h.log.where((l) => l.startsWith('release ')).length;
+      final on = h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+      h.server(_owui).unsubscribeGate = null;
+      gate.complete();
+      await off;
+      await on;
+
+      check(h.log.where((l) => l.startsWith('release ')).length)
+          .equals(released);
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
+    test('turning push on waits for APNs being let go of', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final gate = Completer<void>();
+      h.platform.releaseGate = gate;
+      final off = h.coordinator.setEnabled(false);
+      await h.until(() => h.log.contains('release-waiting apns'));
+      final on = h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+      // Nothing is set up while APNs could still be let go of.
+      check(h.log.last).equals('release-waiting apns');
+
+      h.platform.releaseGate = null;
+      gate.complete();
+      await off;
+      await on;
+      check(h.log.lastIndexOf('release apns'))
+          .isLessThan(h.log.lastIndexOf('create ${_owui.scope}'));
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+    });
+
     test('resetting keys during a pass sets everything up again', () async {
       h = await _Harness.start(targets: [_owui]);
       final gate = Completer<void>();
@@ -1715,9 +1757,18 @@ final class _Platform implements PushPlatformPort {
   Future<void> unregisterUnifiedPush(String sid) async =>
       log.add('unregisterUp $sid');
 
+  /// Holds [releaseTransport] until completed.
+  Completer<void>? releaseGate;
+
   @override
-  Future<void> releaseTransport(PushTransport transport) async =>
-      log.add('release ${transport.name}');
+  Future<void> releaseTransport(PushTransport transport) async {
+    final gate = releaseGate;
+    if (gate != null) {
+      log.add('release-waiting ${transport.name}');
+      await gate.future;
+    }
+    log.add('release ${transport.name}');
+  }
 
   @override
   Stream<PushPlatformEvent> get events => _events.stream;

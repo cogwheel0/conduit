@@ -61,6 +61,9 @@ class PushCoordinator extends _$PushCoordinator {
   Future<_Environment>? _environment;
   DateTime? _environmentAt;
 
+  /// APNs or FCM being let go of, which turning push on waits for.
+  Future<void>? _transportRelease;
+
   /// Bumped by every removal: a pass that ran while one happened may have
   /// had setups cancelled, so it does not cover a request waiting on it.
   int _releases = 0;
@@ -178,6 +181,10 @@ class PushCoordinator extends _$PushCoordinator {
     if (!ref.mounted) return;
     if (enabled) {
       _update((s) => s.copyWith(enabled: true, permissionDenied: false));
+      // An off still letting go of APNs or FCM finishes first, so it cannot
+      // undo the token the setup below registers.
+      final releasing = _transportRelease;
+      if (releasing != null) await releasing;
       await _enableAccountNotifications();
       await _requestPermission();
       _publishTargets();
@@ -192,6 +199,8 @@ class PushCoordinator extends _$PushCoordinator {
         for (final scope in _knownScopes())
           _release(scope, target: _target(scope)),
       ]);
+      // Turned back on meanwhile: its setup needs APNs or FCM.
+      if (ref.mounted && state.enabled) return;
       _publishTargets();
       await _releaseRelayTransports();
     }
@@ -1748,6 +1757,16 @@ class PushCoordinator extends _$PushCoordinator {
       _releaseTransports(const [PushTransport.apns, PushTransport.fcm]);
 
   Future<void> _releaseTransports(List<PushTransport> transports) async {
+    final release = _releaseTransportsNow(transports);
+    _transportRelease = release;
+    try {
+      await release;
+    } finally {
+      if (identical(_transportRelease, release)) _transportRelease = null;
+    }
+  }
+
+  Future<void> _releaseTransportsNow(List<PushTransport> transports) async {
     List<PushTransport> available;
     try {
       available = await _platform.availableTransports();
