@@ -44,10 +44,12 @@ abstract interface class PushBackendFactory {
   /// Writes the Open WebUI account [accountId]'s own notifications switch to
   /// its server, as the Notifications page does: through the live client
   /// for the active account, after the settings writes it has queued, and a
-  /// client of its own for any other.
+  /// client of its own for any other. With [onlyIfUnset], a switch the
+  /// server already holds, either way, is left as it is.
   Future<void> setOpenWebUiNotificationsEnabled(
     String accountId, {
     required bool enabled,
+    bool onlyIfUnset = false,
   });
 }
 
@@ -112,6 +114,7 @@ final class AppPushBackendFactory implements PushBackendFactory {
   Future<void> setOpenWebUiNotificationsEnabled(
     String accountId, {
     required bool enabled,
+    bool onlyIfUnset = false,
   }) async {
     // The active account's write queues behind the app's other settings
     // writes on its live client: each replaces the whole document, so one
@@ -121,15 +124,34 @@ final class AppPushBackendFactory implements PushBackendFactory {
       if (TokenValidator.validateTokenFormat(live.authToken!).isExpired) {
         throw _signInNeeded;
       }
-      await live.updateUserNotificationSettings(notificationEnabled: enabled);
+      await _writeNotificationsEnabled(live, enabled, onlyIfUnset);
       return;
     }
     final api = await _openWebUiApi(accountId);
     try {
-      await api.updateUserNotificationSettings(notificationEnabled: enabled);
+      await _writeNotificationsEnabled(api, enabled, onlyIfUnset);
     } finally {
       api.dispose();
     }
+  }
+
+  static Future<void> _writeNotificationsEnabled(
+    ApiService api,
+    bool enabled,
+    bool onlyIfUnset,
+  ) {
+    if (!onlyIfUnset) {
+      return api.updateUserNotificationSettings(notificationEnabled: enabled);
+    }
+    final snapshot = api.captureAuthSnapshot();
+    return api.serializeUserSettingsMutation(() async {
+      final settings = await api.getUserSettings(authSnapshot: snapshot);
+      if (settings['notificationEnabled'] != null) return;
+      await api.updateUserSettings({
+        ...settings,
+        'notificationEnabled': enabled,
+      }, authSnapshot: snapshot);
+    });
   }
 
   /// The live client when it is signed in to [accountId], or null.

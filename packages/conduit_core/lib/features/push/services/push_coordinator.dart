@@ -513,9 +513,11 @@ class PushCoordinator extends _$PushCoordinator {
       return;
     }
     if (!state.enabled) return;
+    final added = <OpenWebUiPushTarget>[];
     for (final target in next) {
       final before = previous[target.scope];
       if (before == null) {
+        if (target is OpenWebUiPushTarget) added.add(target);
         unawaited(_reconcile(target));
       } else if (before is OpenWebUiPushTarget &&
           target is OpenWebUiPushTarget &&
@@ -536,6 +538,7 @@ class PushCoordinator extends _$PushCoordinator {
         unawaited(_reconcile(target));
       }
     }
+    if (added.isNotEmpty) unawaited(_enableAddedAccountNotifications(added));
   }
 
   Future<void> _startup() async {
@@ -2005,8 +2008,9 @@ class PushCoordinator extends _$PushCoordinator {
   /// An account's switch is a copy of its server's setting, which replaces
   /// the copy the next time the account loads, so each one turned on here is
   /// written to its server as well, as the Notifications page does: the
-  /// active account's and every other through a client of its own. Those
-  /// writes run in the background; one that fails is only logged.
+  /// active account's through its live client, every other through a client
+  /// of its own. Those writes run in the background; one that fails is only
+  /// logged.
   Future<void> _enableAccountNotifications() async {
     final turnedOn = <String>[];
     try {
@@ -2038,10 +2042,57 @@ class PushCoordinator extends _$PushCoordinator {
     } catch (error) {
       _log('push-notifications-enable-failed', error);
     }
-    for (final accountId in turnedOn) {
+    _writeNotificationsOn(turnedOn);
+  }
+
+  /// For Open WebUI accounts added while push is on, does what turning push
+  /// on does: an account that never stored its notifications switch gets it
+  /// on, and one that set it either way keeps it.
+  ///
+  /// It is stored for that account alone, as its server's copy is, so the
+  /// device-level switch stays the user's last choice. On the server it is
+  /// only written where the account has no value yet: one it holds is
+  /// mirrored in when the account loads, and replaces this.
+  Future<void> _enableAddedAccountNotifications(
+    List<OpenWebUiPushTarget> accounts,
+  ) async {
+    final turnedOn = <String>[];
+    try {
+      for (final account in accounts) {
+        final key = accountScopedPreferenceKey(
+          PreferenceKeys.notificationsEnabled,
+          account.accountId,
+        );
+        if (PreferencesStore.getBool(key) != null) continue;
+        await ref
+            .read(appSettingsProvider.notifier)
+            .applyServerNotificationPrefs(
+              accountId: account.accountId,
+              enabled: true,
+            );
+        if (account.hasSession) turnedOn.add(account.accountId);
+      }
+    } catch (error) {
+      _log('push-notifications-enable-failed', error);
+    }
+    _scheduleDisplayConfig();
+    _writeNotificationsOn(turnedOn, onlyIfUnset: true);
+  }
+
+  /// Writes the switch of each of [accountIds], turned on here, to its
+  /// server in the background. One that fails is only logged.
+  void _writeNotificationsOn(
+    List<String> accountIds, {
+    bool onlyIfUnset = false,
+  }) {
+    for (final accountId in accountIds) {
       unawaited(
         _factory
-            .setOpenWebUiNotificationsEnabled(accountId, enabled: true)
+            .setOpenWebUiNotificationsEnabled(
+              accountId,
+              enabled: true,
+              onlyIfUnset: onlyIfUnset,
+            )
             .catchError(
               (Object error) => _log('push-notifications-sync-failed', error),
             ),

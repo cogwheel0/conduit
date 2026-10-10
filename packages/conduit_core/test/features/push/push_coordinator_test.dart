@@ -939,6 +939,43 @@ void main() {
           .equals(true);
     });
 
+    test('an account added while push is on gets its switch on', () async {
+      String key(String accountId) => accountScopedPreferenceKey(
+        PreferenceKeys.notificationsEnabled,
+        accountId,
+      );
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      await h.until(() => h.factory.notificationWrites.isNotEmpty);
+      h.factory.notificationWrites.clear();
+      // Hermes notifications turned off since, on the device-level switch.
+      await PreferencesStore.put(PreferenceKeys.notificationsEnabled, false);
+
+      // acct-2 signs in and is active, never having stored a switch; acct-3
+      // turned its own off.
+      const owui3 = OpenWebUiPushTarget(accountId: 'acct-3', label: 'c');
+      await PreferencesStore.put(key('acct-3'), false);
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'acct-2');
+      h.setTargets([_owui, _owui2, owui3]);
+      await h.until(
+        () =>
+            h.state.targets[_owui2.scope]?.status == PushStatus.on &&
+            h.state.targets[owui3.scope]?.status == PushStatus.on &&
+            h.factory.notificationWrites.isNotEmpty,
+      );
+      await pumpEventQueue();
+
+      check(PreferencesStore.getBool(key('acct-2'))).equals(true);
+      check(h.settings.state.notificationsEnabled).isTrue();
+      check(h.target(_owui2.scope).notificationsOff).isFalse();
+      // Written where its server holds no value of its own.
+      check(h.factory.notificationWrites).deepEquals(['acct-2 true if unset']);
+      check(PreferencesStore.getBool(key('acct-3'))).equals(false);
+      check(h.target(owui3.scope).notificationsOff).isTrue();
+      check(PreferencesStore.getBool(PreferenceKeys.notificationsEnabled))
+          .equals(false);
+    });
+
     test('a server that refuses the switch does not stop push', () async {
       h = await _Harness.start(targets: [_owui]);
       h.factory.notificationWriteError = StateError('offline');
@@ -2061,10 +2098,13 @@ final class _Factory implements PushBackendFactory {
   Future<void> setOpenWebUiNotificationsEnabled(
     String accountId, {
     required bool enabled,
+    bool onlyIfUnset = false,
   }) async {
     final error = notificationWriteError;
     if (error != null) throw error;
-    notificationWrites.add('$accountId $enabled');
+    notificationWrites.add(
+      '$accountId $enabled${onlyIfUnset ? ' if unset' : ''}',
+    );
   }
 }
 

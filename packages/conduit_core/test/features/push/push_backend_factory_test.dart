@@ -152,16 +152,7 @@ void main() {
 
   test("the active account's switch queues on its live client", () async {
     final server = _SettingsServer();
-    final live = ApiService(
-      serverConfig: const ServerConfig(
-        id: 'acct-1',
-        name: 'Home',
-        url: 'https://owui.test',
-        isActive: true,
-      ),
-      workerManager: WorkerManager(),
-      authToken: 'live-token-0123456789',
-    )..dio.httpClientAdapter = server;
+    final live = _liveClient(server);
     var throwaway = 0;
     final app = ProviderContainer(
       overrides: [
@@ -194,7 +185,46 @@ void main() {
       'notificationEnabled': true,
     });
   });
+
+  test('a switch its server already holds is kept when asked', () async {
+    final server = _SettingsServer()..settings = {'notificationEnabled': false};
+    final app = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(_liveClient(server))],
+    );
+    addTearDown(app.dispose);
+    final factory = app.read(pushBackendFactoryProvider);
+
+    await factory.setOpenWebUiNotificationsEnabled(
+      'acct-1',
+      enabled: true,
+      onlyIfUnset: true,
+    );
+    check(server.settings).deepEquals({'notificationEnabled': false});
+
+    server.settings = {'notificationSound': false};
+    await factory.setOpenWebUiNotificationsEnabled(
+      'acct-1',
+      enabled: true,
+      onlyIfUnset: true,
+    );
+    check(server.settings).deepEquals({
+      'notificationSound': false,
+      'notificationEnabled': true,
+    });
+  });
 }
+
+/// The live client of acct-1, the active account, talking to [server].
+ApiService _liveClient(_SettingsServer server) => ApiService(
+  serverConfig: const ServerConfig(
+    id: 'acct-1',
+    name: 'Home',
+    url: 'https://owui.test',
+    isActive: true,
+  ),
+  workerManager: WorkerManager(),
+  authToken: 'live-token-0123456789',
+)..dio.httpClientAdapter = server;
 
 /// Open WebUI's user settings document, replaced by every update.
 final class _SettingsServer implements HttpClientAdapter {
