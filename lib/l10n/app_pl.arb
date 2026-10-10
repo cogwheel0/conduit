@@ -7739,5 +7739,17 @@
   "voiceCallModeRealtime": "Na żywo",
   "voiceCallModeStandard": "Standardowe",
   "voiceCallModeRealtimeDescription": "Rozmawiaj z głosem na żywo, gdy serwer czatu lub dostawca głosu go oferuje; możesz mu przerwać w pół zdania. Pozostałe rozmowy są standardowe.",
-  "voiceCallModeStandardDescription": "Rozmowa słucha Twojej wypowiedzi, wysyła ją, a potem czyta odpowiedź na głos."
+  "voiceCallModeStandardDescription": "Rozmowa słucha Twojej wypowiedzi, wysyła ją, a potem czyta odpowiedź na głos.",
+  "voiceCallNoticeTranscriptionFailed": "Nie udało się tego zrozumieć. Powtórz, proszę.",
+  "voiceCallNoticeReplyIncomplete": "Odpowiedź głosu została przerwana.",
+  "voiceCallNoticeTranscriptNotSaved": "Części rozmowy nie udało się zapisać w czacie.",
+  "voiceReplySpokenLabel": "{model} · powiedziane",
+  "@voiceReplySpokenLabel": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
+  }
 }

@@ -15,6 +15,7 @@ import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/voice/voice_session.dart';
 
 import 'bridge_call_host.dart';
 
@@ -25,11 +26,13 @@ import 'bridge_call_host.dart';
 /// chat's storage. A reply the voice gives itself is stored the same way,
 /// already answered.
 final class ChatBridgeCallHost implements BridgeCallHost {
-  ChatBridgeCallHost(this._ref, {required void Function(String) onNotice})
-    : _onNotice = onNotice;
+  ChatBridgeCallHost(
+    this._ref, {
+    required void Function(ChatVoiceModeNotice) onNotice,
+  }) : _onNotice = onNotice;
 
   final Ref _ref;
-  final void Function(String) _onNotice;
+  final void Function(ChatVoiceModeNotice) _onNotice;
 
   @override
   List<Map<String, String>> chatSnapshot() =>
@@ -135,7 +138,7 @@ final class ChatBridgeCallHost implements BridgeCallHost {
   }
 
   @override
-  void notice(String message) => _onNotice(message);
+  void notice(ChatVoiceModeNotice notice) => _onNotice(notice);
 }
 
 /// The chat as a realtime voice reads it: the user's words, and each answer

@@ -17,8 +17,9 @@ import 'package:conduit_core/voice/voice_session.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart'
-    show selectedModelProvider, socketServiceProvider;
+    show activeConversationProvider, selectedModelProvider, socketServiceProvider;
 
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart'
@@ -59,6 +60,22 @@ final class _ChatVoiceModeFailure implements Exception {
 
 ChatVoiceModeError _errorKindOf(Object error) =>
     error is _ChatVoiceModeFailure ? error.kind : ChatVoiceModeError.other;
+
+/// Where a realtime call in [callChatId] stands once [nextChatId] is open:
+/// it follows a chat it is creating, and a new chat's server id, and ends
+/// when the user opens another chat or none.
+@visibleForTesting
+({bool ends, String? chatId}) realtimeCallChatAfter(
+  String? callChatId,
+  String? nextChatId,
+) {
+  if (nextChatId == callChatId) return (ends: false, chatId: callChatId);
+  if (callChatId == null ||
+      (callChatId.startsWith('local:') && nextChatId != null)) {
+    return (ends: false, chatId: nextChatId);
+  }
+  return (ends: true, chatId: callChatId);
+}
 
 final chatVoiceModeControllerProvider =
     NotifierProvider<ChatVoiceModeController, ChatVoiceModeSnapshot>(
@@ -181,6 +198,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   /// speech are then unused.
   RealtimeCallEngine? _realtime;
   StreamSubscription<RealtimeCallState>? _realtimeSub;
+  ProviderSubscription<Conversation?>? _realtimeChatSub;
   bool _pausedDuringSpeech = false;
   bool _pausedDuringAssistantTurn = false;
   bool _mutedDuringSpeech = false;
@@ -567,11 +585,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       audio: audio,
       host: ChatBridgeCallHost(
         ref,
-        onNotice: (message) => DebugLogger.warning(
-          'realtime-notice',
-          scope: 'chat/voice_mode',
-          data: {'message': message},
-        ),
+        onNotice: (notice) {
+          if (!_isCurrent(token) || _disposed) return;
+          state = state.copyWith(
+            notice: notice,
+            noticeCount: state.noticeCount + 1,
+          );
+        },
       ),
     );
     _realtime = engine;
@@ -585,12 +605,32 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _realtimeSub = engine.states.listen(
       (realtime) => _onRealtimeState(realtime, token),
     );
+    _followRealtimeChat(token);
     _onRealtimeState(engine.state, token);
     final callId = state.activeCallId;
     if (_isCurrent(token) && !_markedCallConnected && callId != null) {
       _markedCallConnected = true;
       unawaited(_callKit!.markCallConnected(callId));
     }
+  }
+
+  /// Ends a realtime call when the user leaves its chat: the voice talks
+  /// about that chat, and a request it handed over is answered there. The
+  /// chat the call creates, and a new chat's server id, stay the call's.
+  void _followRealtimeChat(int token) {
+    var callChatId = ref.read(activeConversationProvider)?.id;
+    _realtimeChatSub = ref.listen<Conversation?>(activeConversationProvider, (
+      _,
+      next,
+    ) {
+      if (!_isCurrent(token)) return;
+      final followed = realtimeCallChatAfter(callChatId, next?.id);
+      if (followed.ends) {
+        unawaited(stop());
+      } else {
+        callChatId = followed.chatId;
+      }
+    });
   }
 
   /// Shows the realtime call in the same snapshot a Standard call uses.
@@ -1873,6 +1913,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final audioSessionCoordinator = _audioSessionCoordinator;
     final realtime = _realtime;
     final realtimeSub = _realtimeSub;
+    final realtimeChatSub = _realtimeChatSub;
 
     // Detach this session's instance state before the first await. A stale
     // teardown can then finish its captured resources without a later finally
@@ -1899,6 +1940,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _usesOpenWebUiTransport = false;
     _realtime = null;
     _realtimeSub = null;
+    _realtimeChatSub = null;
+    realtimeChatSub?.close();
     // Its ending is this teardown's own; nothing listens for it any more.
     unawaited(realtimeSub?.cancel());
     // Ends the realtime voice and saves what it had not saved yet.

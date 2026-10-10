@@ -10,6 +10,7 @@ import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dar
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_prompt.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_protocol.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_state.dart';
+import 'package:conduit_core/voice/voice_session.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
@@ -160,7 +161,7 @@ final class _Host implements BridgeCallHost {
   final exchanges = <RealtimeVoiceExchange>[];
   final merges = <(String, Map<String, Object?>)>[];
   final delegated = <String>[];
-  final notices = <String>[];
+  final notices = <ChatVoiceModeNotice>[];
   var turn = _Turn();
 
   @override
@@ -186,7 +187,7 @@ final class _Host implements BridgeCallHost {
   }
 
   @override
-  void notice(String message) => notices.add(message);
+  void notice(ChatVoiceModeNotice notice) => notices.add(notice);
 }
 
 Future<void> _settle() async {
@@ -317,6 +318,17 @@ void main() {
       },
     ]);
     check(audio.ended).deepEquals(['resp-1']);
+  });
+
+  test('words that could not be made out are noticed, not answered', () async {
+    transport.receive({
+      'type': 'conversation.item.input_audio_transcription.failed',
+      'item_id': 'item-1',
+    });
+    await _settle();
+
+    check(host.notices).deepEquals([ChatVoiceModeNotice.transcriptionFailed]);
+    check(transport.types).not((it) => it.contains('bridge.respond'));
   });
 
   test('asks for one reply at a time', () async {

@@ -2736,6 +2736,45 @@ void main() {
           .isFalse();
     });
 
+    test('a realtime call follows its own chat and ends when another opens',
+        () {
+      // The first turn of a call started without a chat creates one.
+      check(realtimeCallChatAfter(null, 'local:new'))
+          .equals((ends: false, chatId: 'local:new'));
+      // A new chat gets its server id in place.
+      check(realtimeCallChatAfter('local:new', 'chat-1'))
+          .equals((ends: false, chatId: 'chat-1'));
+      check(realtimeCallChatAfter('chat-1', 'chat-1'))
+          .equals((ends: false, chatId: 'chat-1'));
+      check(realtimeCallChatAfter('chat-1', 'chat-2').ends).isTrue();
+      check(realtimeCallChatAfter('chat-1', null).ends).isTrue();
+      check(realtimeCallChatAfter('direct-local:a', 'direct-local:b').ends)
+          .isTrue();
+    });
+
+    test('opening another chat ends a realtime call', () async {
+      Conversation chat(String id) => Conversation(
+        id: id,
+        title: 'Chat',
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+      );
+      final container = realtimeContainer();
+      final active = container.read(activeConversationProvider.notifier)
+        ..set(chat('direct-local:a'));
+      await container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false, admittedModel: _model);
+      check(container.read(chatVoiceModeControllerProvider).isActive)
+          .isTrue();
+
+      active.set(chat('direct-local:b'));
+      await _until(
+        () => !container.read(chatVoiceModeControllerProvider).isActive,
+      );
+      check(bridge.wasClosed).isTrue();
+    });
+
     test('a realtime voice that cannot start says why', () async {
       bridge.refusal = 'Call permission denied';
       final container = realtimeContainer();

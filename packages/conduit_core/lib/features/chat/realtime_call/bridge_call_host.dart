@@ -1,5 +1,7 @@
 import 'package:meta/meta.dart';
 
+import 'package:conduit_core/voice/voice_session.dart';
+
 /// Where a turn the voice handed to the chat's model stands.
 enum DelegatedTurnState {
   /// The model is still answering.
@@ -82,5 +84,5 @@ abstract interface class BridgeCallHost {
   });
 
   /// A problem worth telling the user that does not end the call.
-  void notice(String message);
+  void notice(ChatVoiceModeNotice notice);
 }

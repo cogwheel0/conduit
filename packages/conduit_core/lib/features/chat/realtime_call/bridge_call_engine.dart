@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/voice/voice_session.dart';
+
 import 'bridge_call_host.dart';
 import 'bridge_commands.dart';
 import 'realtime_bridge_transport.dart';
@@ -378,9 +380,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     if (text.isEmpty) {
       // Silence is not a request, and must not get a reply.
       if (failed) {
-        _host.notice(
-          'A voice segment could not be transcribed. Please try again.',
-        );
+        _host.notice(ChatVoiceModeNotice.transcriptionFailed);
       }
       _flush();
       return;
@@ -573,7 +573,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       }
     }
     if (status == 'failed' || status == 'incomplete') {
-      _host.notice('The voice response did not complete.');
+      _host.notice(ChatVoiceModeNotice.replyIncomplete);
     }
     _flush();
   }
@@ -652,7 +652,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
 
   void _write(Future<void> Function() write) {
     _writes = _writes.then((_) => write()).catchError((Object _) {
-      _host.notice('Could not save the voice transcript.');
+      _host.notice(ChatVoiceModeNotice.transcriptNotSaved);
     });
   }
 

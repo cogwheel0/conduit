@@ -1848,6 +1848,28 @@
   "@voiceCallModeStandardDescription": {
     "description": "Description of the Standard call mode."
   },
+  "voiceCallNoticeTranscriptionFailed": "That was hard to make out. Please say it again.",
+  "@voiceCallNoticeTranscriptionFailed": {
+    "description": "Toast in a realtime call when the user's words could not be transcribed."
+  },
+  "voiceCallNoticeReplyIncomplete": "The voice's reply was cut short.",
+  "@voiceCallNoticeReplyIncomplete": {
+    "description": "Toast in a realtime call when the voice's reply stopped before it finished."
+  },
+  "voiceCallNoticeTranscriptNotSaved": "Part of the call could not be saved to the chat.",
+  "@voiceCallNoticeTranscriptNotSaved": {
+    "description": "Toast in a realtime call when what was said could not be saved."
+  },
+  "voiceReplySpokenLabel": "{model} · spoken",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
+  },
   "ttsSettings": "Text to speech",
   "@ttsSettings": {
     "description": "Section header for TTS-related customization options."

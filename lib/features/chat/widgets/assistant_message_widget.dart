@@ -12,6 +12,7 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -215,6 +216,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   ChatMessage? get _chatMessage =>
       widget.message is ChatMessage ? widget.message as ChatMessage : null;
+
+  /// A reply a realtime call's voice gave by itself, stored under the voice
+  /// model. There is no chat model answer to run again.
+  bool get _isVoiceReply {
+    final message = _chatMessage;
+    return message != null && voiceReplayFor(message).spokenOnly;
+  }
 
   ChatTurnPhase get _turnPhase =>
       chatTurnPhaseForMessage(_chatMessage, isStreaming: widget.isStreaming);
@@ -999,6 +1007,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // that identity was never shown above — so only stay silent while the
     // active identity still matches the one the group header announced.
     if (!widget.showModelHeader &&
+        !_isVoiceReply &&
         modelName == widget.modelName?.trim() &&
         iconUrl == widget.modelIconUrl) {
       _cachedAvatar = null;
@@ -1015,10 +1024,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     // A quiet speaker label, like a group-chat sender name: it names a model
     // change without competing with the answer below it.
-    final Widget leading = hasIcon
+    final isVoiceReply = _isVoiceReply;
+    final Widget leading = hasIcon && !isVoiceReply
         ? ModelAvatar(size: 16, imageUrl: iconUrl, label: modelName)
         : Icon(
-            Icons.auto_awesome,
+            isVoiceReply
+                ? (Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq)
+                : Icons.auto_awesome,
             color: theme.textTertiary,
             size: IconSize.sm - 2,
           );
@@ -1031,7 +1043,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           const SizedBox(width: Spacing.xs + Spacing.xxs),
           Flexible(
             child: MiddleEllipsisText(
-              modelName,
+              isVoiceReply
+                  ? AppLocalizations.of(
+                      context,
+                    )!.voiceReplySpokenLabel(modelName)
+                  : modelName,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textTertiary,
                 fontWeight: FontWeight.w400,
@@ -2407,7 +2423,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? 'stop.fill'
               : 'speaker.wave.2',
         ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && !_isVoiceReply)
         _AssistantFooterAction(
           id: isErrorMessage ? 'retry' : 'regenerate',
           icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
