@@ -193,7 +193,7 @@ FCM_APPS=com.example.conduit
 EOF
 sudo chmod 0600 /etc/conduit-push/relay.env
 
-docker run -d --name conduit-push-relay --restart unless-stopped \
+sudo docker run -d --name conduit-push-relay --restart unless-stopped \
   --env-file /etc/conduit-push/relay.env \
   -v /etc/conduit-push/secrets:/secrets:ro \
   -p 127.0.0.1:8080:8080 \
@@ -201,8 +201,8 @@ docker run -d --name conduit-push-relay --restart unless-stopped \
   conduit-push-relay
 ```
 
-Docker reads `relay.env` itself, so it stays private to root and is not
-mounted into the container.
+The `docker` command reads `relay.env` as the user who runs it, hence `sudo`:
+the file stays private to root and is not mounted into the container.
 
 With rootless Docker or user-namespace remapping, the container's uid 65532
 is a different uid on the host; give the files to that one instead. On
