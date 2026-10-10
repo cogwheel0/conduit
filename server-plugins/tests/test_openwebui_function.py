@@ -801,6 +801,17 @@ def test_one_members_broken_valves_cannot_stop_a_channel_fan_out(world, fn):
     assert [post.url for post in world.posts] == [devices["b"].endpoint]
 
 
+def test_a_future_entry_with_odd_fields_cannot_stop_a_commit(world, fn):
+    # Entries for a newer protocol are kept unread, so their sid and endpoint can be anything.
+    future = Device(proto=2, sid=["not", "a", "string"], endpoint={"url": "https://x.y"})
+    dead, alive = Device(origin="any"), Device(origin="any")
+    world.subscribe("u1", future, dead, alive)
+    world.responses[dead.endpoint] = 410
+    dispatch(fn, **finished())
+    assert world.stored("u1") == [future.entry, alive.entry]
+    assert world.status("u1")[alive.sid]["code"] == 201
+
+
 def test_devices_unseen_for_30_days_expire(world, fn):
     now = int(time.time())
     recent, forgotten = Device(origin="any", seen=now - 29 * DAY), Device(origin="any", seen=now - 31 * DAY)

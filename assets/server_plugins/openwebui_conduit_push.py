@@ -665,6 +665,16 @@ class _ParseCache(object):
         return self._parsed[key]
 
 
+def _send_key(raw: Any) -> Optional[Tuple[str, str]]:
+    """A stored entry's (sid, endpoint), or None when either isn't a string.
+
+    Entries for a newer protocol are kept without being checked, so their
+    fields may be lists or objects, which can't be looked up in a set.
+    """
+    sid, endpoint = _attr(raw, "sid"), _attr(raw, "endpoint")
+    return (sid, endpoint) if isinstance(sid, str) and isinstance(endpoint, str) else None
+
+
 def _merge_commit(
     stored: Dict[str, Any],
     now: int,
@@ -684,15 +694,11 @@ def _merge_commit(
     changed = False
     if raw_list is not None:
         _, keep, _ = _select(raw_list, now, cap, parse)
-        kept = [
-            raw
-            for index, raw in enumerate(raw_list)
-            if index in keep and (_attr(raw, "sid"), _attr(raw, "endpoint")) not in dead
-        ]
+        kept = [raw for index, raw in enumerate(raw_list) if index in keep and _send_key(raw) not in dead]
         if len(kept) != len(raw_list):
             stored["subscriptions"] = _dumps(kept)
             changed = True
-        live = {_attr(raw, "sid") for raw in kept} | set(statuses)
+        live = {sid for sid in (_attr(raw, "sid") for raw in kept) if isinstance(sid, str)} | set(statuses)
         for sid in [sid for sid in status if sid not in live]:
             del status[sid]
             changed = True
