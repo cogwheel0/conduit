@@ -86,7 +86,9 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
   /// True when `notification` is a push the extension decrypted, and then
   /// `completionHandler` is called once, here. The app is in the
   /// foreground, so Dart decides between a banner and nothing. When Dart
-  /// can't take it (no engine, an error, or no answer in time), iOS shows it.
+  /// can't take it (no engine, an error, or no answer in time), iOS shows it
+  /// with the sound the extension chose, which is none when the app's own
+  /// notification for it already alerted.
   func willPresent(
     _ notification: UNNotification,
     completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
@@ -106,8 +108,7 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
       present([.list])
       return true
     }
-    var shown: UNNotificationPresentationOptions = [.banner, .list]
-    if configStore()?.load().sound ?? PushConfig.default.sound { shown.insert(.sound) }
+    let shown = Self.fallbackPresentation(for: content)
     onMain {
       guard let flutterApi = self.flutterApi else {
         present(shown)
@@ -364,6 +365,18 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
       let fields = try? JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any]
     else { return false }
     return fields["scope"] as? String == scope
+  }
+
+  /// How a decrypted push shows in the foreground when Dart doesn't take
+  /// it: as a banner, with sound only if the extension left it one. It
+  /// already applied the sound setting, and silenced a push that replaced
+  /// the app's own notification.
+  static func fallbackPresentation(
+    for content: UNNotificationContent
+  ) -> UNNotificationPresentationOptions {
+    var shown: UNNotificationPresentationOptions = [.banner, .list]
+    if content.sound != nil { shown.insert(.sound) }
+    return shown
   }
 
   private static func platformTap(_ tap: PushTap) -> PlatformPushTap {
