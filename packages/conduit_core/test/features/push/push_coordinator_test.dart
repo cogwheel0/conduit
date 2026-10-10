@@ -1453,6 +1453,72 @@ void main() {
       check(h.settingsStore.tombstones()).isEmpty();
     });
 
+    test('a setup asked for while it is recovered gets its own id', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final otherSid = h.record(_owui.scope).sid!;
+      final otherDid = h.server(_owui).subscriptions.values.single.did;
+      h.dispose();
+
+      final listGate = Completer<void>();
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        platform: _Platform([])
+          .._next = 50
+          ..token = 'bb' * 32
+          ..listGate = listGate,
+      );
+      // While the keys are still being looked for, the user sends a test
+      // and another account is added.
+      await h.until(() => h.log.contains('list-waiting'));
+      final sent = h.coordinator.sendTest(_owui.scope);
+      h.setTargets([_owui, _owui2]);
+      await pumpEventQueue();
+      check(h.server(_owui).subscribes).equals(0);
+      check(h.server(_owui2).subscribes).equals(0);
+
+      listGate.complete();
+      check(await sent).isTrue();
+      await h.until(h.allOn);
+      final did = await h.settingsStore.deviceId();
+      check(did).not((it) => it.equals(otherDid));
+      for (final target in [_owui, _owui2]) {
+        check(h.server(target).dids)
+          ..isNotEmpty()
+          ..every((it) => it.equals(did));
+      }
+      check(h.server(_owui).unsubscribes).not((it) => it.contains(otherSid));
+    });
+
+    test("turning push off while it is recovered keeps the other device's", () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      h.dispose();
+
+      final listGate = Completer<void>();
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        platform: _Platform([])
+          .._next = 50
+          ..token = 'bb' * 32
+          ..listGate = listGate,
+      );
+      await h.until(() => h.log.contains('list-waiting'));
+      final off = h.coordinator.setEnabled(false);
+      await pumpEventQueue();
+      listGate.complete();
+      await off;
+      await pumpEventQueue();
+
+      // The subscription was the other device's: only it removes it.
+      check(h.server(_owui).unsubscribes).isEmpty();
+      check(h.settingsStore.tombstones()).isEmpty();
+      check(h.record(_owui.scope).sid).isNull();
+      check(h.status(_owui.scope)).equals(PushStatus.off);
+    });
+
     test('keys this device lost are removed from their server', () async {
       h = await _Harness.start(targets: [_owui]);
       await h.coordinator.setEnabled(true);
@@ -1479,7 +1545,7 @@ void main() {
       check(h.server(_owui).subscriptions.keys).deepEquals([mine.sid]);
     });
 
-    test('a setup that finishes while lost keys are checked stays', () async {
+    test('a setup asked for while lost keys are checked waits', () async {
       h = await _Harness.start(targets: [_owui], fcm: true, unifiedPush: true);
       await h.coordinator.setEnabled(true);
       check(h.record(_owui.scope).transport).equals(PushTransport.fcm);
@@ -1488,7 +1554,7 @@ void main() {
 
       // The key store started over. While the check waits for the FCM
       // token, the user switches delivery to UnifiedPush, which sets push up
-      // again with new keys.
+      // again with new keys once the check has ended.
       final tokenGate = Completer<void>();
       h = await _Harness.start(
         targets: [_owui],
@@ -1502,17 +1568,21 @@ void main() {
       await h.until(
         () => h.log.contains('token-waiting ${PushTransport.fcm}'),
       );
-      await h.coordinator.setAndroidTransport(
+      final switched = h.coordinator.setAndroidTransport(
         PushAndroidTransport.unifiedPush,
         distributor: 'org.unifiedpush.distributor.ntfy',
       );
-      check(h.status(_owui.scope)).equals(PushStatus.on);
-      final newSid = h.record(_owui.scope).sid!;
-      check(newSid).not((it) => it.equals(lostSid));
-      final subscribes = h.server(_owui).subscribes;
+      await pumpEventQueue();
+      check(h.server(_owui).subscribes).equals(0);
 
       h.platform.tokenGate = null;
       tokenGate.complete();
+      await switched;
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      check(h.record(_owui.scope).transport).equals(PushTransport.unifiedPush);
+      final newSid = h.record(_owui.scope).sid!;
+      check(newSid).not((it) => it.equals(lostSid));
+      final subscribes = h.server(_owui).subscribes;
       // The lost subscription is removed from its server...
       await h.until(
         () =>
@@ -1951,9 +2021,19 @@ final class _Platform implements PushPlatformPort {
     );
   }
 
+  /// Holds the next [listSubscriptions] until completed.
+  Completer<void>? listGate;
+
   @override
-  Future<List<PushSubscriptionKeys>> listSubscriptions() async =>
-      subscriptions.values.toList();
+  Future<List<PushSubscriptionKeys>> listSubscriptions() async {
+    final gate = listGate;
+    if (gate != null) {
+      listGate = null;
+      log.add('list-waiting');
+      await gate.future;
+    }
+    return subscriptions.values.toList();
+  }
 
   @override
   Future<void> setEndpoint(
@@ -2058,6 +2138,9 @@ final class _Server {
   /// While set, an unsubscribe waits for it.
   Completer<void>? unsubscribeGate;
   final unsubscribes = <String>[];
+
+  /// The device id of every subscribe that landed, in order.
+  final dids = <String>[];
   int installs = 0;
   int tests = 0;
   int subscribes = 0;
@@ -2111,6 +2194,7 @@ final class _Backend implements PushBackend {
       await gate.future;
     }
     server.subscribes++;
+    server.dids.add(subscription.did);
     log.add('subscribe ${server.scope} ${subscription.sid}');
     server.subscriptions[subscription.sid] = subscription;
     if (testNonce == null) return null;

@@ -65,6 +65,11 @@ class PushCoordinator extends _$PushCoordinator {
   /// APNs or FCM being let go of, which turning push on waits for.
   Future<void>? _transportRelease;
 
+  /// Startup's [_recoverFromRestore] while it runs, settled however it ends.
+  /// Until it has, the records and the device id may be another device's,
+  /// so every setup and removal waits for it before reaching a server.
+  Future<void>? _recovery;
+
   /// Bumped by every removal: a pass that ran while one happened may have
   /// had setups cancelled, so it does not cover a request waiting on it.
   int _releases = 0;
@@ -554,7 +559,19 @@ class PushCoordinator extends _$PushCoordinator {
   }
 
   Future<void> _startup() async {
-    await _recoverFromRestore();
+    // Set before anything is awaited: a setup asked for from now on finds it.
+    final recovery = _recoverFromRestore().then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) => DebugLogger.error(
+        'push-recovery-failed',
+        scope: 'push',
+        error: error,
+        stackTrace: stackTrace,
+      ),
+    );
+    _recovery = recovery;
+    await recovery;
+    if (identical(_recovery, recovery)) _recovery = null;
     if (!ref.mounted) return;
     final targets = _targets ?? const [];
     final live = {for (final t in targets) t.scope};
@@ -618,10 +635,11 @@ class PushCoordinator extends _$PushCoordinator {
   /// tombstoned to be removed from their servers, and the device keeps its
   /// id and the tombstones it already had.
   ///
-  /// Only the subscriptions recorded before anything here is awaited count
-  /// as lost. A setup that finishes meanwhile (the user switched delivery to
-  /// UnifiedPush, say) made its keys on this device, so its subscription is
-  /// neither tombstoned nor forgotten here.
+  /// No setup or removal reaches a server until this has run ([_recovery]):
+  /// a subscription made before the new id would carry the other device's,
+  /// so its server would keep one entry for both devices. Only the
+  /// subscriptions recorded before anything here is awaited count as lost;
+  /// a record whose sid has changed since is left as it is.
   Future<void> _recoverFromRestore() async {
     final missing = {
       for (final entry in _records.entries)
@@ -810,6 +828,8 @@ class PushCoordinator extends _$PushCoordinator {
     bool throttle = false,
     bool fresh = false,
   }) async {
+    final recovery = _recovery;
+    if (recovery != null) await recovery;
     final running = _pass;
     if (running != null) {
       await running.done;
@@ -881,6 +901,10 @@ class PushCoordinator extends _$PushCoordinator {
   }) async {
     final runner = _runner(target.scope);
     final generation = runner.generation;
+    // Startup's recovery ends first: a subscription made before it may carry
+    // the device id of the device a backup came from.
+    final recovery = _recovery;
+    if (recovery != null) await recovery;
     // A removal under way ends first: until it has, it may still delete the
     // keys and clear the record this setup would reuse. One that starts
     // later cancels this setup instead.
@@ -1694,6 +1718,10 @@ class PushCoordinator extends _$PushCoordinator {
   }) async {
     runner.generation++;
     _releases++;
+    // Until startup's recovery has run, the recorded subscription may be the
+    // device's a backup came from, which only that device removes.
+    final recovery = _recovery;
+    if (recovery != null) await recovery;
     final before = _record(scope);
     if (before.sid != null) _pendingTests[before.sid]?.complete(false);
     var setupRunning = false;
