@@ -60,13 +60,23 @@ Future<bool> switchHermesConnection(
   BuildContext context,
   WidgetRef ref,
   String connectionId,
+) => switchHermesConnectionOf(
+  context,
+  ref.read(hermesConfigProvider.notifier),
+  connectionId,
+);
+
+/// [switchHermesConnection] through [config], for a caller with no widget
+/// ref, such as a tapped notification.
+Future<bool> switchHermesConnectionOf(
+  BuildContext context,
+  HermesConfigController config,
+  String connectionId,
 ) async {
   final failureMessage = AppLocalizations.of(context)!
       .hermesSwitchConnectionFailed;
   try {
-    await ref
-        .read(hermesConfigProvider.notifier)
-        .setActiveConnection(connectionId);
+    await config.setActiveConnection(connectionId);
     return true;
   } catch (error) {
     DebugLogger.warning(

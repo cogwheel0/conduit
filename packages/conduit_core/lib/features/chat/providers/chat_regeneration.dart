@@ -516,6 +516,13 @@ Future<void> _regenerateDirectMessage(
         notifier.updateMessageById(assistant.id, (_) => failedSnapshot);
       }
     }
+    await _announceDirectRunCompletion(
+      ref,
+      registry,
+      reservation,
+      owner: owner,
+      message: failedSnapshot,
+    );
     rethrow;
   } finally {
     await databaseLease?.release();

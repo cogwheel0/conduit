@@ -143,19 +143,32 @@ class ActiveCheckmark extends StatelessWidget {
 /// Makes [connectionId] the Hermes connection in use, turning Hermes on
 /// when it is off. It is switched to first: a switch that fails leaves
 /// Hermes as it was, rather than on with the connection it was meant to
-/// leave.
-Future<void> useHermesConnection(
+/// leave. Returns whether the connection is in use, with Hermes on.
+Future<bool> useHermesConnection(
   BuildContext context,
   WidgetRef ref,
   String connectionId,
+) => useHermesConnectionReading(context, ref.read, connectionId);
+
+/// [useHermesConnection] for a caller that reads providers without a widget
+/// ref, such as a tapped notification.
+Future<bool> useHermesConnectionReading(
+  BuildContext context,
+  T Function<T>(ProviderListenable<T> provider) read,
+  String connectionId,
 ) async {
-  if (ref.read(hermesActiveConnectionIdProvider) != connectionId) {
-    if (!await switchHermesConnection(context, ref, connectionId)) return;
-    if (!context.mounted) return;
+  if (read(hermesActiveConnectionIdProvider) != connectionId) {
+    final switched = await switchHermesConnectionOf(
+      context,
+      read(hermesConfigProvider.notifier),
+      connectionId,
+    );
+    if (!switched || !context.mounted) return false;
   }
-  if (ref.read(hermesEnabledProvider)) return;
+  if (read(hermesEnabledProvider)) return true;
   try {
-    await ref.read(hermesConfigProvider.notifier).setEnabled(true);
+    await read(hermesConfigProvider.notifier).setEnabled(true);
+    return true;
   } catch (error, stackTrace) {
     DebugLogger.error(
       'hermes-enable-failed',
@@ -169,6 +182,7 @@ Future<void> useHermesConnection(
         AppLocalizations.of(context)!.errorMessage,
       );
     }
+    return false;
   }
 }
 
@@ -200,14 +214,14 @@ Future<void> switchToSavedAccount(
   final router = GoRouter.of(context);
   final controller = ref.read(openWebUiAccountsControllerProvider);
   try {
-    var result = await controller.switchTo(accountId);
-    if (result == OpenWebUiAccountChangeResult.blockedByActiveReply) {
-      if (!context.mounted) return;
-      if (!await _confirmSwitchStopsReply(context)) return;
-      result = await controller.switchTo(accountId, force: true);
-    }
+    final result = await switchOpenWebUiAccountConfirming(
+      controller,
+      accountId,
+      confirmStopReply: () async =>
+          context.mounted && await confirmSwitchStopsReply(context),
+    );
     if (result == OpenWebUiAccountChangeResult.needsSignIn) {
-      _openSignIn(router);
+      openActiveAccountSignIn(router);
     }
   } catch (error, stackTrace) {
     DebugLogger.error(
@@ -218,6 +232,26 @@ Future<void> switchToSavedAccount(
     );
     if (context.mounted) UiUtils.showMessage(context, l10n.errorMessage);
   }
+}
+
+/// Makes [accountId] the active account through [controller], asking
+/// [confirmStopReply] first when that would stop a reply still being
+/// written. Returns how the change went, or null when the user kept the
+/// reply.
+///
+/// [switchToSavedAccount] and a tapped notification both switch through this,
+/// so they ask, and stop the reply, alike.
+Future<OpenWebUiAccountChangeResult?> switchOpenWebUiAccountConfirming(
+  OpenWebUiAccountsController controller,
+  String accountId, {
+  required Future<bool> Function() confirmStopReply,
+}) async {
+  final result = await controller.switchTo(accountId);
+  if (result != OpenWebUiAccountChangeResult.blockedByActiveReply) {
+    return result;
+  }
+  if (!await confirmStopReply()) return null;
+  return controller.switchTo(accountId, force: true);
 }
 
 /// Whether the active account may be left for one being signed in to: at
@@ -235,7 +269,7 @@ Future<bool> confirmLeavingActiveAccount(
   ref.read,
   guard: accountChangeReplyGuardProvider,
   stop: accountChangeStopRepliesProvider,
-  confirm: () => _confirmSwitchStopsReply(context),
+  confirm: () => confirmSwitchStopsReply(context),
 );
 
 /// Whether the address the active account uses may be changed or removed:
@@ -291,9 +325,12 @@ Future<bool> _mayStopReply(
 /// to a usable Hermes or Direct backend the router lets the user stay where
 /// they were, with the account they chose unusable. Sign-in becomes the
 /// router's location, so the router moves on to chat once it succeeds.
-void _openSignIn(GoRouter router) => router.go(Routes.authentication);
+void openActiveAccountSignIn(GoRouter router) =>
+    router.go(Routes.authentication);
 
-Future<bool> _confirmSwitchStopsReply(BuildContext context) {
+/// Asks whether to switch accounts although that stops the reply still
+/// being written.
+Future<bool> confirmSwitchStopsReply(BuildContext context) {
   final l10n = AppLocalizations.of(context)!;
   return ThemedDialogs.confirm(
     context,
@@ -344,7 +381,7 @@ Future<void> signOutOfSavedAccount(
     // on with Hermes or Direct, or the router goes back to choosing one.
     if (result == OpenWebUiAccountChangeResult.needsSignIn &&
         await container.read(activeServerProvider.future) != null) {
-      _openSignIn(router);
+      openActiveAccountSignIn(router);
     }
   } catch (error, stackTrace) {
     DebugLogger.error(
