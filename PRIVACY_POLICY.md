@@ -1,13 +1,13 @@
 # Conduit Privacy Policy
 
-Effective date: 2026-09-29
+Effective date: 2026-10-10
 
 Conduit is an open‑source mobile client for Open‑WebUI and directly connected AI providers. This app acts as a client to services you choose and configure. This policy describes how the app itself handles data on your device. Open WebUI servers and AI providers may collect, process, and store data under their own policies; please review their privacy terms separately.
 
 ## Information We Collect
 - Device-stored data: minimal settings and preferences (e.g., theme, UI options) saved locally on your device.
 - Authentication tokens, API keys, and direct-connection credentials: stored securely on your device using platform secure storage.
-- User-provided content: messages, files, images, and voice input you choose to send are transmitted directly from your device to the Open WebUI server or AI provider selected for that chat. The app does not operate its own backend.
+- User-provided content: messages, files, images, and voice input you choose to send are transmitted directly from your device to the Open WebUI server or AI provider selected for that chat. The app does not operate a backend that receives your content. The only developer-operated service is the optional push notification relay described below, and it only carries encrypted notifications it cannot read.
 - Diagnostic information: transient error logs in memory for troubleshooting within a session. The app does not include third‑party analytics.
 
 ## How We Use Information
@@ -17,11 +17,22 @@ Conduit is an open‑source mobile client for Open‑WebUI and directly connecte
 
 ## Data Storage and Transfer
 - Local storage: preferences and credentials are stored on your device. Access tokens are stored using secure storage where available.
-- Network transfer: when you interact with the app, your data is sent to the Open WebUI server or direct AI provider you selected. Direct model requests are not relayed through Open WebUI or any developer‑controlled server.
+- Network transfer: when you interact with the app, your data is sent to the Open WebUI server, Hermes server, or direct AI provider you selected. Direct model requests are not relayed through Open WebUI or any developer‑controlled server.
 - Direct chat history: by default, a direct chat is also synchronized to your active Open WebUI server when you are signed in. You can instead keep direct chat history only on this device. Changing this setting applies to new chats and does not automatically upload existing on-device chats.
 - Apple On-Device: when you select Apple On-Device, model inference runs locally through Apple's Foundation Models framework. Prompt and response content is not sent to an AI provider by Conduit, though optional Open WebUI history synchronization remains a separate setting.
 - Apple Private Cloud Compute: when you select the Apple PCC provider, Conduit sends the conversation content and selected images needed for that request to Apple's Private Cloud Compute service. Conduit does not operate an intermediary server. If you enable on-device fallback, a PCC network failure may instead be retried with Apple's on-device model. Apple's processing and retention terms apply separately from Conduit's optional Open WebUI history synchronization.
 - On-device web search: when you turn on web search for a direct model that has no web search of its own, Conduit searches from your device. The search queries the model writes are sent directly to a public search engine: by default DuckDuckGo, then Brave, Bing, Mojeek or Wikipedia if it does not answer, or only the engine you pick in settings. When the model opens a result, or a link you wrote in your message, that page is downloaded directly from your device. These requests carry your device's IP address and your chosen region and safe-search setting, and are not sent through Open WebUI or any developer-controlled server. Search results and page text are then sent to the AI provider as part of the conversation.
+
+## Push Notifications (optional)
+Push notifications are off until you turn them on. When you do:
+- Your device creates a key pair and secret for each Open WebUI account and Hermes connection, and keeps the private parts in platform secure storage on this device only.
+- Conduit gives your own server the public key, the secret, a random device id, a device label, and a delivery address. Open WebUI stores them with the Conduit Push function, which an administrator installs; Hermes stores them with its Conduit plugin.
+- Your server encrypts each notification (a title and a preview of at most 200 characters) so that only your device can read it.
+- On iOS, and on Android when you use Google's delivery service, the encrypted notification passes through the Conduit push relay operated by the developer, and then Apple Push Notification service or Firebase Cloud Messaging. The relay sees your device's push token, your server's IP address, the time, and the notification's size class, but never its content, your account, or your server's address. It keeps no database and no access logs. Apple and Google see the push token, the time, and the encrypted notification.
+- On Android you can instead use a UnifiedPush distributor you choose; then the relay is not involved.
+- Turning push notifications off, signing out, or removing an account deletes that device's keys and asks your server to forget the device.
+
+Details: docs/push/THREAT_MODEL.md in the source repository.
 
 ## Permissions
 Depending on how you use Conduit, the app may request:
@@ -34,9 +45,11 @@ Depending on how you use Conduit, the app may request:
 - Camera: to capture photos for attachments when you choose the camera option.
 - Speech recognition: to transcribe voice input on-device when you use voice
   features; your speech is converted to text on your device when available.
+- Notifications: to alert you when a reply, channel message, or scheduled
+  task finishes; requested only when you turn notifications on.
 
 ## Third‑Party Services
-The app does not include third‑party analytics or advertising SDKs. Open WebUI servers, AI providers, or extensions you use may rely on third‑party services subject to their own terms. When you use on-device web search, the search engines and websites your device contacts process those requests under their own privacy policies.
+The app does not include third‑party analytics or advertising SDKs. The Android build distributed through Google Play includes Firebase Cloud Messaging, used only to deliver encrypted push notifications after you turn them on; Firebase Analytics is not included and Firebase is not started before then. The FOSS Android build contains no Google services. Open WebUI servers, AI providers, or extensions you use may rely on third‑party services subject to their own terms. When you use on-device web search, the search engines and websites your device contacts process those requests under their own privacy policies.
 
 ## Security
 We use platform‑provided secure storage for sensitive credentials where supported. No security can be guaranteed; protect access to your device and server credentials.
@@ -48,6 +61,7 @@ We use platform‑provided secure storage for sensitive credentials where suppor
 ## Your Choices
 - You can change servers, remove direct connection profiles, log out, choose on-device-only history for new direct chats, or clear app data in your device settings.
 - You can turn web search off for a chat, and choose which search engine on-device web search uses, in the Direct Connections settings.
+- You can turn push notifications on or off, and choose which accounts and kinds of notification use them, in Notifications settings.
 - You can choose not to grant optional permissions; some features may not work without them.
 
 ## Children’s Privacy
