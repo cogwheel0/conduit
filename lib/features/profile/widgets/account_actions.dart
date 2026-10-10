@@ -250,7 +250,8 @@ Future<OpenWebUiAccountChangeResult?> switchToSavedAccount(
 /// server refuses, goes through the app's own expired-session flow
 /// ([AuthStateManager.onTokenInvalidated]: a silent sign-in with saved
 /// credentials, else sign-in). Answers whether the session still works; a
-/// server that cannot be reached says nothing against it.
+/// server that cannot be reached says nothing against it, and neither does
+/// a refusal that comes after the account or its session changed.
 Future<bool> recheckActiveAccountSession(ProviderContainer container) async {
   final api = container.read(apiServiceProvider);
   final token = api?.authToken;
@@ -268,6 +269,14 @@ Future<bool> recheckActiveAccountSession(ProviderContainer container) async {
       return true;
     } on DioException catch (error) {
       if (error.response?.statusCode != 401) return true;
+    }
+    // The expired-session flow clears whatever session is current. A switch
+    // or a sign-in while the server answered made another one current,
+    // which this refusal says nothing about.
+    final current = container.read(apiServiceProvider);
+    if (current?.serverConfig.id != api.serverConfig.id ||
+        current?.authToken != token) {
+      return true;
     }
   }
   await container.read(authStateManagerProvider.notifier).onTokenInvalidated();
