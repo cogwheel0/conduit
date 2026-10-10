@@ -849,10 +849,15 @@ def test_cron_wrapper_header_is_read_from_a_bounded_prefix(env):
 def test_cron_unwrapped_output_without_a_job(env):
     device = Device("a")
     env.subscribe(device)
-    assert run(env.adapter.standalone_send(PlatformConfig(), "devices", "Plain output"))["success"]
+    # Hermes's standalone lane passes no job id, so with cron.wrap_response: false
+    # (or from the agent's send_message tool) the output names no job.
+    result = run(env.adapter.standalone_send(PlatformConfig(), "devices", "Plain output"))
+    assert result["success"]
     payload = device.open(env.relay.requests[0])
-    # No job: most likely the agent's send_message tool, so it isn't shown as a job's output.
+    # It isn't shown as a job's output, and carries no empty job id.
     assert (payload["k"], payload["t"], payload["b"], payload["g"]) == ("cron", "Hermes", "Plain output", "cron:")
+    assert set(payload["ids"]) == {"run"} and payload["ids"]["run"].isdigit()
+    assert payload["dk"] == "cron::" + payload["ids"]["run"] == result["message_id"]
 
 
 def test_send_message_through_the_live_adapter_is_titled_hermes(env):
@@ -864,8 +869,8 @@ def test_send_message_through_the_live_adapter_is_titled_hermes(env):
     assert run(adapter.send("devices", "Hi from the agent", metadata=None)).success
     assert run(adapter.send("devices", "Done.", metadata={"job_id": "j9"})).success
     assert run(adapter.send("devices", "Done.", metadata={"job_id": "gone"})).success
-    titles = [(p["t"], p["ids"]["job"]) for p in map(device.open, env.relay.requests)]
-    assert titles == [("Hermes", ""), ("Nightly backup", "j9"), ("", "gone")]
+    titles = [(p["t"], p["ids"].get("job")) for p in map(device.open, env.relay.requests)]
+    assert titles == [("Hermes", None), ("Nightly backup", "j9"), ("", "gone")]
 
 
 # -- adapter and API-server auth -------------------------------------------------

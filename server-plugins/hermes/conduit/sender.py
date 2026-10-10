@@ -94,9 +94,12 @@ def reply_payload(kind: str, session_id: str, turn_id: str, title: str, body: st
 
 
 def cron_payload(job_id: str, run_id: str, title: str, body: str) -> Dict[str, Any]:
+    """A ``cron`` push. Text that names no job, such as the agent's
+    ``send_message`` or unwrapped output from Hermes's standalone lane, which
+    passes no job id, carries no ``job`` id at all rather than an empty one."""
     return cp.build(
         "cron", SOURCE,
-        ids={"job": job_id, "run": run_id},
+        ids={"job": job_id or None, "run": run_id},
         title=title, body=_preview(body),
         dedup_key=f"cron:{job_id}:{run_id}",
         group=f"cron:{job_id}",
