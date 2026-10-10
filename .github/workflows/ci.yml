@@ -287,3 +287,16 @@ jobs:
       - name: Test
         working-directory: relay
         run: cargo test --locked
+
+  # The iOS half of push notifications: Web Push decryption, the cp/1 payload
+  # and the shared stores the app and its Notification Service Extension use,
+  # checked against push/test-vectors. CryptoKit is Apple-only, hence macOS.
+  swift-push:
+    name: Push Swift core
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Test
+        run: swift test --package-path ios/ConduitPushCore
