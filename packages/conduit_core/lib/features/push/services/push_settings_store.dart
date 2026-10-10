@@ -29,6 +29,16 @@ class PushSettingsStore {
     return id;
   }
 
+  /// Replaces this install's id with a new one, for a device whose
+  /// preferences were restored from another device's backup: servers
+  /// replace a device's entries by its id, so two devices with one id would
+  /// evict each other.
+  Future<String> resetDeviceId() async {
+    final id = randomPushToken();
+    await PreferencesStore.put(PreferenceKeys.pushDeviceId, id);
+    return id;
+  }
+
   PushAndroidTransport? get androidTransport => PushAndroidTransport.tryParse(
     PreferencesStore.getString(PreferenceKeys.pushAndroidTransport),
   );

@@ -47,8 +47,9 @@ void _resetProvidersAfterFullAppDataClear(Ref ref) {
 }
 
 /// Called once the user has signed out: of the Open WebUI account
-/// [accountId], which is then removed, or of everything when it is null. The
-/// host clears what the core cannot name: the notifications posted for it.
+/// [accountId], which is then removed (or, after a plain logout, kept to
+/// sign in to again), or of everything when it is null. The host clears what
+/// the core cannot name: the notifications posted for it.
 final hostSignedOutProvider = Provider<void Function(String? accountId)>(
   (ref) => (_) {},
 );

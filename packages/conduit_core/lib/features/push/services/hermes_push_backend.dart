@@ -1,18 +1,42 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart'
+    show kMaxHermesJsonResponseBytes, kMaxHermesJsonResponseCharacters;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/services/push_backend.dart';
 
 /// The mirror repository the Hermes `conduit` plugin is installed from.
 const String kConduitHermesPluginRepo = 'cogwheel0/conduit-hermes-push';
 
-/// The mirror commit Conduit installs: 40 hex characters, or empty to
-/// install the mirror's latest commit until a pinned one is published.
+/// The mirror commit Conduit installs: the full 40-character hex SHA of a
+/// commit in [kConduitHermesPluginRepo].
+///
+/// MAINTAINERS: this is empty only because the mirror has not been
+/// published yet. Set it to the mirror's commit SHA after the first publish
+/// (and bump it with every plugin release). While it is empty, or anything
+/// but 40 hex characters, Conduit never installs the plugin in one tap: an
+/// unpinned dashboard install would run whatever the mirror's default branch
+/// holds on the user's server. The copyable command is offered instead, and
+/// says that it installs the latest published version.
 const String kConduitHermesPluginRef = '';
+
+/// Whether [ref] pins one mirror commit: exactly 40 lowercase hex
+/// characters.
+bool hermesPluginRefIsPinned(String ref) =>
+    RegExp(r'^[0-9a-f]{40}$').hasMatch(ref);
+
+/// Whether this build pins the plugin it installs ([kConduitHermesPluginRef]).
+/// Without a pin there is no one-tap install.
+final bool kConduitHermesPluginPinned = hermesPluginRefIsPinned(
+  kConduitHermesPluginRef,
+);
 
 /// The plugin's name in the Hermes plugin hub.
 const String kConduitHermesPluginName = 'conduit';
@@ -21,16 +45,31 @@ const String kConduitHermesPluginName = 'conduit';
 /// plugin's maximum).
 const int kConduitHermesWatchTtlSeconds = 21600;
 
+/// Whether [profile] names the default Hermes profile (`~/.hermes`).
+bool isDefaultHermesProfile(String? profile) =>
+    profile == null || profile.isEmpty || profile == 'default';
+
 /// The command that installs and enables the plugin for [profile] (null or
-/// `default` for the default profile), then restarts the gateway.
-String hermesPluginInstallCommand({
+/// `default` for the default profile), then restarts the gateway, or null
+/// when [profile] is not a Hermes profile name (lowercase letters, digits,
+/// `-` and `_`, starting with a letter or digit, at most 64 characters).
+///
+/// The profile is shell-quoted. The commit is pinned with `--ref` only when
+/// [ref] is a full SHA; otherwise the command installs the latest published
+/// version.
+String? hermesPluginInstallCommand({
   String? profile,
   String ref = kConduitHermesPluginRef,
 }) {
-  final flag = profile == null || profile.isEmpty || profile == 'default'
-      ? ''
-      : ' -p $profile';
-  final pin = ref.isEmpty ? '' : ' --ref $ref';
+  final String flag;
+  if (isDefaultHermesProfile(profile)) {
+    flag = '';
+  } else if (HermesConfig.isValidDesktopProfile(profile!)) {
+    flag = " -p '$profile'";
+  } else {
+    return null;
+  }
+  final pin = hermesPluginRefIsPinned(ref) ? ' --ref $ref' : '';
   return 'hermes$flag plugins install $kConduitHermesPluginRepo$pin --enable'
       ' && hermes$flag gateway restart';
 }
@@ -120,8 +159,9 @@ final class HermesDesktopDashboardClient implements HermesDashboardClient {
 
 /// Push through the Hermes `conduit` plugin.
 sealed class HermesPushBackend implements PushBackend {
-  /// The `hermes plugins install` command for this connection.
-  String get installCommand;
+  /// The `hermes plugins install` command for this connection, or null
+  /// when its profile is not one a command can name.
+  String? get installCommand;
 
   /// One op; throws [PushBackendException] for an op error.
   Future<Map<String, Object?>> _op(Map<String, Object?> request);
@@ -187,9 +227,15 @@ sealed class HermesPushBackend implements PushBackend {
     return sids is List ? sids.whereType<String>().toList() : const [];
   }
 
+  /// [body] as a JSON object, or empty when it is not one. It is held to
+  /// the size and structure limits of every other Hermes response before it
+  /// is decoded.
   static Map<String, Object?> _json(String body) {
-    if (body.isEmpty) return const {};
+    if (body.isEmpty || body.length > kMaxHermesJsonResponseCharacters) {
+      return const {};
+    }
     try {
+      validateHermesJsonSource(body);
       final decoded = jsonDecode(body);
       return decoded is Map ? Map<String, Object?>.from(decoded) : const {};
     } on FormatException {
@@ -217,7 +263,8 @@ final class HermesApiPushBackend extends HermesPushBackend {
       _dio = dio {
     _dio.options
       ..followRedirects = false
-      ..responseType = ResponseType.plain
+      // Read as it arrives, so a body past the size limit stops there.
+      ..responseType = ResponseType.stream
       ..validateStatus = ((_) => true);
   }
 
@@ -236,25 +283,47 @@ final class HermesApiPushBackend extends HermesPushBackend {
   }
 
   @override
-  String get installCommand =>
+  String? get installCommand =>
       hermesPluginInstallCommand(profile: hermesApiProfile(_root));
 
   Future<(int, Map<String, Object?>)> _post(Map<String, Object?> body) async {
     try {
-      final response = await _dio.post<String>(
+      final response = await _dio.post<ResponseBody>(
         '$_root/api/platforms/conduit/events',
         data: jsonEncode(body),
         options: Options(contentType: Headers.jsonContentType),
       );
       return (
         response.statusCode ?? 0,
-        HermesPushBackend._json(response.data ?? ''),
+        HermesPushBackend._json(await _readBounded(response.data)),
       );
-    } on DioException {
+    } on PushBackendException {
+      rethrow;
+    } on Exception {
+      // Dio's errors, and the connection failing while the body comes in.
       throw const PushBackendException(
         PushFailure(PushFailureReason.serverUnreachable),
       );
     }
+  }
+
+  /// [body] as text, read up to [kMaxHermesJsonResponseBytes]: one longer
+  /// than that is refused once it gets there, without reading the rest.
+  static Future<String> _readBounded(ResponseBody? body) async {
+    if (body == null) return '';
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in body.stream) {
+      bytes.add(chunk);
+      if (bytes.length > kMaxHermesJsonResponseBytes) {
+        throw const PushBackendException(
+          PushFailure(
+            PushFailureReason.serverRejected,
+            detail: 'response_too_large',
+          ),
+        );
+      }
+    }
+    return utf8.decode(bytes.takeBytes(), allowMalformed: true);
   }
 
   @override
@@ -329,22 +398,44 @@ final class HermesApiPushBackend extends HermesPushBackend {
 
 /// The plugin through the Hermes dashboard (`desktopGateway` connections):
 /// `/api/plugins/conduit/v1/…`, behind the dashboard's own sign-in.
+///
+/// Only the plugin's events route takes a `?profile=`; its hello route
+/// answers for the dashboard's own process. The dashboard's plugin hub takes
+/// one too. Its install and enable routes always act on the profile the
+/// dashboard was started with, so a connection to another profile gets the
+/// command (with `-p <profile>`) instead of a one-tap install.
 final class HermesDashboardPushBackend extends HermesPushBackend {
   HermesDashboardPushBackend({
     required HermesDashboardClient client,
     required this.profile,
-  }) : _client = client;
+    String pluginRef = kConduitHermesPluginRef,
+  }) : _client = client,
+       _pluginRef = pluginRef;
 
   final HermesDashboardClient _client;
 
   /// The Hermes profile this connection uses.
   final String profile;
 
+  /// The mirror commit a one-tap install pins ([kConduitHermesPluginRef]).
+  final String _pluginRef;
+
   static const String _hello = '/api/plugins/conduit/v1/hello';
   static const String _events = '/api/plugins/conduit/v1/events';
 
   @override
-  String get installCommand => hermesPluginInstallCommand(profile: profile);
+  String? get installCommand =>
+      hermesPluginInstallCommand(profile: profile, ref: _pluginRef);
+
+  /// Whether [install] may run: the plugin commit is pinned, and the
+  /// connection uses the dashboard's own (default) profile.
+  bool get canInstallInOneTap =>
+      hermesPluginRefIsPinned(_pluginRef) && isDefaultHermesProfile(profile);
+
+  /// The hub's `?profile=` for this connection: none for the default
+  /// profile, which is the dashboard's own.
+  Map<String, dynamic>? get _hubQuery =>
+      isDefaultHermesProfile(profile) ? null : {'profile': profile};
 
   Future<HermesDashboardResponse> _request(
     String method,
@@ -397,7 +488,11 @@ final class HermesDashboardPushBackend extends HermesPushBackend {
   /// The plugin's row in the dashboard's plugin hub, `{}` when it has none,
   /// or null when the dashboard has no plugin hub.
   Future<Map<String, Object?>?> _hubRow() async {
-    final response = await _request('GET', '/api/dashboard/plugins/hub');
+    final response = await _request(
+      'GET',
+      '/api/dashboard/plugins/hub',
+      query: _hubQuery,
+    );
     if (response.status == 404) return null;
     if (response.status == 401 || response.status == 403) {
       throw const PushBackendException(
@@ -464,7 +559,7 @@ final class HermesDashboardPushBackend extends HermesPushBackend {
       return PushProbe(
         PushProbeOutcome.needsHermesPlugin,
         hermesInstallCommand: installCommand,
-        canInstallHermesPlugin: true,
+        canInstallHermesPlugin: canInstallInOneTap,
         pluginVersion: row['version']?.toString(),
       );
     } on PushBackendException catch (error) {
@@ -477,49 +572,49 @@ final class HermesDashboardPushBackend extends HermesPushBackend {
 
   /// Installs the pinned plugin and enables it, or enables an installed
   /// one, then restarts a running gateway. Never forces past Hermes' plugin
-  /// scan: a "caution" verdict comes back as [PushFailureReason.installFailed]
-  /// with Hermes' message.
+  /// scan: a "caution" verdict, a consent request, or any answer that does
+  /// not say the plugin is in and enabled comes back as
+  /// [PushFailureReason.installFailed] with Hermes' message.
+  ///
+  /// Refused without a pinned commit ([canInstallInOneTap]) or for another
+  /// profile than the dashboard's own: those use the command.
   @override
   Future<void> install() async {
+    if (!hermesPluginRefIsPinned(_pluginRef)) {
+      throw const PushBackendException(
+        PushFailure(PushFailureReason.installFailed, detail: 'unpinned'),
+      );
+    }
+    if (!isDefaultHermesProfile(profile)) {
+      throw const PushBackendException(
+        PushFailure(PushFailureReason.installFailed, detail: 'use_command'),
+      );
+    }
     final row = await _hubRow();
     if (row == null) {
       throw const PushBackendException(
         PushFailure(PushFailureReason.installFailed, detail: 'no_plugin_hub'),
       );
     }
-    final HermesDashboardResponse response;
-    if (row.isNotEmpty) {
-      if (row['runtime_status'] == 'enabled') {
-        response = const HermesDashboardResponse(200, '{"ok":true}');
-      } else {
-        response = await _request(
+    if (row.isEmpty) {
+      _checkInstalled(
+        await _request(
+          'POST',
+          '/api/dashboard/agent-plugins/install',
+          body: {
+            'identifier': kConduitHermesPluginRepo,
+            'ref': _pluginRef,
+            'enable': true,
+            'force': false,
+          },
+        ),
+      );
+    } else if (row['runtime_status'] != 'enabled') {
+      _checkInstalled(
+        await _request(
           'POST',
           '/api/dashboard/agent-plugins/$kConduitHermesPluginName/enable',
-        );
-      }
-    } else {
-      response = await _request(
-        'POST',
-        '/api/dashboard/agent-plugins/install',
-        body: {
-          'identifier': kConduitHermesPluginRepo,
-          if (kConduitHermesPluginRef.isNotEmpty)
-            'ref': kConduitHermesPluginRef,
-          'enable': true,
-          'force': false,
-        },
-      );
-    }
-    if (!response.ok) {
-      final detail = HermesPushBackend._json(response.body)['detail'];
-      throw PushBackendException(
-        PushFailure(
-          PushFailureReason.installFailed,
-          detail: detail is String && detail.isNotEmpty
-              ? detail
-              : '${response.status}',
         ),
-        signInNeeded: response.status == 401 || response.status == 403,
       );
     }
     bool running;
@@ -541,6 +636,40 @@ final class HermesDashboardPushBackend extends HermesPushBackend {
         // The user restarts Hermes instead.
       }
     }
+  }
+
+  /// Throws unless [response] says the plugin was installed (or enabled):
+  /// a 2xx whose body has `"ok": true`, asks for no consent, and did not
+  /// leave the plugin disabled.
+  static void _checkInstalled(HermesDashboardResponse response) {
+    final json = HermesPushBackend._json(response.body);
+    final verdict = json['scan_verdict'];
+    final succeeded =
+        response.ok &&
+        json['ok'] == true &&
+        json['consent_required'] != true &&
+        json['scan_blocked'] != true &&
+        json['enabled'] != false;
+    if (succeeded) return;
+    final message = [json['detail'], json['error']]
+        .whereType<String>()
+        .firstWhere((text) => text.isNotEmpty, orElse: () => '');
+    final String detail;
+    if (message.isNotEmpty) {
+      detail = message;
+    } else if (verdict is String && verdict.isNotEmpty) {
+      detail = 'scan_$verdict';
+    } else if (json['consent_required'] == true) {
+      detail = 'consent_required';
+    } else if (json['enabled'] == false) {
+      detail = 'not_enabled';
+    } else {
+      detail = response.ok ? 'invalid_response' : '${response.status}';
+    }
+    throw PushBackendException(
+      PushFailure(PushFailureReason.installFailed, detail: detail),
+      signInNeeded: response.status == 401 || response.status == 403,
+    );
   }
 
   @override

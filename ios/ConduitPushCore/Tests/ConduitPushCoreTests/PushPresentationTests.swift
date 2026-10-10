@@ -21,7 +21,7 @@ final class PushPresentationTests: XCTestCase {
         title: "Trip ideas",
         subtitle: "",
         body: "Here are three routes along the coast:",
-        threadIdentifier: "chat:4f1c2a7e",
+        threadIdentifier: "owui:acct-1|chat:4f1c2a7e",
         playsSound: true
       )
     )
@@ -53,7 +53,7 @@ final class PushPresentationTests: XCTestCase {
 
     XCTAssertEqual(shown.title, "#général")
     XCTAssertEqual(shown.body, "Zoë 🦊: Réunion à 15 h 🗓️ — 会议改到下午三点")
-    XCTAssertEqual(shown.threadIdentifier, "channel:ch-9")
+    XCTAssertEqual(shown.threadIdentifier, "owui:acct-2|channel:ch-9")
 
     let authorOnly = try payload(json: #"{"v":1,"k":"channel","dk":"c","a":"Ann","b":""}"#)
     XCTAssertEqual(PushPresentation.make(payload: authorOnly, scope: "s", config: .default).body, "Ann")
@@ -65,7 +65,15 @@ final class PushPresentationTests: XCTestCase {
 
     XCTAssertEqual(shown.title, "Morning briefing")
     XCTAssertEqual(shown.body, "3 new issues, 1 failing build on main.")
-    XCTAssertEqual(shown.threadIdentifier, "cron:a1b2c3d4e5f6")
+    XCTAssertEqual(shown.threadIdentifier, "hermes:x|cron:a1b2c3d4e5f6")
+  }
+
+  func testThreadsAreKeptApartPerAccount() throws {
+    let reply = try payload("owui_reply")
+
+    XCTAssertNotEqual(
+      PushPresentation.make(payload: reply, scope: "owui:a", config: .default).threadIdentifier,
+      PushPresentation.make(payload: reply, scope: "owui:b", config: .default).threadIdentifier)
   }
 
   func testATestPushUsesTheTestStrings() throws {

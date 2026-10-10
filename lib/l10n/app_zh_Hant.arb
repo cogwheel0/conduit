@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "此伺服器尚未設定",
   "pushStatusUpdateAvailable": "已開啟 · 有可用更新",
   "pushStatusPluginsDisabled": "此伺服器已關閉函式功能",
-  "pushStatusServerTooOldOpenWebUi": "需要 Open WebUI 0.10 或更新版本",
+  "pushStatusServerTooOldOpenWebUi": "需要 Open WebUI 0.11 或更新版本",
   "pushStatusServerTooOldHermes": "需要較新版本的 Hermes",
   "pushStatusNeedsHermesPlugin": "需要在 Hermes 中安裝 Conduit 外掛",
   "pushStatusRestartHermes": "重新啟動 Hermes 以完成",
@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "你的伺服器",
   "pushPrivacyServerBody": "它本來就有你的對話。為了推播，它還會保存此裝置的推播位址、公開金鑰、一個隨機裝置 ID，以及像「iOS」這樣的標籤。通知內容由它決定：一個標題和一段簡短預覽。",
   "pushPrivacyRelayTitle": "Conduit 中繼",
-  "pushPrivacyRelayBody": "它把加密的通知轉交給 Apple 或 Google。它看得到你的伺服器何時傳送以及大略大小，但看不到標題、內文、帳戶或伺服器。它是開放原始碼，不保留記錄，也沒有資料庫。",
+  "pushPrivacyRelayBody": "它把加密的通知轉交給 Apple 或 Google。它看得到你的伺服器的 IP 位址、傳送時間以及大略大小，但看不到標題、內文、帳戶，也看不到伺服器的名稱或 URL。它是開放原始碼，不保留記錄，也沒有資料庫。",
   "pushPrivacyProvidersTitle": "Apple 與 Google",
   "pushPrivacyProvidersBody": "它們傳遞加密的通知，但無法讀取。如果通知無法解密，手機只會顯示「新通知」。",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
@@ -4290,5 +4290,9 @@
   "hermesJobNotifyTitle": "通知我",
   "hermesJobNotifyDescription": "此工作交付結果時傳送推播通知。",
   "pushAskAdminMessage": "可以在我們的 Open WebUI 伺服器上設定 Conduit Push 嗎？這樣 Conduit 就能傳送端對端加密的推播通知。請在「管理員面板 → 函式」中匯入 {url}，並把函式 ID 設為 {functionId}。設定指南：{guide}",
-  "pushExplainFailed": "Conduit 會在你下次開啟時自動重試，你也可以現在重試。"
+  "pushExplainFailed": "Conduit 會在你下次開啟時自動重試，你也可以現在重試。",
+  "pushHermesCommandLatest": "這會安裝外掛最新發佈的版本。",
+  "hermesJobCreatedNotifyFailed": "排程工作已建立，但無法為其開啟通知。",
+  "hermesJobUpdatedNotifyFailed": "排程工作已儲存，但無法變更其通知。",
+  "hermesJobNotifyNeedsScheduled": "要使用此功能，請在「通知」中開啟「排程工作」。"
 }

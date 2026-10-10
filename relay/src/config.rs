@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
@@ -15,6 +16,12 @@ pub const DEFAULT_APNS_HOST_PROD: &str = "https://api.push.apple.com";
 pub const DEFAULT_APNS_HOST_DEV: &str = "https://api.sandbox.push.apple.com";
 pub const DEFAULT_FCM_API_BASE: &str = "https://fcm.googleapis.com";
 pub const DEFAULT_GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
+/// How long a failed FCM access-token fetch is remembered.
+pub const DEFAULT_FCM_OAUTH_BACKOFF: Duration = Duration::from_secs(30);
+/// Pushes that may wait at once for an FCM access token.
+pub const DEFAULT_FCM_TOKEN_WAITERS: usize = 256;
+/// How long a request's body has to arrive once its headers have.
+pub const DEFAULT_BODY_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -39,6 +46,46 @@ pub struct Config {
     pub fcm: Option<FcmConfig>,
     pub trust_forwarded_for: bool,
     pub limits: Limits,
+    pub connections: ConnectionLimits,
+    /// How long a request's body has to arrive. Not read from the
+    /// environment.
+    pub body_timeout: Duration,
+}
+
+/// How the listeners treat connections. Only `max_connections` comes from
+/// the environment; the timeouts are fixed, and tests shorten them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConnectionLimits {
+    /// Connections served at once. Past this, new connections wait in the
+    /// kernel's accept queue until one closes.
+    pub max_connections: u32,
+    /// HTTP/1: how long a client has to send a request's headers, and to
+    /// start the next request on a kept-alive connection. A connection's first
+    /// request must also start within this, whatever the protocol.
+    pub header_read_timeout: Duration,
+    /// How long a connection may go without a request in progress before it
+    /// is closed.
+    pub idle_timeout: Duration,
+    /// HTTP/2: how often to ping the client, and how long to wait for the
+    /// answer before giving the connection up for dead.
+    pub keep_alive_interval: Duration,
+    pub keep_alive_timeout: Duration,
+    /// How long requests already in progress get to finish, on shutdown or
+    /// after a connection is closed for idling. Then the connection is dropped.
+    pub drain_deadline: Duration,
+}
+
+impl Default for ConnectionLimits {
+    fn default() -> Self {
+        Self {
+            max_connections: 4096,
+            header_read_timeout: Duration::from_secs(10),
+            idle_timeout: Duration::from_secs(30),
+            keep_alive_interval: Duration::from_secs(15),
+            keep_alive_timeout: Duration::from_secs(10),
+            drain_deadline: Duration::from_secs(20),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -63,6 +110,12 @@ pub struct FcmConfig {
     pub api_base: String,
     /// Android package names this relay may push to.
     pub apps: Vec<String>,
+    /// After a token fetch fails, pushes fail at once for this long. Not
+    /// read from the environment.
+    pub oauth_backoff: Duration,
+    /// Pushes that may wait for a token fetch at once; more are refused.
+    /// Not read from the environment.
+    pub max_token_waiters: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,7 +133,10 @@ impl Default for Limits {
             endpoint_per_min: 60,
             endpoint_burst: 20,
             endpoint_per_day: 2000,
-            ip_per_min: 600,
+            // One Open WebUI channel message can be 500 recipients with up to
+            // 10 devices each: 5000 pushes from one server at once. The
+            // per-endpoint limits are what protect devices.
+            ip_per_min: 6000,
             register_per_min: 20,
         }
     }
@@ -162,6 +218,13 @@ impl Config {
             ip_per_min: limit("RELAY_RATE_IP_PER_MIN", defaults.ip_per_min)?,
             register_per_min: limit("RELAY_RATE_REGISTER_PER_MIN", defaults.register_per_min)?,
         };
+        let connections = ConnectionLimits {
+            max_connections: limit(
+                "RELAY_MAX_CONNECTIONS",
+                ConnectionLimits::default().max_connections,
+            )?,
+            ..ConnectionLimits::default()
+        };
 
         Ok(Self {
             listen_addr,
@@ -173,6 +236,8 @@ impl Config {
             fcm: fcm_config(&get)?,
             trust_forwarded_for,
             limits,
+            connections,
+            body_timeout: DEFAULT_BODY_TIMEOUT,
         })
     }
 }
@@ -271,6 +336,8 @@ fn fcm_config(get: &impl Fn(&str) -> Option<String>) -> Result<Option<FcmConfig>
         token_uri,
         api_base: host(get("FCM_API_BASE"), DEFAULT_FCM_API_BASE),
         apps,
+        oauth_backoff: DEFAULT_FCM_OAUTH_BACKOFF,
+        max_token_waiters: DEFAULT_FCM_TOKEN_WAITERS,
     }))
 }
 
@@ -384,6 +451,9 @@ mod tests {
         assert!(config.metrics_addr.is_none());
         assert!(!config.trust_forwarded_for);
         assert_eq!(config.limits, Limits::default());
+        assert_eq!(config.connections, ConnectionLimits::default());
+        assert_eq!(config.connections.max_connections, 4096);
+        assert_eq!(config.body_timeout, Duration::from_secs(10));
     }
 
     #[test]
@@ -452,6 +522,8 @@ mod tests {
         assert_eq!(fcm.project_id, "p1");
         assert_eq!(fcm.token_uri, "https://t.example/token");
         assert_eq!(fcm.api_base, DEFAULT_FCM_API_BASE);
+        assert_eq!(fcm.oauth_backoff, Duration::from_secs(30));
+        assert_eq!(fcm.max_token_waiters, 256);
 
         env.insert("FCM_TOKEN_URI", "http://127.0.0.1:9/token".into());
         assert_eq!(
@@ -470,14 +542,23 @@ mod tests {
         env.insert("RELAY_TRUST_FORWARDED_FOR", "true".into());
         env.insert("RELAY_RATE_ENDPOINT_BURST", "3".into());
         env.insert("RELAY_METRICS_ADDR", "127.0.0.1:9100".into());
+        env.insert("RELAY_MAX_CONNECTIONS", "100".into());
         let config = load(&env).unwrap();
         assert!(config.trust_forwarded_for);
         assert_eq!(config.limits.endpoint_burst, 3);
         assert_eq!(config.metrics_addr, Some("127.0.0.1:9100".parse().unwrap()));
+        assert_eq!(config.connections.max_connections, 100);
+        assert_eq!(
+            config.connections.header_read_timeout,
+            ConnectionLimits::default().header_read_timeout
+        );
 
         env.insert("RELAY_RATE_ENDPOINT_BURST", "0".into());
         assert!(load(&env).is_err());
         env.remove("RELAY_RATE_ENDPOINT_BURST");
+        env.insert("RELAY_MAX_CONNECTIONS", "0".into());
+        assert!(load(&env).is_err());
+        env.remove("RELAY_MAX_CONNECTIONS");
         env.insert("RELAY_TRUST_FORWARDED_FOR", "maybe".into());
         assert!(load(&env).is_err());
     }

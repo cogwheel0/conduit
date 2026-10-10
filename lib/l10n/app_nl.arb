@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "Niet ingesteld op deze server",
   "pushStatusUpdateAvailable": "Aan · Update beschikbaar",
   "pushStatusPluginsDisabled": "Functies staan uit op deze server",
-  "pushStatusServerTooOldOpenWebUi": "Vereist Open WebUI 0.10 of nieuwer",
+  "pushStatusServerTooOldOpenWebUi": "Vereist Open WebUI 0.11 of nieuwer",
   "pushStatusServerTooOldHermes": "Vereist een nieuwere versie van Hermes",
   "pushStatusNeedsHermesPlugin": "Vereist de Conduit-plug-in in Hermes",
   "pushStatusRestartHermes": "Start Hermes opnieuw om af te ronden",
@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "Je server",
   "pushPrivacyServerBody": "Die heeft je chats al. Voor push bewaart hij ook het pushadres van dit apparaat, de publieke sleutel, een willekeurige apparaat-ID en een label zoals ‘iOS’. Hij bepaalt wat er in een melding staat: een titel en een korte preview.",
   "pushPrivacyRelayTitle": "Het Conduit-relais",
-  "pushPrivacyRelayBody": "Het geeft versleutelde meldingen door aan Apple of Google. Het ziet wanneer je server verstuurt en een afgeronde grootte, nooit titels, tekst, accounts of servers. Het is opensource en houdt geen logs of database bij.",
+  "pushPrivacyRelayBody": "Het geeft versleutelde meldingen door aan Apple of Google. Het ziet het IP-adres van je server, wanneer die verstuurt en een afgeronde grootte, maar nooit titels, tekst, accounts of de naam of URL van je server. Het is opensource en houdt geen logs of database bij.",
   "pushPrivacyProvidersTitle": "Apple en Google",
   "pushPrivacyProvidersBody": "Zij leveren de versleutelde melding af en kunnen hem niet lezen. Kan hij niet ontsleuteld worden, dan toont je telefoon alleen ‘Nieuwe melding’.",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
@@ -4290,5 +4290,9 @@
   "hermesJobNotifyTitle": "Stuur me een melding",
   "hermesJobNotifyDescription": "Een pushmelding sturen wanneer deze taak een resultaat aflevert.",
   "pushAskAdminMessage": "Kun je Conduit Push instellen op onze Open WebUI-server? Daarmee kan Conduit end-to-end versleutelde pushmeldingen sturen. Importeer in Beheerpaneel → Functies {url} en zet de functie-ID op {functionId}. Handleiding: {guide}",
-  "pushExplainFailed": "Conduit probeert het vanzelf opnieuw wanneer je het weer opent, of je kunt het nu opnieuw proberen."
+  "pushExplainFailed": "Conduit probeert het vanzelf opnieuw wanneer je het weer opent, of je kunt het nu opnieuw proberen.",
+  "pushHermesCommandLatest": "Hiermee installeer je de nieuwste gepubliceerde versie van de plug-in.",
+  "hermesJobCreatedNotifyFailed": "Taak gemaakt, maar de meldingen ervoor konden niet worden ingeschakeld.",
+  "hermesJobUpdatedNotifyFailed": "Taak opgeslagen, maar de meldingen ervan konden niet worden gewijzigd.",
+  "hermesJobNotifyNeedsScheduled": "Zet Geplande taken aan bij Meldingen om dit te gebruiken."
 }

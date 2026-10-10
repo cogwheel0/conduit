@@ -12,7 +12,7 @@ const _bundledSource = '''"""
 title: Conduit Push
 author: cogwheel0
 version: 1.2.0
-required_open_webui_version: 0.10.0
+required_open_webui_version: 0.11.0
 description: End-to-end encrypted push notifications for the Conduit app.
 conduit_protocol: 1
 """
@@ -78,11 +78,19 @@ void main() {
   });
 
   group('probe', () {
-    test('a server older than 0.10.0 is too old', () async {
-      server.version = '0.9.5';
+    test('a server older than 0.11.0 is too old', () async {
+      // It has Event functions, but no reply events to send pushes for.
+      server.version = '0.10.6';
       final probe = await backend.probe();
       check(probe.outcome).equals(PushProbeOutcome.serverTooOld);
-      check(probe.serverVersion).equals('0.9.5');
+      check(probe.serverVersion).equals('0.10.6');
+    });
+
+    test('0.11.0 is new enough', () async {
+      server.version = '0.11.0';
+      check((await backend.probe()).outcome).not(
+        (it) => it.equals(PushProbeOutcome.serverTooOld),
+      );
     });
 
     test('plugins switched off', () async {
@@ -255,7 +263,10 @@ void main() {
       check(entries.last as Map)
         ..has((e) => e['sid'], 'sid').equals('AAAAAAAAAAAAAAAAAAAAAA')
         ..has((e) => e['origin'], 'origin').equals('any');
-      check(server.valves!.containsKey('status')).isFalse();
+      // The function's status goes back as it was read: the update replaces
+      // every valve, and the function tells sent tests apart by it.
+      check(server.valves!['status'])
+          .equals('{"CCCCCCCCCCCCCCCCCCCCCC":{"err":"gone"}}');
     });
 
     test('replaces an entry with the same sid from another did', () {
@@ -327,12 +338,14 @@ void main() {
           {'sid': 'A', 'did': 'd'},
           {'sid': 'B', 'did': 'e'},
         ]),
+        'status': '{"B":{"code":201,"nonce":"n1"}}',
       };
       await backend.unsubscribe('A');
       check(jsonDecode(server.valves!['subscriptions'] as String) as List)
           .deepEquals([
             {'sid': 'B', 'did': 'e'},
           ]);
+      check(server.valves!['status']).equals('{"B":{"code":201,"nonce":"n1"}}');
     });
 
     test('writes nothing for an unknown sid', () async {

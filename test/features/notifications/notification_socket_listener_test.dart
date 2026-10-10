@@ -13,6 +13,11 @@ import 'package:conduit_core/features/channels/providers/channel_providers.dart'
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit/features/notifications/providers/notification_socket_listener.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart'
+    show HermesBackendMode;
+import 'package:conduit_core/features/notifications/services/hermes_push_watches.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_router.dart';
 import 'package:conduit/features/notifications/services/notification_sound_service.dart';
@@ -376,5 +381,142 @@ void main() {
     check(socket1.channel).isEmpty();
     check(socket2.chat).length.equals(1);
     check(socket2.channel).length.equals(1);
+  });
+
+  group('pushCoversNotification', () {
+    late DateTime now;
+    late HermesPushWatches watches;
+
+    setUp(() {
+      now = DateTime(2026, 10, 10, 12);
+      watches = HermesPushWatches(now: () => now);
+    });
+
+    PushState pushWith(
+      PushTarget target, {
+      PushStatus status = PushStatus.on,
+      bool optedOut = false,
+      bool enabled = true,
+      PushOrigin origin = PushOrigin.conduit,
+    }) => PushState(
+      enabled: enabled,
+      targets: {
+        target.scope: PushTargetState(
+          target: target,
+          status: status,
+          optedOut: optedOut,
+          origin: origin,
+        ),
+      },
+    );
+
+    HermesPushTarget hermes(HermesBackendMode mode) => HermesPushTarget(
+      connectionId: 'conn-1',
+      label: 'Home',
+      baseUrl: 'https://hermes.example',
+      mode: mode,
+    );
+
+    final turn = AppNotification(
+      kind: NotificationKind.chatCompletion,
+      scope: 'hermes:conn-1',
+      title: 'Plan',
+      body: 'Done.',
+      sourceId: 's-1',
+      dedupKey: 'hermes:conn-1|hermes:s-1:local',
+      group: 'hermes:s-1',
+      sharesPushDedupKey: false,
+    );
+
+    test('an API server session pushes only while its watch lasts', () {
+      final push = pushWith(hermes(HermesBackendMode.responsesApi));
+      check(pushCoversNotification(push, turn, watches: watches)).isFalse();
+
+      watches.record('conn-1', 's-1', ttl: const Duration(hours: 6));
+      check(pushCoversNotification(push, turn, watches: watches)).isTrue();
+      // Another session of the connection was never watched.
+      check(
+        pushCoversNotification(
+          push,
+          turn.copyWith(sourceId: 's-2'),
+          watches: watches,
+        ),
+      ).isFalse();
+
+      now = now.add(const Duration(hours: 6));
+      check(pushCoversNotification(push, turn, watches: watches)).isFalse();
+    });
+
+    test('a desktop session pushes without a watch', () {
+      check(
+        pushCoversNotification(
+          pushWith(hermes(HermesBackendMode.desktopGateway)),
+          turn,
+          watches: watches,
+        ),
+      ).isTrue();
+    });
+
+    test('nothing pushes unless push is on for the scope', () {
+      watches.record('conn-1', 's-1', ttl: const Duration(hours: 6));
+      final target = hermes(HermesBackendMode.desktopGateway);
+      for (final push in [
+        null,
+        pushWith(target, enabled: false),
+        pushWith(target, status: PushStatus.verifying),
+        pushWith(target, optedOut: true),
+      ]) {
+        check(pushCoversNotification(push, turn, watches: watches)).isFalse();
+      }
+      check(
+        pushCoversNotification(
+          pushWith(target, status: PushStatus.updateAvailable),
+          turn,
+          watches: watches,
+        ),
+      ).isTrue();
+    });
+
+    test('an Open WebUI account pushes replies for all chats', () {
+      final push = pushWith(
+        const OpenWebUiPushTarget(accountId: 'acct-1', label: 'Ada'),
+        origin: PushOrigin.any,
+      );
+      final frame = turn.copyWith(
+        scope: 'owui:acct-1',
+        sourceId: 'c1',
+        dedupKey: 'owui:acct-1|chat:c1:x',
+      );
+      check(pushCoversNotification(push, frame, watches: watches)).isTrue();
+    });
+
+    test('a reply may not push for an account notifying Conduit chats', () {
+      // Its server pushes only replies to Conduit's own requests, and the
+      // event does not say whose request this answered.
+      final push = pushWith(
+        const OpenWebUiPushTarget(accountId: 'acct-1', label: 'Ada'),
+      );
+      final frame = turn.copyWith(
+        scope: 'owui:acct-1',
+        sourceId: 'c1',
+        dedupKey: 'owui:acct-1|chat:c1:x',
+      );
+      check(pushCoversNotification(push, frame, watches: watches)).isFalse();
+      check(
+        pushCoversNotification(
+          push,
+          frame.copyWith(kind: NotificationKind.replyFailed),
+          watches: watches,
+        ),
+      ).isFalse();
+      // Channel messages push whatever the origin.
+      final message = frame.copyWith(
+        kind: NotificationKind.channelMessage,
+        sourceId: 'chan-1',
+        dedupKey: 'owui:acct-1|channel:chan-1:x',
+        group: 'channel:chan-1',
+      );
+      check(pushCoversNotification(push, message, watches: watches)).isTrue();
+    });
   });
 }

@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "Non configurato su questo server",
   "pushStatusUpdateAvailable": "Attivo · Aggiornamento disponibile",
   "pushStatusPluginsDisabled": "Le funzioni sono disattivate su questo server",
-  "pushStatusServerTooOldOpenWebUi": "Richiede Open WebUI 0.10 o successivo",
+  "pushStatusServerTooOldOpenWebUi": "Richiede Open WebUI 0.11 o successivo",
   "pushStatusServerTooOldHermes": "Richiede una versione più recente di Hermes",
   "pushStatusNeedsHermesPlugin": "Richiede il plugin Conduit in Hermes",
   "pushStatusRestartHermes": "Riavvia Hermes per completare",
@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "Il tuo server",
   "pushPrivacyServerBody": "Ha già le tue chat. Per il push conserva anche l'indirizzo push di questo dispositivo, la sua chiave pubblica, un ID dispositivo casuale e un'etichetta come «iOS». Decide cosa c'è in una notifica: un titolo e una breve anteprima.",
   "pushPrivacyRelayTitle": "Il relay di Conduit",
-  "pushPrivacyRelayBody": "Inoltra le notifiche crittografate ad Apple o Google. Vede quando il tuo server invia e una dimensione arrotondata, mai titoli, testo, account o server. È open source e non conserva log né database.",
+  "pushPrivacyRelayBody": "Inoltra le notifiche crittografate ad Apple o Google. Vede l'indirizzo IP del tuo server, quando invia e una dimensione arrotondata, ma mai titoli, testo, account, né il nome o l'URL del tuo server. È open source e non conserva log né database.",
   "pushPrivacyProvidersTitle": "Apple e Google",
   "pushPrivacyProvidersBody": "Consegnano la notifica crittografata e non possono leggerla. Se non si può decrittografare, il telefono mostra solo «Nuova notifica».",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
@@ -4290,5 +4290,9 @@
   "hermesJobNotifyTitle": "Avvisami",
   "hermesJobNotifyDescription": "Invia una notifica push quando questo job consegna un risultato.",
   "pushAskAdminMessage": "Potresti configurare Conduit Push sul nostro server Open WebUI? Permette a Conduit di inviare notifiche push con crittografia end-to-end. In Pannello di amministrazione → Funzioni, importa {url} e imposta l'ID della funzione su {functionId}. Guida: {guide}",
-  "pushExplainFailed": "Conduit riprova da solo la prossima volta che lo apri, oppure puoi riprovare ora."
+  "pushExplainFailed": "Conduit riprova da solo la prossima volta che lo apri, oppure puoi riprovare ora.",
+  "pushHermesCommandLatest": "Questo installa l'ultima versione pubblicata del plugin.",
+  "hermesJobCreatedNotifyFailed": "Attività creata, ma non è stato possibile attivarne le notifiche.",
+  "hermesJobUpdatedNotifyFailed": "Attività salvata, ma non è stato possibile modificarne le notifiche.",
+  "hermesJobNotifyNeedsScheduled": "Attiva Attività pianificate in Notifiche per usarlo."
 }

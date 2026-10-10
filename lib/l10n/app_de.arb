@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "Auf diesem Server nicht eingerichtet",
   "pushStatusUpdateAvailable": "An · Update verfügbar",
   "pushStatusPluginsDisabled": "Funktionen sind auf diesem Server ausgeschaltet",
-  "pushStatusServerTooOldOpenWebUi": "Benötigt Open WebUI 0.10 oder neuer",
+  "pushStatusServerTooOldOpenWebUi": "Benötigt Open WebUI 0.11 oder neuer",
   "pushStatusServerTooOldHermes": "Benötigt eine neuere Hermes-Version",
   "pushStatusNeedsHermesPlugin": "Benötigt das Conduit-Plugin in Hermes",
   "pushStatusRestartHermes": "Hermes neu starten, um abzuschließen",
@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "Dein Server",
   "pushPrivacyServerBody": "Er hat deine Chats ohnehin. Für Push speichert er zusätzlich die Push-Adresse dieses Geräts, seinen öffentlichen Schlüssel, eine zufällige Geräte-ID und eine Bezeichnung wie „iOS“. Er entscheidet, was in einer Benachrichtigung steht: ein Titel und eine kurze Vorschau.",
   "pushPrivacyRelayTitle": "Das Conduit-Relay",
-  "pushPrivacyRelayBody": "Es reicht verschlüsselte Benachrichtigungen an Apple oder Google weiter. Es sieht, wann dein Server sendet, und eine gerundete Größe, aber nie Titel, Text, Konten oder Server. Es ist quelloffen und führt weder Protokolle noch eine Datenbank.",
+  "pushPrivacyRelayBody": "Es reicht verschlüsselte Benachrichtigungen an Apple oder Google weiter. Es sieht die IP-Adresse deines Servers, wann er sendet, und eine gerundete Größe, aber nie Titel, Text, Konten oder Name und URL deines Servers. Es ist quelloffen und führt weder Protokolle noch eine Datenbank.",
   "pushPrivacyProvidersTitle": "Apple und Google",
   "pushPrivacyProvidersBody": "Sie stellen die verschlüsselte Benachrichtigung zu und können sie nicht lesen. Lässt sie sich nicht entschlüsseln, zeigt dein Telefon nur „Neue Benachrichtigung“.",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
@@ -4290,5 +4290,9 @@
   "hermesJobNotifyTitle": "Benachrichtige mich",
   "hermesJobNotifyDescription": "Eine Push-Benachrichtigung senden, wenn dieser Job ein Ergebnis liefert.",
   "pushAskAdminMessage": "Könntest du Conduit Push auf unserem Open-WebUI-Server einrichten? Damit kann Conduit Ende-zu-Ende-verschlüsselte Push-Benachrichtigungen senden. Importiere unter Admin-Bereich → Funktionen {url} und setze die Funktions-ID auf {functionId}. Anleitung: {guide}",
-  "pushExplainFailed": "Conduit versucht es beim nächsten Öffnen von selbst erneut. Du kannst es auch jetzt noch einmal versuchen."
+  "pushExplainFailed": "Conduit versucht es beim nächsten Öffnen von selbst erneut. Du kannst es auch jetzt noch einmal versuchen.",
+  "pushHermesCommandLatest": "Damit wird die neueste veröffentlichte Version des Plugins installiert.",
+  "hermesJobCreatedNotifyFailed": "Job erstellt, aber Benachrichtigungen konnten dafür nicht eingeschaltet werden.",
+  "hermesJobUpdatedNotifyFailed": "Job gespeichert, aber seine Benachrichtigungen konnten nicht geändert werden.",
+  "hermesJobNotifyNeedsScheduled": "Schalte dafür in den Benachrichtigungen „Geplante Aufgaben“ ein."
 }

@@ -3967,7 +3967,7 @@
   "pushStatusCanInstall": "이 서버에 설정되지 않음",
   "pushStatusUpdateAvailable": "켜짐 · 업데이트 있음",
   "pushStatusPluginsDisabled": "이 서버에서 함수가 꺼져 있음",
-  "pushStatusServerTooOldOpenWebUi": "Open WebUI 0.10 이상 필요",
+  "pushStatusServerTooOldOpenWebUi": "Open WebUI 0.11 이상 필요",
   "pushStatusServerTooOldHermes": "최신 버전의 Hermes 필요",
   "pushStatusNeedsHermesPlugin": "Hermes에 Conduit 플러그인 필요",
   "pushStatusRestartHermes": "완료하려면 Hermes 다시 시작",
@@ -4048,7 +4048,7 @@
   "pushPrivacyServerTitle": "사용자의 서버",
   "pushPrivacyServerBody": "서버에는 이미 채팅이 있습니다. 푸시를 위해 이 기기의 푸시 주소, 공개 키, 무작위 기기 ID, “iOS” 같은 라벨도 저장합니다. 알림에 무엇을 담을지(제목과 짧은 미리보기)는 서버가 정합니다.",
   "pushPrivacyRelayTitle": "Conduit 릴레이",
-  "pushPrivacyRelayBody": "암호화된 알림을 Apple이나 Google에 전달합니다. 서버가 언제 보냈는지와 대략적인 크기는 알 수 있지만 제목, 내용, 계정, 서버는 절대 알 수 없습니다. 오픈 소스이며 로그나 데이터베이스를 두지 않습니다.",
+  "pushPrivacyRelayBody": "암호화된 알림을 Apple이나 Google에 전달합니다. 서버의 IP 주소, 보낸 시각, 대략적인 크기는 알 수 있지만 제목, 내용, 계정, 서버의 이름이나 URL은 절대 알 수 없습니다. 오픈 소스이며 로그나 데이터베이스를 두지 않습니다.",
   "pushPrivacyProvidersTitle": "Apple과 Google",
   "pushPrivacyProvidersBody": "암호화된 알림을 전달할 뿐 읽을 수 없습니다. 복호화할 수 없으면 휴대폰에는 “새 알림”만 표시됩니다.",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
@@ -4062,5 +4062,9 @@
   "hermesJobNotifyTitle": "알림 받기",
   "hermesJobNotifyDescription": "이 작업이 결과를 전달하면 푸시 알림을 보냅니다.",
   "pushAskAdminMessage": "우리 Open WebUI 서버에 Conduit Push를 설정해 줄 수 있나요? Conduit가 종단 간 암호화된 푸시 알림을 보낼 수 있게 됩니다. 관리자 패널 → 함수에서 {url}을(를) 가져오고 함수 ID를 {functionId}(으)로 설정하세요. 설정 가이드: {guide}",
-  "pushExplainFailed": "다음에 Conduit를 열 때 자동으로 다시 시도합니다. 지금 다시 시도할 수도 있습니다."
+  "pushExplainFailed": "다음에 Conduit를 열 때 자동으로 다시 시도합니다. 지금 다시 시도할 수도 있습니다.",
+  "pushHermesCommandLatest": "플러그인의 최신 게시 버전을 설치합니다.",
+  "hermesJobCreatedNotifyFailed": "작업을 만들었지만 알림을 켜지 못했습니다.",
+  "hermesJobUpdatedNotifyFailed": "작업을 저장했지만 알림을 변경하지 못했습니다.",
+  "hermesJobNotifyNeedsScheduled": "사용하려면 알림에서 예약된 작업을 켜세요."
 }

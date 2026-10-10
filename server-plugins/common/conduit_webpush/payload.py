@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from . import webpush
 
@@ -19,6 +19,10 @@ ID_KEYS = ("chat", "msg", "channel", "session", "turn", "job", "run")
 TITLE_LIMIT = 100
 BODY_LIMIT = 200
 AUTHOR_LIMIT = 64
+# A preview is cleaned from at most this many characters. Some of the patterns
+# below backtrack on long runs of unclosed markup, and a channel message or a
+# reply can be any length, so they never see more than this.
+CLEAN_INPUT_LIMIT = 4000
 ELLIPSIS = "…"
 
 _BLOCKS = [
@@ -28,26 +32,75 @@ _BLOCKS = [
     # A fence left open by a truncated or still-streaming reply runs to the end.
     re.compile(r"(^|\n)[ \t]*(```|~~~).*?(\n[ \t]*\2[ \t]*(?=\n|$)|$)", re.DOTALL),
 ]
-_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
-_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+# The start of a block that CLEAN_INPUT_LIMIT cut off before its end.
+_OPEN_BLOCK = re.compile(r"<(?:details|think|thinking)\b", re.IGNORECASE)
+# Link text can't contain brackets and a target can't contain parentheses,
+# except one nested pair as in Wikipedia URLs. That keeps each attempt short,
+# so a run of unclosed "[" or "(" takes linear time, not quadratic.
+_IMAGE = re.compile(r"!\[([^\[\]]*)\]\([^()]*(?:\([^()]*\)[^()]*)*\)")
+_LINK = re.compile(r"\[([^\[\]]+)\]\([^()]*(?:\([^()]*\)[^()]*)*\)")
 _TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(\s[^<>]*)?/?>")
 _LINE_MARKER = re.compile(r"^[ \t]*(#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+)", re.MULTILINE)
 _EMPHASIS = re.compile(r"(\*\*|__|~~|`)")
 _SPACE = re.compile(r"\s+")
+# Reasoning and tool blocks: Open WebUI's default reasoning tags, <details>
+# blocks, code interpreter blocks, and the thought markers some models emit.
+_HIDDEN = re.compile(
+    r"<(/?)(details|think|thinking|reason|reasoning|thought|code_interpreter)\b[^>]*>"
+    r"|<\|(begin|end)_of_thought\|>"
+    r"|◁(/?)think▷",
+    re.IGNORECASE,
+)
+_SOLUTION_MARKER = re.compile(r"<\|(?:begin|end)_of_solution\|>", re.IGNORECASE)
+
+
+def strip_hidden(text: str) -> str:
+    """Drops reasoning and tool blocks, counting nested ones, before clean_text.
+
+    A block that never closes, because the text was cut or the reply was
+    interrupted, is dropped through the end. A long run of unclosed tags
+    makes the pattern backtrack, so cut the text to CLEAN_INPUT_LIMIT first.
+    """
+    kept: List[str] = []
+    depth = 0
+    position = 0
+    for match in _HIDDEN.finditer(text):
+        if depth == 0:
+            kept.append(text[position:match.start()])
+        marker = (match.group(3) or "").lower()
+        closing = bool(match.group(1)) or marker == "end" or bool(match.group(4))
+        depth = max(depth - 1, 0) if closing else depth + 1
+        position = match.end()
+    if depth == 0:
+        kept.append(text[position:])
+    return _SOLUTION_MARKER.sub(" ", " ".join(kept))
 
 
 def clean_text(text: Optional[str]) -> str:
-    """Turns a Markdown reply into one line of plain text for a preview."""
+    """Turns a Markdown reply into one line of plain text for a preview.
+
+    Only the first CLEAN_INPUT_LIMIT characters are read. When that cuts the
+    text short, a reasoning block it leaves open is dropped to the end, like
+    an open code fence, and the result ends in an ellipsis.
+    """
     if not text:
         return ""
+    cut = len(text) > CLEAN_INPUT_LIMIT
+    if cut:
+        text = text[:CLEAN_INPUT_LIMIT]
     for pattern in _BLOCKS:
         text = pattern.sub("\n", text)
+    if cut:
+        opened = _OPEN_BLOCK.search(text)
+        if opened:
+            text = text[: opened.start()]
     text = _IMAGE.sub(lambda m: m.group(1), text)
     text = _LINK.sub(lambda m: m.group(1), text)
     text = _TAG.sub("", text)
     text = _LINE_MARKER.sub("", text)
     text = _EMPHASIS.sub("", text)
-    return _SPACE.sub(" ", text).strip()
+    text = _SPACE.sub(" ", text).strip()
+    return text + ELLIPSIS if cut and text else text
 
 
 def clip(text: Optional[str], limit: int) -> str:
@@ -76,6 +129,9 @@ def build(
         raise ValueError(f"unknown kind {kind!r}")
     if src not in SOURCES:
         raise ValueError(f"unknown source {src!r}")
+    # Devices drop a payload without one, so fail here rather than send it.
+    if not isinstance(dedup_key, str) or not dedup_key:
+        raise ValueError("dedup_key must be a non-empty string")
     payload: Dict[str, Any] = {
         "v": 1,
         "k": kind,

@@ -1249,6 +1249,11 @@ class AppStartupFlow extends _$AppStartupFlow {
         _stopDirectCompletionRelay();
         _clearQueuedAuthenticatedStartupWork();
         _resetConversationWarmup(ref);
+        // The active account's session is not coming: a launch tap for
+        // another saved account opens there now.
+        if (next == AuthNavigationState.needsLogin) {
+          _handleLaunchTapsWithoutSession();
+        }
       }
     });
 
@@ -1305,6 +1310,22 @@ class AppStartupFlow extends _$AppStartupFlow {
     // Pushes decrypted while the app is open, and push taps, follow the same
     // rules; so does a push that cold-launched the app.
     _keepAlive(pushNotificationListenerProvider);
+    _handleLaunchTapsWithoutSession();
+    _scheduleStartupTasks();
+
+    // If the session is already authenticated before startup flow attaches,
+    // run the same post-auth startup path the auth transition listener uses.
+    if (_hasAuthenticatedSession()) {
+      _requestPostAuthenticationStartup(apiWaitTimeout: apiWaitTimeout);
+    }
+
+    _installStartupListeners(apiWaitTimeout: apiWaitTimeout);
+  }
+
+  /// Opens a cold-launch notification or push tap that needs no Open WebUI
+  /// session (Hermes, Direct, or another account while the active one is
+  /// signed out). Each opens once; one waiting for the session stays.
+  void _handleLaunchTapsWithoutSession() {
     unawaited(
       ref
           .read(notificationTapListenerProvider.notifier)
@@ -1323,15 +1344,6 @@ class AppStartupFlow extends _$AppStartupFlow {
           .read(pushNotificationListenerProvider.notifier)
           .handleLaunchTap(openWebUiReady: false),
     );
-    _scheduleStartupTasks();
-
-    // If the session is already authenticated before startup flow attaches,
-    // run the same post-auth startup path the auth transition listener uses.
-    if (_hasAuthenticatedSession()) {
-      _requestPostAuthenticationStartup(apiWaitTimeout: apiWaitTimeout);
-    }
-
-    _installStartupListeners(apiWaitTimeout: apiWaitTimeout);
   }
 
   void _ensureSocketAttached() {

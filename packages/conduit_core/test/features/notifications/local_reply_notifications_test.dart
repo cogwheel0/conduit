@@ -21,9 +21,11 @@ DirectRunCompletion _completion({
   String? title = 'Trip ideas',
   ChatStorageKind? storage = ChatStorageKind.directLocal,
   String? accountId,
+  String runId = 'run-1',
 }) => DirectRunCompletion(
   conversationId: 'direct-local:1',
   message: _reply(content, error: error),
+  runId: runId,
   title: title,
   storage: storage,
   openWebUiAccountId: accountId,
@@ -38,7 +40,9 @@ void main() {
       check(n.sourceId).equals('direct-local:1');
       check(n.title).equals('Trip ideas');
       check(n.body).equals('Hello');
-      check(n.dedupKey).equals('direct|direct:direct-local:1:assistant-1');
+      check(
+        n.dedupKey,
+      ).equals('direct|direct:direct-local:1:assistant-1:run-1');
       check(n.group).equals('chat:direct-local:1');
     });
 
@@ -78,7 +82,16 @@ void main() {
       check(n.scope).equals('owui:acct-1');
       check(
         n.dedupKey,
-      ).equals('owui:acct-1|direct:direct-local:1:assistant-1');
+      ).equals('owui:acct-1|direct:direct-local:1:assistant-1:run-1');
+    });
+
+    test('a regenerated answer is not taken for the one it replaced', () {
+      // A regeneration writes into the same assistant message.
+      final first = appNotificationForDirectRun(_completion())!;
+      final regenerated = appNotificationForDirectRun(
+        _completion(runId: 'run-2'),
+      )!;
+      check(regenerated.dedupKey).not((key) => key.equals(first.dedupKey));
     });
 
     test('an Open WebUI-stored chat without its account is dropped', () {
@@ -108,6 +121,17 @@ void main() {
 
       check(seen).length.equals(1);
       check(seen.single.assistantMessageId).equals('assistant-1');
+    });
+
+    test('each run of an assistant message has its own id', () {
+      final registry = DirectRunRegistry();
+      addTearDown(registry.dispose);
+
+      final first = registry.reserve(key, 'profile');
+      final regeneration = registry.reserve(key, 'profile');
+
+      check(first.runId).isNotEmpty();
+      check(regeneration.runId).not((id) => id.equals(first.runId));
     });
 
     test('a stopped run is not announced', () async {

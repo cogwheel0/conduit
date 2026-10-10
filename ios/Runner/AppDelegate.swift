@@ -53,8 +53,7 @@ import UserNotifications
     withCompletionHandler completionHandler:
       @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    if PushBridge.shared.willPresent(notification) {
-      completionHandler([])
+    if PushBridge.shared.willPresent(notification, completionHandler: completionHandler) {
       return
     }
     super.userNotificationCenter(

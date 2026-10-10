@@ -14,7 +14,9 @@ import 'notification_preview_text.dart';
 /// Direct runs on this device, so no server ever pushes about it. An
 /// on-device chat is scoped `direct`; one stored in an Open WebUI account's
 /// database belongs to that account, which a tap switches to first. The
-/// dedup key is `<scope>|direct:<conversationId>:<assistantMessageId>`.
+/// dedup key is `<scope>|direct:<conversationId>:<assistantMessageId>:<runId>`:
+/// a regeneration writes into the same assistant message, and its answer
+/// notifies as a new one.
 AppNotification? appNotificationForDirectRun(DirectRunCompletion completion) {
   final NotificationScope scope;
   if (completion.storage == ChatStorageKind.openWebUi) {
@@ -36,7 +38,8 @@ AppNotification? appNotificationForDirectRun(DirectRunCompletion completion) {
     body: failed ? '' : notificationPreviewText(completion.message.content),
     sourceId: conversationId,
     dedupKey: scope.dedupKey(
-      'direct:$conversationId:${completion.assistantMessageId}',
+      'direct:$conversationId:${completion.assistantMessageId}:'
+      '${completion.runId}',
     ),
     group: 'chat:$conversationId',
   );
@@ -47,8 +50,13 @@ AppNotification? appNotificationForDirectRun(DirectRunCompletion completion) {
 ///
 /// The app can't know the server's turn id, so its dedup key
 /// (`hermes:<connectionId>|hermes:<sessionId>:<local turn key>`) never
-/// matches the push for the same turn; the shared group `hermes:<sessionId>`
-/// lets the router drop whichever comes second (docs/push/PROTOCOL.md §2).
+/// matches the push for the same turn ([AppNotification.sharesPushDedupKey]
+/// is false). In the foreground the shared group `hermes:<sessionId>` lets
+/// the router drop whichever comes second (docs/push/PROTOCOL.md §2); in the
+/// background, where the push is shown without the router, the router
+/// leaves it to the push when one is sure to come: push is verified for the
+/// connection, and the plugin pushes the session (a dashboard session, or
+/// one this app had it watch; see `HermesPushWatches`).
 AppNotification? appNotificationForHermesTurn(
   HermesTurnCompletion completion,
 ) {
@@ -67,5 +75,6 @@ AppNotification? appNotificationForHermesTurn(
     sourceId: sessionId,
     dedupKey: scope.dedupKey('hermes:$sessionId:${completion.turnKey}'),
     group: 'hermes:$sessionId',
+    sharesPushDedupKey: false,
   );
 }

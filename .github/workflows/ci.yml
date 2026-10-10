@@ -119,7 +119,9 @@ jobs:
           cd android
           ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm64
       # The foss build (F-Droid, IzzyOnDroid) must compile without, and
-      # never pull in, Firebase or Google Play services.
+      # never pull in, Firebase or Google Play services. Its release APK, the
+      # one those stores ship, is built too, so R8 shrinks it with
+      # proguard-foss.pro. There is no signing key here, so it is unsigned.
       - name: Android foss build
         run: |
           cd android
@@ -130,6 +132,7 @@ jobs:
             echo "::error::The foss build depends on Firebase, Play services or ML Kit"
             exit 1
           fi
+          ./gradlew :app:assembleRelease -Ptarget-platform=android-arm64 -PconduitPushVariant=foss
 
   # Each workspace member analyzes and tests from its own directory, which
   # is what proves the pub workspace actually works per package. They share

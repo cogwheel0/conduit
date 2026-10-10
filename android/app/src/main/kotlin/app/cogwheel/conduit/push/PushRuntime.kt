@@ -108,18 +108,19 @@ internal class AndroidPushDelivery(private val context: Context) : PushDelivery 
         latch.await(MAIN_THREAD_WAIT_SECONDS, TimeUnit.SECONDS)
     }
 
+    // Resumed, not merely started: Dart treats anything short of resumed as
+    // the background, where the receiver posts the push itself.
     override fun canForwardToApp(): Boolean =
         PushRuntime.bridge != null &&
-            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
 
     override fun forwardToApp(sid: String, scope: String, payloadJson: String, done: (Boolean) -> Unit) {
         val bridge = PushRuntime.bridge ?: return done(false)
         bridge.forwardForegroundPush(PlatformPushMessage(sid = sid, scope = scope, payloadJson = payloadJson), done)
     }
 
-    override fun post(scope: String, payload: PushPayload, content: PushNotificationContent) {
+    override fun post(scope: String, payload: PushPayload, content: PushNotificationContent): Boolean =
         PushNotifier(context).post(scope, payload.json, content)
-    }
 
     override fun testReceived(sid: String, nonce: String) {
         PushRuntime.mainHandler.post { PushRuntime.bridge?.notifyTestReceived(sid, nonce) }

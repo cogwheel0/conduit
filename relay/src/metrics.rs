@@ -45,6 +45,7 @@ results!(PushResult {
     NotFound => "not_found",
     Invalid => "invalid",
     TooLarge => "too_large",
+    Timeout => "timeout",
     RateLimited => "rate_limited",
     AppNotAllowed => "app_not_allowed",
     Unconfigured => "unconfigured",
@@ -70,7 +71,7 @@ impl From<crate::Outcome> for PushResult {
             Outcome::TooLarge => Self::TooLarge,
             Outcome::Throttled => Self::ProviderThrottled,
             Outcome::Rejected => Self::ProviderRejected,
-            Outcome::Unavailable => Self::ProviderUnavailable,
+            Outcome::Unavailable | Outcome::UnavailableFor(_) => Self::ProviderUnavailable,
         }
     }
 }

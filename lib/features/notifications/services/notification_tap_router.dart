@@ -5,8 +5,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind, kChatStorageKindMetadataKey;
-import 'package:conduit_core/database/local_conversation_loader.dart';
-import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
@@ -54,9 +52,15 @@ abstract interface class NotificationTapNavigator {
   /// Opens channel [channelId] of the active Open WebUI account.
   void openChannel(String channelId);
 
-  /// Opens session [sessionId] of the Hermes connection in use. [title] is
-  /// the notification's, for when the session list doesn't say.
-  Future<void> openHermesSession(String sessionId, {required String title});
+  /// Opens session [sessionId] of the Hermes connection [connectionId], which
+  /// was just put in use; nothing, when another connection took its place
+  /// meanwhile. [title] is the notification's, for when the session list
+  /// doesn't say.
+  Future<void> openHermesSession(
+    String sessionId, {
+    required String connectionId,
+    required String title,
+  });
 
   /// Opens the Hermes scheduled tasks of the connection in use.
   void openHermesJobs();
@@ -137,7 +141,11 @@ class NotificationTapRouter {
           if (kind == NotificationKind.scheduledTask) {
             _navigator.openHermesJobs();
           } else if (_isReply(kind)) {
-            await _navigator.openHermesSession(sourceId, title: title);
+            await _navigator.openHermesSession(
+              sourceId,
+              connectionId: connectionId,
+              title: title,
+            );
           }
         case DirectNotificationScope():
           if (_isReply(kind)) {
@@ -285,25 +293,33 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
 
   @override
   Future<void> openOpenWebUiChat(String chatId) async {
-    final ownership = captureOpenWebUiConversationRead(_ref);
-    if (ownership == null) return;
-    final outgoing = _ref.read(activeConversationProvider);
-    if (outgoing == null || !conversationMatchesScopedId(outgoing, chatId)) {
-      clearSelectedFiltersForConversationBoundary(_ref);
+    // The chat list's selection flow: it waits for the account's storage,
+    // which a switch may still be settling, loads the chat (from the server
+    // when there is no copy here) and makes it the active conversation,
+    // clearing what belonged to the one it replaces.
+    final now = DateTime.now();
+    final result = await _ref
+        .read(conversationSelectionProvider.notifier)
+        .select(
+          Conversation(
+            id: chatId,
+            title: '',
+            createdAt: now,
+            updatedAt: now,
+            metadata: {
+              kChatStorageKindMetadataKey: ChatStorageKind.openWebUi.name,
+            },
+          ),
+        );
+    switch (result.disposition) {
+      case ConversationSelectionDisposition.committed:
+        await NavigationService.navigateToChat();
+      case ConversationSelectionDisposition.canceled:
+        // Another selection or account took over.
+        break;
+      case ConversationSelectionDisposition.failed:
+        showError();
     }
-    // DB-first open, mirroring the conversation-list selection flow.
-    await NavigationService.navigateToChat();
-    if (!openWebUiConversationReadIsCurrent(_ref, ownership)) return;
-    final local = await loadLocalConversation(
-      _ref,
-      chatId,
-      ownership: ownership,
-    );
-    if (!openWebUiConversationReadIsCurrent(_ref, ownership)) return;
-    if (local != null) {
-      _ref.read(activeConversationProvider.notifier).set(local);
-    }
-    schedulePullChatNow(_ref, chatId, ownership: ownership);
   }
 
   @override
@@ -313,6 +329,7 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
   @override
   Future<void> openHermesSession(
     String sessionId, {
+    required String connectionId,
     required String title,
   }) async {
     final context = await _context();
@@ -323,6 +340,7 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
       if (DateTime.now().isAfter(deadline)) return;
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
+    if (!_hermesConnectionInUse(connectionId)) return;
     var sessionTitle = title;
     try {
       final sessions = await _ref
@@ -337,13 +355,22 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
     } catch (_) {
       // The list only names the session; it opens without it.
     }
-    if (!context.mounted) return;
+    // Opening reads whichever connection is in use. Another tap, or the
+    // user, may have switched while the list loaded, and the session id
+    // means nothing there.
+    if (!context.mounted || !_hermesConnectionInUse(connectionId)) return;
     await openHermesSessionReading(
       context,
       _ref.read,
       HermesSessionSummary(id: sessionId, title: sessionTitle),
     );
   }
+
+  /// Whether [connectionId] is the Hermes connection in use, its service
+  /// built for it.
+  bool _hermesConnectionInUse(String connectionId) =>
+      _ref.read(hermesActiveConnectionIdProvider) == connectionId &&
+      _ref.read(hermesApiServiceProvider)?.config.connectionId == connectionId;
 
   @override
   void openHermesJobs() =>

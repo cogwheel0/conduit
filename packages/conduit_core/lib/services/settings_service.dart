@@ -155,8 +155,20 @@ class SettingsService {
     );
   }
 
-  static Future<void> setNotificationsEnabled(bool value) {
-    return _putPreference(_notificationsEnabledKey, value);
+  /// Sets the active Open WebUI account's notifications switch, or the
+  /// device-level one without an account. With an account, the device-level
+  /// switch, which Hermes and Direct notifications follow, is set as well, so
+  /// it is always the value the user chose last; the server's copy of an
+  /// account's switch, mirrored in by itself, leaves it alone.
+  static Future<void> setNotificationsEnabled(bool value) async {
+    // Both started at once: each lands in the preference cache before
+    // anything awaited here yields, so a reader woken by the change sees
+    // both.
+    await Future.wait([
+      _putPreference(_notificationsEnabledKey, value),
+      if (currentPreferenceAccountId() != null)
+        PreferencesStore.put(_notificationsEnabledKey, value),
+    ]);
   }
 
   static Future<bool> getNotificationSound() {

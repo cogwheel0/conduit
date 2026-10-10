@@ -59,7 +59,9 @@ def rfc8291() -> dict:
         as_private=u(inputs["as_private"]),
         salt=u(inputs["salt"]),
     )
-    assert produced == expected, "Python Web Push does not match RFC 8291 Appendix A"
+    # Explicit raises, not assert, so `python -O` can't skip a check.
+    if produced != expected:
+        raise AssertionError("Python Web Push does not match RFC 8291 Appendix A")
     return {
         "description": "RFC 8291 Appendix A. Unpadded, so it only checks the key schedule and AES-GCM.",
         **inputs,
@@ -77,7 +79,8 @@ def _case(name, sid_label, scope, payload_obj, *, sid=None):
     salt = _seed(f"{name}:salt", 16)
     plaintext = cp.encode_fitting(payload_obj)
     body = wp.encrypt(plaintext, ua_public, auth, as_private=as_private, salt=salt)
-    assert wp.decrypt(body, ua_private, auth) == plaintext
+    if wp.decrypt(body, ua_private, auth) != plaintext:
+        raise AssertionError(f"vector {name} does not decrypt to its plaintext")
     return {
         "name": name,
         "sid": sid or wp.b64u_encode(_seed(f"{sid_label}:sid", 16)),
@@ -253,24 +256,40 @@ def _rejects():
 
 
 def preview_cases() -> dict:
-    inputs = [
-        ("plain", "Hello there"),
-        ("reasoning_block", '<details type="reasoning" done="true">\n<summary>Thought for 3 seconds</summary>\n> plan\n</details>\nThe answer is 42.'),
-        ("think_tags", "<think>internal</think>Visible answer"),
-        ("markdown", "# Title\n\n- **Bold** item\n- [link](https://x.y) and ![pic](https://x.y/p.png)\n> quoted `code`"),
-        ("fenced_code", "Run this:\n```bash\nrm -rf /tmp/x\n```\nThen restart."),
-        ("open_fence", "Here you go:\n```python\nprint('unterminated')"),
-        ("long", "word " * 80),
-        ("emoji_cut", "🦊" * 250),
-        ("html", "a <b>bold</b> move, and 3 < 4 > 2"),
-        ("empty", ""),
+    # Every expected preview is written by hand. Computing it with the cleaner
+    # under test would let a regeneration approve a cleaning bug.
+    cases = [
+        ("plain", "Hello there", "Hello there"),
+        (
+            "reasoning_block",
+            '<details type="reasoning" done="true">\n<summary>Thought for 3 seconds</summary>\n> plan\n</details>\nThe answer is 42.',
+            "The answer is 42.",
+        ),
+        ("think_tags", "<think>internal</think>Visible answer", "Visible answer"),
+        (
+            "uppercase_reasoning_tags",
+            '<THINK>internal</THINK><Details type="reasoning">\n<summary>Thought</summary>\nplan\n</DETAILS>\nVisible answer',
+            "Visible answer",
+        ),
+        (
+            "markdown",
+            "# Title\n\n- **Bold** item\n- [link](https://x.y) and ![pic](https://x.y/p.png)\n> quoted `code`",
+            "Title Bold item link and pic quoted code",
+        ),
+        ("fenced_code", "Run this:\n```bash\nrm -rf /tmp/x\n```\nThen restart.", "Run this: Then restart."),
+        ("open_fence", "Here you go:\n```python\nprint('unterminated')", "Here you go:"),
+        ("long", "word " * 80, ("word " * 40).strip() + "…"),
+        ("emoji_cut", "🦊" * 250, "🦊" * 199 + "…"),
+        ("html", "a <b>bold</b> move, and 3 < 4 > 2", "a bold move, and 3 < 4 > 2"),
+        ("empty", "", ""),
     ]
+    for name, text, expected in cases:
+        cleaned = cp.clip(cp.clean_text(text), cp.BODY_LIMIT)
+        if cleaned != expected:
+            raise AssertionError(f"preview case {name}: cleaned to {cleaned!r}, expected {expected!r}")
     return {
         "description": "Preview cleaning: clip(clean_text(input), 200).",
-        "cases": [
-            {"name": name, "input": text, "expected": cp.clip(cp.clean_text(text), cp.BODY_LIMIT)}
-            for name, text in inputs
-        ],
+        "cases": [{"name": name, "input": text, "expected": expected} for name, text, expected in cases],
     }
 
 

@@ -17,6 +17,11 @@
       "expected": "Visible answer"
     },
     {
+      "name": "uppercase_reasoning_tags",
+      "input": "<THINK>internal</THINK><Details type=\"reasoning\">\n<summary>Thought</summary>\nplan\n</DETAILS>\nVisible answer",
+      "expected": "Visible answer"
+    },
+    {
       "name": "markdown",
       "input": "# Title\n\n- **Bold** item\n- [link](https://x.y) and ![pic](https://x.y/p.png)\n> quoted `code`",
       "expected": "Title Bold item link and pic quoted code"

@@ -83,6 +83,50 @@ void main() {
       expect((events[4] as PushForegroundEvent).message.scope, 'owui:a');
       expect((events[5] as PushTapEvent).tap.scope, 'owui:a');
     });
+
+    test('events from before any listener reach the first one', () async {
+      final platform = MobilePushPlatform()
+        ..onForegroundPush(
+          PlatformPushMessage(sid: 'sid', scope: 'owui:a', payloadJson: '{}'),
+        )
+        ..onTap(PlatformPushTap(scope: 'owui:b', payloadJson: '{}'));
+      final first = <PushPlatformEvent>[];
+      final second = <PushPlatformEvent>[];
+      final subscriptions = [
+        platform.events.listen(first.add),
+        platform.events.listen(second.add),
+      ];
+      platform.onTestReceived('sid', 'nonce');
+      await pumpEventQueue();
+      for (final subscription in subscriptions) {
+        await subscription.cancel();
+      }
+
+      expect(first, hasLength(3));
+      expect((first[0] as PushForegroundEvent).message.scope, 'owui:a');
+      expect((first[1] as PushTapEvent).tap.scope, 'owui:b');
+      expect(first[2], isA<PushTestReceivedEvent>());
+      // Held events are delivered once; later listeners only see new ones.
+      expect(second.single, isA<PushTestReceivedEvent>());
+    });
+
+    test('only the newest held events are kept', () async {
+      final platform = MobilePushPlatform();
+      const total = MobilePushPlatform.heldEventLimit + 5;
+      for (var index = 0; index < total; index++) {
+        platform.onTap(
+          PlatformPushTap(scope: 'owui:$index', payloadJson: '{}'),
+        );
+      }
+      final events = <PushPlatformEvent>[];
+      final subscription = platform.events.listen(events.add);
+      await pumpEventQueue();
+      await subscription.cancel();
+
+      expect(events, hasLength(MobilePushPlatform.heldEventLimit));
+      expect((events.first as PushTapEvent).tap.scope, 'owui:5');
+      expect((events.last as PushTapEvent).tap.scope, 'owui:${total - 1}');
+    });
   });
 }
 

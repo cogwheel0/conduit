@@ -3,7 +3,7 @@ title: Conduit Push
 author: cogwheel0
 author_url: https://github.com/cogwheel0/conduit
 version: 1.0.0
-required_open_webui_version: 0.10.0
+required_open_webui_version: 0.11.0
 license: GPL-3.0
 description: End-to-end encrypted push notifications for the Conduit app. Each notification is encrypted on this server to a key that only exists on the user's device.
 conduit_protocol: 1
@@ -30,6 +30,8 @@ conduit_protocol: 1
 # library. Edit those two, then run the build.
 
 import asyncio
+import contextvars
+import functools
 import ipaddress
 import json
 import logging
@@ -247,7 +249,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from . import webpush
 
@@ -257,6 +259,10 @@ ID_KEYS = ("chat", "msg", "channel", "session", "turn", "job", "run")
 TITLE_LIMIT = 100
 BODY_LIMIT = 200
 AUTHOR_LIMIT = 64
+# A preview is cleaned from at most this many characters. Some of the patterns
+# below backtrack on long runs of unclosed markup, and a channel message or a
+# reply can be any length, so they never see more than this.
+CLEAN_INPUT_LIMIT = 4000
 ELLIPSIS = "…"
 
 _BLOCKS = [
@@ -266,26 +272,75 @@ _BLOCKS = [
     # A fence left open by a truncated or still-streaming reply runs to the end.
     re.compile(r"(^|\n)[ \t]*(```|~~~).*?(\n[ \t]*\2[ \t]*(?=\n|$)|$)", re.DOTALL),
 ]
-_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
-_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+# The start of a block that CLEAN_INPUT_LIMIT cut off before its end.
+_OPEN_BLOCK = re.compile(r"<(?:details|think|thinking)\b", re.IGNORECASE)
+# Link text can't contain brackets and a target can't contain parentheses,
+# except one nested pair as in Wikipedia URLs. That keeps each attempt short,
+# so a run of unclosed "[" or "(" takes linear time, not quadratic.
+_IMAGE = re.compile(r"!\[([^\[\]]*)\]\([^()]*(?:\([^()]*\)[^()]*)*\)")
+_LINK = re.compile(r"\[([^\[\]]+)\]\([^()]*(?:\([^()]*\)[^()]*)*\)")
 _TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(\s[^<>]*)?/?>")
 _LINE_MARKER = re.compile(r"^[ \t]*(#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+)", re.MULTILINE)
 _EMPHASIS = re.compile(r"(\*\*|__|~~|`)")
 _SPACE = re.compile(r"\s+")
+# Reasoning and tool blocks: Open WebUI's default reasoning tags, <details>
+# blocks, code interpreter blocks, and the thought markers some models emit.
+_HIDDEN = re.compile(
+    r"<(/?)(details|think|thinking|reason|reasoning|thought|code_interpreter)\b[^>]*>"
+    r"|<\|(begin|end)_of_thought\|>"
+    r"|◁(/?)think▷",
+    re.IGNORECASE,
+)
+_SOLUTION_MARKER = re.compile(r"<\|(?:begin|end)_of_solution\|>", re.IGNORECASE)
+
+
+def strip_hidden(text: str) -> str:
+    """Drops reasoning and tool blocks, counting nested ones, before clean_text.
+
+    A block that never closes, because the text was cut or the reply was
+    interrupted, is dropped through the end. A long run of unclosed tags
+    makes the pattern backtrack, so cut the text to CLEAN_INPUT_LIMIT first.
+    """
+    kept: List[str] = []
+    depth = 0
+    position = 0
+    for match in _HIDDEN.finditer(text):
+        if depth == 0:
+            kept.append(text[position:match.start()])
+        marker = (match.group(3) or "").lower()
+        closing = bool(match.group(1)) or marker == "end" or bool(match.group(4))
+        depth = max(depth - 1, 0) if closing else depth + 1
+        position = match.end()
+    if depth == 0:
+        kept.append(text[position:])
+    return _SOLUTION_MARKER.sub(" ", " ".join(kept))
 
 
 def clean_text(text: Optional[str]) -> str:
-    """Turns a Markdown reply into one line of plain text for a preview."""
+    """Turns a Markdown reply into one line of plain text for a preview.
+
+    Only the first CLEAN_INPUT_LIMIT characters are read. When that cuts the
+    text short, a reasoning block it leaves open is dropped to the end, like
+    an open code fence, and the result ends in an ellipsis.
+    """
     if not text:
         return ""
+    cut = len(text) > CLEAN_INPUT_LIMIT
+    if cut:
+        text = text[:CLEAN_INPUT_LIMIT]
     for pattern in _BLOCKS:
         text = pattern.sub("\n", text)
+    if cut:
+        opened = _OPEN_BLOCK.search(text)
+        if opened:
+            text = text[: opened.start()]
     text = _IMAGE.sub(lambda m: m.group(1), text)
     text = _LINK.sub(lambda m: m.group(1), text)
     text = _TAG.sub("", text)
     text = _LINE_MARKER.sub("", text)
     text = _EMPHASIS.sub("", text)
-    return _SPACE.sub(" ", text).strip()
+    text = _SPACE.sub(" ", text).strip()
+    return text + ELLIPSIS if cut and text else text
 
 
 def clip(text: Optional[str], limit: int) -> str:
@@ -314,6 +369,9 @@ def build(
         raise ValueError(f"unknown kind {kind!r}")
     if src not in SOURCES:
         raise ValueError(f"unknown source {src!r}")
+    # Devices drop a payload without one, so fail here rather than send it.
+    if not isinstance(dedup_key, str) or not dedup_key:
+        raise ValueError("dedup_key must be a non-empty string")
     payload: Dict[str, Any] = {
         "v": 1,
         "k": kind,
@@ -403,18 +461,9 @@ EVENT_TEXT_LIMIT = 1000
 _B64U = re.compile(r"^[A-Za-z0-9_-]+={0,2}$")
 _SID = re.compile(r"^[A-Za-z0-9_-]{22}$")
 _NONCE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
-# Reasoning and tool blocks never belong in a preview. Open WebUI's default
-# reasoning tags, <details> blocks and code interpreter blocks are dropped,
-# including one left open because the event text was cut short.
-_HIDDEN = re.compile(
-    r"<(/?)(details|think|thinking|reason|reasoning|thought|code_interpreter)\b[^>]*>"
-    r"|<\|(begin|end)_of_thought\|>"
-    r"|◁(/?)think▷",
-    re.IGNORECASE,
-)
-_SOLUTION_MARKER = re.compile(r"<\|(?:begin|end)_of_solution\|>")
-# Channel mentions are stored as <@U:id|Label>; a preview shows @Label.
-_MENTION = re.compile(r"<([@#])[A-Z]:([^|>]+)(?:\|([^>]+))?>")
+# Channel mentions are stored as <@U:id|Label>; a preview shows @Label. Neither
+# part may contain "<", so a run of unclosed "<@U:" takes linear time.
+_MENTION = re.compile(r"<([@#])[A-Z]:([^|<>]+)(?:\|([^<>]+))?>")
 
 
 class _Subscription(object):
@@ -437,7 +486,10 @@ def _text(value: Any) -> str:
 def _int(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0
-    return int(value)
+    try:
+        return int(value)
+    except (ValueError, OverflowError):  # NaN or infinity, which json.loads accepts
+        return 0
 
 
 def _attr(obj: Any, name: str) -> Any:
@@ -561,7 +613,9 @@ def _parse_subscription(raw: Any) -> Tuple[str, Optional[_Subscription]]:
     )
 
 
-def _select(raw_list: List[Any], now: int, cap: int) -> Tuple[List[_Subscription], Set[int], List[str]]:
+def _select(
+    raw_list: List[Any], now: int, cap: int, parse: Any = _parse_subscription
+) -> Tuple[List[_Subscription], Set[int], List[str]]:
     """Normalizes a stored subscription list.
 
     Drops malformed entries and entries not seen for 30 days, keeps the newest
@@ -573,7 +627,7 @@ def _select(raw_list: List[Any], now: int, cap: int) -> Tuple[List[_Subscription
     invalid: List[str] = []
     fresh: List[Tuple[int, _Subscription]] = []
     for index, raw in enumerate(raw_list):
-        state, sub = _parse_subscription(raw)
+        state, sub = parse(raw)
         if state == "unsupported":
             keep.add(index)
         elif state == "invalid":
@@ -598,30 +652,86 @@ def _select(raw_list: List[Any], now: int, cap: int) -> Tuple[List[_Subscription
     return [sub for _, sub in chosen], keep, invalid
 
 
-def _strip_hidden(text: str) -> str:
-    """Drops reasoning and tool blocks, including one cut off before its end."""
-    kept: List[str] = []
-    depth = 0
-    position = 0
-    for match in _HIDDEN.finditer(text):
-        if depth == 0:
-            kept.append(text[position:match.start()])
-        closing = bool(match.group(1)) or match.group(3) == "end" or bool(match.group(4))
-        depth = max(depth - 1, 0) if closing else depth + 1
-        position = match.end()
-    if depth == 0:
-        kept.append(text[position:])
-    return _SOLUTION_MARKER.sub(" ", " ".join(kept))
+class _ParseCache(object):
+    """_parse_subscription by stored entry, so a second pass over a fresh read
+    of the same list only parses the entries that changed in between."""
+
+    def __init__(self):
+        self._parsed: Dict[str, Tuple[str, Optional[_Subscription]]] = {}
+
+    def __call__(self, raw: Any) -> Tuple[str, Optional[_Subscription]]:
+        key = json.dumps(raw, sort_keys=True, separators=(",", ":"), default=str)
+        if key not in self._parsed:
+            self._parsed[key] = _parse_subscription(raw)
+        return self._parsed[key]
+
+
+def _send_key(raw: Any) -> Optional[Tuple[str, str]]:
+    """A stored entry's (sid, endpoint), or None when either isn't a string.
+
+    Entries for a newer protocol are kept without being checked, so their
+    fields may be lists or objects, which can't be looked up in a set.
+    """
+    sid, endpoint = _attr(raw, "sid"), _attr(raw, "endpoint")
+    return (sid, endpoint) if isinstance(sid, str) and isinstance(endpoint, str) else None
+
+
+def _merge_commit(
+    stored: Dict[str, Any],
+    now: int,
+    cap: int,
+    statuses: Dict[str, Dict[str, Any]],
+    dead: Set[Tuple[str, str]],
+    parse: Any,
+) -> bool:
+    """Applies delivery results to one read of a user's valves, in place.
+
+    Drops the entries _select drops and those whose (sid, endpoint) answered
+    404 or 410, forgets the status of devices that are gone, and records the
+    new statuses. Returns whether anything changed.
+    """
+    raw_list = _parse_list(stored.get("subscriptions"))
+    status = _parse_dict(stored.get("status"))
+    changed = False
+    if raw_list is not None:
+        _, keep, _ = _select(raw_list, now, cap, parse)
+        kept = [raw for index, raw in enumerate(raw_list) if index in keep and _send_key(raw) not in dead]
+        if len(kept) != len(raw_list):
+            stored["subscriptions"] = _dumps(kept)
+            changed = True
+        live = {sid for sid in (_attr(raw, "sid") for raw in kept) if isinstance(sid, str)} | set(statuses)
+        for sid in [sid for sid in status if sid not in live]:
+            del status[sid]
+            changed = True
+    for sid, entry in statuses.items():
+        previous = status.get(sid) if isinstance(status.get(sid), dict) else {}
+        entry = dict(entry)
+        if "nonce" not in entry and isinstance(previous.get("nonce"), str):
+            entry["nonce"] = previous["nonce"]
+        if not previous or _status_key(previous) != _status_key(entry):
+            status[sid] = entry
+            changed = True
+    if changed:
+        stored["status"] = _dumps(status)
+    return changed
 
 
 def _preview(raw: Any) -> str:
-    """Plain-text preview of an event's Markdown text."""
+    """Plain-text preview of an event's Markdown text.
+
+    Reasoning and tool blocks never belong in a preview, so they are dropped,
+    including one left open because the event text was cut short. A stored
+    channel message can be any length, so only its first cp.CLEAN_INPUT_LIMIT
+    characters reach the regexes below.
+    """
     text = _text(raw)
     truncated = len(text) == EVENT_TEXT_LIMIT + 3 and text.endswith("...")
     if truncated:
         text = text[:EVENT_TEXT_LIMIT]
+    elif len(text) > cp.CLEAN_INPUT_LIMIT:
+        text, truncated = text[: cp.CLEAN_INPUT_LIMIT], True
     text = _MENTION.sub(lambda m: m.group(1) + (m.group(3) or m.group(2)), text)
-    text = cp.clean_text(_strip_hidden(text))
+    text = cp.clean_text(cp.strip_hidden(text))
     return text + cp.ELLIPSIS if truncated and text else text
 
 
@@ -662,24 +772,127 @@ def _from_conduit(request: Any) -> bool:
     return agent == "Conduit" or agent.startswith("Conduit/")
 
 
-def _check_public_endpoint(url: str) -> bool:
-    """Open WebUI's SSRF check: blocks private, loopback and filter-listed hosts.
+# SSRF. A push endpoint comes from a user, so unless the admin trusts its host,
+# every address it resolves to must be public. Open WebUI's own checks skip that
+# rule when ENABLE_LOCAL_WEB_FETCH is on, so this function enforces it itself:
+# once before sending, and again on the addresses each connection really uses,
+# which defeats DNS rebinding.
 
-    It resolves DNS, so it runs in a worker thread.
+
+class _BlockedAddress(ValueError):
+    """A push endpoint resolved to an address that isn't public."""
+
+
+def _is_public_address(value: Any) -> bool:
+    """True for a globally routable address. An IPv6 address must also not carry
+    a non-public IPv4 one (mapped, compatible, 6to4, Teredo or NAT64)."""
+    try:
+        address = ipaddress.ip_address(str(value).split("%")[0])
+    except ValueError:
+        return False
+    candidates = [address]
+    if address.version == 6:
+        packed = address.packed
+        candidates += [v4 for v4 in (address.ipv4_mapped, address.sixtofour) if v4 is not None]
+        candidates += list(address.teredo or ())
+        if packed[:12] in (b"\x00" * 12, b"\x00\x64\xff\x9b" + b"\x00" * 8):
+            candidates.append(ipaddress.IPv4Address(packed[12:]))
+        elif packed[:6] == b"\x00\x64\xff\x9b\x00\x01":
+            candidates.append(ipaddress.IPv4Address(bytes((packed[6], packed[7], packed[9], packed[10]))))
+    return all(candidate.is_global for candidate in candidates)
+
+
+def _literal_address(host: Any) -> Any:
+    """The address an IP-literal host names, including legacy forms such as
+    127.1 that the system resolver maps onto an address, or None for a name."""
+    host = str(host or "").strip("[]").split("%")[0]
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(host))
+    except (OSError, ValueError):
+        return None
+
+
+def _check_public_endpoint(url: str) -> bool:
+    """Whether an endpoint passes Open WebUI's URL check (which also applies its
+    filter list) and every address its host resolves to is public.
+
+    It resolves DNS, so it runs in a worker thread. A host that doesn't resolve
+    is blocked.
     """
     try:
         from open_webui.retrieval.web.utils import validate_url
     except Exception:
         validate_url = None
     try:
-        if validate_url is not None:
-            return bool(validate_url(url))
-        # Fallback for an Open WebUI without validate_url: every address must be public.
+        if validate_url is not None and not validate_url(url):
+            return False
         host = urllib.parse.urlsplit(url).hostname
+        literal = _literal_address(host)
+        if literal is not None:
+            return _is_public_address(literal)
         addresses = {info[4][0] for info in socket.getaddrinfo(host, 443, 0, socket.SOCK_STREAM)}
-        return bool(addresses) and all(ipaddress.ip_address(a.split("%")[0]).is_global for a in addresses)
+        return bool(addresses) and all(_is_public_address(a) for a in addresses)
     except Exception:
         return False
+
+
+# The proxy host of the request being connected, which the admin configured.
+_PROXY_HOST: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("conduit_push_proxy", default=None)
+
+
+def _host_key(host: Any) -> str:
+    return str(host or "").rstrip(".").lower()
+
+
+@functools.lru_cache(maxsize=None)
+def _public_classes() -> Tuple[Any, Any]:
+    """The aiohttp connector and resolver behind the public-only session.
+
+    The resolver rejects any answer that isn't public, so the addresses the
+    connector dials are the ones it checked. IP-literal hosts never reach a
+    resolver, so the connector checks those itself. Through a proxy, only the
+    proxy is dialled here; the proxy resolves the endpoint.
+    """
+    import aiohttp
+    from aiohttp.abc import AbstractResolver
+
+    class PublicResolver(AbstractResolver):
+        def __init__(self):
+            self._inner = aiohttp.ThreadedResolver()
+
+        async def resolve(self, host, port=0, family=socket.AF_INET):
+            results = await self._inner.resolve(host, port, family=family)
+            if _host_key(host) != _PROXY_HOST.get():
+                if not results or not all(_is_public_address(entry["host"]) for entry in results):
+                    raise _BlockedAddress("not a public address")
+            return results
+
+        async def close(self):
+            await self._inner.close()
+
+    class PublicConnector(aiohttp.TCPConnector):
+        async def connect(self, req, traces, timeout):
+            proxy = getattr(req, "proxy", None)
+            if proxy is None:
+                literal = _literal_address(req.url.raw_host)
+                if literal is not None and not _is_public_address(literal):
+                    raise _BlockedAddress("not a public address")
+            token = _PROXY_HOST.set(_host_key(proxy.raw_host) if proxy is not None else None)
+            try:
+                return await super().connect(req, traces, timeout)
+            finally:
+                _PROXY_HOST.reset(token)
+
+    return PublicConnector, PublicResolver
+
+
+def _public_connector() -> Any:
+    connector, resolver = _public_classes()
+    return connector(resolver=resolver(), use_dns_cache=False)
 
 
 def _session_ssl() -> Any:
@@ -709,9 +922,9 @@ async def _post(session: Any, url: str, body: bytes, headers: Dict[str, str], ti
 class _Sessions(object):
     """HTTP sessions for one batch of sends, closed when the batch ends.
 
-    Public endpoints use Open WebUI's SSRF-safe session, which re-checks every
-    resolved address at connect time and so defeats DNS rebinding. Hosts the
-    admin trusts use a plain session.
+    Endpoints the admin doesn't trust go through the public-only connector,
+    on every Open WebUI version and whatever ENABLE_LOCAL_WEB_FETCH says.
+    Hosts the admin trusts use a plain session.
     """
 
     def __init__(self):
@@ -726,12 +939,7 @@ class _Sessions(object):
                 self._plain = aiohttp.ClientSession(trust_env=True)
             return self._plain
         if self._safe is None:
-            try:
-                from open_webui.retrieval.web.utils import get_ssrf_safe_session
-
-                self._safe = get_ssrf_safe_session()
-            except Exception:
-                self._safe = aiohttp.ClientSession(trust_env=True)
+            self._safe = aiohttp.ClientSession(connector=_public_connector(), trust_env=True)
         return self._safe
 
     async def close(self) -> None:
@@ -930,8 +1138,9 @@ class Event:
             # Standard channels: members who still have read access, as Open WebUI's
             # own channel notifications do. Group and DM access is membership.
             allowed = await self._read_access(channel)
-            if allowed is not None:
-                recipients = [uid for uid in recipients if uid in allowed]
+            if allowed is None:
+                return  # Membership alone doesn't prove read access.
+            recipients = [uid for uid in recipients if uid in allowed]
         sender_id = None if actor.get("type") == "webhook" else (_text(actor.get("id")) or _text(_attr(message, "user_id")))
         recipients = [uid for uid in recipients if uid and uid != sender_id][:limit]
         if not recipients:
@@ -1009,7 +1218,7 @@ class Event:
         try:
             from open_webui.routers.channels import get_channel_users_with_access
         except Exception:
-            self._warn_once("access", "conduit push: channel access helper missing, notifying channel members")
+            self._warn_once("access", "conduit push: channel access helper missing, standard channels won't notify")
             return None
         users = await get_channel_users_with_access(channel, "read")
         return {_text(_attr(user, "id")) for user in users or []}
@@ -1133,7 +1342,7 @@ class Event:
             except asyncio.TimeoutError:
                 return None, "timeout"
             except ValueError:
-                return None, "blocked"  # Open WebUI's connector refused the resolved address.
+                return None, "blocked"  # The connector refused an address that isn't public.
             except Exception:
                 return None, "network"
             return status, _classify(status)
@@ -1148,42 +1357,31 @@ class Event:
     ) -> None:
         """Records delivery status and prunes dead or stale subscriptions.
 
-        Reads the valves again under a per-user lock, so a device that subscribed
-        meanwhile is kept. Writes only when something changed, through the model
-        method, which doesn't publish an event, so nothing loops.
+        Under a per-user lock it works the change out on one read of the
+        valves. If anything changes, it reads them again just before writing
+        and applies the change to that fresh copy, reusing the first pass's
+        parsing, so a device that subscribed meanwhile is kept and the gap
+        between the read that is written back and the write is as short as it
+        can be.
+
+        It can't close that gap. The lock only orders this worker's commits,
+        and Open WebUI has no compare-and-set, so a write that lands inside it
+        is overwritten: from another worker, or from the app saving the valves
+        over REST, for example a device subscribing.
+
+        Writes go through the model method, which doesn't publish an event, so
+        nothing loops.
         """
         from open_webui.models.functions import Functions
 
+        now = int(time.time())
+        cap = valves.max_subscriptions_per_user
+        parse = _ParseCache()
         async with self._user_lock(user_id):
             stored = await _read_user_valves(function_id, user_id)
-            if stored is None:
+            if stored is None or not _merge_commit(stored, now, cap, statuses, dead, parse):
                 return
-            raw_list = _parse_list(stored.get("subscriptions"))
-            status = _parse_dict(stored.get("status"))
-            changed = False
-            if raw_list is not None:
-                _, keep, _ = _select(raw_list, int(time.time()), valves.max_subscriptions_per_user)
-                kept = [
-                    raw
-                    for index, raw in enumerate(raw_list)
-                    if index in keep and (_attr(raw, "sid"), _attr(raw, "endpoint")) not in dead
-                ]
-                if len(kept) != len(raw_list):
-                    stored["subscriptions"] = _dumps(kept)
-                    changed = True
-                live = {_attr(raw, "sid") for raw in kept} | set(statuses)
-                for sid in [sid for sid in status if sid not in live]:
-                    del status[sid]
-                    changed = True
-            for sid, entry in statuses.items():
-                previous = status.get(sid) if isinstance(status.get(sid), dict) else {}
-                entry = dict(entry)
-                if "nonce" not in entry and isinstance(previous.get("nonce"), str):
-                    entry["nonce"] = previous["nonce"]
-                if not previous or _status_key(previous) != _status_key(entry):
-                    status[sid] = entry
-                    changed = True
-            if not changed:
+            fresh = await _read_user_valves(function_id, user_id)
+            if fresh is None or not _merge_commit(fresh, now, cap, statuses, dead, parse):
                 return
-            stored["status"] = _dumps(status)
-            await Functions.update_user_valves_by_id_and_user_id(function_id, user_id, stored)
+            await Functions.update_user_valves_by_id_and_user_id(function_id, user_id, fresh)
