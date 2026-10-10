@@ -107,12 +107,13 @@ void main() {
     AppSettings settings = allOn,
     ActiveView view = home,
     bool foreground = true,
+    bool Function()? isForeground,
     ScopeNotificationsEnabled? scopeEnabled,
     Set<String> pushOn = const {},
   }) => NotificationRouter(
     readSettings: () => settings,
     readActiveView: () => view,
-    isAppForeground: () => foreground,
+    isAppForeground: isForeground ?? () => foreground,
     localNotifications: local,
     sound: sound,
     showInAppBanner: banners.add,
@@ -572,6 +573,117 @@ void main() {
       await router.route(unnamed);
       verifyNeverShown();
       check(unreads).deepEquals([unnamed]);
+    });
+
+    group('a channel message counted before its push', () {
+      late bool foreground;
+      late NotificationRouter router;
+
+      // A frame that named no message, and the push for the same message,
+      // which carries the server's message id.
+      AppNotification frame(String digest, {String channel = 'chan-1'}) =>
+          _channel(
+            id: channel,
+            key: 'owui:acct-1|channel:$channel:$digest',
+          ).copyWith(sharesPushDedupKey: false);
+      AppNotification pushed(String messageId, {String channel = 'chan-1'}) =>
+          _channel(id: channel, key: 'owui:acct-1|channel:$channel:$messageId');
+
+      setUp(() {
+        foreground = false;
+        router = build(
+          isForeground: () => foreground,
+          pushOn: {'owui:acct-1'},
+        );
+      });
+
+      test('is not counted again by the push in the foreground', () async {
+        final unnamed = frame('digest-1');
+        await router.route(unnamed);
+        // The app comes back before the push is shown, which hands it over.
+        foreground = true;
+        final push = pushed('m-1');
+        check(
+          await router.route(push, alreadyClaimed: true),
+        ).equals(NotificationSurface.banner);
+        check(banners).deepEquals([push]);
+        check(unreads).deepEquals([unnamed]);
+      });
+
+      test('with no push after still counts once', () async {
+        final unnamed = frame('digest-1');
+        await router.route(unnamed);
+        foreground = true;
+        // Another channel's push takes nothing from this one.
+        final other = pushed('m-9', channel: 'chan-2');
+        await router.route(other, alreadyClaimed: true);
+        check(unreads).deepEquals([unnamed, other]);
+      });
+
+      test('leaves other messages to count', () async {
+        final unnamed = frame('digest-1');
+        await router.route(unnamed);
+        foreground = true;
+        // A frame with its own key is no push: it counts, and takes nothing.
+        final named = pushed('m-2');
+        await router.route(named);
+        await router.route(pushed('m-1'), alreadyClaimed: true);
+        final later = pushed('m-3');
+        await router.route(later, alreadyClaimed: true);
+        check(unreads).deepEquals([unnamed, named, later]);
+      });
+
+      test('is taken by its push even with the channel on screen', () async {
+        var view = home;
+        router = NotificationRouter(
+          readSettings: () => allOn,
+          readActiveView: () => view,
+          isAppForeground: () => foreground,
+          localNotifications: local,
+          sound: sound,
+          showInAppBanner: banners.add,
+          onChannelUnread: unreads.add,
+          pushCovers: (notification) => notification.scope == 'owui:acct-1',
+          now: () => now,
+        );
+        final unnamed = frame('digest-1');
+        await router.route(unnamed);
+        foreground = true;
+        view = const ActiveView(
+          openWebUiAccountId: 'acct-1',
+          channelId: 'chan-1',
+        );
+        check(
+          await router.route(pushed('m-1'), alreadyClaimed: true),
+        ).equals(NotificationSurface.suppressed);
+        // The next message's push, with the channel closed, counts.
+        view = home;
+        final later = pushed('m-2');
+        await router.route(later, alreadyClaimed: true);
+        check(unreads).deepEquals([unnamed, later]);
+      });
+
+      test('stands in for its push only for a while', () async {
+        final unnamed = frame('digest-1');
+        await router.route(unnamed);
+        now = now.add(NotificationRouter.countedForPushWindow);
+        foreground = true;
+        final push = pushed('m-1');
+        await router.route(push, alreadyClaimed: true);
+        check(unreads).deepEquals([unnamed, push]);
+      });
+
+      test('keeps only the latest few per channel', () async {
+        const cap = NotificationRouter.countedForPushCap;
+        for (var i = 0; i <= cap; i++) {
+          await router.route(frame('digest-$i'));
+        }
+        foreground = true;
+        for (var i = 0; i <= cap; i++) {
+          await router.route(pushed('m-$i'), alreadyClaimed: true);
+        }
+        check(unreads).length.equals(cap + 2);
+      });
     });
 
     test('still shows a banner in the foreground', () async {

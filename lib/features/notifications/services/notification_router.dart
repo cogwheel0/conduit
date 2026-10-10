@@ -88,6 +88,13 @@ class NotificationRouter {
   /// (docs/push/PROTOCOL.md §2).
   static const Duration hermesGroupWindow = Duration(seconds: 120);
 
+  /// How long a channel message counted as unread while its alert was left
+  /// to push stands in for that push's own count.
+  static const Duration countedForPushWindow = Duration(minutes: 10);
+
+  /// How many such messages one channel keeps at most.
+  static const int countedForPushCap = 10;
+
   final AppSettings Function() _readSettings;
   final ActiveView Function() _readActiveView;
   final bool Function() _isAppForeground;
@@ -112,6 +119,14 @@ class NotificationRouter {
 
   /// When a Hermes reply last surfaced, by `<scope>|<group>`.
   final Map<String, DateTime> _hermesGroups = <String, DateTime>{};
+
+  /// When each channel message left to push was counted as unread, oldest
+  /// first, by `<scope>|<channelId>`. Its frame named no message, so its key
+  /// never matches its push's: a push for the channel that reaches the
+  /// router in the foreground takes the oldest one instead of counting the
+  /// message again.
+  final Map<String, Queue<DateTime>> _countedForPush =
+      <String, Queue<DateTime>>{};
 
   /// Routes [notification] through the gating chain and dispatches it. Returns
   /// the surface taken, primarily for tests and diagnostics.
@@ -149,7 +164,9 @@ class NotificationRouter {
     // never holds the push back if it reaches the router in the foreground.
     // A push shown outside the app never reaches the loaded channel list, so
     // its unread count still goes up here, once per message even when the
-    // frame is delivered again.
+    // frame is delivered again. If the app comes back before the push is
+    // shown, the push reaches the router under its own key, and must not
+    // count the message again (see _countedForPush).
     if (!foreground &&
         !alreadyClaimed &&
         !notification.sharesPushDedupKey &&
@@ -157,6 +174,7 @@ class NotificationRouter {
       if (notification.kind == NotificationKind.channelMessage &&
           _markFresh(notification.dedupKey)) {
         _onChannelUnread(notification);
+        _recordCountedForPush(notification);
       }
       return NotificationSurface.suppressed;
     }
@@ -167,6 +185,15 @@ class NotificationRouter {
         _hermesGroupShownRecently(notification)) {
       return NotificationSurface.suppressed;
     }
+
+    // A channel push may be for a message already counted when its frame
+    // left the alert to push. Taken whether or not it alerts below, so one
+    // hidden because its channel is on screen does not leave the count to a
+    // later message's push.
+    final alreadyCounted =
+        alreadyClaimed &&
+        notification.kind == NotificationKind.channelMessage &&
+        _takeCountedForPush(notification);
 
     // 5. Don't alert for content the user is actively looking at — but only in
     // the foreground. Backgrounded, the user can't see any view, so a
@@ -186,7 +213,8 @@ class NotificationRouter {
     if (settings.notificationSound && settings.notificationSoundAlways) {
       await _sound.play();
     }
-    if (notification.kind == NotificationKind.channelMessage) {
+    if (notification.kind == NotificationKind.channelMessage &&
+        !alreadyCounted) {
       _onChannelUnread(notification);
     }
 
@@ -264,6 +292,40 @@ class NotificationRouter {
   void _recordHermesGroup(AppNotification notification) {
     final key = _hermesGroupKey(notification);
     if (key != null) _hermesGroups[key] = _now();
+  }
+
+  /// Records that [notification], a channel message whose frame named no
+  /// message, was counted as unread with its alert left to push. A channel
+  /// keeps the latest [countedForPushCap].
+  void _recordCountedForPush(AppNotification notification) {
+    _dropExpiredCounts();
+    final counted = _countedForPush.putIfAbsent(
+      '${notification.scope}|${notification.sourceId}',
+      Queue<DateTime>.new,
+    )..addLast(_now());
+    if (counted.length > countedForPushCap) counted.removeFirst();
+  }
+
+  /// Takes the oldest message of [notification]'s channel counted while its
+  /// alert was left to push, if one is still within [countedForPushWindow].
+  bool _takeCountedForPush(AppNotification notification) {
+    _dropExpiredCounts();
+    final key = '${notification.scope}|${notification.sourceId}';
+    final counted = _countedForPush[key];
+    if (counted == null) return false;
+    counted.removeFirst();
+    if (counted.isEmpty) _countedForPush.remove(key);
+    return true;
+  }
+
+  void _dropExpiredCounts() {
+    final now = _now();
+    _countedForPush.removeWhere((_, counted) {
+      counted.removeWhere(
+        (countedAt) => now.difference(countedAt) >= countedForPushWindow,
+      );
+      return counted.isEmpty;
+    });
   }
 
   /// Returns true if [key] was not seen before (and records it). Evicts the
