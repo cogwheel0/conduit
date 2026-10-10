@@ -1437,8 +1437,10 @@ void main() {
       h = await _Harness.start(
         targets: [_owui],
         keepPreferences: true,
-        // Its own sids, unlike the other device's.
-        platform: _Platform([]).._next = 50,
+        // Its own sids and device token, unlike the other device's.
+        platform: _Platform([])
+          .._next = 50
+          ..token = 'bb' * 32,
       );
       await h.until(() => h.status(_owui.scope) == PushStatus.on);
       final mine = h.server(_owui).subscriptions.values.single;
@@ -1449,6 +1451,32 @@ void main() {
       // Nothing of the other device's was removed or tombstoned.
       check(h.server(_owui).unsubscribes).isEmpty();
       check(h.settingsStore.tombstones()).isEmpty();
+    });
+
+    test('keys this device lost are removed from their server', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final lostSid = h.record(_owui.scope).sid!;
+      final did = h.server(_owui).subscriptions.values.single.did;
+      h.dispose();
+
+      // The key store started over (Android does when its Keystore key no
+      // longer opens it), on the same device, with the same token.
+      h = await _Harness.start(
+        targets: [_owui],
+        keepPreferences: true,
+        platform: _Platform([]).._next = 50,
+      );
+      await h.until(() => h.status(_owui.scope) == PushStatus.on);
+      final mine = h.server(_owui).subscriptions.values.last;
+      check(mine.sid).not((it) => it.equals(lostSid));
+      check(mine.did).equals(did);
+      await h.until(
+        () =>
+            h.server(_owui).unsubscribes.contains(lostSid) &&
+            h.settingsStore.tombstones().isEmpty,
+      );
+      check(h.server(_owui).subscriptions.keys).deepEquals([mine.sid]);
     });
   });
 
