@@ -44,10 +44,12 @@ Future<bool> _alwaysClaim(String dedupKey, String? localNotificationId) =>
 /// `hermes:<connectionId>`, `direct`) are switched on.
 typedef ScopeNotificationsEnabled = bool Function(String scope);
 
-/// Whether push is on (a test push decrypted here) for one scope.
-typedef ScopePushVerified = bool Function(String scope);
+/// Whether a push will report the same event as [notification]: push is on
+/// for its scope (a test push decrypted here) and, for a Hermes reply, the
+/// plugin pushes that session's turns.
+typedef PushCovers = bool Function(AppNotification notification);
 
-bool _noPush(String scope) => false;
+bool _noPush(AppNotification notification) => false;
 
 /// The single decision point for whether and how to surface a classified
 /// [AppNotification]. UI-free and dependency-injected so every gating branch is
@@ -63,12 +65,12 @@ class NotificationRouter {
     required void Function(AppNotification) onChannelUnread,
     NotificationClaim claim = _alwaysClaim,
     ScopeNotificationsEnabled? scopeNotificationsEnabled,
-    ScopePushVerified pushVerified = _noPush,
+    PushCovers pushCovers = _noPush,
     DateTime Function() now = DateTime.now,
     int dedupCapacity = 200,
   }) : _readSettings = readSettings,
        _scopeNotificationsEnabled = scopeNotificationsEnabled,
-       _pushVerified = pushVerified,
+       _pushCovers = pushCovers,
        _readActiveView = readActiveView,
        _isAppForeground = isAppForeground,
        _localNotifications = localNotifications,
@@ -99,7 +101,7 @@ class NotificationRouter {
   /// device-level one for Hermes and Direct. Without it, the active
   /// settings' switch stands for every scope.
   final ScopeNotificationsEnabled? _scopeNotificationsEnabled;
-  final ScopePushVerified _pushVerified;
+  final PushCovers _pushCovers;
   final DateTime Function() _now;
   final int _dedupCapacity;
 
@@ -138,16 +140,17 @@ class NotificationRouter {
 
     final foreground = _isAppForeground();
 
-    // 3. In the background a verified push reports the same event and is
-    // shown without this router. A source whose key cannot match the push's
-    // (a Hermes turn this app watched, a frame with no message id) would
-    // then notify twice, so it leaves the system notification to the push.
+    // 3. In the background a push that reports the same event is shown
+    // without this router. A source whose key cannot match the push's (a
+    // Hermes turn this app watched, a frame with no message id) would then
+    // notify twice, so it leaves the system notification to the push -- only
+    // when one is sure to come, though, or nothing would notify at all.
     // Nothing is recorded, so the push, if it reaches the router in the
     // foreground, still shows.
     if (!foreground &&
         !alreadyClaimed &&
         !notification.sharesPushDedupKey &&
-        _pushVerified(notification.scope)) {
+        _pushCovers(notification)) {
       return NotificationSurface.suppressed;
     }
 

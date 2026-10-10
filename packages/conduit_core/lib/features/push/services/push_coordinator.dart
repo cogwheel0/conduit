@@ -9,6 +9,7 @@ import 'package:synchronized/synchronized.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
+import 'package:conduit_core/features/notifications/services/hermes_push_watches.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_subscription_record.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
@@ -92,6 +93,7 @@ class PushCoordinator extends _$PushCoordinator {
   late final DateTime Function() _clock;
   late final PushBackendFactory _factory;
   late final PushRelayClient? _relay;
+  late final HermesPushWatches _hermesWatches;
   DateTime _now() => _clock();
 
   @override
@@ -103,6 +105,7 @@ class PushCoordinator extends _$PushCoordinator {
     _clock = ref.read(pushClockProvider);
     _factory = ref.read(pushBackendFactoryProvider);
     _relay = ref.read(pushRelayClientProvider);
+    _hermesWatches = ref.read(hermesPushWatchesProvider);
     final settings = _settings;
     _records = settings.records();
     ref.listen<AsyncValue<List<PushTarget>>>(pushTargetsProvider, (_, next) {
@@ -381,7 +384,16 @@ class PushCoordinator extends _$PushCoordinator {
     }
     unawaited(
       _withBackend(target, (backend) async {
-        if (backend is HermesPushBackend) await backend.watch(sessionId);
+        if (backend is! HermesPushBackend) return;
+        await backend.watch(sessionId);
+        // The plugin's watch runs out on the server's clock, counted from
+        // when the request reached it: the minute's margin keeps this one
+        // from outlasting it.
+        _hermesWatches.record(
+          connectionId,
+          sessionId,
+          ttl: const Duration(seconds: kConduitHermesWatchTtlSeconds - 60),
+        );
       }).catchError((Object error) => _log('push-hermes-watch-failed', error)),
     );
   }

@@ -51,7 +51,9 @@ AppNotification? appNotificationForDirectRun(DirectRunCompletion completion) {
 /// is false). In the foreground the shared group `hermes:<sessionId>` lets
 /// the router drop whichever comes second (docs/push/PROTOCOL.md §2); in the
 /// background, where the push is shown without the router, the router
-/// leaves it to the push when push is verified for the connection.
+/// leaves it to the push when one is sure to come: push is verified for the
+/// connection, and the plugin pushes the session (a dashboard session, or
+/// one this app had it watch; see `HermesPushWatches`).
 AppNotification? appNotificationForHermesTurn(
   HermesTurnCompletion completion,
 ) {

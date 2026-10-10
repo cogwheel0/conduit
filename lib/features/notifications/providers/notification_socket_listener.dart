@@ -18,8 +18,12 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart'
+    show HermesBackendMode;
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/notifications/services/hermes_push_watches.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 import '../services/local_notification_service.dart';
@@ -54,20 +58,40 @@ NotificationRouter notificationRouter(Ref ref) {
       scope,
       activeValue: ref.read(appSettingsProvider).notificationsEnabled,
     ),
-    pushVerified: (scope) => _pushVerified(ref, scope),
+    pushCovers: (notification) => pushCoversNotification(
+      ref.read(pushStateIfUsedProvider),
+      notification,
+      watches: ref.read(hermesPushWatchesProvider),
+    ),
   );
 }
 
-/// Whether push is on for [scope]: turned on, not opted out, and a test push
-/// decrypted on this device.
-bool _pushVerified(Ref ref, String scope) {
-  final push = ref.read(pushStateIfUsedProvider);
+/// Whether a push will report [notification]'s event: push is on for its
+/// scope (turned on, not opted out, and a test push decrypted on this
+/// device), and for a Hermes reply, the plugin pushes its session's turns.
+/// It does for a Hermes dashboard (desktop) session on its own, and for an
+/// API server session only while a watch this app registered lasts
+/// ([watches]).
+@visibleForTesting
+bool pushCoversNotification(
+  PushState? push,
+  AppNotification notification, {
+  required HermesPushWatches watches,
+}) {
   if (push == null || !push.enabled) return false;
-  final target = push.targets[scope];
-  return target != null &&
-      !target.optedOut &&
-      (target.status == PushStatus.on ||
-          target.status == PushStatus.updateAvailable);
+  final target = push.targets[notification.scope];
+  if (target == null ||
+      target.optedOut ||
+      (target.status != PushStatus.on &&
+          target.status != PushStatus.updateAvailable)) {
+    return false;
+  }
+  return switch (target.target) {
+    HermesPushTarget(:final connectionId, :final mode) =>
+      mode == HermesBackendMode.desktopGateway ||
+          watches.isWatched(connectionId, notification.sourceId),
+    OpenWebUiPushTarget() => true,
+  };
 }
 
 Future<bool> _claimForPush(

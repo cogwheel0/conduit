@@ -122,7 +122,7 @@ void main() {
       return claimResult;
     },
     scopeNotificationsEnabled: scopeEnabled,
-    pushVerified: pushOn.contains,
+    pushCovers: (notification) => pushOn.contains(notification.scope),
     now: () => now,
   );
 
@@ -564,6 +564,30 @@ void main() {
       check(await router.route(watched())).equals(NotificationSurface.system);
     });
 
+    test('asks push about the notification itself, not just its scope', () async {
+      // Push is on for the connection, but only session s-1's turns push:
+      // s-2's turn started before push was on, so the plugin never watched it.
+      final router = NotificationRouter(
+        readSettings: () => allOn,
+        readActiveView: () => home,
+        isAppForeground: () => false,
+        localNotifications: local,
+        sound: sound,
+        showInAppBanner: banners.add,
+        onChannelUnread: unreads.add,
+        pushCovers: (notification) => notification.sourceId == 's-1',
+        now: () => now,
+      );
+      check(await router.route(watched())).equals(
+        NotificationSurface.suppressed,
+      );
+      final unwatched = _hermes(
+        session: 's-2',
+        key: 'hermes:conn-1|hermes:s-2:local',
+      ).copyWith(sharesPushDedupKey: false);
+      check(await router.route(unwatched)).equals(NotificationSurface.system);
+    });
+
     test('does not hold back the push that follows in the foreground', () async {
       var foreground = false;
       final router = NotificationRouter(
@@ -574,7 +598,7 @@ void main() {
         sound: sound,
         showInAppBanner: banners.add,
         onChannelUnread: unreads.add,
-        pushVerified: {'hermes:conn-1'}.contains,
+        pushCovers: (notification) => notification.scope == 'hermes:conn-1',
         now: () => now,
       );
       check(await router.route(watched())).equals(

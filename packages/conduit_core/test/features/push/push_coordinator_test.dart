@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/notifications/services/hermes_push_watches.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_subscription_record.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
@@ -1487,6 +1488,40 @@ void main() {
       check(h.gateway.ops).isEmpty();
     });
 
+    test('a watch the plugin accepted is recorded', () async {
+      h = await _Harness.start(targets: [_hermes], realHermes: true);
+      await h.coordinator.setEnabled(true);
+      final watches = h.container.read(hermesPushWatchesProvider);
+
+      h.coordinator.watchHermesSession('conn-1', 'session-7');
+      await h.until(() => watches.isWatched('conn-1', 'session-7'));
+      check(watches.isWatched('conn-1', 'session-8')).isFalse();
+    });
+
+    test('no watch is recorded that the plugin did not take', () async {
+      h = await _Harness.start(targets: [_hermes], realHermes: true);
+      final watches = h.container.read(hermesPushWatchesProvider);
+      // Push is off.
+      h.coordinator.watchHermesSession('conn-1', 'session-1');
+      await pumpEventQueue();
+      check(watches.isWatched('conn-1', 'session-1')).isFalse();
+
+      // The plugin refuses it.
+      await h.coordinator.setEnabled(true);
+      h.gateway.watchError = 'unknown_session';
+      h.coordinator.watchHermesSession('conn-1', 'session-2');
+      await h.until(() => h.gateway.ops.contains('watch'));
+      await pumpEventQueue();
+      check(watches.isWatched('conn-1', 'session-2')).isFalse();
+
+      // The connection is opted out.
+      h.gateway.watchError = null;
+      await h.coordinator.setTargetOptedOut(_hermes.scope, true);
+      h.coordinator.watchHermesSession('conn-1', 'session-3');
+      await pumpEventQueue();
+      check(watches.isWatched('conn-1', 'session-3')).isFalse();
+    });
+
     test('notify me adds conduit to a job and removes it', () async {
       h = await _Harness.start(targets: [_hermes]);
       h.factory.jobs.stored['job-1'] = 'telegram';
@@ -2113,6 +2148,9 @@ final class _Gateway implements HttpClientAdapter {
   _Platform? platform;
   final bodies = <Map<String, dynamic>>[];
 
+  /// The error the plugin answers a `watch` with.
+  String? watchError;
+
   List<String> get ops => [for (final body in bodies) body['op'] as String];
 
   @override
@@ -2126,6 +2164,7 @@ final class _Gateway implements HttpClientAdapter {
     final result = switch (body['op']) {
       'hello' => {'ok': true, 'plugin': 'conduit', 'version': '1.0.0'},
       'test' => {'ok': true, 'push_status': 201},
+      'watch' when watchError != null => {'ok': false, 'error': watchError},
       _ => {'ok': true},
     };
     if (body['op'] == 'test') {
