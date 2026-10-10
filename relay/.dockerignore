@@ -1,0 +1,6 @@
+# Only Cargo.toml, Cargo.lock and src/ are needed to build the image.
+target/
+tests/
+*.md
+Dockerfile
+.dockerignore

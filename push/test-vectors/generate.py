@@ -167,6 +167,17 @@ def cp1() -> dict:
             sid=DEBUG_SID,
         ),
         _case(
+            "middle_bucket",
+            "owui_reply",
+            "owui:acct-1",
+            cp.build(
+                "reply", "owui",
+                ids={"chat": "4f1c2a7e", "msg": "d00dfeed"},
+                title="Long title " * 9, body="会议" * 100,
+                dedup_key="chat:4f1c2a7e:d00dfeed", group="chat:4f1c2a7e", ts=TS,
+            ),
+        ),
+        _case(
             "largest_bucket",
             "owui_reply",
             "owui:acct-1",
