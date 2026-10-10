@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "你的服务器",
   "pushPrivacyServerBody": "它本来就有你的对话。为了推送，它还会保存此设备的推送地址、公钥、一个随机设备 ID，以及像“iOS”这样的标签。通知里放什么由它决定：一个标题和一段简短预览。",
   "pushPrivacyRelayTitle": "Conduit 中继",
-  "pushPrivacyRelayBody": "它把加密的通知转交给 Apple 或 Google。它能看到你的服务器何时发送以及大致大小，但看不到标题、正文、账户或服务器。它是开源的，不保留日志，也没有数据库。",
+  "pushPrivacyRelayBody": "它把加密的通知转交给 Apple 或 Google。它能看到你的服务器的 IP 地址、发送时间以及大致大小，但看不到标题、正文、账户，也看不到服务器的名称或 URL。它是开源的，不保留日志，也没有数据库。",
   "pushPrivacyProvidersTitle": "Apple 和 Google",
   "pushPrivacyProvidersBody": "它们投递加密的通知，但无法读取。如果通知无法解密，手机只会显示“新通知”。",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

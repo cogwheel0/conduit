@@ -4048,7 +4048,7 @@
   "pushPrivacyServerTitle": "사용자의 서버",
   "pushPrivacyServerBody": "서버에는 이미 채팅이 있습니다. 푸시를 위해 이 기기의 푸시 주소, 공개 키, 무작위 기기 ID, “iOS” 같은 라벨도 저장합니다. 알림에 무엇을 담을지(제목과 짧은 미리보기)는 서버가 정합니다.",
   "pushPrivacyRelayTitle": "Conduit 릴레이",
-  "pushPrivacyRelayBody": "암호화된 알림을 Apple이나 Google에 전달합니다. 서버가 언제 보냈는지와 대략적인 크기는 알 수 있지만 제목, 내용, 계정, 서버는 절대 알 수 없습니다. 오픈 소스이며 로그나 데이터베이스를 두지 않습니다.",
+  "pushPrivacyRelayBody": "암호화된 알림을 Apple이나 Google에 전달합니다. 서버의 IP 주소, 보낸 시각, 대략적인 크기는 알 수 있지만 제목, 내용, 계정, 서버의 이름이나 URL은 절대 알 수 없습니다. 오픈 소스이며 로그나 데이터베이스를 두지 않습니다.",
   "pushPrivacyProvidersTitle": "Apple과 Google",
   "pushPrivacyProvidersBody": "암호화된 알림을 전달할 뿐 읽을 수 없습니다. 복호화할 수 없으면 휴대폰에는 “새 알림”만 표시됩니다.",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

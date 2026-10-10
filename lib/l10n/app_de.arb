@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "Dein Server",
   "pushPrivacyServerBody": "Er hat deine Chats ohnehin. Für Push speichert er zusätzlich die Push-Adresse dieses Geräts, seinen öffentlichen Schlüssel, eine zufällige Geräte-ID und eine Bezeichnung wie „iOS“. Er entscheidet, was in einer Benachrichtigung steht: ein Titel und eine kurze Vorschau.",
   "pushPrivacyRelayTitle": "Das Conduit-Relay",
-  "pushPrivacyRelayBody": "Es reicht verschlüsselte Benachrichtigungen an Apple oder Google weiter. Es sieht, wann dein Server sendet, und eine gerundete Größe, aber nie Titel, Text, Konten oder Server. Es ist quelloffen und führt weder Protokolle noch eine Datenbank.",
+  "pushPrivacyRelayBody": "Es reicht verschlüsselte Benachrichtigungen an Apple oder Google weiter. Es sieht die IP-Adresse deines Servers, wann er sendet, und eine gerundete Größe, aber nie Titel, Text, Konten oder Name und URL deines Servers. Es ist quelloffen und führt weder Protokolle noch eine Datenbank.",
   "pushPrivacyProvidersTitle": "Apple und Google",
   "pushPrivacyProvidersBody": "Sie stellen die verschlüsselte Benachrichtigung zu und können sie nicht lesen. Lässt sie sich nicht entschlüsseln, zeigt dein Telefon nur „Neue Benachrichtigung“.",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

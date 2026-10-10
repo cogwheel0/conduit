@@ -7837,7 +7837,7 @@
   "pushPrivacyServerTitle": "Twój serwer",
   "pushPrivacyServerBody": "Ma już Twoje czaty. Na potrzeby push przechowuje też adres push tego urządzenia, jego klucz publiczny, losowy identyfikator urządzenia i etykietę, np. „iOS”. To on decyduje, co trafia do powiadomienia: tytuł i krótki podgląd.",
   "pushPrivacyRelayTitle": "Przekaźnik Conduit",
-  "pushPrivacyRelayBody": "Przekazuje zaszyfrowane powiadomienia do Apple lub Google. Widzi, kiedy Twój serwer wysyła, i zaokrąglony rozmiar, nigdy tytuły, tekst, konta ani serwery. Jest open source i nie prowadzi logów ani bazy danych.",
+  "pushPrivacyRelayBody": "Przekazuje zaszyfrowane powiadomienia do Apple lub Google. Widzi adres IP Twojego serwera, kiedy wysyła, i zaokrąglony rozmiar, nigdy tytuły, tekst, konta ani nazwę czy adres URL Twojego serwera. Jest open source i nie prowadzi logów ani bazy danych.",
   "pushPrivacyProvidersTitle": "Apple i Google",
   "pushPrivacyProvidersBody": "Dostarczają zaszyfrowane powiadomienie i nie mogą go odczytać. Jeśli nie da się go odszyfrować, telefon pokaże tylko „Nowe powiadomienie”.",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

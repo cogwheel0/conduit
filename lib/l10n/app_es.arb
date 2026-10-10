@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "Tu servidor",
   "pushPrivacyServerBody": "Ya tiene tus chats. Para push guarda además la dirección push de este dispositivo, su clave pública, un ID de dispositivo aleatorio y una etiqueta como «iOS». Decide qué contiene una notificación: un título y una vista previa breve.",
   "pushPrivacyRelayTitle": "El relé de Conduit",
-  "pushPrivacyRelayBody": "Pasa las notificaciones cifradas a Apple o Google. Ve cuándo envía tu servidor y un tamaño redondeado, nunca títulos, texto, cuentas ni servidores. Es de código abierto y no guarda registros ni base de datos.",
+  "pushPrivacyRelayBody": "Pasa las notificaciones cifradas a Apple o Google. Ve la dirección IP de tu servidor, cuándo envía y un tamaño redondeado, pero nunca títulos, texto, cuentas ni el nombre o la URL de tu servidor. Es de código abierto y no guarda registros ni base de datos.",
   "pushPrivacyProvidersTitle": "Apple y Google",
   "pushPrivacyProvidersBody": "Entregan la notificación cifrada y no pueden leerla. Si no se puede descifrar, tu teléfono solo muestra «Nueva notificación».",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

@@ -6098,7 +6098,7 @@
   "pushPrivacyServerTitle": "Váš server",
   "pushPrivacyServerBody": "Vaše chaty už má. Kvôli push si navyše ukladá push adresu tohto zariadenia, jeho verejný kľúč, náhodné ID zariadenia a označenie ako „iOS“. Rozhoduje, čo upozornenie obsahuje: nadpis a krátky náhľad.",
   "pushPrivacyRelayTitle": "Relay Conduitu",
-  "pushPrivacyRelayBody": "Odovzdáva šifrované upozornenia spoločnosti Apple alebo Google. Vidí, kedy váš server odosiela, a zaokrúhlenú veľkosť, nikdy nie nadpisy, text, účty ani servery. Je open source a nevedie žiadne záznamy ani databázu.",
+  "pushPrivacyRelayBody": "Odovzdáva šifrované upozornenia spoločnosti Apple alebo Google. Vidí IP adresu vášho servera, kedy odosiela, a zaokrúhlenú veľkosť, nikdy nie nadpisy, text, účty ani názov či URL vášho servera. Je open source a nevedie žiadne záznamy ani databázu.",
   "pushPrivacyProvidersTitle": "Apple a Google",
   "pushPrivacyProvidersBody": "Doručia šifrované upozornenie, ale nedokážu ho prečítať. Ak ho nemožno dešifrovať, telefón zobrazí iba „Nové upozornenie“.",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

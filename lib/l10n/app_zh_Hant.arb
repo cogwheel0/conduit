@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "你的伺服器",
   "pushPrivacyServerBody": "它本來就有你的對話。為了推播，它還會保存此裝置的推播位址、公開金鑰、一個隨機裝置 ID，以及像「iOS」這樣的標籤。通知內容由它決定：一個標題和一段簡短預覽。",
   "pushPrivacyRelayTitle": "Conduit 中繼",
-  "pushPrivacyRelayBody": "它把加密的通知轉交給 Apple 或 Google。它看得到你的伺服器何時傳送以及大略大小，但看不到標題、內文、帳戶或伺服器。它是開放原始碼，不保留記錄，也沒有資料庫。",
+  "pushPrivacyRelayBody": "它把加密的通知轉交給 Apple 或 Google。它看得到你的伺服器的 IP 位址、傳送時間以及大略大小，但看不到標題、內文、帳戶，也看不到伺服器的名稱或 URL。它是開放原始碼，不保留記錄，也沒有資料庫。",
   "pushPrivacyProvidersTitle": "Apple 與 Google",
   "pushPrivacyProvidersBody": "它們傳遞加密的通知，但無法讀取。如果通知無法解密，手機只會顯示「新通知」。",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

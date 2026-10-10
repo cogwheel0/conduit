@@ -5792,7 +5792,7 @@
   "pushPrivacyServerTitle": "あなたのサーバー",
   "pushPrivacyServerBody": "サーバーはもともとあなたのチャットを持っています。プッシュのために、このデバイスのプッシュアドレス、公開鍵、ランダムなデバイス ID、「iOS」のようなラベルも保存します。通知に何を含めるか(タイトルと短いプレビュー)はサーバーが決めます。",
   "pushPrivacyRelayTitle": "Conduit リレー",
-  "pushPrivacyRelayBody": "暗号化された通知を Apple や Google に渡します。サーバーが送信したタイミングとおおよそのサイズはわかりますが、タイトル、本文、アカウント、サーバーは決してわかりません。オープンソースで、ログもデータベースも持ちません。",
+  "pushPrivacyRelayBody": "暗号化された通知を Apple や Google に渡します。サーバーの IP アドレス、送信したタイミング、おおよそのサイズはわかりますが、タイトル、本文、アカウント、サーバーの名前や URL は決してわかりません。オープンソースで、ログもデータベースも持ちません。",
   "pushPrivacyProvidersTitle": "Apple と Google",
   "pushPrivacyProvidersBody": "暗号化された通知を配信しますが、内容は読めません。復号できない場合、端末には「新しい通知」とだけ表示されます。",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

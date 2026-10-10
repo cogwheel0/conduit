@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "Votre serveur",
   "pushPrivacyServerBody": "Il a déjà vos chats. Pour le push, il conserve en plus l'adresse push de cet appareil, sa clé publique, un identifiant d'appareil aléatoire et un libellé comme « iOS ». Il décide du contenu d'une notification : un titre et un court aperçu.",
   "pushPrivacyRelayTitle": "Le relais Conduit",
-  "pushPrivacyRelayBody": "Il transmet les notifications chiffrées à Apple ou Google. Il voit quand votre serveur envoie et une taille arrondie, jamais les titres, le texte, les comptes ou les serveurs. Il est open source et ne garde ni journaux ni base de données.",
+  "pushPrivacyRelayBody": "Il transmet les notifications chiffrées à Apple ou Google. Il voit l'adresse IP de votre serveur, quand il envoie et une taille arrondie, mais jamais les titres, le texte, les comptes, ni le nom ou l'URL de votre serveur. Il est open source et ne garde ni journaux ni base de données.",
   "pushPrivacyProvidersTitle": "Apple et Google",
   "pushPrivacyProvidersBody": "Ils distribuent la notification chiffrée et ne peuvent pas la lire. Si elle ne peut pas être déchiffrée, votre téléphone affiche seulement « Nouvelle notification ».",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",

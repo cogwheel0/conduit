@@ -9006,7 +9006,7 @@
   "@pushPrivacyRelayTitle": {
     "description": "Push privacy explainer section about the Conduit push relay."
   },
-  "pushPrivacyRelayBody": "It passes encrypted notifications on to Apple or Google. It sees when your server sends and a rounded size, never titles, text, accounts or servers. It is open source and keeps no logs or database.",
+  "pushPrivacyRelayBody": "It passes encrypted notifications on to Apple or Google. It sees your server's IP address, when it sends and a rounded size, but never titles, text, accounts, or your server's name or URL. It is open source and keeps no logs or database.",
   "@pushPrivacyRelayBody": {
     "description": "Push privacy explainer: what the relay sees."
   },
