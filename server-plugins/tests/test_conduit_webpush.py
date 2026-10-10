@@ -167,6 +167,8 @@ def test_preview_cleaning_reads_only_the_start_of_a_long_text():
     ("<details><summary>Tool</summary><details>inner</details>secret</details>Visible", "Visible"),
     ('<details type="reasoning" done="false">\n<summary>Thinking…</summary>\nsecret', ""),
     ("<|begin_of_thought|>plan<|end_of_thought|><|begin_of_solution|>Answer<|end_of_solution|>", "Answer"),
+    ("<|BEGIN_OF_THOUGHT|>plan<|END_OF_THOUGHT|><|Begin_Of_Solution|>Answer<|END_OF_SOLUTION|>", "Answer"),
+    ("◁THINK▷plan◁/THINK▷Answer", "Answer"),
     ("◁think▷plan◁/think▷Answer", "Answer"),
     ("A stray </think> close", "A stray close"),
     ("No markup at all", "No markup at all"),

@@ -51,7 +51,7 @@ _HIDDEN = re.compile(
     r"|◁(/?)think▷",
     re.IGNORECASE,
 )
-_SOLUTION_MARKER = re.compile(r"<\|(?:begin|end)_of_solution\|>")
+_SOLUTION_MARKER = re.compile(r"<\|(?:begin|end)_of_solution\|>", re.IGNORECASE)
 
 
 def strip_hidden(text: str) -> str:
@@ -67,7 +67,8 @@ def strip_hidden(text: str) -> str:
     for match in _HIDDEN.finditer(text):
         if depth == 0:
             kept.append(text[position:match.start()])
-        closing = bool(match.group(1)) or match.group(3) == "end" or bool(match.group(4))
+        marker = (match.group(3) or "").lower()
+        closing = bool(match.group(1)) or marker == "end" or bool(match.group(4))
         depth = max(depth - 1, 0) if closing else depth + 1
         position = match.end()
     if depth == 0:

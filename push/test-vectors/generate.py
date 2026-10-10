@@ -267,6 +267,11 @@ def preview_cases() -> dict:
         ),
         ("think_tags", "<think>internal</think>Visible answer", "Visible answer"),
         (
+            "uppercase_reasoning_tags",
+            '<THINK>internal</THINK><Details type="reasoning">\n<summary>Thought</summary>\nplan\n</DETAILS>\nVisible answer',
+            "Visible answer",
+        ),
+        (
             "markdown",
             "# Title\n\n- **Bold** item\n- [link](https://x.y) and ![pic](https://x.y/p.png)\n> quoted `code`",
             "Title Bold item link and pic quoted code",

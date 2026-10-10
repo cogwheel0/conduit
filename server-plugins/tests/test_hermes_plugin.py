@@ -613,7 +613,8 @@ def test_failed_turn_pushes_reply_failed(env):
     ("**Done.** <think>the plan", "Done."),
     ("<think>plan</think>**Done.** Here it is.", "Done. Here it is."),
     ("<details><summary>Tool</summary><details>inner</details>secret</details>Visible", "Visible"),
-], ids=["open", "open_after_the_answer", "closed", "nested"])
+    ("<|BEGIN_OF_THOUGHT|>plan<|END_OF_THOUGHT|>**Done.**", "Done."),
+], ids=["open", "open_after_the_answer", "closed", "nested", "uppercase_thought_markers"])
 @pytest.mark.parametrize("failed", [False, True], ids=["reply", "reply_failed"])
 def test_reply_preview_drops_reasoning_left_open_or_nested(env, text, body, failed):
     device = Device("a")
