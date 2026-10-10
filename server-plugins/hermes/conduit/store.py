@@ -129,7 +129,9 @@ class Store:
                 if s.get("sid") != entry["sid"] and not (entry.get("did") and s.get("did") == entry["did"])
             ]
             kept.append(entry)
-            kept.sort(key=lambda s: float(s.get("seen") or 0), reverse=True)
+            # Newest first; on a tie the entry just accepted wins, or it could
+            # be evicted while the caller is told it was stored.
+            kept.sort(key=lambda s: (float(s.get("seen") or 0), s is entry), reverse=True)
             self._write(SUBSCRIPTIONS, {"v": 1, "subs": kept[:MAX_SUBSCRIPTIONS]})
 
     def remove(self, sids: List[str], now: Optional[float] = None) -> int:

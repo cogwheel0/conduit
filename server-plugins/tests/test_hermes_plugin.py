@@ -492,6 +492,15 @@ def test_store_caps_at_ten_evicting_the_oldest(env):
     assert set(sids) == {d.sid for d in devices[2:]}
 
 
+def test_store_keeps_the_subscription_it_just_accepted_on_a_tie(env):
+    devices = [Device(str(i)) for i in range(11)]
+    for device in devices:
+        env.subscribe(device, now=1000)  # all in the same second
+    sids = env.op({"op": "list"}, now=1000)["sids"]
+    assert len(sids) == 10
+    assert devices[-1].sid in sids
+
+
 def test_store_expires_after_thirty_days(env):
     old, fresh = Device("old"), Device("fresh")
     day = 86400
