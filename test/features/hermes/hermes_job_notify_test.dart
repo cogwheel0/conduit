@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
 import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -256,6 +258,38 @@ void main() {
         find.text("Job saved, but its notifications couldn't be changed."),
         findsOneWidget,
       );
+    });
+
+    testWidgets('leaving while a new job gets Notify me is safe', (
+      tester,
+    ) async {
+      final fake = await pumpPage(tester, push: _push(PushStatus.on));
+      final gate = Completer<void>();
+      fake.jobNotifyGate = gate;
+      await tester.tap(find.text('New scheduled job'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(EditableText).at(0), 'Daily');
+      await tester.enterText(find.byType(EditableText).at(1), 'Summarize');
+      await tester.tap(find.text('Save'));
+      for (var i = 0; i < 20 && fake.calls.isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(fake.calls, ['setHermesJobNotify $_connection job-new true']);
+
+      // The page goes while the server is still being asked.
+      unawaited(
+        tester
+            .state<NavigatorState>(find.byType(Navigator).first)
+            .pushReplacement(
+              MaterialPageRoute<void>(builder: (_) => const SizedBox()),
+            ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(HermesJobsPage), findsNothing);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('with Scheduled tasks off, Notify me is off and says why', (

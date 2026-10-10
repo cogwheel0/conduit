@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
@@ -137,6 +139,9 @@ final class FakePushCoordinator extends PushCoordinator {
   /// Thrown by [setHermesJobNotify].
   Object? jobNotifyError;
 
+  /// Holds [setHermesJobNotify] until completed.
+  Completer<void>? jobNotifyGate;
+
   @override
   Future<String> setHermesJobNotify({
     required String connectionId,
@@ -144,6 +149,8 @@ final class FakePushCoordinator extends PushCoordinator {
     required bool notify,
   }) async {
     calls.add('setHermesJobNotify $connectionId $jobId $notify');
+    final gate = jobNotifyGate;
+    if (gate != null) await gate.future;
     final error = jobNotifyError;
     if (error != null) throw error;
     return notify ? 'local,conduit' : 'local';

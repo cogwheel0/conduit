@@ -139,6 +139,8 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
 
   Future<void> _createJob() async {
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
+    // For the notify step, which can end after the page is gone.
+    final container = ProviderScope.containerOf(context, listen: false);
     final connectionId = _pushConnectionId(ref);
     final hint = _notifyUnavailableHint(ref, l10n, connectionId);
     // A new job notifies by default where push reaches this connection.
@@ -174,7 +176,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
     if (created && wantsNotify) {
       final notified =
           job != null &&
-          await _trySetJobNotify(ref, connectionId, job!, notify: true);
+          await _trySetJobNotify(container, connectionId, job!, notify: true);
       if (mounted) {
         UiUtils.showMessage(
           context,
@@ -216,14 +218,17 @@ String? _pushConnectionId(WidgetRef ref) {
 /// Turns [job]'s "Notify me" on or off. Answers whether that worked; a
 /// failure is logged here and reported by the caller, apart from the change
 /// to the job itself.
+///
+/// [container] is the page's, taken before it awaited anything: this can
+/// end after the page is gone, and still refreshes the job list then.
 Future<bool> _trySetJobNotify(
-  WidgetRef ref,
+  ProviderContainer container,
   String connectionId,
   HermesJob job, {
   required bool notify,
 }) async {
   try {
-    await ref
+    await container
         .read(pushCoordinatorProvider.notifier)
         .setHermesJobNotify(
           connectionId: connectionId,
@@ -240,7 +245,7 @@ Future<bool> _trySetJobNotify(
     );
     return false;
   } finally {
-    ref.invalidate(hermesJobsProvider);
+    container.invalidate(hermesJobsProvider);
   }
 }
 
@@ -552,6 +557,8 @@ class _JobCardState extends ConsumerState<_JobCard> {
 
   Future<void> _editJob() async {
     final l10n = _l10n(context);
+    // For the notify step, which can end after the page is gone.
+    final container = ProviderScope.containerOf(context, listen: false);
     // A job whose delivery targets could not be read offers no switch: it
     // would write them back without the unread ones.
     final connectionId = job.deliveryKnown ? _pushConnectionId(ref) : null;
@@ -584,7 +591,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
     // Reported apart from the edit, which has been saved.
     if (saved && changesNotify) {
       final changed = await _trySetJobNotify(
-        ref,
+        container,
         connectionId,
         job,
         notify: notify,
