@@ -29,10 +29,6 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if state.providers().is_empty() {
-        tracing::warn!("neither APNs nor FCM is configured; every push will fail");
-    }
-
     let listener = match TcpListener::bind(config.listen_addr).await {
         Ok(listener) => listener,
         Err(err) => {

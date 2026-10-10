@@ -43,6 +43,10 @@ pub enum StartupError {
     Apns(#[from] ApnsError),
     #[error(transparent)]
     Fcm(#[from] FcmError),
+    /// A relay that can reach neither APNs nor FCM would answer every push
+    /// with 503 while `/readyz` called it ready.
+    #[error("neither APNs nor FCM is configured")]
+    NoProviders,
 }
 
 pub struct AppState {
@@ -58,6 +62,9 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: &Config) -> Result<Self, StartupError> {
+        if config.apns.is_none() && config.fcm.is_none() {
+            return Err(StartupError::NoProviders);
+        }
         Ok(Self {
             public_url: config.public_url.clone(),
             sealer: Sealer::new(&config.seal_keys, config.active_kid),

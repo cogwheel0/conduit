@@ -18,7 +18,7 @@ use axum::Router;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use conduit_push_relay::config::Config;
-use conduit_push_relay::{AppState, ConnectionLimits};
+use conduit_push_relay::{AppState, ConnectionLimits, StartupError};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1401,6 +1401,18 @@ async fn unconfigured_provider_is_503() {
     // FCM still works.
     let fcm_endpoint = fcm_only.endpoint("fcm", "prod").await;
     assert_eq!(fcm_only.push_reply(&fcm_endpoint).await.status(), 201);
+}
+
+#[tokio::test]
+async fn a_relay_without_providers_refuses_to_start() {
+    let mut env = base_env("127.0.0.1:9".parse().unwrap());
+    env.retain(|name, _| !name.starts_with("APNS_") && !name.starts_with("FCM_"));
+    env.insert("RELAY_PUBLIC_URL", "http://relay.test".into());
+    let config = Config::from_lookup(|name| env.get(name).cloned()).unwrap();
+    assert!(matches!(
+        AppState::new(&config),
+        Err(StartupError::NoProviders)
+    ));
 }
 
 #[tokio::test]

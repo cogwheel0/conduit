@@ -71,7 +71,8 @@ from the JSON.
 
 Settings come from environment variables. A provider is turned on only when
 all of its settings are present. When some are missing, the relay starts
-without it and logs which ones.
+without it and logs which ones. With neither APNs nor FCM turned on, the
+relay refuses to start.
 
 ### Core
 
