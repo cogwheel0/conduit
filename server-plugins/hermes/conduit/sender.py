@@ -67,13 +67,29 @@ def _quiet() -> Iterator[None]:
 
 # -- payloads -----------------------------------------------------------------
 
+def _preview(text: Any) -> str:
+    """Plain-text preview of a reply or job output.
+
+    Reasoning blocks are dropped, including nested ones and one an
+    interrupted turn left open. Only the first ``cp.CLEAN_INPUT_LIMIT``
+    characters are read, so a long reply can't stall the patterns.
+    """
+    text = text if isinstance(text, str) else ""
+    cut = len(text) > cp.CLEAN_INPUT_LIMIT
+    if cut:
+        text = text[: cp.CLEAN_INPUT_LIMIT]
+    text = cp.clean_text(cp.strip_hidden(text))
+    return text + cp.ELLIPSIS if cut and text else text
+
+
 def reply_payload(kind: str, session_id: str, turn_id: str, title: str, body: str) -> Dict[str, Any]:
     return cp.build(
         kind, SOURCE,
         ids={"session": session_id, "turn": turn_id},
-        title=title, body=body,
+        title=title, body=_preview(body),
         dedup_key=f"hermes:{session_id}:{turn_id}",
         group=f"hermes:{session_id}",
+        clean=False,
     )
 
 
@@ -81,9 +97,10 @@ def cron_payload(job_id: str, run_id: str, title: str, body: str) -> Dict[str, A
     return cp.build(
         "cron", SOURCE,
         ids={"job": job_id, "run": run_id},
-        title=title, body=body,
+        title=title, body=_preview(body),
         dedup_key=f"cron:{job_id}:{run_id}",
         group=f"cron:{job_id}",
+        clean=False,
     )
 
 

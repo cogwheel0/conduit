@@ -160,6 +160,21 @@ def test_preview_cleaning_reads_only_the_start_of_a_long_text():
     assert cp.clean_text("Use the <details> element.") == "Use the element."
 
 
+@pytest.mark.parametrize("text,expected", [
+    ("Answer.<think>secret reasoning", "Answer."),
+    ("<think>secret reasoning", ""),
+    ("<THINKING>plan</THINKING>Visible", "Visible"),
+    ("<details><summary>Tool</summary><details>inner</details>secret</details>Visible", "Visible"),
+    ('<details type="reasoning" done="false">\n<summary>Thinking…</summary>\nsecret', ""),
+    ("<|begin_of_thought|>plan<|end_of_thought|><|begin_of_solution|>Answer<|end_of_solution|>", "Answer"),
+    ("◁think▷plan◁/think▷Answer", "Answer"),
+    ("A stray </think> close", "A stray close"),
+    ("No markup at all", "No markup at all"),
+])
+def test_strip_hidden_counts_nesting_and_drops_an_open_block(text, expected):
+    assert cp.clean_text(cp.strip_hidden(text)) == expected
+
+
 def test_links_with_parentheses_in_the_target():
     assert cp.clean_text("See [Bracket](https://en.wikipedia.org/wiki/Bracket_(disambiguation)) now") == (
         "See Bracket now"

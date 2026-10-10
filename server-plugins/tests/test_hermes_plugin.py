@@ -580,6 +580,30 @@ def test_failed_turn_pushes_reply_failed(env):
     assert (payload["k"], payload["b"], payload["dk"]) == ("reply_failed", "", "hermes:sess-1:t2")
 
 
+@pytest.mark.parametrize("text,body", [
+    ("<think>private reasoning", ""),
+    ("**Done.** <think>the plan", "Done."),
+    ("<think>plan</think>**Done.** Here it is.", "Done. Here it is."),
+    ("<details><summary>Tool</summary><details>inner</details>secret</details>Visible", "Visible"),
+], ids=["open", "open_after_the_answer", "closed", "nested"])
+@pytest.mark.parametrize("failed", [False, True], ids=["reply", "reply_failed"])
+def test_reply_preview_drops_reasoning_left_open_or_nested(env, text, body, failed):
+    device = Device("a")
+    env.subscribe(device)
+    _turn(env, text=text, failed=failed)
+    assert device.open(env.relay.requests[0])["b"] == body
+    assert env.sender.cron_payload("j1", "1", "Brief", text)["b"] == body
+
+
+def test_reply_preview_reads_only_the_start_of_a_huge_reply(env):
+    start = time.perf_counter()
+    payload = env.sender.reply_payload("reply", "s", "t", "", "<think " * (1_000_000 // 7))
+    assert time.perf_counter() - start < 0.25
+    assert len(payload["b"]) <= 200
+    cut_open = "Answer first. <think>" + "secret reasoning " * 400 + "</think> More."
+    assert env.sender.reply_payload("reply", "s", "t", "", cut_open)["b"] == "Answer first.…"
+
+
 def test_interrupted_turn_does_not_push(env):
     env.subscribe(Device("a"))
     _turn(env, interrupted=True)

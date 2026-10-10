@@ -91,16 +91,6 @@ EVENT_TEXT_LIMIT = 1000
 _B64U = re.compile(r"^[A-Za-z0-9_-]+={0,2}$")
 _SID = re.compile(r"^[A-Za-z0-9_-]{22}$")
 _NONCE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
-# Reasoning and tool blocks never belong in a preview. Open WebUI's default
-# reasoning tags, <details> blocks and code interpreter blocks are dropped,
-# including one left open because the event text was cut short.
-_HIDDEN = re.compile(
-    r"<(/?)(details|think|thinking|reason|reasoning|thought|code_interpreter)\b[^>]*>"
-    r"|<\|(begin|end)_of_thought\|>"
-    r"|◁(/?)think▷",
-    re.IGNORECASE,
-)
-_SOLUTION_MARKER = re.compile(r"<\|(?:begin|end)_of_solution\|>")
 # Channel mentions are stored as <@U:id|Label>; a preview shows @Label. Neither
 # part may contain "<", so a run of unclosed "<@U:" takes linear time.
 _MENTION = re.compile(r"<([@#])[A-Z]:([^|<>]+)(?:\|([^<>]+))?>")
@@ -347,27 +337,13 @@ def _merge_commit(
     return changed
 
 
-def _strip_hidden(text: str) -> str:
-    """Drops reasoning and tool blocks, including one cut off before its end."""
-    kept: List[str] = []
-    depth = 0
-    position = 0
-    for match in _HIDDEN.finditer(text):
-        if depth == 0:
-            kept.append(text[position:match.start()])
-        closing = bool(match.group(1)) or match.group(3) == "end" or bool(match.group(4))
-        depth = max(depth - 1, 0) if closing else depth + 1
-        position = match.end()
-    if depth == 0:
-        kept.append(text[position:])
-    return _SOLUTION_MARKER.sub(" ", " ".join(kept))
-
-
 def _preview(raw: Any) -> str:
     """Plain-text preview of an event's Markdown text.
 
-    A stored channel message can be any length, so only its first
-    cp.CLEAN_INPUT_LIMIT characters reach the regexes below.
+    Reasoning and tool blocks never belong in a preview, so they are dropped,
+    including one left open because the event text was cut short. A stored
+    channel message can be any length, so only its first cp.CLEAN_INPUT_LIMIT
+    characters reach the regexes below.
     """
     text = _text(raw)
     truncated = len(text) == EVENT_TEXT_LIMIT + 3 and text.endswith("...")
@@ -376,7 +352,7 @@ def _preview(raw: Any) -> str:
     elif len(text) > cp.CLEAN_INPUT_LIMIT:
         text, truncated = text[: cp.CLEAN_INPUT_LIMIT], True
     text = _MENTION.sub(lambda m: m.group(1) + (m.group(3) or m.group(2)), text)
-    text = cp.clean_text(_strip_hidden(text))
+    text = cp.clean_text(cp.strip_hidden(text))
     return text + cp.ELLIPSIS if truncated and text else text
 
 
