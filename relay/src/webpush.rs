@@ -149,8 +149,8 @@ mod tests {
         map
     }
 
-    /// A header-valid body in the middle size class, which the shared vectors
-    /// do not include.
+    /// A body of any length with a valid `aes128gcm` header block and filler
+    /// where the ciphertext goes.
     fn synthetic_body(len: usize) -> Vec<u8> {
         let mut body = vec![0xA5; len];
         body[16..20].copy_from_slice(&4096u32.to_be_bytes());
@@ -170,8 +170,9 @@ mod tests {
             assert_eq!(check_body(&body), Ok(()), "{}", case["name"]);
             sizes.push(body.len());
         }
-        assert!(sizes.contains(&598) && sizes.contains(&2134), "{sizes:?}");
-        assert_eq!(check_body(&synthetic_body(1110)), Ok(()));
+        for size in BODY_SIZES {
+            assert!(sizes.contains(&size), "no {size}-byte case in {sizes:?}");
+        }
     }
 
     #[test]

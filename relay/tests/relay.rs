@@ -756,17 +756,18 @@ async fn apns_maps_ttl_urgency_topic_and_sandbox() {
 async fn every_padded_size_is_forwarded() {
     let relay = start().await;
     let endpoint = relay.endpoint("apns", "prod").await;
-    let mut bodies: Vec<Vec<u8>> = vectors()["cases"]
+    let bodies: Vec<Vec<u8>> = vectors()["cases"]
         .as_array()
         .unwrap()
         .iter()
         .map(|case| b64(&case["body"]))
         .collect();
-    // The vectors have no 1024-byte class; build a header-valid body for it.
-    let mut middle = vec![0x5A; 1110];
-    middle[16..20].copy_from_slice(&4096u32.to_be_bytes());
-    middle[20] = 65;
-    bodies.push(middle);
+    for size in [598, 1110, 2134] {
+        assert!(
+            bodies.iter().any(|body| body.len() == size),
+            "no {size}-byte case in the vectors"
+        );
+    }
     for body in &bodies {
         let response = relay
             .push(&endpoint, body.clone(), &standard_headers())
