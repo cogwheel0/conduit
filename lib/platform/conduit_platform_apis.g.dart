@@ -128,6 +128,8 @@ enum PlatformPccQuotaStatus {
 
 enum PlatformPccEventKind { content, usage, fallback, error, done }
 
+enum PlatformPushTransport { apns, fcm, unifiedPush }
+
 enum PlatformNativeSheetItemKind {
   navigation,
   textField,
@@ -3851,6 +3853,352 @@ class PlatformPccStreamEvent {
   }
 }
 
+/// One end-to-end-encrypted push subscription: a P-256 key pair and auth
+/// secret kept by the platform (Keychain on iOS, Keystore-wrapped on Android),
+/// for one Open WebUI account or Hermes connection. See docs/push/PROTOCOL.md.
+class PlatformPushSubscription {
+  PlatformPushSubscription({
+    required this.sid,
+    required this.scope,
+    required this.p256dh,
+    required this.auth,
+    required this.createdAtMillis,
+    this.endpoint,
+    this.transport,
+  });
+
+  /// 16 random bytes, base64url. Names the key pair in every push.
+  String sid;
+
+  /// `owui:<accountId>` or `hermes:<connectionId>`.
+  String scope;
+
+  /// Uncompressed P-256 public key, base64url.
+  String p256dh;
+
+  /// 16-byte auth secret, base64url.
+  String auth;
+
+  int createdAtMillis;
+
+  String? endpoint;
+
+  PlatformPushTransport? transport;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      sid,
+      scope,
+      p256dh,
+      auth,
+      createdAtMillis,
+      endpoint,
+      transport,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformPushSubscription decode(Object result) {
+    result as List<Object?>;
+    return PlatformPushSubscription(
+      sid: result[0]! as String,
+      scope: result[1]! as String,
+      p256dh: result[2]! as String,
+      auth: result[3]! as String,
+      createdAtMillis: result[4]! as int,
+      endpoint: result[5] as String?,
+      transport: result[6] as PlatformPushTransport?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformPushSubscription ||
+        other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(sid, other.sid) &&
+        _deepEquals(scope, other.scope) &&
+        _deepEquals(p256dh, other.p256dh) &&
+        _deepEquals(auth, other.auth) &&
+        _deepEquals(createdAtMillis, other.createdAtMillis) &&
+        _deepEquals(endpoint, other.endpoint) &&
+        _deepEquals(transport, other.transport);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformPushSubscription(sid: $sid, scope: $scope, p256dh: $p256dh, auth: $auth, createdAtMillis: $createdAtMillis, endpoint: $endpoint, transport: $transport)';
+  }
+}
+
+class PlatformPushToken {
+  PlatformPushToken({
+    required this.transport,
+    required this.token,
+    required this.app,
+    required this.env,
+  });
+
+  PlatformPushTransport transport;
+
+  /// Hex APNs device token or FCM registration token.
+  String token;
+
+  /// Bundle id or application id the relay addresses.
+  String app;
+
+  /// `prod` or `dev` (the APNs sandbox).
+  String env;
+
+  List<Object?> _toList() {
+    return <Object?>[transport, token, app, env];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformPushToken decode(Object result) {
+    result as List<Object?>;
+    return PlatformPushToken(
+      transport: result[0]! as PlatformPushTransport,
+      token: result[1]! as String,
+      app: result[2]! as String,
+      env: result[3]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformPushToken || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(transport, other.transport) &&
+        _deepEquals(token, other.token) &&
+        _deepEquals(app, other.app) &&
+        _deepEquals(env, other.env);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformPushToken(transport: $transport, token: $token, app: $app, env: $env)';
+  }
+}
+
+/// What the Notification Service Extension / Android receiver needs to show
+/// a push without the Flutter engine. Mirrored into shared storage.
+class PlatformPushConfig {
+  PlatformPushConfig({
+    required this.enabled,
+    required this.sound,
+    required this.enabledKinds,
+    required this.disabledScopes,
+    required this.scopeLabels,
+    required this.showScopeLabel,
+    required this.strings,
+  });
+
+  bool enabled;
+
+  bool sound;
+
+  /// `cp/1` kinds the user wants shown: reply, reply_failed, channel, cron, test.
+  List<String> enabledKinds;
+
+  List<String> disabledScopes;
+
+  /// Account or connection name per scope, shown as the subtitle.
+  Map<String, String> scopeLabels;
+
+  bool showScopeLabel;
+
+  /// Localized strings keyed fallbackTitle, fallbackBody, replyTitle,
+  /// replyFailedTitle, replyFailedBody, channelTitle, cronTitle, testTitle,
+  /// testBody.
+  Map<String, String> strings;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      enabled,
+      sound,
+      enabledKinds,
+      disabledScopes,
+      scopeLabels,
+      showScopeLabel,
+      strings,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformPushConfig decode(Object result) {
+    result as List<Object?>;
+    return PlatformPushConfig(
+      enabled: result[0]! as bool,
+      sound: result[1]! as bool,
+      enabledKinds: (result[2]! as List<Object?>).cast<String>(),
+      disabledScopes: (result[3]! as List<Object?>).cast<String>(),
+      scopeLabels: (result[4]! as Map<Object?, Object?>).cast<String, String>(),
+      showScopeLabel: result[5]! as bool,
+      strings: (result[6]! as Map<Object?, Object?>).cast<String, String>(),
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformPushConfig || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(enabled, other.enabled) &&
+        _deepEquals(sound, other.sound) &&
+        _deepEquals(enabledKinds, other.enabledKinds) &&
+        _deepEquals(disabledScopes, other.disabledScopes) &&
+        _deepEquals(scopeLabels, other.scopeLabels) &&
+        _deepEquals(showScopeLabel, other.showScopeLabel) &&
+        _deepEquals(strings, other.strings);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformPushConfig(enabled: $enabled, sound: $sound, enabledKinds: $enabledKinds, disabledScopes: $disabledScopes, scopeLabels: $scopeLabels, showScopeLabel: $showScopeLabel, strings: $strings)';
+  }
+}
+
+/// A decrypted push, handed to Dart while the app is in the foreground so the
+/// notification router decides between a banner and nothing.
+class PlatformPushMessage {
+  PlatformPushMessage({
+    required this.sid,
+    required this.scope,
+    required this.payloadJson,
+  });
+
+  String sid;
+
+  String scope;
+
+  /// The `cp/1` plaintext.
+  String payloadJson;
+
+  List<Object?> _toList() {
+    return <Object?>[sid, scope, payloadJson];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformPushMessage decode(Object result) {
+    result as List<Object?>;
+    return PlatformPushMessage(
+      sid: result[0]! as String,
+      scope: result[1]! as String,
+      payloadJson: result[2]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformPushMessage || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(sid, other.sid) &&
+        _deepEquals(scope, other.scope) &&
+        _deepEquals(payloadJson, other.payloadJson);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformPushMessage(sid: $sid, scope: $scope, payloadJson: $payloadJson)';
+  }
+}
+
+/// A tapped push notification.
+class PlatformPushTap {
+  PlatformPushTap({required this.scope, required this.payloadJson});
+
+  String scope;
+
+  /// The `cp/1` plaintext the notification was built from.
+  String payloadJson;
+
+  List<Object?> _toList() {
+    return <Object?>[scope, payloadJson];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformPushTap decode(Object result) {
+    result as List<Object?>;
+    return PlatformPushTap(
+      scope: result[0]! as String,
+      payloadJson: result[1]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformPushTap || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(scope, other.scope) &&
+        _deepEquals(payloadJson, other.payloadJson);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformPushTap(scope: $scope, payloadJson: $payloadJson)';
+  }
+}
+
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
   @override
@@ -3876,167 +4224,185 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is PlatformPccEventKind) {
       buffer.putUint8(134);
       writeValue(buffer, value.index);
-    } else if (value is PlatformNativeSheetItemKind) {
+    } else if (value is PlatformPushTransport) {
       buffer.putUint8(135);
       writeValue(buffer, value.index);
-    } else if (value is PlatformKeyboardAttachmentActionKind) {
+    } else if (value is PlatformNativeSheetItemKind) {
       buffer.putUint8(136);
       writeValue(buffer, value.index);
-    } else if (value is PlatformBackgroundStreamLease) {
+    } else if (value is PlatformKeyboardAttachmentActionKind) {
       buffer.putUint8(137);
-      writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundStartRequest) {
+      writeValue(buffer, value.index);
+    } else if (value is PlatformBackgroundStreamLease) {
       buffer.putUint8(138);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundStopRequest) {
+    } else if (value is PlatformBackgroundStartRequest) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundKeepAliveRequest) {
+    } else if (value is PlatformBackgroundStopRequest) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundAudioSessionOwnerRequest) {
+    } else if (value is PlatformBackgroundKeepAliveRequest) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformServiceFailureEvent) {
+    } else if (value is PlatformBackgroundAudioSessionOwnerRequest) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformTimeLimitWarningEvent) {
+    } else if (value is PlatformServiceFailureEvent) {
       buffer.putUint8(143);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformStreamsSuspendingEvent) {
+    } else if (value is PlatformTimeLimitWarningEvent) {
       buffer.putUint8(144);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundTaskExtendedEvent) {
+    } else if (value is PlatformStreamsSuspendingEvent) {
       buffer.putUint8(145);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformAppIntentImagePayload) {
+    } else if (value is PlatformBackgroundTaskExtendedEvent) {
       buffer.putUint8(146);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformAppIntentResponse) {
+    } else if (value is PlatformAppIntentImagePayload) {
       buffer.putUint8(147);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativePasteImageItem) {
+    } else if (value is PlatformAppIntentResponse) {
       buffer.putUint8(148);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativePastePayload) {
+    } else if (value is PlatformNativePasteImageItem) {
       buffer.putUint8(149);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentActionConfig) {
+    } else if (value is PlatformNativePastePayload) {
       buffer.putUint8(150);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentConfig) {
+    } else if (value is PlatformKeyboardAttachmentActionConfig) {
       buffer.putUint8(151);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentActionEvent) {
+    } else if (value is PlatformKeyboardAttachmentConfig) {
       buffer.putUint8(152);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentVisibilityEvent) {
+    } else if (value is PlatformKeyboardAttachmentActionEvent) {
       buffer.putUint8(153);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformRect) {
+    } else if (value is PlatformKeyboardAttachmentVisibilityEvent) {
       buffer.putUint8(154);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformDropdownOption) {
+    } else if (value is PlatformRect) {
       buffer.putUint8(155);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformImageViewerItem) {
+    } else if (value is PlatformDropdownOption) {
       buffer.putUint8(156);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformImageViewerRequest) {
+    } else if (value is PlatformImageViewerItem) {
       buffer.putUint8(157);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformDropdownRequest) {
+    } else if (value is PlatformImageViewerRequest) {
       buffer.putUint8(158);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOption) {
+    } else if (value is PlatformDropdownRequest) {
       buffer.putUint8(159);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTheme) {
+    } else if (value is PlatformNativeSheetOption) {
       buffer.putUint8(160);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetItem) {
+    } else if (value is PlatformNativeSheetTheme) {
       buffer.putUint8(161);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetLink) {
+    } else if (value is PlatformNativeSheetItem) {
       buffer.putUint8(162);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetSection) {
+    } else if (value is PlatformNativeSheetLink) {
       buffer.putUint8(163);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileSheetConfig) {
+    } else if (value is PlatformNativeSheetSection) {
       buffer.putUint8(164);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeProfileSheetUser) {
+    } else if (value is PlatformNativeEditProfileSheetConfig) {
       buffer.putUint8(165);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetail) {
+    } else if (value is PlatformNativeProfileSheetUser) {
       buffer.putUint8(166);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeProfileSheetConfig) {
+    } else if (value is PlatformNativeSheetDetail) {
       buffer.putUint8(167);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelOption) {
+    } else if (value is PlatformNativeProfileSheetConfig) {
       buffer.putUint8(168);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelSelectorRequest) {
+    } else if (value is PlatformNativeSheetModelOption) {
       buffer.putUint8(169);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
+    } else if (value is PlatformNativeSheetModelSelectorRequest) {
       buffer.putUint8(170);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDatePickerRequest) {
+    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
       buffer.putUint8(171);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTextEditorRequest) {
+    } else if (value is PlatformNativeSheetDatePickerRequest) {
       buffer.putUint8(172);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetResultRequest) {
+    } else if (value is PlatformNativeSheetTextEditorRequest) {
       buffer.putUint8(173);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
+    } else if (value is PlatformNativeSheetResultRequest) {
       buffer.putUint8(174);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetControlChangedEvent) {
+    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
       buffer.putUint8(175);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
+    } else if (value is PlatformNativeSheetControlChangedEvent) {
       buffer.putUint8(176);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
+    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
       buffer.putUint8(177);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
+    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
       buffer.putUint8(178);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileCommittedEvent) {
+    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
       buffer.putUint8(179);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetActionResult) {
+    } else if (value is PlatformNativeEditProfileCommittedEvent) {
       buffer.putUint8(180);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStatus) {
+    } else if (value is PlatformNativeSheetActionResult) {
       buffer.putUint8(181);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccImage) {
+    } else if (value is PlatformPccStatus) {
       buffer.putUint8(182);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccMessage) {
+    } else if (value is PlatformPccImage) {
       buffer.putUint8(183);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolDefinition) {
+    } else if (value is PlatformPccMessage) {
       buffer.putUint8(184);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolCall) {
+    } else if (value is PlatformPccToolDefinition) {
       buffer.putUint8(185);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolResult) {
+    } else if (value is PlatformPccToolCall) {
       buffer.putUint8(186);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccCompletionRequest) {
+    } else if (value is PlatformPccToolResult) {
       buffer.putUint8(187);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStreamEvent) {
+    } else if (value is PlatformPccCompletionRequest) {
       buffer.putUint8(188);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPccStreamEvent) {
+      buffer.putUint8(189);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPushSubscription) {
+      buffer.putUint8(190);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPushToken) {
+      buffer.putUint8(191);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPushConfig) {
+      buffer.putUint8(192);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPushMessage) {
+      buffer.putUint8(193);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPushTap) {
+      buffer.putUint8(194);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -4068,138 +4434,151 @@ class _PigeonCodec extends StandardMessageCodec {
         return value == null ? null : PlatformPccEventKind.values[value];
       case 135:
         final value = readValue(buffer) as int?;
-        return value == null ? null : PlatformNativeSheetItemKind.values[value];
+        return value == null ? null : PlatformPushTransport.values[value];
       case 136:
+        final value = readValue(buffer) as int?;
+        return value == null ? null : PlatformNativeSheetItemKind.values[value];
+      case 137:
         final value = readValue(buffer) as int?;
         return value == null
             ? null
             : PlatformKeyboardAttachmentActionKind.values[value];
-      case 137:
-        return PlatformBackgroundStreamLease.decode(readValue(buffer)!);
       case 138:
-        return PlatformBackgroundStartRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStreamLease.decode(readValue(buffer)!);
       case 139:
-        return PlatformBackgroundStopRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStartRequest.decode(readValue(buffer)!);
       case 140:
-        return PlatformBackgroundKeepAliveRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStopRequest.decode(readValue(buffer)!);
       case 141:
+        return PlatformBackgroundKeepAliveRequest.decode(readValue(buffer)!);
+      case 142:
         return PlatformBackgroundAudioSessionOwnerRequest.decode(
           readValue(buffer)!,
         );
-      case 142:
-        return PlatformServiceFailureEvent.decode(readValue(buffer)!);
       case 143:
-        return PlatformTimeLimitWarningEvent.decode(readValue(buffer)!);
+        return PlatformServiceFailureEvent.decode(readValue(buffer)!);
       case 144:
-        return PlatformStreamsSuspendingEvent.decode(readValue(buffer)!);
+        return PlatformTimeLimitWarningEvent.decode(readValue(buffer)!);
       case 145:
-        return PlatformBackgroundTaskExtendedEvent.decode(readValue(buffer)!);
+        return PlatformStreamsSuspendingEvent.decode(readValue(buffer)!);
       case 146:
-        return PlatformAppIntentImagePayload.decode(readValue(buffer)!);
+        return PlatformBackgroundTaskExtendedEvent.decode(readValue(buffer)!);
       case 147:
-        return PlatformAppIntentResponse.decode(readValue(buffer)!);
+        return PlatformAppIntentImagePayload.decode(readValue(buffer)!);
       case 148:
-        return PlatformNativePasteImageItem.decode(readValue(buffer)!);
+        return PlatformAppIntentResponse.decode(readValue(buffer)!);
       case 149:
-        return PlatformNativePastePayload.decode(readValue(buffer)!);
+        return PlatformNativePasteImageItem.decode(readValue(buffer)!);
       case 150:
+        return PlatformNativePastePayload.decode(readValue(buffer)!);
+      case 151:
         return PlatformKeyboardAttachmentActionConfig.decode(
           readValue(buffer)!,
         );
-      case 151:
-        return PlatformKeyboardAttachmentConfig.decode(readValue(buffer)!);
       case 152:
-        return PlatformKeyboardAttachmentActionEvent.decode(readValue(buffer)!);
+        return PlatformKeyboardAttachmentConfig.decode(readValue(buffer)!);
       case 153:
+        return PlatformKeyboardAttachmentActionEvent.decode(readValue(buffer)!);
+      case 154:
         return PlatformKeyboardAttachmentVisibilityEvent.decode(
           readValue(buffer)!,
         );
-      case 154:
-        return PlatformRect.decode(readValue(buffer)!);
       case 155:
-        return PlatformDropdownOption.decode(readValue(buffer)!);
+        return PlatformRect.decode(readValue(buffer)!);
       case 156:
-        return PlatformImageViewerItem.decode(readValue(buffer)!);
+        return PlatformDropdownOption.decode(readValue(buffer)!);
       case 157:
-        return PlatformImageViewerRequest.decode(readValue(buffer)!);
+        return PlatformImageViewerItem.decode(readValue(buffer)!);
       case 158:
-        return PlatformDropdownRequest.decode(readValue(buffer)!);
+        return PlatformImageViewerRequest.decode(readValue(buffer)!);
       case 159:
-        return PlatformNativeSheetOption.decode(readValue(buffer)!);
+        return PlatformDropdownRequest.decode(readValue(buffer)!);
       case 160:
-        return PlatformNativeSheetTheme.decode(readValue(buffer)!);
+        return PlatformNativeSheetOption.decode(readValue(buffer)!);
       case 161:
-        return PlatformNativeSheetItem.decode(readValue(buffer)!);
+        return PlatformNativeSheetTheme.decode(readValue(buffer)!);
       case 162:
-        return PlatformNativeSheetLink.decode(readValue(buffer)!);
+        return PlatformNativeSheetItem.decode(readValue(buffer)!);
       case 163:
-        return PlatformNativeSheetSection.decode(readValue(buffer)!);
+        return PlatformNativeSheetLink.decode(readValue(buffer)!);
       case 164:
-        return PlatformNativeEditProfileSheetConfig.decode(readValue(buffer)!);
+        return PlatformNativeSheetSection.decode(readValue(buffer)!);
       case 165:
-        return PlatformNativeProfileSheetUser.decode(readValue(buffer)!);
+        return PlatformNativeEditProfileSheetConfig.decode(readValue(buffer)!);
       case 166:
-        return PlatformNativeSheetDetail.decode(readValue(buffer)!);
+        return PlatformNativeProfileSheetUser.decode(readValue(buffer)!);
       case 167:
-        return PlatformNativeProfileSheetConfig.decode(readValue(buffer)!);
+        return PlatformNativeSheetDetail.decode(readValue(buffer)!);
       case 168:
-        return PlatformNativeSheetModelOption.decode(readValue(buffer)!);
+        return PlatformNativeProfileSheetConfig.decode(readValue(buffer)!);
       case 169:
+        return PlatformNativeSheetModelOption.decode(readValue(buffer)!);
+      case 170:
         return PlatformNativeSheetModelSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 170:
+      case 171:
         return PlatformNativeSheetOptionsSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 171:
-        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 172:
-        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 173:
-        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
       case 174:
+        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+      case 175:
         return PlatformNativeSheetApplyDetailPatchRequest.decode(
           readValue(buffer)!,
         );
-      case 175:
+      case 176:
         return PlatformNativeSheetControlChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 176:
+      case 177:
         return PlatformNativeSheetDetailAppearedEvent.decode(
           readValue(buffer)!,
         );
-      case 177:
+      case 178:
         return PlatformNativeSheetModelPinToggledEvent.decode(
           readValue(buffer)!,
         );
-      case 178:
+      case 179:
         return PlatformNativeSheetReasoningEffortChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 179:
+      case 180:
         return PlatformNativeEditProfileCommittedEvent.decode(
           readValue(buffer)!,
         );
-      case 180:
-        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 181:
-        return PlatformPccStatus.decode(readValue(buffer)!);
+        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 182:
-        return PlatformPccImage.decode(readValue(buffer)!);
+        return PlatformPccStatus.decode(readValue(buffer)!);
       case 183:
-        return PlatformPccMessage.decode(readValue(buffer)!);
+        return PlatformPccImage.decode(readValue(buffer)!);
       case 184:
-        return PlatformPccToolDefinition.decode(readValue(buffer)!);
+        return PlatformPccMessage.decode(readValue(buffer)!);
       case 185:
-        return PlatformPccToolCall.decode(readValue(buffer)!);
+        return PlatformPccToolDefinition.decode(readValue(buffer)!);
       case 186:
-        return PlatformPccToolResult.decode(readValue(buffer)!);
+        return PlatformPccToolCall.decode(readValue(buffer)!);
       case 187:
-        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+        return PlatformPccToolResult.decode(readValue(buffer)!);
       case 188:
+        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+      case 189:
         return PlatformPccStreamEvent.decode(readValue(buffer)!);
+      case 190:
+        return PlatformPushSubscription.decode(readValue(buffer)!);
+      case 191:
+        return PlatformPushToken.decode(readValue(buffer)!);
+      case 192:
+        return PlatformPushConfig.decode(readValue(buffer)!);
+      case 193:
+        return PlatformPushMessage.decode(readValue(buffer)!);
+      case 194:
+        return PlatformPushTap.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -5855,6 +6234,528 @@ abstract class PccFlutterApi {
           try {
             final PlatformPccToolResult output = await api.onToolCall(arg_call);
             return wrapResponse(result: output);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+  }
+}
+
+class PushHostApi {
+  /// Constructor for [PushHostApi]. The [binaryMessenger] named argument is
+  /// available for dependency injection. If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  PushHostApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  Future<List<PlatformPushTransport>> availableTransports() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.availableTransports$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return (pigeonVar_replyValue! as List<Object?>)
+        .cast<PlatformPushTransport>();
+  }
+
+  Future<bool> requestPermission() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.requestPermission$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
+
+  /// The current device token, registering for remote notifications first if
+  /// needed. Null when the transport is unavailable.
+  Future<PlatformPushToken?> currentToken(
+    PlatformPushTransport transport,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.currentToken$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[transport],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+    return pigeonVar_replyValue as PlatformPushToken?;
+  }
+
+  /// Generates a fresh key pair, auth secret and sid for [scope].
+  Future<PlatformPushSubscription> createSubscription(String scope) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.createSubscription$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[scope],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as PlatformPushSubscription;
+  }
+
+  Future<List<PlatformPushSubscription>> listSubscriptions() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.listSubscriptions$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return (pigeonVar_replyValue! as List<Object?>)
+        .cast<PlatformPushSubscription>();
+  }
+
+  Future<void> setEndpoint(
+    String sid,
+    String endpoint,
+    PlatformPushTransport transport,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.setEndpoint$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[sid, endpoint, transport],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  Future<void> deleteSubscription(String sid) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.deleteSubscription$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[sid],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  Future<void> setConfig(PlatformPushConfig config) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.setConfig$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[config],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  /// Records [dedupKey] as shown. False when a push or a local notification
+  /// already claimed it. [localNotificationId] lets a later push replace a
+  /// notification the app posted itself.
+  Future<bool> claimNotification(
+    String dedupKey,
+    String? localNotificationId,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.claimNotification$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[dedupKey, localNotificationId],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as bool;
+  }
+
+  /// Removes delivered notifications that belong to [scope].
+  Future<void> cancelScope(String scope) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.cancelScope$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[scope],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  /// The push notification that launched the app, once.
+  Future<PlatformPushTap?> takeLaunchTap() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.takeLaunchTap$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+    return pigeonVar_replyValue as PlatformPushTap?;
+  }
+
+  /// Test nonces the extension or receiver decrypted for [sid] since the last
+  /// call.
+  Future<List<String>> takeVerifiedNonces(String sid) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.takeVerifiedNonces$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[sid],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return (pigeonVar_replyValue! as List<Object?>).cast<String>();
+  }
+
+  /// Installed UnifiedPush distributors (package names). Android only.
+  Future<List<String>> unifiedPushDistributors() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.unifiedPushDistributors$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return (pigeonVar_replyValue! as List<Object?>).cast<String>();
+  }
+
+  /// Registers [sid] with [distributor] and answers its endpoint, or null when
+  /// the distributor refuses or does not answer in time.
+  Future<String?> registerUnifiedPush(String sid, String distributor) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.registerUnifiedPush$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[sid, distributor],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+    return pigeonVar_replyValue as String?;
+  }
+
+  Future<void> unregisterUnifiedPush(String sid) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.PushHostApi.unregisterUnifiedPush$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[sid],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+}
+
+abstract class PushFlutterApi {
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  void onToken(PlatformPushToken token);
+
+  void onForegroundPush(PlatformPushMessage message);
+
+  void onTap(PlatformPushTap tap);
+
+  void onTestReceived(String sid, String nonce);
+
+  /// The push service dropped [sid] (UnifiedPush unregistered it).
+  void onUnregistered(String sid);
+
+  void onUnifiedPushEndpoint(String sid, String endpoint);
+
+  static void setUp(
+    PushFlutterApi? api, {
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) {
+    messageChannelSuffix = messageChannelSuffix.isNotEmpty
+        ? '.$messageChannelSuffix'
+        : '';
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.PushFlutterApi.onToken$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final PlatformPushToken arg_token = args[0]! as PlatformPushToken;
+          try {
+            api.onToken(arg_token);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.PushFlutterApi.onForegroundPush$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final PlatformPushMessage arg_message =
+              args[0]! as PlatformPushMessage;
+          try {
+            api.onForegroundPush(arg_message);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.PushFlutterApi.onTap$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final PlatformPushTap arg_tap = args[0]! as PlatformPushTap;
+          try {
+            api.onTap(arg_tap);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.PushFlutterApi.onTestReceived$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final String arg_sid = args[0]! as String;
+          final String arg_nonce = args[1]! as String;
+          try {
+            api.onTestReceived(arg_sid, arg_nonce);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.PushFlutterApi.onUnregistered$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final String arg_sid = args[0]! as String;
+          try {
+            api.onUnregistered(arg_sid);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.PushFlutterApi.onUnifiedPushEndpoint$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final String arg_sid = args[0]! as String;
+          final String arg_endpoint = args[1]! as String;
+          try {
+            api.onUnifiedPushEndpoint(arg_sid, arg_endpoint);
+            return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
           } catch (e) {
