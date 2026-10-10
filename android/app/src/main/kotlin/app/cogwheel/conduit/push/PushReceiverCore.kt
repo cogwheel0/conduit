@@ -14,8 +14,8 @@ interface PushDelivery {
     /** Main thread. Hands the push to Dart; [done] gets false when Dart did not take it. */
     fun forwardToApp(sid: String, scope: String, payloadJson: String, done: (Boolean) -> Unit)
 
-    /** Main thread. Posts the system notification. */
-    fun post(scope: String, payload: PushPayload, content: PushNotificationContent)
+    /** Main thread. Posts the system notification; false when it could not, say without permission. */
+    fun post(scope: String, payload: PushPayload, content: PushNotificationContent): Boolean
 
     fun testReceived(sid: String, nonce: String)
 
@@ -32,6 +32,10 @@ interface PushDelivery {
  * 4. Claim the dedup key, unless something already showed this message.
  * 5. In the foreground, Dart decides (banner or nothing); it routes the push
  *    as already claimed. Otherwise, or when Dart does not take it, post.
+ *
+ * Removing an account and changing settings happen on the main thread, so
+ * steps 1 and 3 run again there, right before claiming and before posting.
+ * A claim whose notification was not shown is given back.
  */
 class PushReceiverCore(
     private val subscriptions: (String) -> PushSubscriptionRecord?,
@@ -58,23 +62,51 @@ class PushReceiverCore(
             }
         }
 
-        val content = when (val decision = PushPresenter.decide(scope, payload, config.config())) {
-            is PushDecision.Drop -> return delivery.dropped(decision.reason)
-            is PushDecision.Show -> decision.content
-        }
+        if (currentContent(sid, scope, payload) == null) return
 
+        val key = payload.appDedupKey(scope)
         delivery.runOnMain {
-            if (!ledger.claim(payload.appDedupKey(scope), null)) {
+            // The account may have gone, or its settings changed, since.
+            val content = currentContent(sid, scope, payload) ?: return@runOnMain
+            if (!ledger.claim(key, null)) {
                 delivery.dropped("already shown")
                 return@runOnMain
             }
             if (delivery.canForwardToApp()) {
                 delivery.forwardToApp(sid, scope, payload.json) { taken ->
-                    if (!taken) delivery.post(scope, payload, content)
+                    if (taken) return@forwardToApp
+                    // And again: Dart may have taken a while to answer.
+                    val latest = currentContent(sid, scope, payload)
+                    if (latest == null) ledger.release(key) else post(key, scope, payload, latest)
                 }
             } else {
-                delivery.post(scope, payload, content)
+                post(key, scope, payload, content)
             }
+        }
+    }
+
+    /** Main thread. Gives the claim on [key] back when nothing was posted. */
+    private fun post(key: String, scope: String, payload: PushPayload, content: PushNotificationContent) {
+        if (delivery.post(scope, payload, content)) return
+        delivery.dropped("not posted")
+        ledger.release(key)
+    }
+
+    /**
+     * What to show for [payload], or null, reported as dropped, when the
+     * subscription is gone or the settings turn it away.
+     */
+    private fun currentContent(sid: String, scope: String, payload: PushPayload): PushNotificationContent? {
+        if (subscriptions(sid)?.scope != scope) {
+            delivery.dropped("subscription removed")
+            return null
+        }
+        return when (val decision = PushPresenter.decide(scope, payload, config.config())) {
+            is PushDecision.Drop -> {
+                delivery.dropped(decision.reason)
+                null
+            }
+            is PushDecision.Show -> decision.content
         }
     }
 }

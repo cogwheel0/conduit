@@ -42,6 +42,24 @@ class PushLedgerTest {
     }
 
     @Test
+    fun aReleasedPushClaimFreesTheKey() {
+        val file = AtomicBytesFile(tempFile("ledger-release.json"))
+        val ledger = ledger(file)
+        assertTrue(ledger.claim("owui:a|chat:c:m", null))
+        ledger.release("owui:a|chat:c:m")
+        assertTrue(ledger(file).claim("owui:a|chat:c:m", "17"))
+    }
+
+    @Test
+    fun releasingNeverFreesTheAppsOwnClaim() {
+        val ledger = ledger()
+        assertTrue(ledger.claim("owui:a|chat:c:m", "17"))
+        ledger.release("owui:a|chat:c:m")
+        ledger.release("owui:a|chat:c:other")
+        assertFalse(ledger.claim("owui:a|chat:c:m", null))
+    }
+
+    @Test
     fun claimsExpireAfterThreeDays() {
         val ledger = ledger()
         assertTrue(ledger.claim("k", null))

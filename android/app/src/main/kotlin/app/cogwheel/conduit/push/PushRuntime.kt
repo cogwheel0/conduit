@@ -119,9 +119,8 @@ internal class AndroidPushDelivery(private val context: Context) : PushDelivery 
         bridge.forwardForegroundPush(PlatformPushMessage(sid = sid, scope = scope, payloadJson = payloadJson), done)
     }
 
-    override fun post(scope: String, payload: PushPayload, content: PushNotificationContent) {
+    override fun post(scope: String, payload: PushPayload, content: PushNotificationContent): Boolean =
         PushNotifier(context).post(scope, payload.json, content)
-    }
 
     override fun testReceived(sid: String, nonce: String) {
         PushRuntime.mainHandler.post { PushRuntime.bridge?.notifyTestReceived(sid, nonce) }

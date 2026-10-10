@@ -9,19 +9,30 @@ class PushReceiverCoreTest {
     private class FakeDelivery : PushDelivery {
         var foreground = false
         var dartTakesPushes = true
+        var notificationsAllowed = true
+        /** Runs on the main thread before the receiver's work there. */
+        var beforeMain: () -> Unit = {}
+        /** Runs while Dart has the push, before it answers. */
+        var beforeDartAnswers: () -> Unit = {}
         val forwarded = mutableListOf<Triple<String, String, String>>()
         val posted = mutableListOf<PushNotificationContent>()
         val tests = mutableListOf<Pair<String, String>>()
         val drops = mutableListOf<String>()
 
-        override fun runOnMain(block: () -> Unit) = block()
+        override fun runOnMain(block: () -> Unit) {
+            beforeMain()
+            block()
+        }
         override fun canForwardToApp() = foreground
         override fun forwardToApp(sid: String, scope: String, payloadJson: String, done: (Boolean) -> Unit) {
             forwarded += Triple(sid, scope, payloadJson)
+            beforeDartAnswers()
             done(dartTakesPushes)
         }
-        override fun post(scope: String, payload: PushPayload, content: PushNotificationContent) {
+        override fun post(scope: String, payload: PushPayload, content: PushNotificationContent): Boolean {
+            if (!notificationsAllowed) return false
             posted += content
+            return true
         }
         override fun testReceived(sid: String, nonce: String) {
             tests += sid to nonce
@@ -150,6 +161,67 @@ class PushReceiverCoreTest {
         core.handle(sid, body)
         assertTrue(delivery.forwarded.isEmpty())
         assertTrue(delivery.posted.isEmpty())
+    }
+
+    @Test
+    fun anAccountRemovedBeforeTheMainThreadRunsIsNotShown() {
+        val (sid, body) = body("owui_reply")
+        // Removal runs on the main thread, after the worker read the key.
+        delivery.beforeMain = { subscriptions.remove(sid) }
+        core.handle(sid, body)
+        assertTrue(delivery.posted.isEmpty())
+        assertEquals(listOf("subscription removed"), delivery.drops)
+        assertTrue(ledger.claim("owui:acct-1|chat:4f1c2a7e:b9d0e3f1", "9"))
+    }
+
+    @Test
+    fun settingsChangedBeforeTheMainThreadRunsApply() {
+        delivery.foreground = true
+        val (sid, body) = body("owui_reply")
+        delivery.beforeMain = {
+            config.save(PushDisplayConfig.DEFAULT.copy(disabledScopes = setOf("owui:acct-1")))
+        }
+        core.handle(sid, body)
+        assertTrue(delivery.forwarded.isEmpty())
+        assertTrue(delivery.posted.isEmpty())
+        assertTrue(ledger.claim("owui:acct-1|chat:4f1c2a7e:b9d0e3f1", "9"))
+    }
+
+    @Test
+    fun aPushDartDoesNotTakeIsNotPostedOnceItsAccountIsGone() {
+        delivery.foreground = true
+        delivery.dartTakesPushes = false
+        val (sid, body) = body("owui_reply")
+        delivery.beforeDartAnswers = { subscriptions.remove(sid) }
+        core.handle(sid, body)
+        assertEquals(1, delivery.forwarded.size)
+        assertTrue(delivery.posted.isEmpty())
+        assertTrue(ledger.claim("owui:acct-1|chat:4f1c2a7e:b9d0e3f1", "9"))
+    }
+
+    @Test
+    fun aPushThatCouldNotBePostedGivesItsClaimBack() {
+        delivery.notificationsAllowed = false
+        val (sid, body) = body("owui_reply")
+        core.handle(sid, body)
+        assertTrue(delivery.posted.isEmpty())
+        assertEquals(listOf("not posted"), delivery.drops)
+
+        // Once notifications are allowed again, the same message shows.
+        delivery.notificationsAllowed = true
+        core.handle(sid, body)
+        assertEquals(1, delivery.posted.size)
+    }
+
+    @Test
+    fun aPushDartDoesNotTakeThatCouldNotBePostedGivesItsClaimBack() {
+        delivery.foreground = true
+        delivery.dartTakesPushes = false
+        delivery.notificationsAllowed = false
+        val (sid, body) = body("owui_reply")
+        core.handle(sid, body)
+        assertTrue(delivery.posted.isEmpty())
+        assertTrue(ledger.claim("owui:acct-1|chat:4f1c2a7e:b9d0e3f1", "9"))
     }
 
     @Test
