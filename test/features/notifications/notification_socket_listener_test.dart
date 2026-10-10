@@ -397,6 +397,7 @@ void main() {
       PushStatus status = PushStatus.on,
       bool optedOut = false,
       bool enabled = true,
+      PushOrigin origin = PushOrigin.conduit,
     }) => PushState(
       enabled: enabled,
       targets: {
@@ -404,6 +405,7 @@ void main() {
           target: target,
           status: status,
           optedOut: optedOut,
+          origin: origin,
         ),
       },
     );
@@ -475,7 +477,22 @@ void main() {
       ).isTrue();
     });
 
-    test('an Open WebUI account with push on pushes', () {
+    test('an Open WebUI account pushes replies for all chats', () {
+      final push = pushWith(
+        const OpenWebUiPushTarget(accountId: 'acct-1', label: 'Ada'),
+        origin: PushOrigin.any,
+      );
+      final frame = turn.copyWith(
+        scope: 'owui:acct-1',
+        sourceId: 'c1',
+        dedupKey: 'owui:acct-1|chat:c1:x',
+      );
+      check(pushCoversNotification(push, frame, watches: watches)).isTrue();
+    });
+
+    test('a reply may not push for an account notifying Conduit chats', () {
+      // Its server pushes only replies to Conduit's own requests, and the
+      // event does not say whose request this answered.
       final push = pushWith(
         const OpenWebUiPushTarget(accountId: 'acct-1', label: 'Ada'),
       );
@@ -484,7 +501,22 @@ void main() {
         sourceId: 'c1',
         dedupKey: 'owui:acct-1|chat:c1:x',
       );
-      check(pushCoversNotification(push, frame, watches: watches)).isTrue();
+      check(pushCoversNotification(push, frame, watches: watches)).isFalse();
+      check(
+        pushCoversNotification(
+          push,
+          frame.copyWith(kind: NotificationKind.replyFailed),
+          watches: watches,
+        ),
+      ).isFalse();
+      // Channel messages push whatever the origin.
+      final message = frame.copyWith(
+        kind: NotificationKind.channelMessage,
+        sourceId: 'chan-1',
+        dedupKey: 'owui:acct-1|channel:chan-1:x',
+        group: 'channel:chan-1',
+      );
+      check(pushCoversNotification(push, message, watches: watches)).isTrue();
     });
   });
 }

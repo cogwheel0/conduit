@@ -71,7 +71,9 @@ NotificationRouter notificationRouter(Ref ref) {
 /// device), and for a Hermes reply, the plugin pushes its session's turns.
 /// It does for a Hermes dashboard (desktop) session on its own, and for an
 /// API server session only while a watch this app registered lasts
-/// ([watches]).
+/// ([watches]). An Open WebUI reply pushes only when the account notifies
+/// for all chats: with [PushOrigin.conduit] the server pushes a reply only
+/// to a request Conduit sent, which the app cannot tell from the event.
 @visibleForTesting
 bool pushCoversNotification(
   PushState? push,
@@ -90,7 +92,9 @@ bool pushCoversNotification(
     HermesPushTarget(:final connectionId, :final mode) =>
       mode == HermesBackendMode.desktopGateway ||
           watches.isWatched(connectionId, notification.sourceId),
-    OpenWebUiPushTarget() => true,
+    OpenWebUiPushTarget() =>
+      notification.kind == NotificationKind.channelMessage ||
+          target.origin == PushOrigin.any,
   };
 }
 
