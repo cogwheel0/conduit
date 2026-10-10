@@ -1,6 +1,8 @@
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/push/services/openwebui_push_backend.dart'
+    show kConduitPushFunctionId;
 import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
 import 'package:meta/meta.dart';
 
@@ -54,7 +56,9 @@ final workspaceFunctionsProvider = FutureProvider<List<WorkspaceFunctionRef>>((
   session.ensureCurrent(ref);
   return raw
       .map((json) => WorkspaceFunctionRef.fromJson(json))
-      .where((fn) => fn.id.isNotEmpty)
+      // Conduit Push is Conduit's own plumbing, never a model's filter or
+      // action.
+      .where((fn) => fn.id.isNotEmpty && fn.id != kConduitPushFunctionId)
       .toList(growable: false);
 });
 

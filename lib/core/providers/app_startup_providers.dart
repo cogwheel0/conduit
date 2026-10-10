@@ -60,6 +60,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit_core/features/chat/providers/remap_route_sync_provider.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 
 import '../../features/channels/providers/channel_socket_handler.dart';
@@ -71,6 +72,7 @@ import '../../features/notifications/providers/direct_notification_bridge.dart';
 import '../../features/notifications/providers/hermes_notification_bridge.dart';
 import '../../features/notifications/providers/notification_socket_listener.dart';
 import '../../features/notifications/providers/notification_tap_listener.dart';
+import '../../features/notifications/providers/push_notification_listener.dart';
 import '../../shared/theme/theme_providers.dart';
 
 part 'app_startup_providers.g.dart';
@@ -1024,6 +1026,13 @@ class AppStartupFlow extends _$AppStartupFlow {
       homeWidgetCoordinatorProvider,
       label: 'home-widget',
     );
+    // Push setup runs once accounts and connections are known, and stays
+    // idle while push is off.
+    _scheduleDeferredKeepAlive(
+      const Duration(milliseconds: 72),
+      pushCoordinatorProvider,
+      label: 'push-coordinator',
+    );
     _scheduleAfterDelay(
       const Duration(milliseconds: 80),
       () => ref.read(shareReceiverInitializerProvider),
@@ -1181,6 +1190,11 @@ class AppStartupFlow extends _$AppStartupFlow {
           .read(notificationTapListenerProvider.notifier)
           .handleLaunchTap(openWebUiReady: true),
     );
+    unawaited(
+      ref
+          .read(pushNotificationListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: true),
+    );
     _scheduleDefaultModelPreload(
       keepDefaultModelAutoSelectionAlive: keepDefaultModelAutoSelectionAlive,
     );
@@ -1288,6 +1302,9 @@ class AppStartupFlow extends _$AppStartupFlow {
     // Hermes turns this app ran notify too, deduplicated against push.
     _keepAlive(directNotificationBridgeProvider);
     _keepAlive(hermesNotificationBridgeProvider);
+    // Pushes decrypted while the app is open, and push taps, follow the same
+    // rules; so does a push that cold-launched the app.
+    _keepAlive(pushNotificationListenerProvider);
     unawaited(
       ref
           .read(notificationTapListenerProvider.notifier)
@@ -1300,6 +1317,11 @@ class AppStartupFlow extends _$AppStartupFlow {
               stackTrace: stackTrace,
             );
           }),
+    );
+    unawaited(
+      ref
+          .read(pushNotificationListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: false),
     );
     _scheduleStartupTasks();
 

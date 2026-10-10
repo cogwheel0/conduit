@@ -33,6 +33,7 @@ part 'hermes_desktop_auth_rest.dart';
 part 'hermes_desktop_bots.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
+part 'hermes_desktop_raw_rest.dart';
 part 'hermes_desktop_turn_runtime.dart';
 
 typedef HermesDesktopCredentialsWriter = Future<void> Function(
@@ -502,13 +503,24 @@ final class HermesDesktopApiService
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
   }) => _administration.updateJob(
     id,
     name: name,
     prompt: prompt,
     schedule: schedule,
     enabled: enabled,
+    deliver: deliver,
   );
+
+  /// [method] [path] against the dashboard with its authentication, answering
+  /// any status rather than throwing on one.
+  Future<HermesDashboardResponse> dashboardRequest(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, dynamic>? query,
+  }) => _rawRequest(method, path, body: body, query: query);
 
   @override
   Future<void> deleteJob(String id) =>

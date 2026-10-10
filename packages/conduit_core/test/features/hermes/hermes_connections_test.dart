@@ -457,6 +457,43 @@ void main() {
           .equals('alpha-key');
     });
 
+    test('the host hears of a delete while the key still works', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final secrets = _Secrets({
+        'hermes_api_key_v1:$_a': 'alpha-key',
+        'hermes_api_key_v1:$_b': 'beta-key',
+      });
+      final heard = <(String, String?)>[];
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(secrets),
+          hostHermesConnectionRemovingProvider.overrideWithValue((id) async {
+            heard.add((id, await secrets.read(key: 'hermes_api_key_v1:$id')));
+          }),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(hermesConfigProvider);
+      for (
+        var i = 0;
+        i < 100 && container.read(hermesSecretsLoadingProvider);
+        i++
+      ) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      await container.read(hermesConfigProvider.notifier).deleteConnection(_b);
+      await container
+          .read(hermesConfigProvider.notifier)
+          .deleteConnection('dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+
+      check(heard).deepEquals([(_b, 'beta-key')]);
+      check(await secrets.read(key: 'hermes_api_key_v1:$_b')).isNull();
+    });
+
     test('a delete whose list cannot be saved keeps the dashboard sign-in',
         () async {
       _seedConnections([

@@ -400,6 +400,7 @@ final class _HermesDesktopAdministration {
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
   }) async {
     await _owner._requestJson(
       'PUT',
@@ -410,6 +411,7 @@ final class _HermesDesktopAdministration {
           'prompt': ?prompt,
           'schedule': ?schedule,
           'enabled': ?enabled,
+          'deliver': ?deliver,
         },
       },
     );

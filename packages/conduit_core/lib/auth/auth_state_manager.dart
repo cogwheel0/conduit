@@ -29,6 +29,7 @@ import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 part 'auth_state_manager.g.dart';
 
@@ -3545,6 +3546,15 @@ class AuthStateManager extends _$AuthStateManager {
         // as another locked iteration before publishing any local result.
         DebugLogger.auth('Logout clearing a resurrected revoked session');
       }
+    }
+
+    // While the session still works, and before the restart fence below
+    // drops a proxy's cookies: the account's push subscription is removed
+    // from its server with its own token. Bounded; never throws. Signing out
+    // of everything did this already, and without push nothing waits.
+    final pushHook = ref.read(pushSignOutHookProvider);
+    if (!clearAllAppData && logoutApi != null && pushHook.inUse) {
+      await pushHook.beforeOpenWebUiSignOut(logoutApi.serverConfig.id);
     }
 
     try {
