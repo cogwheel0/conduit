@@ -5,6 +5,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/notifications/services/notification_preview_text.dart';
 
 import 'local_notification_service.dart';
 import 'notification_sound_service.dart';
@@ -120,13 +121,14 @@ class NotificationRouter {
   /// When a Hermes reply last surfaced, by `<scope>|<group>`.
   final Map<String, DateTime> _hermesGroups = <String, DateTime>{};
 
-  /// When each channel message left to push was counted as unread, oldest
-  /// first, by `<scope>|<channelId>`. Its frame named no message, so its key
-  /// never matches its push's: a push for the channel that reaches the
-  /// router in the foreground takes the oldest one instead of counting the
-  /// message again.
-  final Map<String, Queue<DateTime>> _countedForPush =
-      <String, Queue<DateTime>>{};
+  /// The channel messages left to push that were counted as unread, oldest
+  /// first, by `<scope>|<channelId>`: when each was counted, and its preview
+  /// ([_previewToMatch]). Its frame named no message, so its key never
+  /// matches its push's: a push for the channel that reaches the router in
+  /// the foreground with the same preview takes the oldest such one instead
+  /// of counting the message again.
+  final Map<String, Queue<_CountedForPush>> _countedForPush =
+      <String, Queue<_CountedForPush>>{};
 
   /// Routes [notification] through the gating chain and dispatches it. Returns
   /// the surface taken, primarily for tests and diagnostics.
@@ -301,32 +303,53 @@ class NotificationRouter {
     _dropExpiredCounts();
     final counted = _countedForPush.putIfAbsent(
       '${notification.scope}|${notification.sourceId}',
-      Queue<DateTime>.new,
-    )..addLast(_now());
+      Queue<_CountedForPush>.new,
+    )..addLast((at: _now(), preview: _previewToMatch(notification.body)));
     if (counted.length > countedForPushCap) counted.removeFirst();
   }
 
   /// Takes the oldest message of [notification]'s channel counted while its
-  /// alert was left to push, if one is still within [countedForPushWindow].
+  /// alert was left to push with the same preview, if one is still within
+  /// [countedForPushWindow]. Another message's push takes nothing, so it
+  /// still counts.
   bool _takeCountedForPush(AppNotification notification) {
     _dropExpiredCounts();
     final key = '${notification.scope}|${notification.sourceId}';
     final counted = _countedForPush[key];
     if (counted == null) return false;
-    counted.removeFirst();
-    if (counted.isEmpty) _countedForPush.remove(key);
-    return true;
+    final preview = _previewToMatch(notification.body);
+    for (final entry in counted) {
+      if (entry.preview != preview) continue;
+      counted.remove(entry);
+      if (counted.isEmpty) _countedForPush.remove(key);
+      return true;
+    }
+    return false;
   }
 
   void _dropExpiredCounts() {
     final now = _now();
     _countedForPush.removeWhere((_, counted) {
       counted.removeWhere(
-        (countedAt) => now.difference(countedAt) >= countedForPushWindow,
+        (entry) => now.difference(entry.at) >= countedForPushWindow,
       );
       return counted.isEmpty;
     });
   }
+
+  /// Open WebUI stores a channel mention as `<@U:id|Label>`.
+  static final RegExp _mention = RegExp(
+    r'<([@#])[A-Z]:([^|<>]+)(?:\|([^<>]+))?>',
+  );
+
+  /// A channel message's [body] as its push previews it, so a frame's and
+  /// its push's compare equal. Both are cleaned and clipped the same way
+  /// ([notificationPreviewText]), but the push's from text whose mentions
+  /// already read `@Label` (`_MENTION` in the Conduit Push function), so
+  /// mentions are rewritten the same way and both are cleaned once more.
+  static String _previewToMatch(String body) => notificationPreviewText(
+    body.replaceAllMapped(_mention, (m) => '${m[1]}${m[3] ?? m[2]}'),
+  );
 
   /// Returns true if [key] was not seen before (and records it). Evicts the
   /// oldest key once capacity is exceeded.
@@ -339,3 +362,7 @@ class NotificationRouter {
     return true;
   }
 }
+
+/// A channel message counted as unread while its alert was left to push:
+/// when, and its preview to match its push by.
+typedef _CountedForPush = ({DateTime at, String preview});

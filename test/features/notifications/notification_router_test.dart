@@ -2,6 +2,8 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/notifications/services/cp1_notification_mapper.dart';
+import 'package:conduit_core/features/notifications/services/notification_event_classifier.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_router.dart';
 import 'package:conduit/features/notifications/services/notification_sound_service.dart';
@@ -580,14 +582,23 @@ void main() {
       late NotificationRouter router;
 
       // A frame that named no message, and the push for the same message,
-      // which carries the server's message id.
-      AppNotification frame(String digest, {String channel = 'chan-1'}) =>
-          _channel(
-            id: channel,
-            key: 'owui:acct-1|channel:$channel:$digest',
-          ).copyWith(sharesPushDedupKey: false);
-      AppNotification pushed(String messageId, {String channel = 'chan-1'}) =>
-          _channel(id: channel, key: 'owui:acct-1|channel:$channel:$messageId');
+      // which carries the server's message id. Both preview its text.
+      AppNotification frame(
+        String digest, {
+        String channel = 'chan-1',
+        String text = 'hi',
+      }) => _channel(
+        id: channel,
+        key: 'owui:acct-1|channel:$channel:$digest',
+      ).copyWith(sharesPushDedupKey: false, body: text);
+      AppNotification pushed(
+        String messageId, {
+        String channel = 'chan-1',
+        String text = 'hi',
+      }) => _channel(
+        id: channel,
+        key: 'owui:acct-1|channel:$channel:$messageId',
+      ).copyWith(body: text);
 
       setUp(() {
         foreground = false;
@@ -608,6 +619,81 @@ void main() {
         ).equals(NotificationSurface.banner);
         check(banners).deepEquals([push]);
         check(unreads).deepEquals([unnamed]);
+      });
+
+      test("is not taken by another message's push", () async {
+        final unnamed = frame('digest-1', text: 'See you at 3');
+        await router.route(unnamed);
+        foreground = true;
+        // Another message in the channel, whose frame came with its id, or
+        // never came: its push counts it.
+        final other = pushed('m-2', text: 'Lunch?');
+        await router.route(other, alreadyClaimed: true);
+        // The push for the frame's own message still finds its count.
+        await router.route(
+          pushed('m-1', text: 'See you at 3'),
+          alreadyClaimed: true,
+        );
+        check(unreads).deepEquals([unnamed, other]);
+      });
+
+      test('with the same text as another is taken once per push', () async {
+        final first = frame('digest-1', text: 'ok');
+        final second = frame('digest-2', text: 'ok');
+        await router.route(first);
+        await router.route(second);
+        foreground = true;
+        await router.route(pushed('m-1', text: 'ok'), alreadyClaimed: true);
+        await router.route(pushed('m-2', text: 'ok'), alreadyClaimed: true);
+        check(unreads).deepEquals([first, second]);
+        // A third has nothing left to take.
+        final third = pushed('m-3', text: 'ok');
+        await router.route(third, alreadyClaimed: true);
+        check(unreads).deepEquals([first, second, third]);
+      });
+
+      test('matches its push through mentions and markup', () async {
+        // The frame as the socket classifies it, with no message id...
+        final unnamed = const NotificationEventClassifier()
+            .classifyChannelEvent(
+              {
+                'channel_id': 'chan-1',
+                'channel': {'type': 'group', 'name': 'general'},
+                'data': {
+                  'type': 'message',
+                  'data': {
+                    'user': {'id': 'user-2', 'name': 'Ada'},
+                    'content':
+                        '<@U:user-3|Bob> see you at **3**\n\n'
+                        '- bring [the doc](https://x.test/doc)',
+                  },
+                },
+              },
+              currentUserId: 'user-1',
+              scope: 'owui:acct-1',
+            )!;
+        await router.route(unnamed);
+        foreground = true;
+        // ...and its push as the Conduit Push function previews it.
+        AppNotification push(String messageId, String preview) =>
+            appNotificationFromCp1({
+              'v': 1,
+              'k': 'channel',
+              'src': 'owui',
+              'ids': {'channel': 'chan-1', 'msg': messageId},
+              't': '#general',
+              'a': 'Ada',
+              'b': preview,
+              'dk': 'channel:chan-1:$messageId',
+              'g': 'channel:chan-1',
+            }, scope: 'owui:acct-1')!;
+        final other = push('m-2', 'Lunch?');
+        await router.route(other, alreadyClaimed: true);
+        await router.route(
+          push('m-1', '@Bob see you at 3 bring the doc'),
+          alreadyClaimed: true,
+        );
+        check(unreads).deepEquals([unnamed, other]);
       });
 
       test('with no push after still counts once', () async {
@@ -676,13 +762,18 @@ void main() {
       test('keeps only the latest few per channel', () async {
         const cap = NotificationRouter.countedForPushCap;
         for (var i = 0; i <= cap; i++) {
-          await router.route(frame('digest-$i'));
+          await router.route(frame('digest-$i', text: 'message $i'));
         }
         foreground = true;
         for (var i = 0; i <= cap; i++) {
-          await router.route(pushed('m-$i'), alreadyClaimed: true);
+          await router.route(
+            pushed('m-$i', text: 'message $i'),
+            alreadyClaimed: true,
+          );
         }
+        // The oldest was let go of, so its push counts it again.
         check(unreads).length.equals(cap + 2);
+        check(unreads.last.dedupKey).equals('owui:acct-1|channel:chan-1:m-0');
       });
     });
 
