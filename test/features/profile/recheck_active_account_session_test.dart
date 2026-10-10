@@ -69,6 +69,9 @@ final class _SpyAuth extends AuthStateManager {
 
   @override
   Future<void> onTokenInvalidated() async => invalidations++;
+
+  /// A sign-out or a sign-in finishing.
+  void publish(AuthState next) => state = AsyncData(next);
 }
 
 void main() {
@@ -77,7 +80,7 @@ void main() {
   late ProviderContainer container;
   late NotifierProvider<_CurrentApi, ApiService?> currentApi;
 
-  setUp(() {
+  setUp(() async {
     asked = _RefusingApi(accountId: 'acct-1', token: 'token-a');
     auth = _SpyAuth();
     currentApi = NotifierProvider<_CurrentApi, ApiService?>(
@@ -90,6 +93,7 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
   });
 
   test('a session its server refuses goes to sign in again', () async {
@@ -116,6 +120,23 @@ void main() {
     container
         .read(currentApi.notifier)
         .replace(_RefusingApi(accountId: 'acct-1', token: 'token-c'));
+    asked.answer.complete();
+
+    check(await checking).isTrue();
+    check(auth.invalidations).equals(0);
+  });
+
+  test('a refusal after signing out and in with the same key leaves it be', () async {
+    final checking = recheckActiveAccountSession(container);
+    // An API key signs in with the same token every time.
+    auth.publish(const AuthState(status: AuthStatus.unauthenticated));
+    container
+        .read(currentApi.notifier)
+        .replace(_RefusingApi(accountId: 'acct-1', token: 'token-a'));
+    await Future<void>.delayed(Duration.zero);
+    auth.publish(
+      const AuthState(status: AuthStatus.authenticated, token: 'token-a'),
+    );
     asked.answer.complete();
 
     check(await checking).isTrue();

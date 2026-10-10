@@ -261,6 +261,13 @@ Future<bool> recheckActiveAccountSession(ProviderContainer container) async {
       token.isEmpty ||
       TokenValidator.validateTokenFormat(token).isExpired;
   if (!expired) {
+    // Listened to while the server answers, so that signing out and in again
+    // with the same token (an API key) still counts as another session.
+    final session = container.listen(
+      openWebUiAuthSessionEpochProvider,
+      (_, _) {},
+    );
+    final epoch = session.read();
     try {
       await api.getCurrentUser(
         suppressAuthFailureNotification: true,
@@ -269,14 +276,17 @@ Future<bool> recheckActiveAccountSession(ProviderContainer container) async {
       return true;
     } on DioException catch (error) {
       if (error.response?.statusCode != 401) return true;
-    }
-    // The expired-session flow clears whatever session is current. A switch
-    // or a sign-in while the server answered made another one current,
-    // which this refusal says nothing about.
-    final current = container.read(apiServiceProvider);
-    if (current?.serverConfig.id != api.serverConfig.id ||
-        current?.authToken != token) {
-      return true;
+      // The expired-session flow clears whatever session is current. A
+      // switch or a sign-in while the server answered made another one
+      // current, which this refusal says nothing about.
+      final current = container.read(apiServiceProvider);
+      if (current?.serverConfig.id != api.serverConfig.id ||
+          current?.authToken != token ||
+          !identical(session.read(), epoch)) {
+        return true;
+      }
+    } finally {
+      session.close();
     }
   }
   await container.read(authStateManagerProvider.notifier).onTokenInvalidated();

@@ -731,6 +731,11 @@ void main() {
           authStateManagerProvider.overrideWith(() => auth),
         ],
       );
+      // As in the app, the session was loaded long before this screen.
+      ProviderScope.containerOf(
+        tester.element(find.byType(NotificationSettingsPage)),
+      ).read(authStateManagerProvider);
+      await tester.pump();
       await tester.tap(find.byKey(const Key('push-action-$_owuiScope')));
       await tester.pumpAndSettle();
       return (fake, auth);
