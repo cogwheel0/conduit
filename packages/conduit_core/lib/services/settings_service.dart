@@ -22,6 +22,10 @@ enum SttPreference { deviceOnly, serverOnly }
 /// TTS engine selection
 enum TtsEngine { device, server }
 
+/// How a call talks: [auto] uses the backend's realtime voice when it offers
+/// one, [standard] always transcribes, sends and reads aloud turn by turn.
+enum VoiceCallMode { auto, standard }
+
 /// Action to take when the Android digital assistant is triggered.
 enum AndroidAssistantTrigger { overlay, newChat, voiceCall }
 
@@ -289,6 +293,7 @@ class SettingsService {
       _voiceHoldToTalkKey: settings.voiceHoldToTalk,
       _voiceAutoSendKey: settings.voiceAutoSendFinal,
       PreferenceKeys.voiceBargeInEnabled: settings.voiceBargeInEnabled,
+      PreferenceKeys.voiceCallMode: settings.voiceCallMode.name,
       _socketTransportModeKey: settings.socketTransportMode,
       _quickPillsKey: settings.quickPills.toList(),
       _sendOnEnterKey: settings.sendOnEnter,
@@ -745,6 +750,10 @@ class SettingsService {
       voiceBargeInEnabled:
           get<bool>(PreferenceKeys.voiceBargeInEnabled) ??
           false,
+      voiceCallMode: VoiceCallMode.values.firstWhere(
+        (mode) => mode.name == get<String>(PreferenceKeys.voiceCallMode),
+        orElse: () => VoiceCallMode.auto,
+      ),
       socketTransportMode:
           get<String>(_socketTransportModeKey) ?? 'ws',
       quickPills: getStringList(_quickPillsKey) ?? const [],
@@ -854,6 +863,7 @@ class AppSettings {
   final bool voiceHoldToTalk;
   final bool voiceAutoSendFinal;
   final bool voiceBargeInEnabled;
+  final VoiceCallMode voiceCallMode;
   final String socketTransportMode; // 'polling' or 'ws'
   final List<String> quickPills; // e.g., ['web','image']
   final bool? chatWebSearchEnabled;
@@ -905,6 +915,7 @@ class AppSettings {
     this.voiceHoldToTalk = false,
     this.voiceAutoSendFinal = false,
     this.voiceBargeInEnabled = false,
+    this.voiceCallMode = VoiceCallMode.auto,
     this.socketTransportMode = 'ws',
     this.quickPills = const [],
     this.chatWebSearchEnabled,
@@ -951,6 +962,7 @@ class AppSettings {
     bool? voiceHoldToTalk,
     bool? voiceAutoSendFinal,
     bool? voiceBargeInEnabled,
+    VoiceCallMode? voiceCallMode,
     String? socketTransportMode,
     List<String>? quickPills,
     bool? chatWebSearchEnabled,
@@ -1004,6 +1016,7 @@ class AppSettings {
       voiceHoldToTalk: voiceHoldToTalk ?? this.voiceHoldToTalk,
       voiceAutoSendFinal: voiceAutoSendFinal ?? this.voiceAutoSendFinal,
       voiceBargeInEnabled: voiceBargeInEnabled ?? this.voiceBargeInEnabled,
+      voiceCallMode: voiceCallMode ?? this.voiceCallMode,
       socketTransportMode: socketTransportMode ?? this.socketTransportMode,
       quickPills: quickPills ?? this.quickPills,
       chatWebSearchEnabled: chatWebSearchEnabled ?? this.chatWebSearchEnabled,
@@ -1075,6 +1088,7 @@ class AppSettings {
         other.voiceHoldToTalk == voiceHoldToTalk &&
         other.voiceAutoSendFinal == voiceAutoSendFinal &&
         other.voiceBargeInEnabled == voiceBargeInEnabled &&
+        other.voiceCallMode == voiceCallMode &&
         other.chatWebSearchEnabled == chatWebSearchEnabled &&
         other.chatImageGenerationEnabled == chatImageGenerationEnabled &&
         other.sttPreference == sttPreference &&
@@ -1123,6 +1137,7 @@ class AppSettings {
       voiceHoldToTalk,
       voiceAutoSendFinal,
       voiceBargeInEnabled,
+      voiceCallMode,
       chatWebSearchEnabled,
       chatImageGenerationEnabled,
       sttPreference,
@@ -1483,6 +1498,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       return;
     }
     state = state.copyWith(sttPreference: preference);
+    await SettingsService.saveSettings(state);
+  }
+
+  Future<void> setVoiceCallMode(VoiceCallMode mode) async {
+    state = state.copyWith(voiceCallMode: mode);
     await SettingsService.saveSettings(state);
   }
 

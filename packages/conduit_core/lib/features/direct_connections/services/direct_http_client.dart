@@ -57,34 +57,39 @@ final class DirectHttpClientFactory {
     dio.options.headers.clear();
     dio.options.headers.addAll({
       'Accept': 'application/json',
-      if ((profile.apiKey ?? '').trim().isNotEmpty)
-        ...switch (profile.apiKeyAuthMode) {
-          DirectApiKeyAuthMode.bearer => {
-            'Authorization': 'Bearer ${profile.apiKey!.trim()}',
-          },
-          DirectApiKeyAuthMode.apiKeyHeader => {
-            'api-key': profile.apiKey!.trim(),
-          },
-        },
-      ...profile.customHeaders,
+      ...directRequestHeaders(profile),
     });
 
-    ServerTlsHttpClientFactory.configureDio(
-      dio,
-      ServerConfig(
-        id: 'direct-${profile.id}',
-        name: profile.name,
-        url: profile.baseUrl,
-        allowSelfSignedCertificates: profile.allowSelfSignedCertificates,
-        mtlsCertificateChainPem: profile.mtlsCertificateChainPem,
-        mtlsCertificateLabel: profile.mtlsCertificateLabel,
-        mtlsPrivateKeyPem: profile.mtlsPrivateKeyPem,
-        mtlsPrivateKeyLabel: profile.mtlsPrivateKeyLabel,
-        mtlsPrivateKeyPassword: profile.mtlsPrivateKeyPassword,
-      ),
-    );
+    ServerTlsHttpClientFactory.configureDio(dio, directTlsServerConfig(profile));
   }
 }
+
+/// The key and custom headers every request to [profile] carries.
+Map<String, String> directRequestHeaders(DirectConnectionProfile profile) => {
+  if ((profile.apiKey ?? '').trim().isNotEmpty)
+    ...switch (profile.apiKeyAuthMode) {
+      DirectApiKeyAuthMode.bearer => {
+        'Authorization': 'Bearer ${profile.apiKey!.trim()}',
+      },
+      DirectApiKeyAuthMode.apiKeyHeader => {'api-key': profile.apiKey!.trim()},
+    },
+  ...profile.customHeaders,
+};
+
+/// [profile]'s trust policy and client certificate, in the form the TLS
+/// client factory reads.
+ServerConfig directTlsServerConfig(DirectConnectionProfile profile) =>
+    ServerConfig(
+      id: 'direct-${profile.id}',
+      name: profile.name,
+      url: profile.baseUrl,
+      allowSelfSignedCertificates: profile.allowSelfSignedCertificates,
+      mtlsCertificateChainPem: profile.mtlsCertificateChainPem,
+      mtlsCertificateLabel: profile.mtlsCertificateLabel,
+      mtlsPrivateKeyPem: profile.mtlsPrivateKeyPem,
+      mtlsPrivateKeyLabel: profile.mtlsPrivateKeyLabel,
+      mtlsPrivateKeyPassword: profile.mtlsPrivateKeyPassword,
+    );
 
 /// A credential- and trust-policy-scoped native connection pool.
 ///

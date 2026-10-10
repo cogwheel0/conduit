@@ -52,7 +52,12 @@ final serverSpeechProviderProvider = Provider<ServerSpeechProvider?>((ref) {
         ? HermesServerSpeech(service)
         : null;
   }
-  if (model != null && _isDeviceDirectModel(ref, model)) {
+  if (model != null && isLocallyMintedDirectModel(model)) {
+    // The registry mutates in place; discovery is its invalidation signal.
+    ref.watch(directModelDiscoveryProvider);
+  }
+  if (model != null &&
+      isDeviceDirectModel(ref.watch(directModelRegistryProvider), model)) {
     final voice = ref.watch(directVoiceProviderProvider);
     if (voice == null) return null;
     return DirectServerSpeech(
@@ -67,10 +72,8 @@ final serverSpeechProviderProvider = Provider<ServerSpeechProvider?>((ref) {
 
 /// Whether [model] is a Direct or Apple model run from this device, rather
 /// than a Direct connection an Open WebUI server relays.
-bool _isDeviceDirectModel(Ref ref, Model model) {
+bool isDeviceDirectModel(DirectModelRegistry registry, Model model) {
   if (!isLocallyMintedDirectModel(model)) return false;
-  // The registry mutates in place; discovery is its invalidation signal.
-  ref.watch(directModelDiscoveryProvider);
-  final binding = ref.watch(directModelRegistryProvider).resolve(model);
+  final binding = registry.resolve(model);
   return binding == null || binding.source == DirectModelSource.device;
 }
