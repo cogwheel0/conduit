@@ -7722,5 +7722,13 @@
       }
     }
   },
-  "accountsAddressConfirmAction": "Sprawdź adres"
+  "accountsAddressConfirmAction": "Sprawdź adres",
+  "voiceProviderTitle": "Dostawca głosu",
+  "voiceProviderDescription": "Czaty Direct i Apple używają tego połączenia, gdy zamiana mowy na tekst lub tekstu na mowę jest ustawiona na Serwer.",
+  "voiceProviderConnection": "Połączenie",
+  "voiceProviderNone": "Brak",
+  "voiceProviderNoConnections": "Dodaj połączenie Direct zgodne z OpenAI, aby móc je tu wybrać.",
+  "voiceProviderTranscriptionModel": "Model transkrypcji",
+  "voiceProviderSpeechModel": "Model mowy",
+  "voiceProviderModelsHint": "Użyj nazw modeli podanych przez dostawcę. Kierunek pozostawiony pusty korzysta z tego urządzenia."
 }
