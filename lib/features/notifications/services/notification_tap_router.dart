@@ -52,9 +52,15 @@ abstract interface class NotificationTapNavigator {
   /// Opens channel [channelId] of the active Open WebUI account.
   void openChannel(String channelId);
 
-  /// Opens session [sessionId] of the Hermes connection in use. [title] is
-  /// the notification's, for when the session list doesn't say.
-  Future<void> openHermesSession(String sessionId, {required String title});
+  /// Opens session [sessionId] of the Hermes connection [connectionId], which
+  /// was just put in use; nothing, when another connection took its place
+  /// meanwhile. [title] is the notification's, for when the session list
+  /// doesn't say.
+  Future<void> openHermesSession(
+    String sessionId, {
+    required String connectionId,
+    required String title,
+  });
 
   /// Opens the Hermes scheduled tasks of the connection in use.
   void openHermesJobs();
@@ -135,7 +141,11 @@ class NotificationTapRouter {
           if (kind == NotificationKind.scheduledTask) {
             _navigator.openHermesJobs();
           } else if (_isReply(kind)) {
-            await _navigator.openHermesSession(sourceId, title: title);
+            await _navigator.openHermesSession(
+              sourceId,
+              connectionId: connectionId,
+              title: title,
+            );
           }
         case DirectNotificationScope():
           if (_isReply(kind)) {
@@ -319,6 +329,7 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
   @override
   Future<void> openHermesSession(
     String sessionId, {
+    required String connectionId,
     required String title,
   }) async {
     final context = await _context();
@@ -329,6 +340,7 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
       if (DateTime.now().isAfter(deadline)) return;
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
+    if (!_hermesConnectionInUse(connectionId)) return;
     var sessionTitle = title;
     try {
       final sessions = await _ref
@@ -343,13 +355,22 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
     } catch (_) {
       // The list only names the session; it opens without it.
     }
-    if (!context.mounted) return;
+    // Opening reads whichever connection is in use. Another tap, or the
+    // user, may have switched while the list loaded, and the session id
+    // means nothing there.
+    if (!context.mounted || !_hermesConnectionInUse(connectionId)) return;
     await openHermesSessionReading(
       context,
       _ref.read,
       HermesSessionSummary(id: sessionId, title: sessionTitle),
     );
   }
+
+  /// Whether [connectionId] is the Hermes connection in use, its service
+  /// built for it.
+  bool _hermesConnectionInUse(String connectionId) =>
+      _ref.read(hermesActiveConnectionIdProvider) == connectionId &&
+      _ref.read(hermesApiServiceProvider)?.config.connectionId == connectionId;
 
   @override
   void openHermesJobs() =>
