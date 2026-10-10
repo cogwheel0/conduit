@@ -455,6 +455,34 @@ void main() {
       ).equals(NotificationSurface.banner);
     });
 
+    test('a reply hidden by its open session holds back nothing', () async {
+      var foreground = true;
+      var view = const ActiveView(
+        hermesConnectionId: 'conn-1',
+        hermesSessionId: 's-1',
+      );
+      final router = NotificationRouter(
+        readSettings: () => allOn,
+        readActiveView: () => view,
+        isAppForeground: () => foreground,
+        localNotifications: local,
+        sound: sound,
+        showInAppBanner: banners.add,
+        onChannelUnread: unreads.add,
+        now: () => now,
+      );
+      check(
+        await router.route(_hermes(key: 'hermes:conn-1|hermes:s-1:local-a')),
+      ).equals(NotificationSurface.suppressed);
+      // A follow-up, then the app goes to the background.
+      now = now.add(const Duration(seconds: 30));
+      foreground = false;
+      view = home;
+      check(
+        await router.route(_hermes(key: 'hermes:conn-1|hermes:s-1:local-b')),
+      ).equals(NotificationSurface.system);
+    });
+
     test('other sessions and connections are not held back', () async {
       final router = build();
       await router.route(_hermes(key: 'a'));

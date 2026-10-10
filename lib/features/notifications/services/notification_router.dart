@@ -154,7 +154,7 @@ class NotificationRouter {
     // 4. De-duplication (also guards replayed terminal frames after re-bind),
     // and a Hermes reply already shown for the same session.
     if (!_markFresh(notification.dedupKey) ||
-        !_markHermesGroupFresh(notification)) {
+        _hermesGroupShownRecently(notification)) {
       return NotificationSurface.suppressed;
     }
 
@@ -166,6 +166,11 @@ class NotificationRouter {
     if (foreground && _readActiveView().isViewing(notification)) {
       return NotificationSurface.suppressed;
     }
+
+    // Only a Hermes reply that got this far holds back the next one for its
+    // session: one hidden because its session was on screen was never seen
+    // as an alert, so a later reply there must still notify.
+    _recordHermesGroup(notification);
 
     // 6. Side effects for everything that passed gating.
     if (settings.notificationSound && settings.notificationSoundAlways) {
@@ -219,25 +224,36 @@ class NotificationRouter {
     }
   }
 
-  /// Returns false when a Hermes reply for the same session surfaced within
-  /// [hermesGroupWindow], and records this one otherwise.
-  bool _markHermesGroupFresh(AppNotification notification) {
+  /// The key a Hermes reply's session window is kept under, `<scope>|<group>`;
+  /// null for anything else.
+  static String? _hermesGroupKey(AppNotification notification) {
     final group = notification.group;
     if (group == null ||
         NotificationScope.tryParse(notification.scope)
             is! HermesNotificationScope ||
         (notification.kind != NotificationKind.chatCompletion &&
             notification.kind != NotificationKind.replyFailed)) {
-      return true;
+      return null;
     }
+    return '${notification.scope}|$group';
+  }
+
+  /// Whether a Hermes reply for the same session surfaced within
+  /// [hermesGroupWindow].
+  bool _hermesGroupShownRecently(AppNotification notification) {
+    final key = _hermesGroupKey(notification);
+    if (key == null) return false;
     final now = _now();
     _hermesGroups.removeWhere(
       (_, shownAt) => now.difference(shownAt) >= hermesGroupWindow,
     );
-    final key = '${notification.scope}|$group';
-    if (_hermesGroups.containsKey(key)) return false;
-    _hermesGroups[key] = now;
-    return true;
+    return _hermesGroups.containsKey(key);
+  }
+
+  /// Opens the session window of a Hermes reply that passed gating.
+  void _recordHermesGroup(AppNotification notification) {
+    final key = _hermesGroupKey(notification);
+    if (key != null) _hermesGroups[key] = _now();
   }
 
   /// Returns true if [key] was not seen before (and records it). Evicts the
