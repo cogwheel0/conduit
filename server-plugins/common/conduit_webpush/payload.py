@@ -128,6 +128,9 @@ def build(
         raise ValueError(f"unknown kind {kind!r}")
     if src not in SOURCES:
         raise ValueError(f"unknown source {src!r}")
+    # Devices drop a payload without one, so fail here rather than send it.
+    if not isinstance(dedup_key, str) or not dedup_key:
+        raise ValueError("dedup_key must be a non-empty string")
     payload: Dict[str, Any] = {
         "v": 1,
         "k": kind,

@@ -187,6 +187,9 @@ def test_build_validates_and_caps():
         cp.build("poke", "owui", ids={}, title="", body="", dedup_key="x")
     with pytest.raises(ValueError):
         cp.build("reply", "telegram", ids={}, title="", body="", dedup_key="x")
+    for dedup_key in ("", None, 7):
+        with pytest.raises(ValueError):
+            cp.build("reply", "owui", ids={}, title="", body="", dedup_key=dedup_key)
     built = cp.build(
         "channel", "owui", ids={"channel": 9, "msg": None, "user": "drop"},
         title="t" * 300, body="b" * 900, author="a" * 99, dedup_key="channel:9:1", ts=5,
