@@ -255,7 +255,10 @@ void main() {
       check(entries.last as Map)
         ..has((e) => e['sid'], 'sid').equals('AAAAAAAAAAAAAAAAAAAAAA')
         ..has((e) => e['origin'], 'origin').equals('any');
-      check(server.valves!.containsKey('status')).isFalse();
+      // The function's status goes back as it was read: the update replaces
+      // every valve, and the function tells sent tests apart by it.
+      check(server.valves!['status'])
+          .equals('{"CCCCCCCCCCCCCCCCCCCCCC":{"err":"gone"}}');
     });
 
     test('replaces an entry with the same sid from another did', () {
@@ -327,12 +330,14 @@ void main() {
           {'sid': 'A', 'did': 'd'},
           {'sid': 'B', 'did': 'e'},
         ]),
+        'status': '{"B":{"code":201,"nonce":"n1"}}',
       };
       await backend.unsubscribe('A');
       check(jsonDecode(server.valves!['subscriptions'] as String) as List)
           .deepEquals([
             {'sid': 'B', 'did': 'e'},
           ]);
+      check(server.valves!['status']).equals('{"B":{"code":201,"nonce":"n1"}}');
     });
 
     test('writes nothing for an unknown sid', () async {
