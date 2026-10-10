@@ -1239,6 +1239,34 @@ async fn fcm_token_fetches_are_shared_and_waiters_are_bounded() {
     assert!(relay.mock.fcm().is_empty());
 }
 
+#[tokio::test]
+async fn readiness_waits_for_a_token_fetch_the_pushes_filled_up() {
+    let (mock_addr, mock) = start_mock().await;
+    let relay = start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
+        config.fcm.as_mut().unwrap().max_token_waiters = 1;
+    })
+    .await;
+    let endpoint = relay.endpoint("fcm", "prod").await;
+
+    // Google is slow, and the push waiting for it fills the waiter cap.
+    let slow = relay.mock.oauth_gate.write().await;
+    let fetching = spawn_push(&relay, &endpoint);
+    wait_until("the token fetch started", || relay.mock.oauth().len() == 1).await;
+    assert_eq!(spawn_push(&relay, &endpoint).await.unwrap().0, 503);
+
+    // The probe waits for that fetch rather than calling the relay not ready.
+    let probe = {
+        let request = relay.http.get(format!("{}/readyz", relay.base));
+        tokio::spawn(async move { request.send().await.unwrap().status().as_u16() })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!probe.is_finished());
+    drop(slow);
+    assert_eq!(probe.await.unwrap(), 200);
+    assert_eq!(fetching.await.unwrap().0, 201);
+    assert_eq!(relay.mock.oauth().len(), 1);
+}
+
 // ---------------------------------------------------------------- push validation
 
 #[tokio::test]

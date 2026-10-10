@@ -181,9 +181,12 @@ impl Fcm {
         self.apps.iter().any(|a| a == app)
     }
 
-    /// Whether an access token can be had, for `/readyz`.
+    /// Whether an access token can be had, for `/readyz`. Waits for a fetch
+    /// already under way even when the pushes have filled the waiter cap: a
+    /// full queue means a fetch is in flight, not that it failed. One probe
+    /// runs at a time (`AppState::ready`).
     pub async fn check(&self) -> bool {
-        self.access_token(None).await.is_ok()
+        self.access_token(None, false).await.is_ok()
     }
 
     fn assertion(&self) -> jsonwebtoken::errors::Result<String> {
@@ -222,14 +225,22 @@ impl Fcm {
     }
 
     /// The cached access token, fetched again near expiry or when it is
-    /// `stale` (FCM answered 401 to it).
-    async fn access_token(&self, stale: Option<&str>) -> Result<Arc<str>, TokenUnavailable> {
+    /// `stale` (FCM answered 401 to it). A push is `bounded` by the waiter
+    /// cap; the readiness probe is not.
+    async fn access_token(
+        &self,
+        stale: Option<&str>,
+        bounded: bool,
+    ) -> Result<Arc<str>, TokenUnavailable> {
         if let Some(token) = self.cached(stale)? {
             return Ok(token);
         }
         // A slow token endpoint must not gather every push in the meantime.
-        let _waiting =
-            Waiting::enter(&self.waiting, self.max_waiting).ok_or(TokenUnavailable::Busy)?;
+        let _waiting = if bounded {
+            Some(Waiting::enter(&self.waiting, self.max_waiting).ok_or(TokenUnavailable::Busy)?)
+        } else {
+            None
+        };
         let _refreshing = self.refresh.lock().await;
         if let Some(token) = self.cached(stale)? {
             return Ok(token);
@@ -298,14 +309,14 @@ impl Fcm {
     }
 
     pub async fn send(&self, message: &Message<'_>) -> Outcome {
-        let token = match self.access_token(None).await {
+        let token = match self.access_token(None, true).await {
             Ok(token) => token,
             Err(err) => return err.outcome(),
         };
         match self.attempt(message, &token).await {
             Attempt::Done(outcome) => outcome,
             Attempt::Unauthorized => {
-                let fresh = match self.access_token(Some(&token)).await {
+                let fresh = match self.access_token(Some(&token), true).await {
                     Ok(fresh) => fresh,
                     Err(err) => return err.outcome(),
                 };
