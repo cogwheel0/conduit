@@ -288,7 +288,9 @@ final class PushBridge: NSObject, ConduitBridge, PushHostApi {
     return PushTap(userInfo: userInfo, key: key)
   }
 
-  /// Read once; created here if the extension has not yet.
+  /// Created here if the extension has not yet. Only a key that loaded is
+  /// kept: a load that failed (the Keychain before first unlock) is tried
+  /// again on the next call.
   private func tapKey() -> PushTapKey? {
     if let cachedTapKey { return cachedTapKey }
     cachedTapKey = try? PushTapKey.load(accessGroup: appGroup)
