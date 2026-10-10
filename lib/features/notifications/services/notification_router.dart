@@ -89,11 +89,12 @@ class NotificationRouter {
   /// (docs/push/PROTOCOL.md §2).
   static const Duration hermesGroupWindow = Duration(seconds: 120);
 
-  /// How long a channel message counted as unread while its alert was left
-  /// to push stands in for that push's own count.
+  /// How long a channel message counted as unread by one of its two
+  /// notifications, a frame that named no message and left its alert to
+  /// push, or its push, stands in for the other's count.
   static const Duration countedForPushWindow = Duration(minutes: 10);
 
-  /// How many such messages one channel keeps at most.
+  /// How many such messages one channel keeps at most, for each of the two.
   static const int countedForPushCap = 10;
 
   final AppSettings Function() _readSettings;
@@ -121,14 +122,16 @@ class NotificationRouter {
   /// When a Hermes reply last surfaced, by `<scope>|<group>`.
   final Map<String, DateTime> _hermesGroups = <String, DateTime>{};
 
-  /// The channel messages left to push that were counted as unread, oldest
-  /// first, by `<scope>|<channelId>`: when each was counted, and its preview
-  /// ([_previewToMatch]). Its frame named no message, so its key never
-  /// matches its push's: a push for the channel that reaches the router in
-  /// the foreground with the same preview takes the oldest such one instead
-  /// of counting the message again.
-  final Map<String, Queue<_CountedForPush>> _countedForPush =
-      <String, Queue<_CountedForPush>>{};
+  /// Channel messages counted as unread from a frame that named no message
+  /// and left its alert to push. Its key never matches its push's, so that
+  /// push, if it reaches the router in the foreground, takes the message
+  /// from here instead of counting it again.
+  late final _CountedMessages _countedByFrame = _CountedMessages(_now);
+
+  /// Channel messages counted as unread from a push in the foreground, for
+  /// the same message's frame to take if it names no message and comes
+  /// later, by then perhaps with the app in the background.
+  late final _CountedMessages _countedByPush = _CountedMessages(_now);
 
   /// Routes [notification] through the gating chain and dispatches it. Returns
   /// the surface taken, primarily for tests and diagnostics.
@@ -168,15 +171,17 @@ class NotificationRouter {
     // its unread count still goes up here, once per message even when the
     // frame is delivered again. If the app comes back before the push is
     // shown, the push reaches the router under its own key, and must not
-    // count the message again (see _countedForPush).
+    // count the message again (see _countedByFrame). Nor does the frame count
+    // one whose push came first, in the foreground (see _countedByPush).
     if (!foreground &&
         !alreadyClaimed &&
         !notification.sharesPushDedupKey &&
         _pushCovers(notification)) {
       if (notification.kind == NotificationKind.channelMessage &&
-          _markFresh(notification.dedupKey)) {
+          _markFresh(notification.dedupKey) &&
+          !_countedByPush.take(notification)) {
         _onChannelUnread(notification);
-        _recordCountedForPush(notification);
+        _countedByFrame.record(notification);
       }
       return NotificationSurface.suppressed;
     }
@@ -189,13 +194,16 @@ class NotificationRouter {
     }
 
     // A channel push may be for a message already counted when its frame
-    // left the alert to push. Taken whether or not it alerts below, so one
-    // hidden because its channel is on screen does not leave the count to a
-    // later message's push.
+    // left the alert to push, and a frame that names no message for one its
+    // push counted already. Taken whether or not it alerts below, so one
+    // hidden because its channel is on screen does not stay for a later
+    // message with the same preview.
     final alreadyCounted =
-        alreadyClaimed &&
         notification.kind == NotificationKind.channelMessage &&
-        _takeCountedForPush(notification);
+        (alreadyClaimed
+            ? _countedByFrame.take(notification)
+            : !notification.sharesPushDedupKey &&
+                  _countedByPush.take(notification));
 
     // 5. Don't alert for content the user is actively looking at — but only in
     // the foreground. Backgrounded, the user can't see any view, so a
@@ -204,6 +212,15 @@ class NotificationRouter {
     // The same chat id in another account or connection is not on screen.
     if (foreground && _readActiveView().isViewing(notification)) {
       return NotificationSurface.suppressed;
+    }
+
+    // A push counts its message below. Recorded before anything is awaited,
+    // so the same message's frame, routed meanwhile with no message id, finds
+    // it and does not count the message too.
+    if (alreadyClaimed &&
+        notification.kind == NotificationKind.channelMessage &&
+        !alreadyCounted) {
+      _countedByPush.record(notification);
     }
 
     // Only a Hermes reply that got this far holds back the next one for its
@@ -296,46 +313,69 @@ class NotificationRouter {
     if (key != null) _hermesGroups[key] = _now();
   }
 
-  /// Records that [notification], a channel message whose frame named no
-  /// message, was counted as unread with its alert left to push. A channel
-  /// keeps the latest [countedForPushCap].
-  void _recordCountedForPush(AppNotification notification) {
-    _dropExpiredCounts();
-    final counted = _countedForPush.putIfAbsent(
-      '${notification.scope}|${notification.sourceId}',
-      Queue<_CountedForPush>.new,
-    )..addLast((at: _now(), preview: _previewToMatch(notification.body)));
-    if (counted.length > countedForPushCap) counted.removeFirst();
+  /// Returns true if [key] was not seen before (and records it). Evicts the
+  /// oldest key once capacity is exceeded.
+  bool _markFresh(String key) {
+    if (_seen.contains(key)) return false;
+    _seen.add(key);
+    if (_seen.length > _dedupCapacity) {
+      _seen.remove(_seen.first);
+    }
+    return true;
+  }
+}
+
+/// Channel messages one notification source counted as unread, oldest
+/// first, by `<scope>|<channelId>`: when each was counted, and its preview
+/// ([_previewToMatch]). The other source's notification for the same message
+/// takes it by its preview instead of counting the message again; another
+/// message's takes nothing, so it still counts. A channel keeps the latest
+/// [NotificationRouter.countedForPushCap], each for
+/// [NotificationRouter.countedForPushWindow].
+final class _CountedMessages {
+  _CountedMessages(this._now);
+
+  final DateTime Function() _now;
+  final Map<String, Queue<({DateTime at, String preview})>> _byChannel = {};
+
+  void record(AppNotification notification) {
+    _dropExpired();
+    final counted = _byChannel.putIfAbsent(_key(notification), Queue.new)
+      ..addLast((at: _now(), preview: _previewToMatch(notification.body)));
+    if (counted.length > NotificationRouter.countedForPushCap) {
+      counted.removeFirst();
+    }
   }
 
-  /// Takes the oldest message of [notification]'s channel counted while its
-  /// alert was left to push with the same preview, if one is still within
-  /// [countedForPushWindow]. Another message's push takes nothing, so it
-  /// still counts.
-  bool _takeCountedForPush(AppNotification notification) {
-    _dropExpiredCounts();
-    final key = '${notification.scope}|${notification.sourceId}';
-    final counted = _countedForPush[key];
+  /// Takes the oldest message of [notification]'s channel with its preview.
+  bool take(AppNotification notification) {
+    _dropExpired();
+    final key = _key(notification);
+    final counted = _byChannel[key];
     if (counted == null) return false;
     final preview = _previewToMatch(notification.body);
     for (final entry in counted) {
       if (entry.preview != preview) continue;
       counted.remove(entry);
-      if (counted.isEmpty) _countedForPush.remove(key);
+      if (counted.isEmpty) _byChannel.remove(key);
       return true;
     }
     return false;
   }
 
-  void _dropExpiredCounts() {
+  void _dropExpired() {
     final now = _now();
-    _countedForPush.removeWhere((_, counted) {
+    _byChannel.removeWhere((_, counted) {
       counted.removeWhere(
-        (entry) => now.difference(entry.at) >= countedForPushWindow,
+        (entry) =>
+            now.difference(entry.at) >= NotificationRouter.countedForPushWindow,
       );
       return counted.isEmpty;
     });
   }
+
+  static String _key(AppNotification notification) =>
+      '${notification.scope}|${notification.sourceId}';
 
   /// Open WebUI stores a channel mention as `<@U:id|Label>`.
   static final RegExp _mention = RegExp(
@@ -350,19 +390,4 @@ class NotificationRouter {
   static String _previewToMatch(String body) => notificationPreviewText(
     body.replaceAllMapped(_mention, (m) => '${m[1]}${m[3] ?? m[2]}'),
   );
-
-  /// Returns true if [key] was not seen before (and records it). Evicts the
-  /// oldest key once capacity is exceeded.
-  bool _markFresh(String key) {
-    if (_seen.contains(key)) return false;
-    _seen.add(key);
-    if (_seen.length > _dedupCapacity) {
-      _seen.remove(_seen.first);
-    }
-    return true;
-  }
 }
-
-/// A channel message counted as unread while its alert was left to push:
-/// when, and its preview to match its push by.
-typedef _CountedForPush = ({DateTime at, String preview});

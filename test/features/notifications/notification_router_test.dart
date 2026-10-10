@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
@@ -774,6 +776,71 @@ void main() {
         // The oldest was let go of, so its push counts it again.
         check(unreads).length.equals(cap + 2);
         check(unreads.last.dedupKey).equals('owui:acct-1|channel:chan-1:m-0');
+      });
+
+      group('when its push came first', () {
+        test('is not counted again by its frame in the background', () async {
+          foreground = true;
+          final push = pushed('m-1', text: 'See you at 3');
+          await router.route(push, alreadyClaimed: true);
+          // The app goes to the background before the frame, which names no
+          // message, arrives.
+          foreground = false;
+          await router.route(frame('digest-1', text: 'See you at 3'));
+          check(unreads).deepEquals([push]);
+        });
+
+        test('is not counted again by its frame in the foreground', () async {
+          foreground = true;
+          final push = pushed('m-1');
+          await router.route(push, alreadyClaimed: true);
+          await router.route(frame('digest-1'));
+          check(unreads).deepEquals([push]);
+        });
+
+        test("leaves another message's frame to count", () async {
+          foreground = true;
+          final push = pushed('m-1', text: 'See you at 3');
+          await router.route(push, alreadyClaimed: true);
+          foreground = false;
+          final other = frame('digest-2', text: 'Lunch?');
+          await router.route(other);
+          // The push's own frame still finds its count.
+          await router.route(frame('digest-1', text: 'See you at 3'));
+          check(unreads).deepEquals([push, other]);
+        });
+
+        test('with the same text as another is taken once per frame', () async {
+          foreground = true;
+          final first = pushed('m-1', text: 'ok');
+          final second = pushed('m-2', text: 'ok');
+          await router.route(first, alreadyClaimed: true);
+          await router.route(second, alreadyClaimed: true);
+          check(unreads).deepEquals([first, second]);
+          foreground = false;
+          await router.route(frame('digest-1', text: 'ok'));
+          await router.route(frame('digest-2', text: 'ok'));
+          check(unreads).deepEquals([first, second]);
+          // A third has nothing left to take.
+          final third = frame('digest-3', text: 'ok');
+          await router.route(third);
+          check(unreads).deepEquals([first, second, third]);
+        });
+
+        test('is found by a frame routed while the push plays', () async {
+          final playing = Completer<void>();
+          when(() => sound.play()).thenAnswer((_) => playing.future);
+          foreground = true;
+          final push = pushed('m-1');
+          final routing = router.route(push, alreadyClaimed: true);
+          // The frame arrives in the background while the push's sound is
+          // still playing, before the push has counted the message.
+          foreground = false;
+          await router.route(frame('digest-1'));
+          playing.complete();
+          await routing;
+          check(unreads).deepEquals([push]);
+        });
       });
     });
 
