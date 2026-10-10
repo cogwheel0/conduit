@@ -78,9 +78,12 @@ abstract interface class BridgeCallHost {
   );
 
   /// Sends the user's words to the chat's model as a turn of its own.
+  /// [spokenContext] is the recent spoken conversation, for a backend that
+  /// reads it with the turn.
   Future<DelegatedTurn> delegate(
     String text, {
     required Map<String, Object?> userVoice,
+    String? spokenContext,
   });
 
   /// A problem worth telling the user that does not end the call.

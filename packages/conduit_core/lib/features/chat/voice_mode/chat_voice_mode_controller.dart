@@ -29,10 +29,11 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/realtime_call/bridge_call_engine.dart';
+import 'package:conduit_core/features/chat/realtime_call/bridge_call_host.dart';
+import 'package:conduit_core/features/chat/realtime_call/gpt_live_call_engine.dart';
 import 'package:conduit_core/features/chat/realtime_call/chat_bridge_call_host.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transport.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
-import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_state.dart';
 import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
 import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart';
@@ -466,7 +467,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             await _audioSessionCoordinator?.configureForBargeInSpeaking();
             if (lostOwnership()) return;
             cancelIfRequested();
-            await _startRealtime(realtime.bridge, realtime.audio, startToken);
+            await _startRealtime(realtime, startToken);
             if (lostOwnership()) return;
             if (_isCurrent(startToken) && state.isActive) {
               result = ChatVoiceModeStartResult.started;
@@ -555,35 +556,52 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     return result;
   }
 
-  /// The realtime voice for a call with [model], or null when the call is a
-  /// Standard one: the user chose Standard, the device has no realtime audio
-  /// engine, or the model's backend offers no realtime voice.
-  Future<({RealtimeBridgeTransport bridge, RealtimePcmAudioPort audio})?>
-  _resolveRealtime(Model model) async {
-    final audio = ref.read(realtimePcmAudioFactoryProvider)();
-    if (audio == null) return null;
+  /// How to build the realtime voice for a call with [model], or null when
+  /// the call is a Standard one: the user chose Standard, the device cannot
+  /// run the voice's audio, or the model's backend offers no realtime voice.
+  Future<RealtimeCallEngine Function(BridgeCallHost host)?> _resolveRealtime(
+    Model model,
+  ) async {
     final route = await ref.read(realtimeCallRouteResolverProvider)(model);
     final bridge = route.bridge;
-    if (bridge == null) {
-      DebugLogger.log(
-        'realtime-unavailable',
-        scope: 'chat/voice_mode',
-        data: {'reason': route.block?.name},
-      );
-      return null;
+    if (bridge != null) {
+      final audio = ref.read(realtimePcmAudioFactoryProvider)();
+      if (audio != null) {
+        return (host) =>
+            BridgeCallEngine(transport: bridge, audio: audio, host: host);
+      }
+      await bridge.close();
     }
-    return (bridge: bridge, audio: audio);
+    final hermes = route.hermes;
+    if (hermes != null) {
+      final media = ref.read(realtimeWebRtcMediaFactoryProvider)();
+      if (media != null) {
+        final history = gptLiveHistory(ref.read(chatMessagesProvider));
+        return (host) => GptLiveCallEngine(
+          media: media,
+          host: host,
+          history: history,
+          open: (offer, history) async => (await hermes.createVoiceLiveSession(
+            sdp: offer,
+            history: history,
+          )).answerSdp,
+        );
+      }
+    }
+    DebugLogger.log(
+      'realtime-unavailable',
+      scope: 'chat/voice_mode',
+      data: {'reason': route.block?.name ?? 'no-device-audio'},
+    );
+    return null;
   }
 
   Future<void> _startRealtime(
-    RealtimeBridgeTransport bridge,
-    RealtimePcmAudioPort audio,
+    RealtimeCallEngine Function(BridgeCallHost host) build,
     int token,
   ) async {
-    final engine = BridgeCallEngine(
-      transport: bridge,
-      audio: audio,
-      host: ChatBridgeCallHost(
+    final engine = build(
+      ChatBridgeCallHost(
         ref,
         onNotice: (notice) {
           if (!_isCurrent(token) || _disposed) return;

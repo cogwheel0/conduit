@@ -98,11 +98,15 @@ abstract interface class HermesDesktopTurnService
     CancelToken? cancelToken,
   });
 
+  /// [voiceContext] marks the turn as one a realtime call handed over: the
+  /// recent spoken conversation, which the model reads and the session's
+  /// transcript does not keep.
   Future<HermesResponseStream> streamDesktopResponse(
     HermesChatInput input, {
     String? sessionId,
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
+    String? voiceContext,
   });
 }
 

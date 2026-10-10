@@ -2689,8 +2689,12 @@ void main() {
           realtimePcmAudioFactoryProvider.overrideWithValue(() => audio),
           realtimeCallRouteResolverProvider.overrideWithValue(
             (_) async => offersRealtime
-                ? (bridge: bridge, block: null)
-                : (bridge: null, block: RealtimeCallBlock.standardChosen),
+                ? (bridge: bridge, hermes: null, block: null)
+                : (
+                    bridge: null,
+                    hermes: null,
+                    block: RealtimeCallBlock.standardChosen,
+                  ),
           ),
         ],
       );

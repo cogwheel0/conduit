@@ -35,20 +35,25 @@ final class ChatVoiceReply {
 
 /// What a realtime call adds to a turn it sends.
 final class ChatSendVoiceContext {
-  /// The user's words, for the chat's model to answer.
-  const ChatSendVoiceContext.delegated({required this.userVoice})
-    : reply = null;
+  /// The user's words, for the chat's model to answer. [spokenContext] is
+  /// the recent spoken conversation, for a backend that reads it with the
+  /// turn (Hermes).
+  const ChatSendVoiceContext.delegated({
+    required this.userVoice,
+    this.spokenContext,
+  }) : reply = null;
 
   /// The user's words and the voice's own [reply] to them. The turn is stored
   /// like any other, and no model runs.
   const ChatSendVoiceContext.answered({
     required this.userVoice,
     required ChatVoiceReply this.reply,
-  });
+  }) : spokenContext = null;
 
   /// The user message's `meta.voice`.
   final Map<String, Object?> userVoice;
   final ChatVoiceReply? reply;
+  final String? spokenContext;
 }
 
 /// The user message of a voice turn, marked with where it was said.

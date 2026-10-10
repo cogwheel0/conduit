@@ -107,4 +107,71 @@ void main() {
 
     await check(_service(bridge).speak('Hello.')).throws<StateError>();
   });
+
+  test('voice-live status says whether calls run through GPT-Live', () async {
+    final live = await _service(
+      _AudioBridge(
+        '{"ok":true,"mode":"gpt-live","available":true,"reason":null,'
+        '"model":"gpt-live-1","voice":"marin"}',
+      ),
+    ).voiceLiveStatus();
+    check(live.gptLive).isTrue();
+    check(live.available).isTrue();
+    check(live.model).equals('gpt-live-1');
+
+    final chained = await _service(
+      _AudioBridge('{"ok":true,"mode":"chained","available":false}'),
+    ).voiceLiveStatus();
+    check(chained.gptLive).isFalse();
+    check(chained.available).isFalse();
+  });
+
+  test('a voice-live call is opened with the offer exactly as made', () async {
+    final bridge = _AudioBridge(
+      jsonEncode({
+        'ok': true,
+        'session': {'id': 'sess-1'},
+        'transport': {'type': 'webrtc', 'sdp': 'v=0\r\nanswer\r\n'},
+      }),
+    );
+    const offer = 'v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n';
+
+    final session = await _service(bridge).createVoiceLiveSession(
+      sdp: offer,
+      history: const [
+        {'type': 'message', 'role': 'user', 'content': <Object>[]},
+      ],
+    );
+
+    check(session.answerSdp).equals('v=0\r\nanswer\r\n');
+    check(session.sessionId).equals('sess-1');
+    final request = bridge.requests.single;
+    check(request.url.path).equals('/api/audio/voice-live/session');
+    check(request.url.queryParameters).deepEquals({'profile': 'work'});
+    // The trailing CRLF matters: the provider refuses a trimmed offer.
+    check(request.body!['sdp']).equals(offer);
+    check(request.body!['history']).isA<List<Object?>>().length.equals(1);
+  });
+
+  test('a session without an answer is refused', () async {
+    await check(
+      _service(_AudioBridge('{"ok":true}')).createVoiceLiveSession(sdp: 'v=0'),
+    ).throws<StateError>();
+  });
+
+  test('a voice-live turn tells Hermes where it came from', () {
+    check(hermesPromptSubmitParams(runtimeId: 'rt-1', text: 'Hi'))
+        .deepEquals({'session_id': 'rt-1', 'text': 'Hi'});
+
+    final params = hermesPromptSubmitParams(
+      runtimeId: 'rt-1',
+      text: 'Weather in Oslo?',
+      voiceContext: 'x' * 6100 + 'User: Weather in Oslo?',
+    );
+    check(params['surface']).equals('voice-live');
+    final context = params['voice_context']! as String;
+    check(context.length).equals(6000);
+    // The newest of a long conversation is what is kept.
+    check(context).endsWith('User: Weather in Oslo?');
+  });
 }

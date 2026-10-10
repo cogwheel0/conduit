@@ -75,3 +75,30 @@ abstract interface class RealtimePcmAudioPort {
 
   Future<void> stop();
 }
+
+/// Where a WebRTC call's connection stands.
+enum RealtimeMediaState { connecting, connected, failed, closed }
+
+/// A WebRTC call to a realtime voice: the microphone and the voice on the
+/// platform's echo-cancelled call audio, and a data channel for the voice's
+/// events.
+abstract interface class RealtimeWebRtcMediaPort {
+  /// Opens the microphone and returns the SDP offer with every ICE candidate
+  /// gathered, exactly as it must be sent, with a data channel named
+  /// [dataChannel].
+  Future<String> createOffer({String dataChannel = 'oai-events'});
+
+  Future<void> acceptAnswer(String sdp);
+
+  /// Text messages arriving on the data channel.
+  Stream<String> get messages;
+
+  Stream<RealtimeMediaState> get states;
+
+  /// Sends a text message on the data channel.
+  void send(String message);
+
+  void setMicrophoneEnabled(bool enabled);
+
+  Future<void> close();
+}

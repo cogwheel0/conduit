@@ -553,6 +553,7 @@ Future<void> _sendMessageInternal(
         databaseLease: hermesDatabaseLease,
         preRegisteredCancelToken: pendingCancelToken,
         reasoningEffort: reasoningEffortAtSendStart,
+        voiceContext: voice?.spokenContext,
       );
     } catch (error) {
       final visible = hermesOwner.isActive(ref)

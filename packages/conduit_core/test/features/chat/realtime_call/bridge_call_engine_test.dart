@@ -181,6 +181,7 @@ final class _Host implements BridgeCallHost {
   Future<DelegatedTurn> delegate(
     String text, {
     required Map<String, Object?> userVoice,
+    String? spokenContext,
   }) async {
     delegated.add(text);
     return turn;

@@ -8,7 +8,11 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -101,9 +105,49 @@ void main() {
         .equals(RealtimeCallBlock.standardChosen);
   });
 
-  test('Hermes calls stay Standard for now', () async {
+  test('Hermes on its Responses API server stays Standard', () async {
     check((await route(hermesSyntheticModel())).block)
         .equals(RealtimeCallBlock.unsupportedBackend);
+  });
+
+  group('Hermes Desktop Gateway', () {
+    Future<RealtimeCallRoute> hermesRoute(String status) async {
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+        ),
+        dashboardBridgeFactory: ({required root, required accessHeaders}) =>
+            _StatusBridge(status),
+      );
+      addTearDown(service.close);
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWithValue(const AppSettings()),
+          activeConversationProvider.overrideWith(() => _Active(null)),
+          hermesApiServiceProvider.overrideWithValue(service),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container.read(realtimeCallRouteResolverProvider)(
+        hermesSyntheticModel(),
+      );
+    }
+
+    test('a profile in GPT-Live mode opens its calls through Hermes', () async {
+      final result = await hermesRoute('{"mode":"gpt-live","available":true}');
+      check(result.hermes).isNotNull();
+      check(result.block).isNull();
+    });
+
+    test('a chained profile, or one without a key, stays Standard', () async {
+      check((await hermesRoute('{"mode":"chained","available":true}')).block)
+          .equals(RealtimeCallBlock.hermesVoiceLiveOff);
+      check((await hermesRoute('{"mode":"gpt-live","available":false}')).block)
+          .equals(RealtimeCallBlock.hermesVoiceLiveOff);
+    });
   });
 
   group('Open WebUI', () {
@@ -243,4 +287,23 @@ void main() {
       },
     ]);
   });
+}
+
+final class _StatusBridge implements HermesDashboardBridge {
+  _StatusBridge(this.body);
+
+  final String body;
+
+  @override
+  Future<({int status, String body})> request(
+    String method,
+    Uri url, {
+    String? body,
+  }) async => (status: 200, body: this.body);
+
+  @override
+  Future<void> reload() async {}
+
+  @override
+  Future<void> close() async {}
 }

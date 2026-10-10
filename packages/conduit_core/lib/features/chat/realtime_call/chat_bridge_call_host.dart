@@ -58,6 +58,7 @@ final class ChatBridgeCallHost implements BridgeCallHost {
   Future<DelegatedTurn> delegate(
     String text, {
     required Map<String, Object?> userVoice,
+    String? spokenContext,
   }) async {
     // A turn the call did not start is still answering; this one waits.
     if (_ref.read(isChatStreamingProvider)) return const _DeferredTurn();
@@ -68,7 +69,10 @@ final class ChatBridgeCallHost implements BridgeCallHost {
       null,
       toolIds: _ref.read(selectedToolIdsProvider),
       contextAttachments: const [],
-      voice: ChatSendVoiceContext.delegated(userVoice: userVoice),
+      voice: ChatSendVoiceContext.delegated(
+        userVoice: userVoice,
+        spokenContext: spokenContext,
+      ),
       onAssistantPlaceholderCreated: (handle) {
         if (!placed.isCompleted) placed.complete(handle.assistantMessageId);
       },
@@ -189,6 +193,36 @@ DelegatedTurnState _answerState(ChatMessage message) {
   return assistantMessageResponseCompleted(message)
       ? DelegatedTurnState.completed
       : DelegatedTurnState.working;
+}
+
+/// The chat as a GPT-Live voice starts with: the newest messages as plain
+/// text, within the bounds Hermes's own client keeps (24 messages, 1200
+/// characters each, 6000 in all).
+List<Map<String, Object?>> gptLiveHistory(List<ChatMessage> messages) {
+  const maxMessages = 24;
+  const maxMessageCharacters = 1200;
+  var budget = 6000;
+  final history = <Map<String, Object?>>[];
+  for (final message in messages.reversed) {
+    if (history.length >= maxMessages || budget <= 0) break;
+    if (message.metadata?['archivedVariant'] == true) continue;
+    final user = message.role == 'user';
+    if (!user && message.role != 'assistant') continue;
+    if (!user && !assistantMessageResponseCompleted(message)) continue;
+    var text = user ? message.content.trim() : _answerText(message);
+    if (text.isEmpty) continue;
+    final limit = budget < maxMessageCharacters ? budget : maxMessageCharacters;
+    if (text.length > limit) text = text.substring(0, limit);
+    budget -= text.length;
+    history.insert(0, {
+      'type': 'message',
+      'role': message.role,
+      'content': [
+        {'type': user ? 'input_text' : 'output_text', 'text': text},
+      ],
+    });
+  }
+  return history;
 }
 
 /// The answer as the voice should read it: the reply without its reasoning

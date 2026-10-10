@@ -24,6 +24,7 @@ import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
 import 'platform/realtime_pcm_audio.dart';
+import 'platform/webrtc_realtime_media.dart';
 import 'platform/url_launcher_open_external_url_port.dart';
 import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
@@ -227,6 +228,13 @@ void _registerBundledLicenses() {
     ], notice);
   });
 }
+
+/// Whether this device runs realtime voice calls' audio: the native engine
+/// and WebRTC exist on iOS and Android.
+bool get _hasRealtimeAudio =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android);
 
 void main() {
   // Diagnostics have no destination until a host gives them one.
@@ -511,12 +519,11 @@ void main() {
           ),
           // A realtime voice needs the native echo-cancelled audio engine.
           realtimePcmAudioFactoryProvider.overrideWithValue(
-            () =>
-                !kIsWeb &&
-                    (defaultTargetPlatform == TargetPlatform.iOS ||
-                        defaultTargetPlatform == TargetPlatform.android)
-                ? MethodChannelRealtimePcmAudio()
-                : null,
+            () => _hasRealtimeAudio ? MethodChannelRealtimePcmAudio() : null,
+          ),
+          // Hermes's GPT-Live calls run over WebRTC.
+          realtimeWebRtcMediaFactoryProvider.overrideWithValue(
+            () => _hasRealtimeAudio ? WebRtcRealtimeMedia() : null,
           ),
         ],
       );

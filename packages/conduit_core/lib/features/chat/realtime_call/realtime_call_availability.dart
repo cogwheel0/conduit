@@ -7,6 +7,8 @@ import 'package:conduit_core/features/chat/server_speech/server_speech_providers
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
@@ -19,6 +21,11 @@ import 'realtime_call_ports.dart';
 /// without one; calls are then Standard.
 final realtimePcmAudioFactoryProvider =
     Provider<RealtimePcmAudioPort? Function()>((ref) => () => null);
+
+/// Builds the device's WebRTC call, or returns null on a host without one;
+/// Hermes calls are then Standard.
+final realtimeWebRtcMediaFactoryProvider =
+    Provider<RealtimeWebRtcMediaPort? Function()>((ref) => () => null);
 
 /// Finds the realtime voice for a call with a model; see
 /// [resolveRealtimeCallRoute].
@@ -50,16 +57,23 @@ enum RealtimeCallBlock {
 
   /// The account signed in with an API key, which realtime calls refuse.
   noSessionToken,
+
+  /// The Hermes profile does not run voice calls through GPT-Live, has no
+  /// OpenAI key for it, or could not say.
+  hermesVoiceLiveOff,
 }
 
-/// The voice a realtime call with a model would use, or why it has none.
+/// The voice a realtime call with a model would use, or why it has none: a
+/// [bridge] for Open WebUI and Direct, or the [hermes] gateway that opens a
+/// GPT-Live call.
 typedef RealtimeCallRoute = ({
   RealtimeBridgeTransport? bridge,
+  HermesDesktopApiService? hermes,
   RealtimeCallBlock? block,
 });
 
 RealtimeCallRoute _blocked(RealtimeCallBlock block) =>
-    (bridge: null, block: block);
+    (bridge: null, hermes: null, block: block);
 
 /// Finds the realtime voice for a call with [model] in the open chat: Open
 /// WebUI's own when its server offers one, the Voice provider for Direct and
@@ -73,9 +87,24 @@ Future<RealtimeCallRoute> resolveRealtimeCallRoute(Ref ref, Model model) async {
       (active != null && isTemporaryChat(active.id))) {
     return _blocked(RealtimeCallBlock.temporaryChat);
   }
-  // Hermes voice runs over WebRTC; until it lands its calls are Standard.
+  // Hermes keeps the OpenAI key and opens GPT-Live calls itself, from its
+  // Desktop Gateway; the Responses API server has no voice.
   if (isHermesModel(model)) {
-    return _blocked(RealtimeCallBlock.unsupportedBackend);
+    final service = ref.read(hermesApiServiceProvider);
+    if (service is! HermesDesktopApiService) {
+      return _blocked(RealtimeCallBlock.unsupportedBackend);
+    }
+    try {
+      final status = await service.voiceLiveStatus().timeout(
+        const Duration(seconds: 3),
+      );
+      if (!status.gptLive || !status.available) {
+        return _blocked(RealtimeCallBlock.hermesVoiceLiveOff);
+      }
+    } on Object {
+      return _blocked(RealtimeCallBlock.hermesVoiceLiveOff);
+    }
+    return (bridge: null, hermes: service, block: null);
   }
 
   if (isDeviceDirectModel(ref.read(directModelRegistryProvider), model)) {
@@ -91,6 +120,7 @@ Future<RealtimeCallRoute> resolveRealtimeCallRoute(Ref ref, Model model) async {
       return _blocked(RealtimeCallBlock.voiceProviderIncomplete);
     }
     return (
+      hermes: null,
       bridge: DirectRealtimeBridge(
         profile: voice.profile,
         model: realtimeModel,
@@ -123,6 +153,7 @@ Future<RealtimeCallRoute> resolveRealtimeCallRoute(Ref ref, Model model) async {
   final server = api.serverConfig;
   final chatId = active?.id;
   return (
+    hermes: null,
     bridge: OpenWebUiRealtimeBridge(
       server: server,
       token: token,

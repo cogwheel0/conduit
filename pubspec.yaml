@@ -138,6 +138,7 @@ dependencies:
   fleather: ^1.27.0
   # Document model + markdown/HTML codecs backing the Fleather note editor.
   parchment: ^1.27.0
+  flutter_webrtc: ^1.6.2+hotfix.4
 
 # Required while mermaid_flutter declares mermaid_core from the hosted source:
 # Pub cannot combine that source with Conduit's unpublished path package, even

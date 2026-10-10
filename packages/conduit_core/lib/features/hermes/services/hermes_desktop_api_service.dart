@@ -416,6 +416,15 @@ final class HermesDesktopApiService
   Future<({Uint8List bytes, String mimeType})> speak(String text) =>
       _audioSpeak(text);
 
+  /// Whether this profile's voice calls run through GPT-Live.
+  Future<HermesVoiceLiveStatus> voiceLiveStatus() => _voiceLiveStatus();
+
+  /// Opens a GPT-Live call for the WebRTC offer [sdp], sent as it is.
+  Future<HermesVoiceLiveSession> createVoiceLiveSession({
+    required String sdp,
+    List<Map<String, Object?>> history = const [],
+  }) => _createVoiceLiveSession(sdp: sdp, history: history);
+
   /// Bot Mode roster; empty when the gateway does not support Bot Mode.
   Future<List<HermesBot>> listBots() => _listBots();
 
@@ -544,11 +553,13 @@ final class HermesDesktopApiService
     String? sessionId,
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
+    String? voiceContext,
   }) => _runtimeStreamDesktopResponse(
     input,
     sessionId: sessionId,
     options: options,
     cancelToken: cancelToken,
+    voiceContext: voiceContext,
   );
   Future<void> interrupt(String storedId) => _runtimeInterrupt(storedId);
   Future<bool> steer(String storedId, String text) =>

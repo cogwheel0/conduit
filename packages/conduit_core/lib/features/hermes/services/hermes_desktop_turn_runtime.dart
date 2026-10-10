@@ -1,11 +1,35 @@
 part of 'hermes_desktop_api_service.dart';
 
+/// The longest spoken context Hermes keeps with a voice-live turn.
+const int _kMaxHermesVoiceContext = 6000;
+
+/// `prompt.submit`'s parameters for [text] in session [runtimeId]. A turn a
+/// voice-live call handed over carries [voiceContext], the recent spoken
+/// conversation, which only the model reads; the session stores `text`.
+/// Context past the bound keeps its newest part.
+@visibleForTesting
+Map<String, Object?> hermesPromptSubmitParams({
+  required String runtimeId,
+  required String text,
+  String? voiceContext,
+}) => {
+  'session_id': runtimeId,
+  'text': text,
+  if (voiceContext != null) ...{
+    'surface': 'voice-live',
+    'voice_context': voiceContext.length > _kMaxHermesVoiceContext
+        ? voiceContext.substring(voiceContext.length - _kMaxHermesVoiceContext)
+        : voiceContext,
+  },
+};
+
 extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
   Future<HermesResponseStream> _runtimeStreamDesktopResponse(
     HermesChatInput input, {
     String? sessionId,
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
+    String? voiceContext,
   }) async {
     final storedId =
         sessionId ??
@@ -338,8 +362,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       await _rpc.request<Object?>(
         'prompt.submit',
         params: {
-          'session_id': binding.runtimeId,
-          'text': text,
+          ...hermesPromptSubmitParams(
+            runtimeId: binding.runtimeId,
+            text: text,
+            voiceContext: voiceContext,
+          ),
           ..._sessionScope(binding.storedId),
         },
       );
