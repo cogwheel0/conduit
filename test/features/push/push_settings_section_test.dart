@@ -2,6 +2,8 @@ import 'package:conduit/features/notifications/views/notification_settings_page.
 import 'package:conduit/features/profile/widgets/account_actions.dart'
     show ActiveCheckmark;
 import 'package:conduit/features/push/views/push_privacy_page.dart';
+import 'package:conduit/features/push/widgets/push_install_sheet.dart'
+    show confirmPushInstall;
 import 'package:conduit/features/push/widgets/push_target_detail_sheet.dart'
     show PushTargetDetailSheet;
 import 'package:conduit/shared/widgets/utility_components.dart'
@@ -352,6 +354,43 @@ void main() {
       await tester.tap(find.byKey(const Key('push-install-confirm')));
       await tester.pumpAndSettle();
       expect(fake.calls, ['installOpenWebUiFunction $_owuiScope']);
+    });
+
+    testWidgets('the install question scrolls on a short screen', (
+      tester,
+    ) async {
+      tester.view
+        ..physicalSize = const Size(320, 480)
+        ..devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      bool? confirmed;
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () async => confirmed = await confirmPushInstall(
+                context,
+                title: 'Install Conduit Push?',
+                message: 'This installs open-source code on your server. ' * 12,
+                sourceUrl: 'https://example.com/conduit_push.py',
+                confirmLabel: 'Install',
+              ),
+              child: const Text('Ask'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Ask'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byKey(const Key('push-install-confirm')));
+      await tester.pumpAndSettle();
+      expect(confirmed, isTrue);
     });
 
     testWidgets('the Hermes plugin installs after a confirmation', (
