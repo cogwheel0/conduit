@@ -5,8 +5,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind, kChatStorageKindMetadataKey;
-import 'package:conduit_core/database/local_conversation_loader.dart';
-import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
@@ -285,25 +283,33 @@ class AppNotificationTapNavigator implements NotificationTapNavigator {
 
   @override
   Future<void> openOpenWebUiChat(String chatId) async {
-    final ownership = captureOpenWebUiConversationRead(_ref);
-    if (ownership == null) return;
-    final outgoing = _ref.read(activeConversationProvider);
-    if (outgoing == null || !conversationMatchesScopedId(outgoing, chatId)) {
-      clearSelectedFiltersForConversationBoundary(_ref);
+    // The chat list's selection flow: it waits for the account's storage,
+    // which a switch may still be settling, loads the chat (from the server
+    // when there is no copy here) and makes it the active conversation,
+    // clearing what belonged to the one it replaces.
+    final now = DateTime.now();
+    final result = await _ref
+        .read(conversationSelectionProvider.notifier)
+        .select(
+          Conversation(
+            id: chatId,
+            title: '',
+            createdAt: now,
+            updatedAt: now,
+            metadata: {
+              kChatStorageKindMetadataKey: ChatStorageKind.openWebUi.name,
+            },
+          ),
+        );
+    switch (result.disposition) {
+      case ConversationSelectionDisposition.committed:
+        await NavigationService.navigateToChat();
+      case ConversationSelectionDisposition.canceled:
+        // Another selection or account took over.
+        break;
+      case ConversationSelectionDisposition.failed:
+        showError();
     }
-    // DB-first open, mirroring the conversation-list selection flow.
-    await NavigationService.navigateToChat();
-    if (!openWebUiConversationReadIsCurrent(_ref, ownership)) return;
-    final local = await loadLocalConversation(
-      _ref,
-      chatId,
-      ownership: ownership,
-    );
-    if (!openWebUiConversationReadIsCurrent(_ref, ownership)) return;
-    if (local != null) {
-      _ref.read(activeConversationProvider.notifier).set(local);
-    }
-    schedulePullChatNow(_ref, chatId, ownership: ownership);
   }
 
   @override
