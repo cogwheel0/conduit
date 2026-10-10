@@ -1830,9 +1830,10 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Retries removing deleted subscriptions from servers that could not be
   /// reached at the time, for 30 days. A tombstone is only tried through a
-  /// target on the server it names. Tombstones added while this runs stay:
-  /// only those removed or expired here are dropped, from the list as it is
-  /// when this finishes.
+  /// target on the server it names, while that target is on or opted out
+  /// (its subscription may be the one left behind). Tombstones added while
+  /// this runs stay: only those removed or expired here are dropped, from
+  /// the list as it is when this finishes.
   Future<void> _processTombstones() async {
     final now = _now();
     final tombstones = _settings.tombstones();
@@ -1849,7 +1850,11 @@ class PushCoordinator extends _$PushCoordinator {
         }
       }
       final target = _target(entry.key);
-      if (fresh.isEmpty || target == null || !_isOn(entry.key)) continue;
+      if (fresh.isEmpty ||
+          target == null ||
+          !(_isOn(entry.key) || _record(entry.key).optedOut)) {
+        continue;
+      }
       final serverIdentity = target.serverIdentity;
       final server = serverIdentity == null
           ? null

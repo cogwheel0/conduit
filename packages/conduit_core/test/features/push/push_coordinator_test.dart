@@ -795,6 +795,26 @@ void main() {
       check(h.status(_owui.scope)).equals(PushStatus.on);
     });
 
+    test('an opt-out its server missed is removed there later', () async {
+      h = await _Harness.start(targets: [_owui, _hermes]);
+      await h.coordinator.setEnabled(true);
+      final sid = h.record(_owui.scope).sid!;
+      h.factory.openErrors[_owui.scope] = const PushBackendException(
+        PushFailure(PushFailureReason.serverUnreachable),
+      );
+      await h.coordinator.setTargetOptedOut(_owui.scope, true);
+      check(h.server(_owui).subscriptions.keys).contains(sid);
+      check(h.settingsStore.tombstones().map((t) => t.sid)).deepEquals([sid]);
+
+      // The server is back; the next full pass removes it.
+      h.factory.openErrors.remove(_owui.scope);
+      await h.coordinator.setEnabled(true);
+
+      check(h.server(_owui).subscriptions).isEmpty();
+      check(h.settingsStore.tombstones()).isEmpty();
+      check(h.status(_owui.scope)).equals(PushStatus.off);
+    });
+
     test('deleting a Hermes connection removes its subscription first', () async {
       h = await _Harness.start(targets: [_owui, _hermes]);
       await h.coordinator.setEnabled(true);
