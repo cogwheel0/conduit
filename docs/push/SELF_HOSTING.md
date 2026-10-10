@@ -154,6 +154,8 @@ its connections, whatever the proxy in front does:
 - A client has 10 seconds to send a request's headers. It has the same to
   start its first request on a new connection, or its next one on a kept-alive
   HTTP/1 connection.
+- Once the headers are in, the body has 10 seconds to arrive. A push whose
+  body doesn't is answered `408`.
 - A connection with no request in progress for 30 seconds is closed. An
   HTTP/2 client that has sent nothing for 15 seconds is pinged, and dropped if
   it doesn't answer within 10.

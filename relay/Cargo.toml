@@ -10,6 +10,8 @@ publish = false
 axum = { version = "0.8", default-features = false, features = ["http1", "http2", "json", "tokio"] }
 base64 = "0.22"
 chacha20poly1305 = "0.10"
+# Tells a body over the size limit apart from one that failed to arrive.
+http-body-util = "0.1"
 # axum's own `serve` runs hyper without a timer, which turns off its header
 # timeout; the relay drives hyper itself to keep timeouts and a connection cap.
 hyper = { version = "1", features = ["http1", "http2", "server"] }
@@ -29,6 +31,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["e
 # Generates the throwaway APNs and FCM signing keys the tests use. The relay
 # already links it through rustls and jsonwebtoken, so it adds no build.
 aws-lc-rs = "1"
+# A request body the tests can fail or hold open.
+http-body-util = { version = "0.1", features = ["channel"] }
 # Raw sockets, for the connection-handling tests.
 tokio = { version = "1", features = ["io-util"] }
 

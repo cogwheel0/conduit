@@ -45,6 +45,7 @@ results!(PushResult {
     NotFound => "not_found",
     Invalid => "invalid",
     TooLarge => "too_large",
+    Timeout => "timeout",
     RateLimited => "rate_limited",
     AppNotAllowed => "app_not_allowed",
     Unconfigured => "unconfigured",

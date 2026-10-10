@@ -20,6 +20,8 @@ pub const DEFAULT_GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token"
 pub const DEFAULT_FCM_OAUTH_BACKOFF: Duration = Duration::from_secs(30);
 /// Pushes that may wait at once for an FCM access token.
 pub const DEFAULT_FCM_TOKEN_WAITERS: usize = 256;
+/// How long a request's body has to arrive once its headers have.
+pub const DEFAULT_BODY_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -45,6 +47,9 @@ pub struct Config {
     pub trust_forwarded_for: bool,
     pub limits: Limits,
     pub connections: ConnectionLimits,
+    /// How long a request's body has to arrive. Not read from the
+    /// environment.
+    pub body_timeout: Duration,
 }
 
 /// How the listeners treat connections. Only `max_connections` comes from
@@ -232,6 +237,7 @@ impl Config {
             trust_forwarded_for,
             limits,
             connections,
+            body_timeout: DEFAULT_BODY_TIMEOUT,
         })
     }
 }
@@ -447,6 +453,7 @@ mod tests {
         assert_eq!(config.limits, Limits::default());
         assert_eq!(config.connections, ConnectionLimits::default());
         assert_eq!(config.connections.max_connections, 4096);
+        assert_eq!(config.body_timeout, Duration::from_secs(10));
     }
 
     #[test]

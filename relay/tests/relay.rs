@@ -1316,6 +1316,74 @@ async fn push_validation_errors() {
     }
 }
 
+/// Reads the relay's answer on `stream` until it holds `until` or the relay
+/// closes the connection.
+async fn read_answer(stream: &mut TcpStream, until: &str) -> String {
+    let started = Instant::now();
+    let mut received = Vec::new();
+    let mut buf = [0u8; 1024];
+    while !String::from_utf8_lossy(&received).contains(until) {
+        let left = Duration::from_secs(5).saturating_sub(started.elapsed());
+        match tokio::time::timeout(left, stream.read(&mut buf)).await {
+            Err(_) => panic!("no {until:?} after 5 s"),
+            Ok(Ok(0) | Err(_)) => break,
+            Ok(Ok(n)) => received.extend_from_slice(&buf[..n]),
+        }
+    }
+    String::from_utf8_lossy(&received).into_owned()
+}
+
+#[tokio::test]
+async fn only_a_body_over_the_limit_is_413() {
+    let (mock_addr, mock) = start_mock().await;
+    let relay = start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
+        config.body_timeout = Duration::from_millis(300);
+    })
+    .await;
+    let endpoint = relay.endpoint("apns", "prod").await;
+    let path = endpoint.strip_prefix(&relay.base).unwrap();
+    let head = |framing: &str| {
+        format!(
+            "POST {path} HTTP/1.1\r\nHost: relay\r\nContent-Encoding: aes128gcm\r\n\
+             TTL: 60\r\n{framing}\r\n\r\n"
+        )
+    };
+
+    // Part of a 598-byte body, and then nothing.
+    let mut stalled = relay.connect().await;
+    stalled
+        .write_all(head("Content-Length: 598").as_bytes())
+        .await
+        .unwrap();
+    stalled.write_all(&first_case_body()[..100]).await.unwrap();
+    let answer = read_answer(&mut stalled, r#"{"error":"request_timeout"}"#).await;
+    assert!(answer.starts_with("HTTP/1.1 408"), "{answer}");
+    assert!(
+        answer.ends_with(r#"{"error":"request_timeout"}"#),
+        "{answer}"
+    );
+
+    // A chunked body that announces no length still stops at the limit.
+    let mut chunked = relay.connect().await;
+    let mut request = head("Transfer-Encoding: chunked").into_bytes();
+    request.extend_from_slice(b"1000\r\n");
+    request.extend_from_slice(&[0; 4096]);
+    request.extend_from_slice(b"\r\n0\r\n\r\n");
+    chunked.write_all(&request).await.unwrap();
+    let answer = read_answer(&mut chunked, r#"{"error":"too_large"}"#).await;
+    assert!(answer.starts_with("HTTP/1.1 413"), "{answer}");
+    assert!(answer.ends_with(r#"{"error":"too_large"}"#), "{answer}");
+
+    let metrics = relay.metrics().await;
+    for line in [
+        "relay_push_total{provider=\"apns\",result=\"timeout\"} 1",
+        "relay_push_total{provider=\"apns\",result=\"too_large\"} 1",
+    ] {
+        assert!(metrics.lines().any(|l| l == line), "{line} in\n{metrics}");
+    }
+    assert!(relay.mock.apns().is_empty());
+}
+
 #[tokio::test]
 async fn bad_and_retired_endpoints() {
     let old = start().await;

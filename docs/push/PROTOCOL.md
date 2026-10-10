@@ -177,8 +177,9 @@ accepted the message.
 
 | Status | Meaning |
 |---|---|
-| 400 | Missing `TTL`, or a malformed body header |
+| 400 | Missing `TTL`, a malformed body header, or a body that couldn't be read |
 | 404 | The endpoint can't be opened |
+| 408 | The body didn't arrive within 10 seconds of the headers |
 | 410 | APNs or FCM says the token is gone, or the key id is retired |
 | 413 | Body over 2134 bytes |
 | 415 | Not `aes128gcm` |
