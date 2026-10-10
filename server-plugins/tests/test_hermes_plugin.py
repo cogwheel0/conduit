@@ -358,6 +358,25 @@ def test_watch_ttl_is_capped_and_validated(env):
     assert not store.is_watched("never", now=1000)
 
 
+def test_watch_reports_the_expiry_it_kept(env):
+    assert env.op({"op": "watch", "session_id": "s", "ttl": 3600}, now=1000)["expires"] == 4600
+    # A shorter refresh never brings a watch forward, and says so.
+    assert env.op({"op": "watch", "session_id": "s", "ttl": 10}, now=1000)["expires"] == 4600
+    assert env.store.Store(env.home).is_watched("s", now=4599)
+
+
+def test_watch_at_the_limit_keeps_the_session_it_was_asked_for(env):
+    limit = env.store.MAX_WATCHES
+    directory = env.home / "conduit_push"
+    directory.mkdir()
+    later = {f"w{index}": 1000 + 21600 for index in range(limit)}
+    (directory / "watches.json").write_text(json.dumps({"v": 1, "watches": later}))
+    store = env.store.Store(env.home)
+    assert store.watch("new", 60, now=1000) == 1060
+    assert store.is_watched("new", now=1000)
+    assert len(store._watches(1000)) == limit
+
+
 def test_test_push_is_sent_synchronously_and_decrypts(env):
     device = Device("a")
     other = Device("b")

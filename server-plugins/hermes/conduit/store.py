@@ -166,17 +166,22 @@ class Store:
         return {str(k): float(v) for k, v in raw.items() if isinstance(v, (int, float)) and v > now}
 
     def watch(self, session_id: str, ttl: int, now: Optional[float] = None) -> int:
-        """Marks a session as started by Conduit until ``now + ttl``; returns the expiry."""
+        """Marks a session as started by Conduit until ``now + ttl``.
+
+        A shorter refresh never brings a watch forward. Returns when the
+        watch ends, as stored.
+        """
         now = time.time() if now is None else now
         expires = int(now + min(max(int(ttl), 1), MAX_WATCH_TTL))
         with self._locked():
             watches = self._watches(now)
             watches[session_id] = max(expires, int(watches.get(session_id, 0)))
             if len(watches) > MAX_WATCHES:
-                keep = sorted(watches.items(), key=lambda item: item[1], reverse=True)[:MAX_WATCHES]
-                watches = dict(keep)
+                # The latest expiries stay, and always the session just watched.
+                keep = sorted(watches.items(), key=lambda item: (item[0] == session_id, item[1]), reverse=True)
+                watches = dict(keep[:MAX_WATCHES])
             self._write(WATCHES, {"v": 1, "watches": watches})
-        return expires
+            return int(watches[session_id])
 
     def is_watched(self, session_id: str, now: Optional[float] = None) -> bool:
         now = time.time() if now is None else now
