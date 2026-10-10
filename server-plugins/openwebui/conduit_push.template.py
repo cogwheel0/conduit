@@ -3,7 +3,7 @@ title: Conduit Push
 author: cogwheel0
 author_url: https://github.com/cogwheel0/conduit
 version: 1.0.0
-required_open_webui_version: 0.10.0
+required_open_webui_version: 0.11.0
 license: GPL-3.0
 description: End-to-end encrypted push notifications for the Conduit app. Each notification is encrypted on this server to a key that only exists on the user's device.
 conduit_protocol: 1

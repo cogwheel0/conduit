@@ -404,7 +404,7 @@ def test_frontmatter_becomes_the_manifest():
     }
     assert manifest["title"] == "Conduit Push"
     assert manifest["version"] == "1.0.0"
-    assert manifest["required_open_webui_version"] == "0.10.0"
+    assert manifest["required_open_webui_version"] == "0.11.0"
     assert manifest["conduit_protocol"] == "1"
     assert manifest["license"] == "GPL-3.0"
 

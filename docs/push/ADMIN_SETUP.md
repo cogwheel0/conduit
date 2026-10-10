@@ -55,8 +55,9 @@ away.
 
 ## Requirements
 
-- Open WebUI **0.10.0 or newer**. Open WebUI's editor refuses to save the
-  function on older versions.
+- Open WebUI **0.11.0 or newer**. Its reply events, `chat.finished` and
+  `chat.failed`, first appear in 0.11.0, and Open WebUI's editor refuses to
+  save the function on older versions.
 - **Plugins enabled.** That is the default; `ENABLE_PLUGINS=false` turns them
   off. Conduit reads `features.enable_plugins` from `/api/config`.
 - Outbound HTTPS from the Open WebUI server to the push endpoints your users
