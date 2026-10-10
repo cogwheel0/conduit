@@ -182,12 +182,14 @@ final class AppPushBackendFactory implements PushBackendFactory {
 
   /// The settings that reach [target]'s server: the connection's saved ones
   /// while they still name it, else those kept from before it was edited.
-  /// Throws `connection_changed` when neither does.
+  /// Throws `connection_changed` when neither does, or `invalid_url` when
+  /// the saved address is unusable and nothing was kept.
   @visibleForTesting
   Future<HermesConfig> hermesConfigFor(HermesPushTarget target) async {
     final connectionId = target.connectionId;
     HermesConfig? current;
     String? identity;
+    PushBackendException? unusable;
     try {
       // The principal is read before and after the settings: an edit that
       // lands in between leaves them unpaired, and they are not used.
@@ -203,7 +205,14 @@ final class AppPushBackendFactory implements PushBackendFactory {
         );
       }
     } on PushBackendException catch (error) {
-      if (error.failure.detail != 'no_connection') rethrow;
+      // A connection whose saved address is cleared (an edit under way, or
+      // one rolled back) can still reach the old server with the settings
+      // kept from before.
+      if (error.failure.detail == 'invalid_url') {
+        unusable = error;
+      } else if (error.failure.detail != 'no_connection') {
+        rethrow;
+      }
     }
     if (current != null && identity == target.serverIdentity) {
       final kept = _retainedHermes.putIfAbsent(connectionId, () => {});
@@ -217,6 +226,7 @@ final class AppPushBackendFactory implements PushBackendFactory {
     }
     final kept = _retainedHermes[connectionId]?[target.serverIdentity];
     if (kept != null) return kept;
+    if (unusable != null) throw unusable;
     throw const PushBackendException(
       PushFailure(
         PushFailureReason.serverRejected,

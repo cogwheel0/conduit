@@ -111,4 +111,31 @@ void main() {
     }
     check(refused?.failure.detail).equals('connection_changed');
   });
+
+  // An edit under way, or one rolled back, leaves the saved address blank.
+  void clearAddress() {
+    configs.saved = _home.copyWith(baseUrl: '');
+    profiles = [_profile('', 'p-1')];
+    container.invalidate(hermesConnectionsProvider);
+  }
+
+  test('with its address cleared, a target reaches its server still', () async {
+    final old = _target(_home.baseUrl, 'p-1');
+    await factory().retain(old);
+    clearAddress();
+
+    final config = await factory().hermesConfigFor(old);
+    check(config.baseUrl).equals(_home.baseUrl);
+  });
+
+  test('a cleared address with nothing kept is an invalid one', () async {
+    clearAddress();
+    PushBackendException? refused;
+    try {
+      await factory().hermesConfigFor(_target(_home.baseUrl, 'p-1'));
+    } on PushBackendException catch (error) {
+      refused = error;
+    }
+    check(refused?.failure.detail).equals('invalid_url');
+  });
 }
