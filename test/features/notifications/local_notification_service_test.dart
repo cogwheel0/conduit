@@ -82,5 +82,18 @@ void main() {
 
       check(picked).isEmpty();
     });
+
+    test('finds them by tag where Android lists them without payload', () {
+      final picked = LocalNotificationService.notificationsInScope([
+        _posted(11, null, tag: 'owui:acct-1|chat:c1:m1'),
+        _posted(12, null, tag: 'owui:acct-10|chat:c2:m2'),
+        _posted(13, null, tag: 'hermes:conn-1|hermes:s1:t1'),
+        _posted(14, null, tag: 'owui:acct-1'),
+        // A payload says which scope it is, whatever the tag.
+        _posted(15, _payload('owui:acct-2', 'c3'), tag: 'owui:acct-1|x'),
+      ], 'owui:acct-1');
+
+      check(picked.map((n) => n.id)).deepEquals([11]);
+    });
   });
 }

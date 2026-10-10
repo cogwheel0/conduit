@@ -320,8 +320,8 @@ class LocalNotificationService {
 
   /// Clears the posted notifications of one account or connection ([scope],
   /// see [NotificationScope]), leaving every other one in place. Notifications
-  /// posted before they carried a scope go too: which account they belong to
-  /// is no longer known.
+  /// posted before they carried a scope go too, where they can still be told
+  /// apart (iOS): which account they belong to is no longer known.
   Future<void> cancelScope(String scope) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     if (!_initialized) await initialize();
@@ -349,10 +349,17 @@ class LocalNotificationService {
     String scope,
   ) => [
     for (final notification in active)
-      if (notification.id != null)
-        if (NotificationTap.tryDecode(notification.payload) case final tap?)
-          if (tap.scope == null || tap.scope == scope) notification,
+      if (notification.id != null && _isInScope(notification, scope))
+        notification,
   ];
+
+  static bool _isInScope(ActiveNotification notification, String scope) {
+    final tap = NotificationTap.tryDecode(notification.payload);
+    if (tap != null) return tap.scope == null || tap.scope == scope;
+    // Android lists posted notifications without their payload. Their tag,
+    // the dedup key [show] posts with, starts with the scope.
+    return notification.tag?.startsWith('$scope|') ?? false;
+  }
 
   void dispose() {
     _taps.close();
