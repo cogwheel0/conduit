@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart'
+    show savedCredentialAuthApiFactoryProvider;
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -6,6 +11,12 @@ import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import 'package:conduit_core/features/push/services/push_backend.dart';
 import 'package:conduit_core/features/push/services/push_backend_factory.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show apiServiceProvider;
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -138,4 +149,83 @@ void main() {
     }
     check(refused?.failure.detail).equals('invalid_url');
   });
+
+  test("the active account's switch queues on its live client", () async {
+    final server = _SettingsServer();
+    final live = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'acct-1',
+        name: 'Home',
+        url: 'https://owui.test',
+        isActive: true,
+      ),
+      workerManager: WorkerManager(),
+      authToken: 'live-token-0123456789',
+    )..dio.httpClientAdapter = server;
+    var throwaway = 0;
+    final app = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(live),
+        savedCredentialAuthApiFactoryProvider.overrideWithValue(
+          ({required serverConfig, required workerManager}) {
+            throwaway++;
+            throw StateError('the live client should be used');
+          },
+        ),
+      ],
+    );
+    addTearDown(app.dispose);
+
+    // A settings write the app made first, still reading the document.
+    final gate = Completer<void>();
+    server.gate = gate;
+    final sound = live.updateUserNotificationSettings(notificationSound: false);
+    final push = app
+        .read(pushBackendFactoryProvider)
+        .setOpenWebUiNotificationsEnabled('acct-1', enabled: true);
+    await pumpEventQueue();
+    gate.complete();
+    await sound;
+    await push;
+
+    check(throwaway).equals(0);
+    check(server.settings).deepEquals({
+      'notificationSound': false,
+      'notificationEnabled': true,
+    });
+  });
+}
+
+/// Open WebUI's user settings document, replaced by every update.
+final class _SettingsServer implements HttpClientAdapter {
+  Map<String, dynamic> settings = {};
+
+  /// Holds the next request until completed.
+  Completer<void>? gate;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final held = gate;
+    if (held != null) {
+      gate = null;
+      await held.future;
+    }
+    if (options.method == 'POST') {
+      settings = Map<String, dynamic>.from(options.data as Map);
+    }
+    return ResponseBody.fromString(
+      jsonEncode(settings),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

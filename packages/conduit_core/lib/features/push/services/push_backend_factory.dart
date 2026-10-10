@@ -42,8 +42,9 @@ abstract interface class PushBackendFactory {
   Future<HermesBackendService> openHermesService(String connectionId);
 
   /// Writes the Open WebUI account [accountId]'s own notifications switch to
-  /// its server, as the Notifications page does, through a client of its
-  /// own (the account need not be the active one).
+  /// its server, as the Notifications page does: through the live client
+  /// for the active account, after the settings writes it has queued, and a
+  /// client of its own for any other.
   Future<void> setOpenWebUiNotificationsEnabled(
     String accountId, {
     required bool enabled,
@@ -112,6 +113,17 @@ final class AppPushBackendFactory implements PushBackendFactory {
     String accountId, {
     required bool enabled,
   }) async {
+    // The active account's write queues behind the app's other settings
+    // writes on its live client: each replaces the whole document, so one
+    // from a client of its own could undo them.
+    final live = _liveOpenWebUi(accountId);
+    if (live != null) {
+      if (TokenValidator.validateTokenFormat(live.authToken!).isExpired) {
+        throw _signInNeeded;
+      }
+      await live.updateUserNotificationSettings(notificationEnabled: enabled);
+      return;
+    }
     final api = await _openWebUiApi(accountId);
     try {
       await api.updateUserNotificationSettings(notificationEnabled: enabled);
@@ -120,18 +132,27 @@ final class AppPushBackendFactory implements PushBackendFactory {
     }
   }
 
+  /// The live client when it is signed in to [accountId], or null.
+  ApiService? _liveOpenWebUi(String accountId) {
+    final live = _ref.read(apiServiceProvider);
+    final token = live?.authToken;
+    if (live == null ||
+        live.serverConfig.id != accountId ||
+        token == null ||
+        token.isEmpty) {
+      return null;
+    }
+    return live;
+  }
+
   /// The account's token with the server it belongs to: the live client's
   /// pair for the active account, the vault's for any other.
   Future<({ServerConfig config, String token})?> _openWebUiSession(
     String accountId,
   ) async {
-    final live = _ref.read(apiServiceProvider);
-    final liveToken = live?.authToken;
-    if (live != null &&
-        live.serverConfig.id == accountId &&
-        liveToken != null &&
-        liveToken.isNotEmpty) {
-      return (config: live.serverConfig, token: liveToken);
+    final live = _liveOpenWebUi(accountId);
+    if (live != null) {
+      return (config: live.serverConfig, token: live.authToken!);
     }
     final sessions = await _ref
         .read(optimizedStorageServiceProvider)
