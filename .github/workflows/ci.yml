@@ -261,6 +261,8 @@ jobs:
         run: .venv/bin/python push/test-vectors/generate.py --check
       - name: Check the Open WebUI function is up to date
         run: .venv/bin/python server-plugins/openwebui/build.py --check
+      - name: Check the Hermes plugin's copy of the shared library is up to date
+        run: .venv/bin/python server-plugins/hermes/sync.py --check
       - name: Test
         working-directory: server-plugins
         run: ../.venv/bin/python -m pytest -q

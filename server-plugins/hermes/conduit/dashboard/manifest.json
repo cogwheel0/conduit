@@ -1,0 +1,14 @@
+{
+  "name": "conduit",
+  "label": "Conduit push",
+  "description": "Encrypted push notifications for the Conduit app. Managed from Conduit; no dashboard page.",
+  "icon": "Bell",
+  "version": "1.0.0",
+  "tab": {
+    "path": "/conduit",
+    "position": "end",
+    "hidden": true
+  },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}
