@@ -18,7 +18,7 @@ It sends a notification when:
 
 | Event | Who gets it |
 |---|---|
-| A reply finishes | The user who sent the message. By default only for replies requested from Conduit (the request's `User-Agent` starts with `Conduit/`). Each device can switch to "All my chats". |
+| A reply finishes | The user who sent the message. By default only for replies requested from Conduit (the request's `User-Agent` is `Conduit` or starts with `Conduit/`). Each device can switch to "All my chats". |
 | A reply fails | The same user, under the same rule. The preview is empty. |
 | Someone posts a top-level message in a channel | Every other channel member: in standard channels, members who still have read access; in group channels and DMs, the members. Thread replies and model replies don't notify. Messages posted through a channel webhook notify every member. |
 

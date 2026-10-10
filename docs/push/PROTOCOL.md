@@ -37,7 +37,8 @@ The server stores a subscription as:
 
 - `did` is a random per-install id. A device replaces its older entries with the same `did`.
 - `origin` (Open WebUI only) is `conduit` or `any`. With `conduit`, the function only sends
-  replies to chats whose completion request carried a `Conduit/…` User-Agent.
+  replies to chats whose completion request carried a User-Agent of `Conduit` or `Conduit/…`
+  (the app sends the bare name until it has read its own version).
 - `seen` is refreshed by every subscribe. Servers drop entries not seen for 30 days.
 
 ## 2. Inner payload
