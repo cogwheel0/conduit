@@ -19,6 +19,34 @@ String _payload(String scope, String sourceId) => NotificationTap.encode(
 );
 
 void main() {
+  group('notificationThreadIdentifier', () {
+    AppNotification notification(String scope, String? group) =>
+        AppNotification(
+          kind: NotificationKind.chatCompletion,
+          scope: scope,
+          title: 't',
+          body: 'b',
+          sourceId: 'c1',
+          dedupKey: '$scope|chat:c1:m',
+          group: group,
+        );
+
+    test('scopes the group to its account, as the push extension does', () {
+      check(
+        notificationThreadIdentifier(notification('owui:acct-1', 'chat:c1')),
+      ).equals('owui:acct-1|chat:c1');
+      check(
+        notificationThreadIdentifier(notification('owui:acct-2', 'chat:c1')),
+      ).equals('owui:acct-2|chat:c1');
+    });
+
+    test('falls back to the account alone without a group', () {
+      check(
+        notificationThreadIdentifier(notification('direct', null)),
+      ).equals('direct');
+    });
+  });
+
   group('notificationsInScope', () {
     test('picks the scope\'s own and leaves other accounts\' alone', () {
       final active = [

@@ -287,7 +287,7 @@ class LocalNotificationService {
       presentAlert: true,
       presentBadge: true,
       presentSound: playSound,
-      threadIdentifier: notification.group,
+      threadIdentifier: notificationThreadIdentifier(notification),
     );
 
     try {
@@ -364,4 +364,16 @@ LocalNotificationService localNotificationService(Ref ref) {
   final service = LocalNotificationService();
   ref.onDispose(service.dispose);
   return service;
+}
+
+/// The iOS thread a notification is listed under: its group, scoped to the
+/// account that posted it, the same way the push extension builds it, so a
+/// local notification and a push for the same chat share one thread and two
+/// accounts never share one.
+@visibleForTesting
+String notificationThreadIdentifier(AppNotification notification) {
+  final group = notification.group;
+  return group == null || group.isEmpty
+      ? notification.scope
+      : '${notification.scope}|$group';
 }
