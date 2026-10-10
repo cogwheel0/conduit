@@ -779,9 +779,14 @@ class PushCoordinator extends _$PushCoordinator {
     bool forceTest = false,
     bool resubscribe = false,
     bool freshEndpoint = false,
-  }) {
+  }) async {
     final runner = _runner(target.scope);
     final generation = runner.generation;
+    // A removal under way ends first: until it has, it may still delete the
+    // keys and clear the record this setup would reuse. One that starts
+    // later cancels this setup instead.
+    final removal = runner.removal;
+    if (removal != null) await removal;
     return runner.lock.synchronized(() async {
       if (!ref.mounted || runner.generation != generation) return;
       runner.lastAttempt = _now();
@@ -1546,14 +1551,46 @@ class PushCoordinator extends _$PushCoordinator {
   /// that, its subscribe may still land on the server after the unsubscribe
   /// here: its sids are tombstoned whatever the server answers, and removed
   /// once more after the setup has stopped.
+  ///
+  /// A setup asked for while this runs waits for it to end, however it ends.
   Future<void> _release(
     String scope, {
     PushTarget? target,
     bool forget = false,
     PushStatus status = PushStatus.off,
     bool waitForSetup = true,
-  }) async {
+  }) {
     final runner = _runner(scope);
+    final removal = _removeSubscription(
+      scope,
+      runner,
+      target: target,
+      forget: forget,
+      status: status,
+      waitForSetup: waitForSetup,
+    );
+    final earlier = runner.removal;
+    final settled = removal.then<void>((_) {}, onError: (Object _) {});
+    final pending = earlier == null
+        ? settled
+        : Future.wait([earlier, settled]).then<void>((_) {});
+    runner.removal = pending;
+    unawaited(
+      pending.whenComplete(() {
+        if (identical(runner.removal, pending)) runner.removal = null;
+      }),
+    );
+    return removal;
+  }
+
+  Future<void> _removeSubscription(
+    String scope,
+    _ScopeRunner runner, {
+    required PushTarget? target,
+    required bool forget,
+    required PushStatus status,
+    required bool waitForSetup,
+  }) async {
     runner.generation++;
     _releases++;
     final before = _record(scope);
@@ -2262,6 +2299,10 @@ final class _ScopeRunner {
   /// setup started before it stops too, so it cannot save the old endpoint.
   int endpointEpoch = 0;
   DateTime? lastAttempt;
+
+  /// The removals under way, settled whatever their outcome. A setup waits
+  /// for them before it starts.
+  Future<void>? removal;
 }
 
 /// One pass over the targets, for requests that arrive while it runs.

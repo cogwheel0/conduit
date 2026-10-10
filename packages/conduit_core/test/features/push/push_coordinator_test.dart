@@ -1041,6 +1041,29 @@ void main() {
       );
     });
 
+    test('turning push on while it is being removed sets it up again', () async {
+      h = await _Harness.start(targets: [_owui]);
+      await h.coordinator.setEnabled(true);
+      final oldSid = h.record(_owui.scope).sid!;
+      final gate = Completer<void>();
+      h.server(_owui).unsubscribeGate = gate;
+      final off = h.coordinator.setEnabled(false);
+      await h.until(() => h.log.contains('unsubscribe-waiting $oldSid'));
+      // Back on before the removal has deleted the keys it would reuse.
+      final on = h.coordinator.setEnabled(true);
+      await pumpEventQueue();
+      h.server(_owui).unsubscribeGate = null;
+      gate.complete();
+      await off;
+      await on;
+
+      check(h.status(_owui.scope)).equals(PushStatus.on);
+      final sid = h.record(_owui.scope).sid;
+      check(sid).isNotNull().not((it) => it.equals(oldSid));
+      check(h.platform.subscriptions.keys).deepEquals([sid!]);
+      check(h.server(_owui).subscriptions.keys).deepEquals([sid]);
+    });
+
     test('resetting keys during a pass sets everything up again', () async {
       h = await _Harness.start(targets: [_owui]);
       final gate = Completer<void>();
