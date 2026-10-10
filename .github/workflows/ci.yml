@@ -259,6 +259,8 @@ jobs:
           .venv/bin/pip install -r server-plugins/requirements-test.txt
       - name: Check test vectors are up to date
         run: .venv/bin/python push/test-vectors/generate.py --check
+      - name: Check the Open WebUI function is up to date
+        run: .venv/bin/python server-plugins/openwebui/build.py --check
       - name: Test
         working-directory: server-plugins
         run: ../.venv/bin/python -m pytest -q
