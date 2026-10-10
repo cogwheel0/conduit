@@ -1190,6 +1190,32 @@ void main() {
           .equals(PushOrigin.any);
     });
 
+    test('a kind turned off during a setup reaches the server', () async {
+      h = await _Harness.start(targets: [_owui]);
+      final gate = Completer<void>();
+      h.server(_owui).subscribeGate = gate;
+      final setup = h.coordinator.setEnabled(true);
+      // The setup has picked its events and is waiting on the server.
+      await waitForSubscribe(h.server(_owui));
+
+      h.settings.set(
+        h.settings.state.copyWith(notificationChannelEnabled: false),
+      );
+      await pumpEventQueue();
+      h.server(_owui).subscribeGate = null;
+      gate.complete();
+      await setup;
+
+      // Saved once the server has the new list.
+      await h.until(
+        () =>
+            h.record(_owui.scope).events?.contains('channel') == false &&
+            h.status(_owui.scope) == PushStatus.on,
+      );
+      check(h.server(_owui).subscriptions.values.single.events)
+          .deepEquals(['reply', 'reply_failed']);
+    });
+
     test('an endpoint reported gone during a setup is not saved back', () async {
       h = await _Harness.start(targets: [_owui], unifiedPush: true);
       final gate = Completer<void>();

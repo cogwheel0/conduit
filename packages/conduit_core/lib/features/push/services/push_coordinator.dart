@@ -627,7 +627,11 @@ class PushCoordinator extends _$PushCoordinator {
   void _onEventsChanged() {
     if (!state.enabled) return;
     for (final target in _targets ?? const <PushTarget>[]) {
-      if (_isOn(target.scope)) unawaited(_reconcile(target));
+      // A setup running now may have picked its events already; the pass
+      // queued behind it uploads the new ones.
+      if (_isOn(target.scope) || _runner(target.scope).lock.locked) {
+        unawaited(_reconcile(target));
+      }
     }
   }
 
