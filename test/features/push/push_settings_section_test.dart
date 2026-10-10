@@ -235,7 +235,7 @@ void main() {
       ),
       'serverTooOld': (
         _owui(PushStatus.serverTooOld),
-        'Needs Open WebUI 0.10 or newer',
+        'Needs Open WebUI 0.11 or newer',
         null,
       ),
       'signInNeeded': (

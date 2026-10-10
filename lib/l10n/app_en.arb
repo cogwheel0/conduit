@@ -8682,7 +8682,7 @@
   "@pushStatusPluginsDisabled": {
     "description": "Push status when the Open WebUI server runs with functions (plugins) disabled."
   },
-  "pushStatusServerTooOldOpenWebUi": "Needs Open WebUI 0.10 or newer",
+  "pushStatusServerTooOldOpenWebUi": "Needs Open WebUI 0.11 or newer",
   "@pushStatusServerTooOldOpenWebUi": {
     "description": "Push status when the Open WebUI server is older than the version push needs."
   },

@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "Non configuré sur ce serveur",
   "pushStatusUpdateAvailable": "Activé · Mise à jour disponible",
   "pushStatusPluginsDisabled": "Les fonctions sont désactivées sur ce serveur",
-  "pushStatusServerTooOldOpenWebUi": "Nécessite Open WebUI 0.10 ou plus récent",
+  "pushStatusServerTooOldOpenWebUi": "Nécessite Open WebUI 0.11 ou plus récent",
   "pushStatusServerTooOldHermes": "Nécessite une version plus récente de Hermes",
   "pushStatusNeedsHermesPlugin": "Nécessite le plugin Conduit dans Hermes",
   "pushStatusRestartHermes": "Redémarrez Hermes pour terminer",

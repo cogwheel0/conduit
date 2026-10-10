@@ -5711,7 +5711,7 @@
   "pushStatusCanInstall": "このサーバーでは未設定です",
   "pushStatusUpdateAvailable": "オン · アップデートがあります",
   "pushStatusPluginsDisabled": "このサーバーでは関数がオフです",
-  "pushStatusServerTooOldOpenWebUi": "Open WebUI 0.10 以降が必要です",
+  "pushStatusServerTooOldOpenWebUi": "Open WebUI 0.11 以降が必要です",
   "pushStatusServerTooOldHermes": "より新しい Hermes が必要です",
   "pushStatusNeedsHermesPlugin": "Hermes に Conduit プラグインが必要です",
   "pushStatusRestartHermes": "完了するには Hermes を再起動してください",

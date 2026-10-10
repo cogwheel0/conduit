@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "Niet ingesteld op deze server",
   "pushStatusUpdateAvailable": "Aan · Update beschikbaar",
   "pushStatusPluginsDisabled": "Functies staan uit op deze server",
-  "pushStatusServerTooOldOpenWebUi": "Vereist Open WebUI 0.10 of nieuwer",
+  "pushStatusServerTooOldOpenWebUi": "Vereist Open WebUI 0.11 of nieuwer",
   "pushStatusServerTooOldHermes": "Vereist een nieuwere versie van Hermes",
   "pushStatusNeedsHermesPlugin": "Vereist de Conduit-plug-in in Hermes",
   "pushStatusRestartHermes": "Start Hermes opnieuw om af te ronden",

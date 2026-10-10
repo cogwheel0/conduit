@@ -4233,7 +4233,7 @@
   "pushStatusCanInstall": "Не настроено на этом сервере",
   "pushStatusUpdateAvailable": "Включено · Есть обновление",
   "pushStatusPluginsDisabled": "Функции на этом сервере выключены",
-  "pushStatusServerTooOldOpenWebUi": "Нужен Open WebUI 0.10 или новее",
+  "pushStatusServerTooOldOpenWebUi": "Нужен Open WebUI 0.11 или новее",
   "pushStatusServerTooOldHermes": "Нужна более новая версия Hermes",
   "pushStatusNeedsHermesPlugin": "Нужен плагин Conduit в Hermes",
   "pushStatusRestartHermes": "Перезапустите Hermes, чтобы завершить",

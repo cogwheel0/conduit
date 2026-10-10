@@ -3967,7 +3967,7 @@
   "pushStatusCanInstall": "이 서버에 설정되지 않음",
   "pushStatusUpdateAvailable": "켜짐 · 업데이트 있음",
   "pushStatusPluginsDisabled": "이 서버에서 함수가 꺼져 있음",
-  "pushStatusServerTooOldOpenWebUi": "Open WebUI 0.10 이상 필요",
+  "pushStatusServerTooOldOpenWebUi": "Open WebUI 0.11 이상 필요",
   "pushStatusServerTooOldHermes": "최신 버전의 Hermes 필요",
   "pushStatusNeedsHermesPlugin": "Hermes에 Conduit 플러그인 필요",
   "pushStatusRestartHermes": "완료하려면 Hermes 다시 시작",

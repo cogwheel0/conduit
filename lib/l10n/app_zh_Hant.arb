@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "此伺服器尚未設定",
   "pushStatusUpdateAvailable": "已開啟 · 有可用更新",
   "pushStatusPluginsDisabled": "此伺服器已關閉函式功能",
-  "pushStatusServerTooOldOpenWebUi": "需要 Open WebUI 0.10 或更新版本",
+  "pushStatusServerTooOldOpenWebUi": "需要 Open WebUI 0.11 或更新版本",
   "pushStatusServerTooOldHermes": "需要較新版本的 Hermes",
   "pushStatusNeedsHermesPlugin": "需要在 Hermes 中安裝 Conduit 外掛",
   "pushStatusRestartHermes": "重新啟動 Hermes 以完成",

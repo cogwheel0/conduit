@@ -11,9 +11,10 @@ import 'package:conduit_core/features/push/services/push_backend.dart';
 const String kConduitPushFunctionId = 'conduit_push';
 const String kConduitPushFunctionName = 'Conduit Push';
 
-/// The oldest Open WebUI the function runs on (its `Event` functions and
-/// `function.valves_updated`).
-const String kConduitPushMinOpenWebUiVersion = '0.10.0';
+/// The oldest Open WebUI push works on: `Event` functions and
+/// `function.valves_updated` came in 0.10.0, but the reply events
+/// (`chat.finished`, `chat.failed`) only in 0.11.0.
+const String kConduitPushMinOpenWebUiVersion = '0.11.0';
 
 /// The function bundled with the app (`assets/server_plugins/…`).
 final class OpenWebUiFunctionSource {

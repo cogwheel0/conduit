@@ -6017,7 +6017,7 @@
   "pushStatusCanInstall": "Na tomto serveru není nastaveno",
   "pushStatusUpdateAvailable": "Zapnuto · K dispozici je aktualizace",
   "pushStatusPluginsDisabled": "Funkce jsou na tomto serveru vypnuté",
-  "pushStatusServerTooOldOpenWebUi": "Vyžaduje Open WebUI 0.10 nebo novější",
+  "pushStatusServerTooOldOpenWebUi": "Vyžaduje Open WebUI 0.11 nebo novější",
   "pushStatusServerTooOldHermes": "Vyžaduje novější verzi Hermes",
   "pushStatusNeedsHermesPlugin": "Vyžaduje plugin Conduit v Hermes",
   "pushStatusRestartHermes": "Dokončete restartem Hermes",

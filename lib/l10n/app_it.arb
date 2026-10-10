@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "Non configurato su questo server",
   "pushStatusUpdateAvailable": "Attivo · Aggiornamento disponibile",
   "pushStatusPluginsDisabled": "Le funzioni sono disattivate su questo server",
-  "pushStatusServerTooOldOpenWebUi": "Richiede Open WebUI 0.10 o successivo",
+  "pushStatusServerTooOldOpenWebUi": "Richiede Open WebUI 0.11 o successivo",
   "pushStatusServerTooOldHermes": "Richiede una versione più recente di Hermes",
   "pushStatusNeedsHermesPlugin": "Richiede il plugin Conduit in Hermes",
   "pushStatusRestartHermes": "Riavvia Hermes per completare",
