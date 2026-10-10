@@ -145,14 +145,17 @@ class NotificationRouter {
     // Hermes turn this app watched, a frame with no message id) would then
     // notify twice, so it leaves the system notification to the push -- only
     // when one is sure to come, though, or nothing would notify at all.
-    // Nothing is recorded, so the push, if it reaches the router in the
-    // foreground, still shows. A push shown outside the app never reaches
-    // the loaded channel list, so its unread count still goes up here.
+    // The push's own key differs from this source's, so recording this one
+    // never holds the push back if it reaches the router in the foreground.
+    // A push shown outside the app never reaches the loaded channel list, so
+    // its unread count still goes up here, once per message even when the
+    // frame is delivered again.
     if (!foreground &&
         !alreadyClaimed &&
         !notification.sharesPushDedupKey &&
         _pushCovers(notification)) {
-      if (notification.kind == NotificationKind.channelMessage) {
+      if (notification.kind == NotificationKind.channelMessage &&
+          _markFresh(notification.dedupKey)) {
         _onChannelUnread(notification);
       }
       return NotificationSurface.suppressed;

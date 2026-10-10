@@ -565,6 +565,15 @@ void main() {
       check(unreads).deepEquals([unnamed]);
     });
 
+    test('counts a channel message it leaves to push once', () async {
+      final router = build(foreground: false, pushOn: {'owui:acct-1'});
+      final unnamed = _channel().copyWith(sharesPushDedupKey: false);
+      await router.route(unnamed);
+      await router.route(unnamed);
+      verifyNeverShown();
+      check(unreads).deepEquals([unnamed]);
+    });
+
     test('still shows a banner in the foreground', () async {
       final router = build(pushOn: {'hermes:conn-1'});
       check(await router.route(watched())).equals(NotificationSurface.banner);
