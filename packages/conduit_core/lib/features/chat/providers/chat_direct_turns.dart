@@ -1909,10 +1909,10 @@ Future<void> _announceDirectRunCompletion(
     if (active != null && active.id == owner.conversationId) {
       title = active.title;
     } else if (location != null) {
-      final row = await location.database.chatsDao
-          .getChat(owner.conversationId)
-          .timeout(const Duration(seconds: 2));
-      title = row?.title;
+      title = await directCompletionChatTitle(
+        location.database,
+        owner.conversationId,
+      );
     }
     registry.announceCompletion(
       reservation,
@@ -1934,5 +1934,29 @@ Future<void> _announceDirectRunCompletion(
       error: error,
       stackTrace: stackTrace,
     );
+  }
+}
+
+/// The stored title of chat [conversationId] in [database], for the
+/// notification about its reply. The title only names the chat: a lookup
+/// that fails or takes over two seconds answers null, and the reply is
+/// announced without one.
+@visibleForTesting
+Future<String?> directCompletionChatTitle(
+  AppDatabase database,
+  String conversationId,
+) async {
+  try {
+    final row = await database.chatsDao
+        .getChat(conversationId)
+        .timeout(const Duration(seconds: 2));
+    return row?.title;
+  } catch (error) {
+    DebugLogger.warning(
+      'completion-title-lookup-failed',
+      scope: 'direct-connections/chat',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    return null;
   }
 }
