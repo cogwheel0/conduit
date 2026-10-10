@@ -774,6 +774,10 @@ const nativeVoiceProviderFieldIds = {
       DirectVoiceProviderField.transcriptionModel,
   'voice-provider-speech-model': DirectVoiceProviderField.speechModel,
   'voice-provider-speech-voice': DirectVoiceProviderField.speechVoice,
+  'voice-provider-realtime-model': DirectVoiceProviderField.realtimeModel,
+  'voice-provider-realtime-voice': DirectVoiceProviderField.realtimeVoice,
+  'voice-provider-realtime-instructions':
+      DirectVoiceProviderField.realtimeInstructions,
 };
 
 /// [voiceProviderCandidates] are the connections that can be the Voice
@@ -1001,12 +1005,62 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
             ),
           ],
         ),
+        NativeSheetSectionConfig(
+          title: l10n.voiceCallModeTitle,
+          footer: l10n.voiceProviderRealtimeFooter,
+          items: [
+            providerField(
+              'voice-provider-realtime-model',
+              l10n.voiceProviderRealtimeModel,
+              voiceProvider?.realtimeModel,
+              'gpt-realtime-2.1-mini',
+            ),
+            providerField(
+              'voice-provider-realtime-voice',
+              l10n.voice,
+              voiceProvider?.realtimeVoice,
+              'marin',
+            ),
+            NativeSheetItemConfig(
+              id: 'voice-provider-realtime-instructions',
+              title: l10n.voiceProviderRealtimeInstructions,
+              sfSymbol: 'text.alignleft',
+              kind: NativeSheetItemKind.multilineTextField,
+              value: voiceProvider?.realtimeInstructions ?? '',
+              placeholder: l10n.voiceProviderRealtimeInstructionsHint,
+            ),
+          ],
+        ),
       ],
     ],
   );
 
   return NativeAudioSheetParts(
     mainSections: [
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'voice-call-mode',
+            title: l10n.voiceCallModeTitle,
+            subtitle: appSettings.voiceCallMode == VoiceCallMode.auto
+                ? l10n.voiceCallModeRealtimeDescription
+                : l10n.voiceCallModeStandardDescription,
+            sfSymbol: 'phone.badge.waveform',
+            kind: NativeSheetItemKind.segment,
+            value: appSettings.voiceCallMode.name,
+            options: [
+              NativeSheetOptionConfig(
+                id: VoiceCallMode.auto.name,
+                label: l10n.voiceCallModeRealtime,
+              ),
+              NativeSheetOptionConfig(
+                id: VoiceCallMode.standard.name,
+                label: l10n.voiceCallModeStandard,
+              ),
+            ],
+          ),
+        ],
+      ),
       NativeSheetSectionConfig(items: sttItems),
       NativeSheetSectionConfig(items: ttsItems),
       NativeSheetSectionConfig(

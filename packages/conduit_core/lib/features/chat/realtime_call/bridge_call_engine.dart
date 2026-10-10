@@ -108,7 +108,8 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       _subscriptions
         ..add(_transport.events.listen(_onEvent))
         ..add(_audio.captureFrames.listen(_onCapture))
-        ..add(_audio.reports.listen(_onReport));
+        ..add(_audio.reports.listen(_onReport))
+        ..add(_audio.failures.listen(_fail));
       unawaited(
         _transport.closed.then((message) {
           if (!_ended) _fail(message ?? 'Voice connection closed.');

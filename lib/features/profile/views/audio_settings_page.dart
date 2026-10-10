@@ -46,12 +46,58 @@ class AudioSettingsPage extends ConsumerWidget {
     return UtilityPageScaffold.settings(
       title: l10n.audioSettingsTitle,
       children: [
+        _buildCallsSection(context, ref, settings),
+        settingsSectionGap,
         _buildSttSection(context, ref, settings),
         settingsSectionGap,
         _buildTtsSection(context, ref, settings),
         settingsSectionGap,
         _buildVoiceProviderTile(context, ref, settings),
       ],
+    );
+  }
+
+  Widget _buildCallsSection(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return InsetGroupedSection(
+      title: l10n.voiceCallModeTitle,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AdaptiveSegmentedSelector<VoiceCallMode>(
+            value: settings.voiceCallMode,
+            onChanged: ref.read(appSettingsProvider.notifier).setVoiceCallMode,
+            options: [
+              (
+                value: VoiceCallMode.auto,
+                label: l10n.voiceCallModeRealtime,
+                cupertinoIcon: CupertinoIcons.waveform,
+                materialIcon: Icons.graphic_eq,
+                enabled: true,
+              ),
+              (
+                value: VoiceCallMode.standard,
+                label: l10n.voiceCallModeStandard,
+                cupertinoIcon: CupertinoIcons.chat_bubble_2,
+                materialIcon: Icons.forum,
+                enabled: true,
+              ),
+            ],
+          ),
+          const SizedBox(height: Spacing.sm),
+          Text(
+            settings.voiceCallMode == VoiceCallMode.auto
+                ? l10n.voiceCallModeRealtimeDescription
+                : l10n.voiceCallModeStandardDescription,
+            style: theme.bodySmall?.copyWith(color: theme.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 

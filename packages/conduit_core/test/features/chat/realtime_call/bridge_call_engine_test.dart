@@ -92,6 +92,9 @@ final class _Audio implements RealtimePcmAudioPort {
   Stream<RealtimePlaybackReport> get reports => _reports.stream;
 
   @override
+  Stream<String> get failures => const Stream.empty();
+
+  @override
   void setCaptureEnabled(bool enabled) => captureEnabled = enabled;
 
   @override

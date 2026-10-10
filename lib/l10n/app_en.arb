@@ -1812,6 +1812,42 @@
   "@voiceProviderModelsHint": {
     "description": "Hint under the Voice provider's model fields."
   },
+  "voiceProviderRealtimeModel": "Realtime model",
+  "@voiceProviderRealtimeModel": {
+    "description": "Label of the field for the Voice provider's realtime call model."
+  },
+  "voiceProviderRealtimeInstructions": "Instructions",
+  "@voiceProviderRealtimeInstructions": {
+    "description": "Label of the optional field that replaces Conduit's instructions for the realtime voice."
+  },
+  "voiceProviderRealtimeInstructionsHint": "Leave empty to use Conduit's own.",
+  "@voiceProviderRealtimeInstructionsHint": {
+    "description": "Placeholder of the realtime instructions field."
+  },
+  "voiceProviderRealtimeFooter": "Calls in Direct and Apple chats talk with this voice, using the transcription model above to follow what you say.",
+  "@voiceProviderRealtimeFooter": {
+    "description": "Footer under the Voice provider's realtime call settings."
+  },
+  "voiceCallModeTitle": "Calls",
+  "@voiceCallModeTitle": {
+    "description": "Title of the setting that picks how voice calls talk."
+  },
+  "voiceCallModeRealtime": "Realtime",
+  "@voiceCallModeRealtime": {
+    "description": "Call mode option: use a realtime voice when the chat's backend has one."
+  },
+  "voiceCallModeStandard": "Standard",
+  "@voiceCallModeStandard": {
+    "description": "Call mode option: always listen, send, then read the answer aloud."
+  },
+  "voiceCallModeRealtimeDescription": "Talk with a realtime voice when the chat's server or Voice provider has one; you can speak over it. Other calls are Standard.",
+  "@voiceCallModeRealtimeDescription": {
+    "description": "Description of the Realtime call mode."
+  },
+  "voiceCallModeStandardDescription": "Calls listen to you, send what you said, then read the answer aloud.",
+  "@voiceCallModeStandardDescription": {
+    "description": "Description of the Standard call mode."
+  },
   "ttsSettings": "Text to speech",
   "@ttsSettings": {
     "description": "Section header for TTS-related customization options."

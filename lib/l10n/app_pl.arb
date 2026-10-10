@@ -7730,5 +7730,14 @@
   "voiceProviderNoConnections": "Dodaj połączenie Direct zgodne z OpenAI, aby móc je tu wybrać.",
   "voiceProviderTranscriptionModel": "Model transkrypcji",
   "voiceProviderSpeechModel": "Model mowy",
-  "voiceProviderModelsHint": "Użyj nazw modeli podanych przez dostawcę. Kierunek pozostawiony pusty korzysta z tego urządzenia."
+  "voiceProviderModelsHint": "Użyj nazw modeli podanych przez dostawcę. Kierunek pozostawiony pusty korzysta z tego urządzenia.",
+  "voiceProviderRealtimeModel": "Model na żywo",
+  "voiceProviderRealtimeInstructions": "Instrukcje",
+  "voiceProviderRealtimeInstructionsHint": "Pozostaw puste, aby użyć instrukcji Conduit.",
+  "voiceProviderRealtimeFooter": "Rozmowy w czatach Direct i Apple prowadzi ten głos, a powyższy model transkrypcji pozwala mu śledzić Twoją wypowiedź.",
+  "voiceCallModeTitle": "Rozmowy",
+  "voiceCallModeRealtime": "Na żywo",
+  "voiceCallModeStandard": "Standardowe",
+  "voiceCallModeRealtimeDescription": "Rozmawiaj z głosem na żywo, gdy serwer czatu lub dostawca głosu go oferuje; możesz mu przerwać w pół zdania. Pozostałe rozmowy są standardowe.",
+  "voiceCallModeStandardDescription": "Rozmowa słucha Twojej wypowiedzi, wysyła ją, a potem czyta odpowiedź na głos."
 }

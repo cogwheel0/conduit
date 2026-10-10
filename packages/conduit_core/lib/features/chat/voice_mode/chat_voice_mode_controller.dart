@@ -443,6 +443,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             if (startNewConversation) {
               startNewChat(ref, modelForNewConversation: model);
             }
+            // Both directions at once, on the voice-chat route that cancels
+            // echo.
+            await _audioSessionCoordinator?.configureForBargeInSpeaking();
+            if (lostOwnership()) return;
+            cancelIfRequested();
             await _startRealtime(realtime.bridge, realtime.audio, startToken);
             if (lostOwnership()) return;
             if (_isCurrent(startToken) && state.isActive) {

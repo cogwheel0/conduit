@@ -23,6 +23,7 @@ import 'platform/android_ime_inset_resync.dart';
 import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
+import 'platform/realtime_pcm_audio.dart';
 import 'platform/url_launcher_open_external_url_port.dart';
 import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
@@ -72,6 +73,7 @@ import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
@@ -506,6 +508,15 @@ void main() {
           ),
           voiceModePlatformProvider.overrideWithValue(
             const FlutterVoiceModePlatform(),
+          ),
+          // A realtime voice needs the native echo-cancelled audio engine.
+          realtimePcmAudioFactoryProvider.overrideWithValue(
+            () =>
+                !kIsWeb &&
+                    (defaultTargetPlatform == TargetPlatform.iOS ||
+                        defaultTargetPlatform == TargetPlatform.android)
+                ? MethodChannelRealtimePcmAudio()
+                : null,
           ),
         ],
       );
@@ -1060,6 +1071,14 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await _refreshNativeVoiceDetail();
           } else if (value == TtsEngine.device.name) {
             await notifier.setTtsEngineSelection(TtsEngine.device);
+            await _refreshNativeVoiceDetail();
+          }
+        case 'voice-call-mode':
+          final mode = VoiceCallMode.values
+              .where((mode) => mode.name == value)
+              .firstOrNull;
+          if (mode != null) {
+            await ref.read(appSettingsProvider.notifier).setVoiceCallMode(mode);
             await _refreshNativeVoiceDetail();
           }
         case 'voice-provider-connection':

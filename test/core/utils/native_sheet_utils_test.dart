@@ -88,9 +88,9 @@ void main() {
 
   test('native barge-in toggle is off by default', () {
     final parts = buildNativeAudioSheetParts(l10n, const AppSettings());
-    final bargeIn = parts.mainSections.first.items.singleWhere(
-      (item) => item.id == 'voice-barge-in',
-    );
+    final bargeIn = parts.mainSections
+        .expand((section) => section.items)
+        .singleWhere((item) => item.id == 'voice-barge-in');
 
     check(bargeIn.kind).equals(NativeSheetItemKind.toggle);
     check(bargeIn.title).equals(l10n.voiceBargeIn);
@@ -160,6 +160,9 @@ void main() {
         'voice-provider-transcription-model': 'whisper-1',
         'voice-provider-speech-model': 'tts-1',
         'voice-provider-speech-voice': 'alloy',
+        'voice-provider-realtime-model': 'gpt-realtime-2.1-mini',
+        'voice-provider-realtime-voice': 'marin',
+        'voice-provider-realtime-instructions': '',
       });
       check(
         nativeVoiceProviderFieldIds.keys.toSet(),

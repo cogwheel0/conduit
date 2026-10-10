@@ -52,11 +52,7 @@ class VoiceProviderSettingsPage extends ConsumerStatefulWidget {
 class _VoiceProviderSettingsPageState
     extends ConsumerState<VoiceProviderSettingsPage> {
   final _fields = {
-    for (final field in const [
-      DirectVoiceProviderField.transcriptionModel,
-      DirectVoiceProviderField.speechModel,
-      DirectVoiceProviderField.speechVoice,
-    ])
+    for (final field in DirectVoiceProviderField.values)
       field: TextEditingController(),
   };
   String? _fieldsProfileId;
@@ -80,6 +76,12 @@ class _VoiceProviderSettingsPageState
         settings?.speechModel ?? '';
     _fields[DirectVoiceProviderField.speechVoice]!.text =
         settings?.speechVoice ?? '';
+    _fields[DirectVoiceProviderField.realtimeModel]!.text =
+        settings?.realtimeModel ?? '';
+    _fields[DirectVoiceProviderField.realtimeVoice]!.text =
+        settings?.realtimeVoice ?? '';
+    _fields[DirectVoiceProviderField.realtimeInstructions]!.text =
+        settings?.realtimeInstructions ?? '';
   }
 
   Future<void> _choose(DirectConnectionProfile? profile) {
@@ -162,15 +164,19 @@ class _VoiceProviderSettingsPageState
     DirectVoiceProviderField field, {
     required String label,
     required String hint,
+    bool multiline = false,
   }) => AccessibleFormField(
     key: ValueKey<String>('voice-provider-${field.name}'),
     label: label,
     hint: hint,
     controller: _fields[field],
     onChanged: (value) => _edit(field, value),
-    autocorrect: false,
-    textInputAction: TextInputAction.next,
-    iosSettingsRow: Platform.isIOS,
+    autocorrect: multiline,
+    minLines: multiline ? 3 : 1,
+    maxLines: multiline ? 8 : 1,
+    keyboardType: multiline ? TextInputType.multiline : null,
+    textInputAction: multiline ? TextInputAction.newline : TextInputAction.next,
+    iosSettingsRow: Platform.isIOS && !multiline,
   );
 
   @override
@@ -236,6 +242,31 @@ class _VoiceProviderSettingsPageState
                   DirectVoiceProviderField.speechVoice,
                   label: l10n.voice,
                   hint: 'alloy',
+                ),
+              ],
+            ),
+          ),
+          settingsSectionGap,
+          InsetGroupedSection(
+            title: l10n.voiceCallModeTitle,
+            footer: l10n.voiceProviderRealtimeFooter,
+            child: Column(
+              children: [
+                _field(
+                  DirectVoiceProviderField.realtimeModel,
+                  label: l10n.voiceProviderRealtimeModel,
+                  hint: 'gpt-realtime-2.1-mini',
+                ),
+                _field(
+                  DirectVoiceProviderField.realtimeVoice,
+                  label: l10n.voice,
+                  hint: 'marin',
+                ),
+                _field(
+                  DirectVoiceProviderField.realtimeInstructions,
+                  label: l10n.voiceProviderRealtimeInstructions,
+                  hint: l10n.voiceProviderRealtimeInstructionsHint,
+                  multiline: true,
                 ),
               ],
             ),

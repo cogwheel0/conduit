@@ -51,6 +51,9 @@ abstract interface class RealtimePcmAudioPort {
 
   Stream<RealtimePlaybackReport> get reports;
 
+  /// Why the audio stopped working mid-call, such as a lost microphone.
+  Stream<String> get failures;
+
   void setCaptureEnabled(bool enabled);
 
   /// Queues PCM16 speech of one item for playback.

@@ -106,6 +106,7 @@ enum ConduitBridgeRegistry {
     NativeSttBridge.shared.attach(to: host)
     PccBridge.shared.attach(to: host)
     VoiceAudioRouteBridge.shared.attach(to: host)
+    RealtimeAudioBridge.shared.attach(to: host)
     NativeIosTtsBridge.shared.attach(to: host)
     BackgroundStreamingHandler.shared.attach(to: host)
     ShareImportBridge.shared.attach(to: host)

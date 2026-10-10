@@ -49,6 +49,7 @@
 		F1DBCF1D2E601A39004C2540 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F1DBCF132E601A39004C2540 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F1L10N012EE5500000000001 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = F1L10N002EE5500000000001 /* InfoPlist.strings */; };
 		F1L10N022EE5500000000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = F1L10N003EE5500000000001 /* Localizable.strings */; };
+		F5C6B3C410DE632B01B4234F /* RealtimeAudioBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A7D52A9D5DD70C376EABF2 /* RealtimeAudioBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -108,6 +109,7 @@
 		2C219D22481EC5F0F9827718 /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		39A7D52A9D5DD70C376EABF2 /* RealtimeAudioBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealtimeAudioBridge.swift; sourceTree = "<group>"; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		42FA90454A654BE3B4EA8A89 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		606D3073E5BC84DF85E7D8C2 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
@@ -371,6 +373,7 @@
 				C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */,
 				C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */,
 				C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */,
+				39A7D52A9D5DD70C376EABF2 /* RealtimeAudioBridge.swift */,
 				C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */,
 				C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */,
 				D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */,
@@ -696,6 +699,7 @@
 				C07A1ABDC1D26441C3348E00 /* AppIntentInvocationStore.swift in Sources */,
 				C073CCD19D2508BCAD536200 /* NativeIosTtsBridge.swift in Sources */,
 				C079094EC8D3F2DCA002F300 /* VoiceAudioRouteBridge.swift in Sources */,
+				F5C6B3C410DE632B01B4234F /* RealtimeAudioBridge.swift in Sources */,
 				C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */,
 				C07E03850D838F4CC4E73700 /* ShareImportBridge.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
