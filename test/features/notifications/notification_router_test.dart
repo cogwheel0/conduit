@@ -107,6 +107,8 @@ void main() {
     AppSettings settings = allOn,
     ActiveView view = home,
     bool foreground = true,
+    ScopeNotificationsEnabled? scopeEnabled,
+    Set<String> pushOn = const {},
   }) => NotificationRouter(
     readSettings: () => settings,
     readActiveView: () => view,
@@ -119,6 +121,8 @@ void main() {
       claims.add((key, localId));
       return claimResult;
     },
+    scopeNotificationsEnabled: scopeEnabled,
+    pushVerified: pushOn.contains,
     now: () => now,
   );
 
@@ -469,6 +473,98 @@ void main() {
       );
       check(await router.route(reply('a'))).equals(NotificationSurface.banner);
       check(await router.route(reply('b'))).equals(NotificationSurface.banner);
+    });
+  });
+
+  group("each scope's own switch", () {
+    test('an inactive account with its switch off is suppressed', () async {
+      final router = build(
+        foreground: false,
+        scopeEnabled: (scope) => scope != 'owui:acct-2',
+      );
+      check(
+        await router.route(_chat(scope: 'owui:acct-2', key: 'a')),
+      ).equals(NotificationSurface.suppressed);
+      check(
+        await router.route(_chat(scope: 'owui:acct-1', key: 'b')),
+      ).equals(NotificationSurface.system);
+    });
+
+    test("an account's own switch on wins over the active one's off", () async {
+      final router = build(
+        settings: allOn.copyWith(notificationsEnabled: false),
+        scopeEnabled: (scope) => scope == 'owui:acct-2',
+      );
+      check(
+        await router.route(_chat(scope: 'owui:acct-2')),
+      ).equals(NotificationSurface.banner);
+    });
+
+    test('Hermes and Direct follow the switch given for them', () async {
+      final router = build(
+        scopeEnabled: (scope) => !scope.startsWith('hermes:'),
+      );
+      check(await router.route(_hermes())).equals(
+        NotificationSurface.suppressed,
+      );
+      check(
+        await router.route(_chat(scope: 'direct', key: 'd')),
+      ).equals(NotificationSurface.banner);
+    });
+  });
+
+  group('a source whose key a push cannot share', () {
+    AppNotification watched({String key = 'hermes:conn-1|hermes:s-1:local'}) =>
+        _hermes(key: key).copyWith(sharesPushDedupKey: false);
+
+    test('leaves the background notification to a verified push', () async {
+      final router = build(foreground: false, pushOn: {'hermes:conn-1'});
+      check(await router.route(watched())).equals(
+        NotificationSurface.suppressed,
+      );
+      verifyNeverShown();
+      check(claims).isEmpty();
+    });
+
+    test('still shows a banner in the foreground', () async {
+      final router = build(pushOn: {'hermes:conn-1'});
+      check(await router.route(watched())).equals(NotificationSurface.banner);
+    });
+
+    test('posts in the background without verified push', () async {
+      final router = build(foreground: false, pushOn: {'hermes:conn-2'});
+      check(await router.route(watched())).equals(NotificationSurface.system);
+    });
+
+    test('does not hold back the push that follows in the foreground', () async {
+      var foreground = false;
+      final router = NotificationRouter(
+        readSettings: () => allOn,
+        readActiveView: () => home,
+        isAppForeground: () => foreground,
+        localNotifications: local,
+        sound: sound,
+        showInAppBanner: banners.add,
+        onChannelUnread: unreads.add,
+        pushVerified: {'hermes:conn-1'}.contains,
+        now: () => now,
+      );
+      check(await router.route(watched())).equals(
+        NotificationSurface.suppressed,
+      );
+      // The app comes back before the push is shown, which hands it over.
+      foreground = true;
+      check(
+        await router.route(
+          _hermes(key: 'hermes:conn-1|hermes:s-1:turn-9'),
+          alreadyClaimed: true,
+        ),
+      ).equals(NotificationSurface.banner);
+    });
+
+    test('a frame with a shared key posts as usual', () async {
+      final router = build(foreground: false, pushOn: {'owui:acct-1'});
+      check(await router.route(_chat())).equals(NotificationSurface.system);
     });
   });
 }

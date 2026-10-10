@@ -49,6 +49,8 @@ import 'package:conduit_core/utils/user_display_name.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart'
+    show notificationsWithoutAccountProvider;
 
 import '../../hermes/widgets/hermes_connection_switcher.dart';
 
@@ -498,6 +500,9 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               ),
               showChatDataControls: ref.read(
                 chatDataControlsEntryVisibleProvider,
+              ),
+              showNotificationsWithoutAccount: ref.read(
+                notificationsWithoutAccountProvider,
               ),
             ),
             hermesAvatarBytes: hermesAvatarBytes,

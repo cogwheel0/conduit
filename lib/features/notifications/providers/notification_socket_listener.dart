@@ -19,6 +19,7 @@ import 'package:conduit_core/features/channels/providers/channel_providers.dart'
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 import '../services/local_notification_service.dart';
@@ -49,7 +50,24 @@ NotificationRouter notificationRouter(Ref ref) {
     // for the same event never both show.
     claim: (dedupKey, localNotificationId) =>
         _claimForPush(ref, dedupKey, localNotificationId),
+    scopeNotificationsEnabled: (scope) => notificationsEnabledForScope(
+      scope,
+      activeValue: ref.read(appSettingsProvider).notificationsEnabled,
+    ),
+    pushVerified: (scope) => _pushVerified(ref, scope),
   );
+}
+
+/// Whether push is on for [scope]: turned on, not opted out, and a test push
+/// decrypted on this device.
+bool _pushVerified(Ref ref, String scope) {
+  final push = ref.read(pushStateIfUsedProvider);
+  if (push == null || !push.enabled) return false;
+  final target = push.targets[scope];
+  return target != null &&
+      !target.optedOut &&
+      (target.status == PushStatus.on ||
+          target.status == PushStatus.updateAvailable);
 }
 
 Future<bool> _claimForPush(

@@ -7,6 +7,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/notifications/models/notification_scope.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_subscription_record.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
@@ -58,14 +60,24 @@ class PushCoordinator extends _$PushCoordinator {
   final Map<String, PushTarget> _replacedTargets = {};
   Future<_Environment>? _environment;
   DateTime? _environmentAt;
+
+  /// Bumped by every removal: a pass that ran while one happened may have
+  /// had setups cancelled, so it does not cover a request waiting on it.
+  int _releases = 0;
+
+  /// Scopes whose user choices go with them: a connection the user deleted,
+  /// rather than one that only left the list for a while.
+  final Set<String> _choicesToDrop = {};
+
+  /// Serializes the tombstone list's read-modify-writes.
+  final Lock _tombstoneLock = Lock();
   bool? _permissionGranted;
   PushRelayInfo? _relayInfo;
   DateTime? _relayInfoAt;
   bool? _hasTransports;
   PushDisplayConfig? _lastConfig;
   bool _configScheduled = false;
-  Future<void>? _pass;
-  bool _passIsFull = false;
+  _Pass? _pass;
   StreamSubscription<PushPlatformEvent>? _events;
   StreamSubscription<AppLifecyclePhase>? _lifecycle;
 
@@ -125,6 +137,13 @@ class PushCoordinator extends _$PushCoordinator {
       _onPlatformEvent,
       onError: (Object error) => _log('push-platform-event-error', error),
     );
+    // Not from build itself: a provider must not change another while it
+    // builds.
+    scheduleMicrotask(() {
+      if (ref.mounted) {
+        ref.read(pushCoordinatorStartedProvider.notifier).markStarted();
+      }
+    });
     ref.onDispose(() {
       unawaited(_events?.cancel());
       unawaited(_lifecycle?.cancel());
@@ -163,7 +182,9 @@ class PushCoordinator extends _$PushCoordinator {
       await _requestPermission();
       _publishTargets();
       _scheduleDisplayConfig();
-      await _reconcileAll(full: true);
+      // Fresh: a pass still running from before was cut short by turning
+      // push off, and must not stand in for this one.
+      await _reconcileAll(full: true, fresh: true);
     } else {
       _update((s) => s.copyWith(enabled: false));
       _scheduleDisplayConfig();
@@ -178,7 +199,11 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Opts one target out of (or back into) push on this device.
   Future<void> setTargetOptedOut(String scope, bool optedOut) async {
-    await _saveRecord(scope, _record(scope).copyWith(optedOut: optedOut));
+    await _saveRecord(
+      scope,
+      _record(scope).copyWith(optedOut: optedOut),
+      choices: true,
+    );
     _setTarget(scope, (t) => t.copyWith(optedOut: optedOut));
     _scheduleDisplayConfig();
     final target = _target(scope);
@@ -193,7 +218,9 @@ class PushCoordinator extends _$PushCoordinator {
   Future<void> setOrigin(String scope, PushOrigin origin) async {
     final record = _record(scope);
     if (record.origin == origin) return;
-    await _saveRecord(scope, record.copyWith(origin: origin));
+    // A setup running now saves its record with this choice too, and the
+    // resubscribe below queues behind it with the new origin.
+    await _saveRecord(scope, record.copyWith(origin: origin), choices: true);
     _setTarget(scope, (t) => t.copyWith(origin: origin));
     final target = _target(scope);
     if (target is OpenWebUiPushTarget &&
@@ -218,12 +245,15 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Installs and enables the Hermes plugin through the Hermes dashboard (a
   /// `desktopGateway` connection), restarts a running gateway, and waits up
-  /// to two minutes for Hermes to load it. Other connections answer false:
-  /// their state carries the command to run instead.
+  /// to two minutes for Hermes to load it. Only where the last check offered
+  /// it ([PushTargetState.canInstallHermesPlugin]: a pinned plugin commit and
+  /// the dashboard's own profile); other connections answer false, and their
+  /// state carries the command to run instead.
   Future<bool> installHermesPlugin(String scope) async {
     final target = _target(scope);
     if (target is! HermesPushTarget ||
-        target.mode != HermesBackendMode.desktopGateway) {
+        target.mode != HermesBackendMode.desktopGateway ||
+        state.targets[scope]?.canInstallHermesPlugin != true) {
       return false;
     }
     if (!await _install(target)) return false;
@@ -263,14 +293,15 @@ class PushCoordinator extends _$PushCoordinator {
     return _isOn(scope);
   }
 
-  /// Runs one target's setup again, asking for permission again if it is
-  /// missing.
+  /// Runs one target's setup again with a newly registered endpoint, asking
+  /// for permission again if it is missing. A dead endpoint that still
+  /// looks current (same token, same relay key) is recovered this way.
   Future<void> retry(String scope) async {
     final target = _target(scope);
     if (target == null || !state.enabled) return;
     await _askPermissionIfMissing();
     _environment = null;
-    await _reconcile(target, resubscribe: true);
+    await _reconcile(target, resubscribe: true, freshEndpoint: true);
   }
 
   /// Deletes every key pair and subscription, then sets push up again with
@@ -288,7 +319,7 @@ class PushCoordinator extends _$PushCoordinator {
       _log('push-reset-list-failed', error);
     }
     _environment = null;
-    if (state.enabled) await _reconcileAll(full: true);
+    if (state.enabled) await _reconcileAll(full: true, fresh: true);
   }
 
   /// Chooses the Android delivery service: FCM, UnifiedPush through
@@ -352,27 +383,46 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Turns a Hermes cron job's "Notify me" on or off by adding `conduit` to
   /// its `deliver` targets or removing it. Answers the new `deliver`.
+  ///
+  /// The job is read fresh from the server first, so targets added since the
+  /// app last listed it are kept. One whose `deliver` this app cannot read
+  /// is refused with [HermesJobDeliveryUnknown] rather than overwritten.
   Future<String> setHermesJobNotify({
     required String connectionId,
     required String jobId,
-    required String? deliver,
     required bool notify,
   }) async {
-    final next = hermesDeliverWithConduit(deliver, notify: notify);
-    final service = await ref
-        .read(pushBackendFactoryProvider)
-        .openHermesService(connectionId);
+    final service = await _factory.openHermesService(connectionId);
     try {
-      await service.updateJob(jobId, deliver: next);
+      HermesJob? job;
+      for (final raw in await service.listJobs()) {
+        final parsed = HermesJob.fromJson(raw);
+        if (parsed?.id == jobId) {
+          job = parsed;
+          break;
+        }
+      }
+      if (job == null) throw StateError('The scheduled job no longer exists.');
+      if (!job.deliveryKnown) throw const HermesJobDeliveryUnknown();
+      final current = job.deliveryTarget;
+      final next = hermesDeliverWithConduit(current, notify: notify);
+      if (hermesDeliverIncludesConduit(current) != notify) {
+        await service.updateJob(jobId, deliver: next);
+      }
+      return next;
     } finally {
       service.close();
     }
-    return next;
   }
 
   /// Removes these accounts' subscriptions from their servers while their
   /// sessions still work, then deletes their keys. The sign-out hook calls
   /// this before revoking the sessions.
+  ///
+  /// A setup still running for one is cancelled rather than waited for, so
+  /// the sign-out's time goes to unsubscribing; what it may still write on
+  /// the server is removed again once it stops, and tombstoned under the
+  /// account's scope until then.
   Future<void> releaseOpenWebUiAccounts(Iterable<String> accountIds) =>
       Future.wait([
         for (final accountId in accountIds)
@@ -382,15 +432,17 @@ class PushCoordinator extends _$PushCoordinator {
                 _target(PushTarget.openWebUiScope(accountId)) ??
                 OpenWebUiPushTarget(accountId: accountId, label: accountId),
             status: PushStatus.signInNeeded,
+            waitForSetup: false,
           ),
       ]);
 
   /// Removes a Hermes connection's subscription from its server while its
   /// address and secrets still work, then deletes its keys. Called before
-  /// the connection is deleted.
+  /// the connection is deleted, which takes the user's choices for it too.
   Future<void> releaseHermesConnection(String connectionId) {
     final scope = PushTarget.hermesScope(connectionId);
-    return _release(scope, target: _target(scope));
+    _choicesToDrop.add(scope);
+    return _release(scope, target: _target(scope), waitForSetup: false);
   }
 
   /// Removes everything before the app's data is cleared: every server
@@ -399,7 +451,12 @@ class PushCoordinator extends _$PushCoordinator {
     _update((s) => s.copyWith(enabled: false));
     await Future.wait([
       for (final scope in _knownScopes())
-        _release(scope, target: _target(scope), forget: true),
+        _release(
+          scope,
+          target: _target(scope),
+          forget: true,
+          waitForSetup: false,
+        ),
     ]);
     _records = {};
     await _settings.saveRecords(const {});
@@ -425,7 +482,21 @@ class PushCoordinator extends _$PushCoordinator {
 
     for (final entry in previous.entries) {
       if (!current.containsKey(entry.key)) {
+        // Its subscription goes; the user's choices for it stay, in case it
+        // comes back (Hermes turned off and on, a list emptied by an
+        // interrupted sign-out).
         unawaited(_release(entry.key, target: entry.value, forget: true));
+      }
+    }
+    // Before an edit can move a connection to another server: how to reach
+    // the one its subscription is on.
+    if (state.enabled) {
+      for (final target in next) {
+        if (target is HermesPushTarget &&
+            _record(target.scope).sid != null &&
+            previous[target.scope]?.serverIdentity != target.serverIdentity) {
+          unawaited(_factory.retain(target));
+        }
       }
     }
     if (firstLoad) {
@@ -459,11 +530,16 @@ class PushCoordinator extends _$PushCoordinator {
   }
 
   Future<void> _startup() async {
+    await _recoverFromRestore();
+    if (!ref.mounted) return;
     final targets = _targets ?? const [];
     final live = {for (final t in targets) t.scope};
-    // Accounts and connections removed while the app was not running.
-    for (final scope in _records.keys.toList()) {
-      if (!live.contains(scope)) unawaited(_release(scope, forget: true));
+    // Accounts and connections removed while the app was not running. A
+    // record with no subscription only keeps the user's choices.
+    for (final entry in _records.entries.toList()) {
+      if (!live.contains(entry.key) && entry.value.hasSubscription) {
+        unawaited(_release(entry.key, forget: true));
+      }
     }
     await _refreshTransports();
     _scheduleDisplayConfig();
@@ -503,6 +579,34 @@ class PushCoordinator extends _$PushCoordinator {
         transportsChecked: true,
       ),
     );
+  }
+
+  /// A device restored from another device's backup has that device's push
+  /// preferences (its device id, its subscription records) but not its keys,
+  /// which never leave the device they were made on. Those subscriptions are
+  /// the other device's: they are forgotten here without being removed from
+  /// any server, and this device gets an id of its own, so servers do not
+  /// evict one device's entry for the other's.
+  Future<void> _recoverFromRestore() async {
+    if (!_records.values.any((record) => record.hasSubscription)) return;
+    final List<PushSubscriptionKeys> native;
+    try {
+      native = await _platform.listSubscriptions();
+    } catch (_) {
+      return;
+    }
+    if (native.isNotEmpty || !ref.mounted) return;
+    DebugLogger.warning('push-restored-from-backup', scope: 'push');
+    _records = {
+      for (final entry in _records.entries)
+        if (entry.value.hasChoices)
+          entry.key: entry.value.withoutSubscription(),
+    };
+    await _settings.saveRecords(_records);
+    await _tombstoneLock.synchronized(() => _settings.saveTombstones(const []));
+    await _settings.resetDeviceId();
+    await _settings.setLastFullReconcile(null);
+    _publishTargets();
   }
 
   bool _fullReconcileDue() {
@@ -552,9 +656,13 @@ class PushCoordinator extends _$PushCoordinator {
     }
   }
 
+  /// The platform dropped [sid]'s endpoint. This wins over a setup running
+  /// for it: that setup stops at its next step instead of saving the old
+  /// endpoint back, and the setup queued here registers a new one.
   Future<void> _onEndpointGone(String sid) async {
     final scope = _scopeOfSid(sid);
     if (scope == null) return;
+    _runner(scope).endpointEpoch++;
     await _saveRecord(
       scope,
       _record(scope).copyWith(clearEndpoint: true, clearVerifiedAt: true),
@@ -568,6 +676,7 @@ class PushCoordinator extends _$PushCoordinator {
     if (scope == null) return;
     final record = _record(scope);
     if (record.endpoint == endpoint) return;
+    _runner(scope).endpointEpoch++;
     try {
       await _platform.setEndpoint(sid, endpoint, PushTransport.unifiedPush);
     } catch (error) {
@@ -591,28 +700,33 @@ class PushCoordinator extends _$PushCoordinator {
   // Reconciling
   // ---------------------------------------------------------------------
 
+  /// Runs a pass over the targets. A pass already running covers this
+  /// request once it ends, unless this one must reach every target with
+  /// what changed since it started, wants a full pass it is not, is [fresh]
+  /// (the user turned push on or reset its keys), or a removal ran during it
+  /// and may have cancelled some of its setups.
   Future<void> _reconcileAll({
     required bool full,
     bool everyTarget = false,
     bool throttle = false,
+    bool fresh = false,
   }) async {
     final running = _pass;
     if (running != null) {
-      await running;
-      // That pass covered this request, unless this one must reach every
-      // target with what changed since it started.
-      if (!everyTarget && (!full || _passIsFull)) return;
+      await running.done;
+      final covered =
+          !fresh &&
+          !everyTarget &&
+          (!full || running.full) &&
+          running.releases == _releases;
+      if (covered) return;
     }
-    final pass = _runPass(
-      full: full,
-      everyTarget: everyTarget,
-      throttle: throttle,
-    );
+    final pass = _Pass(full: full, releases: _releases);
     _pass = pass;
-    _passIsFull = full;
     try {
-      await pass;
+      await _runPass(full: full, everyTarget: everyTarget, throttle: throttle);
     } finally {
+      pass.complete();
       if (identical(_pass, pass)) _pass = null;
     }
   }
@@ -664,6 +778,7 @@ class PushCoordinator extends _$PushCoordinator {
     PushTarget target, {
     bool forceTest = false,
     bool resubscribe = false,
+    bool freshEndpoint = false,
   }) {
     final runner = _runner(target.scope);
     final generation = runner.generation;
@@ -675,8 +790,10 @@ class PushCoordinator extends _$PushCoordinator {
           target,
           runner,
           generation,
+          runner.endpointEpoch,
           forceTest: forceTest,
           resubscribe: resubscribe,
+          freshEndpoint: freshEndpoint,
         );
       } on _Aborted {
         return;
@@ -712,12 +829,20 @@ class PushCoordinator extends _$PushCoordinator {
   Future<void> _pipeline(
     PushTarget target,
     _ScopeRunner runner,
-    int generation, {
+    int generation,
+    int endpointEpoch, {
     required bool forceTest,
     required bool resubscribe,
+    required bool freshEndpoint,
   }) async {
+    // Stops this setup once the target was removed, or its endpoint was
+    // reported gone or replaced: what it holds is stale then, and saving it
+    // would undo that. The removal, or the setup queued with the news, takes
+    // over.
     void checkpoint() {
-      if (!ref.mounted || runner.generation != generation) {
+      if (!ref.mounted ||
+          runner.generation != generation ||
+          runner.endpointEpoch != endpointEpoch) {
         throw const _Aborted();
       }
     }
@@ -745,11 +870,9 @@ class PushCoordinator extends _$PushCoordinator {
         fingerprint != null &&
         record.serverFingerprint != null &&
         record.serverFingerprint != fingerprint) {
-      await _retire(
-        scope,
-        record,
-        target: _replacedTargets.remove(scope) ?? target,
-      );
+      // Only through the target as it was: the connection's settings now
+      // reach the new server, where the old subscription is not.
+      await _retire(scope, record, target: _replacedTargets.remove(scope));
       checkpoint();
       record = _record(scope).withoutSubscription();
       await _saveRecord(scope, record);
@@ -778,7 +901,12 @@ class PushCoordinator extends _$PushCoordinator {
       record = record.copyWith(serverFingerprint: fingerprint);
     }
 
-    record = await _ensureEndpoint(keys, record, environment);
+    record = await _ensureEndpoint(
+      keys,
+      record,
+      environment,
+      fresh: freshEndpoint,
+    );
     checkpoint();
     await _saveRecord(scope, record);
 
@@ -853,6 +981,7 @@ class PushCoordinator extends _$PushCoordinator {
           rethrow;
         }
       }
+      checkpoint();
       _finish(
         target,
         probe.updateAvailable ? PushStatus.updateAvailable : PushStatus.on,
@@ -977,20 +1106,29 @@ class PushCoordinator extends _$PushCoordinator {
     }
     for (final extra in mine) {
       if (extra.sid == keys.sid) continue;
-      await _addTombstone(extra.sid, scope);
+      await _addTombstone(
+        extra.sid,
+        scope,
+        server: extra.sid == record.sid ? record.serverFingerprint : null,
+      );
       await _deleteNative(extra.sid, extra.transport);
     }
     return keys;
   }
 
+  /// [record] with an endpoint that works for [environment]: the one it has
+  /// when that is still current, else a newly registered one. [fresh]
+  /// registers a new one regardless, for a retry: an endpoint can be dead
+  /// while everything it was made from still matches.
   Future<PushSubscriptionRecord> _ensureEndpoint(
     PushSubscriptionKeys keys,
     PushSubscriptionRecord record,
-    _Environment environment,
-  ) async {
+    _Environment environment, {
+    bool fresh = false,
+  }) async {
     final transport = environment.transport!;
     final fingerprint = _endpointFingerprint(environment);
-    if (_endpointCurrent(record, environment)) {
+    if (!fresh && _endpointCurrent(record, environment)) {
       if (keys.endpoint != record.endpoint) {
         await _platformCall(
           () => _platform.setEndpoint(keys.sid, record.endpoint!, transport),
@@ -1398,33 +1536,61 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Removes [scope]'s subscription: from its server first (bounded), then
   /// its keys and its delivered notifications. With [forget] the record goes
-  /// too; otherwise the user's choices for the target stay.
+  /// too, except for the user's choices for the target, which stay unless the
+  /// user deleted it ([releaseHermesConnection]); otherwise the record keeps
+  /// them as well.
+  ///
+  /// A setup running for [scope] is cancelled at its next step. Unless
+  /// [waitForSetup] is false (a sign-out, whose time is bounded), this waits
+  /// up to [PushTimings.releaseWait] for it. When it is still running after
+  /// that, its subscribe may still land on the server after the unsubscribe
+  /// here: its sids are tombstoned whatever the server answers, and removed
+  /// once more after the setup has stopped.
   Future<void> _release(
     String scope, {
     PushTarget? target,
     bool forget = false,
     PushStatus status = PushStatus.off,
+    bool waitForSetup = true,
   }) async {
     final runner = _runner(scope);
     runner.generation++;
+    _releases++;
     final before = _record(scope);
     if (before.sid != null) _pendingTests[before.sid]?.complete(false);
+    var setupRunning = false;
     if (runner.lock.locked) {
-      try {
-        await runner.lock.synchronized(() {}).timeout(_timings.releaseWait);
-      } catch (_) {
-        // A setup still talking to its server; it stops at its next step.
+      if (waitForSetup) {
+        try {
+          await runner.lock.synchronized(() {}).timeout(_timings.releaseWait);
+        } catch (_) {
+          // A setup still talking to its server; it stops at its next step.
+          setupRunning = true;
+        }
+      } else {
+        setupRunning = true;
       }
     }
     final record = _record(scope);
-    final sids = <String, PushTransport?>{
-      if (before.sid != null) before.sid!: before.transport,
-      if (record.sid != null) record.sid!: record.transport,
+    final sids = <String, ({PushTransport? transport, String? server})>{
+      if (before.sid != null)
+        before.sid!: (
+          transport: before.transport,
+          server: before.serverFingerprint,
+        ),
+      if (record.sid != null)
+        record.sid!: (
+          transport: record.transport,
+          server: record.serverFingerprint,
+        ),
     };
     try {
       for (final keys in await _platform.listSubscriptions()) {
         if (keys.scope == scope) {
-          sids.putIfAbsent(keys.sid, () => keys.transport);
+          sids.putIfAbsent(
+            keys.sid,
+            () => (transport: keys.transport, server: null),
+          );
         }
       }
     } catch (_) {
@@ -1435,10 +1601,13 @@ class PushCoordinator extends _$PushCoordinator {
           ? const <String>{}
           : await _unsubscribe(target, sids.keys);
       for (final entry in sids.entries) {
-        if (!removed.contains(entry.key)) {
-          await _addTombstone(entry.key, scope);
+        if (setupRunning || !removed.contains(entry.key)) {
+          await _addTombstone(entry.key, scope, server: entry.value.server);
         }
-        await _deleteNative(entry.key, entry.value);
+        await _deleteNative(entry.key, entry.value.transport);
+      }
+      if (setupRunning && target != null) {
+        _unsubscribeAfterSetup(runner, target, sids.keys.toList());
       }
     }
     try {
@@ -1448,7 +1617,13 @@ class PushCoordinator extends _$PushCoordinator {
     }
     if (!ref.mounted) return;
     if (forget && !(_targets?.any((t) => t.scope == scope) ?? false)) {
-      _records.remove(scope);
+      final keep = record.hasChoices && !_choicesToDrop.contains(scope);
+      _choicesToDrop.remove(scope);
+      if (keep) {
+        _records[scope] = record.withoutSubscription();
+      } else {
+        _records.remove(scope);
+      }
       await _settings.saveRecords(_records);
       _update((s) => s.copyWith(targets: Map.of(s.targets)..remove(scope)));
     } else {
@@ -1465,6 +1640,25 @@ class PushCoordinator extends _$PushCoordinator {
       );
     }
     _scheduleDisplayConfig();
+  }
+
+  /// Removes [sids] from [target]'s server again once the setup holding
+  /// [runner] has stopped, for a subscribe that may have landed after a
+  /// removal's own unsubscribe. Clears the tombstones of those it removes.
+  void _unsubscribeAfterSetup(
+    _ScopeRunner runner,
+    PushTarget target,
+    List<String> sids,
+  ) {
+    unawaited(
+      runner.lock
+          .synchronized(() async {
+            if (!ref.mounted) return;
+            final removed = await _unsubscribe(target, sids);
+            await _removeTombstones(removed);
+          })
+          .catchError((Object error) => _log('push-unsubscribe-again', error)),
+    );
   }
 
   /// Removes [sids] from [target]'s server within
@@ -1488,16 +1682,23 @@ class PushCoordinator extends _$PushCoordinator {
   }
 
   /// The server copy of an old subscription, best effort, before a new one
-  /// replaces it.
+  /// replaces it. [target] is the target as it was when the subscription was
+  /// made; without it (the change happened while the app was not running)
+  /// the subscription is only tombstoned for its own server, never removed
+  /// through the target's new settings.
   Future<void> _retire(
     String scope,
     PushSubscriptionRecord record, {
-    required PushTarget target,
+    required PushTarget? target,
   }) async {
     final sid = record.sid;
     if (sid == null) return;
-    final removed = await _unsubscribe(target, [sid]);
-    if (!removed.contains(sid)) await _addTombstone(sid, scope);
+    final removed = target == null
+        ? const <String>{}
+        : await _unsubscribe(target, [sid]);
+    if (!removed.contains(sid)) {
+      await _addTombstone(sid, scope, server: record.serverFingerprint);
+    }
     await _deleteNative(sid, record.transport);
     try {
       await _platform.cancelScope(scope);
@@ -1542,35 +1743,65 @@ class PushCoordinator extends _$PushCoordinator {
     }
   }
 
-  Future<void> _addTombstone(String sid, String scope) async {
+  Future<void> _addTombstone(
+    String sid,
+    String scope, {
+    String? server,
+  }) => _tombstoneLock.synchronized(() async {
     final tombstones = _settings.tombstones()
       ..removeWhere((t) => t.sid == sid)
-      ..add(PushTombstone(sid: sid, scope: scope, at: _now()));
+      ..add(PushTombstone(sid: sid, scope: scope, at: _now(), server: server));
     await _settings.saveTombstones(tombstones);
+  });
+
+  Future<void> _removeTombstones(Set<String> sids) async {
+    if (sids.isEmpty) return;
+    await _tombstoneLock.synchronized(() async {
+      final tombstones = _settings.tombstones();
+      final kept = [
+        for (final t in tombstones)
+          if (!sids.contains(t.sid)) t,
+      ];
+      if (kept.length != tombstones.length) {
+        await _settings.saveTombstones(kept);
+      }
+    });
   }
 
   /// Retries removing deleted subscriptions from servers that could not be
-  /// reached at the time, for 30 days.
+  /// reached at the time, for 30 days. A tombstone is only tried through a
+  /// target on the server it names. Tombstones added while this runs stay:
+  /// only those removed or expired here are dropped, from the list as it is
+  /// when this finishes.
   Future<void> _processTombstones() async {
     final now = _now();
     final tombstones = _settings.tombstones();
     if (tombstones.isEmpty) return;
-    final kept = <PushTombstone>[];
+    final done = <String>{};
     final byScope = groupBy(tombstones, (PushTombstone t) => t.scope);
     for (final entry in byScope.entries) {
-      final fresh = entry.value
-          .where((t) => now.difference(t.at) < const Duration(days: 30))
-          .toList();
-      final target = _target(entry.key);
-      if (fresh.isEmpty) continue;
-      if (target == null || !_isOn(entry.key)) {
-        kept.addAll(fresh);
-        continue;
+      final fresh = <PushTombstone>[];
+      for (final tombstone in entry.value) {
+        if (now.difference(tombstone.at) < const Duration(days: 30)) {
+          fresh.add(tombstone);
+        } else {
+          done.add(tombstone.sid);
+        }
       }
-      final removed = await _unsubscribe(target, fresh.map((t) => t.sid));
-      kept.addAll(fresh.where((t) => !removed.contains(t.sid)));
+      final target = _target(entry.key);
+      if (fresh.isEmpty || target == null || !_isOn(entry.key)) continue;
+      final serverIdentity = target.serverIdentity;
+      final server = serverIdentity == null
+          ? null
+          : _fingerprint(serverIdentity);
+      final reachable = [
+        for (final t in fresh)
+          if (t.server == null || t.server == server) t.sid,
+      ];
+      if (reachable.isEmpty) continue;
+      done.addAll(await _unsubscribe(target, reachable));
     }
-    await _settings.saveTombstones(kept);
+    await _removeTombstones(done);
   }
 
   /// Deletes platform keys nothing uses any more: all of them while push is
@@ -1595,7 +1826,11 @@ class PushCoordinator extends _$PushCoordinator {
           record.sid == keys.sid &&
           !record.optedOut;
       if (keep) continue;
-      await _addTombstone(keys.sid, keys.scope);
+      await _addTombstone(
+        keys.sid,
+        keys.scope,
+        server: record?.sid == keys.sid ? record?.serverFingerprint : null,
+      );
       await _deleteNative(keys.sid, keys.transport);
     }
   }
@@ -1677,15 +1912,14 @@ class PushCoordinator extends _$PushCoordinator {
     ];
   }
 
-  /// Whether [target] is an Open WebUI account whose own notifications
-  /// switch is off.
-  bool _notificationsOff(PushTarget target) {
-    if (target is! OpenWebUiPushTarget) return false;
-    if (target.accountId == currentPreferenceAccountId()) {
-      return !ref.read(appSettingsProvider).notificationsEnabled;
-    }
-    return !openWebUiAccountNotificationsEnabled(target.accountId);
-  }
+  /// Whether [target]'s notifications switch is off: an Open WebUI
+  /// account's own, or the device-level one for a Hermes connection (see
+  /// [notificationsEnabledForScope], which the notification router uses
+  /// too).
+  bool _notificationsOff(PushTarget target) => !notificationsEnabledForScope(
+    target.scope,
+    activeValue: ref.read(appSettingsProvider).notificationsEnabled,
+  );
 
   void _markNotificationsOff() {
     for (final target in _targets ?? const <PushTarget>[]) {
@@ -1698,16 +1932,29 @@ class PushCoordinator extends _$PushCoordinator {
 
   /// Turns on the notifications switch of every Open WebUI account that never
   /// stored one, and of the active account; an inactive account that turned
-  /// its switch off keeps it off.
+  /// its switch off keeps it off. The device-level switch Hermes and Direct
+  /// follow goes on too.
+  ///
+  /// An account's switch is a copy of its server's setting, which replaces
+  /// the copy the next time the account loads, so each one turned on here is
+  /// written to its server as well, as the Notifications page does: the
+  /// active account's and every other through a client of its own. Those
+  /// writes run in the background; one that fails is only logged.
   Future<void> _enableAccountNotifications() async {
+    final turnedOn = <String>[];
     try {
       final app = ref.read(appSettingsProvider);
+      final active = currentPreferenceAccountId();
       if (!app.notificationsEnabled) {
         await ref
             .read(appSettingsProvider.notifier)
             .setNotificationsEnabled(true);
+        if (active != null) turnedOn.add(active);
       }
-      final active = currentPreferenceAccountId();
+      if (PreferencesStore.getBool(PreferenceKeys.notificationsEnabled) !=
+          true) {
+        await PreferencesStore.put(PreferenceKeys.notificationsEnabled, true);
+      }
       for (final target in _targets ?? const <PushTarget>[]) {
         if (target is! OpenWebUiPushTarget || target.accountId == active) {
           continue;
@@ -1718,10 +1965,20 @@ class PushCoordinator extends _$PushCoordinator {
         );
         if (PreferencesStore.getBool(key) == null) {
           await PreferencesStore.put(key, true);
+          if (target.hasSession) turnedOn.add(target.accountId);
         }
       }
     } catch (error) {
       _log('push-notifications-enable-failed', error);
+    }
+    for (final accountId in turnedOn) {
+      unawaited(
+        _factory
+            .setOpenWebUiNotificationsEnabled(accountId, enabled: true)
+            .catchError(
+              (Object error) => _log('push-notifications-sync-failed', error),
+            ),
+      );
     }
   }
 
@@ -1840,8 +2097,19 @@ class PushCoordinator extends _$PushCoordinator {
   PushSubscriptionRecord _record(String scope) =>
       _records[scope] ?? const PushSubscriptionRecord();
 
-  Future<void> _saveRecord(String scope, PushSubscriptionRecord record) async {
-    _records[scope] = record;
+  /// Stores [record] for [scope]. The user's choices (opted out, origin)
+  /// come from the stored record unless [choices] says this sets them: a
+  /// setup holds the record it read when it started, and must not put back
+  /// a choice the user changed meanwhile.
+  Future<void> _saveRecord(
+    String scope,
+    PushSubscriptionRecord record, {
+    bool choices = false,
+  }) async {
+    final current = _records[scope];
+    _records[scope] = choices || current == null
+        ? record
+        : record.withChoicesOf(current);
     await _settings.saveRecords(_records);
   }
 
@@ -1933,6 +2201,33 @@ class PushCoordinator extends _$PushCoordinator {
   );
 }
 
+/// Whether notifications for [scope] are switched on. The notification
+/// router and push both go by this.
+///
+/// An Open WebUI account has a switch of its own, a copy of its server
+/// setting: [activeValue] (the app settings' value) for the active account,
+/// its stored copy for any other.
+///
+/// Hermes and Direct belong to the device rather than to an account, so
+/// they follow the device-level switch: the value stored without an
+/// account. It is what the Notifications page shows and edits while no Open
+/// WebUI account is active, and the page keeps it in step with the active
+/// account's switch otherwise ([SettingsService.setNotificationsEnabled]),
+/// so it is always the one the user set last. One never stored follows
+/// [activeValue].
+bool notificationsEnabledForScope(String scope, {required bool activeValue}) {
+  switch (NotificationScope.tryParse(scope)) {
+    case OpenWebUiNotificationScope(:final accountId):
+      if (accountId == currentPreferenceAccountId()) return activeValue;
+      return openWebUiAccountNotificationsEnabled(accountId);
+    case HermesNotificationScope() || DirectNotificationScope():
+      return PreferencesStore.getBool(PreferenceKeys.notificationsEnabled) ??
+          activeValue;
+    case null:
+      return activeValue;
+  }
+}
+
 /// An Open WebUI account's own notifications switch, read from its stored
 /// copy of the server setting. One that never stored it follows the
 /// device-wide value until the per-account copy has run, as the settings do.
@@ -1948,12 +2243,42 @@ bool openWebUiAccountNotificationsEnabled(String accountId) {
   return PreferencesStore.getBool(PreferenceKeys.notificationsEnabled) ?? false;
 }
 
+/// A Hermes job's delivery targets could not be read, so "Notify me" is
+/// not changed for it: writing them back would drop the unread ones.
+final class HermesJobDeliveryUnknown implements Exception {
+  const HermesJobDeliveryUnknown();
+
+  @override
+  String toString() => 'HermesJobDeliveryUnknown';
+}
+
 final class _ScopeRunner {
   final Lock lock = Lock();
 
   /// Bumped by a removal: a setup started before it stops at its next step.
   int generation = 0;
+
+  /// Bumped when the platform reports the endpoint gone or replaced: a
+  /// setup started before it stops too, so it cannot save the old endpoint.
+  int endpointEpoch = 0;
   DateTime? lastAttempt;
+}
+
+/// One pass over the targets, for requests that arrive while it runs.
+final class _Pass {
+  _Pass({required this.full, required this.releases});
+
+  final bool full;
+
+  /// The coordinator's removal count when it started.
+  final int releases;
+  final Completer<void> _done = Completer<void>();
+
+  Future<void> get done => _done.future;
+
+  void complete() {
+    if (!_done.isCompleted) _done.complete();
+  }
 }
 
 final class _PendingTest {

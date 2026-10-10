@@ -27,6 +27,8 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/push/providers/push_providers.dart'
+    show notificationsWithoutAccountProvider;
 
 import '../../../shared/services/navigation_service.dart';
 
@@ -357,6 +359,20 @@ class ProfilePage extends ConsumerWidget {
       chatDataControlsEntryVisibleProvider,
     );
 
+    // Notifications are device-level too: Hermes replies and scheduled
+    // tasks notify, and push can be turned off, without an account.
+    final showNotificationsWithoutAccount =
+        !hasOpenWebUiAccount && ref.watch(notificationsWithoutAccountProvider);
+    final notificationsItem = _buildAccountOption(
+      context,
+      key: const Key('settings-notifications'),
+      icon: UiUtils.platformIcon(
+        ios: CupertinoIcons.bell,
+        android: Icons.notifications_outlined,
+      ),
+      title: l10n.notificationsTitle,
+      onTap: () => context.pushNamed(RouteNames.notificationSettings),
+    );
     final personalizationItem = _buildAccountOption(
       context,
       icon: UiUtils.platformIcon(
@@ -379,15 +395,7 @@ class ProfilePage extends ConsumerWidget {
           title: l10n.profileTitle,
           onTap: () => context.pushNamed(RouteNames.accountSettings),
         ),
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.bell,
-            android: Icons.notifications_outlined,
-          ),
-          title: l10n.notificationsTitle,
-          onTap: () => context.pushNamed(RouteNames.notificationSettings),
-        ),
+        notificationsItem,
         personalizationItem,
         _buildAccountOption(
           context,
@@ -431,6 +439,7 @@ class ProfilePage extends ConsumerWidget {
         title: l10n.audioSettingsTitle,
         onTap: () => context.pushNamed(RouteNames.audioSettings),
       ),
+      if (showNotificationsWithoutAccount) notificationsItem,
       // Without an account, Direct's default model is set there.
       if (!hasOpenWebUiAccount && directPrimary) personalizationItem,
     ];

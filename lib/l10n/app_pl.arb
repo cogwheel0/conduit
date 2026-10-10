@@ -7867,5 +7867,9 @@
       }
     }
   },
-  "pushExplainFailed": "Conduit spróbuje ponownie sam przy następnym otwarciu, albo możesz spróbować ponownie teraz."
+  "pushExplainFailed": "Conduit spróbuje ponownie sam przy następnym otwarciu, albo możesz spróbować ponownie teraz.",
+  "pushHermesCommandLatest": "To polecenie instaluje najnowszą opublikowaną wersję wtyczki.",
+  "hermesJobCreatedNotifyFailed": "Utworzono zadanie, ale nie udało się włączyć dla niego powiadomień.",
+  "hermesJobUpdatedNotifyFailed": "Zapisano zadanie, ale nie udało się zmienić jego powiadomień.",
+  "hermesJobNotifyNeedsScheduled": "Aby z tego korzystać, włącz Zaplanowane zadania w Powiadomieniach."
 }

@@ -4,11 +4,19 @@
 /// same whether a push or the app itself posts it.
 library;
 
+import 'package:meta/meta.dart';
+
 /// The longest preview, in code points (the protocol's `b` limit).
 const int notificationPreviewLimit = 200;
 
 /// The longest title, in code points (the protocol's `t` limit).
 const int notificationTitleLimit = 100;
+
+/// The most code points a preview is cleaned from (`CLEAN_INPUT_LIMIT` on
+/// the server). Some patterns below backtrack on long runs of unclosed
+/// markup, and a channel message or a reply can be any length, so they never
+/// see more than this.
+const int notificationCleanInputLimit = 4000;
 
 const String _ellipsis = '…';
 
@@ -30,8 +38,23 @@ final List<RegExp> _blocks = [
     dotAll: true,
   ),
 ];
-final RegExp _image = RegExp(r'!\[([^\]]*)\]\([^)]*\)');
-final RegExp _link = RegExp(r'\[([^\]]+)\]\([^)]*\)');
+// The start of a block that [notificationCleanInputLimit] cut off before its
+// end.
+final RegExp _openBlock = RegExp(
+  r'<(?:details|think|thinking)\b',
+  caseSensitive: false,
+);
+// Link text can't contain brackets and a target can't contain parentheses,
+// except one nested pair as in Wikipedia URLs. That keeps each attempt short,
+// so a run of unclosed "[" or "(" takes linear time, not quadratic.
+@visibleForTesting
+final RegExp notificationImagePattern = RegExp(
+  r'!\[([^\[\]]*)\]\([^()]*(?:\([^()]*\)[^()]*)*\)',
+);
+@visibleForTesting
+final RegExp notificationLinkPattern = RegExp(
+  r'\[([^\[\]]+)\]\([^()]*(?:\([^()]*\)[^()]*)*\)',
+);
 final RegExp _tag = RegExp(r'</?[A-Za-z][A-Za-z0-9-]*(\s[^<>]*)?/?>');
 final RegExp _lineMarker = RegExp(
   r'^[ \t]*(#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+)',
@@ -43,18 +66,46 @@ final RegExp _space = RegExp(r'\s+');
 /// Turns a Markdown reply into one line of plain text: reasoning blocks
 /// (`<details>`, `<think>`), fenced code, image and link markup, HTML tags and
 /// Markdown markers go, and whitespace collapses.
+///
+/// Only the first [notificationCleanInputLimit] code points are read. When
+/// that cuts the text short, a reasoning block it leaves open is dropped to
+/// the end, like an open code fence, and the result ends in `…`.
 String cleanNotificationText(String? text) {
   if (text == null || text.isEmpty) return '';
-  var result = text;
+  final kept = _cutToInputLimit(text);
+  final cut = kept != null;
+  var result = kept ?? text;
   for (final pattern in _blocks) {
     result = result.replaceAll(pattern, '\n');
   }
-  result = result.replaceAllMapped(_image, (m) => m.group(1) ?? '');
-  result = result.replaceAllMapped(_link, (m) => m.group(1) ?? '');
+  if (cut) {
+    final opened = _openBlock.firstMatch(result);
+    if (opened != null) result = result.substring(0, opened.start);
+  }
+  result = result.replaceAllMapped(notificationImagePattern, (m) => m.group(1) ?? '');
+  result = result.replaceAllMapped(notificationLinkPattern, (m) => m.group(1) ?? '');
   result = result.replaceAll(_tag, '');
   result = result.replaceAll(_lineMarker, '');
   result = result.replaceAll(_emphasis, '');
-  return result.replaceAll(_space, ' ').trim();
+  result = result.replaceAll(_space, ' ').trim();
+  return cut && result.isNotEmpty ? '$result$_ellipsis' : result;
+}
+
+/// The first [notificationCleanInputLimit] code points of [text], or null
+/// when it has no more than that. Counted in code points, as the server
+/// counts, so both cut in the same place.
+String? _cutToInputLimit(String text) {
+  // At most one code point per UTF-16 unit.
+  if (text.length <= notificationCleanInputLimit) return null;
+  final runes = RuneIterator(text);
+  var count = 0;
+  while (runes.moveNext()) {
+    if (count == notificationCleanInputLimit) {
+      return text.substring(0, runes.rawIndex);
+    }
+    count++;
+  }
+  return null;
 }
 
 /// Cuts [text] to at most [limit] code points, ending in `…` when it was cut.

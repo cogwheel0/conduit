@@ -4290,5 +4290,9 @@
   "hermesJobNotifyTitle": "通知我",
   "hermesJobNotifyDescription": "此任务交付结果时发送推送通知。",
   "pushAskAdminMessage": "能在我们的 Open WebUI 服务器上设置 Conduit Push 吗？这样 Conduit 就能发送端到端加密的推送通知。请在“管理员面板 → 函数”中导入 {url}，并把函数 ID 设为 {functionId}。设置指南：{guide}",
-  "pushExplainFailed": "Conduit 会在你下次打开时自动重试，你也可以现在重试。"
+  "pushExplainFailed": "Conduit 会在你下次打开时自动重试，你也可以现在重试。",
+  "pushHermesCommandLatest": "这会安装插件最新发布的版本。",
+  "hermesJobCreatedNotifyFailed": "定时任务已创建，但无法为其开启通知。",
+  "hermesJobUpdatedNotifyFailed": "定时任务已保存，但无法更改其通知。",
+  "hermesJobNotifyNeedsScheduled": "要使用此功能，请在“通知”中开启“计划任务”。"
 }

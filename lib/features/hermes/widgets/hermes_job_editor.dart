@@ -25,13 +25,15 @@ typedef HermesJobDraft = ({
 ///
 /// With [initialNotify], the dialog also offers "Notify me", which sends a
 /// push when the job delivers; leave it null where push can't reach the
-/// connection.
+/// connection. With [notifyUnavailableHint] the switch shows off and cannot
+/// be changed, with the hint saying why, and the draft's `notify` is null.
 Future<HermesJobDraft?> showHermesJobEditor(
   BuildContext context, {
   String? initialName,
   String? initialPrompt,
   String? initialSchedule,
   bool? initialNotify,
+  String? notifyUnavailableHint,
 }) {
   return ThemedDialogs.showCustom<HermesJobDraft>(
     context: context,
@@ -40,6 +42,7 @@ Future<HermesJobDraft?> showHermesJobEditor(
       initialPrompt: initialPrompt,
       initialSchedule: initialSchedule,
       initialNotify: initialNotify,
+      notifyUnavailableHint: notifyUnavailableHint,
     ),
   );
 }
@@ -50,12 +53,14 @@ class _HermesJobEditorDialog extends StatefulWidget {
     this.initialPrompt,
     this.initialSchedule,
     this.initialNotify,
+    this.notifyUnavailableHint,
   });
 
   final String? initialName;
   final String? initialPrompt;
   final String? initialSchedule;
   final bool? initialNotify;
+  final String? notifyUnavailableHint;
 
   @override
   State<_HermesJobEditorDialog> createState() => _HermesJobEditorDialogState();
@@ -97,9 +102,13 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
       setState(() => _showErrors = true);
       return;
     }
-    Navigator.of(
-      context,
-    ).pop((name: name, prompt: prompt, schedule: schedule, notify: _notify));
+    Navigator.of(context).pop((
+      name: name,
+      prompt: prompt,
+      schedule: schedule,
+      // Shown but not changeable: nothing to change.
+      notify: widget.notifyUnavailableHint == null ? _notify : null,
+    ));
   }
 
   String? _errorText(
@@ -184,7 +193,18 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
                 ),
               ),
             ),
-            if (_notify case final notify?) ...[
+            if (widget.notifyUnavailableHint case final hint?) ...[
+              const SizedBox(height: Spacing.sm),
+              UtilityRow(
+                key: const Key('hermes-job-notify'),
+                enabled: false,
+                title: l10n.hermesJobNotifyTitle,
+                subtitle: hint,
+                padding: EdgeInsets.zero,
+                toggled: false,
+                trailing: const AdaptiveSwitch(value: false, onChanged: null),
+              ),
+            ] else if (_notify case final notify?) ...[
               const SizedBox(height: Spacing.sm),
               UtilityRow(
                 key: const Key('hermes-job-notify'),
