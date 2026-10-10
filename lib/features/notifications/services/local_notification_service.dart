@@ -98,7 +98,8 @@ class NotificationTap {
 /// owns its own `conduit_messages` channel and never requests permission at
 /// init — permission is requested only when the user opts in.
 class LocalNotificationService {
-  LocalNotificationService();
+  LocalNotificationService({DateTime Function() now = DateTime.now})
+    : _idCounter = now().millisecondsSinceEpoch & 0x7fffffff;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -110,7 +111,13 @@ class LocalNotificationService {
   /// Monotonic OS-notification id. Using a counter (rather than a hash of the
   /// dedup key) avoids 31-bit hash collisions silently replacing a notification
   /// in the drawer. De-duplication is handled upstream by the router.
-  int _idCounter = 0;
+  ///
+  /// It starts at the launch time in milliseconds (31 bits, so it wraps about
+  /// every 24.8 days), not at 0, so ids stay unique across launches: the iOS
+  /// push extension removes the app's notification by the id the shared
+  /// ledger keeps for 3 days, and on iOS a reused id replaces the older
+  /// notification under it.
+  int _idCounter;
 
   /// The id the next notification posts with, handed out ahead of [show] so
   /// it can be claimed under (see `NotificationClaim`).

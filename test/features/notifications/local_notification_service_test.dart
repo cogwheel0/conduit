@@ -136,4 +136,27 @@ void main() {
       ).equals('');
     });
   });
+
+  group('nextNotificationId', () {
+    LocalNotificationService serviceAt(int millisecondsSinceEpoch) =>
+        LocalNotificationService(
+          now: () =>
+              DateTime.fromMillisecondsSinceEpoch(millisecondsSinceEpoch),
+        );
+
+    test('starts from the launch time, not at 1, so launches differ', () {
+      const launch = 1760000000000;
+      check(
+        serviceAt(launch).nextNotificationId(),
+      ).equals((launch & 0x7fffffff) + 1);
+      // Launched a millisecond later, it starts one higher.
+      check(
+        serviceAt(launch + 1).nextNotificationId(),
+      ).equals((launch & 0x7fffffff) + 2);
+    });
+
+    test('wraps within 31 bits', () {
+      check(serviceAt(0x7fffffff).nextNotificationId()).equals(0);
+    });
+  });
 }
