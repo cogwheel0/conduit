@@ -782,6 +782,25 @@ def test_valves_update_normalizes_subscriptions(world, fn):
     assert len(world.writes) == 2
 
 
+def test_non_finite_timestamps_cannot_stop_delivery(world, fn):
+    # json.loads reads NaN and Infinity, and a user can store either in their own valves.
+    good = Device(origin="any")
+    nan_seen = Device(origin="any", seen=float("nan"))
+    inf_test = Device(origin="any", test={"nonce": "nonce-0001", "at": float("inf")})
+    world.subscribe("u1", nan_seen, inf_test, good)
+    dispatch(fn, **finished())
+    assert sorted(post.url for post in world.posts) == sorted([inf_test.endpoint, good.endpoint])
+    # An entry that can't say when it was last seen expires.
+    assert [entry["sid"] for entry in world.stored("u1")] == [inf_test.sid, good.sid]
+
+
+def test_one_members_broken_valves_cannot_stop_a_channel_fan_out(world, fn):
+    devices = channel_world(world)
+    world.subscribe("c", Device(seen=float("nan")), Device(seen=float("inf")))
+    dispatch(fn, **posted(world))
+    assert [post.url for post in world.posts] == [devices["b"].endpoint]
+
+
 def test_devices_unseen_for_30_days_expire(world, fn):
     now = int(time.time())
     recent, forgotten = Device(origin="any", seen=now - 29 * DAY), Device(origin="any", seen=now - 31 * DAY)

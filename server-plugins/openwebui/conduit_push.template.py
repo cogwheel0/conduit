@@ -116,7 +116,10 @@ def _text(value: Any) -> str:
 def _int(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0
-    return int(value)
+    try:
+        return int(value)
+    except (ValueError, OverflowError):  # NaN or infinity, which json.loads accepts
+        return 0
 
 
 def _attr(obj: Any, name: str) -> Any:
