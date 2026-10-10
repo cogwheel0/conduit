@@ -1,10 +1,14 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart'
+    show kMaxHermesJsonResponseBytes, kMaxHermesJsonResponseCharacters;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/services/push_backend.dart';
 
@@ -223,9 +227,15 @@ sealed class HermesPushBackend implements PushBackend {
     return sids is List ? sids.whereType<String>().toList() : const [];
   }
 
+  /// [body] as a JSON object, or empty when it is not one. It is held to
+  /// the size and structure limits of every other Hermes response before it
+  /// is decoded.
   static Map<String, Object?> _json(String body) {
-    if (body.isEmpty) return const {};
+    if (body.isEmpty || body.length > kMaxHermesJsonResponseCharacters) {
+      return const {};
+    }
     try {
+      validateHermesJsonSource(body);
       final decoded = jsonDecode(body);
       return decoded is Map ? Map<String, Object?>.from(decoded) : const {};
     } on FormatException {
@@ -253,7 +263,8 @@ final class HermesApiPushBackend extends HermesPushBackend {
       _dio = dio {
     _dio.options
       ..followRedirects = false
-      ..responseType = ResponseType.plain
+      // Read as it arrives, so a body past the size limit stops there.
+      ..responseType = ResponseType.stream
       ..validateStatus = ((_) => true);
   }
 
@@ -277,20 +288,42 @@ final class HermesApiPushBackend extends HermesPushBackend {
 
   Future<(int, Map<String, Object?>)> _post(Map<String, Object?> body) async {
     try {
-      final response = await _dio.post<String>(
+      final response = await _dio.post<ResponseBody>(
         '$_root/api/platforms/conduit/events',
         data: jsonEncode(body),
         options: Options(contentType: Headers.jsonContentType),
       );
       return (
         response.statusCode ?? 0,
-        HermesPushBackend._json(response.data ?? ''),
+        HermesPushBackend._json(await _readBounded(response.data)),
       );
-    } on DioException {
+    } on PushBackendException {
+      rethrow;
+    } on Exception {
+      // Dio's errors, and the connection failing while the body comes in.
       throw const PushBackendException(
         PushFailure(PushFailureReason.serverUnreachable),
       );
     }
+  }
+
+  /// [body] as text, read up to [kMaxHermesJsonResponseBytes]: one longer
+  /// than that is refused once it gets there, without reading the rest.
+  static Future<String> _readBounded(ResponseBody? body) async {
+    if (body == null) return '';
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in body.stream) {
+      bytes.add(chunk);
+      if (bytes.length > kMaxHermesJsonResponseBytes) {
+        throw const PushBackendException(
+          PushFailure(
+            PushFailureReason.serverRejected,
+            detail: 'response_too_large',
+          ),
+        );
+      }
+    }
+    return utf8.decode(bytes.takeBytes(), allowMalformed: true);
   }
 
   @override

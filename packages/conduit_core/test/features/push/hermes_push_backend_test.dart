@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart'
+    show kMaxHermesJsonResponseBytes;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/services/hermes_push_backend.dart';
@@ -220,6 +222,23 @@ void main() {
     test('list answers the subscribed sids', () async {
       gateway.sids = ['A', 'B'];
       check(await backend.listSids()).deepEquals(['A', 'B']);
+    });
+
+    test('a reply past the size limit is refused', () async {
+      gateway.plainBody = ' ' * (kMaxHermesJsonResponseBytes + 1);
+      final error = await _backendError(backend.listSids());
+      check(error.failure).equals(
+        const PushFailure(
+          PushFailureReason.serverRejected,
+          detail: 'response_too_large',
+        ),
+      );
+    });
+
+    test('a reply nested past the JSON limits is not decoded', () async {
+      gateway.plainBody = '{"ok":true,"sids":${'[' * 200}${']' * 200}}';
+      final error = await _backendError(backend.listSids());
+      check(error.failure.detail).equals('invalid_response');
     });
 
     test('install is a command, not a request', () async {
