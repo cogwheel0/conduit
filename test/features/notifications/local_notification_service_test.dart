@@ -1,6 +1,8 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -94,6 +96,44 @@ void main() {
       ], 'owui:acct-1');
 
       check(picked.map((n) => n.id)).deepEquals([11]);
+    });
+  });
+
+  group('notificationDisplayBody', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    AppNotification notification(NotificationKind kind, String body) =>
+        AppNotification(
+          kind: kind,
+          scope: 'direct',
+          title: 'Trip ideas',
+          body: body,
+          sourceId: 'c1',
+          dedupKey: 'direct|direct:c1:m:r',
+        );
+
+    test('a failed reply without a body says that it failed', () {
+      check(
+        notificationDisplayBody(
+          notification(NotificationKind.replyFailed, ''),
+          l10n,
+        ),
+      ).equals(l10n.notificationReplyFailedBody);
+    });
+
+    test('anything else shows its own body', () {
+      check(
+        notificationDisplayBody(
+          notification(NotificationKind.replyFailed, 'Rate limited'),
+          l10n,
+        ),
+      ).equals('Rate limited');
+      check(
+        notificationDisplayBody(
+          notification(NotificationKind.chatCompletion, ''),
+          l10n,
+        ),
+      ).equals('');
     });
   });
 }

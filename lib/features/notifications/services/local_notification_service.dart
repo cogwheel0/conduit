@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/utils/current_localizations.dart';
+import '../../../l10n/app_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -267,11 +268,7 @@ class LocalNotificationService {
     final title = notification.title.isNotEmpty
         ? notification.title
         : l10n.notificationDefaultTitle;
-    final body =
-        notification.body.isEmpty &&
-            notification.kind == NotificationKind.replyFailed
-        ? l10n.notificationReplyFailedBody
-        : notification.body;
+    final body = notificationDisplayBody(notification, l10n);
 
     final androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -372,6 +369,18 @@ LocalNotificationService localNotificationService(Ref ref) {
   ref.onDispose(service.dispose);
   return service;
 }
+
+/// The text a notification is shown with: its body, or for a failed reply
+/// without one, that the reply failed. The system notification and the
+/// in-app banner both say it.
+String notificationDisplayBody(
+  AppNotification notification,
+  AppLocalizations l10n,
+) =>
+    notification.body.isEmpty &&
+        notification.kind == NotificationKind.replyFailed
+    ? l10n.notificationReplyFailedBody
+    : notification.body;
 
 /// The iOS thread a notification is listed under: its group, scoped to the
 /// account that posted it, the same way the push extension builds it, so a

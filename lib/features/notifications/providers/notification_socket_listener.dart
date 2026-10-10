@@ -103,9 +103,12 @@ void _showInAppBanner(Ref ref, AppNotification notification) {
   final context = NavigationService.navigatorKey.currentContext;
   if (context == null) return;
   final l10n = currentAppLocalizations();
+  // A failed reply without a body says that it failed, as the system
+  // notification does.
+  final body = notificationDisplayBody(notification, l10n);
   final message = notification.title.isNotEmpty
-      ? '${notification.title}: ${notification.body}'
-      : notification.body;
+      ? '${notification.title}: $body'
+      : body;
   AdaptiveSnackBar.show(
     context,
     message: message,
