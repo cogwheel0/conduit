@@ -1919,6 +1919,7 @@ Future<void> _announceDirectRunCompletion(
       DirectRunCompletion(
         conversationId: owner.conversationId,
         message: message,
+        runId: reservation.runId,
         title: title,
         storage: location?.storage,
         openWebUiAccountId: location?.storage == ChatStorageKind.openWebUi

@@ -24,6 +24,7 @@ final class DirectRunCompletion {
   const DirectRunCompletion({
     required this.conversationId,
     required this.message,
+    required this.runId,
     this.title,
     this.storage,
     this.openWebUiAccountId,
@@ -34,6 +35,11 @@ final class DirectRunCompletion {
 
   /// The reply as stored: its content, or its error.
   final ChatMessage message;
+
+  /// The run that wrote it ([DirectRunReservation.runId]). A regeneration
+  /// writes into the same assistant message, so this tells its answer from
+  /// the one it replaced.
+  final String runId;
 
   /// The chat's title, when known.
   final String? title;
@@ -912,6 +918,10 @@ final class _PendingDirectMcpApproval {
 /// than the reusable assistant id, determines which preflight may publish.
 final class DirectRunReservation {
   DirectRunReservation._(this._key, this._profileId);
+
+  /// A random id of this run, unique even when it writes into an assistant
+  /// message an earlier run wrote (a regeneration does).
+  final String runId = const Uuid().v4();
 
   DirectRunKey _key;
   final String _profileId;

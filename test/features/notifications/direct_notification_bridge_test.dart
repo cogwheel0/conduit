@@ -73,6 +73,7 @@ void main() {
       DirectRunCompletion(
         conversationId: 'direct-local:1',
         message: _reply(),
+        runId: 'run-1',
         title: 'Trip ideas',
         storage: ChatStorageKind.directLocal,
       ),
@@ -85,7 +86,9 @@ void main() {
     check(n.sourceId).equals('direct-local:1');
     check(n.title).equals('Trip ideas');
     check(n.body).equals('Done. The answer is 42.');
-    check(n.dedupKey).equals('direct|direct:direct-local:1:assistant-1');
+    check(
+      n.dedupKey,
+    ).equals('direct|direct:direct-local:1:assistant-1:run-1');
   });
 
   test('a failed Direct reply is routed as replyFailed', () async {
@@ -94,6 +97,7 @@ void main() {
       DirectRunCompletion(
         conversationId: 'direct-local:1',
         message: _reply(error: 'boom'),
+        runId: 'run-1',
         storage: ChatStorageKind.directLocal,
       ),
     );
@@ -107,6 +111,7 @@ void main() {
       DirectRunCompletion(
         conversationId: 'direct-local:1',
         message: _reply(),
+        runId: 'run-1',
         storage: ChatStorageKind.directLocal,
       ),
     );

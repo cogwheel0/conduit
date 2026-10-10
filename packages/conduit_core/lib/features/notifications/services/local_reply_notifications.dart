@@ -14,7 +14,9 @@ import 'notification_preview_text.dart';
 /// Direct runs on this device, so no server ever pushes about it. An
 /// on-device chat is scoped `direct`; one stored in an Open WebUI account's
 /// database belongs to that account, which a tap switches to first. The
-/// dedup key is `<scope>|direct:<conversationId>:<assistantMessageId>`.
+/// dedup key is `<scope>|direct:<conversationId>:<assistantMessageId>:<runId>`:
+/// a regeneration writes into the same assistant message, and its answer
+/// notifies as a new one.
 AppNotification? appNotificationForDirectRun(DirectRunCompletion completion) {
   final NotificationScope scope;
   if (completion.storage == ChatStorageKind.openWebUi) {
@@ -36,7 +38,8 @@ AppNotification? appNotificationForDirectRun(DirectRunCompletion completion) {
     body: failed ? '' : notificationPreviewText(completion.message.content),
     sourceId: conversationId,
     dedupKey: scope.dedupKey(
-      'direct:$conversationId:${completion.assistantMessageId}',
+      'direct:$conversationId:${completion.assistantMessageId}:'
+      '${completion.runId}',
     ),
     group: 'chat:$conversationId',
   );
