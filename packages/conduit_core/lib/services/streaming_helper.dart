@@ -11,6 +11,8 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart'
+    show openWebUiConfirmationText;
 
 import 'package:conduit_core/providers/app_providers.dart' show isTemporaryChat;
 
@@ -3897,9 +3899,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               onInteractivePrompt(type.toString(), map, ack);
             } else {
               () async {
+                final text = openWebUiConfirmationText(map);
                 final confirmed = await uiRequests.confirm(
-                  title: map['title']?.toString() ?? 'Confirm',
-                  message: map['message']?.toString() ?? '',
+                  title: text.title.isEmpty ? 'Confirm' : text.title,
+                  message: text.message,
                   confirmLabel: map['confirm_text']?.toString(),
                   cancelLabel: map['cancel_text']?.toString(),
                 );
