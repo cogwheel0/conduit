@@ -12,6 +12,7 @@ final class WebRtcRealtimeMedia implements RealtimeWebRtcMediaPort {
   RTCPeerConnection? _peer;
   MediaStream? _microphone;
   RTCDataChannel? _channel;
+  var _closed = false;
   final _messages = StreamController<String>.broadcast();
   final _states = StreamController<RealtimeMediaState>.broadcast();
 
@@ -23,7 +24,7 @@ final class WebRtcRealtimeMedia implements RealtimeWebRtcMediaPort {
 
   @override
   Future<String> createOffer({String dataChannel = 'oai-events'}) async {
-    final microphone = _microphone = await navigator.mediaDevices.getUserMedia({
+    final microphone = await navigator.mediaDevices.getUserMedia({
       'audio': {
         'echoCancellation': true,
         'noiseSuppression': true,
@@ -31,9 +32,18 @@ final class WebRtcRealtimeMedia implements RealtimeWebRtcMediaPort {
       },
       'video': false,
     });
-    final peer = _peer = await createPeerConnection({
-      'sdpSemantics': 'unified-plan',
-    });
+    // Closed while the microphone opened: [close] could not stop it.
+    if (_closed) {
+      await _release(microphone: microphone);
+      throw StateError('The voice call ended.');
+    }
+    _microphone = microphone;
+    final peer = await createPeerConnection({'sdpSemantics': 'unified-plan'});
+    if (_closed) {
+      await _release(peer: peer, microphone: microphone);
+      throw StateError('The voice call ended.');
+    }
+    _peer = peer;
     peer.onConnectionState = (state) {
       final mapped = switch (state) {
         RTCPeerConnectionState.RTCPeerConnectionStateConnected =>
@@ -104,6 +114,8 @@ final class WebRtcRealtimeMedia implements RealtimeWebRtcMediaPort {
 
   @override
   Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
     final channel = _channel;
     final peer = _peer;
     final microphone = _microphone;
@@ -111,16 +123,23 @@ final class WebRtcRealtimeMedia implements RealtimeWebRtcMediaPort {
     _peer = null;
     _microphone = null;
     try {
-      await channel?.close();
-      await peer?.close();
-      for (final track
-          in microphone?.getTracks() ?? const <MediaStreamTrack>[]) {
-        await track.stop();
-      }
-      await microphone?.dispose();
+      await _release(channel: channel, peer: peer, microphone: microphone);
     } finally {
       await _messages.close();
       await _states.close();
     }
+  }
+
+  static Future<void> _release({
+    RTCDataChannel? channel,
+    RTCPeerConnection? peer,
+    MediaStream? microphone,
+  }) async {
+    await channel?.close();
+    await peer?.close();
+    for (final track in microphone?.getTracks() ?? const <MediaStreamTrack>[]) {
+      await track.stop();
+    }
+    await microphone?.dispose();
   }
 }

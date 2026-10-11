@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/chat/realtime_call/bridge_call_host.dart';
 import 'package:conduit_core/features/chat/realtime_call/chat_bridge_call_host.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transport.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
@@ -13,6 +14,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -60,6 +62,13 @@ final _openAi = DirectConnectionProfile(
 
 const _owuiModel = Model(id: 'llama3', name: 'Llama 3');
 
+Conversation _chat(String id) => Conversation(
+  id: id,
+  title: 'Chat',
+  createdAt: DateTime.utc(2026),
+  updatedAt: DateTime.utc(2026),
+);
+
 void main() {
   Future<RealtimeCallRoute> route(
     Model model, {
@@ -68,6 +77,7 @@ void main() {
     bool? permitted = true,
     String token = 'eyJhbGciOiJIUzI1NiJ9.e30.sig',
     Conversation? active,
+    bool newChat = false,
     DirectModelRegistry? registry,
     DirectVoiceProvider? voice,
   }) async {
@@ -97,7 +107,10 @@ void main() {
     );
     addTearDown(container.dispose);
     await container.read(backendConfigProvider.future);
-    return container.read(realtimeCallRouteResolverProvider)(model);
+    return container.read(realtimeCallRouteResolverProvider)(
+      model,
+      newChat: newChat,
+    );
   }
 
   test('the user can always choose Standard calls', () async {
@@ -169,6 +182,16 @@ void main() {
       check(bridge.chatId).equals('chat-1');
     });
 
+    test('a call that starts a new chat does not name the open one', () async {
+      final result = await route(
+        _owuiModel,
+        active: _chat('chat-1'),
+        newChat: true,
+      );
+
+      check((result.bridge! as OpenWebUiRealtimeBridge).chatId).isNull();
+    });
+
     test('a chat the server does not have yet is not named', () async {
       final result = await route(
         _owuiModel,
@@ -238,6 +261,66 @@ void main() {
         (bridge! as DirectRealtimeBridge).uri.toString(),
       ).equals('wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1-mini');
     });
+  });
+
+  test('a Hermes answer waiting for the user is an approval', () {
+    ChatMessage hermes(String id, Map<String, Object?> waiting) => ChatMessage(
+      id: id,
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.utc(2026),
+      isStreaming: true,
+      metadata: {'transport': kHermesTransport, ...waiting},
+    );
+
+    final snapshot = realtimeChatSnapshot([
+      hermes('a1', {
+        kHermesApprovalMeta: {'state': 'pending', 'approvalId': 'x'},
+      }),
+      hermes('a2', {
+        kHermesDecisionMeta: {'state': 'pending', 'requestId': 'y'},
+      }),
+      hermes('a3', {
+        kHermesApprovalMeta: {'state': 'approved', 'approvalId': 'x'},
+      }),
+    ]);
+
+    check(snapshot.map((entry) => entry['content'])).deepEquals([
+      '[Chat model answer; message a1; approval]',
+      '[Chat model answer; message a2; approval]',
+      '[Chat model answer; message a3; working]',
+    ]);
+  });
+
+  test('a call writes nothing to a chat it did not start in', () async {
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(
+          () => _Active(_chat('chat-1')),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final host = container.read(
+      Provider((ref) => ChatBridgeCallHost(ref, onNotice: (_) {})),
+    );
+    check(host.chatId).equals('chat-1');
+
+    container.read(activeConversationProvider.notifier).set(_chat('chat-2'));
+
+    await check(
+      host.recordExchange(
+        const RealtimeVoiceExchange(
+          userText: 'Thanks',
+          userVoice: {},
+          voiceModel: 'gpt-realtime',
+          replyText: 'You are welcome.',
+          replyVoice: {},
+        ),
+      ),
+    ).throws<StateError>();
+    await check(host.delegate('Plan my week', userVoice: const {}))
+        .throws<StateError>();
   });
 
   test('the voice reads the chat with each answer labeled', () {

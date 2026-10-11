@@ -1503,7 +1503,12 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
 
   Future<void> setVoiceCallMode(VoiceCallMode mode) async {
     state = state.copyWith(voiceCallMode: mode);
-    await SettingsService.saveSettings(state);
+    // Only this key: a whole snapshot could put back an older value of
+    // another setting saved meanwhile.
+    await SettingsService._putPreference(
+      PreferenceKeys.voiceCallMode,
+      mode.name,
+    );
   }
 
   Future<void> setVoiceBargeInEnabled(bool value) async {

@@ -19,7 +19,11 @@ import 'package:conduit_core/models/model.dart';
 
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart'
-    show activeConversationProvider, selectedModelProvider, socketServiceProvider;
+    show
+        activeConversationProvider,
+        isActiveConversationInPlaceRemap,
+        selectedModelProvider,
+        socketServiceProvider;
 
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart'
@@ -62,17 +66,20 @@ final class _ChatVoiceModeFailure implements Exception {
 ChatVoiceModeError _errorKindOf(Object error) =>
     error is _ChatVoiceModeFailure ? error.kind : ChatVoiceModeError.other;
 
-/// Where a realtime call in [callChatId] stands once [nextChatId] is open:
-/// it follows a chat it is creating, and a new chat's server id, and ends
-/// when the user opens another chat or none.
+/// Where a realtime call in [callChatId] stands once [nextChatId] is open.
+/// It follows only its own chat: the one its send is creating
+/// ([creatingChat]), and that chat's server id given in place ([remapped]).
+/// Any other chat, or none, ends it.
 @visibleForTesting
 ({bool ends, String? chatId}) realtimeCallChatAfter(
   String? callChatId,
-  String? nextChatId,
-) {
+  String? nextChatId, {
+  bool creatingChat = false,
+  bool remapped = false,
+}) {
   if (nextChatId == callChatId) return (ends: false, chatId: callChatId);
-  if (callChatId == null ||
-      (callChatId.startsWith('local:') && nextChatId != null)) {
+  if (nextChatId != null &&
+      ((callChatId == null && creatingChat) || remapped)) {
     return (ends: false, chatId: nextChatId);
   }
   return (ends: true, chatId: callChatId);
@@ -198,6 +205,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   /// The realtime voice of a call that has one; the turn-by-turn input and
   /// speech are then unused.
   RealtimeCallEngine? _realtime;
+  ChatBridgeCallHost? _realtimeHost;
   StreamSubscription<RealtimeCallState>? _realtimeSub;
   ProviderSubscription<Conversation?>? _realtimeChatSub;
   bool _pausedDuringSpeech = false;
@@ -264,6 +272,18 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final callKit = _callKit;
       final callId = _activeCallId;
       final socketBackgroundLease = _socketBackgroundLease;
+      final realtime = _realtime;
+      final realtimeSub = _realtimeSub;
+      final realtimeChatSub = _realtimeChatSub;
+      _realtime = null;
+      _realtimeHost = null;
+      _realtimeSub = null;
+      _realtimeChatSub = null;
+      realtimeChatSub?.close();
+      // The voice's microphone and connection end with the provider; the
+      // host skips the chat writes a disposed provider can no longer make.
+      unawaited(realtimeSub?.cancel());
+      unawaited(realtime?.end());
       _activeCallId = null;
       _usesOpenWebUiTransport = false;
       selectedModelSub?.close();
@@ -448,7 +468,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           if (lostOwnership()) return;
           cancelIfRequested();
 
-          final realtime = await _resolveRealtime(model);
+          final realtime = await _resolveRealtime(
+            model,
+            newChat: startNewConversation,
+          );
           if (lostOwnership()) return;
           cancelIfRequested();
           if (realtime != null) {
@@ -560,9 +583,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   /// the call is a Standard one: the user chose Standard, the device cannot
   /// run the voice's audio, or the model's backend offers no realtime voice.
   Future<RealtimeCallEngine Function(BridgeCallHost host)?> _resolveRealtime(
-    Model model,
-  ) async {
-    final route = await ref.read(realtimeCallRouteResolverProvider)(model);
+    Model model, {
+    required bool newChat,
+  }) async {
+    final route = await ref.read(realtimeCallRouteResolverProvider)(
+      model,
+      newChat: newChat,
+    );
     final bridge = route.bridge;
     if (bridge != null) {
       final audio = ref.read(realtimePcmAudioFactoryProvider)();
@@ -576,11 +603,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     if (hermes != null) {
       final media = ref.read(realtimeWebRtcMediaFactoryProvider)();
       if (media != null) {
-        final history = gptLiveHistory(ref.read(chatMessagesProvider));
+        // Built after a new chat has started, so the voice never hears the
+        // chat the call left.
         return (host) => GptLiveCallEngine(
           media: media,
           host: host,
-          history: history,
+          history: gptLiveHistory(ref.read(chatMessagesProvider)),
           open: (offer, history) async => (await hermes.createVoiceLiveSession(
             sdp: offer,
             history: history,
@@ -600,19 +628,19 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     RealtimeCallEngine Function(BridgeCallHost host) build,
     int token,
   ) async {
-    final engine = build(
-      ChatBridgeCallHost(
-        ref,
-        onNotice: (notice) {
-          if (!_isCurrent(token) || _disposed) return;
-          state = state.copyWith(
-            notice: notice,
-            noticeCount: state.noticeCount + 1,
-          );
-        },
-      ),
+    final host = ChatBridgeCallHost(
+      ref,
+      onNotice: (notice) {
+        if (!_isCurrent(token) || _disposed) return;
+        state = state.copyWith(
+          notice: notice,
+          noticeCount: state.noticeCount + 1,
+        );
+      },
     );
+    final engine = build(host);
     _realtime = engine;
+    _realtimeHost = host;
     try {
       await engine.connect();
     } on RealtimeBridgeException catch (error) {
@@ -623,7 +651,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _realtimeSub = engine.states.listen(
       (realtime) => _onRealtimeState(realtime, token),
     );
-    _followRealtimeChat(token);
+    _followRealtimeChat(host, token);
     _onRealtimeState(engine.state, token);
     final callId = state.activeCallId;
     if (_isCurrent(token) && !_markedCallConnected && callId != null) {
@@ -634,19 +662,25 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   /// Ends a realtime call when the user leaves its chat: the voice talks
   /// about that chat, and a request it handed over is answered there. The
-  /// chat the call creates, and a new chat's server id, stay the call's.
-  void _followRealtimeChat(int token) {
-    var callChatId = ref.read(activeConversationProvider)?.id;
+  /// chat the call's own send creates, and that chat's server id, stay the
+  /// call's.
+  void _followRealtimeChat(ChatBridgeCallHost host, int token) {
     _realtimeChatSub = ref.listen<Conversation?>(activeConversationProvider, (
       _,
       next,
     ) {
       if (!_isCurrent(token)) return;
-      final followed = realtimeCallChatAfter(callChatId, next?.id);
+      final callChatId = host.chatId;
+      final followed = realtimeCallChatAfter(
+        callChatId,
+        next?.id,
+        creatingChat: host.creatingChat,
+        remapped: isActiveConversationInPlaceRemap(ref, callChatId, next?.id),
+      );
       if (followed.ends) {
         unawaited(stop());
       } else {
-        callChatId = followed.chatId;
+        host.followChat(next);
       }
     });
   }
@@ -1930,6 +1964,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final backgroundCoordinator = _backgroundCoordinator;
     final audioSessionCoordinator = _audioSessionCoordinator;
     final realtime = _realtime;
+    final realtimeHost = _realtimeHost;
     final realtimeSub = _realtimeSub;
     final realtimeChatSub = _realtimeChatSub;
 
@@ -1957,6 +1992,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _iosAudioSessionManagedExternally = false;
     _usesOpenWebUiTransport = false;
     _realtime = null;
+    _realtimeHost = null;
     _realtimeSub = null;
     _realtimeChatSub = null;
     realtimeChatSub?.close();
@@ -1986,6 +2022,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         // Before the audio session goes, so the call's audio stops first.
         await _runTeardownStep('realtime-end', () async {
           await realtimeEnded;
+          // Answers still running go on in the chat, unfollowed.
+          realtimeHost?.close();
         });
         await _runTeardownStep('transcript-subscription-cancel', () async {
           await transcriptSub?.cancel();

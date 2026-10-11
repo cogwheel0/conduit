@@ -49,6 +49,7 @@ class TtsPlaybackSession {
     required this.id,
     required this.chunks,
     required this.useServerTts,
+    this.serverSpeech,
   });
 
   /// Unique session identifier.
@@ -59,6 +60,10 @@ class TtsPlaybackSession {
 
   /// Whether to use server TTS (true) or device TTS (false).
   final bool useServerTts;
+
+  /// The server that speaks it, chosen when it started: text is only ever
+  /// spoken by the chat it came from.
+  final ServerSpeechProvider? serverSpeech;
 }
 
 @visibleForTesting
@@ -395,6 +400,7 @@ class TtsManager {
       id: _sessionCounter,
       chunks: chunks,
       useServerTts: shouldUseServer,
+      serverSpeech: shouldUseServer ? _serverSpeech : null,
     );
     _activeSession = session;
 
@@ -453,6 +459,7 @@ class TtsManager {
       id: _sessionCounter,
       chunks: <String>[],
       useServerTts: shouldUseServer,
+      serverSpeech: shouldUseServer ? _serverSpeech : null,
     );
     _activeSession = session;
     _isStreamingSession = true;
@@ -812,6 +819,7 @@ class TtsManager {
     unawaited(() async {
       try {
         final chunk = await _fetchServerAudioWithRetry(
+          session.serverSpeech,
           session.chunks[index],
           voice,
         );
@@ -1002,6 +1010,7 @@ class TtsManager {
 
     // Fetch and play first chunk
     final firstChunk = await _fetchServerAudioWithRetry(
+      session.serverSpeech,
       session.chunks.first,
       voice,
     );
@@ -1020,6 +1029,7 @@ class TtsManager {
     if (session.chunks.length > 1) {
       try {
         final secondChunk = await _fetchServerAudioWithRetry(
+          session.serverSpeech,
           session.chunks[1],
           voice,
         ).timeout(_serverInitialLookaheadTimeout);
@@ -1080,6 +1090,7 @@ class TtsManager {
 
         try {
           final chunk = await _fetchServerAudioWithRetry(
+            session.serverSpeech,
             session.chunks[i],
             voice,
           );
@@ -1102,11 +1113,11 @@ class TtsManager {
   }
 
   Future<_AudioChunk> _fetchServerAudio(
+    ServerSpeechProvider? speech,
     String text,
     String? voice, {
     double? speed,
   }) async {
-    final speech = _serverSpeech;
     if (speech == null) throw StateError('Server TTS is not available');
     final result = await speech.synthesize(
       text,
@@ -1117,6 +1128,7 @@ class TtsManager {
   }
 
   Future<_AudioChunk> _fetchServerAudioWithRetry(
+    ServerSpeechProvider? speech,
     String text,
     String? voice,
   ) async {
@@ -1130,7 +1142,7 @@ class TtsManager {
 
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await _fetchServerAudio(requestText, requestVoice);
+        return await _fetchServerAudio(speech, requestText, requestVoice);
       } catch (error) {
         lastError = error;
 
@@ -1228,6 +1240,7 @@ class TtsManager {
       }
 
       final recovered = await _fetchServerAudioWithRetry(
+        session.serverSpeech,
         session.chunks[index],
         voice,
       );

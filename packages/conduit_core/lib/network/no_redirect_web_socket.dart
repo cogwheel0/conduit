@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:web_socket_channel/io.dart';
@@ -23,7 +24,17 @@ WebSocketChannel connectNoRedirectWebSocket(
   ).whenComplete(client.close);
   return IOWebSocketChannel(
     socket
-        .timeout(connectTimeout)
+        .timeout(
+          connectTimeout,
+          onTimeout: () {
+            // Stops the handshake, and closes a socket that opens anyway.
+            client.close(force: true);
+            unawaited(
+              socket.then((late) => late.close(), onError: (Object _) {}),
+            );
+            throw TimeoutException('WebSocket connect', connectTimeout);
+          },
+        )
         .then((value) => value..pingInterval = pingInterval),
   );
 }

@@ -30,9 +30,12 @@ final realtimeWebRtcMediaFactoryProvider =
 /// Finds the realtime voice for a call with a model; see
 /// [resolveRealtimeCallRoute].
 final realtimeCallRouteResolverProvider =
-    Provider<Future<RealtimeCallRoute> Function(Model model)>(
+    Provider<
+      Future<RealtimeCallRoute> Function(Model model, {bool newChat})
+    >(
       (ref) =>
-          (model) => resolveRealtimeCallRoute(ref, model),
+          (model, {newChat = false}) =>
+              resolveRealtimeCallRoute(ref, model, newChat: newChat),
     );
 
 /// Why a call runs as a Standard call instead of a realtime one.
@@ -75,16 +78,25 @@ typedef RealtimeCallRoute = ({
 RealtimeCallRoute _blocked(RealtimeCallBlock block) =>
     (bridge: null, hermes: null, block: block);
 
-/// Finds the realtime voice for a call with [model] in the open chat: Open
-/// WebUI's own when its server offers one, the Voice provider for Direct and
-/// Apple chats. Fails closed: anything unknown makes the call Standard.
-Future<RealtimeCallRoute> resolveRealtimeCallRoute(Ref ref, Model model) async {
+/// Finds the realtime voice for a call with [model] in the open chat, or in
+/// the new chat the call starts when [newChat]: Open WebUI's own when its
+/// server offers one, the Voice provider for Direct and Apple chats. Fails
+/// closed: anything unknown makes the call Standard.
+Future<RealtimeCallRoute> resolveRealtimeCallRoute(
+  Ref ref,
+  Model model, {
+  bool newChat = false,
+}) async {
   if (ref.read(appSettingsProvider).voiceCallMode == VoiceCallMode.standard) {
     return _blocked(RealtimeCallBlock.standardChosen);
   }
-  final active = ref.read(activeConversationProvider);
-  if (ref.read(temporaryChatEnabledProvider) ||
-      (active != null && isTemporaryChat(active.id))) {
+  // A call that starts a new chat is not in the one open now, and the new
+  // chat starts temporary as settings say.
+  final active = newChat ? null : ref.read(activeConversationProvider);
+  final temporary = newChat
+      ? ref.read(appSettingsProvider).temporaryChatByDefault
+      : ref.read(temporaryChatEnabledProvider);
+  if (temporary || (active != null && isTemporaryChat(active.id))) {
     return _blocked(RealtimeCallBlock.temporaryChat);
   }
   // Hermes keeps the OpenAI key and opens GPT-Live calls itself, from its

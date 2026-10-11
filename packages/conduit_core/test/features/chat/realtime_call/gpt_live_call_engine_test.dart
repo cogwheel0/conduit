@@ -81,6 +81,7 @@ final class _Turn implements DelegatedTurn {
 final class _Host implements BridgeCallHost {
   final requests = <(String, String?)>[];
   final turns = <_Turn>[];
+  Completer<void>? gate;
 
   @override
   List<Map<String, String>> chatSnapshot() => const [];
@@ -98,6 +99,7 @@ final class _Host implements BridgeCallHost {
     String? spokenContext,
   }) async {
     requests.add((text, spokenContext));
+    await gate?.future;
     final turn = _Turn();
     turns.add(turn);
     return turn;
@@ -276,12 +278,63 @@ void main() {
     final ending = engine.end();
     await _settle();
     check(media.types.last).equals('session.close');
+    // Nothing more is heard while the session confirms.
+    check(media.microphone).equals(false);
     check(media.closed).isFalse();
 
     media.receive({'type': 'session.closed', 'reason': 'close_requested'});
     await ending;
     check(media.closed).isTrue();
     check(engine.state.phase).equals(RealtimeCallPhase.ended);
+  });
+
+  test('an answer handed over as the call ends goes on in the chat', () async {
+    await start();
+    final gate = host.gate = Completer<void>();
+    says('Plan my day');
+    delegates('del-1');
+    await _settle();
+
+    final ending = engine.end();
+    gate.complete();
+    await ending;
+    await _settle();
+    host.turns.single.move(DelegatedTurnState.approval);
+    await _settle();
+
+    check(host.turns.single.cancelled).isFalse();
+    check(engine.state.approval).isFalse();
+  });
+
+  test('words from minutes ago are not part of a new request', () {
+    fakeAsync((async) {
+      var now = DateTime.utc(2026, 1, 1, 12);
+      final timed = GptLiveCallEngine(
+        media: media,
+        host: host,
+        callId: 'call',
+        clock: () => now,
+        open: (offer, history) async => 'v=0\r\nanswer\r\n',
+      );
+      unawaited(timed.connect());
+      async.flushMicrotasks();
+      media.receive({
+        'type': 'session.started',
+        'session': {'id': 'sess-1'},
+      });
+      async.flushMicrotasks();
+
+      says('Remind me later');
+      async.elapse(const Duration(seconds: 2));
+      now = now.add(const Duration(minutes: 6));
+      says('What is the weather?');
+      delegates('del-1');
+      async.flushMicrotasks();
+
+      final (request, context) = host.requests.single;
+      check(request).equals('What is the weather?');
+      check(context).equals('User: What is the weather?');
+    });
   });
 
   test('a session that runs out of time ends the call and says so', () async {

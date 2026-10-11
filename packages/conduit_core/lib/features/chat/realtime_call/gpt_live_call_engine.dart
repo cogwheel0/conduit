@@ -43,13 +43,16 @@ List<String> chunkForCommentary(
   return chunks;
 }
 
-/// One stretch of speech heard in the call.
+/// One stretch of speech heard in the call, until a pause ends it.
 final class _Fragment {
   _Fragment(this.user, this.text, this.at);
 
   final bool user;
   String text;
-  final DateTime at;
+
+  /// When its latest words were heard.
+  DateTime at;
+  var ended = false;
 }
 
 /// A call whose voice is OpenAI's GPT-Live, opened by a Hermes gateway that
@@ -120,6 +123,8 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
   Future<void> connect() async {
     try {
       final offer = await _media.createOffer();
+      // Hung up while the microphone opened: no session is opened for it.
+      if (_ended) return;
       _subscriptions
         ..add(_media.messages.listen(_onMessage))
         ..add(
@@ -137,9 +142,12 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       if (_ended) return;
       _update(_state.copyWith(phase: RealtimeCallPhase.live));
     } on TimeoutException {
+      if (_ended) return;
       await _fail('Voice connection timed out.');
       throw const RealtimeBridgeException('Voice connection timed out.');
     } on Object catch (error) {
+      // An ending call's own teardown is not a failure to start.
+      if (_ended) return;
       final message = error is StateError
           ? error.message
           : 'Could not start the voice call.';
@@ -208,8 +216,10 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
   void _heard(Object? delta, {required bool user}) {
     if (delta is! String || delta.isEmpty) return;
     final last = _fragments.isEmpty ? null : _fragments.last;
-    if (last != null && last.user == user) {
-      last.text += delta;
+    if (last != null && last.user == user && !last.ended) {
+      last
+        ..text += delta
+        ..at = _clock();
     } else {
       _fragments.add(_Fragment(user, delta, _clock()));
     }
@@ -222,16 +232,26 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
     // Transcripts come without turn ends; quiet means the turn is over.
     _speechTimer?.cancel();
     _speechTimer = Timer(_speechSettle, () {
+      if (_fragments.isNotEmpty) _fragments.last.ended = true;
       if (!_ended) {
         _update(_state.copyWith(userSpeaking: false, assistantSpeaking: false));
       }
     });
   }
 
-  /// The user's latest words: what they said since the voice last spoke.
+  /// What was said in the last few minutes, as Hermes's client keeps it.
+  List<_Fragment> _recent() {
+    final since = _clock().subtract(_contextWindow);
+    return _fragments
+        .where((fragment) => !fragment.at.isBefore(since))
+        .toList();
+  }
+
+  /// The user's latest words: what they said, in the last few minutes, since
+  /// the voice last spoke.
   String _latestRequest() {
     final words = <String>[];
-    for (final fragment in _fragments.reversed) {
+    for (final fragment in _recent().reversed) {
       if (!fragment.user) {
         if (words.isNotEmpty) break;
         continue;
@@ -243,19 +263,22 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
 
   /// The spoken conversation of the last few minutes, as Hermes reads it.
   String _recentConversation() {
-    final since = _clock().subtract(_contextWindow);
-    final recent = _fragments
-        .where((fragment) => !fragment.at.isBefore(since))
-        .toList();
+    final recent = _recent();
     final kept = recent.length > _contextFragments
         ? recent.sublist(recent.length - _contextFragments)
         : recent;
-    return kept
-        .map(
-          (fragment) =>
-              '${fragment.user ? 'User' : 'Voice assistant'}: '
-              '${fragment.text.trim()}',
-        )
+    // One line per turn, however many pauses it had.
+    final turns = <(bool, String)>[];
+    for (final fragment in kept) {
+      final text = fragment.text.trim();
+      if (turns.isNotEmpty && turns.last.$1 == fragment.user) {
+        turns.last = (fragment.user, '${turns.last.$2} $text');
+      } else {
+        turns.add((fragment.user, text));
+      }
+    }
+    return turns
+        .map((turn) => '${turn.$1 ? 'User' : 'Voice assistant'}: ${turn.$2}')
         .join('\n');
   }
 
@@ -292,6 +315,8 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       await turn.cancel();
       return;
     }
+    // The call ended meanwhile; the answer goes on in the chat.
+    if (_ended) return;
     delegation.turn = turn;
     if (turn.state == DelegatedTurnState.deferred) {
       _settle(
@@ -387,6 +412,8 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
     if (_ended) return;
     _ended = true;
     _speechTimer?.cancel();
+    // Nothing more is heard while the session confirms its close.
+    _media.setMicrophoneEnabled(false);
     // A request still running finishes in the chat.
     final running = _running;
     if (running != null) unawaited(running.subscription?.cancel());

@@ -23,6 +23,7 @@ final class _Transport implements RealtimeBridgeTransport {
   final _protocol = RealtimeCallProtocol();
   final sent = <Map<String, Object?>>[];
   final refused = <String>[];
+  var opened = 0;
 
   void receive(Map<String, Object?> event) {
     _protocol.observe(event);
@@ -36,8 +37,10 @@ final class _Transport implements RealtimeBridgeTransport {
   List<String?> get types => [for (final c in sent) c['type'] as String?];
 
   @override
-  Future<RealtimeBridgeReady> open() async =>
-      (model: 'gpt-realtime', voice: 'marin');
+  Future<RealtimeBridgeReady> open() async {
+    opened++;
+    return (model: 'gpt-realtime', voice: 'marin');
+  }
 
   @override
   Stream<Map<String, Object?>> get events => _events.stream;
@@ -71,6 +74,8 @@ final class _Audio implements RealtimePcmAudioPort {
   var rendered = <RealtimeRenderedItem>[];
   bool? captureEnabled;
   var received = 0;
+  Completer<void>? startGate;
+  var stops = 0;
 
   /// A report after everything queued has played, as the engine reports it:
   /// tagged with the latest clear it was asked for.
@@ -84,7 +89,7 @@ final class _Audio implements RealtimePcmAudioPort {
   );
 
   @override
-  Future<void> start() async {}
+  Future<void> start() async => startGate?.future;
 
   @override
   Stream<Uint8List> get captureFrames => frames.stream;
@@ -122,7 +127,7 @@ final class _Audio implements RealtimePcmAudioPort {
   Duration get outputLatency => const Duration(milliseconds: 50);
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async => stops++;
 }
 
 final class _Turn implements DelegatedTurn {
@@ -212,6 +217,7 @@ void main() {
       audio: audio,
       host: host,
       callId: 'call',
+      heldAnswerWait: const Duration(milliseconds: 100),
     );
     await engine.connect();
     await _settle();
@@ -422,6 +428,47 @@ void main() {
     check(host.exchanges.single.userText).equals('Thanks');
   });
 
+  test('small talk held behind an answer is saved after it at the end',
+      () async {
+    say('item-1', 'Plan my week');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    delegates('resp-1', 'fn-1');
+    await replyEnds('resp-1');
+    say('item-2', 'Thanks');
+    await _settle();
+    replyStarts('resp-2', {'input_item_id': 'item-2'});
+    speaks('resp-2', 'speech-2', 'You are welcome.');
+    await replyEnds('resp-2');
+
+    final ending = engine.end();
+    await _settle();
+    // The answer is still the chat's last message while it runs.
+    check(host.exchanges).isEmpty();
+
+    host.turn.move(DelegatedTurnState.completed, answer: 'Done.');
+    await ending;
+    check(host.exchanges.single.userText).equals('Thanks');
+  });
+
+  test('small talk behind an answer still running at the end stays unsaved',
+      () async {
+    say('item-1', 'Plan my week');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    delegates('resp-1', 'fn-1');
+    await replyEnds('resp-1');
+    say('item-2', 'Thanks');
+    await _settle();
+    replyStarts('resp-2', {'input_item_id': 'item-2'});
+    speaks('resp-2', 'speech-2', 'You are welcome.');
+    await replyEnds('resp-2');
+
+    await engine.end();
+
+    check(host.exchanges).isEmpty();
+  });
+
   test('a request the chat cannot take now is reported back', () async {
     host.turn = _Turn(assistantMessageId: null)
       ..state = DelegatedTurnState.deferred;
@@ -505,6 +552,30 @@ void main() {
     ]);
   });
 
+  test('muting mid-speech lets a finished answer be said', () async {
+    say('item-1', 'Plan my week');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    delegates('resp-1', 'fn-1');
+    await replyEnds('resp-1');
+
+    // The user starts to speak, then mutes; the cleared words bring no
+    // transcript.
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'item-2',
+    });
+    await _settle();
+    audio.idle();
+    await _settle();
+    engine.setMuted(true);
+    host.turn.move(DelegatedTurnState.completed, answer: 'Done.');
+    await _settle();
+
+    check(transport.sent.last)
+        .deepEquals({'type': 'bridge.respond', 'call_id': 'fn-1'});
+  });
+
   test(
     'a reply cut off by the end of the call is saved as far as it got',
     () async {
@@ -541,6 +612,26 @@ void main() {
 
     check(engine.state.phase).equals(RealtimeCallPhase.ended);
     check(engine.state.error).equals('Call session expired. Start a new call.');
+  });
+
+  test('a call ended while its audio starts opens no connection', () async {
+    final gate = Completer<void>();
+    final quiet = _Transport();
+    final slow = _Audio()..startGate = gate;
+    final early = BridgeCallEngine(
+      transport: quiet,
+      audio: slow,
+      host: _Host(),
+    );
+
+    final connecting = early.connect();
+    await early.end();
+    gate.complete();
+    await connecting;
+
+    check(quiet.opened).equals(0);
+    // Stopped again once it had started.
+    check(slow.stops).equals(2);
   });
 
   test('a bridge that stops answering pings ends the call', () {

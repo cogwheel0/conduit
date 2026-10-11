@@ -41,6 +41,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     String? callId,
     this.pingInterval = const Duration(seconds: 10),
     this.pongTimeout = const Duration(seconds: 45),
+    this.heldAnswerWait = const Duration(seconds: 8),
   }) : _transport = transport,
        _audio = audio,
        _host = host,
@@ -54,6 +55,11 @@ final class BridgeCallEngine implements RealtimeCallEngine {
   final String callId;
   final Duration pingInterval;
   final Duration pongTimeout;
+
+  /// How long an ending call waits for a delegated answer still running
+  /// before it saves what was said after it; within the end's own wait for
+  /// its writes.
+  final Duration heldAnswerWait;
 
   final _states = StreamController<RealtimeCallState>.broadcast();
   var _state = const RealtimeCallState();
@@ -104,6 +110,12 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     if (_connected || _ended) return;
     try {
       await _audio.start();
+      if (_ended) {
+        // Hung up while the audio started: the end could not stop what was
+        // not running yet, and no connection opens.
+        await _audio.stop();
+        return;
+      }
       final ready = await _transport.open();
       if (_ended) return;
       _connected = true;
@@ -650,6 +662,44 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     _write(() => _host.mergeSpeech(assistantId, voice));
   }
 
+  /// Saves the exchanges held back while a delegated answer ran, after that
+  /// answer: it must stay the chat's last message while it runs, so the
+  /// chat can still stop it. An answer still running when the call ends gets
+  /// [heldAnswerWait] to finish; after that the exchanges stay in the
+  /// captions only.
+  void _saveHeldExchanges() {
+    if (_heldExchanges.isEmpty) return;
+    final held = List.of(_heldExchanges);
+    _heldExchanges.clear();
+    final pending = _pending;
+    final handle = pending?.handle;
+    final running = pending != null && !pending.finished && handle != null;
+    _writes = _writes
+        .then((_) async {
+          if (running && !await _settles(handle)) return;
+          for (final exchange in held) {
+            await _host.recordExchange(exchange);
+          }
+        })
+        .catchError((Object _) {
+          _host.notice(ChatVoiceModeNotice.transcriptNotSaved);
+        });
+  }
+
+  Future<bool> _settles(DelegatedTurn handle) async {
+    bool settled(DelegatedTurnState state) =>
+        state != DelegatedTurnState.working &&
+        state != DelegatedTurnState.approval;
+    if (settled(handle.state)) return true;
+    try {
+      await handle.changes.firstWhere(settled).timeout(heldAnswerWait);
+      return true;
+    } on Object {
+      // Still running, or no longer followed.
+      return false;
+    }
+  }
+
   void _write(Future<void> Function() write) {
     _writes = _writes.then((_) => write()).catchError((Object _) {
       _host.notice(ChatVoiceModeNotice.transcriptNotSaved);
@@ -710,7 +760,13 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       ),
     );
     _audio.setCaptureEnabled(_connected && !muted);
-    if (muted) _send(BridgeCommands.clearInput);
+    if (muted) {
+      _send(BridgeCommands.clearInput);
+      // The cleared speech brings no transcript, so a reply waiting for it
+      // would wait until the user spoke again.
+      _receivingSpeech = '';
+      _flush();
+    }
   }
 
   Future<void> _fail(String message) {
@@ -731,10 +787,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       }
     }
     _connected = false;
-    for (final exchange in _heldExchanges) {
-      _write(() => _host.recordExchange(exchange));
-    }
-    _heldExchanges.clear();
+    _saveHeldExchanges();
     _pingTimer?.cancel();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());

@@ -6,8 +6,11 @@ import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
+    show kHermesApprovalMeta, kHermesDecisionMeta, kHermesTransport;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -19,40 +22,85 @@ import 'package:conduit_core/voice/voice_session.dart';
 
 import 'bridge_call_host.dart';
 
-/// The chat a bridge call talks in: the one open when the call started.
+/// The chat a bridge call talks in: the one open when the call started, or
+/// the one its first send creates.
 ///
 /// A delegated request is sent like a typed message, through the chat's own
 /// send, so it uses the selected model, its tools and history, and the
 /// chat's storage. A reply the voice gives itself is stored the same way,
-/// already answered.
+/// already answered. Nothing the call says is written to another chat.
 final class ChatBridgeCallHost implements BridgeCallHost {
   ChatBridgeCallHost(
     this._ref, {
     required void Function(ChatVoiceModeNotice) onNotice,
-  }) : _onNotice = onNotice;
+  }) : _onNotice = onNotice,
+       _chat = _ref.read(activeConversationProvider);
 
   final Ref _ref;
   final void Function(ChatVoiceModeNotice) _onNotice;
+  Conversation? _chat;
+  var _creatingChat = 0;
+  final _turns = <_ChatTurn>{};
+
+  /// The call's chat by its latest id, or null before its first send.
+  String? get chatId => _chat?.id;
+
+  /// Whether a send of the call's is creating the call's chat right now.
+  bool get creatingChat => _creatingChat > 0;
+
+  /// Follows the call's chat to [chat]: the one its send created, or the
+  /// same chat under its server id.
+  void followChat(Conversation? chat) => _chat = chat;
+
+  /// Stops following the delegated turns still running; the chat goes on
+  /// answering them.
+  void close() {
+    for (final turn in List.of(_turns)) {
+      turn.close();
+    }
+  }
+
+  /// Whether a send reaches the call's chat: the chat send writes to the
+  /// open one.
+  bool get _inCallChat =>
+      _ref.mounted && _ref.read(activeConversationProvider)?.id == _chat?.id;
+
+  /// Runs [send], marking it as the one creating the call's chat when the
+  /// call has none yet.
+  Future<T> _send<T>(Future<T> Function() send) async {
+    final creates = _chat == null;
+    if (creates) _creatingChat++;
+    try {
+      return await send();
+    } finally {
+      if (creates) _creatingChat--;
+    }
+  }
 
   @override
   List<Map<String, String>> chatSnapshot() =>
       realtimeChatSnapshot(_ref.read(chatMessagesProvider));
 
   @override
-  Future<void> recordExchange(RealtimeVoiceExchange exchange) => durableSend(
-    _ref,
-    exchange.userText,
-    null,
-    contextAttachments: const [],
-    voice: ChatSendVoiceContext.answered(
-      userVoice: exchange.userVoice,
-      reply: ChatVoiceReply(
-        text: exchange.replyText,
-        model: exchange.voiceModel,
-        voice: exchange.replyVoice,
+  Future<void> recordExchange(RealtimeVoiceExchange exchange) async {
+    if (!_inCallChat) throw StateError("The call's chat is not open.");
+    await _send(
+      () => durableSend(
+        _ref,
+        exchange.userText,
+        null,
+        contextAttachments: const [],
+        voice: ChatSendVoiceContext.answered(
+          userVoice: exchange.userVoice,
+          reply: ChatVoiceReply(
+            text: exchange.replyText,
+            model: exchange.voiceModel,
+            voice: exchange.replyVoice,
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   @override
   Future<DelegatedTurn> delegate(
@@ -60,9 +108,12 @@ final class ChatBridgeCallHost implements BridgeCallHost {
     required Map<String, Object?> userVoice,
     String? spokenContext,
   }) async {
+    if (!_inCallChat) throw StateError("The call's chat is not open.");
     // A turn the call did not start is still answering; this one waits.
     if (_ref.read(isChatStreamingProvider)) return const _DeferredTurn();
     final placed = Completer<String>();
+    _ChatTurn? turn;
+    var sendFailed = false;
     final sending = durableSend(
       _ref,
       text,
@@ -85,12 +136,24 @@ final class ChatBridgeCallHost implements BridgeCallHost {
           }
         },
         onError: (Object error, StackTrace stackTrace) {
-          if (!placed.isCompleted) placed.completeError(error, stackTrace);
+          if (!placed.isCompleted) {
+            return placed.completeError(error, stackTrace);
+          }
+          // The answer was placed but its send failed: it will not finish.
+          sendFailed = true;
+          turn?.sendFailed();
         },
       ),
     );
-    final assistantMessageId = await placed.future;
-    return _ChatTurn(_ref, assistantMessageId);
+    final assistantMessageId = await _send(() => placed.future);
+    final chatTurn = turn = _ChatTurn(
+      _ref,
+      assistantMessageId,
+      onClosed: _turns.remove,
+    );
+    _turns.add(chatTurn);
+    if (sendFailed) chatTurn.sendFailed();
+    return chatTurn;
   }
 
   @override
@@ -98,35 +161,39 @@ final class ChatBridgeCallHost implements BridgeCallHost {
     String assistantMessageId,
     Map<String, Object?> voice,
   ) async {
-    final messages = _ref.read(chatMessagesProvider.notifier);
-    messages.updateMessageById(
-      assistantMessageId,
-      (message) => message.copyWith(
-        metadata: {...?message.metadata, kMessageVoiceMetadataKey: voice},
-      ),
-    );
-    final active = _ref.read(activeConversationProvider);
-    if (active == null) return;
+    // The answer is in the call's chat, open or not.
+    final chat = _chat;
+    if (chat == null || !_ref.mounted) return;
+    if (_ref.read(activeConversationProvider)?.id == chat.id) {
+      _ref
+          .read(chatMessagesProvider.notifier)
+          .updateMessageById(
+            assistantMessageId,
+            (message) => message.copyWith(
+              metadata: {...?message.metadata, kMessageVoiceMetadataKey: voice},
+            ),
+          );
+    }
     final ChatDatabaseRepository repository = _ref.read(
       chatDatabaseRepositoryProvider,
     );
     final location = await repository.resolveChat(
-      active.id,
-      preferred: chatStorageKindOf(active),
+      chat.id,
+      preferred: chatStorageKindOf(chat),
     );
-    if (location == null) return;
+    if (location == null || !_ref.mounted) return;
     final syncs = location.storage == ChatStorageKind.openWebUi;
     var written = false;
-    await _ref.read(chatLocksProvider).runExclusive(active.id, () async {
+    await _ref.read(chatLocksProvider).runExclusive(chat.id, () async {
       written = await location.database.chatsDao.patchMessageVoice(
-        active.id,
+        chat.id,
         assistantMessageId,
         voice: voice,
         updatedAt: _ref.read(syncClockProvider).nowEpochSeconds(),
         enqueueUpdate: syncs,
       );
     });
-    if (!written || !syncs) return;
+    if (!written || !syncs || !_ref.mounted) return;
     try {
       await _ref
           .read(syncEngineProvider.notifier)
@@ -187,12 +254,29 @@ List<Map<String, String>> realtimeChatSnapshot(List<ChatMessage> messages) {
 
 DelegatedTurnState _answerState(ChatMessage message) {
   if (message.error != null) return DelegatedTurnState.failed;
-  if (findPendingOpenWebUiToolPrompt([message]) != null) {
+  if (findPendingOpenWebUiToolPrompt([message]) != null ||
+      _hermesAwaitsUser(message)) {
     return DelegatedTurnState.approval;
   }
   return assistantMessageResponseCompleted(message)
       ? DelegatedTurnState.completed
       : DelegatedTurnState.working;
+}
+
+/// Whether a Hermes answer waits for the user: an approval, or a question it
+/// asked, both answered in the chat.
+bool _hermesAwaitsUser(ChatMessage message) {
+  final metadata = message.metadata;
+  if (metadata?['transport'] != kHermesTransport) return false;
+  final approval = metadata?[kHermesApprovalMeta];
+  if (approval is Map &&
+      (approval['state'] == null ||
+          approval['state'] == 'pending' ||
+          approval['state'] == 'resolving')) {
+    return true;
+  }
+  final decision = metadata?[kHermesDecisionMeta];
+  return decision is Map && decision['state'] == 'pending';
 }
 
 /// The chat as a GPT-Live voice starts with: the newest messages as plain
@@ -232,7 +316,11 @@ String _answerText(ChatMessage message) =>
 
 /// A delegated turn running in the chat, followed through its answer.
 final class _ChatTurn implements DelegatedTurn {
-  _ChatTurn(this._ref, this.assistantMessageId) {
+  _ChatTurn(
+    this._ref,
+    this.assistantMessageId, {
+    required void Function(_ChatTurn) onClosed,
+  }) : _onClosed = onClosed {
     _subscription = _ref.listen<List<ChatMessage>>(
       chatMessagesProvider,
       (_, messages) => _follow(messages),
@@ -241,9 +329,11 @@ final class _ChatTurn implements DelegatedTurn {
   }
 
   final Ref _ref;
+  final void Function(_ChatTurn) _onClosed;
   late final ProviderSubscription<List<ChatMessage>> _subscription;
   final _changes = StreamController<DelegatedTurnState>.broadcast();
   var _cancelled = false;
+  var _sendFailed = false;
 
   @override
   final String assistantMessageId;
@@ -259,11 +349,16 @@ final class _ChatTurn implements DelegatedTurn {
     final message = messages
         .where((message) => message.id == assistantMessageId)
         .firstOrNull;
-    final next = _cancelled
+    var next = _cancelled
         ? DelegatedTurnState.cancelled
         : message == null
         ? DelegatedTurnState.working
         : _answerState(message);
+    if (_sendFailed &&
+        (next == DelegatedTurnState.working ||
+            next == DelegatedTurnState.approval)) {
+      next = DelegatedTurnState.failed;
+    }
     if (next == DelegatedTurnState.completed && message != null) {
       answer = _answerText(message);
     }
@@ -273,9 +368,23 @@ final class _ChatTurn implements DelegatedTurn {
     if (next == DelegatedTurnState.completed ||
         next == DelegatedTurnState.failed ||
         next == DelegatedTurnState.cancelled) {
-      _subscription.close();
-      unawaited(_changes.close());
+      close();
     }
+  }
+
+  /// The send behind this answer failed after placing it.
+  void sendFailed() {
+    if (_changes.isClosed) return;
+    _sendFailed = true;
+    _follow(_ref.read(chatMessagesProvider));
+  }
+
+  /// Stops following the answer; the chat goes on with it.
+  void close() {
+    if (_changes.isClosed) return;
+    _subscription.close();
+    unawaited(_changes.close());
+    _onClosed(this);
   }
 
   @override
@@ -283,7 +392,7 @@ final class _ChatTurn implements DelegatedTurn {
 
   @override
   Future<void> cancel() async {
-    if (_changes.isClosed) return;
+    if (_changes.isClosed || !_ref.mounted) return;
     _cancelled = true;
     // The answer is the chat's last; stopping the chat stops it.
     _ref.read(stopGenerationProvider)();

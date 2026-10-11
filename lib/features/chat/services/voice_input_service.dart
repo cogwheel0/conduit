@@ -70,6 +70,10 @@ class VoiceInputService implements VoiceModeInput {
   bool _localSttActive = false;
   SttPreference _preference = SttPreference.deviceOnly;
   bool _usingServerStt = false;
+
+  /// The server a listen chose to transcribe with, kept for all of it: a
+  /// recording only ever goes to the chat it was made in.
+  ServerSpeechProvider? _listeningSpeech;
   bool _usingNativeLocalStt = false;
   bool _nativeCaptureDetachedForResponseWait = false;
   bool _nativeAccumulateResultsForCurrentListen = true;
@@ -709,6 +713,7 @@ class VoiceInputService implements VoiceModeInput {
       }
     } else if (shouldUseServer) {
       _usingServerStt = true;
+      _listeningSpeech = _serverSpeech();
       _autoStopTimer?.cancel();
       _autoStopTimer = Timer(const Duration(seconds: 90), () {
         if (_isListening) {
@@ -1178,7 +1183,7 @@ class VoiceInputService implements VoiceModeInput {
   }
 
   Future<void> _processVadSamples(List<double> samples) async {
-    final speech = _serverSpeech();
+    final speech = _listeningSpeech;
     if (speech == null || !speech.canTranscribe) return;
 
     try {

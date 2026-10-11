@@ -120,6 +120,10 @@ abstract base class _SocketBridge implements RealtimeBridgeTransport {
 
   @override
   Future<RealtimeBridgeReady> open() async {
+    // A call that ended first opens no socket nothing would close.
+    if (_closed.isCompleted) {
+      throw const RealtimeBridgeException('The call ended.');
+    }
     final channel = _channel = _connect(uri, headers, httpClient: httpClient);
     _subscription = channel.stream.listen(
       _frame,

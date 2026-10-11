@@ -89,6 +89,7 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeNoVoiceProviderId,
         nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
         nativeAccountSignOutActionId,
@@ -1254,7 +1255,14 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   /// Makes the connection with [profileId] the Voice provider, or clears it.
   Future<void> _chooseNativeVoiceProvider(String profileId) async {
     final notifier = ref.read(appSettingsProvider.notifier);
-    final profile = (ref.read(directConnectionProfilesProvider).value ?? [])
+    if (profileId == nativeNoVoiceProviderId) {
+      await notifier.setDirectVoiceProvider(null);
+      return;
+    }
+    // Connections still loading are not gone: the choice waits for them.
+    final profiles = ref.read(directConnectionProfilesProvider).value;
+    if (profiles == null) return;
+    final profile = profiles
         .where(canBeVoiceProvider)
         .where((profile) => profile.id == profileId)
         .firstOrNull;

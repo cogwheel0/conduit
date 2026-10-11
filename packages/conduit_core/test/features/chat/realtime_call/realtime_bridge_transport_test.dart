@@ -109,6 +109,15 @@ void main() {
       check(await ready).equals((model: 'gpt-realtime', voice: 'marin'));
     });
 
+    test('a bridge closed before it opens connects nothing', () async {
+      final socket = _Socket();
+      final transport = bridge(socket);
+      await transport.close();
+
+      await check(transport.open()).throws<RealtimeBridgeException>();
+      check(socket.uri).isNull();
+    });
+
     test('names a saved chat, and passes events through', () async {
       final socket = _Socket();
       final transport = bridge(socket, chatId: 'chat-1');

@@ -321,25 +321,35 @@ Future<void> _sendMessageInternal(
     // The voice already answered: the turn is stored as it was said, and no
     // model runs. Chats this path holds only in memory keep it there.
     if (directRoute != null) {
-      final owner = await _persistDirectTurnStart(
-        ref,
-        route: directRoute,
-        expectedConversation: currentConversation,
-        expectedConversationId: directSendConversationId,
-        userMessage: userMessage,
-        assistantMessage: assistantPlaceholder,
-        allMessages: optimisticTurnMessages,
-        bindOwner: (_) => true,
-        sourceApi: directSourceApi,
-        sourceAuthSnapshot: directSourceAuthSnapshot,
-        sourceAuthSessionEpoch: directSourceAuthSessionEpoch,
-        remapEvents: directRemapEvents,
-        openWebUiAuthSessionEpoch: sendMutationOwner.openWebUiAuthSessionEpoch,
-        openWebUiSyncEngine: directOpenWebUiSyncEngine,
-        pendingFolderId:
-            pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider),
-      );
-      await owner?.releaseDatabaseLease();
+      _DirectConversationOwner? owner;
+      try {
+        owner = await _persistDirectTurnStart(
+          ref,
+          route: directRoute,
+          expectedConversation: currentConversation,
+          expectedConversationId: directSendConversationId,
+          userMessage: userMessage,
+          assistantMessage: assistantPlaceholder,
+          allMessages: optimisticTurnMessages,
+          bindOwner: (resolvedOwner) {
+            // Kept here: the helper's post-commit auth fence may throw
+            // instead of returning the owner, whose lease must still go.
+            owner = resolvedOwner;
+            return true;
+          },
+          sourceApi: directSourceApi,
+          sourceAuthSnapshot: directSourceAuthSnapshot,
+          sourceAuthSessionEpoch: directSourceAuthSessionEpoch,
+          remapEvents: directRemapEvents,
+          openWebUiAuthSessionEpoch:
+              sendMutationOwner.openWebUiAuthSessionEpoch,
+          openWebUiSyncEngine: directOpenWebUiSyncEngine,
+          pendingFolderId:
+              pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider),
+        );
+      } finally {
+        await owner?.releaseDatabaseLease();
+      }
     }
     return;
   }

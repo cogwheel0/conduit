@@ -2688,7 +2688,7 @@ void main() {
           ),
           realtimePcmAudioFactoryProvider.overrideWithValue(() => audio),
           realtimeCallRouteResolverProvider.overrideWithValue(
-            (_) async => offersRealtime
+            (_, {newChat = false}) async => offersRealtime
                 ? (bridge: bridge, hermes: null, block: null)
                 : (
                     bridge: null,
@@ -2743,10 +2743,10 @@ void main() {
     test('a realtime call follows its own chat and ends when another opens',
         () {
       // The first turn of a call started without a chat creates one.
-      check(realtimeCallChatAfter(null, 'local:new'))
+      check(realtimeCallChatAfter(null, 'local:new', creatingChat: true))
           .equals((ends: false, chatId: 'local:new'));
       // A new chat gets its server id in place.
-      check(realtimeCallChatAfter('local:new', 'chat-1'))
+      check(realtimeCallChatAfter('local:new', 'chat-1', remapped: true))
           .equals((ends: false, chatId: 'chat-1'));
       check(realtimeCallChatAfter('chat-1', 'chat-1'))
           .equals((ends: false, chatId: 'chat-1'));
@@ -2754,6 +2754,9 @@ void main() {
       check(realtimeCallChatAfter('chat-1', null).ends).isTrue();
       check(realtimeCallChatAfter('direct-local:a', 'direct-local:b').ends)
           .isTrue();
+      // A chat the user opens is not the call's, even before it has one.
+      check(realtimeCallChatAfter(null, 'chat-2').ends).isTrue();
+      check(realtimeCallChatAfter('local:new', 'chat-2').ends).isTrue();
     });
 
     test('opening another chat ends a realtime call', () async {

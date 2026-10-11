@@ -178,6 +178,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget? _cachedAvatar;
   String? _cachedAvatarModelName;
   String? _cachedAvatarIconUrl;
+  bool _cachedAvatarVoiceReply = false;
   // Hysteresis for the action row: a message that has streamed in this widget's
   // lifetime must reach a settled completion before the action row appears, so
   // a transient in-progress state can never flash the row mid-stream. Settled
@@ -219,10 +220,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   /// A reply a realtime call's voice gave by itself, stored under the voice
   /// model. There is no chat model answer to run again.
-  bool get _isVoiceReply {
-    final message = _chatMessage;
-    return message != null && voiceReplayFor(message).spokenOnly;
-  }
+  bool get _isVoiceReply => _spokenOnly(widget.message);
+
+  static bool _spokenOnly(Object? message) =>
+      message is ChatMessage && voiceReplayFor(message).spokenOnly;
 
   ChatTurnPhase get _turnPhase =>
       chatTurnPhaseForMessage(_chatMessage, isStreaming: widget.isStreaming);
@@ -397,6 +398,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         oldWidget.versionModelNames != widget.versionModelNames ||
         oldWidget.versionModelIconUrls != widget.versionModelIconUrls ||
         oldWidget.message.model != widget.message.model ||
+        // A call's transcript can arrive after the message did.
+        _spokenOnly(oldWidget.message) != _isVoiceReply ||
         _didVersionMetadataChange(oldWidget)) {
       _buildCachedAvatar();
     }
@@ -1006,25 +1009,27 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // selected historical version can carry a DIFFERENT model, though, and
     // that identity was never shown above — so only stay silent while the
     // active identity still matches the one the group header announced.
+    final isVoiceReply = _isVoiceReply;
     if (!widget.showModelHeader &&
-        !_isVoiceReply &&
+        !isVoiceReply &&
         modelName == widget.modelName?.trim() &&
         iconUrl == widget.modelIconUrl) {
       _cachedAvatar = null;
       _cachedAvatarModelName = modelName;
       _cachedAvatarIconUrl = iconUrl;
+      _cachedAvatarVoiceReply = isVoiceReply;
       return;
     }
     if (_cachedAvatar != null &&
         _cachedAvatarModelName == modelName &&
-        _cachedAvatarIconUrl == iconUrl) {
+        _cachedAvatarIconUrl == iconUrl &&
+        _cachedAvatarVoiceReply == isVoiceReply) {
       return;
     }
     final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
 
     // A quiet speaker label, like a group-chat sender name: it names a model
     // change without competing with the answer below it.
-    final isVoiceReply = _isVoiceReply;
     final Widget leading = hasIcon && !isVoiceReply
         ? ModelAvatar(size: 16, imageUrl: iconUrl, label: modelName)
         : Icon(
@@ -1060,6 +1065,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
     _cachedAvatarModelName = modelName;
     _cachedAvatarIconUrl = iconUrl;
+    _cachedAvatarVoiceReply = isVoiceReply;
   }
 
   String _resolveActiveModelName() {
