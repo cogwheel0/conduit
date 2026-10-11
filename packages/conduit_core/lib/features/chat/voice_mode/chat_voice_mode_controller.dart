@@ -67,19 +67,19 @@ ChatVoiceModeError _errorKindOf(Object error) =>
     error is _ChatVoiceModeFailure ? error.kind : ChatVoiceModeError.other;
 
 /// Where a realtime call in [callChatId] stands once [nextChatId] is open.
-/// It follows only its own chat: the one its send is creating
-/// ([creatingChat]), and that chat's server id given in place ([remapped]).
+/// It follows only its own chat: the one its first send created
+/// ([createdByCall]), and that chat's server id given in place ([remapped]).
 /// Any other chat, or none, ends it.
 @visibleForTesting
 ({bool ends, String? chatId}) realtimeCallChatAfter(
   String? callChatId,
   String? nextChatId, {
-  bool creatingChat = false,
+  bool createdByCall = false,
   bool remapped = false,
 }) {
   if (nextChatId == callChatId) return (ends: false, chatId: callChatId);
   if (nextChatId != null &&
-      ((callChatId == null && creatingChat) || remapped)) {
+      ((callChatId == null && createdByCall) || remapped)) {
     return (ends: false, chatId: nextChatId);
   }
   return (ends: true, chatId: callChatId);
@@ -676,7 +676,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final followed = realtimeCallChatAfter(
         callChatId,
         next?.id,
-        creatingChat: host.creatingChat,
+        createdByCall: host.createdChat(next),
         remapped: isActiveConversationInPlaceRemap(ref, callChatId, next?.id),
       );
       if (followed.ends) {

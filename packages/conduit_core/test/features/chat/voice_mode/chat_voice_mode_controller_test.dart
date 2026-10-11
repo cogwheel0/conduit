@@ -2743,7 +2743,7 @@ void main() {
     test('a realtime call follows its own chat and ends when another opens',
         () {
       // The first turn of a call started without a chat creates one.
-      check(realtimeCallChatAfter(null, 'local:new', creatingChat: true))
+      check(realtimeCallChatAfter(null, 'local:new', createdByCall: true))
           .equals((ends: false, chatId: 'local:new'));
       // A new chat gets its server id in place.
       check(realtimeCallChatAfter('local:new', 'chat-1', remapped: true))

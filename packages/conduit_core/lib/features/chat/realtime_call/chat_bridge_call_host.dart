@@ -39,14 +39,18 @@ final class ChatBridgeCallHost implements BridgeCallHost {
   final Ref _ref;
   final void Function(ChatVoiceModeNotice) _onNotice;
   Conversation? _chat;
-  var _creatingChat = 0;
+  final _sentMessageIds = <String>{};
   final _turns = <_ChatTurn>{};
 
   /// The call's chat by its latest id, or null before its first send.
   String? get chatId => _chat?.id;
 
-  /// Whether a send of the call's is creating the call's chat right now.
-  bool get creatingChat => _creatingChat > 0;
+  /// Whether [chat] is the one the call's first send created: it holds what
+  /// that send placed. Any other chat opened meanwhile is not the call's.
+  bool createdChat(Conversation? chat) =>
+      _chat == null &&
+      chat != null &&
+      chat.messages.any((message) => _sentMessageIds.contains(message.id));
 
   /// Follows the call's chat to [chat]: the one its send created, or the
   /// same chat under its server id.
@@ -65,16 +69,10 @@ final class ChatBridgeCallHost implements BridgeCallHost {
   bool get _inCallChat =>
       _ref.mounted && _ref.read(activeConversationProvider)?.id == _chat?.id;
 
-  /// Runs [send], marking it as the one creating the call's chat when the
-  /// call has none yet.
-  Future<T> _send<T>(Future<T> Function() send) async {
-    final creates = _chat == null;
-    if (creates) _creatingChat++;
-    try {
-      return await send();
-    } finally {
-      if (creates) _creatingChat--;
-    }
+  void _sent(ChatSendPlaceholderHandle handle) {
+    final userMessageId = handle.userMessageId;
+    if (userMessageId != null) _sentMessageIds.add(userMessageId);
+    _sentMessageIds.add(handle.assistantMessageId);
   }
 
   /// The call's chat as the voice reads it; another chat open now is not
@@ -87,21 +85,20 @@ final class ChatBridgeCallHost implements BridgeCallHost {
   @override
   Future<void> recordExchange(RealtimeVoiceExchange exchange) async {
     if (!_inCallChat) throw StateError("The call's chat is not open.");
-    await _send(
-      () => durableSend(
-        _ref,
-        exchange.userText,
-        null,
-        contextAttachments: const [],
-        voice: ChatSendVoiceContext.answered(
-          userVoice: exchange.userVoice,
-          reply: ChatVoiceReply(
-            text: exchange.replyText,
-            model: exchange.voiceModel,
-            voice: exchange.replyVoice,
-          ),
+    await durableSend(
+      _ref,
+      exchange.userText,
+      null,
+      contextAttachments: const [],
+      voice: ChatSendVoiceContext.answered(
+        userVoice: exchange.userVoice,
+        reply: ChatVoiceReply(
+          text: exchange.replyText,
+          model: exchange.voiceModel,
+          voice: exchange.replyVoice,
         ),
       ),
+      onAssistantPlaceholderCreated: _sent,
     );
   }
 
@@ -117,23 +114,20 @@ final class ChatBridgeCallHost implements BridgeCallHost {
     final placed = Completer<String>();
     _ChatTurn? turn;
     var sendFailed = false;
-    // The send may make the call's chat open only after it placed the
-    // answer, so it counts as creating the chat until it is done.
-    final sending = _send(
-      () => durableSend(
-        _ref,
-        text,
-        null,
-        toolIds: _ref.read(selectedToolIdsProvider),
-        contextAttachments: const [],
-        voice: ChatSendVoiceContext.delegated(
-          userVoice: userVoice,
-          spokenContext: spokenContext,
-        ),
-        onAssistantPlaceholderCreated: (handle) {
-          if (!placed.isCompleted) placed.complete(handle.assistantMessageId);
-        },
+    final sending = durableSend(
+      _ref,
+      text,
+      null,
+      toolIds: _ref.read(selectedToolIdsProvider),
+      contextAttachments: const [],
+      voice: ChatSendVoiceContext.delegated(
+        userVoice: userVoice,
+        spokenContext: spokenContext,
       ),
+      onAssistantPlaceholderCreated: (handle) {
+        _sent(handle);
+        if (!placed.isCompleted) placed.complete(handle.assistantMessageId);
+      },
     );
     unawaited(
       sending.then(

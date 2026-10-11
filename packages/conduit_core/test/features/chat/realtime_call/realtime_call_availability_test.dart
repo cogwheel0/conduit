@@ -336,6 +336,29 @@ void main() {
         .throws<StateError>();
   });
 
+  test('a call without a chat does not adopt one the user opens', () {
+    final container = ProviderContainer(
+      overrides: [activeConversationProvider.overrideWith(() => _Active(null))],
+    );
+    addTearDown(container.dispose);
+    final host = container.read(
+      Provider((ref) => ChatBridgeCallHost(ref, onNotice: (_) {})),
+    );
+
+    final opened = _chat('chat-2').copyWith(
+      messages: [
+        ChatMessage(
+          id: 'u1',
+          role: 'user',
+          content: 'Earlier',
+          timestamp: DateTime.utc(2026),
+        ),
+      ],
+    );
+    check(host.chatId).isNull();
+    check(host.createdChat(opened)).isFalse();
+  });
+
   test('the voice reads the chat with each answer labeled', () {
     final snapshot = realtimeChatSnapshot([
       ChatMessage(
