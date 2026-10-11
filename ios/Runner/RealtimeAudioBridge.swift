@@ -15,6 +15,8 @@ final class RealtimePlaybackQueue {
         let responseId: String
         let itemId: String
         let contentIndex: Int
+        // Made once here: the audio thread must not allocate.
+        let key: String
         let samples: [Float]
         var offset = 0
     }
@@ -53,6 +55,7 @@ final class RealtimePlaybackQueue {
                 responseId: responseId,
                 itemId: itemId,
                 contentIndex: contentIndex,
+                key: "\(itemId):\(contentIndex)",
                 samples: samples
             )
         )
@@ -118,9 +121,8 @@ final class RealtimePlaybackQueue {
             chunk.offset += take
             queued -= take
             playedSinceReport += take
-            let key = "\(chunk.itemId):\(chunk.contentIndex)"
             var position =
-                rendered[key]
+                rendered[chunk.key]
                 ?? Rendered(
                     responseId: chunk.responseId,
                     itemId: chunk.itemId,
@@ -128,7 +130,7 @@ final class RealtimePlaybackQueue {
                     samples: 0
                 )
             position.samples += take
-            rendered[key] = position
+            rendered[chunk.key] = position
             if chunk.offset == chunk.samples.count {
                 chunks.removeFirst()
             } else {
@@ -284,21 +286,7 @@ final class RealtimeAudioBridge: NSObject, ConduitBridge, FlutterStreamHandler {
         // Voice processing on the input runs the output through it too, which
         // is what lets it cancel the voice from the microphone.
         try engine.inputNode.setVoiceProcessingEnabled(true)
-        let inputFormat = engine.inputNode.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-            let converter = AVAudioConverter(from: inputFormat, to: captureFormat)
-        else {
-            throw NSError(
-                domain: "RealtimeAudio",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "The microphone is unavailable."]
-            )
-        }
-        self.converter = converter
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) {
-            [weak self] buffer, _ in
-            self?.captured(buffer)
-        }
+        try installCapture(on: engine)
 
         let playbackFormat = AVAudioFormat(
             standardFormatWithSampleRate: Self.sampleRate,
@@ -358,10 +346,33 @@ final class RealtimeAudioBridge: NSObject, ConduitBridge, FlutterStreamHandler {
         playback.reset()
     }
 
-    /// A route change stops the engine; it is started again on the new route.
+    /// Taps the microphone in its current format, converted to 24 kHz PCM16.
+    private func installCapture(on engine: AVAudioEngine) throws {
+        let input = engine.inputNode
+        input.removeTap(onBus: 0)
+        let inputFormat = input.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
+            let converter = AVAudioConverter(from: inputFormat, to: captureFormat)
+        else {
+            throw NSError(
+                domain: "RealtimeAudio",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "The microphone is unavailable."]
+            )
+        }
+        self.converter = converter
+        input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) {
+            [weak self] buffer, _ in
+            self?.captured(buffer)
+        }
+    }
+
+    /// A route change stops the engine; it is started again on the new route,
+    /// whose microphone can have another format.
     private func restartAfterConfigurationChange() {
         guard let engine, !engine.isRunning else { return }
         do {
+            try installCapture(on: engine)
             engine.prepare()
             try engine.start()
         } catch {

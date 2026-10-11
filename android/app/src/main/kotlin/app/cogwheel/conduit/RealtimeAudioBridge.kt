@@ -127,6 +127,10 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
     private var captureThread: Thread? = null
     private var playbackThread: Thread? = null
     @Volatile private var running = false
+
+    // Which start the worker threads belong to; an older call's late worker
+    // stops and sends nothing.
+    @Volatile private var callGeneration = 0
     @Volatile private var captureEnabled = false
     private var decimate = false
 
@@ -243,11 +247,14 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
             .build()
         track = player
 
+        val current = ++callGeneration
         running = true
         player.play()
         recorder.startRecording()
-        captureThread = Thread(::captureLoop, "realtime-capture").apply { start() }
-        playbackThread = Thread(::playbackLoop, "realtime-playback").apply { start() }
+        captureThread = Thread({ captureLoop(current, recorder) }, "realtime-capture")
+            .apply { start() }
+        playbackThread = Thread({ playbackLoop(current, player) }, "realtime-playback")
+            .apply { start() }
         main.postDelayed(reportTask, REPORT_INTERVAL_MS)
     }
 
@@ -273,15 +280,18 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
 
     private fun stop() {
         running = false
+        callGeneration++
         main.removeCallbacks(reportTask)
-        captureThread?.join(500)
-        playbackThread?.join(500)
-        captureThread = null
-        playbackThread = null
+        // Stopping the recorder releases a read still blocked in it, so the
+        // capture thread can end before the recorder is released.
         record?.let {
             try { it.stop() } catch (_: IllegalStateException) {}
-            it.release()
         }
+        captureThread?.join(THREAD_JOIN_MS)
+        playbackThread?.join(THREAD_JOIN_MS)
+        captureThread = null
+        playbackThread = null
+        record?.release()
         record = null
         effects.forEach { it.release() }
         effects = emptyList()
@@ -305,13 +315,13 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
         }
     }
 
-    private fun captureLoop() {
-        val recorder = record ?: return
+    private fun captureLoop(current: Int, recorder: AudioRecord) {
         val read = ShortArray(if (decimate) FRAME_SAMPLES * 2 else FRAME_SAMPLES)
-        while (running) {
+        while (running && callGeneration == current) {
             val count = recorder.read(read, 0, read.size)
+            if (callGeneration != current) return
             if (count < 0) {
-                fail("The microphone stopped.")
+                fail(current, "The microphone stopped.")
                 return
             }
             if (!captureEnabled || count == 0) continue
@@ -332,21 +342,24 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
             }
             val bytes = ByteArray(frame.size * 2)
             ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(frame)
-            main.post { events?.success(mapOf("type" to "frame", "pcm" to bytes)) }
+            main.post {
+                if (callGeneration == current) events?.success(mapOf("type" to "frame", "pcm" to bytes))
+            }
         }
     }
 
-    private fun playbackLoop() {
-        val player = track ?: return
-        while (running) {
-            val piece = synchronized(lock) { playback.next(PLAYBACK_CHUNK_SAMPLES) }
+    private fun playbackLoop(current: Int, player: AudioTrack) {
+        while (running && callGeneration == current) {
+            // Taken with its clear generation, so a clear right after drops it.
+            val (piece, generation) = synchronized(lock) {
+                playback.next(PLAYBACK_CHUNK_SAMPLES) to clearId
+            }
             if (piece == null) {
                 Thread.sleep(IDLE_SLEEP_MS)
                 continue
             }
             var offset = 0
-            val generation = synchronized(lock) { clearId }
-            while (running && offset < piece.samples.size) {
+            while (running && callGeneration == current && offset < piece.samples.size) {
                 val count = synchronized(lock) {
                     // A clear meanwhile dropped this piece.
                     if (clearId != generation) return@synchronized -2
@@ -372,7 +385,7 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
                 }
                 if (count == -2) break
                 if (count < 0) {
-                    fail("The call audio stopped.")
+                    fail(current, "The call audio stopped.")
                     return
                 }
                 offset += count
@@ -444,8 +457,12 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
         events?.success(report)
     }
 
-    private fun fail(message: String) {
-        main.post { events?.success(mapOf("type" to "failure", "message" to message)) }
+    private fun fail(current: Int, message: String) {
+        main.post {
+            if (callGeneration == current) {
+                events?.success(mapOf("type" to "failure", "message" to message))
+            }
+        }
     }
 
     companion object {
@@ -455,6 +472,7 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
         private const val FRAME_SAMPLES = 960
         private const val PLAYBACK_CHUNK_SAMPLES = 480
         private const val REPORT_INTERVAL_MS = 100L
+        private const val THREAD_JOIN_MS = 1000L
         private const val IDLE_SLEEP_MS = 10L
         private const val WRITE_RETRY_MS = 5L
     }
