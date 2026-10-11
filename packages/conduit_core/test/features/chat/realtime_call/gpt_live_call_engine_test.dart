@@ -278,6 +278,8 @@ void main() {
     says(' no, this');
     delegates('del-3');
     await _settle();
+    // The chat takes the newest only once the first answer has stopped.
+    check(host.requests).length.equals(1);
     stopping.complete();
     await _settle();
 

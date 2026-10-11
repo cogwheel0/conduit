@@ -109,6 +109,10 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
   Timer? _speechTimer;
   _Delegation? _running;
 
+  /// Replaced requests stopping, in order: the chat takes a new request only
+  /// once every older answer has stopped.
+  Future<void> _stopping = Future.value();
+
   @override
   RealtimeCallState get state => _state;
 
@@ -289,8 +293,15 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
     final delegation = _running = _Delegation(delegationId);
     if (previous != null && !previous.settled) {
       previous.settled = true;
-      await previous.subscription?.cancel();
-      await previous.turn?.cancel();
+      _stopAfter(() async {
+        await previous.subscription?.cancel();
+        await previous.turn?.cancel();
+      });
+    }
+    // Until nothing more is stopping, including stops chained meanwhile.
+    for (var stopping = _stopping; ; stopping = _stopping) {
+      await stopping;
+      if (identical(stopping, _stopping)) break;
     }
     // A newer request came while the older one stopped; this one is over.
     if (delegation.settled) return;
@@ -315,7 +326,7 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       return;
     }
     if (delegation.settled) {
-      await turn.cancel();
+      _stopAfter(turn.cancel);
       return;
     }
     // The call ended meanwhile; the answer goes on in the chat.
@@ -332,6 +343,10 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       (_) => _onTurnChanged(delegation),
     );
     _onTurnChanged(delegation);
+  }
+
+  void _stopAfter(Future<void> Function() stop) {
+    _stopping = _stopping.then((_) => stop()).catchError((Object _) {});
   }
 
   void _onTurnChanged(_Delegation delegation) {
