@@ -4,9 +4,10 @@ import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_s
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:flutter/services.dart' show TextInputAction;
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../l10n/app_localizations.dart';
