@@ -294,16 +294,22 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     final l10n = AppLocalizations.of(context)!;
     if (!_formKey.currentState!.validate()) return;
+    // Sign in with what was validated and submitted: the method and fields
+    // can change while the sign-in waits on a confirmation or the server.
+    final mode = _authMode;
+    final username = mode == AuthMode.ldap
+        ? _ldapUsernameController.text.trim()
+        : _usernameController.text.trim();
+    final password = mode == AuthMode.ldap
+        ? _ldapPasswordController.text
+        : _passwordController.text;
+    final token = _apiKeyController.text.trim();
     if (!await _mayLeaveActiveAccount() || !mounted) return;
 
     setState(() {
       _isSigningIn = true;
       _loginError = null;
     });
-    // As submitted: the fields can change while the sign-in is under way.
-    final submittedAccount = _authMode == AuthMode.ldap
-        ? _ldapUsernameController.text.trim()
-        : _usernameController.text.trim();
 
     try {
       // Save server config on first sign-in attempt if it's a new config
@@ -320,22 +326,22 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       final actions = ref.read(authActionsProvider);
       bool success;
 
-      switch (_authMode) {
+      switch (mode) {
         case AuthMode.credentials:
           success = await actions.login(
-            _usernameController.text.trim(),
-            _passwordController.text,
+            username,
+            password,
             rememberCredentials: true,
           );
         case AuthMode.token:
           success = await actions.loginWithApiKey(
-            _apiKeyController.text.trim(),
+            token,
             rememberCredentials: true,
           );
         case AuthMode.ldap:
           success = await actions.ldapLogin(
-            _ldapUsernameController.text.trim(),
-            _ldapPasswordController.text,
+            username,
+            password,
             rememberCredentials: true,
           );
         case AuthMode.sso:
@@ -359,7 +365,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       if (!mounted) return;
       setState(() {
         _twoStep = e.challenge;
-        _twoStepAccount = submittedAccount;
+        _twoStepAccount = username;
       });
     } catch (e) {
       if (!mounted) return;
