@@ -1497,10 +1497,10 @@ Future<void> _sendMessageInternal(
         assistantMessageId: assistantMessageId,
       );
     }
-    if (e.toString().contains('401') || e.toString().contains('403')) {
-      // Authentication errors - clear auth state and redirect to login.
-      ref.invalidate(authStateManagerProvider);
-    }
+    // A 401 or 403 here is the completion's own answer, often a provider
+    // rejecting its API key, not a sign that the session ended. As
+    // elsewhere, the auth interceptor decides that from the session
+    // endpoint, so the failure only marks the reply.
   }
 }
 
