@@ -867,6 +867,107 @@ void main() {
       );
     });
 
+    group('an error status for a saved chat', () {
+      // Sent without a socket session, Open WebUI 0.12 answers a provider
+      // error with its status, or a 400, and saves the error on the reply.
+      // A reply that already ran answers 409. 0.11 sent a JSON null instead.
+      Map<String, dynamic> chatWithReply(Map<String, dynamic>? reply) => {
+        'id': 'chat-1',
+        'chat': {
+          'history': {
+            'messages': {
+              'user-1': {'id': 'user-1', 'role': 'user', 'content': 'hi'},
+              'assistant-1': ?reply,
+            },
+          },
+        },
+      };
+
+      Future<ChatCompletionSession> send(_QueuedFakeAdapter adapter) =>
+          _buildApiServiceForTest(adapter).sendMessageSession(
+            messages: _minimalMessages,
+            model: _model,
+            conversationId: 'chat-1',
+            responseMessageId: 'assistant-1',
+          );
+
+      test('reads the saved error instead of failing', () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'error': {'message': 'Incorrect API key provided'},
+          }, statusCode: 401),
+          _FakeAdapter.json(
+            chatWithReply({
+              'id': 'assistant-1',
+              'role': 'assistant',
+              'content': '',
+              'error': {'content': 'Incorrect API key provided'},
+              'done': true,
+            }),
+          ),
+        ]);
+
+        final session = await send(adapter);
+
+        check(session.transport).equals(ChatCompletionTransport.httpStream);
+        check(await session.byteStream!.toList()).isEmpty();
+        check(adapter.requests.map((r) => '${r.method} ${r.path}'))
+            .deepEquals([
+              'POST /api/chat/completions',
+              'GET /api/v1/chats/chat-1',
+            ]);
+      });
+
+      test('reads a reply that already ran instead of failing on 409',
+          () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'detail': 'Message already exists or has an invalid ID.',
+          }, statusCode: 409),
+          _FakeAdapter.json(
+            chatWithReply({
+              'id': 'assistant-1',
+              'role': 'assistant',
+              'content': 'Hello!',
+              'done': true,
+            }),
+          ),
+        ]);
+
+        final session = await send(adapter);
+
+        check(session.transport).equals(ChatCompletionTransport.httpStream);
+      });
+
+      test('still fails when the server saved nothing', () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'Model not found'}, statusCode: 400),
+          _FakeAdapter.json(chatWithReply(null)),
+        ]);
+
+        await check(send(adapter)).throws<Exception>(
+          (it) => it
+              .has((e) => e.toString(), 'message')
+              .contains('Chat completion failed (400): Model not found'),
+        );
+      });
+
+      test('a temporary chat fails without reading any chat', () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({'detail': 'boom'}, statusCode: 400),
+        ]);
+
+        await check(
+          _buildApiServiceForTest(adapter).sendMessageSession(
+            messages: _minimalMessages,
+            model: _model,
+            conversationId: 'local:temp',
+          ),
+        ).throws<Exception>();
+        check(adapter.requests).length.equals(1);
+      });
+    });
+
     // 3. httpStream classification from text/event-stream response
     test('httpStream classification from text/event-stream response', () async {
       final sseBody =

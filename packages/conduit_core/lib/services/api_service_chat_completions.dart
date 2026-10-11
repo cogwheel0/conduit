@@ -240,7 +240,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
           _isUnsupportedModernChatMetadataError(error);
 
       if (!shouldRetryWithLegacy) {
-        throw Exception('Chat completion failed ($status): $error');
+        return _recoverSavedReplyOrThrow(
+          status: status,
+          error: error,
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          abort: abort,
+        );
       }
 
       _traceApi(
@@ -256,7 +263,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
 
       if (status < 200 || status >= 300) {
         final retryError = await _decodeChatCompletionError(resp);
-        throw Exception('Chat completion failed ($status): $retryError');
+        return _recoverSavedReplyOrThrow(
+          status: status,
+          error: retryError,
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          abort: abort,
+        );
       }
     } else {
       _chatRequestMetadataFormat ??= metadataFormat;

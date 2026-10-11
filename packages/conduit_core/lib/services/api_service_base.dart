@@ -98,6 +98,10 @@ abstract class _ApiServiceBase {
   );
   Future<ServerUserSettings> getServerUserSettingsModel();
   Future<bool> deleteChatRaw(String id);
+  Future<Map<String, dynamic>?> getChatRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  });
 
   final Dio _dio;
   final ServerConfig serverConfig;
@@ -1891,6 +1895,65 @@ abstract class _ApiServiceBase {
       byteStream: const Stream<List<int>>.empty(),
       abort: abort,
     );
+  }
+
+  /// Answers a failed completion request for a saved chat whose reply the
+  /// server already holds, or throws the failure.
+  ///
+  /// Sent without a socket session, Open WebUI 0.12 returns a provider's
+  /// error response with its status, or a 400 for any other failure, where
+  /// 0.11 returned a JSON null; either way it saves the error on the reply.
+  /// A request for a reply that already ran gets a 409 instead. In both
+  /// cases the saved reply is what the user should see, so the empty stream
+  /// of [_recoverJsonNullChatCompletion] lets the stream's recovery read it.
+  /// A failure that saved nothing, such as an unknown model, still throws.
+  Future<ChatCompletionSession> _recoverSavedReplyOrThrow({
+    required int status,
+    required String error,
+    required String messageId,
+    String? sessionId,
+    String? conversationId,
+    required Future<void> Function() abort,
+  }) async {
+    final chatId = conversationId?.trim();
+    if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:')) {
+      Map<String, dynamic>? reply;
+      try {
+        final chat = await getChatRaw(chatId);
+        final history = chat?['chat'] is Map ? chat!['chat']['history'] : null;
+        final messages = history is Map ? history['messages'] : null;
+        final candidate = messages is Map ? messages[messageId] : null;
+        if (candidate is Map) reply = Map<String, dynamic>.from(candidate);
+      } catch (e) {
+        DebugLogger.warning(
+          'error-status-reply-read-failed',
+          scope: 'api/chat',
+          data: {'chatId': chatId, 'status': status, 'error': e.toString()},
+        );
+      }
+      final content = reply?['content'];
+      final output = reply?['output'];
+      final replySaved =
+          reply != null &&
+          (reply['done'] == true ||
+              reply['error'] != null ||
+              (content is String && content.isNotEmpty) ||
+              (output is List && output.isNotEmpty));
+      if (replySaved) {
+        DebugLogger.warning(
+          'error-status-recovery',
+          scope: 'api/chat',
+          data: {'chatId': chatId, 'messageId': messageId, 'status': status},
+        );
+        return _recoverJsonNullChatCompletion(
+          messageId: messageId,
+          sessionId: sessionId,
+          conversationId: conversationId,
+          abort: abort,
+        );
+      }
+    }
+    throw Exception('Chat completion failed ($status): $error');
   }
 
   /// Classifies a fully-parsed JSON body as taskSocket or jsonCompletion.
