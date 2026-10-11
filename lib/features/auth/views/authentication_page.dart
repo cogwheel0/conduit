@@ -300,6 +300,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       _isSigningIn = true;
       _loginError = null;
     });
+    // As submitted: the fields can change while the sign-in is under way.
+    final submittedAccount = _authMode == AuthMode.ldap
+        ? _ldapUsernameController.text.trim()
+        : _usernameController.text.trim();
 
     try {
       // Save server config on first sign-in attempt if it's a new config
@@ -355,9 +359,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       if (!mounted) return;
       setState(() {
         _twoStep = e.challenge;
-        _twoStepAccount = _authMode == AuthMode.ldap
-            ? _ldapUsernameController.text.trim()
-            : _usernameController.text.trim();
+        _twoStepAccount = submittedAccount;
       });
     } catch (e) {
       if (!mounted) return;
