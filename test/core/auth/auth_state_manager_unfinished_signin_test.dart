@@ -14,6 +14,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -161,6 +162,16 @@ void main() {
       ('user-a.challenge-token-value', '123456', false),
     ]);
 
+    // A session the server then refuses is not a wrong password.
+    api.rejectsSession = true;
+    await check(auth.finishTwoStepSignIn(session)).throws<Exception>();
+    state = container.read(authStateManagerProvider).requireValue;
+    check(state.status).equals(AuthStatus.error);
+    check(state.error).equals('twoStepSessionRejected');
+    check(storage.committedToken).isNull();
+
+    // The step is kept for another try.
+    api.rejectsSession = false;
     check(await auth.finishTwoStepSignIn(session)).isTrue();
     state = container.read(authStateManagerProvider).requireValue;
     check(state.status).equals(AuthStatus.authenticated);
@@ -235,6 +246,9 @@ final class _ChallengingApi extends ApiService {
   int logins = 0;
   final verified = <(String, String, bool)>[];
 
+  /// Whether the session endpoint refuses the session a code issued.
+  bool rejectsSession = false;
+
   @override
   Future<Map<String, dynamic>> login(String username, String password) async {
     logins++;
@@ -262,10 +276,20 @@ final class _ChallengingApi extends ApiService {
     bool suppressAuthFailureNotification = false,
     String? candidateAuthToken,
     ApiAuthSnapshot? authSnapshot,
-  }) async => const User(
-    id: 'user-a',
-    username: 'a',
-    email: 'a@example.test',
-    role: 'user',
-  );
+  }) async {
+    if (rejectsSession) {
+      final options = RequestOptions(path: '/api/v1/auths/');
+      throw DioException(
+        requestOptions: options,
+        response: Response(requestOptions: options, statusCode: 401),
+        type: DioExceptionType.badResponse,
+      );
+    }
+    return const User(
+      id: 'user-a',
+      username: 'a',
+      email: 'a@example.test',
+      role: 'user',
+    );
+  }
 }

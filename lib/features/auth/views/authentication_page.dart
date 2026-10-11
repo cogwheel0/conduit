@@ -499,6 +499,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final l10n = AppLocalizations.of(context)!;
     if (error.contains('twoStepVerificationRequired')) {
       return l10n.signInTwoStepVerificationRequired;
+    } else if (error.contains('twoStepSessionRejected')) {
+      return l10n.twoStepExpired;
     } else if (error.contains('accountPendingApproval')) {
       return l10n.signInAccountPendingApproval;
     } else if (error.contains('apiKeyNotSupported')) {

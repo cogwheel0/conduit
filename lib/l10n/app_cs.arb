@@ -406,7 +406,7 @@
   "@twoStepEnrollDescription": {
     "description": "Instruction for adding the account to an authenticator app during sign-in."
   },
-  "twoStepRecoverDescription": "Správce pro tento účet obnovil dvoufázové ověření. Zadejte token pro obnovení, který vám dal.",
+  "twoStepRecoverDescription": "Správce pro tento účet resetoval dvoufázové ověření. Zadejte token pro obnovení, který vám dal.",
   "@twoStepRecoverDescription": {
     "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
   },

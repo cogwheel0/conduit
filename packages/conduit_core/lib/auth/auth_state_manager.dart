@@ -3061,7 +3061,11 @@ class AuthStateManager extends _$AuthStateManager {
       DebugLogger.auth('Two-step sign-in successful');
       return true;
     } catch (e, stack) {
-      final failureMessage = _safeLoginFailureMessage(e);
+      // The code was right; a session the server then refuses means the
+      // sign-in must start again, not that the password was wrong.
+      final failureMessage = _isConfirmedAuthFailure(e)
+          ? 'twoStepSessionRejected'
+          : _safeLoginFailureMessage(e);
       _logAuthenticationFailure('two-step-login-failed', e, stackTrace: stack);
       if (_authAttemptSuperseded(attemptRevision)) {
         _resolveAbortedAuthAttempt(attemptRevision);

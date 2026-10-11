@@ -476,6 +476,25 @@ void main() {
       await harness.unmount(tester);
     });
 
+    testWidgets('a session refused after the code asks to start again', (
+      tester,
+    ) async {
+      final actions = _TwoStepAuthActions(
+        verify,
+        finishError: Exception('twoStepSessionRejected'),
+      );
+      final harness = await reachSecondStep(tester, actions);
+
+      await enterCode(tester, '123456');
+
+      expect(
+        find.text('This step has expired. Go back to sign in and start again.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Invalid username'), findsNothing);
+      await harness.unmount(tester);
+    });
+
     testWidgets('goes back to the sign-in form', (tester) async {
       final actions = _TwoStepAuthActions(verify);
       final harness = await reachSecondStep(tester, actions);
@@ -978,11 +997,15 @@ class _TwoStepAuthActions extends Fake implements AuthActions {
     this.challenge, {
     this.session = const OpenWebUiTwoStepSession(token: 'issued-session'),
     this.failure,
+    this.finishError,
   });
 
   final OpenWebUiTwoStepChallenge challenge;
   final OpenWebUiTwoStepSession session;
   final OpenWebUiTwoStepFailure? failure;
+
+  /// What signing in with the issued session throws, if anything.
+  final Exception? finishError;
   final submitted = <(String, bool)>[];
   final finished = <OpenWebUiTwoStepSession>[];
   int setups = 0;
@@ -1022,6 +1045,8 @@ class _TwoStepAuthActions extends Fake implements AuthActions {
   @override
   Future<bool> finishTwoStepSignIn(OpenWebUiTwoStepSession session) async {
     finished.add(session);
+    final error = finishError;
+    if (error != null) throw error;
     return true;
   }
 }

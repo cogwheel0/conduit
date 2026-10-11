@@ -79,6 +79,7 @@ class _OpenWebUiTwoStepFormState extends ConsumerState<OpenWebUiTwoStepForm> {
 
   @override
   void dispose() {
+    _code.removeListener(_onCodeChanged);
     _code.dispose();
     super.dispose();
   }
