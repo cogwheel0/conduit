@@ -21,7 +21,6 @@ import '../../../core/services/native_sheet_hydration_service.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../shared/services/user_friendly_error_handler.dart';
 
-import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/widgets/resource_sharing_sheet.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart'
@@ -150,10 +149,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       ref.read(chat.prefilledInputTextProvider.notifier).clear();
     } catch (_) {}
 
-    final settings = ref.read(appSettingsProvider);
-    ref
-        .read(temporaryChatEnabledProvider.notifier)
-        .set(settings.temporaryChatByDefault);
+    ref.read(temporaryChatEnabledProvider.notifier).startNewChat();
 
     if (resetComposer && mounted) {
       setState(() => _composerResetNonce++);
@@ -190,6 +186,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       maxModelWidth: maxModelWidth,
     );
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
+    // The server keeps new chats temporary, so there is nothing to toggle.
+    final temporaryChatEnforced = ref.watch(temporaryChatEnforcedProvider);
     void onMenuSelected(String action) {
       if (folder != null) {
         _handleFolderToolbarSelection(folder, action);
@@ -200,6 +198,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       context,
       folder: folder,
       isTemporary: isTemporary,
+      showTemporaryToggle: !temporaryChatEnforced,
       menuItems: menuItems,
       onMenuSelected: onMenuSelected,
     );
@@ -217,12 +216,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
             onSelected: onMenuSelected,
           );
     final nativeActions = <ConduitNativeToolbarAction>[
-      ConduitNativeToolbarAction(
-        iosSymbol: isTemporary ? 'eye.slash' : 'eye',
-        accessibilityLabel: l10n.temporaryChat,
-        tintColor: isTemporary ? context.conduitTheme.info : tintColor,
-        onPressed: _toggleTemporaryChat,
-      ),
+      if (!temporaryChatEnforced)
+        ConduitNativeToolbarAction(
+          iosSymbol: isTemporary ? 'eye.slash' : 'eye',
+          accessibilityLabel: l10n.temporaryChat,
+          tintColor: isTemporary ? context.conduitTheme.info : tintColor,
+          onPressed: _toggleTemporaryChat,
+        ),
       // A read-grant shared folder cannot receive new chats.
       if (folder == null || folder.canWrite)
         ConduitNativeToolbarAction(
@@ -284,20 +284,26 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     BuildContext context, {
     required Folder? folder,
     required bool isTemporary,
+    required bool showTemporaryToggle,
     required List<AdaptivePopupMenuEntry> menuItems,
     required ValueChanged<String> onMenuSelected,
   }) {
     final actions = buildConduitAdaptiveToolbarActionWidgets([
-      ConduitAdaptiveAppBarIconButton(
-        key: const ValueKey<String>('folder-page-temp-button'),
-        icon: isTemporary
-            ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
-            : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
-        iconColor: isTemporary
-            ? context.conduitTheme.info
-            : context.conduitTheme.textPrimary,
-        onPressed: _toggleTemporaryChat,
-      ),
+      if (showTemporaryToggle)
+        ConduitAdaptiveAppBarIconButton(
+          key: const ValueKey<String>('folder-page-temp-button'),
+          icon: isTemporary
+              ? (Platform.isIOS
+                    ? CupertinoIcons.eye_slash
+                    : Icons.visibility_off)
+              : (Platform.isIOS
+                    ? CupertinoIcons.eye
+                    : Icons.visibility_outlined),
+          iconColor: isTemporary
+              ? context.conduitTheme.info
+              : context.conduitTheme.textPrimary,
+          onPressed: _toggleTemporaryChat,
+        ),
       // A read-grant shared folder cannot receive new chats.
       if (folder == null || folder.canWrite)
         ConduitAdaptiveAppBarIconButton(
@@ -324,10 +330,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   /// Share settings is offered for a folder whose access the account may
-  /// edit: its own, or one shared with a write grant, when the server lets it
-  /// share folders. Reading a shared folder never needs it.
+  /// edit, when the server lets it share folders: its own, or any folder to an
+  /// admin. Open WebUI 0.12 refuses sharing changes from a write grant, as its
+  /// web client does not offer them.
   bool _canShareFolder(Folder folder) {
-    if (folder.shared && !folder.canWrite) return false;
+    if (folder.shared && ref.watch(currentUserProvider2)?.role != 'admin') {
+      return false;
+    }
     return ref
             .watch(workspaceCapabilitiesProvider)
             .value
@@ -535,10 +544,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
     chat.startNewChat(ref);
 
-    final settings = ref.read(appSettingsProvider);
-    ref
-        .read(temporaryChatEnabledProvider.notifier)
-        .set(settings.temporaryChatByDefault);
+    ref.read(temporaryChatEnabledProvider.notifier).startNewChat();
 
     unawaited(NavigationService.navigateToChat());
   }
@@ -660,10 +666,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       final toolIds = container.read(selectedToolIdsProvider);
 
       ConduitHaptics.selectionClick();
-      final settings = container.read(appSettingsProvider);
-      container
-          .read(temporaryChatEnabledProvider.notifier)
-          .set(settings.temporaryChatByDefault);
+      container.read(temporaryChatEnabledProvider.notifier).startNewChat();
       container.read(pendingFolderIdProvider.notifier).set(widget.folderId);
       container.read(activeConversationProvider.notifier).clear();
       container.read(chat.chatMessagesProvider.notifier).clearMessages();

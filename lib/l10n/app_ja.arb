@@ -374,6 +374,122 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
+  "signInAccountPendingApproval": "アカウントは管理者の承認待ちです。承認されたらもう一度お試しください。",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
+  "signInTwoStepVerificationRequired": "このアカウントは 2 段階認証を使用しています。もう一度サインインして、認証アプリのコードを入力してください。",
+  "@signInTwoStepVerificationRequired": {
+    "description": "Sign-in error when saved credentials met Open WebUI's two-step verification, which needs a code typed in."
+  },
+  "twoStepVerifyTitle": "サインインを確認",
+  "@twoStepVerifyTitle": {
+    "description": "Title of the sign-in step that asks for a two-step verification code."
+  },
+  "twoStepEnrollTitle": "認証アプリを設定",
+  "@twoStepEnrollTitle": {
+    "description": "Title of the sign-in step that adds an authenticator app for two-step verification."
+  },
+  "twoStepRecoverTitle": "認証アプリを復旧",
+  "@twoStepRecoverTitle": {
+    "description": "Title of the sign-in step that redeems an administrator's two-step verification recovery token."
+  },
+  "twoStepVerifyDescription": "認証アプリに表示される 6 桁のコードを入力してください。",
+  "@twoStepVerifyDescription": {
+    "description": "Instruction for entering a two-step verification code."
+  },
+  "twoStepRecoveryCodeDescription": "保存した復旧コードのいずれかを入力してください。",
+  "@twoStepRecoveryCodeDescription": {
+    "description": "Instruction for signing in with a saved two-step verification recovery code."
+  },
+  "twoStepEnrollDescription": "このアカウントを認証アプリに追加し、表示される 6 桁のコードを入力してください。",
+  "@twoStepEnrollDescription": {
+    "description": "Instruction for adding the account to an authenticator app during sign-in."
+  },
+  "twoStepRecoverDescription": "管理者がこのアカウントの 2 段階認証をリセットしました。受け取った復旧トークンを入力してください。",
+  "@twoStepRecoverDescription": {
+    "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
+  },
+  "twoStepCodeLabel": "認証コード",
+  "@twoStepCodeLabel": {
+    "description": "Label of the field for an authenticator app code."
+  },
+  "twoStepRecoveryCodeLabel": "復旧コード",
+  "@twoStepRecoveryCodeLabel": {
+    "description": "Label of the field for a two-step verification recovery code."
+  },
+  "twoStepResetTokenLabel": "復旧トークン",
+  "@twoStepResetTokenLabel": {
+    "description": "Label of the field for an administrator's two-step verification recovery token."
+  },
+  "twoStepUseRecoveryCode": "復旧コードを使用",
+  "@twoStepUseRecoveryCode": {
+    "description": "Switches the two-step verification field to a recovery code."
+  },
+  "twoStepUseAuthenticatorCode": "認証コードを使用",
+  "@twoStepUseAuthenticatorCode": {
+    "description": "Switches the two-step verification field back to an authenticator app code."
+  },
+  "twoStepBackToSignIn": "サインインに戻る",
+  "@twoStepBackToSignIn": {
+    "description": "Leaves the two-step verification step for the sign-in form."
+  },
+  "twoStepOpenAuthenticator": "認証アプリに追加",
+  "@twoStepOpenAuthenticator": {
+    "description": "Opens an authenticator app on this device to add the account."
+  },
+  "twoStepSetupKeyLabel": "セットアップキー",
+  "@twoStepSetupKeyLabel": {
+    "description": "Label above the secret key to type into an authenticator app."
+  },
+  "twoStepCopySetupKey": "セットアップキーをコピー",
+  "@twoStepCopySetupKey": {
+    "description": "Copies the authenticator setup key."
+  },
+  "twoStepQrCodeLabel": "認証アプリ用の QR コード",
+  "@twoStepQrCodeLabel": {
+    "description": "Accessibility label of the QR code for an authenticator app."
+  },
+  "twoStepSetupLoading": "認証アプリを準備しています…",
+  "@twoStepSetupLoading": {
+    "description": "Shown while the authenticator setup key loads."
+  },
+  "twoStepSetupFailed": "セットアップキーを読み込めませんでした。",
+  "@twoStepSetupFailed": {
+    "description": "Shown when the authenticator setup key could not be loaded."
+  },
+  "twoStepNoAuthenticatorApp": "追加できるアプリがありませんでした。代わりにセットアップキーを認証アプリにコピーしてください。",
+  "@twoStepNoAuthenticatorApp": {
+    "description": "Shown when no app on the device could open the authenticator link."
+  },
+  "twoStepRecoveryCodesTitle": "復旧コードを保存",
+  "@twoStepRecoveryCodesTitle": {
+    "description": "Title of the screen that shows new two-step verification recovery codes once."
+  },
+  "twoStepRecoveryCodesDescription": "認証アプリを失った場合、各コードで 1 回サインインできます。安全な場所に保管してください。再表示されません。",
+  "@twoStepRecoveryCodesDescription": {
+    "description": "Explains new two-step verification recovery codes before continuing."
+  },
+  "twoStepCopyRecoveryCodes": "復旧コードをコピー",
+  "@twoStepCopyRecoveryCodes": {
+    "description": "Copies the new two-step verification recovery codes."
+  },
+  "twoStepInvalidCode": "このコードは使用できませんでした。確認してもう一度お試しください。",
+  "@twoStepInvalidCode": {
+    "description": "Shown when a two-step verification code or recovery token was not accepted."
+  },
+  "twoStepExpired": "この手順の有効期限が切れました。サインインに戻ってやり直してください。",
+  "@twoStepExpired": {
+    "description": "Shown when the two-step verification step expired or no longer applies."
+  },
+  "twoStepTooManyAttempts": "試行回数が多すぎます。数分待ってから、もう一度サインインしてください。",
+  "@twoStepTooManyAttempts": {
+    "description": "Shown when the server refuses more two-step verification codes for now."
+  },
+  "twoStepFailed": "コードを確認できませんでした。もう一度お試しください。",
+  "@twoStepFailed": {
+    "description": "Shown when a two-step verification code could not be checked, for example offline."
+  },
   "serverRedirectingHttps": "サーバーがリクエストをリダイレクトしています。サーバーの HTTPS 設定を確認してください。",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."

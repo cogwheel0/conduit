@@ -21,6 +21,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/services/connectivity_service.dart'
@@ -479,6 +480,24 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
 
   /// Runs as the completion request leaves, before the server could answer.
   void Function()? onSend;
+
+  /// How often the session endpoint was asked.
+  int sessionChecks = 0;
+
+  @override
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+    String? candidateAuthToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    sessionChecks++;
+    return const User(
+      id: 'user-1',
+      username: 'user',
+      email: 'user@example.test',
+      role: 'user',
+    );
+  }
 
   @override
   Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async =>
@@ -1569,6 +1588,48 @@ void main() {
       check(nativeAdapter.completionCalls).equals(0);
     },
   );
+
+  test('a completion refused with 401 checks the session instead of '
+      'reloading it', () async {
+    // Open WebUI 0.12 hands back a provider's own 401 or 403, such as a bad
+    // upstream API key, as well as its own for an ended session.
+    const chatId = 'provider-rejected-chat';
+    await _seedChat(db, chatId);
+    final api = _GatedCompletionApi(Completer<void>())
+      ..onSend = () => throw const ChatCompletionHttpException(
+        401,
+        'Incorrect API key provided',
+      );
+    final syncEngine = _PersistingSyncEngine(db, api);
+    final messages = <ChatMessage>[_user('user-existing', 'History')];
+    var authBuilds = 0;
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: syncEngine,
+      extraOverrides: [
+        authStateManagerProvider.overrideWith(
+          () => _CountingAuthStateManager(() => authBuilds++),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final authSub = container.listen(authStateManagerProvider, (_, _) {});
+    addTearDown(authSub.close);
+    await container.read(authStateManagerProvider.future);
+
+    await sendMessageWithContainer(container, 'A new turn', null);
+    await Future<void>.delayed(Duration.zero);
+
+    check(api.completionCalls).equals(1);
+    check(container.read(chatMessagesProvider).last.error).isNotNull();
+    check(authBuilds).equals(1);
+    // The session endpoint is asked once; its refusal, not this one, would
+    // end the session through the auth interceptor.
+    check(api.sessionChecks).equals(1);
+  });
 
   test('inline POST navigation continues A headlessly without touching colliding B', () async {
     const chatId = 'same-chat-id';
@@ -8138,5 +8199,18 @@ class _PartialLandingEngine extends _QuietSyncEngine {
       ),
       ChatStorageKind.openWebUi,
     );
+  }
+}
+
+/// Counts how often auth is built, so a send that reloads it shows.
+class _CountingAuthStateManager extends AuthStateManager {
+  _CountingAuthStateManager(this.onBuild);
+
+  final void Function() onBuild;
+
+  @override
+  Future<AuthState> build() async {
+    onBuild();
+    return const AuthState(status: AuthStatus.authenticated);
   }
 }

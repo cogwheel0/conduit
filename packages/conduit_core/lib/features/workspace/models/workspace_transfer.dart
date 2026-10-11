@@ -111,17 +111,21 @@ WorkspaceSkillForm workspaceSkillFormFromImport(Map<String, dynamic> json) {
     id: id,
     name: name,
     description: json['description']?.toString(),
-    content: json['content']?.toString() ?? '',
+    content: workspaceSkillRootContent(json) ?? '',
+    files: json['files'] is List ? workspaceJsonList(json['files']) : null,
     meta: json['meta'] is Map ? workspaceJsonMap(json['meta']) : const {},
     isActive: workspaceBool(json['is_active'], true),
   );
 }
 
+/// Writes both `content`, which Open WebUI 0.11 imports, and the 0.12 package
+/// `files` when the server sent them, which 0.12 imports instead.
 Map<String, dynamic> workspaceSkillExportMap(WorkspaceSkillSummary item) => {
   'id': item.id,
   'name': item.name,
   if (item.description != null) 'description': item.description,
   'content': item.content ?? '',
+  if (item.files != null) 'files': item.files,
   'meta': item.meta,
   'is_active': item.isActive,
 };

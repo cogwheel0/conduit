@@ -33,7 +33,6 @@ import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 
-import 'package:conduit_core/services/settings_service.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
 
@@ -232,8 +231,11 @@ bool shouldShowChatModelDropdown({
 bool shouldShowTemporaryChatAction({
   required bool isHermes,
   required Conversation? activeConversation,
+  bool temporaryChatEnforced = false,
 }) =>
     !isHermes &&
+    // The server keeps the chat temporary, and would refuse to save it.
+    !temporaryChatEnforced &&
     (activeConversation == null || isTemporaryChat(activeConversation.id));
 
 @visibleForTesting
@@ -704,10 +706,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _isAnchoredToBottom = true;
 
     // Reset temporary chat state based on user preference
-    final settings = ref.read(appSettingsProvider);
-    ref
-        .read(temporaryChatEnabledProvider.notifier)
-        .set(settings.temporaryChatByDefault);
+    ref.read(temporaryChatEnabledProvider.notifier).startNewChat();
   }
 
   bool _isSavingTemporary = false;
@@ -4429,6 +4428,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final showTemporaryAction = shouldShowTemporaryChatAction(
       isHermes: isHermes,
       activeConversation: activeConversation,
+      temporaryChatEnforced: ref.watch(temporaryChatEnforcedProvider),
     );
     if (!showTemporaryAction) {
       return null;

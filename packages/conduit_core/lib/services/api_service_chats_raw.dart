@@ -70,6 +70,7 @@ mixin _ChatsRawApi on _ApiServiceBase {
   /// A caller that already authorized this read for one account passes the
   /// [authSnapshot] it captured, so a token change that lands before the
   /// request is sent cannot read another account's chat with the new bearer.
+  @override
   Future<Map<String, dynamic>?> getChatRaw(
     String id, {
     ApiAuthSnapshot? authSnapshot,
