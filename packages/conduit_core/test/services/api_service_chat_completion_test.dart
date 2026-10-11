@@ -939,6 +939,27 @@ void main() {
         check(session.transport).equals(ChatCompletionTransport.httpStream);
       });
 
+      test('still fails while the reply is running, so a retry waits for '
+          'it to finish', () async {
+        final adapter = _QueuedFakeAdapter([
+          _FakeAdapter.json({
+            'detail': 'Message already exists or has an invalid ID.',
+          }, statusCode: 409),
+          _FakeAdapter.json(
+            chatWithReply({
+              'id': 'assistant-1',
+              'role': 'assistant',
+              'content': 'Hel',
+              'done': false,
+            }),
+          ),
+        ]);
+
+        await check(send(adapter)).throws<ChatCompletionHttpException>(
+          (it) => it.has((e) => e.statusCode, 'status').equals(409),
+        );
+      });
+
       test('still fails when the server saved nothing', () async {
         final adapter = _QueuedFakeAdapter([
           _FakeAdapter.json({'detail': 'Model not found'}, statusCode: 400),

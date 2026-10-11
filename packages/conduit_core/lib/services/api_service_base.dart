@@ -1898,7 +1898,7 @@ abstract class _ApiServiceBase {
   }
 
   /// Answers a failed completion request for a saved chat whose reply the
-  /// server already holds, or throws the failure.
+  /// server already finished, or throws the failure.
   ///
   /// Sent without a socket session, Open WebUI 0.12 returns a provider's
   /// error response with its status, or a 400 for any other failure, where
@@ -1931,15 +1931,12 @@ abstract class _ApiServiceBase {
           data: {'chatId': chatId, 'status': status, 'error': e.toString()},
         );
       }
-      final content = reply?['content'];
-      final output = reply?['output'];
-      final replySaved =
-          reply != null &&
-          (reply['done'] == true ||
-              reply['error'] != null ||
-              (content is String && content.isNotEmpty) ||
-              (output is List && output.isNotEmpty));
-      if (replySaved) {
+      // Only a finished reply: one still running (a 409 can find it so)
+      // would be read once, mid-answer, and closed as if complete. The
+      // queued retry tries again instead, and finds it finished.
+      final replyFinished =
+          reply != null && (reply['done'] == true || reply['error'] != null);
+      if (replyFinished) {
         DebugLogger.warning(
           'error-status-recovery',
           scope: 'api/chat',
@@ -1953,7 +1950,7 @@ abstract class _ApiServiceBase {
         );
       }
     }
-    throw Exception('Chat completion failed ($status): $error');
+    throw ChatCompletionHttpException(status, error);
   }
 
   /// Classifies a fully-parsed JSON body as taskSocket or jsonCompletion.
