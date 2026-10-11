@@ -380,7 +380,7 @@ final class _ChatTurn implements DelegatedTurn {
     _follow(_ref.read(chatMessagesProvider));
   }
 
-  /// Stops following the answer; the chat goes on with it.
+  @override
   void close() {
     if (_changes.isClosed) return;
     _subscription.close();
@@ -419,4 +419,7 @@ final class _DeferredTurn implements DelegatedTurn {
 
   @override
   Future<void> cancel() async {}
+
+  @override
+  void close() {}
 }

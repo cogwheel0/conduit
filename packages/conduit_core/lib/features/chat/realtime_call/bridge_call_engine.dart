@@ -483,8 +483,9 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       input.text,
       userVoice: _userVoice(input),
     );
+    // The call ended meanwhile; the answer goes on in the chat.
     if (_ended) {
-      await handle.cancel();
+      handle.close();
       return;
     }
     turn.handle = handle;

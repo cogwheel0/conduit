@@ -34,6 +34,9 @@ abstract interface class DelegatedTurn {
 
   /// Stops the turn and returns once it is stopped.
   Future<void> cancel();
+
+  /// Stops following the turn; the chat goes on with its answer.
+  void close();
 }
 
 /// Something said in a call to save into the chat: the user's words and the

@@ -295,7 +295,14 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       previous.settled = true;
       _stopAfter(() async {
         await previous.subscription?.cancel();
-        await previous.turn?.cancel();
+        // One still being handed to the chat is stopped once the chat has it.
+        final turn =
+            previous.turn ??
+            await previous.placing?.then<DelegatedTurn?>(
+              (turn) => turn,
+              onError: (Object _) => null,
+            );
+        await turn?.cancel();
       });
     }
     // Until nothing more is stopping, including stops chained meanwhile.
@@ -316,11 +323,12 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
     _update(_state.copyWith(working: true, approval: false));
     final DelegatedTurn turn;
     try {
-      turn = await _host.delegate(
+      final placing = delegation.placing = _host.delegate(
         request,
         userVoice: {'call_id': callId, 'delegation_id': delegationId},
         spokenContext: _recentConversation(),
       );
+      turn = await placing;
     } on Object {
       _settle(delegation, 'That request could not be sent to the chat.');
       return;
@@ -330,7 +338,10 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       return;
     }
     // The call ended meanwhile; the answer goes on in the chat.
-    if (_ended) return;
+    if (_ended) {
+      turn.close();
+      return;
+    }
     delegation.turn = turn;
     if (turn.state == DelegatedTurnState.deferred) {
       _settle(
@@ -461,6 +472,9 @@ final class _Delegation {
   _Delegation(this.id);
 
   final String id;
+
+  /// The hand-over to the chat, until [turn] is set.
+  Future<DelegatedTurn>? placing;
   DelegatedTurn? turn;
   StreamSubscription<DelegatedTurnState>? subscription;
   var settled = false;

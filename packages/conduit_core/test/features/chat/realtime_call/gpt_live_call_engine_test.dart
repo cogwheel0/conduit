@@ -72,6 +72,11 @@ final class _Turn implements DelegatedTurn {
   @override
   Stream<DelegatedTurnState> get changes => _changes.stream;
 
+  var closed = false;
+
+  @override
+  void close() => closed = true;
+
   @override
   Future<void> cancel() async {
     cancelled = true;
@@ -329,7 +334,28 @@ void main() {
     await _settle();
 
     check(host.turns.single.cancelled).isFalse();
+    check(host.turns.single.closed).isTrue();
     check(engine.state.approval).isFalse();
+  });
+
+  test('a request still being handed over stops before the next one goes',
+      () async {
+    await start();
+    final handing = host.gate = Completer<void>();
+    says('First thing');
+    delegates('del-1');
+    await _settle();
+    says(' no, this');
+    delegates('del-2');
+    await _settle();
+    // The chat has not answered the first hand-over yet.
+    check(host.requests).length.equals(1);
+
+    handing.complete();
+    await _settle();
+    check(host.turns.first.cancelled).isTrue();
+    check(host.requests).length.equals(2);
+    await engine.end();
   });
 
   test('words from minutes ago are not part of a new request', () {

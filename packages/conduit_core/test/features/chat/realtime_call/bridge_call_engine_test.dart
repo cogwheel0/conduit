@@ -154,6 +154,11 @@ final class _Turn implements DelegatedTurn {
   @override
   Stream<DelegatedTurnState> get changes => _changes.stream;
 
+  var closed = false;
+
+  @override
+  void close() => closed = true;
+
   @override
   Future<void> cancel() async {
     cancelled = true;
@@ -168,6 +173,7 @@ final class _Host implements BridgeCallHost {
   final delegated = <String>[];
   final notices = <ChatVoiceModeNotice>[];
   var turn = _Turn();
+  Completer<void>? gate;
 
   @override
   List<Map<String, String>> chatSnapshot() => snapshot;
@@ -189,6 +195,7 @@ final class _Host implements BridgeCallHost {
     String? spokenContext,
   }) async {
     delegated.add(text);
+    await gate?.future;
     return turn;
   }
 
@@ -488,6 +495,23 @@ void main() {
     await engine.end();
 
     check(host.exchanges).isEmpty();
+  });
+
+  test('a request handed over as the call ends goes on in the chat', () async {
+    final handing = host.gate = Completer<void>();
+    say('item-1', 'Plan my week');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    delegates('resp-1', 'fn-1');
+    await replyEnds('resp-1');
+
+    final ending = engine.end();
+    handing.complete();
+    await ending;
+    await _settle();
+
+    check(host.turn.cancelled).isFalse();
+    check(host.turn.closed).isTrue();
   });
 
   test('a request the chat cannot take now is reported back', () async {
