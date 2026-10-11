@@ -77,9 +77,12 @@ final class ChatBridgeCallHost implements BridgeCallHost {
     }
   }
 
+  /// The call's chat as the voice reads it; another chat open now is not
+  /// the voice's to read.
   @override
-  List<Map<String, String>> chatSnapshot() =>
-      realtimeChatSnapshot(_ref.read(chatMessagesProvider));
+  List<Map<String, String>> chatSnapshot() => _inCallChat
+      ? realtimeChatSnapshot(_ref.read(chatMessagesProvider))
+      : const [];
 
   @override
   Future<void> recordExchange(RealtimeVoiceExchange exchange) async {
@@ -114,19 +117,23 @@ final class ChatBridgeCallHost implements BridgeCallHost {
     final placed = Completer<String>();
     _ChatTurn? turn;
     var sendFailed = false;
-    final sending = durableSend(
-      _ref,
-      text,
-      null,
-      toolIds: _ref.read(selectedToolIdsProvider),
-      contextAttachments: const [],
-      voice: ChatSendVoiceContext.delegated(
-        userVoice: userVoice,
-        spokenContext: spokenContext,
+    // The send may make the call's chat open only after it placed the
+    // answer, so it counts as creating the chat until it is done.
+    final sending = _send(
+      () => durableSend(
+        _ref,
+        text,
+        null,
+        toolIds: _ref.read(selectedToolIdsProvider),
+        contextAttachments: const [],
+        voice: ChatSendVoiceContext.delegated(
+          userVoice: userVoice,
+          spokenContext: spokenContext,
+        ),
+        onAssistantPlaceholderCreated: (handle) {
+          if (!placed.isCompleted) placed.complete(handle.assistantMessageId);
+        },
       ),
-      onAssistantPlaceholderCreated: (handle) {
-        if (!placed.isCompleted) placed.complete(handle.assistantMessageId);
-      },
     );
     unawaited(
       sending.then(
@@ -145,7 +152,7 @@ final class ChatBridgeCallHost implements BridgeCallHost {
         },
       ),
     );
-    final assistantMessageId = await _send(() => placed.future);
+    final assistantMessageId = await placed.future;
     final chatTurn = turn = _ChatTurn(
       _ref,
       assistantMessageId,

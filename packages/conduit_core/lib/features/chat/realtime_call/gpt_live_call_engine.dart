@@ -27,6 +27,7 @@ List<String> chunkForCommentary(
   String text, {
   int limit = kGptLiveCommentaryCharacters,
 }) {
+  if (limit <= 0) throw ArgumentError.value(limit, 'limit', 'must be positive');
   final chunks = <String>[];
   var rest = text.trim();
   while (rest.length > limit) {
@@ -291,6 +292,8 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       await previous.subscription?.cancel();
       await previous.turn?.cancel();
     }
+    // A newer request came while the older one stopped; this one is over.
+    if (delegation.settled) return;
     if (_ended || request.isEmpty) {
       _settle(delegation, "I didn't catch the request. Ask me again.");
       return;

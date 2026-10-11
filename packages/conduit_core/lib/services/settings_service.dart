@@ -1600,6 +1600,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> resetToDefaults() async {
     const defaultSettings = AppSettings();
     await SettingsService.saveSettings(defaultSettings);
+    // Written only by its own setter, so the bulk save leaves it.
+    await SettingsService._putOrRemove(
+      PreferenceKeys.directVoiceProvider,
+      null,
+    );
     state = defaultSettings;
   }
 }

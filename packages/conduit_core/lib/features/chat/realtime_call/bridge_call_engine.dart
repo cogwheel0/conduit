@@ -640,9 +640,10 @@ final class BridgeCallEngine implements RealtimeCallEngine {
   }
 
   void _record(RealtimeVoiceExchange exchange) {
-    // A delegated answer still running must stay the chat's last message.
+    // A delegated answer still running must stay the chat's last message,
+    // also while the call ends.
     final pending = _pending;
-    if (!_ended && pending != null && !pending.finished) {
+    if (pending != null && !pending.finished) {
       _heldExchanges.add(exchange);
     } else {
       _write(() => _host.recordExchange(exchange));

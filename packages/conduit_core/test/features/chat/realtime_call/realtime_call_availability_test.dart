@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/realtime_call/bridge_call_host.dart';
 import 'package:conduit_core/features/chat/realtime_call/chat_bridge_call_host.dart';
 import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transport.dart';
@@ -308,6 +309,18 @@ void main() {
 
     container.read(activeConversationProvider.notifier).set(_chat('chat-2'));
 
+    // Nor does its voice read the chat open now.
+    container.read(chatMessagesProvider.notifier).addMessages([
+      ChatMessage(
+        id: 'u2',
+        role: 'user',
+        content: 'Something private',
+        timestamp: DateTime.utc(2026),
+      ),
+    ]);
+    check(realtimeChatSnapshot(container.read(chatMessagesProvider)))
+        .isNotEmpty();
+    check(host.chatSnapshot()).isEmpty();
     await check(
       host.recordExchange(
         const RealtimeVoiceExchange(

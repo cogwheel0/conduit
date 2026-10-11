@@ -52,6 +52,7 @@ final class _Media implements RealtimeWebRtcMediaPort {
 final class _Turn implements DelegatedTurn {
   final _changes = StreamController<DelegatedTurnState>.broadcast();
   var cancelled = false;
+  Completer<void>? cancelGate;
 
   @override
   String? get assistantMessageId => 'answer-1';
@@ -74,6 +75,7 @@ final class _Turn implements DelegatedTurn {
   @override
   Future<void> cancel() async {
     cancelled = true;
+    await cancelGate?.future;
     move(DelegatedTurnState.cancelled);
   }
 }
@@ -262,6 +264,28 @@ void main() {
     await engine.end();
   });
 
+  test('a request replaced while the one before it stops is never sent',
+      () async {
+    await start();
+    says('First thing');
+    delegates('del-1');
+    await _settle();
+    final stopping = host.turns.single.cancelGate = Completer<void>();
+
+    says(' and then another');
+    delegates('del-2');
+    await _settle();
+    says(' no, this');
+    delegates('del-3');
+    await _settle();
+    stopping.complete();
+    await _settle();
+
+    // del-2 was replaced while del-1 was still stopping.
+    check(host.requests).length.equals(2);
+    await engine.end();
+  });
+
   test('muting tells the voice and closes the microphone', () async {
     await start();
 
@@ -366,6 +390,11 @@ void main() {
     test('cuts after sentences, within the limit', () {
       check(chunkForCommentary('One two. Three four. Five six.', limit: 18))
           .deepEquals(['One two.', 'Three four.', 'Five six.']);
+    });
+
+    test('takes only a positive limit', () {
+      check(() => chunkForCommentary('text', limit: 0))
+          .throws<ArgumentError>();
     });
 
     test('cuts a sentence longer than the limit at the limit', () {

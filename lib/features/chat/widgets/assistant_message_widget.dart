@@ -220,7 +220,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   /// A reply a realtime call's voice gave by itself, stored under the voice
   /// model. There is no chat model answer to run again.
-  bool get _isVoiceReply => _spokenOnly(widget.message);
+  /// Only the current version can say: earlier versions keep no `meta`.
+  bool get _isVoiceReply =>
+      _activeVersionIndex < 0 && _spokenOnly(widget.message);
 
   static bool _spokenOnly(Object? message) =>
       message is ChatMessage && voiceReplayFor(message).spokenOnly;
@@ -399,7 +401,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         oldWidget.versionModelIconUrls != widget.versionModelIconUrls ||
         oldWidget.message.model != widget.message.model ||
         // A call's transcript can arrive after the message did.
-        _spokenOnly(oldWidget.message) != _isVoiceReply ||
+        _spokenOnly(oldWidget.message) != _spokenOnly(widget.message) ||
         _didVersionMetadataChange(oldWidget)) {
       _buildCachedAvatar();
     }

@@ -641,6 +641,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final engine = build(host);
     _realtime = engine;
     _realtimeHost = host;
+    // Followed from before it connects: a chat opened while it connects
+    // ends it too.
+    _followRealtimeChat(host, token);
     try {
       await engine.connect();
     } on RealtimeBridgeException catch (error) {
@@ -651,7 +654,6 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _realtimeSub = engine.states.listen(
       (realtime) => _onRealtimeState(realtime, token),
     );
-    _followRealtimeChat(host, token);
     _onRealtimeState(engine.state, token);
     final callId = state.activeCallId;
     if (_isCurrent(token) && !_markedCallConnected && callId != null) {
@@ -2021,9 +2023,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
         // Before the audio session goes, so the call's audio stops first.
         await _runTeardownStep('realtime-end', () async {
-          await realtimeEnded;
-          // Answers still running go on in the chat, unfollowed.
-          realtimeHost?.close();
+          try {
+            await realtimeEnded;
+          } finally {
+            // Answers still running go on in the chat, unfollowed.
+            realtimeHost?.close();
+          }
         });
         await _runTeardownStep('transcript-subscription-cancel', () async {
           await transcriptSub?.cancel();

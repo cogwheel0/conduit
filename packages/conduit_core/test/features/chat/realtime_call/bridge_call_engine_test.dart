@@ -451,6 +451,27 @@ void main() {
     check(host.exchanges.single.userText).equals('Thanks');
   });
 
+  test('a reply cut off at the end waits behind a running answer', () async {
+    say('item-1', 'Plan my week');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    delegates('resp-1', 'fn-1');
+    await replyEnds('resp-1');
+    say('item-2', 'Thanks');
+    await _settle();
+    replyStarts('resp-2', {'input_item_id': 'item-2'});
+    speaks('resp-2', 'speech-2', 'You are');
+    await _settle();
+
+    final ending = engine.end();
+    await _settle();
+    check(host.exchanges).isEmpty();
+
+    host.turn.move(DelegatedTurnState.completed, answer: 'Done.');
+    await ending;
+    check(host.exchanges.single.replyText).equals('You are');
+  });
+
   test('small talk behind an answer still running at the end stays unsaved',
       () async {
     say('item-1', 'Plan my week');
