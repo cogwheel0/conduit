@@ -1087,6 +1087,7 @@ Future<void> _dispatchHermesRunFromChat(
   DatabaseLifetimeLease? databaseLease,
   CancelToken? preRegisteredCancelToken,
   Duration lateSessionCleanupDeadline = _hermesLateSessionCleanupDeadline,
+  String? voiceContext,
 }) async {
   final releaseGeneration = holdLocalChatGeneration(ref);
   try {
@@ -1138,6 +1139,7 @@ Future<void> _dispatchHermesRunFromChat(
         preRegisteredCancelToken: preRegisteredCancelToken,
         allowCapturedDatabasePersistence: allowCapturedDatabasePersistence,
         lateSessionCleanupDeadline: lateSessionCleanupDeadline,
+        voiceContext: voiceContext,
       );
     } finally {
       await ownedDatabaseLease?.release();
@@ -1166,6 +1168,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
   required CancelToken? preRegisteredCancelToken,
   required bool allowCapturedDatabasePersistence,
   required Duration lateSessionCleanupDeadline,
+  required String? voiceContext,
 }) async {
   final ChatMessagesNotifier notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -1392,6 +1395,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
       allowCapturedDatabasePersistence: allowCapturedDatabasePersistence,
       trackLatePersistence: latePersistence.add,
       lateSessionCleanupDeadline: lateSessionCleanupDeadline,
+      voiceContext: voiceContext,
     );
   } finally {
     var primaryProjectionPersisted = !owner.usesOpenWebUiBackend;
@@ -1570,6 +1574,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required bool allowCapturedDatabasePersistence,
   required void Function(Future<void> persistence) trackLatePersistence,
   required Duration lateSessionCleanupDeadline,
+  required String? voiceContext,
 }) async {
   final configController =
       ref.read(hermesConfigProvider.notifier) as HermesConfigController;
@@ -1944,6 +1949,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           sessionId: sessionId,
           options: desktopOptions!,
           cancelToken: turnCancelToken,
+          voiceContext: voiceContext,
         ),
         HermesResponsesTurnService() => service.streamResponseWithReasoning(
           responseInput ?? HermesChatInput.text(input),

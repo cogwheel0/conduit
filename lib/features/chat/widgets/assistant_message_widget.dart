@@ -12,6 +12,7 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -177,6 +178,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget? _cachedAvatar;
   String? _cachedAvatarModelName;
   String? _cachedAvatarIconUrl;
+  bool _cachedAvatarVoiceReply = false;
   // Hysteresis for the action row: a message that has streamed in this widget's
   // lifetime must reach a settled completion before the action row appears, so
   // a transient in-progress state can never flash the row mid-stream. Settled
@@ -215,6 +217,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   ChatMessage? get _chatMessage =>
       widget.message is ChatMessage ? widget.message as ChatMessage : null;
+
+  /// A reply a realtime call's voice gave by itself, stored under the voice
+  /// model. There is no chat model answer to run again.
+  /// Only the current version can say: earlier versions keep no `meta`.
+  bool get _isVoiceReply =>
+      _activeVersionIndex < 0 && _spokenOnly(widget.message);
+
+  static bool _spokenOnly(Object? message) =>
+      message is ChatMessage && voiceReplayFor(message).spokenOnly;
 
   ChatTurnPhase get _turnPhase =>
       chatTurnPhaseForMessage(_chatMessage, isStreaming: widget.isStreaming);
@@ -389,6 +400,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         oldWidget.versionModelNames != widget.versionModelNames ||
         oldWidget.versionModelIconUrls != widget.versionModelIconUrls ||
         oldWidget.message.model != widget.message.model ||
+        // A call's transcript can arrive after the message did.
+        _spokenOnly(oldWidget.message) != _spokenOnly(widget.message) ||
         _didVersionMetadataChange(oldWidget)) {
       _buildCachedAvatar();
     }
@@ -998,27 +1011,33 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // selected historical version can carry a DIFFERENT model, though, and
     // that identity was never shown above — so only stay silent while the
     // active identity still matches the one the group header announced.
+    final isVoiceReply = _isVoiceReply;
     if (!widget.showModelHeader &&
+        !isVoiceReply &&
         modelName == widget.modelName?.trim() &&
         iconUrl == widget.modelIconUrl) {
       _cachedAvatar = null;
       _cachedAvatarModelName = modelName;
       _cachedAvatarIconUrl = iconUrl;
+      _cachedAvatarVoiceReply = isVoiceReply;
       return;
     }
     if (_cachedAvatar != null &&
         _cachedAvatarModelName == modelName &&
-        _cachedAvatarIconUrl == iconUrl) {
+        _cachedAvatarIconUrl == iconUrl &&
+        _cachedAvatarVoiceReply == isVoiceReply) {
       return;
     }
     final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
 
     // A quiet speaker label, like a group-chat sender name: it names a model
     // change without competing with the answer below it.
-    final Widget leading = hasIcon
+    final Widget leading = hasIcon && !isVoiceReply
         ? ModelAvatar(size: 16, imageUrl: iconUrl, label: modelName)
         : Icon(
-            Icons.auto_awesome,
+            isVoiceReply
+                ? (Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq)
+                : Icons.auto_awesome,
             color: theme.textTertiary,
             size: IconSize.sm - 2,
           );
@@ -1031,7 +1050,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           const SizedBox(width: Spacing.xs + Spacing.xxs),
           Flexible(
             child: MiddleEllipsisText(
-              modelName,
+              isVoiceReply
+                  ? AppLocalizations.of(
+                      context,
+                    )!.voiceReplySpokenLabel(modelName)
+                  : modelName,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textTertiary,
                 fontWeight: FontWeight.w400,
@@ -1044,6 +1067,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
     _cachedAvatarModelName = modelName;
     _cachedAvatarIconUrl = iconUrl;
+    _cachedAvatarVoiceReply = isVoiceReply;
   }
 
   String _resolveActiveModelName() {
@@ -2407,7 +2431,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? 'stop.fill'
               : 'speaker.wave.2',
         ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && !_isVoiceReply)
         _AssistantFooterAction(
           id: isErrorMessage ? 'retry' : 'regenerate',
           icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,

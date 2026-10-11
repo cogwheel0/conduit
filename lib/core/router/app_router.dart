@@ -33,6 +33,7 @@ import '../../features/profile/views/manage_accounts_page.dart';
 import '../../features/profile/views/server_addresses_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
+import '../../features/profile/views/voice_provider_settings_page.dart';
 import '../../features/hermes/views/hermes_connections_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/hermes/views/hermes_jobs_page.dart';
@@ -301,6 +302,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.audioSettings,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const AudioSettingsPage()),
+    ),
+    GoRoute(
+      path: Routes.voiceProviderSettings,
+      name: RouteNames.voiceProviderSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const VoiceProviderSettingsPage(),
+      ),
     ),
     GoRoute(
       path: Routes.accountSettings,

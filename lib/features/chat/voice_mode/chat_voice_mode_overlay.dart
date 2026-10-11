@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
+import '../../../shared/utils/ui_utils.dart';
 import 'chat_voice_mode_controller.dart';
 import 'voice_mode_error_text.dart';
 
@@ -18,6 +19,16 @@ class ChatVoiceModeOverlay extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(
+      chatVoiceModeControllerProvider.select((call) => call.noticeCount),
+      (previous, next) {
+        final notice = ref.read(chatVoiceModeControllerProvider).notice;
+        if (next > (previous ?? 0) && notice != null) {
+          final l10n = AppLocalizations.of(context)!;
+          UiUtils.showMessage(context, voiceModeNoticeText(l10n, notice));
+        }
+      },
+    );
     final snapshot = ref.watch(chatVoiceModeControllerProvider);
     if (!snapshot.isActive && snapshot.phase != ChatVoiceModePhase.error) {
       return const Positioned.fill(

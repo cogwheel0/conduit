@@ -20,6 +20,7 @@ class Routes {
   static const String profile = '/profile';
   static const String personalization = '/profile/personalization';
   static const String audioSettings = '/profile/audio';
+  static const String voiceProviderSettings = '/profile/audio/voice-provider';
   static const String accountSettings = '/profile/account';
   static const String accounts = '/profile/accounts';
   static const String serverAddresses = '/profile/accounts/addresses';
@@ -81,6 +82,7 @@ class RouteNames {
   static const String profile = 'profile';
   static const String personalization = 'personalization';
   static const String audioSettings = 'audio-settings';
+  static const String voiceProviderSettings = 'voice-provider-settings';
   static const String accountSettings = 'account-settings';
   static const String accounts = 'accounts';
   static const String serverAddresses = 'server-addresses';

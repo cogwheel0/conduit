@@ -1684,7 +1684,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Always send recordings to your Open WebUI server for transcription.",
+  "sttEngineServerDescription": "Send recordings to the chat's server for transcription: Open WebUI, Hermes, or the Voice provider for Direct chats.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1768,7 +1768,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Create speech using your Open WebUI server.",
+  "ttsEngineServerDescription": "Create speech on the chat's server: Open WebUI, Hermes, or the Voice provider for Direct chats.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -1779,6 +1779,96 @@
   "ttsServerUnavailableWarning": "Connect to a server with text-to-speech enabled to use this option.",
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
+  },
+  "voiceProviderTitle": "Voice provider",
+  "@voiceProviderTitle": {
+    "description": "Title of the setting that picks the Direct connection used for speech in Direct and Apple chats."
+  },
+  "voiceProviderDescription": "Direct and Apple chats use this connection when Speech to text or Text to speech is set to Server.",
+  "@voiceProviderDescription": {
+    "description": "Explains what the Voice provider setting does."
+  },
+  "voiceProviderConnection": "Connection",
+  "@voiceProviderConnection": {
+    "description": "Label of the row that picks the Voice provider's Direct connection."
+  },
+  "voiceProviderNone": "None",
+  "@voiceProviderNone": {
+    "description": "Shown when no Voice provider is chosen; also the picker option that clears it."
+  },
+  "voiceProviderNoConnections": "Add an OpenAI-compatible Direct connection to choose it here.",
+  "@voiceProviderNoConnections": {
+    "description": "Shown when no Direct connection can be the Voice provider."
+  },
+  "voiceProviderTranscriptionModel": "Transcription model",
+  "@voiceProviderTranscriptionModel": {
+    "description": "Label of the field for the speech-to-text model name."
+  },
+  "voiceProviderSpeechModel": "Speech model",
+  "@voiceProviderSpeechModel": {
+    "description": "Label of the field for the text-to-speech model name."
+  },
+  "voiceProviderModelsHint": "Use the model names your provider lists. A direction left empty uses this device instead.",
+  "@voiceProviderModelsHint": {
+    "description": "Hint under the Voice provider's model fields."
+  },
+  "voiceProviderRealtimeModel": "Realtime model",
+  "@voiceProviderRealtimeModel": {
+    "description": "Label of the field for the Voice provider's realtime call model."
+  },
+  "voiceProviderRealtimeInstructions": "Instructions",
+  "@voiceProviderRealtimeInstructions": {
+    "description": "Label of the optional field that replaces Conduit's instructions for the realtime voice."
+  },
+  "voiceProviderRealtimeInstructionsHint": "Leave empty to use Conduit's own.",
+  "@voiceProviderRealtimeInstructionsHint": {
+    "description": "Placeholder of the realtime instructions field."
+  },
+  "voiceProviderRealtimeFooter": "Calls in Direct and Apple chats talk with this voice, using the transcription model above to follow what you say.",
+  "@voiceProviderRealtimeFooter": {
+    "description": "Footer under the Voice provider's realtime call settings."
+  },
+  "voiceCallModeTitle": "Calls",
+  "@voiceCallModeTitle": {
+    "description": "Title of the setting that picks how voice calls talk."
+  },
+  "voiceCallModeRealtime": "Realtime",
+  "@voiceCallModeRealtime": {
+    "description": "Call mode option: use a realtime voice when the chat's backend has one."
+  },
+  "voiceCallModeStandard": "Standard",
+  "@voiceCallModeStandard": {
+    "description": "Call mode option: always listen, send, then read the answer aloud."
+  },
+  "voiceCallModeRealtimeDescription": "Talk with a realtime voice when the chat's server or Voice provider has one; you can speak over it. Other calls are Standard.",
+  "@voiceCallModeRealtimeDescription": {
+    "description": "Description of the Realtime call mode."
+  },
+  "voiceCallModeStandardDescription": "Calls listen to you, send what you said, then read the answer aloud.",
+  "@voiceCallModeStandardDescription": {
+    "description": "Description of the Standard call mode."
+  },
+  "voiceCallNoticeTranscriptionFailed": "That was hard to make out. Please say it again.",
+  "@voiceCallNoticeTranscriptionFailed": {
+    "description": "Toast in a realtime call when the user's words could not be transcribed."
+  },
+  "voiceCallNoticeReplyIncomplete": "The voice's reply was cut short.",
+  "@voiceCallNoticeReplyIncomplete": {
+    "description": "Toast in a realtime call when the voice's reply stopped before it finished."
+  },
+  "voiceCallNoticeTranscriptNotSaved": "Part of the call could not be saved to the chat.",
+  "@voiceCallNoticeTranscriptNotSaved": {
+    "description": "Toast in a realtime call when what was said could not be saved."
+  },
+  "voiceReplySpokenLabel": "{model} · spoken",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
   },
   "ttsSettings": "Text to speech",
   "@ttsSettings": {

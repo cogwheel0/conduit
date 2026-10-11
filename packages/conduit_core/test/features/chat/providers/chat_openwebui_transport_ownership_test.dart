@@ -2753,6 +2753,99 @@ void main() {
             ) as Map<String, dynamic>,
           );
 
+      test('a voice reply is stored as a finished answer, and runs nothing', () async {
+        await _seedChat(db, chatId);
+        final api = _GatedCompletionApi(Completer<void>()..complete());
+        final messages = <ChatMessage>[_user('u0', 'earlier')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _NoDrainSyncEngine(db, api),
+        );
+        addTearDown(container.dispose);
+        const userVoice = {'call_id': 'call-1', 'input_item_id': 'item-1'};
+        const replyVoice = {
+          'call_id': 'call-1',
+          'model': 'gpt-realtime',
+          'speech': [
+            {'item_id': 'speech-1', 'transcript': 'Hi! How can I help?'},
+          ],
+        };
+
+        await durableSend(
+          container,
+          'Hello',
+          null,
+          contextAttachments: const [],
+          voice: const ChatSendVoiceContext.answered(
+            userVoice: userVoice,
+            reply: ChatVoiceReply(
+              text: 'Hi! How can I help?',
+              model: 'gpt-realtime',
+              voice: replyVoice,
+            ),
+          ),
+        );
+
+        check((await pendingOps(chatId)).map((op) => op.kind))
+            .not((it) => it.contains('requestCompletion'));
+        final rows = await db.messagesDao.getForChat(chatId);
+        final user = jsonDecode(
+          rows.singleWhere((row) => row.content == 'Hello').payload,
+        ) as Map<String, dynamic>;
+        check(user['meta']).isA<Map<String, dynamic>>().deepEquals({
+          'voice': userVoice,
+        });
+        final reply = rows.singleWhere((row) => row.role == 'assistant');
+        check(reply.content).equals('Hi! How can I help?');
+        check(reply.model).equals('gpt-realtime');
+        final payload = jsonDecode(reply.payload) as Map<String, dynamic>;
+        check(payload['done']).equals(true);
+        check(payload['meta']).isA<Map<String, dynamic>>().deepEquals({
+          'voice': replyVoice,
+        });
+        final shown = container.read(chatMessagesProvider).last;
+        check(shown.isStreaming).isFalse();
+        check(shown.content).equals('Hi! How can I help?');
+        check(api.completionCalls).equals(0);
+      });
+
+      test('a delegated voice turn is admitted like a typed one, marked as said', () async {
+        await _seedChat(db, chatId);
+        final api = _GatedCompletionApi(Completer<void>()..complete());
+        final messages = <ChatMessage>[_user('u0', 'earlier')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _NoDrainSyncEngine(db, api),
+        );
+        addTearDown(container.dispose);
+
+        await durableSend(
+          container,
+          'Weather in Oslo?',
+          null,
+          contextAttachments: const [],
+          voice: const ChatSendVoiceContext.delegated(
+            userVoice: {'call_id': 'call-1', 'input_item_id': 'item-2'},
+          ),
+        );
+
+        check((await pendingOps(chatId)).map((op) => op.kind))
+            .contains('requestCompletion');
+        final user = (await db.messagesDao.getForChat(chatId))
+            .singleWhere((row) => row.content == 'Weather in Oslo?');
+        check((jsonDecode(user.payload) as Map)['meta'])
+            .isA<Map<dynamic, dynamic>>()
+            .deepEquals({
+              'voice': {'call_id': 'call-1', 'input_item_id': 'item-2'},
+            });
+      });
+
       test('an existing chat is admitted with its stored settings and replays them', () async {
         await _seedChat(
           db,

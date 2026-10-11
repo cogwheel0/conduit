@@ -15,6 +15,71 @@ part of 'chat_providers.dart';
 ///
 /// Falls back to the legacy inline send ([_sendMessageInternal]) when there is
 /// no active database (reviewer mode / no active server), preserving behavior.
+/// The voice's own reply to the user's words in a realtime call.
+final class ChatVoiceReply {
+  const ChatVoiceReply({
+    required this.text,
+    required this.model,
+    required this.voice,
+  });
+
+  final String text;
+
+  /// The voice model, which the reply is stored under: Open WebUI tells a
+  /// voice's own reply from a chat answer by it.
+  final String model;
+
+  /// The reply's `meta.voice`.
+  final Map<String, Object?> voice;
+}
+
+/// What a realtime call adds to a turn it sends.
+final class ChatSendVoiceContext {
+  /// The user's words, for the chat's model to answer. [spokenContext] is
+  /// the recent spoken conversation, for a backend that reads it with the
+  /// turn (Hermes).
+  const ChatSendVoiceContext.delegated({
+    required this.userVoice,
+    this.spokenContext,
+  }) : reply = null;
+
+  /// The user's words and the voice's own [reply] to them. The turn is stored
+  /// like any other, and no model runs.
+  const ChatSendVoiceContext.answered({
+    required this.userVoice,
+    required ChatVoiceReply this.reply,
+  }) : spokenContext = null;
+
+  /// The user message's `meta.voice`.
+  final Map<String, Object?> userVoice;
+  final ChatVoiceReply? reply;
+  final String? spokenContext;
+}
+
+/// The user message of a voice turn, marked with where it was said.
+ChatMessage _withUserVoice(ChatMessage user, ChatSendVoiceContext? voice) =>
+    voice == null
+    ? user
+    : user.copyWith(
+        metadata: <String, dynamic>{
+          ...?user.metadata,
+          kMessageVoiceMetadataKey: voice.userVoice,
+        },
+      );
+
+/// The voice's reply as a finished answer, in place of a placeholder.
+ChatMessage _voiceReplyMessage(ChatMessage placeholder, ChatVoiceReply reply) =>
+    placeholder.copyWith(
+      content: reply.text,
+      model: reply.model,
+      isStreaming: false,
+      metadata: <String, dynamic>{
+        ...?placeholder.metadata,
+        'modelName': reply.model,
+        kMessageVoiceMetadataKey: reply.voice,
+      },
+    );
+
 final class ChatSendPlaceholderHandle {
   ChatSendPlaceholderHandle._({
     this.userMessageId,
@@ -210,6 +275,7 @@ Future<void> durableSend(
   List<ChatContextAttachment>? contextAttachments,
   String? pendingFolderIdOverride,
   bool isVoiceMode = false,
+  ChatSendVoiceContext? voice,
   void Function(ChatSendPlaceholderHandle handle)?
   onAssistantPlaceholderCreated,
   void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
@@ -226,8 +292,10 @@ Future<void> durableSend(
       isVoiceMode,
       pendingFolderIdOverride,
       onAssistantPlaceholderCreated,
+      voice,
     );
   }
+  final voiceReply = voice?.reply;
 
   final activeAtSendStart = ref.read(activeConversationProvider);
   final sendMutationOwner = captureChatMutationOwner(ref, activeAtSendStart);
@@ -328,21 +396,24 @@ Future<void> durableSend(
       ref.read(contextAttachmentsProvider) as List<ChatContextAttachment>;
   final contextFiles = _contextAttachmentsToFiles(sentContextAttachments);
   final attachmentIds = attachments;
-  final userMessage = ChatMessage(
-    id: userMessageId,
-    role: 'user',
-    content: message,
-    timestamp: DateTime.now(),
-    model: selectedModel.id,
-    attachmentIds: attachmentIds,
-    files: contextFiles.isEmpty ? null : contextFiles,
-    metadata: {
-      'parentId': parentId,
-      'childrenIds': <String>[assistantMessageId],
-      'models': <String>[selectedModel.id],
-    },
+  final userMessage = _withUserVoice(
+    ChatMessage(
+      id: userMessageId,
+      role: 'user',
+      content: message,
+      timestamp: DateTime.now(),
+      model: selectedModel.id,
+      attachmentIds: attachmentIds,
+      files: contextFiles.isEmpty ? null : contextFiles,
+      metadata: {
+        'parentId': parentId,
+        'childrenIds': <String>[assistantMessageId],
+        'models': <String>[selectedModel.id],
+      },
+    ),
+    voice,
   );
-  final assistantPlaceholder = ChatMessage(
+  final placeholder = ChatMessage(
     id: assistantMessageId,
     role: 'assistant',
     content: '',
@@ -356,6 +427,9 @@ Future<void> durableSend(
         'modelName': selectedModel.name.trim(),
     },
   );
+  final assistantPlaceholder = voiceReply == null
+      ? placeholder
+      : _voiceReplyMessage(placeholder, voiceReply);
   ref.read(chatMessagesProvider.notifier).addMessages([
     userMessage,
     assistantPlaceholder,
@@ -462,6 +536,7 @@ Future<void> durableSend(
         modelName: selectedModel.name,
         now: now,
         chatParams: draftChatParams,
+        voice: voice,
       );
       final rows = ChatBlobMapper.blobToRows(
         chatId: localId,
@@ -511,7 +586,9 @@ Future<void> durableSend(
           messages: rows.messages,
           blobRows: rows,
           contentHash: contentHash,
-          completion: completionFor(draftChatParams, legacyChatSystem: null),
+          completion: voiceReply != null
+              ? null
+              : completionFor(draftChatParams, legacyChatSystem: null),
         );
       });
     } else {
@@ -534,6 +611,7 @@ Future<void> durableSend(
           'files': durableFiles,
           'models': <String>[selectedModel.id],
           'timestamp': now,
+          if (voice != null) 'meta': {'voice': voice.userVoice},
         },
       );
       final asstRow = MessageRowData(
@@ -541,8 +619,8 @@ Future<void> durableSend(
         chatId: chatId,
         parentId: userMessageId,
         role: 'assistant',
-        content: '',
-        model: selectedModel.id,
+        content: voiceReply?.text ?? '',
+        model: voiceReply?.model ?? selectedModel.id,
         createdAt: now,
         orderIndex: 1,
         payload: _durableAssistantPayload(
@@ -551,6 +629,7 @@ Future<void> durableSend(
           modelId: selectedModel.id,
           modelName: selectedModel.name,
           timestamp: now,
+          voiceReply: voiceReply,
         ),
       );
 
@@ -565,11 +644,13 @@ Future<void> durableSend(
           messages: [userRow, asstRow],
           currentMessageId: assistantMessageId,
           updatedAt: now,
-          enqueueCompletion: true,
-          completion: completionFor(
-            storedChatParams,
-            legacyChatSystem: activeConversation!.systemPrompt,
-          ),
+          enqueueCompletion: voiceReply == null,
+          completion: voiceReply != null
+              ? null
+              : completionFor(
+                  storedChatParams,
+                  legacyChatSystem: activeConversation!.systemPrompt,
+                ),
         );
       });
     }
@@ -623,6 +704,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
   required String modelName,
   required int now,
   Map<String, dynamic> chatParams = const <String, dynamic>{},
+  ChatSendVoiceContext? voice,
 }) {
   return <String, dynamic>{
     'title': _titleFromText(text),
@@ -640,6 +722,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
           'files': files,
           'models': <String>[modelId],
           'timestamp': now,
+          if (voice != null) 'meta': {'voice': voice.userVoice},
         },
         asstId: _durableAssistantPayload(
           id: asstId,
@@ -647,29 +730,39 @@ Map<String, dynamic> _buildDurableNewChatBlob({
           modelId: modelId,
           modelName: modelName,
           timestamp: now,
+          voiceReply: voice?.reply,
         ),
       },
     },
   };
 }
 
+/// A new answer's row: empty until its model fills it, or, for [voiceReply],
+/// the voice's finished reply stored under the voice model as Open WebUI's
+/// web client stores it.
 Map<String, dynamic> _durableAssistantPayload({
   required String id,
   required String parentId,
   required String modelId,
   required String modelName,
   required int timestamp,
+  ChatVoiceReply? voiceReply,
 }) {
-  final trimmedModelName = modelName.trim();
+  final trimmedModelName = voiceReply?.model ?? modelName.trim();
   return <String, dynamic>{
     'id': id,
     'parentId': parentId,
     'childrenIds': <String>[],
     'role': 'assistant',
-    'content': '',
-    'model': modelId,
+    'content': voiceReply?.text ?? '',
+    'model': voiceReply?.model ?? modelId,
     if (trimmedModelName.isNotEmpty) 'modelName': trimmedModelName,
     'timestamp': timestamp,
+    if (voiceReply != null) ...{
+      'done': true,
+      'modelIdx': 0,
+      'meta': {'voice': voiceReply.voice},
+    },
   };
 }
 

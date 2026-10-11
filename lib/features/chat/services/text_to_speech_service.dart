@@ -6,7 +6,7 @@ import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart'
     show VoiceModeSpeech;
 import 'package:conduit_core/models/backend_config.dart';
 
-import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
 
@@ -32,13 +32,13 @@ export 'tts_manager.dart'
 /// callbacks for backward compatibility.
 class TextToSpeechService implements VoiceModeSpeech {
   TextToSpeechService({
-    ApiService? api,
+    ServerSpeechProvider? serverSpeech,
     BackendConfig? backendConfig,
     Future<BackendConfig?> Function()? loadBackendConfig,
   }) : _backendConfig = backendConfig,
        _loadBackendConfig = loadBackendConfig {
-    // Set the API service on the manager
-    TtsManager.instance.setApiService(api);
+    // Set the chat backend's speech on the manager
+    TtsManager.instance.setServerSpeech(serverSpeech);
     TtsManager.instance.applyBackendConfig(backendConfig);
 
     // Listen to TTS events and route to callbacks
@@ -71,6 +71,10 @@ class TextToSpeechService implements VoiceModeSpeech {
 
   /// Whether server TTS is available.
   bool get serverEngineAvailable => TtsManager.instance.serverAvailable;
+
+  /// Whether the server voice is picked in Audio settings.
+  bool get serverOffersVoiceChoice =>
+      TtsManager.instance.serverOffersVoiceChoice;
 
   /// Whether server TTS is preferred and available.
   bool get prefersServerEngine {

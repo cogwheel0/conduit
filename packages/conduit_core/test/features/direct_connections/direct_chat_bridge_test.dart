@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
@@ -468,6 +469,53 @@ void main() {
   });
 
   group('buildDirectChatMessages', () {
+    test('replays what a call spoke as labeled history', () async {
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(id: 'u1', role: 'user', content: 'Hello'),
+          ChatMessage(
+            id: 'a1',
+            role: 'assistant',
+            content: 'Hi! How can I help?',
+            timestamp: DateTime.utc(2026, 7, 11),
+            model: 'gpt-realtime',
+            metadata: const {
+              kMessageVoiceMetadataKey: {'model': 'gpt-realtime'},
+            },
+          ),
+          _message(id: 'u2', role: 'user', content: 'Weather in Oslo?'),
+          _message(
+            id: 'a2',
+            role: 'assistant',
+            content: 'Sunny, 21 °C.',
+            metadata: const {
+              kMessageVoiceMetadataKey: {
+                'model': 'gpt-realtime',
+                'speech': [
+                  {'item_id': 'i1', 'transcript': "It's sunny in Oslo."},
+                ],
+              },
+            },
+          ),
+        ],
+      );
+
+      check(result.map((message) => message.role).toList()).deepEquals([
+        'user',
+        'assistant',
+        'user',
+        'assistant',
+        'assistant',
+      ]);
+      check(
+        _textParts(result[1]),
+      ).deepEquals(['${kHistoricalVoiceTranscriptPrefix}Hi! How can I help?']);
+      check(_textParts(result[3])).deepEquals(['Sunny, 21 °C.']);
+      check(
+        _textParts(result[4]),
+      ).deepEquals(["$kHistoricalVoiceTranscriptPrefix${"It's sunny in Oslo."}"]);
+    });
+
     test('preserves supported history and resolves protected images', () async {
       final resolvedImage = _imageDataUrl([1, 2, 3]);
       final inlineImage = _imageDataUrl([4, 5, 6]);

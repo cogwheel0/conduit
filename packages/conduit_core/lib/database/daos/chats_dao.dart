@@ -1291,6 +1291,54 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Merges a realtime call's [voice] record into one message's `meta`, as
+  /// Open WebUI stores it, keeping the message's other `meta` keys and the
+  /// rest of the row as stored.
+  ///
+  /// With [enqueueUpdate] the row is marked dirty and the chat's `updateChat`
+  /// op is queued in the same transaction; a chat kept only on the device
+  /// passes false. Returns false, writing nothing, when the chat is absent or
+  /// tombstoned or has no such message. Caller holds the chat lock.
+  Future<bool> patchMessageVoice(
+    String chatId,
+    String messageId, {
+    required Map<String, dynamic> voice,
+    required int updatedAt,
+    required bool enqueueUpdate,
+  }) {
+    return transaction(() async {
+      final row = await getChat(chatId);
+      if (row == null || row.deleted) return false;
+      final message =
+          await (select(messages)
+                ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId)))
+              .getSingleOrNull();
+      if (message == null) return false;
+
+      final payload = _decodeJsonObject(message.payload);
+      final meta = payload['meta'];
+      payload['meta'] = <String, dynamic>{
+        if (meta is Map) ...Map<String, dynamic>.from(meta),
+        'voice': voice,
+      };
+      await (update(messages)
+            ..where((t) => t.chatId.equals(chatId) & t.id.equals(messageId)))
+          .write(
+        MessagesCompanion(
+          payload: Value(jsonEncode(payload)),
+          dirty: Value(enqueueUpdate || message.dirty),
+        ),
+      );
+      if (enqueueUpdate) {
+        await (update(chats)..where((t) => t.id.equals(chatId))).write(
+          ChatsCompanion(updatedAt: Value(updatedAt), dirty: const Value(true)),
+        );
+        await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+      }
+      return true;
+    });
+  }
+
   static Map<String, dynamic> _decodeJsonObject(String raw) {
     if (raw.isEmpty) return <String, dynamic>{};
     try {
@@ -1615,7 +1663,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             model: Value(message.model),
             createdAt: message.createdAt,
             orderIndex: orderIndex,
-            payload: jsonEncode(message.payload),
+            payload: jsonEncode(
+              withStoredMessageMeta(message.payload, existing?.payload),
+            ),
             dirty: Value(enqueueUpdate),
           ),
         );

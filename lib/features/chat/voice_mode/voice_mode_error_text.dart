@@ -28,3 +28,13 @@ String? voiceModeErrorText(
     null => l10n.voiceCallFailed,
   };
 }
+
+/// The text a call notice shows, in the user's language.
+String voiceModeNoticeText(AppLocalizations l10n, ChatVoiceModeNotice notice) =>
+    switch (notice) {
+      ChatVoiceModeNotice.transcriptionFailed =>
+        l10n.voiceCallNoticeTranscriptionFailed,
+      ChatVoiceModeNotice.replyIncomplete => l10n.voiceCallNoticeReplyIncomplete,
+      ChatVoiceModeNotice.transcriptNotSaved =>
+        l10n.voiceCallNoticeTranscriptNotSaved,
+    };

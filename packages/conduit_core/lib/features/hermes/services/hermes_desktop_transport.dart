@@ -3,9 +3,9 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'package:conduit_core/network/no_redirect_web_socket.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
@@ -127,7 +127,7 @@ final class HermesDesktopRpcClient {
   HermesDesktopRpcClient({
     HermesDesktopChannelFactory? channelFactory,
     this.requestTimeout = const Duration(seconds: 60),
-  }) : _channelFactory = channelFactory ?? _connectChannel;
+  }) : _channelFactory = channelFactory ?? connectNoRedirectWebSocket;
 
   final HermesDesktopChannelFactory _channelFactory;
   final Duration requestTimeout;
@@ -152,24 +152,6 @@ final class HermesDesktopRpcClient {
   /// another profile without rebuilding the connection).
   void setDefaultParams(Map<String, dynamic> value) {
     _defaultParams = Map.unmodifiable(value);
-  }
-
-  static WebSocketChannel _connectChannel(
-    Uri uri,
-    Map<String, String> headers, {
-    HttpClient? httpClient,
-  }) {
-    final client = _NoRedirectHttpClient(httpClient ?? HttpClient());
-    final socket = WebSocket.connect(
-      uri.toString(),
-      headers: headers,
-      customClient: client,
-    ).whenComplete(client.close);
-    return IOWebSocketChannel(
-      socket
-          .timeout(const Duration(seconds: 15))
-          .then((value) => value..pingInterval = const Duration(seconds: 20)),
-    );
   }
 
   Future<void> connect(
@@ -394,23 +376,4 @@ final class _PendingRpc {
 
   final Completer<Object?> completer;
   final Timer timer;
-}
-
-final class _NoRedirectHttpClient implements HttpClient {
-  _NoRedirectHttpClient(this._delegate);
-
-  final HttpClient _delegate;
-
-  @override
-  Future<HttpClientRequest> openUrl(String method, Uri url) async {
-    final request = await _delegate.openUrl(method, url);
-    request.followRedirects = false;
-    return request;
-  }
-
-  @override
-  void close({bool force = false}) => _delegate.close(force: force);
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

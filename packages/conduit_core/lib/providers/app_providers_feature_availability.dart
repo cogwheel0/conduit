@@ -126,6 +126,31 @@ Future<bool> _fetchMemoriesPermitted(
   );
 }
 
+/// Whether the signed-in account may start calls on the server: true, false,
+/// or null when its permissions could not be read.
+///
+/// Mirrors the web client, which offers calls to admins and to users whose
+/// `chat.call` permission is not explicitly off (missing means allowed). The
+/// server re-checks this permission throughout a realtime call, so callers
+/// gating one treat null as not permitted rather than starting a call the
+/// server may end. False when no Open WebUI server is configured.
+final chatCallPermittedProvider = FutureProvider<bool?>((ref) async {
+  if (ref.watch(apiServiceProvider) == null) return false;
+  final user = ref.watch(currentUserProvider2);
+  if (user?.role == 'admin') return true;
+
+  final Map<String, dynamic> permissions;
+  try {
+    permissions = await ref.watch(userPermissionsProvider.future);
+  } catch (_) {
+    // userPermissions has logged the failure.
+    return null;
+  }
+  final chat = permissions['chat'];
+  if (chat is Map) return _coerceFeatureFlag(chat['call'], fallback: true);
+  return true;
+});
+
 bool _coerceFeatureFlag(dynamic value, {required bool fallback}) {
   if (value is bool) return value;
   if (value is num) return value != 0;

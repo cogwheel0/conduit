@@ -520,6 +520,7 @@ class MainActivity : FlutterFragmentActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
     private lateinit var nativeSttBridge: NativeSttBridge
     private lateinit var nativeTtsBridge: NativeTtsBridge
+    private lateinit var realtimeAudioBridge: RealtimeAudioBridge
     private lateinit var imageGalleryBridge: ImageGalleryBridge
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -624,6 +625,8 @@ class MainActivity : FlutterFragmentActivity() {
         nativeSttBridge.setup(flutterEngine)
         nativeTtsBridge = NativeTtsBridge(this)
         nativeTtsBridge.setup(flutterEngine)
+        realtimeAudioBridge = RealtimeAudioBridge()
+        realtimeAudioBridge.setup(flutterEngine)
         imageGalleryBridge = ImageGalleryBridge(this)
         imageGalleryBridge.setup(flutterEngine)
 
@@ -1766,6 +1769,9 @@ class MainActivity : FlutterFragmentActivity() {
         }
         if (::nativeTtsBridge.isInitialized) {
             nativeTtsBridge.dispose()
+        }
+        if (::realtimeAudioBridge.isInitialized) {
+            realtimeAudioBridge.dispose()
         }
         if (::imageGalleryBridge.isInitialized) {
             imageGalleryBridge.dispose()

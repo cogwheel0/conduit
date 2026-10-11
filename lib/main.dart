@@ -23,6 +23,8 @@ import 'platform/android_ime_inset_resync.dart';
 import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
+import 'platform/realtime_pcm_audio.dart';
+import 'platform/webrtc_realtime_media.dart';
 import 'platform/url_launcher_open_external_url_port.dart';
 import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
@@ -71,6 +73,8 @@ import 'platform/carplay_service.dart';
 import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
@@ -85,6 +89,8 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeNoVoiceProviderId,
+        nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
         nativeAccountSignOutActionId,
         nativeAccountSwitchActionId,
@@ -223,6 +229,13 @@ void _registerBundledLicenses() {
     ], notice);
   });
 }
+
+/// Whether this device runs realtime voice calls' audio: the native engine
+/// and WebRTC exist on iOS and Android.
+bool get _hasRealtimeAudio =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android);
 
 void main() {
   // Diagnostics have no destination until a host gives them one.
@@ -504,6 +517,14 @@ void main() {
           ),
           voiceModePlatformProvider.overrideWithValue(
             const FlutterVoiceModePlatform(),
+          ),
+          // A realtime voice needs the native echo-cancelled audio engine.
+          realtimePcmAudioFactoryProvider.overrideWithValue(
+            () => _hasRealtimeAudio ? MethodChannelRealtimePcmAudio() : null,
+          ),
+          // Hermes's GPT-Live calls run over WebRTC.
+          realtimeWebRtcMediaFactoryProvider.overrideWithValue(
+            () => _hasRealtimeAudio ? WebRtcRealtimeMedia() : null,
           ),
         ],
       );
@@ -1060,6 +1081,29 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await notifier.setTtsEngineSelection(TtsEngine.device);
             await _refreshNativeVoiceDetail();
           }
+        case 'voice-call-mode':
+          final mode = VoiceCallMode.values
+              .where((mode) => mode.name == value)
+              .firstOrNull;
+          if (mode != null) {
+            await ref.read(appSettingsProvider.notifier).setVoiceCallMode(mode);
+            await _refreshNativeVoiceDetail();
+          }
+        case 'voice-provider-connection':
+          if (value is String) {
+            await _chooseNativeVoiceProvider(value);
+            await _refreshNativeVoiceDetail();
+          }
+        case final id when nativeVoiceProviderFieldIds.containsKey(id):
+          final current = ref.read(appSettingsProvider).directVoiceProvider;
+          if (value is String && current != null) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setDirectVoiceProvider(
+                  current.withField(nativeVoiceProviderFieldIds[id]!, value),
+                );
+            await _refreshNativeVoiceDetail();
+          }
         case 'theme-light':
           switch (value) {
             case 'system':
@@ -1206,6 +1250,30 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   String? _normalizeOptionalNativeText(String? value) {
     final trimmed = value?.trim();
     return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
+
+  /// Makes the connection with [profileId] the Voice provider, or clears it.
+  Future<void> _chooseNativeVoiceProvider(String profileId) async {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    if (profileId == nativeNoVoiceProviderId) {
+      await notifier.setDirectVoiceProvider(null);
+      return;
+    }
+    // Connections still loading are not gone: the choice waits for them.
+    final profiles = ref.read(directConnectionProfilesProvider).value;
+    if (profiles == null) return;
+    final profile = profiles
+        .where(canBeVoiceProvider)
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+    await notifier.setDirectVoiceProvider(
+      profile == null
+          ? null
+          : DirectVoiceProviderSettings.forConnection(
+              profile,
+              current: ref.read(appSettingsProvider).directVoiceProvider,
+            ),
+    );
   }
 
   Future<void> _refreshNativeVoiceDetail() {

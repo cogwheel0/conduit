@@ -38,6 +38,7 @@ import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
