@@ -1681,7 +1681,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Zawsze wysyłaj nagrania do serwera Open WebUI w celu transkrypcji.",
+  "sttEngineServerDescription": "Wysyłaj nagrania do transkrypcji na serwer czatu: Open WebUI, Hermes lub dostawcę głosu w czatach Direct.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1765,7 +1765,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Zawsze pobieraj audio z serwera Open WebUI.",
+  "ttsEngineServerDescription": "Generuj mowę na serwerze czatu: Open WebUI, Hermes lub dostawcy głosu w czatach Direct.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },

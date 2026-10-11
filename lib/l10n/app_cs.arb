@@ -1436,7 +1436,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Vždy odesílat nahrávky na váš server Open WebUI k přepisu.",
+  "sttEngineServerDescription": "Nahrávky se k přepisu odesílají na server chatu: do Open WebUI, Hermes nebo u chatů Direct k poskytovateli hlasu.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1502,7 +1502,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Vždy vyžadovat zvuk z vašeho serveru Open WebUI.",
+  "ttsEngineServerDescription": "Řeč vytváří server chatu: Open WebUI, Hermes nebo u chatů Direct poskytovatel hlasu.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -1513,6 +1513,36 @@
   "ttsServerUnavailableWarning": "Chcete-li použít tuto možnost, připojte se k serveru se zapnutým převodem textu na řeč.",
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
+  },
+  "voiceProviderTitle": "Poskytovatel hlasu",
+  "voiceProviderDescription": "Chaty Direct a Apple používají toto připojení, když je „Řeč na text“ nebo „Text na řeč“ nastaveno na „Server“.",
+  "voiceProviderConnection": "Připojení",
+  "voiceProviderNone": "Žádný",
+  "voiceProviderNoConnections": "Přidejte připojení Direct kompatibilní s OpenAI, abyste ho zde mohli vybrat.",
+  "voiceProviderTranscriptionModel": "Model přepisu",
+  "voiceProviderSpeechModel": "Model syntézy řeči",
+  "voiceProviderModelsHint": "Použijte názvy modelů, které uvádí váš poskytovatel. Pokud pole necháte prázdné, daný směr použije toto zařízení.",
+  "voiceProviderRealtimeModel": "Model v reálném čase",
+  "voiceProviderRealtimeInstructions": "Pokyny",
+  "voiceProviderRealtimeInstructionsHint": "Nechte prázdné, aby se použily pokyny Conduit.",
+  "voiceProviderRealtimeFooter": "Hovory v chatech Direct a Apple vede tento hlas a model přepisu výše mu pomáhá sledovat, co říkáte.",
+  "voiceCallModeTitle": "Hovory",
+  "voiceCallModeRealtime": "V reálném čase",
+  "voiceCallModeStandard": "Standardní",
+  "voiceCallModeRealtimeDescription": "Mluvte s hlasem v reálném čase, pokud ho server chatu nebo poskytovatel hlasu nabízí; můžete mu skočit do řeči. Ostatní hovory jsou standardní.",
+  "voiceCallModeStandardDescription": "Hovor vás poslouchá, odešle, co jste řekli, a pak odpověď přečte nahlas.",
+  "voiceCallNoticeTranscriptionFailed": "Tomu nebylo dobře rozumět. Řekněte to prosím znovu.",
+  "voiceCallNoticeReplyIncomplete": "Odpověď hlasu byla přerušena.",
+  "voiceCallNoticeTranscriptNotSaved": "Část hovoru se nepodařilo uložit do chatu.",
+  "voiceReplySpokenLabel": "{model} · hlasem",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
   },
   "ttsSettings": "Text na řeč",
   "@ttsSettings": {

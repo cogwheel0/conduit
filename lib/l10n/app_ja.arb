@@ -1436,7 +1436,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "文字起こしのために録音を常に Open WebUI サーバーへ送信します。",
+  "sttEngineServerDescription": "録音をチャットのサーバー（Open WebUI、Hermes、Direct チャットでは音声プロバイダー）に送信して文字起こしします。",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1502,7 +1502,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "常に Open WebUI サーバーに音声をリクエストします。",
+  "ttsEngineServerDescription": "チャットのサーバー（Open WebUI、Hermes、Direct チャットでは音声プロバイダー）で音声を生成します。",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -1513,6 +1513,36 @@
   "ttsServerUnavailableWarning": "このオプションを使用するには、テキスト読み上げが有効なサーバーに接続してください。",
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
+  },
+  "voiceProviderTitle": "音声プロバイダー",
+  "voiceProviderDescription": "「音声入力」または「テキスト読み上げ」が「サーバー」に設定されている場合、Direct と Apple のチャットはこの接続を使用します。",
+  "voiceProviderConnection": "接続",
+  "voiceProviderNone": "なし",
+  "voiceProviderNoConnections": "ここで選択するには、OpenAI 互換の Direct 接続を追加してください。",
+  "voiceProviderTranscriptionModel": "文字起こしモデル",
+  "voiceProviderSpeechModel": "音声合成モデル",
+  "voiceProviderModelsHint": "プロバイダーが提示するモデル名を使用してください。空欄にした方向は、代わりにこのデバイスで処理されます。",
+  "voiceProviderRealtimeModel": "リアルタイムモデル",
+  "voiceProviderRealtimeInstructions": "指示",
+  "voiceProviderRealtimeInstructionsHint": "空欄にすると Conduit の指示を使用します。",
+  "voiceProviderRealtimeFooter": "Direct と Apple のチャットの通話ではこの音声が話し、上の文字起こしモデルを使ってあなたの発言を聞き取ります。",
+  "voiceCallModeTitle": "通話",
+  "voiceCallModeRealtime": "リアルタイム",
+  "voiceCallModeStandard": "標準",
+  "voiceCallModeRealtimeDescription": "チャットのサーバーまたは音声プロバイダーにリアルタイム音声がある場合は、その音声と会話します。話の途中で割り込むこともできます。それ以外の通話は標準になります。",
+  "voiceCallModeStandardDescription": "通話ではあなたの発言を聞き取って送信し、回答を読み上げます。",
+  "voiceCallNoticeTranscriptionFailed": "うまく聞き取れませんでした。もう一度話してください。",
+  "voiceCallNoticeReplyIncomplete": "音声の返答が途中で途切れました。",
+  "voiceCallNoticeTranscriptNotSaved": "通話の一部をチャットに保存できませんでした。",
+  "voiceReplySpokenLabel": "{model} · 音声",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
   },
   "ttsSettings": "テキスト読み上げ",
   "@ttsSettings": {
