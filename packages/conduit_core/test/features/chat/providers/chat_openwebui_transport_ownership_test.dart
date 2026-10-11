@@ -481,6 +481,24 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
   /// Runs as the completion request leaves, before the server could answer.
   void Function()? onSend;
 
+  /// How often the session endpoint was asked.
+  int sessionChecks = 0;
+
+  @override
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+    String? candidateAuthToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    sessionChecks++;
+    return const User(
+      id: 'user-1',
+      username: 'user',
+      email: 'user@example.test',
+      role: 'user',
+    );
+  }
+
   @override
   Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async =>
       settings;
@@ -1571,14 +1589,16 @@ void main() {
     },
   );
 
-  test('a completion the provider rejects with 401 keeps the session', () async {
+  test('a completion refused with 401 checks the session instead of '
+      'reloading it', () async {
     // Open WebUI 0.12 hands back a provider's own 401 or 403, such as a bad
-    // upstream API key. That says nothing about the Open WebUI session.
+    // upstream API key, as well as its own for an ended session.
     const chatId = 'provider-rejected-chat';
     await _seedChat(db, chatId);
     final api = _GatedCompletionApi(Completer<void>())
-      ..onSend = () => throw Exception(
-        'Chat completion failed (401): Incorrect API key provided',
+      ..onSend = () => throw const ChatCompletionHttpException(
+        401,
+        'Incorrect API key provided',
       );
     final syncEngine = _PersistingSyncEngine(db, api);
     final messages = <ChatMessage>[_user('user-existing', 'History')];
@@ -1606,6 +1626,9 @@ void main() {
     check(api.completionCalls).equals(1);
     check(container.read(chatMessagesProvider).last.error).isNotNull();
     check(authBuilds).equals(1);
+    // The session endpoint is asked once; its refusal, not this one, would
+    // end the session through the auth interceptor.
+    check(api.sessionChecks).equals(1);
   });
 
   test('inline POST navigation continues A headlessly without touching colliding B', () async {

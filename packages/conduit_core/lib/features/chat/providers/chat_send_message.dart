@@ -1497,10 +1497,25 @@ Future<void> _sendMessageInternal(
         assistantMessageId: assistantMessageId,
       );
     }
-    // A 401 or 403 here is the completion's own answer, often a provider
-    // rejecting its API key, not a sign that the session ended. As
-    // elsewhere, the auth interceptor decides that from the session
-    // endpoint, so the failure only marks the reply.
+    // A 401 or 403 here may be a model provider rejecting its API key, which
+    // Open WebUI passes through, or the session ending. Ask the session
+    // endpoint: as everywhere else, the auth interceptor reports its refusal
+    // as the session ending, and a provider's refusal only marks the reply.
+    if (e is ChatCompletionHttpException && e.mayRejectSession) {
+      final ApiService? api = ref.read(apiServiceProvider) as ApiService?;
+      if (api != null) {
+        unawaited(
+          api.getCurrentUser().then<void>(
+            (_) {},
+            onError: (Object error) => DebugLogger.log(
+              'session-check-after-refused-completion',
+              scope: 'chat/providers',
+              data: {'errorType': error.runtimeType.toString()},
+            ),
+          ),
+        );
+      }
+    }
   }
 }
 
