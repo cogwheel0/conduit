@@ -326,12 +326,21 @@ void main() {
     Future<void> openFolderMenu(
       WidgetTester tester, {
       required Folder folder,
+      String role = 'user',
     }) async {
       final container = _createContainer(
         folders: [folder],
         extraOverrides: [
           workspaceCapabilitiesProvider.overrideWith(
             (ref) async => WorkspaceCapabilities.all,
+          ),
+          currentUserProvider2.overrideWithValue(
+            User(
+              id: 'me',
+              username: 'me',
+              email: 'me@example.test',
+              role: role,
+            ),
           ),
         ],
       );
@@ -359,9 +368,10 @@ void main() {
       expect(find.text('Edit Folder'), findsOneWidget);
     });
 
-    testWidgets('a write recipient gets Share folder and no owner actions', (
-      tester,
-    ) async {
+    testWidgets('a write recipient gets neither Share folder nor owner '
+        'actions', (tester) async {
+      // Open WebUI 0.12 lets only the owner or an admin change who a folder
+      // is shared with.
       await openFolderMenu(
         tester,
         folder: const Folder(
@@ -372,9 +382,28 @@ void main() {
         ),
       );
 
-      expect(find.text('Share folder'), findsOneWidget);
+      expect(find.text('Project settings'), findsOneWidget);
+      expect(find.text('Share folder'), findsNothing);
       expect(find.text('Edit Folder'), findsNothing);
       expect(find.text('System Prompt'), findsNothing);
+    });
+
+    testWidgets('an admin gets Share folder on a folder shared with them', (
+      tester,
+    ) async {
+      await openFolderMenu(
+        tester,
+        role: 'admin',
+        folder: const Folder(
+          id: 'work',
+          name: 'Work',
+          shared: true,
+          permission: 'read',
+        ),
+      );
+
+      expect(find.text('Share folder'), findsOneWidget);
+      expect(find.text('Edit Folder'), findsNothing);
     });
 
     testWidgets('a read recipient has no menu at all', (tester) async {
@@ -1198,19 +1227,31 @@ void main() {
     // What the folder menu offers with Advanced off: the owner's own actions
     // stay owner-only, and the project editor goes to anyone who can write.
     // Project settings edits the system prompt here, so it has no separate
-    // item.
-    final menuCases = <({String name, String? permission, List<String> items})>[
-      (
-        name: 'an owner',
-        permission: null,
-        items: ['Edit Folder', 'Project settings'],
-      ),
-      (name: 'a write grant', permission: 'write', items: ['Project settings']),
-      (name: 'a read grant', permission: 'read', items: []),
-    ];
+    // item. A read grant is a plain user's, since an admin may share any
+    // folder.
+    final menuCases =
+        <({String name, String? permission, String role, List<String> items})>[
+          (
+            name: 'an owner',
+            permission: null,
+            role: 'admin',
+            items: ['Edit Folder', 'Project settings'],
+          ),
+          (
+            name: 'a write grant',
+            permission: 'write',
+            role: 'admin',
+            items: ['Project settings'],
+          ),
+          (name: 'a read grant', permission: 'read', role: 'user', items: []),
+        ];
     for (final menuCase in menuCases) {
       testWidgets('the folder menu for ${menuCase.name}', (tester) async {
-        await open(tester, project(permission: menuCase.permission));
+        await open(
+          tester,
+          project(permission: menuCase.permission),
+          role: menuCase.role,
+        );
 
         if (menuCase.items.isEmpty) {
           expect(overflow(), findsNothing);

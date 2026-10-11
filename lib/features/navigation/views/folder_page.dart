@@ -324,10 +324,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   /// Share settings is offered for a folder whose access the account may
-  /// edit: its own, or one shared with a write grant, when the server lets it
-  /// share folders. Reading a shared folder never needs it.
+  /// edit, when the server lets it share folders: its own, or any folder to an
+  /// admin. Open WebUI 0.12 refuses sharing changes from a write grant, as its
+  /// web client does not offer them.
   bool _canShareFolder(Folder folder) {
-    if (folder.shared && !folder.canWrite) return false;
+    if (folder.shared && ref.watch(currentUserProvider2)?.role != 'admin') {
+      return false;
+    }
     return ref
             .watch(workspaceCapabilitiesProvider)
             .value
