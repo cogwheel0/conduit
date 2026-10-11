@@ -1436,7 +1436,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Nahrávky sa na prepis odosielajú na server chatu: do Open WebUI, Hermes alebo pri chatoch Direct k poskytovateľovi hlasu.",
+  "sttEngineServerDescription": "Nahrávky sa na prepis odosielajú na server chatu: do Open WebUI, Hermes alebo pri chatoch Direct a Apple k poskytovateľovi hlasu.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1502,7 +1502,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Reč vytvára server chatu: Open WebUI, Hermes alebo pri chatoch Direct poskytovateľ hlasu.",
+  "ttsEngineServerDescription": "Reč vytvára server chatu: Open WebUI, Hermes alebo pri chatoch Direct a Apple poskytovateľ hlasu.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },

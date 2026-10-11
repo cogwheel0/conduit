@@ -1436,7 +1436,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "録音をチャットのサーバー（Open WebUI、Hermes、Direct チャットでは音声プロバイダー）に送信して文字起こしします。",
+  "sttEngineServerDescription": "録音をチャットのサーバー（Open WebUI、Hermes、Direct と Apple のチャットでは音声プロバイダー）に送信して文字起こしします。",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1502,7 +1502,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "チャットのサーバー（Open WebUI、Hermes、Direct チャットでは音声プロバイダー）で音声を生成します。",
+  "ttsEngineServerDescription": "チャットのサーバー（Open WebUI、Hermes、Direct と Apple のチャットでは音声プロバイダー）で音声を生成します。",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },

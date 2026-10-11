@@ -1684,7 +1684,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Send recordings to the chat's server for transcription: Open WebUI, Hermes, or the Voice provider for Direct chats.",
+  "sttEngineServerDescription": "Send recordings to the chat's server for transcription: Open WebUI, Hermes, or the Voice provider for Direct and Apple chats.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1768,7 +1768,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Create speech on the chat's server: Open WebUI, Hermes, or the Voice provider for Direct chats.",
+  "ttsEngineServerDescription": "Create speech on the chat's server: Open WebUI, Hermes, or the Voice provider for Direct and Apple chats.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
