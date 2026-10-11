@@ -1537,6 +1537,12 @@ class SocketService {
             'Open WebUI browser client.',
         'result': null,
       },
+      // Conduit runs no terminal of its own, so there is no AGENTS.md to
+      // read, and no user terminal open for the shell tools.
+      'request:terminal' => const <String, dynamic>{},
+      'request:terminal:state' => const <String, dynamic>{'connected': false},
+      // MCP elicitation has no form here; cancelling lets the tool go on.
+      'request:elicitation' => const <String, dynamic>{'action': 'cancel'},
       _ => null,
     };
     if (unsupported != null &&
@@ -1545,6 +1551,9 @@ class SocketService {
       ackFn(unsupported);
       return;
     }
+    // Says an interactive request was answered or timed out on the server.
+    // Conduit's prompts keep their own deadline, so there is nothing to do.
+    if (type == 'request:interaction:done') return;
 
     // A direct tool call is consumed here for the same reason: the server
     // blocks until this session answers, whichever chat is open.
