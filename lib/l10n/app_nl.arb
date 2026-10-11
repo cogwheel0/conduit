@@ -99,6 +99,8 @@
   "useHttpOrHttpsOnly": "Gebruik alleen http:// of https://.",
   "loginFailed": "Inloggen mislukt",
   "invalidCredentials": "Ongeldige gebruikersnaam of wachtwoord. Probeer het opnieuw.",
+  "signInTwoStepVerificationUnsupported": "Dit account gebruikt verificatie in twee stappen, wat Conduit nog niet ondersteunt. Log in met SSO als je server dat aanbiedt, of met een sessietoken van Open WebUI op het web.",
+  "signInAccountPendingApproval": "Je account wacht op goedkeuring door een beheerder. Probeer het opnieuw zodra het is goedgekeurd.",
   "serverRedirectingHttps": "De server leidt verzoeken om. Controleer de HTTPS-configuratie van je server.",
   "unableToConnectServer": "Kan geen verbinding maken met server. Controleer je verbinding.",
   "requestTimedOut": "Het verzoek is verlopen. Probeer het opnieuw.",

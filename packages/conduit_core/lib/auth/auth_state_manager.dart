@@ -2123,6 +2123,7 @@ class AuthStateManager extends _$AuthStateManager {
         _resolveAbortedAuthAttempt(attemptRevision);
         return false;
       }
+      _rejectUnfinishedSignIn(response);
 
       // Extract and validate token
       final token = response['token'] ?? response['access_token'];
@@ -2247,6 +2248,7 @@ class AuthStateManager extends _$AuthStateManager {
 
       // Check if notifier is still mounted after async call
       if (!ref.mounted) return false;
+      _rejectUnfinishedSignIn(response);
 
       // Extract and validate token
       final token = response['token'] ?? response['access_token'];
@@ -2407,6 +2409,12 @@ class AuthStateManager extends _$AuthStateManager {
         text.contains('ldap authentication is not enabled');
     if (ldapDisabled) {
       return 'LDAP authentication is not enabled';
+    }
+    if (text.contains('twostepverificationunsupported')) {
+      return 'twoStepVerificationUnsupported';
+    }
+    if (text.contains('accountpendingapproval')) {
+      return 'accountPendingApproval';
     }
 
     if (statusCode == 401 ||
@@ -2803,6 +2811,7 @@ class AuthStateManager extends _$AuthStateManager {
     String password,
   ) async {
     final response = await api.login(username, password);
+    _rejectUnfinishedSignIn(response);
     final token = response['token'] ?? response['access_token'];
     if (token == null || token.toString().trim().isEmpty) {
       throw Exception('No authentication token received');
@@ -2815,6 +2824,21 @@ class AuthStateManager extends _$AuthStateManager {
 
     final user = await _validateIssuedToken(api, tokenStr);
     return (token: tokenStr, user: user);
+  }
+
+  /// Open WebUI 0.12 answers a password or LDAP sign-in with a `next_step`
+  /// and no session when two-step verification is on and the account must
+  /// enroll, verify, or recover it, or is still waiting for approval. Conduit
+  /// cannot finish two-step verification, so either ends the sign-in with a
+  /// message saying why.
+  void _rejectUnfinishedSignIn(Map<String, dynamic> response) {
+    if (response['token'] != null) return;
+    switch (response['next_step']) {
+      case 'enroll' || 'verify' || 'recover':
+        throw Exception('twoStepVerificationUnsupported');
+      case 'pending':
+        throw Exception('accountPendingApproval');
+    }
   }
 
   Future<bool> _commitSilentLoginResult({
@@ -2956,13 +2980,23 @@ class AuthStateManager extends _$AuthStateManager {
         errorText.contains('invalid token format') ||
         errorText.contains('token cannot be empty');
 
+    // A server that asks for two-step verification, or holds the account for
+    // approval, answers the saved password the same way on every attempt, and
+    // under two-step verification each attempt counts toward the account's
+    // sign-in limit. Treat it as terminal too, so the user lands on sign-in
+    // with the reason instead of retrying.
+    final isUnfinishedSignIn =
+        errorText.contains('twostepverificationunsupported') ||
+        errorText.contains('accountpendingapproval');
+
     if ((!isNetworkError &&
             (statusCode == 400 ||
                 statusCode == 401 ||
                 statusCode == 403 ||
                 errorText.contains('401 unauthorized') ||
                 errorText.contains('authentication failed'))) ||
-        isInvalidSavedToken) {
+        isInvalidSavedToken ||
+        isUnfinishedSignIn) {
       // A confirmed auth failure means the saved secret is bad: clear it so it
       // isn't retried on every cold start (the background bootstrap path turns a
       // bare `false` into a generic unauthenticated state otherwise). Only bail

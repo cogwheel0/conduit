@@ -99,6 +99,8 @@
   "useHttpOrHttpsOnly": "Usa solo http:// o https://.",
   "loginFailed": "Accesso non riuscito",
   "invalidCredentials": "Nome utente o password non validi. Riprova.",
+  "signInTwoStepVerificationUnsupported": "Questo account usa la verifica in due passaggi, che Conduit non supporta ancora. Accedi con SSO se il tuo server lo offre, oppure con un token di sessione di Open WebUI sul web.",
+  "signInAccountPendingApproval": "Il tuo account è in attesa dell'approvazione di un amministratore. Riprova quando sarà approvato.",
   "serverRedirectingHttps": "Il server sta reindirizzando. Controlla la configurazione HTTPS.",
   "unableToConnectServer": "Impossibile connettersi al server. Controlla la connessione.",
   "requestTimedOut": "Richiesta scaduta. Riprova.",

@@ -338,6 +338,45 @@ void main() {
     await harness.unmount(tester);
   });
 
+  testWidgets('a sign-in that needs two-step verification says so', (
+    tester,
+  ) async {
+    debugIsWebViewSupportedOverride = false;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final harness = AdaptiveAuthHarness(
+      server: server,
+      backendConfig: const BackendConfig(enableLdap: true),
+      authActions: _TwoStepAuthActions(),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('LDAP'));
+    await tester.pumpAndSettle();
+    final fields = find.descendant(
+      of: find.byKey(const ValueKey('ldap_form')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(fields.at(0), 'ldapuser');
+    await tester.enterText(fields.at(1), 'password');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sign in with LDAP'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    expect(
+      find.textContaining('uses two-step verification', findRichText: true),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Invalid username'), findsNothing);
+
+    await harness.unmount(tester);
+  });
+
   testWidgets(
     'switching tabs after a rejected password still cancels autofill',
     (tester) async {
@@ -816,5 +855,18 @@ class _RecordingAccountsController extends Fake
   Future<bool> abandonPendingSignIn() async {
     abandons++;
     return true;
+  }
+}
+
+/// Fails sign-in the way auth does when Open WebUI asks for two-step
+/// verification.
+class _TwoStepAuthActions extends Fake implements AuthActions {
+  @override
+  Future<bool> ldapLogin(
+    String username,
+    String password, {
+    bool rememberCredentials = false,
+  }) async {
+    throw Exception('twoStepVerificationUnsupported');
   }
 }

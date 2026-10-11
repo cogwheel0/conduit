@@ -581,6 +581,14 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
+  "signInTwoStepVerificationUnsupported": "This account uses two-step verification, which Conduit doesn't support yet. Sign in with SSO if your server offers it, or with a session token from Open WebUI on the web.",
+  "@signInTwoStepVerificationUnsupported": {
+    "description": "Sign-in error when the Open WebUI account must finish two-step verification, which Conduit cannot do yet."
+  },
+  "signInAccountPendingApproval": "Your account is waiting for an administrator to approve it. Try again once it's approved.",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
   "serverRedirectingHttps": "The server is redirecting requests. Check your server's HTTPS configuration.",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."

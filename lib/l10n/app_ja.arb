@@ -374,6 +374,14 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
+  "signInTwoStepVerificationUnsupported": "このアカウントは 2 段階認証を使用していますが、Conduit はまだ対応していません。サーバーが SSO に対応している場合は SSO で、または Web 版 Open WebUI のセッショントークンでサインインしてください。",
+  "@signInTwoStepVerificationUnsupported": {
+    "description": "Sign-in error when the Open WebUI account must finish two-step verification, which Conduit cannot do yet."
+  },
+  "signInAccountPendingApproval": "アカウントは管理者の承認待ちです。承認されたらもう一度お試しください。",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
   "serverRedirectingHttps": "サーバーがリクエストをリダイレクトしています。サーバーの HTTPS 設定を確認してください。",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."

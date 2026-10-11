@@ -99,6 +99,8 @@
   "useHttpOrHttpsOnly": "僅使用 http:// 或 https://。",
   "loginFailed": "登錄失敗",
   "invalidCredentials": "無效的用戶名或密碼。請重試。",
+  "signInTwoStepVerificationUnsupported": "此帳戶使用兩步驟驗證，Conduit 目前尚不支援。若伺服器提供 SSO，請使用 SSO 登入，或使用網頁版 Open WebUI 的工作階段權杖登入。",
+  "signInAccountPendingApproval": "你的帳戶正在等待管理員核准。核准後請再試一次。",
   "serverRedirectingHttps": "服務器正在重定向請求。請檢查您的服務器的 HTTPS 配置。",
   "unableToConnectServer": "無法連接到服務器。請檢查您的連接。",
   "requestTimedOut": "請求超時。請重試。",

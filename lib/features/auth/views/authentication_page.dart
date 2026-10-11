@@ -480,7 +480,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   String _formatLoginError(String error) {
     final l10n = AppLocalizations.of(context)!;
-    if (error.contains('apiKeyNotSupported')) {
+    if (error.contains('twoStepVerificationUnsupported')) {
+      return l10n.signInTwoStepVerificationUnsupported;
+    } else if (error.contains('accountPendingApproval')) {
+      return l10n.signInAccountPendingApproval;
+    } else if (error.contains('apiKeyNotSupported')) {
       return l10n.apiKeyNotSupported;
     } else if (error.contains('apiKeyNoLongerSupported')) {
       return l10n.apiKeyNoLongerSupported;

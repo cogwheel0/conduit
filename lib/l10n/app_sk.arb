@@ -374,6 +374,14 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
+  "signInTwoStepVerificationUnsupported": "Tento účet používa dvojstupňové overenie, ktoré Conduit zatiaľ nepodporuje. Prihláste sa cez SSO, ak ho váš server ponúka, alebo pomocou tokenu relácie z webového Open WebUI.",
+  "@signInTwoStepVerificationUnsupported": {
+    "description": "Sign-in error when the Open WebUI account must finish two-step verification, which Conduit cannot do yet."
+  },
+  "signInAccountPendingApproval": "Váš účet čaká na schválenie správcom. Skúste to znova, keď bude schválený.",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
   "serverRedirectingHttps": "Server presmerúva požiadavky. Skontrolujte konfiguráciu HTTPS servera.",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."

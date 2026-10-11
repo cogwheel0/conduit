@@ -140,6 +140,8 @@
   "useHttpOrHttpsOnly": "http:// 또는 https:// 만 사용하세요.",
   "loginFailed": "로그인 실패",
   "invalidCredentials": "사용자 이름 또는 비밀번호가 잘못되었습니다. 다시 시도해주세요.",
+  "signInTwoStepVerificationUnsupported": "이 계정은 2단계 인증을 사용하지만 Conduit은 아직 이를 지원하지 않습니다. 서버에서 SSO를 제공한다면 SSO로, 또는 웹의 Open WebUI에서 받은 세션 토큰으로 로그인하세요.",
+  "signInAccountPendingApproval": "계정이 관리자 승인을 기다리고 있습니다. 승인된 후 다시 시도하세요.",
   "serverRedirectingHttps": "서버가 요청을 리디렉션하고 있습니다. 서버의 HTTPS 구성을 확인하세요.",
   "unableToConnectServer": "서버에 연결할 수 없습니다. 연결을 확인해주세요.",
   "requestTimedOut": "요청 시간이 초과되었습니다. 다시 시도해주세요.",
