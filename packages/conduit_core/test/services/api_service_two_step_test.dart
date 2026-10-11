@@ -78,6 +78,27 @@ void main() {
     });
   });
 
+  test('reaches the server before any session exists', () async {
+    // With the client's own interceptors, as sign-in sends it: no session
+    // token, and none asked for.
+    final adapter = _Adapter({'token': 'issued-session'});
+    final service = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'test',
+        name: 'Test Server',
+        url: 'http://localhost:9999',
+      ),
+      workerManager: WorkerManager(),
+    );
+    service.dio.httpClientAdapter = adapter;
+
+    final session = await service.verifyTwoStepCode(token, '123456');
+
+    check(session.token).equals('issued-session');
+    check(adapter.requests.single.headers.containsKey('Authorization'))
+        .isFalse();
+  });
+
   test('a new authenticator is set up and confirmed', () async {
     final setupAdapter = _Adapter({
       'manual_key': 'JBSWY3DPEHPK3PXP',

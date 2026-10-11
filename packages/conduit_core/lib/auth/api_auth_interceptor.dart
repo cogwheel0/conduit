@@ -41,11 +41,17 @@ class ApiAuthInterceptor extends Interceptor {
   void Function()? onAuthTokenInvalid;
   Future<void> Function()? onTokenInvalidated;
 
-  // Public endpoints that don't require authentication
+  // Public endpoints that don't require authentication. The two-step sign-in
+  // routes (Open WebUI 0.12) authenticate with the challenge token in their
+  // body, before any session exists.
   static const Set<String> _publicEndpoints = {
     '/api/v1/auths/signin',
     '/api/v1/auths/signup',
     '/api/v1/auths/ldap',
+    '/api/v1/auths/mfa/verify',
+    '/api/v1/auths/mfa/enroll/start',
+    '/api/v1/auths/mfa/enroll/confirm',
+    '/api/v1/auths/mfa/recover',
   };
 
   // Endpoints that have optional authentication (work without but better with)
