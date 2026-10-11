@@ -16,6 +16,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/auth/token_validator.dart';
+import 'package:conduit_core/auth/openwebui_two_step.dart';
 
 import 'package:conduit_core/auth/auth_cache_manager.dart';
 
@@ -46,6 +47,52 @@ final class _AuthPublicationRolledBack implements Exception {
 
   @override
   String toString() => 'Authentication publication was rolled back';
+}
+
+/// A password or LDAP sign-in that stopped at a second step: the server it
+/// began on, and what to remember once the second step signs it in.
+final class _PendingTwoStepSignIn {
+  const _PendingTwoStepSignIn({
+    required this.serverId,
+    required this.authType,
+    required this.username,
+    required this.password,
+    required this.rememberCredentials,
+  });
+
+  final String serverId;
+
+  /// `credentials` or `ldap`, as the sign-in it finishes saves them.
+  final String authType;
+  final String username;
+  final String password;
+  final bool rememberCredentials;
+
+  /// What the sign-in would have remembered with [token]. An LDAP sign-in
+  /// keeps the session token rather than the password, as it does without a
+  /// second step.
+  Map<String, String>? rememberedCredentials({
+    required String serverId,
+    required String token,
+  }) {
+    if (!rememberCredentials) return null;
+    return authType == 'ldap'
+        ? {
+            'serverId': serverId,
+            'username': 'ldap:$username',
+            'password': token,
+            'authType': 'ldap',
+          }
+        : {
+            'serverId': serverId,
+            'username': username,
+            'password': password,
+            'authType': 'credentials',
+          };
+  }
+
+  @override
+  String toString() => '_PendingTwoStepSignIn($authType)';
 }
 
 enum FullAppDataClearOutcome {
@@ -267,6 +314,9 @@ OpenWebUiCachedAccountOwnerResolution resolveOpenWebUiCachedAccountOwner({
 class AuthStateManager extends _$AuthStateManager {
   final AuthCacheManager _cacheManager = AuthCacheManager();
   Future<bool>? _silentLoginFuture;
+
+  /// A password or LDAP sign-in waiting for its second step, if any.
+  _PendingTwoStepSignIn? _pendingTwoStep;
   int _authAttemptRevision = 0;
   int _authAttemptSafetyEpoch = 0;
   int _sessionSafetyEpoch = 0;
@@ -289,6 +339,8 @@ class AuthStateManager extends _$AuthStateManager {
       state.asData?.value ?? const AuthState(status: AuthStatus.initial);
 
   int _beginAuthAttempt() {
+    // Any newer attempt, a sign-out included, ends a pending second step.
+    _pendingTwoStep = null;
     _authAttemptSafetyEpoch = _sessionSafetyEpoch;
     return ++_authAttemptRevision;
   }
@@ -2123,7 +2175,17 @@ class AuthStateManager extends _$AuthStateManager {
         _resolveAbortedAuthAttempt(attemptRevision);
         return false;
       }
-      _rejectUnfinishedSignIn(response);
+      final step = _unfinishedSignInStep(response);
+      if (step != null) {
+        _pendingTwoStep = _PendingTwoStepSignIn(
+          serverId: ownership.serverConfig.id,
+          authType: 'credentials',
+          username: username,
+          password: password,
+          rememberCredentials: rememberCredentials,
+        );
+        throw OpenWebUiTwoStepRequired(step);
+      }
 
       // Extract and validate token
       final token = response['token'] ?? response['access_token'];
@@ -2175,6 +2237,10 @@ class AuthStateManager extends _$AuthStateManager {
       DebugLogger.auth('Login successful');
       return true;
     } catch (e, stack) {
+      if (e is OpenWebUiTwoStepRequired) {
+        _settleAtTwoStep();
+        rethrow;
+      }
       final failureMessage = _safeLoginFailureMessage(
         e,
         credentialRequest: true,
@@ -2248,7 +2314,17 @@ class AuthStateManager extends _$AuthStateManager {
 
       // Check if notifier is still mounted after async call
       if (!ref.mounted) return false;
-      _rejectUnfinishedSignIn(response);
+      final step = _unfinishedSignInStep(response);
+      if (step != null) {
+        _pendingTwoStep = _PendingTwoStepSignIn(
+          serverId: ownership.serverConfig.id,
+          authType: 'ldap',
+          username: username,
+          password: password,
+          rememberCredentials: rememberCredentials,
+        );
+        throw OpenWebUiTwoStepRequired(step);
+      }
 
       // Extract and validate token
       final token = response['token'] ?? response['access_token'];
@@ -2302,6 +2378,10 @@ class AuthStateManager extends _$AuthStateManager {
       DebugLogger.auth('LDAP login successful');
       return true;
     } catch (e, stack) {
+      if (e is OpenWebUiTwoStepRequired) {
+        _settleAtTwoStep();
+        rethrow;
+      }
       final failureMessage = _safeLoginFailureMessage(
         e,
         credentialRequest: true,
@@ -2410,8 +2490,8 @@ class AuthStateManager extends _$AuthStateManager {
     if (ldapDisabled) {
       return 'LDAP authentication is not enabled';
     }
-    if (text.contains('twostepverificationunsupported')) {
-      return 'twoStepVerificationUnsupported';
+    if (text.contains('twostepverificationrequired')) {
+      return 'twoStepVerificationRequired';
     }
     if (text.contains('accountpendingapproval')) {
       return 'accountPendingApproval';
@@ -2811,7 +2891,9 @@ class AuthStateManager extends _$AuthStateManager {
     String password,
   ) async {
     final response = await api.login(username, password);
-    _rejectUnfinishedSignIn(response);
+    if (_unfinishedSignInStep(response) != null) {
+      throw Exception('twoStepVerificationRequired');
+    }
     final token = response['token'] ?? response['access_token'];
     if (token == null || token.toString().trim().isEmpty) {
       throw Exception('No authentication token received');
@@ -2827,17 +2909,174 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   /// Open WebUI 0.12 answers a password or LDAP sign-in with a `next_step`
-  /// and no session when two-step verification is on and the account must
-  /// enroll, verify, or recover it, or is still waiting for approval. Conduit
-  /// cannot finish two-step verification, so either ends the sign-in with a
-  /// message saying why.
-  void _rejectUnfinishedSignIn(Map<String, dynamic> response) {
-    if (response['token'] != null) return;
-    switch (response['next_step']) {
-      case 'enroll' || 'verify' || 'recover':
-        throw Exception('twoStepVerificationUnsupported');
-      case 'pending':
-        throw Exception('accountPendingApproval');
+  /// and no session when two-step verification is on: the account must
+  /// enroll an authenticator, verify a code, or redeem an administrator's
+  /// recovery token, or it is still waiting for approval. Returns the step to
+  /// take, throws for an account awaiting approval, and returns null for a
+  /// session.
+  OpenWebUiTwoStepChallenge? _unfinishedSignInStep(
+    Map<String, dynamic> response,
+  ) {
+    if (response['token'] != null) return null;
+    if (response['next_step'] == 'pending') {
+      throw Exception('accountPendingApproval');
+    }
+    return OpenWebUiTwoStepChallenge.fromJson(response);
+  }
+
+  /// A sign-in that stopped at a second step is not a failure: settle it
+  /// signed out, with no error, for the sign-in page to ask for the code.
+  void _settleAtTwoStep() {
+    _updateApiServiceToken(null);
+    _update(
+      (current) => current.copyWith(
+        status: AuthStatus.unauthenticated,
+        isLoading: false,
+        clearError: true,
+        clearToken: true,
+      ),
+    );
+  }
+
+  /// The API client of the server a pending two-step sign-in began on.
+  ApiService _twoStepApi() {
+    final pending = _pendingTwoStep;
+    final api = ref.read(apiServiceProvider);
+    if (pending == null ||
+        api == null ||
+        api.serverConfig.id != pending.serverId) {
+      throw const OpenWebUiTwoStepException(OpenWebUiTwoStepFailure.expired);
+    }
+    return api;
+  }
+
+  /// The secret to add to an authenticator app for an `enroll` step.
+  Future<OpenWebUiTwoStepSetup> startTwoStepEnrollment(
+    OpenWebUiTwoStepChallenge challenge,
+  ) => _twoStepApi().startTwoStepEnrollment(challenge.challengeToken);
+
+  /// Answers a `verify` or `enroll` step with a [code]; for `verify`, a
+  /// recovery code when [recovery] is set. The session it returns is not
+  /// signed in to until [finishTwoStepSignIn].
+  Future<OpenWebUiTwoStepSession> submitTwoStepCode(
+    OpenWebUiTwoStepChallenge challenge,
+    String code, {
+    bool recovery = false,
+  }) {
+    final api = _twoStepApi();
+    return switch (challenge.kind) {
+      OpenWebUiTwoStepKind.enroll => api.confirmTwoStepEnrollment(
+        challenge.challengeToken,
+        code.trim(),
+      ),
+      OpenWebUiTwoStepKind.verify => api.verifyTwoStepCode(
+        challenge.challengeToken,
+        code.trim(),
+        recovery: recovery,
+      ),
+      OpenWebUiTwoStepKind.recover => throw ArgumentError.value(
+        challenge.kind,
+        'challenge',
+        'A recover step takes a recovery token',
+      ),
+    };
+  }
+
+  /// Redeems an administrator's recovery token for a `recover` step,
+  /// answering with the `enroll` step for a new authenticator.
+  Future<OpenWebUiTwoStepChallenge> redeemTwoStepResetToken(
+    OpenWebUiTwoStepChallenge challenge,
+    String resetToken,
+  ) => _twoStepApi().redeemTwoStepResetToken(
+    challenge.challengeToken,
+    resetToken.trim(),
+  );
+
+  /// Signs in with the session a second step issued, as the password or LDAP
+  /// sign-in it finishes would have, remembering what that sign-in was asked
+  /// to remember.
+  Future<bool> finishTwoStepSignIn(OpenWebUiTwoStepSession session) async {
+    final pending = _pendingTwoStep;
+    _beginAuthAttempt();
+    // Kept until the session is signed in to, so a failed attempt can retry.
+    _pendingTwoStep = pending;
+    _update(
+      (current) => current.copyWith(
+        status: AuthStatus.loading,
+        isLoading: true,
+        clearError: true,
+      ),
+    );
+
+    final attemptRevision = _authAttemptRevision;
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (api == null) {
+        throw Exception('No server connection available');
+      }
+      if (pending == null || api.serverConfig.id != pending.serverId) {
+        throw Exception(
+          'Server configuration changed during authentication. Please retry.',
+        );
+      }
+      final storage = ref.read(optimizedStorageServiceProvider);
+      final ownership = await _captureLoginServerOwnership(
+        storage,
+        api,
+        requireActive: true,
+      );
+      if (_authAttemptSuperseded(attemptRevision)) {
+        _resolveAbortedAuthAttempt(attemptRevision);
+        return false;
+      }
+
+      final token = session.token;
+      if (!_isValidTokenFormat(token)) {
+        throw Exception('Invalid authentication token format');
+      }
+      _acceptFreshlyIssuedServerToken(token, source: 'two-step');
+      final user = await _validateIssuedToken(api, token);
+      if (_authAttemptSuperseded(attemptRevision)) {
+        _resolveAbortedAuthAttempt(attemptRevision);
+        return false;
+      }
+
+      final committed = await _commitValidatedExistingServerSession(
+        storage: storage,
+        ownership: ownership,
+        token: token,
+        user: user,
+        attemptRevision: attemptRevision,
+        rememberedCredentials: pending.rememberedCredentials(
+          serverId: ownership.serverConfig.id,
+          token: token,
+        ),
+      );
+      if (!committed) {
+        _resolveAbortedAuthAttempt(attemptRevision);
+        return false;
+      }
+      if (identical(_pendingTwoStep, pending)) _pendingTwoStep = null;
+
+      DebugLogger.auth('Two-step sign-in successful');
+      return true;
+    } catch (e, stack) {
+      final failureMessage = _safeLoginFailureMessage(e);
+      _logAuthenticationFailure('two-step-login-failed', e, stackTrace: stack);
+      if (_authAttemptSuperseded(attemptRevision)) {
+        _resolveAbortedAuthAttempt(attemptRevision);
+      } else if (e is! _AuthPublicationRolledBack) {
+        _updateApiServiceToken(null);
+        _update(
+          (current) => current.copyWith(
+            status: AuthStatus.error,
+            error: failureMessage,
+            isLoading: false,
+            clearToken: true,
+          ),
+        );
+      }
+      Error.throwWithStackTrace(Exception(failureMessage), stack);
     }
   }
 
@@ -2980,13 +3219,13 @@ class AuthStateManager extends _$AuthStateManager {
         errorText.contains('invalid token format') ||
         errorText.contains('token cannot be empty');
 
-    // A server that asks for two-step verification, or holds the account for
-    // approval, answers the saved password the same way on every attempt, and
-    // under two-step verification each attempt counts toward the account's
-    // sign-in limit. Treat it as terminal too, so the user lands on sign-in
-    // with the reason instead of retrying.
+    // A saved password cannot answer a second step, and a server that holds
+    // the account for approval answers it the same way on every attempt;
+    // under two-step verification each attempt also counts toward the
+    // account's sign-in limit. Treat both as terminal, so the user lands on
+    // sign-in, where the second step can be taken, instead of retrying.
     final isUnfinishedSignIn =
-        errorText.contains('twostepverificationunsupported') ||
+        errorText.contains('twostepverificationrequired') ||
         errorText.contains('accountpendingapproval');
 
     if ((!isNetworkError &&

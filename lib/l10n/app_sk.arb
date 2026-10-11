@@ -374,13 +374,121 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
-  "signInTwoStepVerificationUnsupported": "Tento účet používa dvojstupňové overenie, ktoré Conduit zatiaľ nepodporuje. Prihláste sa cez SSO, ak ho váš server ponúka, alebo pomocou tokenu relácie z webového Open WebUI.",
-  "@signInTwoStepVerificationUnsupported": {
-    "description": "Sign-in error when the Open WebUI account must finish two-step verification, which Conduit cannot do yet."
-  },
   "signInAccountPendingApproval": "Váš účet čaká na schválenie správcom. Skúste to znova, keď bude schválený.",
   "@signInAccountPendingApproval": {
     "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
+  "signInTwoStepVerificationRequired": "Tento účet používa dvojstupňové overenie. Prihláste sa znova a potom zadajte kód z overovacej aplikácie.",
+  "@signInTwoStepVerificationRequired": {
+    "description": "Sign-in error when saved credentials met Open WebUI's two-step verification, which needs a code typed in."
+  },
+  "twoStepVerifyTitle": "Potvrďte prihlásenie",
+  "@twoStepVerifyTitle": {
+    "description": "Title of the sign-in step that asks for a two-step verification code."
+  },
+  "twoStepEnrollTitle": "Nastavte overovaciu aplikáciu",
+  "@twoStepEnrollTitle": {
+    "description": "Title of the sign-in step that adds an authenticator app for two-step verification."
+  },
+  "twoStepRecoverTitle": "Obnovte overovaciu aplikáciu",
+  "@twoStepRecoverTitle": {
+    "description": "Title of the sign-in step that redeems an administrator's two-step verification recovery token."
+  },
+  "twoStepVerifyDescription": "Zadajte šesťmiestny kód z overovacej aplikácie.",
+  "@twoStepVerifyDescription": {
+    "description": "Instruction for entering a two-step verification code."
+  },
+  "twoStepRecoveryCodeDescription": "Zadajte jeden z kódov na obnovenie, ktoré ste si uložili.",
+  "@twoStepRecoveryCodeDescription": {
+    "description": "Instruction for signing in with a saved two-step verification recovery code."
+  },
+  "twoStepEnrollDescription": "Pridajte tento účet do overovacej aplikácie a potom zadajte šesťmiestny kód, ktorý zobrazí.",
+  "@twoStepEnrollDescription": {
+    "description": "Instruction for adding the account to an authenticator app during sign-in."
+  },
+  "twoStepRecoverDescription": "Správca pre tento účet obnovil dvojstupňové overenie. Zadajte token na obnovenie, ktorý vám dal.",
+  "@twoStepRecoverDescription": {
+    "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
+  },
+  "twoStepCodeLabel": "Overovací kód",
+  "@twoStepCodeLabel": {
+    "description": "Label of the field for an authenticator app code."
+  },
+  "twoStepRecoveryCodeLabel": "Kód na obnovenie",
+  "@twoStepRecoveryCodeLabel": {
+    "description": "Label of the field for a two-step verification recovery code."
+  },
+  "twoStepResetTokenLabel": "Token na obnovenie",
+  "@twoStepResetTokenLabel": {
+    "description": "Label of the field for an administrator's two-step verification recovery token."
+  },
+  "twoStepUseRecoveryCode": "Použiť kód na obnovenie",
+  "@twoStepUseRecoveryCode": {
+    "description": "Switches the two-step verification field to a recovery code."
+  },
+  "twoStepUseAuthenticatorCode": "Použiť overovací kód",
+  "@twoStepUseAuthenticatorCode": {
+    "description": "Switches the two-step verification field back to an authenticator app code."
+  },
+  "twoStepBackToSignIn": "Späť na prihlásenie",
+  "@twoStepBackToSignIn": {
+    "description": "Leaves the two-step verification step for the sign-in form."
+  },
+  "twoStepOpenAuthenticator": "Pridať do overovacej aplikácie",
+  "@twoStepOpenAuthenticator": {
+    "description": "Opens an authenticator app on this device to add the account."
+  },
+  "twoStepSetupKeyLabel": "Kľúč na nastavenie",
+  "@twoStepSetupKeyLabel": {
+    "description": "Label above the secret key to type into an authenticator app."
+  },
+  "twoStepCopySetupKey": "Kopírovať kľúč na nastavenie",
+  "@twoStepCopySetupKey": {
+    "description": "Copies the authenticator setup key."
+  },
+  "twoStepQrCodeLabel": "QR kód pre overovaciu aplikáciu",
+  "@twoStepQrCodeLabel": {
+    "description": "Accessibility label of the QR code for an authenticator app."
+  },
+  "twoStepSetupLoading": "Pripravuje sa overovacia aplikácia…",
+  "@twoStepSetupLoading": {
+    "description": "Shown while the authenticator setup key loads."
+  },
+  "twoStepSetupFailed": "Kľúč na nastavenie sa nepodarilo načítať.",
+  "@twoStepSetupFailed": {
+    "description": "Shown when the authenticator setup key could not be loaded."
+  },
+  "twoStepNoAuthenticatorApp": "Žiadna aplikácia ho nedokázala pridať. Skopírujte kľúč na nastavenie do overovacej aplikácie.",
+  "@twoStepNoAuthenticatorApp": {
+    "description": "Shown when no app on the device could open the authenticator link."
+  },
+  "twoStepRecoveryCodesTitle": "Uložte si kódy na obnovenie",
+  "@twoStepRecoveryCodesTitle": {
+    "description": "Title of the screen that shows new two-step verification recovery codes once."
+  },
+  "twoStepRecoveryCodesDescription": "Každý kód vás raz prihlási, ak prídete o overovaciu aplikáciu. Uložte ich na bezpečné miesto: znova sa nezobrazia.",
+  "@twoStepRecoveryCodesDescription": {
+    "description": "Explains new two-step verification recovery codes before continuing."
+  },
+  "twoStepCopyRecoveryCodes": "Kopírovať kódy na obnovenie",
+  "@twoStepCopyRecoveryCodes": {
+    "description": "Copies the new two-step verification recovery codes."
+  },
+  "twoStepInvalidCode": "Tento kód nefungoval. Skontrolujte ho a skúste to znova.",
+  "@twoStepInvalidCode": {
+    "description": "Shown when a two-step verification code or recovery token was not accepted."
+  },
+  "twoStepExpired": "Platnosť tohto kroku vypršala. Vráťte sa na prihlásenie a začnite znova.",
+  "@twoStepExpired": {
+    "description": "Shown when the two-step verification step expired or no longer applies."
+  },
+  "twoStepTooManyAttempts": "Príliš veľa pokusov. Počkajte niekoľko minút a potom sa prihláste znova.",
+  "@twoStepTooManyAttempts": {
+    "description": "Shown when the server refuses more two-step verification codes for now."
+  },
+  "twoStepFailed": "Kód sa nepodarilo overiť. Skúste to znova.",
+  "@twoStepFailed": {
+    "description": "Shown when a two-step verification code could not be checked, for example offline."
   },
   "serverRedirectingHttps": "Server presmerúva požiadavky. Skontrolujte konfiguráciu HTTPS servera.",
   "@serverRedirectingHttps": {

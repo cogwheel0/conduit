@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -338,43 +339,155 @@ void main() {
     await harness.unmount(tester);
   });
 
-  testWidgets('a sign-in that needs two-step verification says so', (
-    tester,
-  ) async {
-    debugIsWebViewSupportedOverride = false;
-    addTearDown(() => debugIsWebViewSupportedOverride = null);
-    final harness = AdaptiveAuthHarness(
-      server: server,
-      backendConfig: const BackendConfig(enableLdap: true),
-      authActions: _TwoStepAuthActions(),
+  group('a sign-in that needs two-step verification', () {
+    const verify = OpenWebUiTwoStepChallenge(
+      kind: OpenWebUiTwoStepKind.verify,
+      challengeToken: 'user-1.challenge-token-value',
+      expiresIn: Duration(minutes: 5),
     );
-    addTearDown(harness.dispose);
 
-    await tester.pumpWidget(
-      harness.build(initialLocation: Routes.authentication),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('LDAP'));
-    await tester.pumpAndSettle();
-    final fields = find.descendant(
-      of: find.byKey(const ValueKey('ldap_form')),
-      matching: find.byType(TextField),
-    );
-    await tester.enterText(fields.at(0), 'ldapuser');
-    await tester.enterText(fields.at(1), 'password');
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign in with LDAP'));
-    for (var i = 0; i < 10; i++) {
-      await tester.pump(const Duration(milliseconds: 500));
+    Future<AdaptiveAuthHarness> reachSecondStep(
+      WidgetTester tester,
+      _TwoStepAuthActions actions,
+    ) async {
+      debugIsWebViewSupportedOverride = false;
+      addTearDown(() => debugIsWebViewSupportedOverride = null);
+      final harness = AdaptiveAuthHarness(
+        server: server,
+        backendConfig: const BackendConfig(enableLdap: true),
+        authActions: actions,
+      );
+      addTearDown(harness.dispose);
+
+      await tester.pumpWidget(
+        harness.build(initialLocation: Routes.authentication),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('LDAP'));
+      await tester.pumpAndSettle();
+      final fields = find.descendant(
+        of: find.byKey(const ValueKey('ldap_form')),
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(fields.at(0), 'ldapuser');
+      await tester.enterText(fields.at(1), 'password');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sign in with LDAP'));
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+      return harness;
     }
 
-    expect(
-      find.textContaining('uses two-step verification', findRichText: true),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Invalid username'), findsNothing);
+    Future<void> enterCode(WidgetTester tester, String code) async {
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const ValueKey('two-step-code-field')),
+          matching: find.byType(TextField),
+        ),
+        code,
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('two-step-continue')));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
 
-    await harness.unmount(tester);
+    testWidgets('asks for the code and signs in with it', (tester) async {
+      final actions = _TwoStepAuthActions(verify);
+      final harness = await reachSecondStep(tester, actions);
+
+      expect(find.text('Verify your sign-in'), findsOneWidget);
+      expect(find.byKey(const ValueKey('ldap_form')), findsNothing);
+      expect(find.text('Sign in with LDAP'), findsNothing);
+
+      await enterCode(tester, '123456');
+
+      check(actions.submitted).deepEquals([('123456', false)]);
+      check(actions.finished).length.equals(1);
+      await harness.unmount(tester);
+    });
+
+    testWidgets('takes a recovery code instead', (tester) async {
+      final actions = _TwoStepAuthActions(verify);
+      final harness = await reachSecondStep(tester, actions);
+
+      await tester.tap(find.byKey(const ValueKey('two-step-toggle-recovery')));
+      await tester.pump();
+      expect(find.text('Enter one of the recovery codes you saved.'),
+          findsOneWidget);
+      await enterCode(tester, 'a1b2c3d4');
+
+      check(actions.submitted).deepEquals([('a1b2c3d4', true)]);
+      await harness.unmount(tester);
+    });
+
+    testWidgets('says when the code is wrong and stays on the step', (
+      tester,
+    ) async {
+      final actions = _TwoStepAuthActions(
+        verify,
+        failure: OpenWebUiTwoStepFailure.invalidCode,
+      );
+      final harness = await reachSecondStep(tester, actions);
+
+      await enterCode(tester, '000000');
+
+      expect(
+        find.text("That code didn't work. Check it and try again."),
+        findsOneWidget,
+      );
+      expect(find.text('Verify your sign-in'), findsOneWidget);
+      check(actions.finished).isEmpty();
+      await harness.unmount(tester);
+    });
+
+    testWidgets('sets up an authenticator and shows the recovery codes '
+        'before signing in', (tester) async {
+      final actions = _TwoStepAuthActions(
+        const OpenWebUiTwoStepChallenge(
+          kind: OpenWebUiTwoStepKind.enroll,
+          challengeToken: 'user-1.challenge-token-value',
+          expiresIn: Duration(minutes: 5),
+        ),
+        session: const OpenWebUiTwoStepSession(
+          token: 'issued-session',
+          recoveryCodes: ['code-one', 'code-two'],
+        ),
+      );
+      final harness = await reachSecondStep(tester, actions);
+
+      expect(find.text('Set up your authenticator'), findsOneWidget);
+      check(actions.setups).equals(1);
+      expect(find.text('JBSW Y3DP EHPK 3PXP'), findsOneWidget);
+
+      await enterCode(tester, '123456');
+
+      expect(find.text('Save your recovery codes'), findsOneWidget);
+      expect(find.text('code-one\ncode-two'), findsOneWidget);
+      check(actions.finished).isEmpty();
+
+      await tester.tap(find.byKey(const ValueKey('two-step-continue')));
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      check(actions.finished.single.token).equals('issued-session');
+      await harness.unmount(tester);
+    });
+
+    testWidgets('goes back to the sign-in form', (tester) async {
+      final actions = _TwoStepAuthActions(verify);
+      final harness = await reachSecondStep(tester, actions);
+
+      await tester.tap(find.byKey(const ValueKey('two-step-back')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('ldap_form')), findsOneWidget);
+      expect(find.text('Sign in with LDAP'), findsOneWidget);
+      check(actions.submitted).isEmpty();
+      await harness.unmount(tester);
+    });
   });
 
   testWidgets(
@@ -858,15 +971,57 @@ class _RecordingAccountsController extends Fake
   }
 }
 
-/// Fails sign-in the way auth does when Open WebUI asks for two-step
-/// verification.
+/// Answers sign-in the way auth does when Open WebUI asks for a second
+/// step, and records what the second step sends.
 class _TwoStepAuthActions extends Fake implements AuthActions {
+  _TwoStepAuthActions(
+    this.challenge, {
+    this.session = const OpenWebUiTwoStepSession(token: 'issued-session'),
+    this.failure,
+  });
+
+  final OpenWebUiTwoStepChallenge challenge;
+  final OpenWebUiTwoStepSession session;
+  final OpenWebUiTwoStepFailure? failure;
+  final submitted = <(String, bool)>[];
+  final finished = <OpenWebUiTwoStepSession>[];
+  int setups = 0;
+
   @override
   Future<bool> ldapLogin(
     String username,
     String password, {
     bool rememberCredentials = false,
   }) async {
-    throw Exception('twoStepVerificationUnsupported');
+    throw OpenWebUiTwoStepRequired(challenge);
+  }
+
+  @override
+  Future<OpenWebUiTwoStepSetup> startTwoStepEnrollment(
+    OpenWebUiTwoStepChallenge challenge,
+  ) async {
+    setups++;
+    return const OpenWebUiTwoStepSetup(
+      manualKey: 'JBSWY3DPEHPK3PXP',
+      qrCode: '',
+    );
+  }
+
+  @override
+  Future<OpenWebUiTwoStepSession> submitTwoStepCode(
+    OpenWebUiTwoStepChallenge challenge,
+    String code, {
+    bool recovery = false,
+  }) async {
+    submitted.add((code, recovery));
+    final failure = this.failure;
+    if (failure != null) throw OpenWebUiTwoStepException(failure);
+    return session;
+  }
+
+  @override
+  Future<bool> finishTwoStepSignIn(OpenWebUiTwoStepSession session) async {
+    finished.add(session);
+    return true;
   }
 }

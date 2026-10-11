@@ -581,13 +581,121 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
-  "signInTwoStepVerificationUnsupported": "To konto używa weryfikacji dwuetapowej, której Conduit jeszcze nie obsługuje. Zaloguj się przez SSO, jeśli serwer to umożliwia, albo tokenem sesji z Open WebUI w przeglądarce.",
-  "@signInTwoStepVerificationUnsupported": {
-    "description": "Sign-in error when the Open WebUI account must finish two-step verification, which Conduit cannot do yet."
-  },
   "signInAccountPendingApproval": "Twoje konto czeka na zatwierdzenie przez administratora. Spróbuj ponownie po jego zatwierdzeniu.",
   "@signInAccountPendingApproval": {
     "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
+  "signInTwoStepVerificationRequired": "To konto używa weryfikacji dwuetapowej. Zaloguj się ponownie, a następnie wpisz kod z aplikacji uwierzytelniającej.",
+  "@signInTwoStepVerificationRequired": {
+    "description": "Sign-in error when saved credentials met Open WebUI's two-step verification, which needs a code typed in."
+  },
+  "twoStepVerifyTitle": "Potwierdź logowanie",
+  "@twoStepVerifyTitle": {
+    "description": "Title of the sign-in step that asks for a two-step verification code."
+  },
+  "twoStepEnrollTitle": "Skonfiguruj aplikację uwierzytelniającą",
+  "@twoStepEnrollTitle": {
+    "description": "Title of the sign-in step that adds an authenticator app for two-step verification."
+  },
+  "twoStepRecoverTitle": "Odzyskaj aplikację uwierzytelniającą",
+  "@twoStepRecoverTitle": {
+    "description": "Title of the sign-in step that redeems an administrator's two-step verification recovery token."
+  },
+  "twoStepVerifyDescription": "Wpisz sześciocyfrowy kod z aplikacji uwierzytelniającej.",
+  "@twoStepVerifyDescription": {
+    "description": "Instruction for entering a two-step verification code."
+  },
+  "twoStepRecoveryCodeDescription": "Wpisz jeden z zapisanych kodów odzyskiwania.",
+  "@twoStepRecoveryCodeDescription": {
+    "description": "Instruction for signing in with a saved two-step verification recovery code."
+  },
+  "twoStepEnrollDescription": "Dodaj to konto do aplikacji uwierzytelniającej, a następnie wpisz wyświetlony sześciocyfrowy kod.",
+  "@twoStepEnrollDescription": {
+    "description": "Instruction for adding the account to an authenticator app during sign-in."
+  },
+  "twoStepRecoverDescription": "Administrator zresetował weryfikację dwuetapową dla tego konta. Wpisz otrzymany od niego token odzyskiwania.",
+  "@twoStepRecoverDescription": {
+    "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
+  },
+  "twoStepCodeLabel": "Kod uwierzytelniający",
+  "@twoStepCodeLabel": {
+    "description": "Label of the field for an authenticator app code."
+  },
+  "twoStepRecoveryCodeLabel": "Kod odzyskiwania",
+  "@twoStepRecoveryCodeLabel": {
+    "description": "Label of the field for a two-step verification recovery code."
+  },
+  "twoStepResetTokenLabel": "Token odzyskiwania",
+  "@twoStepResetTokenLabel": {
+    "description": "Label of the field for an administrator's two-step verification recovery token."
+  },
+  "twoStepUseRecoveryCode": "Użyj kodu odzyskiwania",
+  "@twoStepUseRecoveryCode": {
+    "description": "Switches the two-step verification field to a recovery code."
+  },
+  "twoStepUseAuthenticatorCode": "Użyj kodu uwierzytelniającego",
+  "@twoStepUseAuthenticatorCode": {
+    "description": "Switches the two-step verification field back to an authenticator app code."
+  },
+  "twoStepBackToSignIn": "Wróć do logowania",
+  "@twoStepBackToSignIn": {
+    "description": "Leaves the two-step verification step for the sign-in form."
+  },
+  "twoStepOpenAuthenticator": "Dodaj do aplikacji uwierzytelniającej",
+  "@twoStepOpenAuthenticator": {
+    "description": "Opens an authenticator app on this device to add the account."
+  },
+  "twoStepSetupKeyLabel": "Klucz konfiguracji",
+  "@twoStepSetupKeyLabel": {
+    "description": "Label above the secret key to type into an authenticator app."
+  },
+  "twoStepCopySetupKey": "Kopiuj klucz konfiguracji",
+  "@twoStepCopySetupKey": {
+    "description": "Copies the authenticator setup key."
+  },
+  "twoStepQrCodeLabel": "Kod QR dla aplikacji uwierzytelniającej",
+  "@twoStepQrCodeLabel": {
+    "description": "Accessibility label of the QR code for an authenticator app."
+  },
+  "twoStepSetupLoading": "Przygotowywanie aplikacji uwierzytelniającej…",
+  "@twoStepSetupLoading": {
+    "description": "Shown while the authenticator setup key loads."
+  },
+  "twoStepSetupFailed": "Nie udało się wczytać klucza konfiguracji.",
+  "@twoStepSetupFailed": {
+    "description": "Shown when the authenticator setup key could not be loaded."
+  },
+  "twoStepNoAuthenticatorApp": "Żadna aplikacja nie mogła go dodać. Skopiuj klucz konfiguracji do aplikacji uwierzytelniającej.",
+  "@twoStepNoAuthenticatorApp": {
+    "description": "Shown when no app on the device could open the authenticator link."
+  },
+  "twoStepRecoveryCodesTitle": "Zapisz kody odzyskiwania",
+  "@twoStepRecoveryCodesTitle": {
+    "description": "Title of the screen that shows new two-step verification recovery codes once."
+  },
+  "twoStepRecoveryCodesDescription": "Każdy kod pozwala zalogować się raz, jeśli zgubisz aplikację uwierzytelniającą. Przechowuj je w bezpiecznym miejscu: nie zostaną pokazane ponownie.",
+  "@twoStepRecoveryCodesDescription": {
+    "description": "Explains new two-step verification recovery codes before continuing."
+  },
+  "twoStepCopyRecoveryCodes": "Kopiuj kody odzyskiwania",
+  "@twoStepCopyRecoveryCodes": {
+    "description": "Copies the new two-step verification recovery codes."
+  },
+  "twoStepInvalidCode": "Ten kod nie zadziałał. Sprawdź go i spróbuj ponownie.",
+  "@twoStepInvalidCode": {
+    "description": "Shown when a two-step verification code or recovery token was not accepted."
+  },
+  "twoStepExpired": "Ten krok wygasł. Wróć do logowania i zacznij od nowa.",
+  "@twoStepExpired": {
+    "description": "Shown when the two-step verification step expired or no longer applies."
+  },
+  "twoStepTooManyAttempts": "Zbyt wiele prób. Odczekaj kilka minut, a następnie zaloguj się ponownie.",
+  "@twoStepTooManyAttempts": {
+    "description": "Shown when the server refuses more two-step verification codes for now."
+  },
+  "twoStepFailed": "Nie udało się sprawdzić kodu. Spróbuj ponownie.",
+  "@twoStepFailed": {
+    "description": "Shown when a two-step verification code could not be checked, for example offline."
   },
   "serverRedirectingHttps": "Serwer przekierowuje żądania. Sprawdź konfigurację HTTPS swojego serwera.",
   "@serverRedirectingHttps": {

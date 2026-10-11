@@ -1,7 +1,13 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
+import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -31,6 +37,17 @@ const _saved = <String, String>{
 /// on. Signing in again with the saved password on launch must stop on the
 /// sign-in page with the reason, once, rather than retry or fail silently.
 void main() {
+  setUpAll(() {
+    registerFallbackValue(
+      const User(
+        id: 'fallback',
+        username: 'f',
+        email: 'f@example.test',
+        role: 'user',
+      ),
+    );
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.activeServerId: 'account-a',
@@ -41,8 +58,8 @@ void main() {
   tearDown(PreferencesStore.debugReset);
 
   for (final (step, message) in [
-    ('verify', 'twoStepVerificationUnsupported'),
-    ('enroll', 'twoStepVerificationUnsupported'),
+    ('verify', 'twoStepVerificationRequired'),
+    ('enroll', 'twoStepVerificationRequired'),
     ('pending', 'accountPendingApproval'),
   ]) {
     test('a saved sign-in answered with next_step $step ends on sign-in', () async {
@@ -90,6 +107,72 @@ void main() {
       verifyNever(() => storage.deleteSavedCredentials());
     });
   }
+
+  test('a password sign-in stops at the second step, and its code signs in '
+      'with what the sign-in was asked to remember', () async {
+    final storage = _CommittingStorage();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    final workerManager = WorkerManager();
+    addTearDown(workerManager.dispose);
+    final api = _ChallengingApi(workerManager, 'verify');
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(api),
+        activeServerProvider.overrideWith((ref) async => _server),
+      ],
+    );
+    addTearDown(container.dispose);
+    await _settledAuth(container);
+    final auth = container.read(authStateManagerProvider.notifier);
+
+    OpenWebUiTwoStepChallenge? challenge;
+    try {
+      await auth.login('a@example.test', 'pw', rememberCredentials: true);
+    } on OpenWebUiTwoStepRequired catch (e) {
+      challenge = e.challenge;
+    }
+
+    check(challenge).isNotNull().has((c) => c.kind, 'kind').equals(
+      OpenWebUiTwoStepKind.verify,
+    );
+    var state = container.read(authStateManagerProvider).requireValue;
+    check(state.status).equals(AuthStatus.unauthenticated);
+    check(state.error).isNull();
+    check(state.isLoading).isFalse();
+    check(storage.committedToken).isNull();
+
+    final session = await auth.submitTwoStepCode(challenge!, ' 123456 ');
+    check(api.verified).deepEquals([
+      ('user-a.challenge-token-value', '123456', false),
+    ]);
+
+    check(await auth.finishTwoStepSignIn(session)).isTrue();
+    state = container.read(authStateManagerProvider).requireValue;
+    check(state.status).equals(AuthStatus.authenticated);
+    check(state.token).equals(_issuedToken);
+    check(storage.committedToken).equals(_issuedToken);
+    check(storage.remembered).isNotNull().deepEquals({
+      'serverId': 'account-a',
+      'username': 'a@example.test',
+      'password': 'pw',
+      'authType': 'credentials',
+    });
+  });
 }
 
 /// The auth state once its first restore, and the background sign-in it
@@ -106,6 +189,43 @@ Future<AuthState> _settledAuth(ProviderContainer container) async {
 
 final class _Storage extends Mock implements OptimizedStorageService {}
 
+/// Storage that owns the server and commits whatever session it is given.
+final class _CommittingStorage extends _Storage {
+  String? committedToken;
+  Map<String, String>? remembered;
+
+  @override
+  Future<ServerSessionOwnershipSnapshot?> captureServerSessionOwnership({
+    required ServerConfig validatedConfig,
+    required bool requireActive,
+  }) async => (
+    revision: 1,
+    serverConfig: validatedConfig,
+    requireActive: requireActive,
+  );
+
+  @override
+  Future<bool> commitExistingServerSession({
+    required ServerSessionOwnershipSnapshot ownership,
+    required String token,
+    required bool Function() canCommit,
+    required FutureOr<void> Function() publish,
+    Map<String, String>? rememberedCredentials,
+    Map<String, String>? expectedSavedCredentials,
+    void Function()? onRollbackUncertain,
+  }) async {
+    if (!canCommit()) return false;
+    committedToken = token;
+    remembered = rememberedCredentials;
+    await publish();
+    return true;
+  }
+}
+
+// Shaped like a JWT so the token format check accepts it.
+const _issuedToken =
+    'eyJhbGciOiJIUzI1NiJ9.eyJpZCI6ImEifQ.signature-for-account-a';
+
 /// A server whose sign-in answers with [step] instead of a session.
 final class _ChallengingApi extends ApiService {
   _ChallengingApi(WorkerManager workerManager, this.step)
@@ -113,6 +233,7 @@ final class _ChallengingApi extends ApiService {
 
   final String step;
   int logins = 0;
+  final verified = <(String, String, bool)>[];
 
   @override
   Future<Map<String, dynamic>> login(String username, String password) async {
@@ -125,4 +246,26 @@ final class _ChallengingApi extends ApiService {
             'expires_in': 300,
           };
   }
+
+  @override
+  Future<OpenWebUiTwoStepSession> verifyTwoStepCode(
+    String challengeToken,
+    String code, {
+    bool recovery = false,
+  }) async {
+    verified.add((challengeToken, code, recovery));
+    return const OpenWebUiTwoStepSession(token: _issuedToken);
+  }
+
+  @override
+  Future<User> getCurrentUser({
+    bool suppressAuthFailureNotification = false,
+    String? candidateAuthToken,
+    ApiAuthSnapshot? authSnapshot,
+  }) async => const User(
+    id: 'user-a',
+    username: 'a',
+    email: 'a@example.test',
+    role: 'user',
+  );
 }
