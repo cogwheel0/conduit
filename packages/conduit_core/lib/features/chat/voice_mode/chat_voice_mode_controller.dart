@@ -341,6 +341,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     Model? admittedModel,
   }) async {
     final stopGenerationAtRequest = _stopRequestGeneration;
+    // The chat the call is for, as the user asked for it: the open one, or
+    // the new one it starts.
+    final callChatId = startNewConversation
+        ? null
+        : ref.read(activeConversationProvider)?.id;
     bool cancellationRequested() =>
         _disposed || stopGenerationAtRequest != _stopRequestGeneration;
 
@@ -468,10 +473,6 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           if (lostOwnership()) return;
           cancelIfRequested();
 
-          // The chat the call is for: the open one, or the new one it starts.
-          final callChatId = startNewConversation
-              ? null
-              : ref.read(activeConversationProvider)?.id;
           final realtime = await _resolveRealtime(
             model,
             newChat: startNewConversation,
@@ -883,7 +884,14 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       }
       final realtime = _realtime;
       if (realtime != null) {
-        realtime.setMuted(!realtime.state.muted);
+        if (realtime.state.muted) {
+          // Unmuting ends a pause too: the call is back.
+          realtime
+            ..setPaused(false)
+            ..setMuted(false);
+        } else {
+          realtime.setMuted(true);
+        }
         return;
       }
 

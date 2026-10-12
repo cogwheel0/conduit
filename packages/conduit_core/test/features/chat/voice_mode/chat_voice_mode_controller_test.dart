@@ -2774,11 +2774,13 @@ void main() {
     });
 
     test('opening another chat ends a realtime call', () async {
+      // Direct chats, which this container keeps open.
       Conversation chat(String id) => Conversation(
         id: id,
         title: 'Chat',
         createdAt: DateTime.utc(2026),
         updatedAt: DateTime.utc(2026),
+        metadata: const {'backend': kDirectTransport},
       );
       final container = realtimeContainer();
       final active = container.read(activeConversationProvider.notifier)
@@ -2846,6 +2848,50 @@ void main() {
       );
       // The system ended the call; it is not ended again.
       check(callKit.endedCallIds).isEmpty();
+    });
+
+    test('unmuting a paused call brings its answers back', () async {
+      final container = realtimeContainer();
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+      await controller.start(startNewConversation: false, admittedModel: _model);
+      await controller.pause();
+      await controller.toggleMute();
+
+      bridge.inbox.add({
+        'type': 'conversation.item.input_audio_transcription.completed',
+        'item_id': 'item-1',
+        'transcript': 'Hello',
+      });
+      await pumpEventQueue();
+
+      check(bridge.sent).any(
+        (it) => it.deepEquals({'type': 'bridge.respond', 'item_id': 'item-1'}),
+      );
+      await controller.stop();
+    });
+
+    test('a chat opened right after the call is asked for cancels it',
+        () async {
+      Conversation chat(String id) => Conversation(
+        id: id,
+        title: 'Chat',
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+        metadata: const {'backend': kDirectTransport},
+      );
+      final container = realtimeContainer();
+      final active = container.read(activeConversationProvider.notifier)
+        ..set(chat('direct-local:a'));
+
+      final starting = container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false, admittedModel: _model);
+      active.set(chat('direct-local:b'));
+
+      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+      check(bridge.opened).isFalse();
     });
 
     test('a chat opened while the call sets up cancels it', () async {
@@ -3587,6 +3633,7 @@ final class _RealtimeBridge implements RealtimeBridgeTransport {
   final _closed = Completer<String?>();
   String? refusal;
   var opened = false;
+  final sent = <Map<String, Object?>>[];
 
   /// Holds the connection open until it completes, or the call closes it.
   Completer<void>? opening;
@@ -3615,7 +3662,7 @@ final class _RealtimeBridge implements RealtimeBridgeTransport {
   Stream<Map<String, Object?>> get events => inbox.stream;
 
   @override
-  void send(Map<String, Object?> command) {}
+  void send(Map<String, Object?> command) => sent.add(command);
 
   @override
   Future<String?> get closed => _closed.future;
