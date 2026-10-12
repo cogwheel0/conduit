@@ -94,6 +94,7 @@ abstract interface class RealtimeCallEngine {
   /// Stops the voice mid-sentence.
   void interrupt();
 
-  /// Ends the call, saving what was said. Safe to call more than once.
+  /// Ends the call, saving what was said. Safe to call more than once:
+  /// every call waits for the same ending.
   Future<void> end();
 }

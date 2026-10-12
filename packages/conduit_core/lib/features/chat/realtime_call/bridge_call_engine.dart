@@ -777,9 +777,13 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     return end();
   }
 
+  /// The call's one ending, which every [end] waits for.
+  Future<void>? _ending;
+
   @override
-  Future<void> end() async {
-    if (_ended) return;
+  Future<void> end() => _ending ??= _end();
+
+  Future<void> _end() async {
     _ended = true;
     if (_connected) {
       _stopSpeaking();

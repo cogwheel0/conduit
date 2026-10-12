@@ -436,9 +436,13 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
     return end();
   }
 
+  /// The call's one ending, which every [end] waits for.
+  Future<void>? _ending;
+
   @override
-  Future<void> end() async {
-    if (_ended) return;
+  Future<void> end() => _ending ??= _end();
+
+  Future<void> _end() async {
     _ended = true;
     _speechTimer?.cancel();
     // Nothing more is heard while the session confirms its close.

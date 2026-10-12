@@ -790,7 +790,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final realtime = _realtime;
     if (realtime != null &&
         realtime.state.phase == RealtimeCallPhase.connecting) {
-      unawaited(realtime.end());
+      // Teardown awaits this same ending, and reports what it throws.
+      unawaited(realtime.end().catchError((Object _) {}));
     }
     return _enqueue(() => _stopInternal(endCallKit: true));
   }

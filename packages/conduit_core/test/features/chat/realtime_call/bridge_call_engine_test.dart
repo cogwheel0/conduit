@@ -75,6 +75,7 @@ final class _Audio implements RealtimePcmAudioPort {
   bool? captureEnabled;
   var received = 0;
   Completer<void>? startGate;
+  Completer<void>? stopGate;
   var stops = 0;
 
   /// A report after everything queued has played, as the engine reports it:
@@ -127,7 +128,10 @@ final class _Audio implements RealtimePcmAudioPort {
   Duration get outputLatency => const Duration(milliseconds: 50);
 
   @override
-  Future<void> stop() async => stops++;
+  Future<void> stop() async {
+    stops++;
+    await stopGate?.future;
+  }
 }
 
 final class _Turn implements DelegatedTurn {
@@ -657,6 +661,21 @@ void main() {
 
     check(engine.state.phase).equals(RealtimeCallPhase.ended);
     check(engine.state.error).equals('Call session expired. Start a new call.');
+  });
+
+  test('every end waits for the one ending', () async {
+    final stopping = audio.stopGate = Completer<void>();
+    final first = engine.end();
+    var secondDone = false;
+    unawaited(engine.end().then((_) => secondDone = true));
+    await _settle();
+    check(secondDone).isFalse();
+
+    stopping.complete();
+    await first;
+    await _settle();
+    check(secondDone).isTrue();
+    check(audio.stops).equals(1);
   });
 
   test('a call ended while its audio starts opens no connection', () async {
