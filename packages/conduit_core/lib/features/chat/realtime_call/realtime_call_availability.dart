@@ -91,10 +91,12 @@ Future<RealtimeCallRoute> resolveRealtimeCallRoute(
     return _blocked(RealtimeCallBlock.standardChosen);
   }
   // A call that starts a new chat is not in the one open now, and the new
-  // chat starts temporary as settings say.
+  // chat starts temporary as a new chat does: when the server enforces it, or
+  // settings say so.
   final active = newChat ? null : ref.read(activeConversationProvider);
   final temporary = newChat
-      ? ref.read(appSettingsProvider).temporaryChatByDefault
+      ? ref.read(temporaryChatEnforcedProvider) ||
+            ref.read(appSettingsProvider).temporaryChatByDefault
       : ref.read(temporaryChatEnabledProvider);
   if (temporary || (active != null && isTemporaryChat(active.id))) {
     return _blocked(RealtimeCallBlock.temporaryChat);

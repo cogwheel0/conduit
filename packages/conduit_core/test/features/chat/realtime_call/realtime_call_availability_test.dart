@@ -79,6 +79,7 @@ void main() {
     String token = 'eyJhbGciOiJIUzI1NiJ9.e30.sig',
     Conversation? active,
     bool newChat = false,
+    bool? temporaryEnforced,
     DirectModelRegistry? registry,
     DirectVoiceProvider? voice,
   }) async {
@@ -104,6 +105,8 @@ void main() {
         ),
         directModelDiscoveryProvider.overrideWith(_Discovery.new),
         directVoiceProviderProvider.overrideWithValue(voice),
+        if (temporaryEnforced != null)
+          temporaryChatEnforcedProvider.overrideWithValue(temporaryEnforced),
       ],
     );
     addTearDown(container.dispose);
@@ -141,6 +144,7 @@ void main() {
         overrides: [
           appSettingsProvider.overrideWithValue(const AppSettings()),
           activeConversationProvider.overrideWith(() => _Active(null)),
+          temporaryChatEnforcedProvider.overrideWithValue(false),
           hermesApiServiceProvider.overrideWithValue(service),
         ],
       );
@@ -191,6 +195,17 @@ void main() {
       );
 
       check((result.bridge! as OpenWebUiRealtimeBridge).chatId).isNull();
+    });
+
+    test('a new chat the server keeps temporary stays Standard', () async {
+      final result = await route(
+        _owuiModel,
+        active: _chat('chat-1'),
+        newChat: true,
+        temporaryEnforced: true,
+      );
+
+      check(result.block).equals(RealtimeCallBlock.temporaryChat);
     });
 
     test('a chat the server does not have yet is not named', () async {

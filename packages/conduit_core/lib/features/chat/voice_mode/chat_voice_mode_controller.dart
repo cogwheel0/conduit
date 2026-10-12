@@ -586,10 +586,21 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     Model model, {
     required bool newChat,
   }) async {
-    final route = await ref.read(realtimeCallRouteResolverProvider)(
-      model,
-      newChat: newChat,
-    );
+    final RealtimeCallRoute route;
+    try {
+      route = await ref.read(realtimeCallRouteResolverProvider)(
+        model,
+        newChat: newChat,
+      );
+    } catch (error) {
+      // What cannot be read keeps the call Standard, like anything unknown.
+      DebugLogger.warning(
+        'realtime-route-failed',
+        scope: 'chat/voice_mode',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return null;
+    }
     final bridge = route.bridge;
     if (bridge != null) {
       final audio = ref.read(realtimePcmAudioFactoryProvider)();
