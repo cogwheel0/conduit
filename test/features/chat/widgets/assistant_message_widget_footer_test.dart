@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
@@ -125,6 +126,7 @@ Widget _buildAssistantHarness(
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
   FutureOr<void> Function(String suggestion)? onFollowUpSelected,
+  Locale? locale,
 }) {
   return ProviderScope(
     overrides: [
@@ -137,6 +139,7 @@ Widget _buildAssistantHarness(
     ],
     child: MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
+      locale: locale,
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, child) => MediaQuery(
@@ -621,6 +624,39 @@ void main() {
     // Dispose the control before advancing that guard timer in widget tests.
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 500));
+  });
+
+  testWidgets('a voice reply names itself in the app language', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'voice-reply',
+      role: 'assistant',
+      content: 'Hi there.',
+      timestamp: DateTime(2026),
+      model: 'gpt-realtime',
+      metadata: const {
+        kMessageVoiceMetadataKey: {
+          'model': 'gpt-realtime',
+          'speech': [
+            {'item_id': 'item-1', 'transcript': 'Hi there.'},
+          ],
+        },
+      },
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, locale: const Locale('en')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('gpt-realtime · spoken'), findsOneWidget);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, locale: const Locale('de')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('gpt-realtime · gesprochen'), findsOneWidget);
+    expect(find.text('gpt-realtime · spoken'), findsNothing);
   });
 
   testWidgets('assistant header follows the active version model', (

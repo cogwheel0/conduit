@@ -178,7 +178,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Widget? _cachedAvatar;
   String? _cachedAvatarModelName;
   String? _cachedAvatarIconUrl;
-  bool _cachedAvatarVoiceReply = false;
+  // The label as shown, in the app's language: a voice reply's names it.
+  String? _cachedAvatarLabel;
   // Hysteresis for the action row: a message that has streamed in this widget's
   // lifetime must reach a settled completion before the action row appears, so
   // a transient in-progress state can never flash the row mid-stream. Settled
@@ -338,6 +339,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _cachedAvatar = null;
       _cachedAvatarModelName = null;
       _cachedAvatarIconUrl = null;
+      _cachedAvatarLabel = null;
       _clearVisibleFollowUps();
       _resetTtsPlainTextState();
       _hasAnimated = !_shouldAnimateOnMount;
@@ -1012,6 +1014,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // that identity was never shown above — so only stay silent while the
     // active identity still matches the one the group header announced.
     final isVoiceReply = _isVoiceReply;
+    final label = isVoiceReply
+        ? AppLocalizations.of(context)!.voiceReplySpokenLabel(modelName)
+        : modelName;
     if (!widget.showModelHeader &&
         !isVoiceReply &&
         modelName == widget.modelName?.trim() &&
@@ -1019,13 +1024,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _cachedAvatar = null;
       _cachedAvatarModelName = modelName;
       _cachedAvatarIconUrl = iconUrl;
-      _cachedAvatarVoiceReply = isVoiceReply;
+      _cachedAvatarLabel = label;
       return;
     }
     if (_cachedAvatar != null &&
         _cachedAvatarModelName == modelName &&
         _cachedAvatarIconUrl == iconUrl &&
-        _cachedAvatarVoiceReply == isVoiceReply) {
+        _cachedAvatarLabel == label) {
       return;
     }
     final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
@@ -1050,11 +1055,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           const SizedBox(width: Spacing.xs + Spacing.xxs),
           Flexible(
             child: MiddleEllipsisText(
-              isVoiceReply
-                  ? AppLocalizations.of(
-                      context,
-                    )!.voiceReplySpokenLabel(modelName)
-                  : modelName,
+              label,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textTertiary,
                 fontWeight: FontWeight.w400,
@@ -1067,7 +1068,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
     _cachedAvatarModelName = modelName;
     _cachedAvatarIconUrl = iconUrl;
-    _cachedAvatarVoiceReply = isVoiceReply;
+    _cachedAvatarLabel = label;
   }
 
   String _resolveActiveModelName() {

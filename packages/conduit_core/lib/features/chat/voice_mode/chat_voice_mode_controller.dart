@@ -490,8 +490,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             await _audioSessionCoordinator?.configureForBargeInSpeaking();
             if (lostOwnership()) return;
             cancelIfRequested();
-            await _startRealtime(realtime, startToken);
+            try {
+              await _startRealtime(realtime, startToken);
+            } catch (_) {
+              // Hung up while it connected: the stop ended it, which is no
+              // failure.
+              cancelIfRequested();
+              rethrow;
+            }
             if (lostOwnership()) return;
+            cancelIfRequested();
             if (_isCurrent(startToken) && state.isActive) {
               result = ChatVoiceModeStartResult.started;
             }
@@ -777,6 +785,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> stop() {
     ++_stopRequestGeneration;
     _cancelPendingStartReadiness();
+    // A realtime voice still connecting ends now: its microphone and
+    // connection must not wait for the start queued ahead of this stop.
+    final realtime = _realtime;
+    if (realtime != null &&
+        realtime.state.phase == RealtimeCallPhase.connecting) {
+      unawaited(realtime.end());
+    }
     return _enqueue(() => _stopInternal(endCallKit: true));
   }
 

@@ -2782,6 +2782,30 @@ void main() {
       check(bridge.wasClosed).isTrue();
     });
 
+    test('hanging up while it connects ends the call at once', () async {
+      bridge.opening = Completer<void>();
+      final container = realtimeContainer();
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      final starting = controller.start(
+        startNewConversation: false,
+        admittedModel: _model,
+      );
+      await _until(() => audio.started);
+      final stopping = controller.stop();
+      await pumpEventQueue();
+
+      // Ended before the start queued ahead of the stop finished.
+      check(bridge.wasClosed).isTrue();
+      check(audio.stopped).isTrue();
+      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+      await stopping;
+      check(container.read(chatVoiceModeControllerProvider).isActive)
+          .isFalse();
+    });
+
     test('a realtime voice that cannot start says why', () async {
       bridge.refusal = 'Call permission denied';
       final container = realtimeContainer();
@@ -3490,6 +3514,9 @@ final class _RealtimeBridge implements RealtimeBridgeTransport {
   final _closed = Completer<String?>();
   String? refusal;
 
+  /// Holds the connection open until it completes, or the call closes it.
+  Completer<void>? opening;
+
   bool get wasClosed => _closed.isCompleted;
 
   @override
@@ -3498,6 +3525,13 @@ final class _RealtimeBridge implements RealtimeBridgeTransport {
     if (refusal != null) {
       if (!_closed.isCompleted) _closed.complete(refusal);
       throw RealtimeBridgeException(refusal);
+    }
+    final opening = this.opening;
+    if (opening != null) {
+      await Future.any([opening.future, _closed.future]);
+      if (_closed.isCompleted) {
+        throw const RealtimeBridgeException('The call ended.');
+      }
     }
     return (model: 'gpt-realtime', voice: 'marin');
   }
