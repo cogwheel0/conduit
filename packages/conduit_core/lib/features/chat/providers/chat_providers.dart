@@ -30,7 +30,6 @@ import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:conduit_core/auth/auth_state_manager.dart';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';

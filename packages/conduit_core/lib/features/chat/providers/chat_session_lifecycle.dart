@@ -71,10 +71,7 @@ void startNewChat(dynamic ref, {Model? modelForNewConversation}) {
     restoreDefaultModel(ref);
   }
 
-  final settings = ref.read(appSettingsProvider);
-  ref
-      .read(temporaryChatEnabledProvider.notifier)
-      .set(settings.temporaryChatByDefault);
+  ref.read(temporaryChatEnabledProvider.notifier).startNewChat();
 }
 
 /// Starts a new chat pinned to the Hermes agent model. Unlike [startNewChat],
@@ -90,10 +87,7 @@ Future<void> startNewHermesChat(dynamic ref) async {
   ref.read(contextAttachmentsProvider.notifier).clear();
   ref.read(pendingFolderIdProvider.notifier).clear();
 
-  final settings = ref.read(appSettingsProvider);
-  ref
-      .read(temporaryChatEnabledProvider.notifier)
-      .set(settings.temporaryChatByDefault);
+  ref.read(temporaryChatEnabledProvider.notifier).startNewChat();
 
   // Hermes is app-owned runtime state; starting it must never wait on an
   // unrelated OpenWebUI model request in mixed-backend setups.

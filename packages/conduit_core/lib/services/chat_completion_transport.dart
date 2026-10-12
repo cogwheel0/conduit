@@ -3,6 +3,22 @@ import 'dart:async';
 /// The transport mode chosen by the server for a chat completion request.
 enum ChatCompletionTransport { httpStream, taskSocket, jsonCompletion }
 
+/// A completion request Open WebUI refused with an HTTP error status.
+final class ChatCompletionHttpException implements Exception {
+  const ChatCompletionHttpException(this.statusCode, this.detail);
+
+  final int statusCode;
+  final String detail;
+
+  /// Whether the refusal could mean the session ended. Open WebUI refuses an
+  /// ended session with 401 or 403, but also passes a model provider's own
+  /// 401 or 403 through, so only the session endpoint can tell them apart.
+  bool get mayRejectSession => statusCode == 401 || statusCode == 403;
+
+  @override
+  String toString() => 'Chat completion failed ($statusCode): $detail';
+}
+
 /// One answer a single completion request asks the server to generate: the
 /// model, the assistant message that will hold it, and the column (`modelIdx`)
 /// it occupies. Equal model ids in different columns are different answers.

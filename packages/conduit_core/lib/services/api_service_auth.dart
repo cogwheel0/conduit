@@ -101,6 +101,119 @@ mixin _AuthApi on _ApiServiceBase {
     }
   }
 
+  // Two-step verification (Open WebUI 0.12 `/api/v1/auths/mfa`). Each call
+  // carries only the challenge token a sign-in answered with; none of them is
+  // a session, so a refusal never reports the session as ended.
+
+  /// Starts adding an authenticator for an `enroll` step: the secret to add.
+  Future<OpenWebUiTwoStepSetup> startTwoStepEnrollment(
+    String challengeToken,
+  ) async {
+    final data = await _postTwoStep('enroll/start', {
+      'challenge_token': challengeToken,
+    });
+    final key = data['manual_key'];
+    final qr = data['qr_code'];
+    if (key is! String || key.isEmpty) {
+      throw const OpenWebUiTwoStepException(OpenWebUiTwoStepFailure.failed);
+    }
+    return OpenWebUiTwoStepSetup(
+      manualKey: key,
+      qrCode: qr is String ? qr : '',
+    );
+  }
+
+  /// Confirms the new authenticator with a [code] from it. The session comes
+  /// with the account's recovery codes, shown only this once.
+  Future<OpenWebUiTwoStepSession> confirmTwoStepEnrollment(
+    String challengeToken,
+    String code,
+  ) async {
+    final data = await _postTwoStep('enroll/confirm', {
+      'challenge_token': challengeToken,
+      'code': code,
+    });
+    return _twoStepSession(data);
+  }
+
+  /// Answers a `verify` step with an authenticator [code], or with one of the
+  /// account's recovery codes when [recovery] is set.
+  Future<OpenWebUiTwoStepSession> verifyTwoStepCode(
+    String challengeToken,
+    String code, {
+    bool recovery = false,
+  }) async {
+    final data = await _postTwoStep('verify', {
+      'challenge_token': challengeToken,
+      'code': code,
+      'recovery': recovery,
+    });
+    return _twoStepSession(data);
+  }
+
+  /// Redeems an administrator's recovery token for a `recover` step. The
+  /// server answers with an `enroll` step for a new authenticator.
+  Future<OpenWebUiTwoStepChallenge> redeemTwoStepResetToken(
+    String challengeToken,
+    String resetToken,
+  ) async {
+    final data = await _postTwoStep('recover', {
+      'challenge_token': challengeToken,
+      'reset_token': resetToken,
+    });
+    final challenge = OpenWebUiTwoStepChallenge.fromJson(data);
+    if (challenge == null) {
+      throw const OpenWebUiTwoStepException(OpenWebUiTwoStepFailure.failed);
+    }
+    return challenge;
+  }
+
+  OpenWebUiTwoStepSession _twoStepSession(Map<String, dynamic> data) {
+    final token = data['token'];
+    if (token is! String || token.isEmpty) {
+      throw const OpenWebUiTwoStepException(OpenWebUiTwoStepFailure.failed);
+    }
+    final codes = data['recovery_codes'];
+    return OpenWebUiTwoStepSession(
+      token: token,
+      recoveryCodes: codes is List
+          ? [for (final code in codes) code.toString()]
+          : const <String>[],
+    );
+  }
+
+  Future<Map<String, dynamic>> _postTwoStep(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/api/v1/auths/mfa/$path',
+        data: body,
+        options: Options(extra: {'suppressAuthFailureNotification': true}),
+      );
+      final data = response.data;
+      if (data is Map) return Map<String, dynamic>.from(data);
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      final failure = classifyOpenWebUiTwoStepError(
+        e.response?.statusCode,
+        data is Map ? data['detail'] : null,
+      );
+      DebugLogger.warning(
+        'two-step-refused',
+        scope: 'auth/mfa',
+        data: {
+          'step': path,
+          'status': e.response?.statusCode,
+          'failure': failure.name,
+        },
+      );
+      throw OpenWebUiTwoStepException(failure);
+    }
+    throw const OpenWebUiTwoStepException(OpenWebUiTwoStepFailure.failed);
+  }
+
   // User info
   Future<User> getCurrentUser({
     bool suppressAuthFailureNotification = false,

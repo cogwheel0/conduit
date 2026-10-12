@@ -20,6 +20,7 @@ import '../../profile/widgets/account_actions.dart'
     show abandonAddedAccount, confirmLeavingActiveAccount;
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -29,6 +30,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../../platform/webview_cookie_helper.dart' show isWebViewSupported;
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../widgets/openwebui_two_step_form.dart';
 
 /// Authentication mode options
 enum AuthMode {
@@ -121,6 +123,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   late BackendConfig? _backendConfig = widget.backendConfig;
   String? _loginError;
   bool _isSigningIn = false;
+
+  /// The second step a password or LDAP sign-in stopped at, while it is
+  /// taken, and the username that sign-in began with.
+  OpenWebUiTwoStepChallenge? _twoStep;
+  String _twoStepAccount = '';
   bool _serverConfigSaved = false;
 
   /// Whether the addition this page's server was saved for is still under
@@ -287,6 +294,16 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
     final l10n = AppLocalizations.of(context)!;
     if (!_formKey.currentState!.validate()) return;
+    // Sign in with what was validated and submitted: the method and fields
+    // can change while the sign-in waits on a confirmation or the server.
+    final mode = _authMode;
+    final username = mode == AuthMode.ldap
+        ? _ldapUsernameController.text.trim()
+        : _usernameController.text.trim();
+    final password = mode == AuthMode.ldap
+        ? _ldapPasswordController.text
+        : _passwordController.text;
+    final token = _apiKeyController.text.trim();
     if (!await _mayLeaveActiveAccount() || !mounted) return;
 
     setState(() {
@@ -309,22 +326,22 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       final actions = ref.read(authActionsProvider);
       bool success;
 
-      switch (_authMode) {
+      switch (mode) {
         case AuthMode.credentials:
           success = await actions.login(
-            _usernameController.text.trim(),
-            _passwordController.text,
+            username,
+            password,
             rememberCredentials: true,
           );
         case AuthMode.token:
           success = await actions.loginWithApiKey(
-            _apiKeyController.text.trim(),
+            token,
             rememberCredentials: true,
           );
         case AuthMode.ldap:
           success = await actions.ldapLogin(
-            _ldapUsernameController.text.trim(),
-            _ldapPasswordController.text,
+            username,
+            password,
             rememberCredentials: true,
           );
         case AuthMode.sso:
@@ -342,6 +359,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       ConduitHaptics.success();
 
       // Success - navigation will be handled by auth state change
+    } on OpenWebUiTwoStepRequired catch (e) {
+      // The password was right; the server asks for a second step before it
+      // issues a session.
+      if (!mounted) return;
+      setState(() {
+        _twoStep = e.challenge;
+        _twoStepAccount = username;
+      });
     } catch (e) {
       if (!mounted) return;
       // Don't clear server config on auth failure - user should be able to retry
@@ -480,7 +505,13 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   String _formatLoginError(String error) {
     final l10n = AppLocalizations.of(context)!;
-    if (error.contains('apiKeyNotSupported')) {
+    if (error.contains('twoStepVerificationRequired')) {
+      return l10n.signInTwoStepVerificationRequired;
+    } else if (error.contains('twoStepSessionRejected')) {
+      return l10n.twoStepExpired;
+    } else if (error.contains('accountPendingApproval')) {
+      return l10n.signInAccountPendingApproval;
+    } else if (error.contains('apiKeyNotSupported')) {
       return l10n.apiKeyNotSupported;
     } else if (error.contains('apiKeyNoLongerSupported')) {
       return l10n.apiKeyNoLongerSupported;
@@ -527,17 +558,25 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     final abandonable =
         ref.watch(pendingSignInAbandonableProvider).value ?? false;
 
+    final twoStep = _twoStep;
+
     // The system back and the edge swipe leave as Cancel does, so they cannot
-    // leave an added account that never signed in as the active one.
+    // leave an added account that never signed in as the active one. During
+    // a second step they return to the sign-in form.
     return PopScope(
-      canPop: !abandonable,
+      canPop: !abandonable && twoStep == null,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _cancelAddition();
+        if (didPop) return;
+        if (_twoStep != null) {
+          _leaveTwoStep();
+        } else {
+          _cancelAddition();
+        }
       },
       child: UtilityPageScaffold.auth(
         title: l10n.signIn,
         backNavigation: _backNavigation(l10n, abandonable: abandonable),
-        bottomAction: _buildSignInButton(),
+        bottomAction: twoStep == null ? _buildSignInButton() : null,
         body: Form(
           key: _formKey,
           child: Column(
@@ -545,14 +584,32 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             children: [
               _buildHeader(),
               const SizedBox(height: Spacing.xl),
-              _buildAuthMethodSection(),
-              const SizedBox(height: Spacing.xl),
-              _buildAuthForm(),
+              if (twoStep != null)
+                OpenWebUiTwoStepForm(
+                  key: ObjectKey(twoStep),
+                  challenge: twoStep,
+                  account: _twoStepAccount,
+                  onCancel: _leaveTwoStep,
+                  mayFinish: _signInTargetStillSelected,
+                  formatSignInError: _formatLoginError,
+                )
+              else ...[
+                _buildAuthMethodSection(),
+                const SizedBox(height: Spacing.xl),
+                _buildAuthForm(),
+              ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  void _leaveTwoStep() {
+    setState(() {
+      _twoStep = null;
+      _loginError = null;
+    });
   }
 
   Widget _buildHeader() {

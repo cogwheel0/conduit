@@ -225,6 +225,28 @@ OpenWebUiPendingToolPrompt? findPendingOpenWebUiToolPrompt(
   return null;
 }
 
+/// The title and message a socket `confirmation` request shows.
+///
+/// A tool call awaiting approval in a chat that is not saved (tool approval
+/// "ask") carries only `tool_call: {id, name, arguments}` and no text, so it
+/// is shown as a saved approval is: the tool's name over its arguments.
+({String title, String message}) openWebUiConfirmationText(
+  Map<String, dynamic> data,
+) {
+  final toolCall = _stringMap(data['tool_call']);
+  if (toolCall != null) {
+    final name = boundedOpenWebUiString(toolCall['name'], 80);
+    return (
+      title: name.isEmpty ? 'Tool' : name,
+      message: formatOpenWebUiToolArguments(toolCall['arguments']),
+    );
+  }
+  return (
+    title: boundedOpenWebUiString(data['title'], 120),
+    message: boundedOpenWebUiString(data['message'], 2000),
+  );
+}
+
 String formatOpenWebUiToolArguments(Object? value) {
   Object? normalized = value;
   if (value is String) {

@@ -893,22 +893,55 @@ bool isReadOnlySharedConversation(
 bool isReadOnlySharedOwner(String? owner, String? currentUserId) =>
     owner != null && owner != currentUserId;
 
+/// Whether the server makes every new chat temporary for this account.
+///
+/// Open WebUI 0.12 refuses to create chats for a non-admin whose
+/// `chat.temporary` and `chat.temporary_enforced` permissions are both on, and
+/// its web client then keeps temporary chat on with no toggle. Chats that
+/// already exist go on as before.
+final temporaryChatEnforcedProvider = Provider<bool>((ref) {
+  if (ref.watch(apiServiceProvider) == null) return false;
+  final user = ref.watch(currentUserProvider2);
+  if (user == null || user.role == 'admin') return false;
+  final chat = ref.watch(userPermissionsProvider).value?['chat'];
+  return chat is Map &&
+      chat['temporary'] != false &&
+      chat['temporary_enforced'] == true;
+});
+
 /// Whether the current chat session is temporary (not persisted to server).
 ///
 /// When true, conversations use `local:{socketId}` IDs and skip all
 /// server persistence. Resets on app restart unless the user has
-/// `temporaryChatByDefault` enabled in settings.
+/// `temporaryChatByDefault` enabled in settings, or the server enforces
+/// temporary chats ([temporaryChatEnforcedProvider]).
 @riverpod
 class TemporaryChatEnabled extends _$TemporaryChatEnabled {
   @override
   bool build() {
-    // Use ref.read (not watch) so settings changes don't reset
-    // the ephemeral toggle state mid-conversation.
-    final settings = ref.read(appSettingsProvider);
-    return settings.temporaryChatByDefault;
+    // The account's permissions arrive after sign-in. Once they enforce
+    // temporary chats, a chat not yet saved becomes temporary too, since the
+    // server would refuse to create it.
+    ref.listen(temporaryChatEnforcedProvider, (_, enforced) {
+      final active = ref.read(activeConversationProvider);
+      if (enforced && (active == null || isTemporaryChat(active.id))) {
+        state = true;
+      }
+    });
+    return _newChatValue;
   }
 
+  // Use ref.read (not watch) so settings changes don't reset
+  // the ephemeral toggle state mid-conversation.
+  bool get _newChatValue =>
+      ref.read(temporaryChatEnforcedProvider) ||
+      ref.read(appSettingsProvider).temporaryChatByDefault;
+
   void set(bool value) => state = value;
+
+  /// Sets the state a new chat starts in: temporary when the user's setting
+  /// asks for it or the server enforces it.
+  void startNewChat() => state = _newChatValue;
 }
 
 /// Returns true if the given conversation ID represents a temporary chat.

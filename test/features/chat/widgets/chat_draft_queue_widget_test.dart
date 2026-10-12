@@ -305,6 +305,11 @@ Future<_Rig> _pump(
         imageGenerationAvailableProvider.overrideWithValue(false),
         selectedFilterIdsProvider.overrideWithValue(const <String>[]),
         selectedTerminalIdProvider.overrideWithValue(null),
+        // Whether new chats must be temporary is read from the permissions;
+        // none are enforced here.
+        userPermissionsProvider.overrideWith(
+          (ref) async => const <String, dynamic>{},
+        ),
         ...overrides,
       ],
       child: MaterialApp(

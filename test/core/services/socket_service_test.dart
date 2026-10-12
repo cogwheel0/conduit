@@ -52,6 +52,54 @@ void main() {
     expect(replies[1]['result'], isNull);
   });
 
+  test('terminal and MCP requests are answered without a chat listener', () async {
+    // Open WebUI 0.12 waits up to 5 s for a terminal's AGENTS.md and up to
+    // 240 s for an MCP elicitation before going on with the turn.
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    factory.sockets.single.id = 'local-session';
+    final replies = <String, dynamic>{};
+    for (final (type, data) in [
+      (
+        'request:terminal',
+        {'terminal_id': 't1', 'path': '/files/cwd', 'session_id': 'local-session'},
+      ),
+      ('request:terminal:state', {'terminal_id': 't1', 'session_id': 'local-session'}),
+      ('request:elicitation', {'mode': 'form', 'message': 'Pick one', 'server_name': 'mcp'}),
+    ]) {
+      service.debugHandleChatEvent({
+        'chat_id': 'background-chat',
+        'message_id': 'assistant',
+        'data': {'type': type, 'data': data},
+      }, (dynamic result) => replies[type] = result);
+    }
+
+    expect(replies['request:terminal'], isEmpty);
+    expect(replies['request:terminal:state'], {'connected': false});
+    expect(replies['request:elicitation'], {'action': 'cancel'});
+
+    // The server's note that such a request is over needs no handling.
+    var delivered = 0;
+    service.addChatEventHandler(
+      conversationId: 'background-chat',
+      handler: (_, _) => delivered += 1,
+    );
+    service.debugHandleChatEvent({
+      'chat_id': 'background-chat',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'request:interaction:done',
+        'data': {'interaction_id': 'interaction-1'},
+      },
+    });
+    expect(delivered, 0);
+  });
+
   group('a direct tool call is always answered once', () {
     const admission = PersonalToolAdmission(
       kind: PersonalConnectionKind.toolServer,

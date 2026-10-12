@@ -581,6 +581,122 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
+  "signInAccountPendingApproval": "Your account is waiting for an administrator to approve it. Try again once it's approved.",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
+  "signInTwoStepVerificationRequired": "This account uses two-step verification. Sign in again, then enter the code from your authenticator app.",
+  "@signInTwoStepVerificationRequired": {
+    "description": "Sign-in error when saved credentials met Open WebUI's two-step verification, which needs a code typed in."
+  },
+  "twoStepVerifyTitle": "Verify your sign-in",
+  "@twoStepVerifyTitle": {
+    "description": "Title of the sign-in step that asks for a two-step verification code."
+  },
+  "twoStepEnrollTitle": "Set up your authenticator",
+  "@twoStepEnrollTitle": {
+    "description": "Title of the sign-in step that adds an authenticator app for two-step verification."
+  },
+  "twoStepRecoverTitle": "Recover your authenticator",
+  "@twoStepRecoverTitle": {
+    "description": "Title of the sign-in step that redeems an administrator's two-step verification recovery token."
+  },
+  "twoStepVerifyDescription": "Enter the six-digit code from your authenticator app.",
+  "@twoStepVerifyDescription": {
+    "description": "Instruction for entering a two-step verification code."
+  },
+  "twoStepRecoveryCodeDescription": "Enter one of the recovery codes you saved.",
+  "@twoStepRecoveryCodeDescription": {
+    "description": "Instruction for signing in with a saved two-step verification recovery code."
+  },
+  "twoStepEnrollDescription": "Add this account to your authenticator app, then enter the six-digit code it shows.",
+  "@twoStepEnrollDescription": {
+    "description": "Instruction for adding the account to an authenticator app during sign-in."
+  },
+  "twoStepRecoverDescription": "Your administrator reset two-step verification for this account. Enter the recovery token they gave you.",
+  "@twoStepRecoverDescription": {
+    "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
+  },
+  "twoStepCodeLabel": "Authenticator code",
+  "@twoStepCodeLabel": {
+    "description": "Label of the field for an authenticator app code."
+  },
+  "twoStepRecoveryCodeLabel": "Recovery code",
+  "@twoStepRecoveryCodeLabel": {
+    "description": "Label of the field for a two-step verification recovery code."
+  },
+  "twoStepResetTokenLabel": "Recovery token",
+  "@twoStepResetTokenLabel": {
+    "description": "Label of the field for an administrator's two-step verification recovery token."
+  },
+  "twoStepUseRecoveryCode": "Use a recovery code",
+  "@twoStepUseRecoveryCode": {
+    "description": "Switches the two-step verification field to a recovery code."
+  },
+  "twoStepUseAuthenticatorCode": "Use an authenticator code",
+  "@twoStepUseAuthenticatorCode": {
+    "description": "Switches the two-step verification field back to an authenticator app code."
+  },
+  "twoStepBackToSignIn": "Back to sign in",
+  "@twoStepBackToSignIn": {
+    "description": "Leaves the two-step verification step for the sign-in form."
+  },
+  "twoStepOpenAuthenticator": "Add to authenticator app",
+  "@twoStepOpenAuthenticator": {
+    "description": "Opens an authenticator app on this device to add the account."
+  },
+  "twoStepSetupKeyLabel": "Setup key",
+  "@twoStepSetupKeyLabel": {
+    "description": "Label above the secret key to type into an authenticator app."
+  },
+  "twoStepCopySetupKey": "Copy setup key",
+  "@twoStepCopySetupKey": {
+    "description": "Copies the authenticator setup key."
+  },
+  "twoStepQrCodeLabel": "QR code for your authenticator app",
+  "@twoStepQrCodeLabel": {
+    "description": "Accessibility label of the QR code for an authenticator app."
+  },
+  "twoStepSetupLoading": "Preparing your authenticator…",
+  "@twoStepSetupLoading": {
+    "description": "Shown while the authenticator setup key loads."
+  },
+  "twoStepSetupFailed": "The setup key couldn't be loaded.",
+  "@twoStepSetupFailed": {
+    "description": "Shown when the authenticator setup key could not be loaded."
+  },
+  "twoStepNoAuthenticatorApp": "No app could add it. Copy the setup key into your authenticator app instead.",
+  "@twoStepNoAuthenticatorApp": {
+    "description": "Shown when no app on the device could open the authenticator link."
+  },
+  "twoStepRecoveryCodesTitle": "Save your recovery codes",
+  "@twoStepRecoveryCodesTitle": {
+    "description": "Title of the screen that shows new two-step verification recovery codes once."
+  },
+  "twoStepRecoveryCodesDescription": "Each code signs you in once if you lose your authenticator. Keep them somewhere safe: they won't be shown again.",
+  "@twoStepRecoveryCodesDescription": {
+    "description": "Explains new two-step verification recovery codes before continuing."
+  },
+  "twoStepCopyRecoveryCodes": "Copy recovery codes",
+  "@twoStepCopyRecoveryCodes": {
+    "description": "Copies the new two-step verification recovery codes."
+  },
+  "twoStepInvalidCode": "That code didn't work. Check it and try again.",
+  "@twoStepInvalidCode": {
+    "description": "Shown when a two-step verification code or recovery token was not accepted."
+  },
+  "twoStepExpired": "This step has expired. Go back to sign in and start again.",
+  "@twoStepExpired": {
+    "description": "Shown when the two-step verification step expired or no longer applies."
+  },
+  "twoStepTooManyAttempts": "Too many attempts. Wait a few minutes, then sign in again.",
+  "@twoStepTooManyAttempts": {
+    "description": "Shown when the server refuses more two-step verification codes for now."
+  },
+  "twoStepFailed": "The code couldn't be checked. Try again.",
+  "@twoStepFailed": {
+    "description": "Shown when a two-step verification code could not be checked, for example offline."
+  },
   "serverRedirectingHttps": "The server is redirecting requests. Check your server's HTTPS configuration.",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."

@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -117,6 +118,35 @@ void main() {
       acknowledge: responses.add,
     );
     final prompt = container.read(openWebUiLivePromptProvider)!.prompt;
+    notifier.decide(prompt.identity, true);
+    check(responses).deepEquals([true]);
+  });
+
+  test('a tool call awaiting approval shows the tool and its arguments', () {
+    // Open WebUI 0.12 asks to approve a tool call in a chat that is not
+    // saved with only the call itself, no title or message.
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final responses = <dynamic>[];
+    final notifier = container.read(openWebUiLivePromptProvider.notifier);
+    notifier.handleSocketRequest(
+      conversationId: 'local:chat-1',
+      type: 'confirmation',
+      data: const {
+        'tool_call': {
+          'id': 'call-1',
+          'name': 'web_search',
+          'arguments': {'query': 'weather'},
+        },
+        'interaction_id': 'interaction-1',
+      },
+      acknowledge: responses.add,
+    );
+
+    final prompt = container.read(openWebUiLivePromptProvider)!.prompt;
+    check(prompt.kind).equals(OpenWebUiComposerPromptKind.confirmation);
+    check(prompt.title).equals('web_search');
+    check(prompt.message).equals('{\n  "query": "weather"\n}');
     notifier.decide(prompt.identity, true);
     check(responses).deepEquals([true]);
   });

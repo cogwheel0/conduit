@@ -67,6 +67,16 @@ void main() {
     ).isTrue();
   });
 
+  test('temporary chat action is hidden while the server enforces it', () {
+    check(
+      shouldShowTemporaryChatAction(
+        isHermes: false,
+        activeConversation: null,
+        temporaryChatEnforced: true,
+      ),
+    ).isFalse();
+  });
+
   test('bot chat uses its bot title in the model pill', () {
     const avatar = 'data:image/png;base64,YQ==';
     final now = DateTime(2026);
