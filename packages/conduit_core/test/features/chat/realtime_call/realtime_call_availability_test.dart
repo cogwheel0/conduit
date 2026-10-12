@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/realtime_call/bridge_call_host.dart';
@@ -46,6 +48,15 @@ final class _Active extends ActiveConversationNotifier {
   @override
   Conversation? build() => conversation;
 }
+
+final class _Answering extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void finish() => state = false;
+}
+
+final _answeringProvider = NotifierProvider<_Answering, bool>(_Answering.new);
 
 final class _Discovery extends DirectModelDiscoveryController {
   @override
@@ -349,6 +360,45 @@ void main() {
     ).throws<StateError>();
     await check(host.delegate('Plan my week', userVoice: const {}))
         .throws<StateError>();
+  });
+
+  test('small talk waits while the chat is answering', () async {
+    final container = ProviderContainer(
+      overrides: [
+        activeConversationProvider.overrideWith(
+          () => _Active(_chat('chat-1')),
+        ),
+        isChatStreamingProvider.overrideWith(
+          (ref) => ref.watch(_answeringProvider),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final host = container.read(
+      Provider((ref) => ChatBridgeCallHost(ref, onNotice: (_) {})),
+    );
+
+    var waiting = true;
+    unawaited(
+      host
+          .recordExchange(
+            const RealtimeVoiceExchange(
+              userText: 'Thanks',
+              userVoice: {},
+              voiceModel: 'gpt-realtime',
+              replyText: 'You are welcome.',
+              replyVoice: {},
+            ),
+          )
+          .then((_) => waiting = false, onError: (Object _) => waiting = false),
+    );
+    await pumpEventQueue();
+    // A typed answer the call did not start is still running.
+    check(waiting).isTrue();
+
+    container.read(_answeringProvider.notifier).finish();
+    await pumpEventQueue();
+    check(waiting).isFalse();
   });
 
   test('a call without a chat does not adopt one the user opens', () {

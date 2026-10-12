@@ -94,6 +94,10 @@ abstract interface class RealtimeCallEngine {
   /// Stops the voice mid-sentence.
   void interrupt();
 
+  /// While [paused], the voice stops speaking and holds its answers; it says
+  /// them once the call resumes. The microphone is [setMuted]'s.
+  void setPaused(bool paused);
+
   /// Ends the call, saving what was said. Safe to call more than once:
   /// every call waits for the same ending.
   Future<void> end();

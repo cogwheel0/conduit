@@ -66,6 +66,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
 
   var _connected = false;
   var _ended = false;
+  var _paused = false;
   final _subscriptions = <StreamSubscription<Object?>>[];
   Timer? _pingTimer;
   var _pingsSincePong = 0;
@@ -246,6 +247,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
   /// so the voice is never asked for two replies at once.
   void _flush() {
     if (!_connected ||
+        _paused ||
         _receivingSpeech.isNotEmpty ||
         _activeResponse.isNotEmpty ||
         _responseRequested ||
@@ -749,6 +751,17 @@ final class BridgeCallEngine implements RealtimeCallEngine {
   @override
   void interrupt() {
     if (_connected) _stopSpeaking();
+  }
+
+  @override
+  void setPaused(bool paused) {
+    if (_paused == paused) return;
+    _paused = paused;
+    if (paused) {
+      interrupt();
+    } else {
+      _flush();
+    }
   }
 
   @override

@@ -293,6 +293,23 @@ void main() {
     await engine.end();
   });
 
+  test('a paused call holds what the voice would say until it resumes',
+      () async {
+    await start();
+    says('Plan my day');
+    delegates('del-1');
+    await _settle();
+    engine.setPaused(true);
+
+    host.turns.single.move(DelegatedTurnState.completed, answer: 'Gym at 7.');
+    await _settle();
+    check(media.types).not((it) => it.contains('session.commentary.append'));
+
+    engine.setPaused(false);
+    check(media.sent.last['content']).equals('Gym at 7.');
+    await engine.end();
+  });
+
   test('muting tells the voice and closes the microphone', () async {
     await start();
 

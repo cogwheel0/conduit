@@ -111,6 +111,11 @@ class _RecordingVoiceInputService extends VoiceInputService {
   @override
   bool get isSupportedPlatform => true;
 
+  /// The note's server transcribes, which server-only dictation needs: a
+  /// chat backend without transcription uses the device instead.
+  @override
+  bool get hasServerStt => true;
+
   @override
   Future<bool> initialize({bool forceLocalStt = false}) async => true;
 

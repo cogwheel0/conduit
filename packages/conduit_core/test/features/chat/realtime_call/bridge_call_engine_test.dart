@@ -601,6 +601,28 @@ void main() {
     ]);
   });
 
+  test('a paused call holds an answer until it resumes', () async {
+    say('item-1', 'Plan my week');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    delegates('resp-1', 'fn-1');
+    await replyEnds('resp-1');
+
+    engine.setPaused(true);
+    await _settle();
+    audio.idle();
+    await _settle();
+    host.turn.move(DelegatedTurnState.completed, answer: 'Done.');
+    await _settle();
+    check(transport.sent.where((c) => c['type'] == 'bridge.respond'))
+        .every((c) => c.not((it) => it.containsKey('call_id')));
+
+    engine.setPaused(false);
+    await _settle();
+    check(transport.sent.last)
+        .deepEquals({'type': 'bridge.respond', 'call_id': 'fn-1'});
+  });
+
   test('muting mid-speech lets a finished answer be said', () async {
     say('item-1', 'Plan my week');
     await _settle();

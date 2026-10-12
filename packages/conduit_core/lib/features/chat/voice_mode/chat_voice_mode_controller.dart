@@ -468,6 +468,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           if (lostOwnership()) return;
           cancelIfRequested();
 
+          // The chat the call is for: the open one, or the new one it starts.
+          final callChatId = startNewConversation
+              ? null
+              : ref.read(activeConversationProvider)?.id;
           final realtime = await _resolveRealtime(
             model,
             newChat: startNewConversation,
@@ -491,7 +495,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             if (lostOwnership()) return;
             cancelIfRequested();
             try {
-              await _startRealtime(realtime, startToken);
+              await _startRealtime(realtime, startToken, chatId: callChatId);
             } catch (_) {
               // Hung up while it connected: the stop ended it, which is no
               // failure.
@@ -645,8 +649,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   Future<void> _startRealtime(
     RealtimeCallEngine Function(BridgeCallHost host) build,
-    int token,
-  ) async {
+    int token, {
+    required String? chatId,
+  }) async {
+    // Another chat opened while the call set up: its voice was made for the
+    // one the user left.
+    final openChatId = ref.read(activeConversationProvider)?.id;
+    if (openChatId != chatId &&
+        !isActiveConversationInPlaceRemap(ref, chatId, openChatId)) {
+      throw const _ChatVoiceModeStartCancelled();
+    }
     final host = ChatBridgeCallHost(
       ref,
       onNotice: (notice) {
@@ -806,9 +818,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       if (!state.canPause) return;
       final realtime = _realtime;
       if (realtime != null) {
-        // A realtime voice has no pause: it stops talking and stops listening.
+        // Stops talking and listening, and holds its answers until resume.
         realtime
-          ..interrupt()
+          ..setPaused(true)
           ..setMuted(true);
         return;
       }
@@ -834,7 +846,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       if (!state.canResume) return;
       final realtime = _realtime;
       if (realtime != null) {
-        realtime.setMuted(false);
+        realtime
+          ..setMuted(false)
+          ..setPaused(false);
         return;
       }
 

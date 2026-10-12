@@ -12,6 +12,8 @@ import 'package:conduit_core/features/chat/voice_mode/chat_voice_mode_controller
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show kDirectTransport;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -2676,6 +2678,8 @@ void main() {
     ProviderContainer realtimeContainer({
       bool offersRealtime = true,
       VoiceCallKitPort? callKit,
+      Future<void>? routeFound,
+      void Function()? onRouteAsked,
     }) {
       final container = ProviderContainer(
         overrides: [
@@ -2692,15 +2696,20 @@ void main() {
             _FakeChatVoiceAudioSessionCoordinator(),
           ),
           realtimePcmAudioFactoryProvider.overrideWithValue(() => audio),
-          realtimeCallRouteResolverProvider.overrideWithValue(
-            (_, {newChat = false}) async => offersRealtime
+          realtimeCallRouteResolverProvider.overrideWithValue((
+            _, {
+            newChat = false,
+          }) async {
+            onRouteAsked?.call();
+            await routeFound;
+            return offersRealtime
                 ? (bridge: bridge, hermes: null, block: null)
                 : (
                     bridge: null,
                     hermes: null,
                     block: RealtimeCallBlock.standardChosen,
-                  ),
-          ),
+                  );
+          }),
         ],
       );
       addTearDown(container.dispose);
@@ -2837,6 +2846,37 @@ void main() {
       );
       // The system ended the call; it is not ended again.
       check(callKit.endedCallIds).isEmpty();
+    });
+
+    test('a chat opened while the call sets up cancels it', () async {
+      // Direct chats, which this container keeps open.
+      Conversation chat(String id) => Conversation(
+        id: id,
+        title: 'Chat',
+        createdAt: DateTime.utc(2026),
+        updatedAt: DateTime.utc(2026),
+        metadata: const {'backend': kDirectTransport},
+      );
+      final routeFound = Completer<void>();
+      var routeAsked = false;
+      final container = realtimeContainer(
+        routeFound: routeFound.future,
+        onRouteAsked: () => routeAsked = true,
+      );
+      final active = container.read(activeConversationProvider.notifier)
+        ..set(chat('direct-local:a'));
+
+      final starting = container
+          .read(chatVoiceModeControllerProvider.notifier)
+          .start(startNewConversation: false, admittedModel: _model);
+      await _until(() => routeAsked);
+      active.set(chat('direct-local:b'));
+      routeFound.complete();
+
+      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+      check(bridge.opened).isFalse();
+      check(container.read(chatVoiceModeControllerProvider).isActive)
+          .isFalse();
     });
 
     test('a realtime voice that cannot start says why', () async {
@@ -3546,6 +3586,7 @@ final class _RealtimeBridge implements RealtimeBridgeTransport {
   final inbox = StreamController<Map<String, Object?>>();
   final _closed = Completer<String?>();
   String? refusal;
+  var opened = false;
 
   /// Holds the connection open until it completes, or the call closes it.
   Completer<void>? opening;
@@ -3554,6 +3595,7 @@ final class _RealtimeBridge implements RealtimeBridgeTransport {
 
   @override
   Future<RealtimeBridgeReady> open() async {
+    opened = true;
     final refusal = this.refusal;
     if (refusal != null) {
       if (!_closed.isCompleted) _closed.complete(refusal);

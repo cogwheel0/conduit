@@ -1092,7 +1092,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         case 'voice-provider-connection':
           if (value is String) {
             await _chooseNativeVoiceProvider(value);
-            await _refreshNativeVoiceDetail();
+            await _refreshNativeVoiceDetail(NativeSheetRoutes.voiceProvider);
           }
         case final id when nativeVoiceProviderFieldIds.containsKey(id):
           final current = ref.read(appSettingsProvider).directVoiceProvider;
@@ -1102,7 +1102,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .setDirectVoiceProvider(
                   current.withField(nativeVoiceProviderFieldIds[id]!, value),
                 );
-            await _refreshNativeVoiceDetail();
+            await _refreshNativeVoiceDetail(NativeSheetRoutes.voiceProvider);
           }
         case 'theme-light':
           switch (value) {
@@ -1276,10 +1276,13 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     );
   }
 
-  Future<void> _refreshNativeVoiceDetail() {
+  /// Redraws the Voice pages from [detailId], the one the change came from.
+  Future<void> _refreshNativeVoiceDetail([
+    String detailId = NativeSheetRoutes.voice,
+  ]) {
     return ref
         .read(nativeSheetHydrationServiceProvider)
-        .hydrateDetail(NativeSheetRoutes.voice);
+        .hydrateDetail(detailId);
   }
 
   Future<void> _saveNativePasswordDraft(String id, Object? value) async {

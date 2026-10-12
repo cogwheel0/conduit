@@ -69,6 +69,24 @@ final class ChatBridgeCallHost implements BridgeCallHost {
   bool get _inCallChat =>
       _ref.mounted && _ref.read(activeConversationProvider)?.id == _chat?.id;
 
+  /// Waits while the chat is answering, whoever asked: an answer still
+  /// running must stay the chat's last message, so it can be stopped. Words
+  /// said meanwhile wait up to [_runningAnswerWait], then stay in captions.
+  Future<void> _afterRunningAnswer() async {
+    if (!_ref.read(isChatStreamingProvider)) return;
+    final idle = Completer<void>();
+    final subscription = _ref.listen<bool>(isChatStreamingProvider, (_, busy) {
+      if (!busy && !idle.isCompleted) idle.complete();
+    });
+    try {
+      await idle.future.timeout(_runningAnswerWait);
+    } finally {
+      subscription.close();
+    }
+  }
+
+  static const _runningAnswerWait = Duration(minutes: 10);
+
   void _sent(ChatSendPlaceholderHandle handle) {
     final userMessageId = handle.userMessageId;
     if (userMessageId != null) _sentMessageIds.add(userMessageId);
@@ -84,6 +102,8 @@ final class ChatBridgeCallHost implements BridgeCallHost {
 
   @override
   Future<void> recordExchange(RealtimeVoiceExchange exchange) async {
+    if (!_inCallChat) throw StateError("The call's chat is not open.");
+    await _afterRunningAnswer();
     if (!_inCallChat) throw StateError("The call's chat is not open.");
     await durableSend(
       _ref,
@@ -112,6 +132,7 @@ final class ChatBridgeCallHost implements BridgeCallHost {
     // A turn the call did not start is still answering; this one waits.
     if (_ref.read(isChatStreamingProvider)) return const _DeferredTurn();
     final placed = Completer<String>();
+    ChatSendPlaceholderHandle? placeholder;
     _ChatTurn? turn;
     var sendFailed = false;
     final sending = durableSend(
@@ -126,6 +147,7 @@ final class ChatBridgeCallHost implements BridgeCallHost {
       ),
       onAssistantPlaceholderCreated: (handle) {
         _sent(handle);
+        placeholder = handle;
         if (!placed.isCompleted) placed.complete(handle.assistantMessageId);
       },
     );
@@ -140,7 +162,9 @@ final class ChatBridgeCallHost implements BridgeCallHost {
           if (!placed.isCompleted) {
             return placed.completeError(error, stackTrace);
           }
-          // The answer was placed but its send failed: it will not finish.
+          // The answer was placed but its send failed: it will not finish,
+          // and the chat must not keep showing it as running.
+          if (_ref.mounted) recoverFailedChatSend(_ref, error, placeholder);
           sendFailed = true;
           turn?.sendFailed();
         },
@@ -395,9 +419,14 @@ final class _ChatTurn implements DelegatedTurn {
   Future<void> cancel() async {
     if (_changes.isClosed || !_ref.mounted) return;
     _cancelled = true;
-    // The answer is the chat's last; stopping the chat stops it.
-    _ref.read(stopGenerationProvider)();
+    // The answer is the chat's last; stopping the chat stops it. A request
+    // replacing it waits for that stop to settle, so the stop's late effects
+    // cannot reach the new answer.
+    final stopping = _ref.read(stopGenerationSettledProvider)();
     _follow(_ref.read(chatMessagesProvider));
+    await stopping
+        .timeout(const Duration(seconds: 10), onTimeout: () => false)
+        .catchError((Object _) => false);
   }
 }
 

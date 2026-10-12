@@ -132,9 +132,14 @@ class VoiceInputService implements VoiceModeInput {
   final ValueNotifier<bool> transcribing = ValueNotifier<bool>(false);
   final Set<Future<void>> _activeTranscriptions = <Future<void>>{};
   SttPreference get preference => _preference;
+  /// Server only while the chat's server can transcribe; a chat whose
+  /// backend has no transcription uses the device instead.
   @override
-  bool get prefersServerOnly => _preference == SttPreference.serverOnly;
-  bool get prefersDeviceOnly => _preference == SttPreference.deviceOnly;
+  bool get prefersServerOnly =>
+      _preference == SttPreference.serverOnly && hasServerStt;
+  bool get prefersDeviceOnly =>
+      _preference == SttPreference.deviceOnly ||
+      (_preference == SttPreference.serverOnly && !hasServerStt);
   bool get _isIosSimulator =>
       Platform.isIOS &&
       Platform.environment.containsKey('SIMULATOR_DEVICE_NAME');
@@ -172,8 +177,7 @@ class VoiceInputService implements VoiceModeInput {
       return true;
     }
 
-    final shouldPrepareLocalStt =
-        forceLocalStt || _preference != SttPreference.serverOnly;
+    final shouldPrepareLocalStt = forceLocalStt || !prefersServerOnly;
     if (shouldPrepareLocalStt && !_didAttemptLocalInitialization) {
       await _loadLocales(deviceTag);
       await _initializeNativeLocalStt();
@@ -244,7 +248,7 @@ class VoiceInputService implements VoiceModeInput {
   bool get willUseNativeLocalStt =>
       supportsNativeResponseWaitCapture &&
       _nativeLocalSttAvailable &&
-      _preference != SttPreference.serverOnly;
+      !prefersServerOnly;
   @override
   bool get isHoldingServerRecorderForResponse =>
       _serverVadRecorderSession?.isHoldingForResponse == true;
@@ -641,6 +645,11 @@ class VoiceInputService implements VoiceModeInput {
     if (!_isInitialized) {
       throw Exception('Voice input not initialized');
     }
+    // The chat may now be one whose backend cannot transcribe, which needs
+    // the device recognition a server-only start skipped.
+    if (!prefersServerOnly && !_didAttemptLocalInitialization) {
+      await initialize();
+    }
 
     if (_startingLocalStt != null) {
       try {
@@ -650,12 +659,10 @@ class VoiceInputService implements VoiceModeInput {
 
     final bool canUseLocal = _localSttAvailable;
     final bool serverAvailable = hasServerStt;
-    final bool shouldUseLocal =
-        canUseLocal && _preference != SttPreference.serverOnly;
+    final bool shouldUseLocal = canUseLocal && !prefersServerOnly;
     final bool shouldUseServer =
         serverAvailable &&
-        (_preference == SttPreference.serverOnly ||
-            (!shouldUseLocal && _preference != SttPreference.deviceOnly));
+        (prefersServerOnly || (!shouldUseLocal && !prefersDeviceOnly));
 
     if (_isListening) {
       await stopListening();
@@ -1424,11 +1431,10 @@ Future<bool> voiceInputAvailable(Ref ref) async {
   // and configuration only. The actual initialization + permission flow
   // happens on-demand via VoiceInputService.beginListening().
 
-  // If the user prefers server-only STT, only expose voice input when a
-  // server STT backend is configured.
-  if (service.preference == SttPreference.serverOnly) {
-    return ref.watch(serverSpeechProviderProvider)?.canTranscribe == true;
-  }
+  // Server-only STT uses the device in a chat whose backend cannot
+  // transcribe, so it never hides voice input. Watched so the answer follows
+  // the selected model.
+  ref.watch(serverSpeechProviderProvider);
 
   // For device-only (or mixed) preferences, assume voice input is
   // potentially available on supported platforms. Any missing

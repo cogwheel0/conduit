@@ -108,6 +108,8 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
   var _ended = false;
   Timer? _speechTimer;
   _Delegation? _running;
+  var _paused = false;
+  final _held = <(String, Map<String, Object?>)>[];
 
   /// Replaced requests stopping, in order: the chat takes a new request only
   /// once every older answer has stopped.
@@ -163,6 +165,11 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
 
   void _send(String type, Map<String, Object?> fields) {
     if (_ended && type != 'session.close') return;
+    // What the voice would say waits for the call to resume.
+    if (_paused && type == 'session.commentary.append') {
+      _held.add((type, fields));
+      return;
+    }
     _media.send(
       jsonEncode({
         'type': type,
@@ -428,6 +435,21 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       'delegation_id': null,
       'content': 'Stop speaking now and listen to the user.',
     });
+  }
+
+  @override
+  void setPaused(bool paused) {
+    if (_paused == paused) return;
+    _paused = paused;
+    if (paused) {
+      interrupt();
+      return;
+    }
+    final held = List.of(_held);
+    _held.clear();
+    for (final (type, fields) in held) {
+      _send(type, fields);
+    }
   }
 
   Future<void> _fail(String message) {

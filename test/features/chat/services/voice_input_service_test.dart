@@ -276,6 +276,27 @@ void main() {
     await nativeStt.dispose();
   });
 
+  test('server-only speech uses the device in a chat that cannot transcribe',
+      () async {
+    final nativeStt = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(
+      nativeStt: nativeStt,
+      serverSpeech: () => null,
+      supportsNativeResponseWaitCapture: true,
+    );
+    service.updatePreference(SttPreference.serverOnly);
+    check(service.prefersServerOnly).isFalse();
+    check(service.prefersDeviceOnly).isTrue();
+
+    await service.initialize();
+    await service.startListening();
+    check(service.isUsingNativeLocalStt).isTrue();
+
+    await service.stopListening();
+    await service.dispose();
+    await nativeStt.dispose();
+  });
+
   group('VoiceInputService server STT consumers', () {
     test('cancels a queued server recorder start after stop', () async {
       final recorder = _FakeServerVadRecorder();

@@ -683,7 +683,7 @@ class NativeSheetHydrationService {
         return;
       case NativeSheetRoutes.voice:
       case NativeSheetRoutes.voiceProvider:
-        await _hydrateNativeVoiceDetail(l10n);
+        await _hydrateNativeVoiceDetail(l10n, detailId: detailId);
         return;
       case NativeSheetRoutes.helpAbout:
         await _hydrateNativeAboutDetail(
@@ -1187,7 +1187,12 @@ class NativeSheetHydrationService {
     }
   }
 
-  Future<void> _hydrateNativeVoiceDetail(AppLocalizations l10n) async {
+  /// The Voice pages, with [detailId] as the one patched: iOS redraws only
+  /// the page a patch is for, so the page on screen must be that one.
+  Future<void> _hydrateNativeVoiceDetail(
+    AppLocalizations l10n, {
+    required String detailId,
+  }) async {
     final appSettings = _ref.read(appSettingsProvider);
     var ttsVoices = const <Map<String, dynamic>>[];
     try {
@@ -1212,15 +1217,24 @@ class NativeSheetHydrationService {
       serverOffersVoiceChoice:
           _ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
     );
-    await _applyNativeDetail(
+    final pages = [
       NativeSheetDetailConfig(
         id: NativeSheetRoutes.voice,
         title: l10n.voice,
         sections: nativeAudio.mainSections,
       ),
+      nativeAudio.voicePickerDetail,
+      nativeAudio.voiceProviderDetail,
+    ];
+    final patched = pages.firstWhere(
+      (page) => page.id == detailId,
+      orElse: () => pages.first,
+    );
+    await _applyNativeDetail(
+      patched,
       detailSheets: [
-        nativeAudio.voicePickerDetail,
-        nativeAudio.voiceProviderDetail,
+        for (final page in pages)
+          if (page.id != patched.id) page,
       ],
     );
   }
