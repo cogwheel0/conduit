@@ -295,11 +295,15 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
   }
 
   Future<void> _delegate(String delegationId) async {
+    // A request that arrives while the call closes replaces nothing: the
+    // answer still running goes on in the chat.
+    if (_ended) return;
     final request = _latestRequest();
     final previous = _running;
     final delegation = _running = _Delegation(delegationId);
     if (previous != null && !previous.settled) {
       previous.settled = true;
+      _dropHeldNotices(previous);
       _stopAfter(() async {
         await previous.subscription?.cancel();
         // One still being handed to the chat is stopped once the chat has it.

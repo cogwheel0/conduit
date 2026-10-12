@@ -332,6 +332,49 @@ void main() {
     await engine.end();
   });
 
+  test('a request that comes while the call closes stops nothing', () async {
+    await start();
+    says('Plan my day');
+    delegates('del-1');
+    await _settle();
+
+    final ending = engine.end();
+    await _settle();
+    says(' and then another');
+    delegates('del-2');
+    await _settle();
+
+    check(host.turns.single.cancelled).isFalse();
+    check(host.requests).length.equals(1);
+    media.receive({'type': 'session.closed', 'reason': 'close_requested'});
+    await ending;
+  });
+
+  test('a request replaced while paused is not said to wait for approval',
+      () async {
+    await start();
+    says('Delete the old files');
+    delegates('del-1');
+    await _settle();
+    engine.setPaused(true);
+    host.turns.single.move(DelegatedTurnState.approval);
+    await _settle();
+
+    says(' no, keep them');
+    delegates('del-2');
+    await _settle();
+    engine.setPaused(false);
+
+    check(
+      media.sent.where(
+        (event) =>
+            event['type'] == 'session.commentary.append' &&
+            event['delegation_id'] == 'del-1',
+      ),
+    ).isEmpty();
+    await engine.end();
+  });
+
   test('muting tells the voice and closes the microphone', () async {
     await start();
 
