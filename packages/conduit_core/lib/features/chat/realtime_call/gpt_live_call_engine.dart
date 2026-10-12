@@ -399,6 +399,7 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
           'The chat is busy with another answer. Ask again when it finishes.',
         );
       case DelegatedTurnState.working:
+        _dropHeldNotices(delegation);
         _update(_state.copyWith(approval: false));
     }
   }
@@ -407,6 +408,7 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
   void _settle(_Delegation delegation, String result) {
     delegation.settled = true;
     unawaited(delegation.subscription?.cancel());
+    _dropHeldNotices(delegation);
     for (final chunk in chunkForCommentary(result)) {
       _send('session.commentary.append', {
         'delegation_id': delegation.id,
@@ -435,6 +437,12 @@ final class GptLiveCallEngine implements RealtimeCallEngine {
       'delegation_id': null,
       'content': 'Stop speaking now and listen to the user.',
     });
+  }
+
+  /// Forgets what a paused call held about [delegation] waiting for the
+  /// user, once it no longer waits: resuming must not say it still does.
+  void _dropHeldNotices(_Delegation delegation) {
+    _held.removeWhere((held) => held.$2['delegation_id'] == delegation.id);
   }
 
   @override

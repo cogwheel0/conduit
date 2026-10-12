@@ -28,6 +28,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/voice/voice_session.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -362,7 +363,8 @@ void main() {
         .throws<StateError>();
   });
 
-  test('small talk waits while the chat is answering', () async {
+  test('small talk waits while the chat is answering, apart from requests',
+      () async {
     final container = ProviderContainer(
       overrides: [
         activeConversationProvider.overrideWith(
@@ -374,31 +376,32 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    final notices = <ChatVoiceModeNotice>[];
     final host = container.read(
-      Provider((ref) => ChatBridgeCallHost(ref, onNotice: (_) {})),
+      Provider((ref) => ChatBridgeCallHost(ref, onNotice: notices.add)),
     );
 
-    var waiting = true;
-    unawaited(
-      host
-          .recordExchange(
-            const RealtimeVoiceExchange(
-              userText: 'Thanks',
-              userVoice: {},
-              voiceModel: 'gpt-realtime',
-              replyText: 'You are welcome.',
-              replyVoice: {},
-            ),
-          )
-          .then((_) => waiting = false, onError: (Object _) => waiting = false),
+    // A typed answer the call did not start is still running: what was said
+    // is held, and the call's writes go on.
+    await host.recordExchange(
+      const RealtimeVoiceExchange(
+        userText: 'Thanks',
+        userVoice: {},
+        voiceModel: 'gpt-realtime',
+        replyText: 'You are welcome.',
+        replyVoice: {},
+      ),
     );
     await pumpEventQueue();
-    // A typed answer the call did not start is still running.
-    check(waiting).isTrue();
+    check(notices).isEmpty();
+    // A request meanwhile hears that the chat is busy.
+    final request = await host.delegate('Plan my week', userVoice: const {});
+    check(request.state).equals(DelegatedTurnState.deferred);
 
     container.read(_answeringProvider.notifier).finish();
     await pumpEventQueue();
-    check(waiting).isFalse();
+    // The held words are saved now; this container cannot store them.
+    check(notices).deepEquals([ChatVoiceModeNotice.transcriptNotSaved]);
   });
 
   test('a call without a chat does not adopt one the user opens', () {

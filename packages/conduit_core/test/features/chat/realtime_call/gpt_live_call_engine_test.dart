@@ -310,6 +310,28 @@ void main() {
     await engine.end();
   });
 
+  test('resuming does not say a finished request still waits for approval',
+      () async {
+    await start();
+    says('Delete the old files');
+    delegates('del-1');
+    await _settle();
+    engine.setPaused(true);
+
+    host.turns.single.move(DelegatedTurnState.approval);
+    await _settle();
+    host.turns.single.move(DelegatedTurnState.completed, answer: 'Deleted.');
+    await _settle();
+    engine.setPaused(false);
+
+    final said = media.sent
+        .where((event) => event['type'] == 'session.commentary.append')
+        .map((event) => event['content'])
+        .toList();
+    check(said).deepEquals(['Deleted.']);
+    await engine.end();
+  });
+
   test('muting tells the voice and closes the microphone', () async {
     await start();
 

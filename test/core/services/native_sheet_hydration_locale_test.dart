@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/services/native_sheet_hydration_service.dart';
@@ -24,7 +26,7 @@ import 'package:mocktail/mocktail.dart';
 class _MockOptimizedStorageService extends Mock
     implements OptimizedStorageService {}
 
-/// Speech settings without the platform's voices behind them.
+/// Speech settings whose voices never finish loading.
 class _QuietTextToSpeechService extends Fake implements TextToSpeechService {
   @override
   Future<void> updateSettings({
@@ -37,7 +39,8 @@ class _QuietTextToSpeechService extends Fake implements TextToSpeechService {
   }) async {}
 
   @override
-  Future<List<Map<String, dynamic>>> getAvailableVoices() async => const [];
+  Future<List<Map<String, dynamic>>> getAvailableVoices() =>
+      Completer<List<Map<String, dynamic>>>().future;
 }
 
 final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
@@ -142,7 +145,7 @@ void main() {
         .not((it) => it.equals(english.settingsAppearance));
   });
 
-  testWidgets('the Voice provider page is patched as the page on screen', (
+  testWidgets('the Voice provider page is patched alone, without the voices', (
     tester,
   ) async {
     NativeSheetBridge.instance.debugIsIOSOverride = true;
@@ -186,11 +189,10 @@ void main() {
     await tester.pump();
     await refreshed;
 
-    // iOS redraws only the page a patch is for.
+    // iOS redraws only the page a patch is for, and the speech voices this
+    // page does not show are not waited for while the user types.
     check(patches.last.detailId).equals(NativeSheetRoutes.voiceProvider);
-    check(
-      (patches.last.detailSheets ?? const []).map((sheet) => sheet.id),
-    ).contains(NativeSheetRoutes.voice);
+    check(patches.last.detailSheets ?? const []).isEmpty();
   });
 
   testWidgets('Appearance keeps its pickers when the models request fails', (

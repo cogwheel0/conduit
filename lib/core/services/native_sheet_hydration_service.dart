@@ -1189,22 +1189,19 @@ class NativeSheetHydrationService {
 
   /// The Voice pages, with [detailId] as the one patched: iOS redraws only
   /// the page a patch is for, so the page on screen must be that one.
+  ///
+  /// The Voice provider page shows no speech voices, so it is patched alone
+  /// and at once: waiting for the voices would let the patch land over text
+  /// the user is typing. The Voice page redraws itself when it reappears.
   Future<void> _hydrateNativeVoiceDetail(
     AppLocalizations l10n, {
     required String detailId,
   }) async {
     final appSettings = _ref.read(appSettingsProvider);
+    final providerOnly = detailId == NativeSheetRoutes.voiceProvider;
     var ttsVoices = const <Map<String, dynamic>>[];
-    try {
-      final ttsService = _ref.read(textToSpeechServiceProvider);
-      await ttsService.updateSettings(engine: appSettings.ttsEngine);
-      ttsVoices = await ttsService.getAvailableVoices();
-    } catch (error, stackTrace) {
-      DebugLogger.warning(
-        'native-tts-voices-load-failed',
-        scope: 'native-sheet',
-        data: {'error': error, 'stackTrace': stackTrace},
-      );
+    if (!providerOnly) {
+      ttsVoices = await _loadNativeTtsVoices(appSettings);
     }
     final nativeAudio = buildNativeAudioSheetParts(
       l10n,
@@ -1217,6 +1214,10 @@ class NativeSheetHydrationService {
       serverOffersVoiceChoice:
           _ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
     );
+    if (providerOnly) {
+      await _applyNativeDetail(nativeAudio.voiceProviderDetail);
+      return;
+    }
     final pages = [
       NativeSheetDetailConfig(
         id: NativeSheetRoutes.voice,
@@ -1237,6 +1238,23 @@ class NativeSheetHydrationService {
           if (page.id != patched.id) page,
       ],
     );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadNativeTtsVoices(
+    AppSettings appSettings,
+  ) async {
+    try {
+      final ttsService = _ref.read(textToSpeechServiceProvider);
+      await ttsService.updateSettings(engine: appSettings.ttsEngine);
+      return await ttsService.getAvailableVoices();
+    } catch (error, stackTrace) {
+      DebugLogger.warning(
+        'native-tts-voices-load-failed',
+        scope: 'native-sheet',
+        data: {'error': error, 'stackTrace': stackTrace},
+      );
+      return const <Map<String, dynamic>>[];
+    }
   }
 
   Future<void> _applyNativeAppearanceDetail(AppLocalizations l10n) async {

@@ -100,10 +100,28 @@ final class ChatBridgeCallHost implements BridgeCallHost {
       ? realtimeChatSnapshot(_ref.read(chatMessagesProvider))
       : const [];
 
+  /// Small talk said while the chat was answering, saved in order once it
+  /// is not. Kept apart from the call's own writes, so a request made
+  /// meanwhile still hears at once that the chat is busy.
+  Future<void> _held = Future.value();
+
   @override
   Future<void> recordExchange(RealtimeVoiceExchange exchange) async {
     if (!_inCallChat) throw StateError("The call's chat is not open.");
-    await _afterRunningAnswer();
+    if (_ref.read(isChatStreamingProvider)) {
+      _held = _held
+          .then((_) => _afterRunningAnswer())
+          .then((_) => _saveExchange(exchange))
+          .catchError((Object _) {
+            _onNotice(ChatVoiceModeNotice.transcriptNotSaved);
+          });
+      return;
+    }
+    await _held;
+    await _saveExchange(exchange);
+  }
+
+  Future<void> _saveExchange(RealtimeVoiceExchange exchange) async {
     if (!_inCallChat) throw StateError("The call's chat is not open.");
     await durableSend(
       _ref,
@@ -130,6 +148,10 @@ final class ChatBridgeCallHost implements BridgeCallHost {
   }) async {
     if (!_inCallChat) throw StateError("The call's chat is not open.");
     // A turn the call did not start is still answering; this one waits.
+    if (_ref.read(isChatStreamingProvider)) return const _DeferredTurn();
+    // What was said while that answer ran comes before this request.
+    await _held;
+    if (!_inCallChat) throw StateError("The call's chat is not open.");
     if (_ref.read(isChatStreamingProvider)) return const _DeferredTurn();
     final placed = Completer<String>();
     ChatSendPlaceholderHandle? placeholder;
