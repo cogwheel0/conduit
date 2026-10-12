@@ -783,17 +783,22 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _pendingStartReadinessCancellation != null;
 
   Future<void> stop() {
+    _cancelStart();
+    return _enqueue(() => _stopInternal(endCallKit: true));
+  }
+
+  /// Stops a start under way before it goes further. A realtime voice still
+  /// connecting ends now: its microphone and connection must not wait for
+  /// the start queued ahead of the stop.
+  void _cancelStart() {
     ++_stopRequestGeneration;
     _cancelPendingStartReadiness();
-    // A realtime voice still connecting ends now: its microphone and
-    // connection must not wait for the start queued ahead of this stop.
     final realtime = _realtime;
     if (realtime != null &&
         realtime.state.phase == RealtimeCallPhase.connecting) {
       // Teardown awaits this same ending, and reports what it throws.
       unawaited(realtime.end().catchError((Object _) {}));
     }
-    return _enqueue(() => _stopInternal(endCallKit: true));
   }
 
   Future<void> pause() {
@@ -1064,6 +1069,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       case VoiceCallKitEnded(callId: final endedCallId):
         if (endedCallId == callId) {
           _stoppingFromCallKit = true;
+          _cancelStart();
           unawaited(_enqueue(() => _stopInternal(endCallKit: false)));
         }
       case VoiceCallKitMuteToggled(callId: final mutedCallId, :final isMuted):

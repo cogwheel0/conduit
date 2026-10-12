@@ -2673,13 +2673,18 @@ void main() {
       audio = _RealtimeAudio();
     });
 
-    ProviderContainer realtimeContainer({bool offersRealtime = true}) {
+    ProviderContainer realtimeContainer({
+      bool offersRealtime = true,
+      VoiceCallKitPort? callKit,
+    }) {
       final container = ProviderContainer(
         overrides: [
           appSettingsProvider.overrideWithValue(const AppSettings()),
           voiceModeInputProvider.overrideWithValue(input),
           voiceModeSpeechProvider.overrideWithValue(_FakeTextToSpeechService()),
-          voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+          voiceCallKitProvider.overrideWithValue(
+            callKit ?? _UnavailableCallKitService(),
+          ),
           chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
             _FakeChatVoiceBackgroundCoordinator(),
           ),
@@ -2804,6 +2809,34 @@ void main() {
       await stopping;
       check(container.read(chatVoiceModeControllerProvider).isActive)
           .isFalse();
+    });
+
+    test('ending it from the system call UI while it connects ends it at once',
+        () async {
+      bridge.opening = Completer<void>();
+      final callKit = _AvailableCallKitService();
+      addTearDown(callKit.dispose);
+      final container = realtimeContainer(callKit: callKit);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      final starting = controller.start(
+        startNewConversation: false,
+        admittedModel: _model,
+      );
+      await _until(() => audio.started);
+      callKit.emit(const VoiceCallKitEnded('call-1'));
+      await pumpEventQueue();
+
+      check(bridge.wasClosed).isTrue();
+      check(audio.stopped).isTrue();
+      check(await starting).equals(ChatVoiceModeStartResult.cancelled);
+      await _until(
+        () => !container.read(chatVoiceModeControllerProvider).isActive,
+      );
+      // The system ended the call; it is not ended again.
+      check(callKit.endedCallIds).isEmpty();
     });
 
     test('a realtime voice that cannot start says why', () async {
