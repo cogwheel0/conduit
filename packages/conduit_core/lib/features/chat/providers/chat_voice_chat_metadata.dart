@@ -25,6 +25,7 @@ Future<void> _generateVoiceChatMetadata(
   final api = owner.api;
   final db = owner.database;
   if (api is! ApiService || db == null) return;
+  final titleLocks = ref.read(chatTitleLocksProvider) as ChatTitleLocks;
   try {
     final chatId = await _createdChatServerId(
       db,
@@ -50,17 +51,19 @@ Future<void> _generateVoiceChatMetadata(
         messages: messages,
         chatId: chatId,
       ))?.trim();
-      final stored = await db.chatsDao.getChat(chatId);
-      if (title != null &&
-          title.isNotEmpty &&
-          stored != null &&
-          stored.title == initialTitle) {
-        await api.updateConversation(chatId, title: title);
-        if (openWebUiCompletionContextIsCurrent(ref, owner)) {
-          ref
-              .read(conversationsProvider.notifier)
-              .applyServerGeneratedTitle(chatId, title);
-        }
+      if (title != null && title.isNotEmpty) {
+        // A rename the user started meanwhile finishes first. The server's
+        // title shows it, and one made elsewhere, so it is kept.
+        await titleLocks.runExclusive(chatId, () async {
+          final saved = await api.getConversation(chatId);
+          if (saved.title != initialTitle) return;
+          await api.updateConversation(chatId, title: title);
+          if (openWebUiCompletionContextIsCurrent(ref, owner)) {
+            ref
+                .read(conversationsProvider.notifier)
+                .applyServerGeneratedTitle(chatId, title);
+          }
+        });
       }
     }
     if (tasks['tags_generation'] == true) {

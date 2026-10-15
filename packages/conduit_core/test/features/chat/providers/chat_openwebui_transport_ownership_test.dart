@@ -862,6 +862,11 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
   final taskChatIds = <String?>[];
   List<Map<String, dynamic>>? taskMessages;
   final renamed = <(String, String?)>[];
+
+  /// The chat's title on the server: the one its creation sent, until it is
+  /// renamed.
+  String serverTitle = 'Plan a weekend in Oslo';
+  Completer<void>? titleGate;
   final tagged = <(String, String)>[];
   var settingsReads = 0;
 
@@ -879,8 +884,20 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
   }) async {
     taskChatIds.add(chatId);
     taskMessages = messages;
+    await titleGate?.future;
     return 'Weekend in Oslo';
   }
+
+  @override
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async => Conversation(
+    id: id,
+    title: serverTitle,
+    createdAt: DateTime.utc(2026, 10, 15),
+    updatedAt: DateTime.utc(2026, 10, 15),
+  );
 
   @override
   Future<List<String>> generateChatTags({
@@ -897,7 +914,10 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
     String id, {
     String? title,
     String? systemPrompt,
-  }) async => renamed.add((id, title));
+  }) async {
+    renamed.add((id, title));
+    if (title != null) serverTitle = title;
+  }
 
   @override
   Future<List<Map<String, dynamic>>> addChatTag(
@@ -3075,17 +3095,52 @@ void main() {
             contextAttachments: const [],
             voice: exchange,
           );
-          final localId = await engine.localChatId();
-          await db.chatsDao.updateLocalOnlyEnvelope(
-            localId,
-            title: const Value('My trip'),
-          );
+          // Renamed here or on the web before the creation landed.
+          api.serverTitle = 'My trip';
           await engine.landCreation();
           await settle(() => api.tagged.isNotEmpty);
 
           check(api.taskChatIds).deepEquals(['server-chat', 'server-chat']);
           check(api.renamed).isEmpty();
           check(api.tagged).deepEquals([('server-chat', 'Travel')]);
+        });
+
+        test('waits for a rename still reaching the server', () async {
+          final api = _VoiceMetadataApi()..titleGate = Completer<void>();
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: true);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          await settle(() => api.taskChatIds.isNotEmpty);
+          // The user renames the chat while its title is being generated.
+          final renameSent = Completer<void>();
+          final renaming = container
+              .read(chatTitleLocksProvider)
+              .runExclusive('server-chat', () async {
+                await renameSent.future;
+                api.serverTitle = 'My trip';
+              });
+          api.titleGate!.complete();
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          renameSent.complete();
+          await renaming;
+          await settle(() => api.tagged.isNotEmpty);
+
+          check(api.renamed).isEmpty();
+          check(api.serverTitle).equals('My trip');
         });
 
         test('follows the auto-title and auto-tag settings', () async {

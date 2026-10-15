@@ -3,6 +3,7 @@ import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -619,7 +620,14 @@ Future<void> _renameConversation(
     }
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service');
-    await api.updateConversation(rawConversationId, title: newName);
+    // A title being generated for this chat waits for the rename, and keeps
+    // it.
+    await ref
+        .read(chatTitleLocksProvider)
+        .runExclusive(
+          rawConversationId,
+          () => api.updateConversation(rawConversationId, title: newName),
+        );
     ConduitHaptics.selectionClick();
     ref
         .read(conversationsProvider.notifier)
