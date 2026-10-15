@@ -232,38 +232,43 @@ void main() {
     });
   });
 
-  test('a list still loading cannot undo a mute of the open channel', () async {
-    final api = _QueuedChannelsApi();
-    final container = ProviderContainer(
-      overrides: [
-        apiServiceProvider.overrideWithValue(api),
-        authTokenProvider3.overrideWith((ref) => 'token'),
-      ],
-    );
-    addTearDown(container.dispose);
-    // Watched, as the sidebar watches it.
-    final subscription = container.listen(channelsListProvider, (_, _) {});
-    addTearDown(subscription.close);
-    await container.read(channelsListProvider.future);
-    container
-        .read(activeChannelProvider.notifier)
-        .set(Channel.fromJson({'id': 'c2', 'name': 'Two'}));
+  for (final open in [true, false]) {
+    test('a list still loading cannot undo a mute '
+        '(${open ? 'open' : 'other'} channel)', () async {
+      final api = _QueuedChannelsApi();
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          authTokenProvider3.overrideWith((ref) => 'token'),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Watched, as the sidebar watches it.
+      final subscription = container.listen(channelsListProvider, (_, _) {});
+      addTearDown(subscription.close);
+      await container.read(channelsListProvider.future);
+      if (open) {
+        container
+            .read(activeChannelProvider.notifier)
+            .set(Channel.fromJson({'id': 'c2', 'name': 'Two'}));
+      }
 
-    final loading = container.read(channelsListProvider.notifier).refresh();
-    container.read(channelsListProvider.notifier).setMuted('c2', true);
-    // Read before the mute reached the server.
-    api.complete(1, <Map<String, dynamic>>[
-      <String, dynamic>{'id': 'c2', 'name': 'Two', 'is_channel_muted': false},
-    ]);
-    await loading;
-    await _waitFor(() => api.requestCount == 3);
-    api.complete(2, <Map<String, dynamic>>[
-      <String, dynamic>{'id': 'c2', 'name': 'Two', 'is_channel_muted': true},
-    ]);
-    final channels = await container.read(channelsListProvider.future);
+      final loading = container.read(channelsListProvider.notifier).refresh();
+      container.read(channelsListProvider.notifier).setMuted('c2', true);
+      // Read before the mute reached the server.
+      api.complete(1, <Map<String, dynamic>>[
+        <String, dynamic>{'id': 'c2', 'name': 'Two', 'is_channel_muted': false},
+      ]);
+      await loading;
+      await _waitFor(() => api.requestCount == 3);
+      api.complete(2, <Map<String, dynamic>>[
+        <String, dynamic>{'id': 'c2', 'name': 'Two', 'is_channel_muted': true},
+      ]);
+      final channels = await container.read(channelsListProvider.future);
 
-    expect(channels.single.isChannelMuted, isTrue);
-  });
+      expect(channels.single.isChannelMuted, isTrue);
+    });
+  }
 
   group('ChannelMessages pagination ownership', () {
     test('first-page fetch reruns after a live message arrives', () async {

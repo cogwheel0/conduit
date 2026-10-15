@@ -167,14 +167,14 @@ class ChannelsList extends _$ChannelsList {
         break;
       }
     }
+    // A list still loading may bring the channel with its old setting.
+    if (!listed) _invalidatePendingRequestForMutation();
     // The open channel may not be in the list yet, as when it was opened
     // from a notification.
     final active = ref.read(activeChannelProvider);
     if (active != null &&
         active.id == channelId &&
         active.isChannelMuted != isChannelMuted) {
-      // A list still loading may bring the channel with its old setting.
-      if (!listed) _invalidatePendingRequestForMutation();
       ref
           .read(activeChannelProvider.notifier)
           .set(active.copyWith(isChannelMuted: isChannelMuted));
