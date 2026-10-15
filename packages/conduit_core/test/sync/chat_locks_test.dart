@@ -1,7 +1,11 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:drift/native.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -344,4 +348,34 @@ void main() {
       },
     );
   });
+
+  // A title generated after a long wait must take turns with a rename made
+  // once the database changed, so both use the same lock.
+  test('title locks outlive a database change; row locks do not', () async {
+    final database = NotifierProvider<_Database, AppDatabase?>(_Database.new);
+    final container = ProviderContainer(
+      overrides: [
+        appDatabaseProvider.overrideWith((ref) => ref.watch(database)),
+      ],
+    );
+    addTearDown(container.dispose);
+    final titleLocks = container.read(chatTitleLocksProvider);
+    final rowLocks = container.read(chatLocksProvider);
+
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    container.read(database.notifier).set(db);
+
+    check(
+      container.read(chatLocksProvider),
+    ).not((it) => it.identicalTo(rowLocks));
+    check(container.read(chatTitleLocksProvider)).identicalTo(titleLocks);
+  });
+}
+
+class _Database extends Notifier<AppDatabase?> {
+  @override
+  AppDatabase? build() => null;
+
+  void set(AppDatabase value) => state = value;
 }
