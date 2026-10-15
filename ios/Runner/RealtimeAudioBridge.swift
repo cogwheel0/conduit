@@ -35,6 +35,7 @@ final class RealtimePlaybackQueue {
     private var queued = 0
     private var received = 0
     private var playing = false
+    private var paused = false
     private var ended = Set<String>()
     private var rendered: [String: Rendered] = [:]
     private var clearId = 0
@@ -69,6 +70,13 @@ final class RealtimePlaybackQueue {
         lock.unlock()
     }
 
+    /// Holds playback, keeping what is queued, until it is resumed.
+    func setPaused(_ value: Bool) {
+        lock.lock()
+        paused = value
+        lock.unlock()
+    }
+
     /// Drops everything queued and returns what was played of each item.
     func clear(id: Int) -> [[String: Any]] {
         lock.lock()
@@ -96,6 +104,7 @@ final class RealtimePlaybackQueue {
         _ = clear(id: 0)
         lock.lock()
         received = 0
+        paused = false
         lock.unlock()
     }
 
@@ -109,7 +118,7 @@ final class RealtimePlaybackQueue {
             playing = true
         }
         var offset = 0
-        while playing, offset < count, !chunks.isEmpty {
+        while playing, !paused, offset < count, !chunks.isEmpty {
             var chunk = chunks[0]
             let take = min(count - offset, chunk.samples.count - chunk.offset)
             for index in 0..<take {
@@ -251,6 +260,9 @@ final class RealtimeAudioBridge: NSObject, ConduitBridge, FlutterStreamHandler {
                 if let responseId = arguments["responseId"] as? String {
                     self.playback.endResponse(responseId)
                 }
+                result(nil)
+            case "setPlaybackPaused":
+                self.playback.setPaused(arguments["paused"] as? Bool ?? false)
                 result(nil)
             case "clear":
                 result(self.playback.clear(id: arguments["clearId"] as? Int ?? 0))

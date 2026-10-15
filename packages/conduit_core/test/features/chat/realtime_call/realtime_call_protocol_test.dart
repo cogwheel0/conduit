@@ -61,6 +61,35 @@ void main() {
 
       refused(BridgeCommands.respondToInput('item-1'));
     });
+
+    test('words nobody answers are taken out of the voice history', () {
+      check(
+        protocol.observe({
+          'type': 'conversation.item.input_audio_transcription.completed',
+          'item_id': 'item-1',
+          'transcript': '  ',
+        }),
+      ).isNotNull().deepEquals({
+        'type': 'conversation.item.delete',
+        'item_id': 'item-1',
+      });
+      check(
+        protocol.observe({
+          'type': 'conversation.item.input_audio_transcription.failed',
+          'item_id': 'item-2',
+        }),
+      ).isNotNull().deepEquals({
+        'type': 'conversation.item.delete',
+        'item_id': 'item-2',
+      });
+      check(
+        protocol.observe({
+          'type': 'conversation.item.input_audio_transcription.completed',
+          'item_id': 'item-3',
+          'transcript': 'What time is it?',
+        }),
+      ).isNull();
+    });
   });
 
   group('a delegation', () {
@@ -294,7 +323,7 @@ void main() {
     check(session['instructions']).equals(kRealtimeCallInstructions);
     check(input['turn_detection']).isA<Map>().deepEquals({
       'type': 'server_vad',
-      'interrupt_response': true,
+      'interrupt_response': false,
       'create_response': false,
     });
     check(input['transcription']).isA<Map>().deepEquals({'model': 'whisper-1'});

@@ -67,6 +67,10 @@ abstract interface class RealtimePcmAudioPort {
   /// No more speech will come for [responseId]; play what is queued.
   void endResponse(String responseId);
 
+  /// Holds or resumes playback without dropping what is queued, while the
+  /// voice detection hears what may be the user starting to speak.
+  void setPlaybackPaused(bool paused);
+
   /// Drops queued speech and returns how much of each item was played.
   Future<List<RealtimeRenderedItem>> clear(int clearId);
 

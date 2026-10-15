@@ -328,7 +328,8 @@ final class DirectRealtimeBridge extends _SocketBridge {
       // Provider error text can carry prompts or keys, so it is not shown.
       return finish('The voice provider rejected a request.');
     }
-    _protocol.observe(frame);
+    final cleanup = _protocol.observe(frame);
+    if (cleanup != null) write(cleanup);
     if (type is String &&
         (type.startsWith('response.') ||
             type.startsWith('conversation.item.') ||

@@ -307,9 +307,12 @@ final class BridgeCallEngine implements RealtimeCallEngine {
         _pingsSincePong = 0;
         return;
       case 'input_audio_buffer.speech_started':
+        if (_state.muted) return;
         _receivingSpeech = _string(event['item_id']);
-        _update(_state.copyWith(userSpeaking: !_state.muted));
-        _stopSpeaking();
+        _update(_state.copyWith(userSpeaking: true));
+        // Detected speech may be only noise: hold the voice, and stop it
+        // once the words are transcribed.
+        _audio.setPlaybackPaused(true);
       case 'input_audio_buffer.speech_stopped':
         if (_receivingSpeech == event['item_id']) {
           _update(_state.copyWith(userSpeaking: false));
@@ -391,6 +394,8 @@ final class BridgeCallEngine implements RealtimeCallEngine {
         event['type'] == 'conversation.item.input_audio_transcription.failed';
     final transcript = event['transcript'];
     final text = !failed && transcript is String ? transcript.trim() : '';
+    if (text.isNotEmpty) _stopSpeaking();
+    if (_receivingSpeech.isEmpty) _audio.setPlaybackPaused(false);
     if (text.isEmpty) {
       // Silence is not a request, and must not get a reply.
       if (failed) {
@@ -414,10 +419,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     if (item['name'] == 'play_animation') {
       // Conduit draws no avatar; a gesture never interrupts the call.
       if (!_animationCalls.add(callId)) return;
-      final cancelled =
-          response == null ||
-          _interrupted.contains(responseId) ||
-          _receivingSpeech.isNotEmpty;
+      final cancelled = response == null || _interrupted.contains(responseId);
       if (response != null && !cancelled) response.animationFailed = true;
       _send(
         BridgeCommands.animationResult(
@@ -574,6 +576,13 @@ final class BridgeCallEngine implements RealtimeCallEngine {
   void _onResponseDone(String id, Object? status) {
     if (_activeResponse == id) _activeResponse = '';
     _responseRequested = false;
+    // Open WebUI 0.12.0 has the voice cancel its own reply once speech
+    // starts, so the held rest of it is never resumed.
+    if (status == 'cancelled' &&
+        _receivingSpeech.isNotEmpty &&
+        !_interrupted.contains(id)) {
+      _stopSpeaking();
+    }
     _audio.endResponse(id);
     final response = _responses[id];
     if (response != null) {
@@ -778,8 +787,10 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     if (muted) {
       _send(BridgeCommands.clearInput);
       // The cleared speech brings no transcript, so a reply waiting for it
-      // would wait until the user spoke again.
+      // would wait until the user spoke again, and a held voice would stay
+      // silent.
       _receivingSpeech = '';
+      _audio.setPlaybackPaused(false);
       _flush();
     }
   }

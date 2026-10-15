@@ -270,6 +270,27 @@ void main() {
       check(socket.sent.length).equals(sentBefore);
     });
 
+    test('takes words nobody answers out of the voice history', () async {
+      final socket = _Socket();
+      final transport = await ready(socket);
+      final events = <Map<String, Object?>>[];
+      transport.events.listen(events.add);
+      final sentBefore = socket.sent.length;
+
+      socket.receive({
+        'type': 'conversation.item.input_audio_transcription.failed',
+        'item_id': 'noise-1',
+      });
+      await _settle();
+
+      check(socket.sent.sublist(sentBefore)).deepEquals([
+        {'type': 'conversation.item.delete', 'item_id': 'noise-1'},
+      ]);
+      // The call still learns the words could not be made out.
+      check(events.single['type'])
+          .equals('conversation.item.input_audio_transcription.failed');
+    });
+
     test('translates commands, and a bad one ends the call', () async {
       final socket = _Socket();
       final transport = await ready(socket);

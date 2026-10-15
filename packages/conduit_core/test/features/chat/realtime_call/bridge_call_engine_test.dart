@@ -71,6 +71,7 @@ final class _Audio implements RealtimePcmAudioPort {
   final enqueued = <String>[];
   final ended = <String>[];
   final clears = <int>[];
+  final pauses = <bool>[];
   var rendered = <RealtimeRenderedItem>[];
   bool? captureEnabled;
   var received = 0;
@@ -117,6 +118,9 @@ final class _Audio implements RealtimePcmAudioPort {
 
   @override
   void endResponse(String responseId) => ended.add(responseId);
+
+  @override
+  void setPlaybackPaused(bool paused) => pauses.add(paused);
 
   @override
   Future<List<RealtimeRenderedItem>> clear(int clearId) async {
@@ -561,10 +565,23 @@ void main() {
     });
     await _settle();
 
+    // Speech that may be noise only holds the voice.
+    check(audio.pauses.last).isTrue();
+    check(transport.types).not((it) => it.contains('response.cancel'));
+    check(audio.clears).deepEquals([1]);
+
+    transport.receive({
+      'type': 'conversation.item.input_audio_transcription.completed',
+      'item_id': 'item-2',
+      'transcript': 'Wait, a different one',
+    });
+    await _settle();
+
     check(transport.sent.where((c) => c['type'] == 'response.cancel')).single
         .deepEquals({'type': 'response.cancel', 'response_id': 'resp-1'});
-    // Every start of speech clears playback; this one cut the voice off.
+    // Every transcribed request clears playback; this one cut the voice off.
     check(audio.clears).deepEquals([1, 2]);
+    check(audio.pauses.last).isFalse();
     final truncations = transport.sent
         .where((c) => c['type'] == 'conversation.item.truncate')
         .toList();
@@ -583,6 +600,100 @@ void main() {
       },
     ]);
     check(engine.state.assistantSpeaking).isFalse();
+  });
+
+  test('noise heard over the voice resumes it where it paused', () async {
+    say('item-1', 'Tell me a story');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    speaks('resp-1', 'speech-1', 'Once upon a time');
+    await _settle();
+    final clears = List.of(audio.clears);
+
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'noise-1',
+    });
+    await _settle();
+    check(audio.pauses.last).isTrue();
+
+    transport.receive({
+      'type': 'conversation.item.input_audio_transcription.completed',
+      'item_id': 'noise-1',
+      'transcript': '  ',
+    });
+    await _settle();
+
+    check(audio.pauses.last).isFalse();
+    check(audio.clears).deepEquals(clears);
+    check(transport.types)
+      ..not((it) => it.contains('response.cancel'))
+      ..not((it) => it.contains('conversation.item.truncate'));
+    check(engine.state.assistantSpeaking).isTrue();
+  });
+
+  test('a voice that cancels itself when speech starts stays stopped', () async {
+    // Open WebUI 0.12.0 has the voice cancel its reply on any speech.
+    say('item-1', 'Tell me a story');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    speaks('resp-1', 'speech-1', 'Once upon a time');
+    await _settle();
+    audio.rendered = [
+      (
+        responseId: 'resp-1',
+        itemId: 'speech-1',
+        contentIndex: 0,
+        samples: 2400,
+      ),
+    ];
+
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'noise-1',
+    });
+    transport.receive({
+      'type': 'response.done',
+      'response': {'id': 'resp-1', 'status': 'cancelled'},
+    });
+    await _settle();
+    transport.receive({
+      'type': 'conversation.item.input_audio_transcription.completed',
+      'item_id': 'noise-1',
+      'transcript': '',
+    });
+    await _settle();
+
+    check(audio.clears).deepEquals([1, 2]);
+    check(transport.sent.where((c) => c['type'] == 'conversation.item.truncate'))
+        .single
+        .deepEquals({
+          'type': 'conversation.item.truncate',
+          'item_id': 'speech-1',
+          'content_index': 0,
+          'audio_end_ms': 50,
+        });
+    check(engine.state.assistantSpeaking).isFalse();
+  });
+
+  test('muting while speech is heard resumes the held voice', () async {
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'item-1',
+    });
+    await _settle();
+    check(audio.pauses).deepEquals([true]);
+
+    engine.setMuted(true);
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'item-2',
+    });
+    await _settle();
+
+    // Speech detected while muted holds nothing.
+    check(audio.pauses).deepEquals([true, false]);
+    check(engine.state.userSpeaking).isFalse();
   });
 
   test('muting stops sending the microphone and drops what it heard', () async {

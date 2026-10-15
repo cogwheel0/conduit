@@ -89,6 +89,11 @@ final class MethodChannelRealtimePcmAudio implements RealtimePcmAudioPort {
   );
 
   @override
+  void setPlaybackPaused(bool paused) => unawaited(
+    _methods.invokeMethod<void>('setPlaybackPaused', {'paused': paused}),
+  );
+
+  @override
   Future<List<RealtimeRenderedItem>> clear(int clearId) async {
     final rendered =
         await _methods.invokeListMethod<Map<Object?, Object?>>('clear', {

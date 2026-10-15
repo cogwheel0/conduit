@@ -17,7 +17,10 @@ final class RealtimeProtocolException implements Exception {
 ///
 /// The voice never answers on its own (`create_response: false`): the call
 /// asks for every reply once the user's words are transcribed, which gives
-/// each delegation the input it answers. Audio is PCM16 at 24 kHz both ways.
+/// each delegation the input it answers. Nor does it stop itself when speech
+/// starts (`interrupt_response: false`): the call holds it until the words
+/// are transcribed, so noise does not cut it off. Audio is PCM16 at 24 kHz
+/// both ways.
 Map<String, Object?> directRealtimeSessionUpdate({
   required String voice,
   required String transcriptionModel,
@@ -34,7 +37,7 @@ Map<String, Object?> directRealtimeSessionUpdate({
         'transcription': {'model': transcriptionModel},
         'turn_detection': {
           'type': 'server_vad',
-          'interrupt_response': true,
+          'interrupt_response': false,
           'create_response': false,
         },
       },
@@ -74,13 +77,23 @@ final class RealtimeCallProtocol {
   final _audioSamples = <(String, int), int>{};
   var _contextRevision = 0;
 
-  /// Records what a provider [event] means for later commands.
-  void observe(Map<String, Object?> event) {
+  /// Records what a provider [event] means for later commands, and returns
+  /// the provider event to send before the call sees it, if any.
+  Map<String, Object?>? observe(Map<String, Object?> event) {
+    Map<String, Object?>? cleanup;
     switch (event['type']) {
-      case 'conversation.item.input_audio_transcription.completed':
+      case 'conversation.item.input_audio_transcription.completed' ||
+          'conversation.item.input_audio_transcription.failed':
         final transcript = event['transcript'];
-        if (transcript is String && transcript.trim().isNotEmpty) {
-          _transcripts.add(_string(event['item_id']));
+        final itemId = _string(event['item_id']);
+        if (event['type'] ==
+                'conversation.item.input_audio_transcription.completed' &&
+            transcript is String &&
+            transcript.trim().isNotEmpty) {
+          _transcripts.add(itemId);
+        } else {
+          // Words nobody answers must leave the voice's history as well.
+          cleanup = {'type': 'conversation.item.delete', 'item_id': itemId};
         }
       case 'response.created':
         _responses.add(_string(_map(event['response'])['id']));
@@ -108,6 +121,7 @@ final class RealtimeCallProtocol {
         'Call limit reached. Start a new call.',
       );
     }
+    return cleanup;
   }
 
   /// The provider events [command] stands for.

@@ -45,6 +45,9 @@ internal class RealtimePlaybackQueue {
     private val chunks = ArrayDeque<Chunk>()
     private val ended = HashSet<String>()
     private var playing = false
+
+    /** Holds playback, keeping what is queued, until it is resumed. */
+    var paused = false
     var queued = 0
         private set
     var received = 0
@@ -67,7 +70,7 @@ internal class RealtimePlaybackQueue {
         if (!playing && (queued >= PREBUFFER_SAMPLES || (first != null && first.responseId in ended))) {
             playing = true
         }
-        if (!playing || first == null) {
+        if (!playing || paused || first == null) {
             if (queued == 0) playing = false
             return null
         }
@@ -90,6 +93,7 @@ internal class RealtimePlaybackQueue {
     fun reset() {
         clear()
         received = 0
+        paused = false
     }
 
     companion object {
@@ -202,6 +206,11 @@ class RealtimeAudioBridge : MethodChannel.MethodCallHandler, EventChannel.Stream
                 call.argument<String>("responseId")?.let { id ->
                     synchronized(lock) { playback.endResponse(id) }
                 }
+                result.success(null)
+            }
+            "setPlaybackPaused" -> {
+                val paused = call.argument<Boolean>("paused") ?: false
+                synchronized(lock) { playback.paused = paused }
                 result.success(null)
             }
             "clear" -> result.success(clear(call.argument<Int>("clearId") ?: 0))

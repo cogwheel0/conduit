@@ -3705,6 +3705,9 @@ final class _RealtimeAudio implements RealtimePcmAudioPort {
   void endResponse(String responseId) {}
 
   @override
+  void setPlaybackPaused(bool paused) {}
+
+  @override
   Future<List<RealtimeRenderedItem>> clear(int clearId) async => const [];
 
   @override
