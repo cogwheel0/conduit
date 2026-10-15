@@ -1584,6 +1584,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         if (reply.messageId == m.id) reply,
     ];
 
+    // Rows are keyed by message, so what a row holds, such as a pending app
+    // button, moves with its message when a newer one arrives.
+    final indexById = {
+      for (final (index, message) in messages.indexed) message.id: index,
+    };
     return ListView.builder(
       controller: _scrollController,
       reverse: true,
@@ -1592,6 +1597,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         bottom: Spacing.sm + _composerHeight,
       ),
       itemCount: messages.length + (_isLoadingMore ? 1 : 0),
+      findChildIndexCallback: (key) =>
+          key is ValueKey<String> ? indexById[key.value] : null,
       itemBuilder: (context, index) {
         if (_isLoadingMore && index == messages.length) {
           return const Padding(
@@ -1648,19 +1655,24 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               : null,
         );
         final replies = repliesTo(message);
-        if (replies.isEmpty) return bubble;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            bubble,
-            for (final reply in replies)
-              ChannelPrivateAppReply(
-                key: ValueKey<String>('channel-app-reply-${reply.key}'),
-                event: reply,
-                onDismiss: () =>
-                    ref.read(appRepliesProvider.notifier).dismiss(reply.key),
-              ),
-          ],
+        return KeyedSubtree(
+          key: ValueKey<String>(message.id),
+          child: replies.isEmpty
+              ? bubble
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    bubble,
+                    for (final reply in replies)
+                      ChannelPrivateAppReply(
+                        key: ValueKey<String>('channel-app-reply-${reply.key}'),
+                        event: reply,
+                        onDismiss: () => ref
+                            .read(appRepliesProvider.notifier)
+                            .dismiss(reply.key),
+                      ),
+                  ],
+                ),
         );
       },
     );
@@ -2061,6 +2073,9 @@ class _MessageBubble extends StatelessWidget {
                         ),
                         if (message.isAppMessage)
                           ChannelAppMessageCards(
+                            // Rows are reused by position; a button's state
+                            // stays with its message.
+                            key: ValueKey(message.id),
                             message: message,
                             channelId: channelId,
                             onReply: onAppReply,

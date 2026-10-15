@@ -277,6 +277,9 @@ class _AppReplyActions {
   /// The app cards of [message], when an app posted it.
   Widget cardsOf(ChannelMessage message) => message.isAppMessage
       ? ChannelAppMessageCards(
+          // Rows are reused by position; a button's state stays with its
+          // message.
+          key: ValueKey(message.id),
           message: message,
           channelId: channelId,
           parentId: parentId,
@@ -457,6 +460,10 @@ class _ThreadReplies extends StatelessWidget {
         ),
       );
     }
+    // Rows are keyed by message, so what a row holds moves with it.
+    final indexById = {
+      for (final (index, message) in messages.indexed) message.id: index,
+    };
     return ListView.builder(
       reverse: false,
       padding: EdgeInsets.fromLTRB(
@@ -466,6 +473,8 @@ class _ThreadReplies extends StatelessWidget {
         Spacing.sm + bottomPadding,
       ),
       itemCount: messages.length,
+      findChildIndexCallback: (key) =>
+          key is ValueKey<String> ? indexById[key.value] : null,
       itemBuilder: (context, index) {
         final message = messages[index];
         final row = Padding(
@@ -503,10 +512,14 @@ class _ThreadReplies extends StatelessWidget {
           ),
         );
         final replies = appReplies.repliesTo(message, avatarSize: 24);
-        if (replies.isEmpty) return row;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [row, ...replies],
+        return KeyedSubtree(
+          key: ValueKey<String>(message.id),
+          child: replies.isEmpty
+              ? row
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [row, ...replies],
+                ),
         );
       },
     );

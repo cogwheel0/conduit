@@ -16,6 +16,7 @@ import 'package:conduit_core/features/channels/providers/channel_providers.dart'
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/features/channels/views/channel_page.dart';
+import 'package:conduit/features/channels/widgets/channel_app_content.dart';
 import 'package:conduit/features/channels/widgets/thread_panel.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -564,6 +565,47 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
+  // The list reuses its rows by position, so a card's button state must
+  // follow its message when a newer one arrives above it.
+  testWidgets('a failed press stays with its message when a new one arrives', (
+    tester,
+  ) async {
+    final api = _ChannelApi(
+      messages: [_appCardMessageJson()],
+      interactionError: StateError('app unreachable'),
+    );
+    final container = _appRigContainer(api);
+    addTearDown(container.dispose);
+    await _pumpChannelPage(tester, container);
+    const failed = 'Something went wrong. Please try again.';
+
+    await tester.tap(find.text('Redeploy'));
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.text(failed), findsOneWidget);
+
+    container
+        .read(channelMessagesProvider('channel-1').notifier)
+        .prependMessage(
+          ChannelMessage.fromJson({
+            ..._appCardMessageJson(),
+            'id': 'message-2',
+          }),
+        );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    final cards = find.ancestor(
+      of: find.text(failed),
+      matching: find.byType(ChannelAppMessageCards),
+    );
+    expect(cards, findsOneWidget);
+    check(tester.widget<ChannelAppMessageCards>(cards).message.id)
+        .equals('message-1');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
   testWidgets('a channel reply to a button press is not shown in place', (
     tester,
   ) async {
@@ -1047,6 +1089,7 @@ class _ChannelApi extends ApiService {
     this.threadMessages = const [],
     this.channels = const [],
     this.interactionResponse = const {'type': 'ack'},
+    this.interactionError,
   }) : super(
          serverConfig: const ServerConfig(
            id: 'test-server',
@@ -1063,6 +1106,7 @@ class _ChannelApi extends ApiService {
   final List<Map<String, dynamic>> threadMessages;
   final List<Map<String, dynamic>> channels;
   final Map<String, dynamic> interactionResponse;
+  final Object? interactionError;
   final List<String> reactedMessageIds = [];
   final List<String> interactions = [];
   final List<String> muteRequests = [];
@@ -1132,6 +1176,7 @@ class _ChannelApi extends ApiService {
     required String actionId,
   }) async {
     interactions.add('$appId|$messageId|$actionId');
+    if (interactionError case final error?) throw error;
     return interactionResponse;
   }
 
