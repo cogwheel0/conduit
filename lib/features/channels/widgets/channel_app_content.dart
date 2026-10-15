@@ -393,28 +393,17 @@ class AppEmbedCard extends StatelessWidget {
         ),
     ];
 
-    return Container(
+    final radius = BorderRadius.circular(AppBorderRadius.sm);
+    final card = Container(
       constraints: const BoxConstraints(maxWidth: _maxWidth),
-      padding: EdgeInsets.only(
-        left: color == null ? Spacing.md : Spacing.md - 3,
-        right: Spacing.md,
-        top: Spacing.sm,
-        bottom: Spacing.sm,
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.sm,
       ),
       decoration: BoxDecoration(
         color: theme.surfaceContainer.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-        border: Border(
-          left: BorderSide(
-            color: color == null
-                ? theme.cardBorder
-                : Color(0xFF000000 | color),
-            width: color == null ? 1 : 3,
-          ),
-          top: BorderSide(color: theme.cardBorder),
-          right: BorderSide(color: theme.cardBorder),
-          bottom: BorderSide(color: theme.cardBorder),
-        ),
+        borderRadius: radius,
+        border: Border.all(color: theme.cardBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -463,6 +452,24 @@ class AppEmbedCard extends StatelessWidget {
               padding: const EdgeInsets.only(top: Spacing.sm),
               child: Text(footer, style: secondary),
             ),
+        ],
+      ),
+    );
+    if (color == null) return card;
+    // A rounded border must be one color, so the accent is a bar laid over
+    // the card's left edge.
+    return ClipRRect(
+      borderRadius: radius,
+      child: Stack(
+        children: [
+          card,
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 3,
+            child: ColoredBox(color: Color(0xFF000000 | color)),
+          ),
         ],
       ),
     );
