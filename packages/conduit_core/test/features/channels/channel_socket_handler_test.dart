@@ -4,6 +4,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_socket_handler.dart';
+import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:riverpod/riverpod.dart';
@@ -21,6 +22,7 @@ void main() {
         socketServiceProvider.overrideWithValue(socket),
         openWebUiAuthSessionEpochProvider.overrideWithValue(epoch),
         apiServiceProvider.overrideWithValue(null),
+        channelsListProvider.overrideWith(_ListedChannels.new),
       ],
     );
     container.listen(channelSocketHandlerProvider, (_, _) {});
@@ -144,6 +146,55 @@ void main() {
     check(reply.userName).equals('Ada');
     check(reply.reactions.map((r) => r.name)).deepEquals(['tada']);
   });
+
+  // Open WebUI 0.12.1 sends channel:mute to the user's own sessions.
+  test('channel:mute sets the listed channel to mentions only', () async {
+    await container.read(channelsListProvider.future);
+    Map<String, dynamic> muteEvent(Object? muted) => {
+      'channel_id': 'c1',
+      'data': {
+        'type': 'channel:mute',
+        'data': {'is_channel_muted': muted},
+      },
+    };
+    bool muted() =>
+        container.read(channelsListProvider).value!.single.isChannelMuted;
+
+    socket.deliver(muteEvent(true));
+    check(muted()).isTrue();
+
+    // A malformed event changes nothing.
+    socket.deliver(muteEvent('yes'));
+    check(muted()).isTrue();
+
+    socket.deliver(muteEvent(false));
+    check(muted()).isFalse();
+  });
+
+  test('parseChannelMuteEvent reads only channel:mute events', () {
+    check(
+      parseChannelMuteEvent({
+        'channel_id': 'c9',
+        'data': {
+          'type': 'channel:mute',
+          'data': {'is_channel_muted': true},
+        },
+      }),
+    ).equals((channelId: 'c9', isChannelMuted: true));
+    check(
+      parseChannelMuteEvent({
+        'channel_id': 'c9',
+        'data': {'type': 'message', 'data': <String, dynamic>{}},
+      }),
+    ).isNull();
+  });
+}
+
+class _ListedChannels extends ChannelsList {
+  @override
+  Future<List<Channel>> build() async => const [
+    Channel(id: 'c1', name: 'general'),
+  ];
 }
 
 class _CapturingSocket implements SocketService {

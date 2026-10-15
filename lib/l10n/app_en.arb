@@ -3364,6 +3364,40 @@
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
   },
+  "channelNotifyAllMessages": "All messages",
+  "@channelNotifyAllMessages": {
+    "description": "Channel menu option: notify for every message in this channel or direct message (Open WebUI notification setting)."
+  },
+  "channelNotifyMentionsOnly": "Mentions only",
+  "@channelNotifyMentionsOnly": {
+    "description": "Channel menu option: notify only when a message mentions you. Also read out for a channel set this way."
+  },
+  "channelAppBadge": "App",
+  "@channelAppBadge": {
+    "description": "Label shown next to the name of an external app that posted in a channel."
+  },
+  "channelAppOnlyVisibleToYou": "Only visible to you",
+  "@channelAppOnlyVisibleToYou": {
+    "description": "Note under an app reply that only the signed-in user can see."
+  },
+  "channelAppDismiss": "Dismiss",
+  "@channelAppDismiss": {
+    "description": "Action that hides an app reply only the signed-in user can see."
+  },
+  "channelAppErrorFallback": "The app could not complete this operation.",
+  "@channelAppErrorFallback": {
+    "description": "Shown when an app reports an error without a message."
+  },
+  "channelAppDownload": "Download {filename}",
+  "@channelAppDownload": {
+    "description": "Button that saves the Markdown file an app replied with.",
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "Message...",
   "@channelMessageHint": {
     "description": "Hint text for the channel message input field"

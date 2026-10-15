@@ -1,5 +1,19 @@
 import '../models/app_notification.dart';
 
+final RegExp _userMention = RegExp(r'<@U:([^|>]+)(?:\|[^>]+)?>');
+
+/// Whether a message in a channel should alert [userId]. A channel set to
+/// mentions only ([isMuted]) alerts only for a message whose [content]
+/// mentions the user as `<@U:id>` or `<@U:id|Name>`. Mirrors Open WebUI's
+/// `shouldNotifyChannelMessage` (src/lib/utils/channelNotifications.ts).
+bool shouldNotifyChannelMessage({
+  required bool isMuted,
+  required String content,
+  required String userId,
+}) =>
+    !isMuted ||
+    _userMention.allMatches(content).any((match) => match.group(1) == userId);
+
 /// Pure translator from raw Open WebUI socket envelopes to [AppNotification]s.
 ///
 /// This is the single owner of upstream event-envelope semantics: the nested

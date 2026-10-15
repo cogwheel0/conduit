@@ -13,6 +13,22 @@ import 'channel_providers.dart';
 
 part 'channel_socket_handler.g.dart';
 
+/// The channel and state named by an Open WebUI `channel:mute` event, or null
+/// for any other event. The server sends it to the user's own sessions after
+/// `POST /channels/{id}/members/mute` (routers/channels.py):
+/// `{channel_id, data: {type: 'channel:mute', data: {is_channel_muted}}}`.
+({String channelId, bool isChannelMuted})? parseChannelMuteEvent(
+  Map<String, dynamic> event,
+) {
+  final envelope = event['data'];
+  if (envelope is! Map || envelope['type'] != 'channel:mute') return null;
+  final channelId = event['channel_id'];
+  final data = envelope['data'];
+  final muted = data is Map ? data['is_channel_muted'] : null;
+  if (channelId is! String || channelId.isEmpty || muted is! bool) return null;
+  return (channelId: channelId, isChannelMuted: muted);
+}
+
 /// Manages socket event subscriptions for real-time channel updates.
 ///
 /// Call [subscribe] when entering a channel view and [unsubscribe]
@@ -217,6 +233,12 @@ class ChannelSocketHandler extends _$ChannelSocketHandler {
           }
         case 'channel:delete':
           ref.read(channelsListProvider.notifier).removeChannel(channelId);
+        case 'channel:mute':
+          if (parseChannelMuteEvent(event) case final mute?) {
+            ref
+                .read(channelsListProvider.notifier)
+                .setMuted(mute.channelId, mute.isChannelMuted);
+          }
         case 'typing':
           _handleTyping(event, channelId, generation);
         default:

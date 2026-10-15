@@ -9,8 +9,12 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/channels/providers/channel_app_replies.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/features/channels/views/channel_page.dart';
 import 'package:conduit/features/channels/widgets/thread_panel.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
@@ -407,6 +411,327 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
+  // Open WebUI 0.12.1 apps post with no user_id and name the app in `user`.
+  testWidgets('back-to-back replies from two apps each name their app', (
+    tester,
+  ) async {
+    Map<String, dynamic> appReply(String id, String appId, String name) => {
+      'id': id,
+      'channel_id': 'channel-1',
+      'user_id': null,
+      'app_id': appId,
+      'content': 'Reply from $name',
+      'user': {'id': appId, 'name': name, 'role': 'app'},
+    };
+    final api = _ChannelApi(
+      messages: [
+        appReply('message-3', 'app-2', 'Search App'),
+        appReply('message-2', 'app-1', 'Helper App'),
+      ],
+    );
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        currentUserProvider.overrideWith((ref) async => null),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const ChannelPage(channelId: 'channel-1'),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(find.text('Helper App'), findsOneWidget);
+    expect(find.text('Search App'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  // Open WebUI 0.12.1 app cards and buttons (AppEmbed.svelte,
+  // AppChannelReply.svelte).
+  testWidgets('an app card shows its embed and buttons, and a button press '
+      'shows the private reply', (tester) async {
+    final api = _ChannelApi(
+      messages: [_appCardMessageJson()],
+      interactionResponse: {
+        'type': 'message',
+        'visibility': 'private',
+        'title': 'Redeploy queued',
+        'content': 'Only you can see this',
+        'embeds': <Object>[],
+        'actions': <Object>[],
+      },
+    );
+    final container = _appRigContainer(api);
+    addTearDown(container.dispose);
+    await _pumpChannelPage(tester, container);
+
+    // A card-only message is not an empty bubble.
+    expect(find.text('Deploy Bot'), findsOneWidget);
+    expect(find.text('App'), findsOneWidget);
+    expect(find.text('Build 42'), findsOneWidget);
+    expect(find.textContaining('All green', findRichText: true), findsWidgets);
+    expect(find.text('Branch'), findsOneWidget);
+    expect(find.text('took 3m'), findsOneWidget);
+    expect(find.text('Redeploy'), findsOneWidget);
+    expect(find.text('Open logs'), findsOneWidget);
+
+    await tester.tap(find.text('Redeploy'));
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 1));
+
+    check(api.interactions).deepEquals(['app-1|message-1|redeploy']);
+    expect(find.text('Redeploy queued'), findsOneWidget);
+    expect(
+      find.textContaining('Only you can see this', findRichText: true),
+      findsWidgets,
+    );
+    expect(find.text('Only visible to you'), findsOneWidget);
+
+    await tester.tap(find.text('Dismiss'));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.text('Only visible to you'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('a thread shows app cards and keeps their private replies', (
+    tester,
+  ) async {
+    final api = _ChannelApi(
+      threadMessages: [
+        {
+          ..._appCardMessageJson(),
+          'id': 'reply-1',
+          'parent_id': 'message-1',
+        },
+      ],
+      interactionResponse: {'type': 'error', 'visibility': 'private'},
+    );
+    final container = _appRigContainer(api);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ThreadPanel(
+            channelId: 'channel-1',
+            parentMessage: ChannelMessage.fromJson(_messageJson('Parent')),
+            onClose: () {},
+            onReactionTap: (_, _) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(find.text('Build 42'), findsOneWidget);
+    await tester.tap(find.text('Redeploy'));
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 1));
+
+    check(api.interactions).deepEquals(['app-1|reply-1|redeploy']);
+    // An error without text gets the web client's fallback.
+    expect(
+      find.text('The app could not complete this operation.'),
+      findsOneWidget,
+    );
+    expect(find.text('Only visible to you'), findsOneWidget);
+    // The reply belongs to this thread, not to the channel.
+    check(
+      container.read(channelAppRepliesProvider('channel-1', 'message-1')).keys,
+    ).deepEquals(['reply-1:app-1']);
+    check(container.read(channelAppRepliesProvider('channel-1', null)))
+        .isEmpty();
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('a channel reply to a button press is not shown in place', (
+    tester,
+  ) async {
+    final api = _ChannelApi(
+      messages: [_appCardMessageJson()],
+      interactionResponse: {'type': 'message', 'visibility': 'channel'},
+    );
+    final container = _appRigContainer(api);
+    addTearDown(container.dispose);
+    await _pumpChannelPage(tester, container);
+
+    await tester.tap(find.text('Redeploy'));
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 1));
+
+    check(api.interactions).length.equals(1);
+    // It arrives as a channel message over the socket instead.
+    expect(find.text('Only visible to you'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  // routers/channels.py sends a failed app mention's error to the asker
+  // alone as events:app.
+  testWidgets('an events:app error shows under the message that asked', (
+    tester,
+  ) async {
+    final socket = _AppSocket();
+    final api = _ChannelApi(
+      messages: [
+        _messageJson('<@A:app-1|Deploy Bot> deploy'),
+      ],
+    );
+    final container = _appRigContainer(api, socket: socket);
+    addTearDown(container.dispose);
+    await _pumpChannelPage(tester, container);
+    await tester.pump(const Duration(milliseconds: 1));
+
+    Map<String, dynamic> appEvent({String channelId = 'channel-1'}) => {
+      'app_id': 'app-1',
+      'app_name': 'Deploy Bot',
+      'channel_id': channelId,
+      'message_id': 'message-1',
+      'parent_id': null,
+      'reply': {'type': 'error', 'content': 'App error: App is inactive'},
+    };
+    socket.deliverApp(appEvent(channelId: 'channel-2'));
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.text('Only visible to you'), findsNothing);
+
+    socket.deliverApp(appEvent());
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(find.text('Only visible to you'), findsOneWidget);
+    expect(find.text('Deploy Bot'), findsOneWidget);
+    expect(
+      find.textContaining('App is inactive', findRichText: true),
+      findsWidgets,
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('a reply to a card-only app message previews the card text', (
+    tester,
+  ) async {
+    final api = _ChannelApi(
+      messages: [
+        {
+          ..._messageJson('Thanks'),
+          'id': 'message-2',
+          'reply_to_id': 'message-1',
+          // The slim reply preview keeps only the cards.
+          'reply_to_message': {
+            ..._appCardMessageJson(),
+            'data': {
+              'app': {
+                'embeds': [
+                  {'title': 'Build 42'},
+                ],
+              },
+            },
+          },
+        },
+      ],
+    );
+    final container = _appRigContainer(api);
+    addTearDown(container.dispose);
+    await _pumpChannelPage(tester, container);
+
+    expect(find.text('Build 42'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('an app message is not editable while the user loads', (
+    tester,
+  ) async {
+    final api = _ChannelApi(messages: [_appCardMessageJson()]);
+    final userLoading = Completer<User?>();
+    final container = _appRigContainer(api, user: userLoading.future);
+    addTearDown(container.dispose);
+    await _pumpChannelPage(tester, container);
+
+    final labels = tester
+        .widget<ConduitContextMenu>(find.byType(ConduitContextMenu).first)
+        .actions
+        .map((action) => action.label);
+    check(labels).contains('Reply');
+    check(labels).not((it) => it.contains('Edit'));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  // Open WebUI 0.12.1 ChannelMenu.svelte: All messages / Mentions only.
+  testWidgets('the channel menu sets notifications to mentions only', (
+    tester,
+  ) async {
+    final api = _ChannelApi(
+      channels: [
+        {'id': 'channel-1', 'name': 'Initial channel'},
+      ],
+    );
+    final container = _appRigContainer(api);
+    addTearDown(container.dispose);
+    await container.read(channelsListProvider.future);
+    await _pumpChannelPage(tester, container);
+
+    ConduitAdaptiveToolbarOverflowButton<String> menu() => tester
+        .widget<ConduitAdaptiveToolbarOverflowButton<String>>(
+          find.byType(ConduitAdaptiveToolbarOverflowButton<String>),
+        );
+    Map<String, bool> checked() => {
+      for (final item
+          in menu().items.whereType<AdaptivePopupMenuItem<String>>())
+        if (item.value!.startsWith('notify-')) item.value!: item.checked,
+    };
+    check(checked()).deepEquals({
+      'notify-all': true,
+      'notify-mentions': false,
+    });
+
+    menu().onSelected('notify-mentions');
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(milliseconds: 1));
+
+    check(api.muteRequests).deepEquals(['channel-1=true']);
+    check(
+      container.read(channelsListProvider).requireValue.single.isChannelMuted,
+    ).isTrue();
+    check(checked()).deepEquals({
+      'notify-all': false,
+      'notify-mentions': true,
+    });
+
+    // Choosing the current setting sends nothing.
+    menu().onSelected('notify-mentions');
+    await tester.pump(const Duration(milliseconds: 1));
+    check(api.muteRequests).length.equals(1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
   testWidgets('channel route change clears the prior active channel', (
     tester,
   ) async {
@@ -585,6 +910,118 @@ Map<String, dynamic> _messageJson(String content) => {
   'user': {'id': 'user-1', 'name': 'Alice', 'email': 'alice@example.test'},
 };
 
+Map<String, dynamic> _appCardMessageJson() => {
+  'id': 'message-1',
+  'channel_id': 'channel-1',
+  'user_id': null,
+  'app_id': 'app-1',
+  'content': '',
+  'user': {'id': 'app-1', 'name': 'Deploy Bot', 'role': 'app'},
+  'data': {
+    'app': {
+      'embeds': [
+        {
+          'title': 'Build 42',
+          'description': 'All green',
+          'footer': {'text': 'took 3m'},
+          'fields': [
+            {'name': 'Branch', 'value': 'main', 'inline': true},
+          ],
+        },
+      ],
+      'actions': [
+        {'action_id': 'redeploy', 'label': 'Redeploy', 'context': {}},
+        {'label': 'Open logs', 'url': 'https://ci.example/42/logs'},
+      ],
+    },
+  },
+};
+
+ProviderContainer _appRigContainer(
+  _ChannelApi api, {
+  SocketService? socket,
+  Future<User?>? user,
+}) => ProviderContainer(
+  overrides: [
+    apiServiceProvider.overrideWithValue(api),
+    currentUserProvider.overrideWith(
+      (ref) =>
+          user ??
+          Future<User?>.value(
+            const User(
+              id: 'user-1',
+              username: 'alice',
+              email: 'alice@example.test',
+              name: 'Alice',
+              role: 'user',
+            ),
+          ),
+    ),
+    socketServiceProvider.overrideWithValue(socket),
+    userPermissionsProvider.overrideWith(
+      (ref) async => const <String, dynamic>{},
+    ),
+  ],
+);
+
+Future<void> _pumpChannelPage(
+  WidgetTester tester,
+  ProviderContainer container,
+) async {
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: const ChannelPage(channelId: 'channel-1'),
+      ),
+    ),
+  );
+  await tester.pump(const Duration(milliseconds: 1));
+}
+
+/// A socket that delivers `events:app` to the page and takes the channel
+/// subscription without delivering anything on it.
+class _AppSocket implements SocketService {
+  final List<SocketAppEventHandler> _appHandlers = [];
+
+  // The server of [_ChannelApi], so chat providers see one owner.
+  @override
+  final ServerConfig serverConfig = const ServerConfig(
+    id: 'test-server',
+    name: 'Test Server',
+    url: 'https://example.com',
+  );
+
+  @override
+  bool get isConnected => false;
+
+  void deliverApp(Map<String, dynamic> event) {
+    for (final handler in List.of(_appHandlers)) {
+      handler(event);
+    }
+  }
+
+  @override
+  SocketEventSubscription addAppEventHandler(SocketAppEventHandler handler) {
+    _appHandlers.add(handler);
+    return SocketEventSubscription(() => _appHandlers.remove(handler));
+  }
+
+  @override
+  SocketEventSubscription addChannelEventHandler({
+    String? conversationId,
+    String? sessionId,
+    bool requireFocus = true,
+    required SocketChannelEventHandler handler,
+  }) => SocketEventSubscription(() {});
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
 class _MutableChannelApiOwner extends Notifier<ApiService?> {
   @override
   ApiService? build() => null;
@@ -608,6 +1045,8 @@ class _ChannelApi extends ApiService {
     this.channelName = 'Initial channel',
     this.messages = const [],
     this.threadMessages = const [],
+    this.channels = const [],
+    this.interactionResponse = const {'type': 'ack'},
   }) : super(
          serverConfig: const ServerConfig(
            id: 'test-server',
@@ -622,7 +1061,11 @@ class _ChannelApi extends ApiService {
   final String channelName;
   final List<Map<String, dynamic>> messages;
   final List<Map<String, dynamic>> threadMessages;
+  final List<Map<String, dynamic>> channels;
+  final Map<String, dynamic> interactionResponse;
   final List<String> reactedMessageIds = [];
+  final List<String> interactions = [];
+  final List<String> muteRequests = [];
   int getChannelCalls = 0;
   int postChannelMessageCalls = 0;
   int addMessageReactionCalls = 0;
@@ -680,7 +1123,26 @@ class _ChannelApi extends ApiService {
 
   @override
   Future<(List<Map<String, dynamic>>, bool)> getChannels() async =>
-      (const <Map<String, dynamic>>[], true);
+      (channels, true);
+
+  @override
+  Future<Map<String, dynamic>> createAppInteraction(
+    String appId, {
+    required String messageId,
+    required String actionId,
+  }) async {
+    interactions.add('$appId|$messageId|$actionId');
+    return interactionResponse;
+  }
+
+  @override
+  Future<bool> updateMemberMuteStatus(
+    String channelId, {
+    required bool isChannelMuted,
+  }) async {
+    muteRequests.add('$channelId=$isChannelMuted');
+    return isChannelMuted;
+  }
 
   @override
   Future<Map<String, dynamic>> getUserPermissions({

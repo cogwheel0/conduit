@@ -178,6 +178,68 @@ void main() {
     );
   });
 
+  // Open WebUI 0.12.1 ChannelItem.svelte: a channel set to mentions only
+  // shows no unread badge.
+  testWidgets('a muted channel hides its unread badge and offers the '
+      'notification setting', (tester) async {
+    final controllers = SidebarTestSidebarHarnessControllers(
+      initialTab: SidebarTabId.channels,
+    );
+    const muted = Channel(
+      id: 'muted-channel',
+      name: 'Muted Channel',
+      unreadCount: 3,
+      isChannelMuted: true,
+    );
+    const loud = Channel(
+      id: 'loud-channel',
+      name: 'Loud Channel',
+      unreadCount: 4,
+    );
+
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        channels: const [muted, loud],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final mutedRow = find.byKey(
+      const ValueKey<String>('channel-sidebar-row-muted-channel'),
+    );
+    final loudRow = find.byKey(
+      const ValueKey<String>('channel-sidebar-row-loud-channel'),
+    );
+    expect(
+      find.descendant(of: mutedRow, matching: find.text('3')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: loudRow, matching: find.text('4')),
+      findsOneWidget,
+    );
+    final label = tester.getSemantics(mutedRow).label;
+    expect(label, contains('Mentions only'));
+    expect(label, isNot(contains('unread')));
+
+    final actions = tester
+        .widget<ConduitContextMenu>(
+          find.ancestor(
+            of: mutedRow,
+            matching: find.byType(ConduitContextMenu),
+          ),
+        )
+        .actions;
+    expect(
+      actions.take(2).map((action) => action.label),
+      ['All messages', 'Mentions only'],
+    );
+    // The current choice carries the check.
+    expect(actions[1].materialIcon, Icons.check_rounded);
+    expect(actions[0].materialIcon, isNot(Icons.check_rounded));
+  });
+
   testWidgets('note rows show last-edited metadata instead of descriptions', (
     tester,
   ) async {

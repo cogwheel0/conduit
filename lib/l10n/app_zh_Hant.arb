@@ -1259,6 +1259,21 @@
   "searchChannels": "搜尋頻道...",
   "channelUnreadCount": "{count} 則未讀訊息",
   "channelCreateError": "無法建立頻道",
+  "channelNotifyAllMessages": "所有訊息",
+  "channelNotifyMentionsOnly": "僅限提及",
+  "channelAppBadge": "應用程式",
+  "channelAppOnlyVisibleToYou": "僅你可見",
+  "channelAppDismiss": "關閉",
+  "channelAppErrorFallback": "應用程式無法完成此操作。",
+  "channelAppDownload": "下載 {filename}",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "訊息...",
   "audioUploadError": "無法上傳音訊：{error}",
   "shareChat": "分享聊天",

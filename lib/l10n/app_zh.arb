@@ -1259,6 +1259,21 @@
   "searchChannels": "搜索频道...",
   "channelUnreadCount": "{count} 条未读消息",
   "channelCreateError": "无法创建频道",
+  "channelNotifyAllMessages": "所有消息",
+  "channelNotifyMentionsOnly": "仅提及",
+  "channelAppBadge": "应用",
+  "channelAppOnlyVisibleToYou": "仅你可见",
+  "channelAppDismiss": "关闭",
+  "channelAppErrorFallback": "应用无法完成此操作。",
+  "channelAppDownload": "下载 {filename}",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "消息...",
   "audioUploadError": "无法上传音频：{error}",
   "shareChat": "分享聊天",

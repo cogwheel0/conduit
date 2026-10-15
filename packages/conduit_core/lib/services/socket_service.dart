@@ -30,6 +30,10 @@ typedef SocketChannelEventHandler = void Function(
   void Function(dynamic response)? ack,
 );
 
+/// Receives an `events:app` payload: an app reply that only the signed-in
+/// user may see (Open WebUI 0.12.1).
+typedef SocketAppEventHandler = void Function(Map<String, dynamic> event);
+
 enum SocketReplayGapReason {
   eventLimit,
   byteLimit,
@@ -140,6 +144,7 @@ class SocketService {
 
   final Map<String, _ChatEventRegistration> _chatEventHandlers = {};
   final Map<String, _ChannelEventRegistration> _channelEventHandlers = {};
+  final Map<String, SocketAppEventHandler> _appEventHandlers = {};
   final Map<String, List<void Function(dynamic)>> _dynamicEventHandlers = {};
   int _handlerSeed = 0;
 
@@ -990,6 +995,18 @@ class SocketService {
     );
   }
 
+  /// Registers [handler] for `events:app`. Open WebUI sends that event to the
+  /// asking user's sessions alone, never to a channel room, with an app reply
+  /// that is not stored: the private error of a failed app mention.
+  SocketEventSubscription addAppEventHandler(SocketAppEventHandler handler) {
+    final id = _nextHandlerId();
+    _appEventHandlers[id] = handler;
+    return SocketEventSubscription(
+      () => _appEventHandlers.remove(id),
+      handlerId: id,
+    );
+  }
+
   void clearChatEventHandlers() {
     _chatEventHandlers.clear();
     if (_backgroundLeaseHandlerIds.isNotEmpty) {
@@ -1132,6 +1149,7 @@ class SocketService {
     _clearBufferedReplayState();
     _chatEventHandlers.clear();
     _channelEventHandlers.clear();
+    _appEventHandlers.clear();
     _dynamicEventHandlers.clear();
     _backgroundActivityLeases = 0;
     _backgroundLeaseHandlerIds.clear();
@@ -1195,6 +1213,7 @@ class SocketService {
       ..on('chat-events', _handleChatEvent)
       ..on('events:channel', _handleChannelEvent)
       ..on('channel-events', _handleChannelEvent)
+      ..on('events:app', _handleAppEvent)
       ..on('connect', _handleConnect)
       ..on('connect_error', _handleConnectError)
       ..on('reconnect_attempt', _handleReconnectAttempt)
@@ -1209,6 +1228,7 @@ class SocketService {
       ..off('chat-events', _handleChatEvent)
       ..off('events:channel', _handleChannelEvent)
       ..off('channel-events', _handleChannelEvent)
+      ..off('events:app', _handleAppEvent)
       ..off('connect', _handleConnect)
       ..off('connect_error', _handleConnectError)
       ..off('reconnect_attempt', _handleReconnectAttempt)
@@ -1875,6 +1895,29 @@ class SocketService {
       } catch (_) {}
     }
   }
+
+  void _handleAppEvent(dynamic data, [dynamic ack]) {
+    final payload = data is List && data.isNotEmpty ? data.first : data;
+    final map = _coerceToMap(payload);
+    if (map == null) return;
+    for (final handler in List<SocketAppEventHandler>.from(
+      _appEventHandlers.values,
+    )) {
+      try {
+        handler(map);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'app-event-handler-failed',
+          scope: 'socket/app',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+  }
+
+  @visibleForTesting
+  void debugHandleAppEvent(dynamic data) => _handleAppEvent(data);
 
   bool _shouldDeliver(
     String? registeredConversationId,

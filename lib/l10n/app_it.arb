@@ -1259,6 +1259,21 @@
   "searchChannels": "Cerca canali...",
   "channelUnreadCount": "{count, plural, =1{1 messaggio non letto} other{{count} messaggi non letti}}",
   "channelCreateError": "Impossibile creare il canale",
+  "channelNotifyAllMessages": "Tutti i messaggi",
+  "channelNotifyMentionsOnly": "Solo menzioni",
+  "channelAppBadge": "App",
+  "channelAppOnlyVisibleToYou": "Visibile solo a te",
+  "channelAppDismiss": "Chiudi",
+  "channelAppErrorFallback": "L'app non è riuscita a completare questa operazione.",
+  "channelAppDownload": "Scarica {filename}",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "Messaggio...",
   "audioUploadError": "Impossibile caricare l'audio: {error}",
   "shareChat": "Condividi chat",

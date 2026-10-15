@@ -3152,6 +3152,40 @@
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
   },
+  "channelNotifyAllMessages": "Wszystkie wiadomości",
+  "@channelNotifyAllMessages": {
+    "description": "Channel menu option: notify for every message in this channel or direct message (Open WebUI notification setting)."
+  },
+  "channelNotifyMentionsOnly": "Tylko wzmianki",
+  "@channelNotifyMentionsOnly": {
+    "description": "Channel menu option: notify only when a message mentions you. Also read out for a channel set this way."
+  },
+  "channelAppBadge": "Aplikacja",
+  "@channelAppBadge": {
+    "description": "Label shown next to the name of an external app that posted in a channel."
+  },
+  "channelAppOnlyVisibleToYou": "Widoczne tylko dla Ciebie",
+  "@channelAppOnlyVisibleToYou": {
+    "description": "Note under an app reply that only the signed-in user can see."
+  },
+  "channelAppDismiss": "Zamknij",
+  "@channelAppDismiss": {
+    "description": "Action that hides an app reply only the signed-in user can see."
+  },
+  "channelAppErrorFallback": "Aplikacja nie mogła ukończyć tej operacji.",
+  "@channelAppErrorFallback": {
+    "description": "Shown when an app reports an error without a message."
+  },
+  "channelAppDownload": "Pobierz {filename}",
+  "@channelAppDownload": {
+    "description": "Button that saves the Markdown file an app replied with.",
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "Wiadomość…",
   "@channelMessageHint": {
     "description": "Hint text for the channel message input field"

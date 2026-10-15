@@ -1037,6 +1037,21 @@
   "searchChannels": "채널 검색...",
   "channelUnreadCount": "{count, plural, =1{읽지 않은 메시지 1개} other{읽지 않은 메시지 {count}개}}",
   "channelCreateError": "채널을 만들지 못했습니다",
+  "channelNotifyAllMessages": "모든 메시지",
+  "channelNotifyMentionsOnly": "멘션만",
+  "channelAppBadge": "앱",
+  "channelAppOnlyVisibleToYou": "나에게만 표시됨",
+  "channelAppDismiss": "닫기",
+  "channelAppErrorFallback": "앱이 이 작업을 완료하지 못했습니다.",
+  "channelAppDownload": "{filename} 다운로드",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "메시지...",
   "audioUploadError": "오디오 업로드에 실패했습니다: {error}",
   "shareChat": "채팅 공유",

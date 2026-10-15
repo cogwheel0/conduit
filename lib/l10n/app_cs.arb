@@ -2824,6 +2824,21 @@
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
   },
+  "channelNotifyAllMessages": "Všechny zprávy",
+  "channelNotifyMentionsOnly": "Jen zmínky",
+  "channelAppBadge": "Aplikace",
+  "channelAppOnlyVisibleToYou": "Vidíte jen vy",
+  "channelAppDismiss": "Zavřít",
+  "channelAppErrorFallback": "Aplikace tuto operaci nedokázala dokončit.",
+  "channelAppDownload": "Stáhnout {filename}",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "Zpráva...",
   "@channelMessageHint": {
     "description": "Hint text for the channel message input field"

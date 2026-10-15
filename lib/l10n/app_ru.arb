@@ -1273,6 +1273,21 @@
   "searchChannels": "Поиск каналов...",
   "channelUnreadCount": "{count, plural, one{{count} непрочитанное сообщение} few{{count} непрочитанных сообщения} many{{count} непрочитанных сообщений} other{{count} непрочитанных сообщений}}",
   "channelCreateError": "Не удалось создать канал",
+  "channelNotifyAllMessages": "Все сообщения",
+  "channelNotifyMentionsOnly": "Только упоминания",
+  "channelAppBadge": "Приложение",
+  "channelAppOnlyVisibleToYou": "Видно только вам",
+  "channelAppDismiss": "Скрыть",
+  "channelAppErrorFallback": "Приложению не удалось выполнить эту операцию.",
+  "channelAppDownload": "Скачать {filename}",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "Сообщение...",
   "audioUploadError": "Не удалось загрузить аудио: {error}",
   "shareChat": "Поделиться чатом",

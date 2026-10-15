@@ -39,12 +39,15 @@ import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 
+import 'package:conduit_core/features/channels/providers/channel_app_replies.dart';
 import 'package:conduit_core/features/channels/providers/channel_members_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../providers/channel_socket_handler.dart';
 import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
+import '../widgets/channel_app_content.dart';
 import '../widgets/channel_form_dialog.dart';
 import '../widgets/channel_members_sheet.dart';
 import '../widgets/channel_message_content.dart';
@@ -82,6 +85,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   Object? _channelOwnerAuthSessionEpoch;
   bool _channelReloadScheduled = false;
   int _operationGeneration = 0;
+  bool _mutePending = false;
 
   bool _ownsChannelRequest(
     ApiService api,
@@ -900,7 +904,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   List<ConduitContextMenuAction> _buildMessageActions(ChannelMessage message) {
     final l10n = AppLocalizations.of(context)!;
     final currentUserId = ref.read(currentUserProvider).value?.id;
-    final isOwn = message.userId == currentUserId;
+    // An app message has no user id, so it must not match a user that is
+    // still loading.
+    final isOwn = currentUserId != null && message.userId == currentUserId;
 
     return [
       ConduitContextMenuAction(
@@ -1073,6 +1079,61 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         stackTrace: s,
       );
     }
+  }
+
+  /// Sets the channel to notify for every message or for mentions only, as
+  /// Open WebUI's ChannelMenu does.
+  Future<void> _setChannelMuted(bool muted, {required bool current}) async {
+    if (_mutePending || muted == current) return;
+    final channelId = widget.channelId;
+    final api = ref.read(apiServiceProvider);
+    if (api == null) return;
+    final authSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final operationGeneration = _operationGeneration;
+    final l10n = AppLocalizations.of(context);
+    _mutePending = true;
+    try {
+      await ref
+          .read(channelsListProvider.notifier)
+          .updateMuted(channelId, muted);
+    } catch (e, s) {
+      DebugLogger.error(
+        'mute-channel-failed',
+        scope: 'channels/page',
+        error: e,
+        stackTrace: s,
+      );
+      if (!mounted ||
+          l10n == null ||
+          !_ownsChannelOperation(
+            api,
+            authSessionEpoch,
+            channelId,
+            operationGeneration,
+          )) {
+        return;
+      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+    } finally {
+      _mutePending = false;
+    }
+  }
+
+  /// Whether the channel notifies for mentions only. The channel list holds
+  /// the latest setting; a channel it does not list falls back to its details.
+  bool _watchChannelMuted(Channel? channel) {
+    final channelId = widget.channelId;
+    final listed = ref.watch(
+      channelsListProvider.select((channels) {
+        for (final item in channels.value ?? const <Channel>[]) {
+          if (item.id == channelId) return item.isChannelMuted;
+        }
+        return null;
+      }),
+    );
+    return listed ?? channel?.isChannelMuted ?? false;
   }
 
   Future<void> _leaveChannel() async {
@@ -1251,8 +1312,28 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   List<AdaptivePopupMenuEntry> _buildChannelToolbarMenuItems(
-    AppLocalizations? l10n,
-  ) => [
+    AppLocalizations? l10n, {
+    required bool muted,
+  }) => [
+    // Open WebUI's ChannelMenu: notify for every message or mentions only.
+    AdaptivePopupMenuItem<String>(
+      value: 'notify-all',
+      label: l10n?.channelNotifyAllMessages ?? 'All messages',
+      checked: !muted,
+      icon: conduitAdaptivePopupMenuIcon(
+        iosSymbol: 'bell',
+        materialIcon: Icons.notifications_none_rounded,
+      ),
+    ),
+    AdaptivePopupMenuItem<String>(
+      value: 'notify-mentions',
+      label: l10n?.channelNotifyMentionsOnly ?? 'Mentions only',
+      checked: muted,
+      icon: conduitAdaptivePopupMenuIcon(
+        iosSymbol: 'bell.slash',
+        materialIcon: Icons.notifications_off_outlined,
+      ),
+    ),
     AdaptivePopupMenuItem<String>(
       value: 'edit',
       label: l10n?.channelEdit ?? 'Edit Channel',
@@ -1324,9 +1405,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
     final tintColor = theme.textPrimary;
-    final menuItems = _buildChannelToolbarMenuItems(l10n);
+    final muted = _watchChannelMuted(channel);
+    final menuItems = _buildChannelToolbarMenuItems(l10n, muted: muted);
     void onMenuSelected(String action) =>
-        _handleChannelToolbarSelection(action, channel);
+        _handleChannelToolbarSelection(action, channel, muted: muted);
     final actions = _buildChannelToolbarActionWidgets(
       theme,
       channel,
@@ -1380,6 +1462,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     final l10n = AppLocalizations.of(context)!;
     final channel = ref.watch(activeChannelProvider);
     final messagesAsync = ref.watch(channelMessagesProvider(widget.channelId));
+    // Private app replies last while the channel is on screen, as on the web,
+    // including while its messages reload.
+    ref.watch(channelAppRepliesProvider(widget.channelId, null));
 
     return AdaptiveRouteShell(
       backgroundColor: theme.surfaceBackground,
@@ -1489,6 +1574,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
     final currentUserId = ref.watch(currentUserProvider).value?.id;
     final api = ref.read(apiServiceProvider);
+    final appRepliesProvider = channelAppRepliesProvider(
+      widget.channelId,
+      null,
+    );
+    final appReplies = ref.watch(appRepliesProvider);
+    List<AppChannelReplyEvent> repliesTo(ChannelMessage m) => [
+      for (final reply in appReplies.values)
+        if (reply.messageId == m.id) reply,
+    ];
 
     return ListView.builder(
       controller: _scrollController,
@@ -1516,23 +1610,29 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
 
         // Determine the effective sender ID for
         // grouping consecutive messages. Model
-        // messages use meta.model_id as the key.
+        // messages use meta.model_id as the key,
+        // and app messages, which have no user_id,
+        // use the app id in their user object.
         String? senderOf(ChannelMessage m) {
           if (isModelMessage(m)) {
             return m.meta?['model_id'] as String?;
           }
-          return m.userId;
+          return m.userId ?? m.user?.id;
         }
 
         // In a reversed list, index+1 is the
         // message visually above. Show profile
         // only on the first message of a group.
+        // A private app reply under the message above also starts a group.
         final prevIndex = index + 1;
         final showProfile =
             prevIndex >= messages.length ||
-            senderOf(messages[prevIndex]) != senderOf(message);
+            senderOf(messages[prevIndex]) != senderOf(message) ||
+            repliesTo(messages[prevIndex]).isNotEmpty;
 
-        return _MessageBubble(
+        final bubble = _MessageBubble(
+          channelId: widget.channelId,
+          onAppReply: ref.read(appRepliesProvider.notifier).add,
           message: message,
           avatarUrl: avatarUrl,
           showProfile: showProfile,
@@ -1546,6 +1646,21 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           onThreadTap: message.parentId == null
               ? () => _openThread(message)
               : null,
+        );
+        final replies = repliesTo(message);
+        if (replies.isEmpty) return bubble;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            bubble,
+            for (final reply in replies)
+              ChannelPrivateAppReply(
+                key: ValueKey<String>('channel-app-reply-${reply.key}'),
+                event: reply,
+                onDismiss: () =>
+                    ref.read(appRepliesProvider.notifier).dismiss(reply.key),
+              ),
+          ],
         );
       },
     );
@@ -1695,8 +1810,18 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     }
   }
 
-  void _handleChannelToolbarSelection(String action, Channel? channel) {
+  void _handleChannelToolbarSelection(
+    String action,
+    Channel? channel, {
+    required bool muted,
+  }) {
     switch (action) {
+      case 'notify-all':
+        unawaited(_setChannelMuted(false, current: muted));
+        return;
+      case 'notify-mentions':
+        unawaited(_setChannelMuted(true, current: muted));
+        return;
       case 'edit':
         if (channel != null) {
           _editChannel(channel);
@@ -1742,6 +1867,8 @@ class _ChannelToolbarPopupButton extends StatelessWidget {
 /// content, and reaction chips.
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
+    required this.channelId,
+    required this.onAppReply,
     required this.message,
     this.avatarUrl,
     this.showProfile = true,
@@ -1755,6 +1882,10 @@ class _MessageBubble extends StatelessWidget {
     this.onThreadTap,
   });
 
+  final String channelId;
+
+  /// Shows the private answer to a button on an app card.
+  final ValueChanged<AppChannelReplyEvent> onAppReply;
   final ChannelMessage message;
   final String? avatarUrl;
 
@@ -1824,7 +1955,11 @@ class _MessageBubble extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            stripMentions(message.replyToMessage!.content),
+                            // A card-only app message has text only in its
+                            // cards.
+                            stripMentions(
+                              message.replyToMessage!.previewText,
+                            ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppTypography.bodySmallStyle.copyWith(
@@ -1924,6 +2059,12 @@ class _MessageBubble extends StatelessWidget {
                         ChannelMessageAttachments(
                           files: message.data?['files'],
                         ),
+                        if (message.isAppMessage)
+                          ChannelAppMessageCards(
+                            message: message,
+                            channelId: channelId,
+                            onReply: onAppReply,
+                          ),
                       ],
                     ),
                   if (message.replyCount > 0 && onThreadTap != null)
@@ -1978,6 +2119,9 @@ class _MessageBubble extends StatelessWidget {
         label: messageDisplayName(message),
       );
     }
+    if (message.isAppMessage) {
+      return ChannelAppAvatar(size: _avatarSize, imageUrl: avatarUrl);
+    }
     return UserAvatar(
       size: _avatarSize,
       imageUrl: avatarUrl,
@@ -1999,6 +2143,10 @@ class _MessageBubble extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
         ),
+        if (message.isAppMessage) ...[
+          const SizedBox(width: Spacing.xs),
+          const ChannelAppBadge(),
+        ],
         const SizedBox(width: Spacing.sm),
         Text(
           timestamp,

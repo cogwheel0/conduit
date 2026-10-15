@@ -244,4 +244,53 @@ void main() {
       ).isNull();
     });
   });
+
+  // Open WebUI 0.12.1 src/lib/utils/channelNotifications.ts.
+  group('shouldNotifyChannelMessage', () {
+    test('a channel that is not muted notifies for every message', () {
+      check(
+        shouldNotifyChannelMessage(
+          isMuted: false,
+          content: 'Anyone around?',
+          userId: currentUserId,
+        ),
+      ).isTrue();
+    });
+
+    test('a muted channel stays quiet without a mention of the user', () {
+      for (final content in [
+        'Anyone around?',
+        // Someone else, or a model or channel, is mentioned.
+        '<@U:other-456|Ada> look',
+        '<@M:gpt|GPT> summarize',
+        '<@U:me-1234|Not me>',
+      ]) {
+        check(
+          because: content,
+          shouldNotifyChannelMessage(
+            isMuted: true,
+            content: content,
+            userId: currentUserId,
+          ),
+        ).isFalse();
+      }
+    });
+
+    test('a muted channel notifies when the message mentions the user', () {
+      for (final content in [
+        'hey <@U:me-123|Me>, a question',
+        'hey <@U:me-123>',
+        '<@U:other-456|Ada> and <@U:me-123|Me>',
+      ]) {
+        check(
+          because: content,
+          shouldNotifyChannelMessage(
+            isMuted: true,
+            content: content,
+            userId: currentUserId,
+          ),
+        ).isTrue();
+      }
+    });
+  });
 }

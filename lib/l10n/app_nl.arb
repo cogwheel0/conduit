@@ -1259,6 +1259,21 @@
   "searchChannels": "Kanalen zoeken...",
   "channelUnreadCount": "{count, plural, =1{1 ongelezen bericht} other{{count} ongelezen berichten}}",
   "channelCreateError": "Kanaal kon niet worden aangemaakt",
+  "channelNotifyAllMessages": "Alle berichten",
+  "channelNotifyMentionsOnly": "Alleen vermeldingen",
+  "channelAppBadge": "App",
+  "channelAppOnlyVisibleToYou": "Alleen zichtbaar voor jou",
+  "channelAppDismiss": "Sluiten",
+  "channelAppErrorFallback": "De app kon deze bewerking niet voltooien.",
+  "channelAppDownload": "{filename} downloaden",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "Bericht...",
   "audioUploadError": "Audio uploaden mislukt: {error}",
   "shareChat": "Chat delen",

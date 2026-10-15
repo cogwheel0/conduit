@@ -2824,6 +2824,21 @@
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
   },
+  "channelNotifyAllMessages": "すべてのメッセージ",
+  "channelNotifyMentionsOnly": "メンションのみ",
+  "channelAppBadge": "アプリ",
+  "channelAppOnlyVisibleToYou": "あなただけに表示されています",
+  "channelAppDismiss": "閉じる",
+  "channelAppErrorFallback": "アプリはこの操作を完了できませんでした。",
+  "channelAppDownload": "{filename} をダウンロード",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "メッセージ...",
   "@channelMessageHint": {
     "description": "Hint text for the channel message input field"
