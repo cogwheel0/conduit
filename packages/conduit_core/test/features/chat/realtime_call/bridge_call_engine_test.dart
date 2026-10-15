@@ -831,6 +831,37 @@ void main() {
     check(slow.stops).equals(2);
   });
 
+  test('a transcript that never comes does not keep the voice held', () {
+    fakeAsync((async) {
+      final transport = _Transport();
+      final audio = _Audio();
+      final engine = BridgeCallEngine(
+        transport: transport,
+        audio: audio,
+        host: _Host(),
+      );
+      unawaited(engine.connect());
+      async.flushMicrotasks();
+
+      transport
+        ..receive({
+          'type': 'input_audio_buffer.speech_started',
+          'item_id': 'item-1',
+        })
+        ..receive({
+          'type': 'input_audio_buffer.speech_stopped',
+          'item_id': 'item-1',
+        });
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 9));
+      check(audio.pauses).deepEquals([true]);
+
+      async.elapse(const Duration(seconds: 1));
+      check(audio.pauses).deepEquals([true, false]);
+      check(engine.state.phase).equals(RealtimeCallPhase.live);
+    });
+  });
+
   test('a bridge that stops answering pings ends the call', () {
     fakeAsync((async) {
       final silent = BridgeCallEngine(

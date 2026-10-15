@@ -42,6 +42,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     this.pingInterval = const Duration(seconds: 10),
     this.pongTimeout = const Duration(seconds: 45),
     this.heldAnswerWait = const Duration(seconds: 8),
+    this.transcriptWait = const Duration(seconds: 10),
   }) : _transport = transport,
        _audio = audio,
        _host = host,
@@ -61,6 +62,11 @@ final class BridgeCallEngine implements RealtimeCallEngine {
   /// its writes.
   final Duration heldAnswerWait;
 
+  /// How long the voice stays held after the user stops speaking while the
+  /// words are transcribed. A transcript that never comes would otherwise
+  /// keep it silent, and nothing more could be asked of it.
+  final Duration transcriptWait;
+
   final _states = StreamController<RealtimeCallState>.broadcast();
   var _state = const RealtimeCallState();
 
@@ -69,6 +75,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
   var _paused = false;
   final _subscriptions = <StreamSubscription<Object?>>[];
   Timer? _pingTimer;
+  Timer? _transcriptTimer;
   var _pingsSincePong = 0;
 
   var _receivingSpeech = '';
@@ -316,6 +323,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       case 'input_audio_buffer.speech_stopped':
         if (_receivingSpeech == event['item_id']) {
           _update(_state.copyWith(userSpeaking: false));
+          _awaitTranscript(_receivingSpeech);
         }
       case 'conversation.item.input_audio_transcription.completed' ||
           'conversation.item.input_audio_transcription.failed':
@@ -407,6 +415,18 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     _inputs[itemId] = _Input(itemId, text);
     _update(_state.copyWith(userCaption: text));
     _enqueue(BridgeCommands.respondToInput(itemId));
+  }
+
+  /// Lets the held voice go on when [itemId]'s transcript does not arrive
+  /// within [transcriptWait].
+  void _awaitTranscript(String itemId) {
+    _transcriptTimer?.cancel();
+    _transcriptTimer = Timer(transcriptWait, () {
+      if (!_connected || _receivingSpeech != itemId) return;
+      _receivingSpeech = '';
+      _audio.setPlaybackPaused(false);
+      _flush();
+    });
   }
 
   void _onFunctionCall(
@@ -819,6 +839,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     _connected = false;
     _saveHeldExchanges();
     _pingTimer?.cancel();
+    _transcriptTimer?.cancel();
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
