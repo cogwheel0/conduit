@@ -519,12 +519,15 @@ Future<void> durableSend(
 
     var activeConversation = activeAtSendStart;
     var presentingDraft = false;
+    // A new chat the voice's own reply starts runs no completion to title it.
+    ({String id, String title})? voiceCreatedChat;
 
     if (activeConversation == null) {
       // ---- NEW local chat ----
       final pendingFolderId = storageFolderId;
       final localId = 'local:${const Uuid().v4()}';
       final title = _titleFromText(message);
+      if (voiceReply != null) voiceCreatedChat = (id: localId, title: title);
 
       final blob = _buildDurableNewChatBlob(
         userMsgId: userMessageId,
@@ -688,6 +691,21 @@ Future<void> durableSend(
     // pending outbox remains durable and will drain when that context returns.
     if (openWebUiCompletionContextIsCurrent(ref, durableContextOwner)) {
       await capturedSyncEngine.drainNowForDatabase(db);
+    }
+    final created = voiceCreatedChat;
+    if (created != null) {
+      unawaited(
+        _generateVoiceChatMetadata(
+          ref,
+          owner: durableContextOwner,
+          syncEngine: capturedSyncEngine,
+          localChatId: created.id,
+          userMessageId: userMessageId,
+          modelId: selectedModel.id,
+          content: message,
+          initialTitle: created.title,
+        ),
+      );
     }
   } finally {
     await databaseLease?.release();

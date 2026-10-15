@@ -31,6 +31,7 @@ import 'package:conduit_core/services/openwebui_stream_parser.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -816,6 +817,97 @@ class _PersistingSyncEngine extends SyncEngine {
       ),
       ChatStorageKind.openWebUi,
     );
+  }
+}
+
+/// Lands a new chat's creation as the outbox drain does: its rows take the
+/// server id and the remap is announced, during the drain or when the test
+/// says so.
+class _RemappingSyncEngine extends _PersistingSyncEngine {
+  _RemappingSyncEngine(super.db, super.api, {required this.remapOnDrain});
+
+  final bool remapOnDrain;
+  final _remaps = StreamController<RemapEvent>.broadcast(sync: true);
+
+  @override
+  Stream<RemapEvent> get remapEvents => _remaps.stream;
+
+  @override
+  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {
+    if (remapOnDrain) await landCreation();
+  }
+
+  Future<String> localChatId() async => (await db.select(db.chats).get())
+      .singleWhere((chat) => chat.id.startsWith('local:'))
+      .id;
+
+  Future<void> landCreation() async {
+    final localId = await localChatId();
+    await IdRemapper(db).remapChat(
+      localId: localId,
+      serverId: 'server-chat',
+      serverCreatedAt: 1,
+      serverUpdatedAt: 1,
+    );
+    _remaps.add(
+      RemapEvent(fromId: localId, toId: 'server-chat', entityKind: 'chat'),
+    );
+  }
+}
+
+/// Answers the title and tag tasks, and notes what is written back.
+class _VoiceMetadataApi extends _GatedCompletionApi {
+  _VoiceMetadataApi() : super(Completer<void>()..complete());
+
+  final taskChatIds = <String?>[];
+  List<Map<String, dynamic>>? taskMessages;
+  final renamed = <(String, String?)>[];
+  final tagged = <(String, String)>[];
+  var settingsReads = 0;
+
+  @override
+  Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) {
+    settingsReads += 1;
+    return super.getUserSettings(authSnapshot: authSnapshot);
+  }
+
+  @override
+  Future<String?> generateChatTitle({
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+  }) async {
+    taskChatIds.add(chatId);
+    taskMessages = messages;
+    return 'Weekend in Oslo';
+  }
+
+  @override
+  Future<List<String>> generateChatTags({
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+  }) async {
+    taskChatIds.add(chatId);
+    return const ['Travel'];
+  }
+
+  @override
+  Future<void> updateConversation(
+    String id, {
+    String? title,
+    String? systemPrompt,
+  }) async => renamed.add((id, title));
+
+  @override
+  Future<List<Map<String, dynamic>>> addChatTag(
+    String chatId,
+    String name,
+  ) async {
+    tagged.add((chatId, name));
+    return [
+      {'id': name.toLowerCase(), 'name': name},
+    ];
   }
 }
 
@@ -2905,6 +2997,129 @@ void main() {
             .deepEquals({
               'voice': {'call_id': 'call-1', 'input_item_id': 'item-2'},
             });
+      });
+
+      group('a chat a voice reply starts', () {
+        const exchange = ChatSendVoiceContext.answered(
+          userVoice: {'call_id': 'call-1', 'input_item_id': 'item-1'},
+          reply: ChatVoiceReply(
+            text: 'Sure, here is a plan.',
+            model: 'gpt-realtime',
+            voice: {'call_id': 'call-1', 'model': 'gpt-realtime'},
+          ),
+        );
+
+        Future<void> settle(
+          bool Function() done, [
+          Future<void> Function()? poll,
+        ]) async {
+          for (var i = 0; i < 200; i++) {
+            await poll?.call();
+            if (done()) return;
+            await Future<void>.delayed(const Duration(milliseconds: 5));
+          }
+        }
+
+        test('is titled and tagged once its creation lands', () async {
+          final api = _VoiceMetadataApi();
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: true);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          await settle(() => api.tagged.isNotEmpty);
+
+          check(api.taskChatIds).deepEquals(['server-chat', 'server-chat']);
+          check(api.taskMessages).isNotNull().deepEquals([
+            {'role': 'user', 'content': 'Plan a weekend in Oslo'},
+          ]);
+          check(api.renamed).deepEquals([('server-chat', 'Weekend in Oslo')]);
+          check(api.tagged).deepEquals([('server-chat', 'Travel')]);
+          check(api.completionCalls).equals(0);
+          // The list and the open chat show it without waiting for a pull.
+          String? stored;
+          await settle(() => stored == 'Weekend in Oslo', () async {
+            stored = (await db.chatsDao.getChat('server-chat'))?.title;
+          });
+          check(stored).equals('Weekend in Oslo');
+        });
+
+        test('keeps a title the user gave it while it synced', () async {
+          final api = _VoiceMetadataApi();
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: false);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          final localId = await engine.localChatId();
+          await db.chatsDao.updateLocalOnlyEnvelope(
+            localId,
+            title: const Value('My trip'),
+          );
+          await engine.landCreation();
+          await settle(() => api.tagged.isNotEmpty);
+
+          check(api.taskChatIds).deepEquals(['server-chat', 'server-chat']);
+          check(api.renamed).isEmpty();
+          check(api.tagged).deepEquals([('server-chat', 'Travel')]);
+        });
+
+        test('follows the auto-title and auto-tag settings', () async {
+          final api = _VoiceMetadataApi()
+            ..settings = const {
+              'ui': {
+                'title': {'auto': false},
+                'autoTags': false,
+              },
+            };
+          final engine = _RemappingSyncEngine(db, api, remapOnDrain: true);
+          final container = _container(
+            db: db,
+            active: null,
+            messages: const [],
+            api: api,
+            syncEngine: engine,
+          );
+          addTearDown(container.dispose);
+
+          await durableSend(
+            container,
+            'Plan a weekend in Oslo',
+            null,
+            contextAttachments: const [],
+            voice: exchange,
+          );
+          await settle(() => api.settingsReads > 0);
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+
+          check(api.taskChatIds).isEmpty();
+          check(api.renamed).isEmpty();
+          check(api.tagged).isEmpty();
+        });
       });
 
       test('an existing chat is admitted with its stored settings and replays them', () async {

@@ -537,6 +537,76 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     );
   }
 
+  /// POST `/api/v1/tasks/title/completions`: a title for a chat that begins
+  /// with [messages], or null when the server makes none, such as with title
+  /// generation turned off. Read as Open WebUI's web client reads it.
+  Future<String?> generateChatTitle({
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+  }) async {
+    final title = (await _generateTaskJson(
+      '/api/v1/tasks/title/completions',
+      model: model,
+      messages: messages,
+      chatId: chatId,
+    ))?['title'];
+    return title is String && title.isNotEmpty ? title : null;
+  }
+
+  /// POST `/api/v1/tasks/tags/completions`: tags for a chat that begins with
+  /// [messages], empty when the server makes none.
+  Future<List<String>> generateChatTags({
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+  }) async {
+    final tags = (await _generateTaskJson(
+      '/api/v1/tasks/tags/completions',
+      model: model,
+      messages: messages,
+      chatId: chatId,
+    ))?['tags'];
+    return tags is List ? [for (final tag in tags) ?_tagName(tag)] : const [];
+  }
+
+  static String? _tagName(Object? tag) =>
+      tag is String && tag.trim().isNotEmpty ? tag.trim() : null;
+
+  /// The JSON object a task model answered with: its quotes made double and
+  /// the outermost braces taken, as the web client does.
+  Future<Map<String, dynamic>?> _generateTaskJson(
+    String path, {
+    required String model,
+    required List<Map<String, dynamic>> messages,
+    String? chatId,
+  }) async {
+    final response = await _dio.post(
+      path,
+      data: <String, dynamic>{
+        'model': model,
+        'messages': messages,
+        'chat_id': ?chatId,
+      },
+    );
+    final data = response.data;
+    final choices = data is Map ? data['choices'] : null;
+    final first = choices is List && choices.isNotEmpty ? choices.first : null;
+    final message = first is Map ? first['message'] : null;
+    final content = message is Map ? message['content'] : null;
+    if (content is! String) return null;
+    final sanitized = content.replaceAll(RegExp('[\'‘’`]'), '"');
+    final start = sanitized.indexOf('{');
+    final end = sanitized.lastIndexOf('}');
+    if (start == -1 || end < start) return null;
+    try {
+      final parsed = jsonDecode(sanitized.substring(start, end + 1));
+      return parsed is Map<String, dynamic> ? parsed : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
   // === Tasks control (parity with Web client) ===
   Future<void> stopTask(String taskId) async {
     try {

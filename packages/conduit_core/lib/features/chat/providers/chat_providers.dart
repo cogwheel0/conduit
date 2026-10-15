@@ -196,4 +196,5 @@ part 'chat_send_placeholder.dart';
 part 'chat_session_lifecycle.dart';
 part 'chat_streaming_content.dart';
 part 'chat_transcript_paging.dart';
+part 'chat_voice_chat_metadata.dart';
 part 'chat_providers.g.dart';
