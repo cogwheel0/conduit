@@ -159,9 +159,11 @@ class ChannelsList extends _$ChannelsList {
   /// endpoint's answer or a `channel:mute` event. The unread count is kept,
   /// as in Open WebUI: it shows again once the channel is unmuted.
   void setMuted(String channelId, bool isChannelMuted) {
+    var listed = false;
     for (final channel in state.value ?? const <Channel>[]) {
       if (channel.id == channelId) {
         updateChannel(channel.copyWith(isChannelMuted: isChannelMuted));
+        listed = true;
         break;
       }
     }
@@ -171,6 +173,8 @@ class ChannelsList extends _$ChannelsList {
     if (active != null &&
         active.id == channelId &&
         active.isChannelMuted != isChannelMuted) {
+      // A list still loading may bring the channel with its old setting.
+      if (!listed) _invalidatePendingRequestForMutation();
       ref
           .read(activeChannelProvider.notifier)
           .set(active.copyWith(isChannelMuted: isChannelMuted));
