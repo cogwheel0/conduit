@@ -211,13 +211,18 @@ mixin _ChatsApi on _ApiServiceBase {
     String id, {
     String? title,
     String? systemPrompt,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     // OpenWebUI expects POST to /api/v1/chats/{id} with ChatForm { chat: {...} }
     final chatPayload = <String, dynamic>{
       'title': ?title,
       'system': ?systemPrompt,
     };
-    await _dio.post('/api/v1/chats/$id', data: {'chat': chatPayload});
+    await _dio.post(
+      '/api/v1/chats/$id',
+      data: {'chat': chatPayload},
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
   }
 
   Future<void> deleteConversation(String id) async {

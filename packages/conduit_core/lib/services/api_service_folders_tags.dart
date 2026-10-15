@@ -205,11 +205,13 @@ mixin _FoldersTagsApi on _ApiServiceBase {
   /// tags afterwards.
   Future<List<Map<String, dynamic>>> addChatTag(
     String chatId,
-    String name,
-  ) async {
+    String name, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     final response = await _dio.post(
       '/api/v1/chats/$chatId/tags',
       data: {'name': name},
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
     return _coerceRawMapList(response.data);
   }

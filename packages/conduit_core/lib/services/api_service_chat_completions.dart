@@ -544,12 +544,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     required String model,
     required List<Map<String, dynamic>> messages,
     String? chatId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     final title = (await _generateTaskJson(
       '/api/v1/tasks/title/completions',
       model: model,
       messages: messages,
       chatId: chatId,
+      authSnapshot: authSnapshot,
     ))?['title'];
     return title is String && title.isNotEmpty ? title : null;
   }
@@ -560,12 +562,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     required String model,
     required List<Map<String, dynamic>> messages,
     String? chatId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     final tags = (await _generateTaskJson(
       '/api/v1/tasks/tags/completions',
       model: model,
       messages: messages,
       chatId: chatId,
+      authSnapshot: authSnapshot,
     ))?['tags'];
     return tags is List ? [for (final tag in tags) ?_tagName(tag)] : const [];
   }
@@ -582,6 +586,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     required String model,
     required List<Map<String, dynamic>> messages,
     String? chatId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     final response = await _dio.post(
       path,
@@ -590,6 +595,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         'messages': messages,
         'chat_id': ?chatId,
       },
+      options: _withAuthSnapshot(Options(), authSnapshot),
     );
     final data = response.data;
     final choices = data is Map ? data['choices'] : null;

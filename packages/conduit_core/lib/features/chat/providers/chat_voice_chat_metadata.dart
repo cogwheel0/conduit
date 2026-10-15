@@ -10,11 +10,14 @@ const _voiceChatServerIdWait = Duration(minutes: 2);
 /// generate them. Mirrors Open WebUI 0.12.1's web client
 /// (`generateVoiceChatMetadata` in `Chat.svelte`): a generated title replaces
 /// the one from the first words unless the chat was renamed meanwhile, and
-/// generated tags are added, each as the user's settings allow. Runs with the
-/// account that sent, and stops quietly when anything fails.
+/// generated tags are added, each as the user's settings allow. Every request
+/// carries [authSnapshot], the session that sent, so a sign-in change on the
+/// way cancels the rest instead of sending the words with another account's
+/// credentials. Stops quietly when anything fails.
 Future<void> _generateVoiceChatMetadata(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
+  required ApiAuthSnapshot? authSnapshot,
   required SyncEngine syncEngine,
   required String localChatId,
   required String userMessageId,
@@ -36,7 +39,7 @@ Future<void> _generateVoiceChatMetadata(
     if (chatId == null) return;
     Map<String, dynamic>? userSettings;
     try {
-      userSettings = await api.getUserSettings();
+      userSettings = await api.getUserSettings(authSnapshot: authSnapshot);
     } catch (_) {}
     final tasks = _buildOpenWebUiBackgroundTasks(
       userSettings: userSettings,
@@ -50,14 +53,22 @@ Future<void> _generateVoiceChatMetadata(
         model: modelId,
         messages: messages,
         chatId: chatId,
+        authSnapshot: authSnapshot,
       ))?.trim();
       if (title != null && title.isNotEmpty) {
         // A rename the user started meanwhile finishes first. The server's
         // title shows it, and one made elsewhere, so it is kept.
         await titleLocks.runExclusive(chatId, () async {
-          final saved = await api.getConversation(chatId);
+          final saved = await api.getConversation(
+            chatId,
+            authSnapshot: authSnapshot,
+          );
           if (saved.title != initialTitle) return;
-          await api.updateConversation(chatId, title: title);
+          await api.updateConversation(
+            chatId,
+            title: title,
+            authSnapshot: authSnapshot,
+          );
           if (openWebUiCompletionContextIsCurrent(ref, owner)) {
             ref
                 .read(conversationsProvider.notifier)
@@ -71,9 +82,10 @@ Future<void> _generateVoiceChatMetadata(
         model: modelId,
         messages: messages,
         chatId: chatId,
+        authSnapshot: authSnapshot,
       );
       for (final tag in tags) {
-        await api.addChatTag(chatId, tag);
+        await api.addChatTag(chatId, tag, authSnapshot: authSnapshot);
       }
       if (tags.isNotEmpty && openWebUiCompletionContextIsCurrent(ref, owner)) {
         refreshConversationsCache(ref);

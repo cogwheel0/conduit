@@ -867,12 +867,16 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
   /// renamed.
   String serverTitle = 'Plan a weekend in Oslo';
   Completer<void>? titleGate;
+
+  /// Each request's name, and whether it carried a session snapshot.
+  final requests = <String, bool>{};
   final tagged = <(String, String)>[];
   var settingsReads = 0;
 
   @override
   Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) {
     settingsReads += 1;
+    requests['settings'] = authSnapshot != null;
     return super.getUserSettings(authSnapshot: authSnapshot);
   }
 
@@ -881,7 +885,9 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
     required String model,
     required List<Map<String, dynamic>> messages,
     String? chatId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
+    requests['title'] = authSnapshot != null;
     taskChatIds.add(chatId);
     taskMessages = messages;
     await titleGate?.future;
@@ -892,19 +898,24 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
   Future<Conversation> getConversation(
     String id, {
     ApiAuthSnapshot? authSnapshot,
-  }) async => Conversation(
-    id: id,
-    title: serverTitle,
-    createdAt: DateTime.utc(2026, 10, 15),
-    updatedAt: DateTime.utc(2026, 10, 15),
-  );
+  }) async {
+    requests['chat'] = authSnapshot != null;
+    return Conversation(
+      id: id,
+      title: serverTitle,
+      createdAt: DateTime.utc(2026, 10, 15),
+      updatedAt: DateTime.utc(2026, 10, 15),
+    );
+  }
 
   @override
   Future<List<String>> generateChatTags({
     required String model,
     required List<Map<String, dynamic>> messages,
     String? chatId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
+    requests['tags'] = authSnapshot != null;
     taskChatIds.add(chatId);
     return const ['Travel'];
   }
@@ -914,7 +925,9 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
     String id, {
     String? title,
     String? systemPrompt,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
+    requests['rename'] = authSnapshot != null;
     renamed.add((id, title));
     if (title != null) serverTitle = title;
   }
@@ -922,8 +935,10 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
   @override
   Future<List<Map<String, dynamic>>> addChatTag(
     String chatId,
-    String name,
-  ) async {
+    String name, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    requests['tag'] = authSnapshot != null;
     tagged.add((chatId, name));
     return [
       {'id': name.toLowerCase(), 'name': name},
@@ -3068,6 +3083,16 @@ void main() {
           check(api.renamed).deepEquals([('server-chat', 'Weekend in Oslo')]);
           check(api.tagged).deepEquals([('server-chat', 'Travel')]);
           check(api.completionCalls).equals(0);
+          // Each goes with the session that sent, so a sign-in change on the
+          // way cancels it rather than sending it as another account.
+          check(api.requests).deepEquals({
+            'settings': true,
+            'title': true,
+            'chat': true,
+            'rename': true,
+            'tags': true,
+            'tag': true,
+          });
           // The list and the open chat show it without waiting for a pull.
           String? stored;
           await settle(() => stored == 'Weekend in Oslo', () async {

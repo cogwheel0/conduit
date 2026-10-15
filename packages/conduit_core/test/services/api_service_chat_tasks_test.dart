@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -26,14 +27,18 @@ void main() {
       completion('Sure! {"title": "Weekend in Oslo"} Hope that helps.'),
     );
     final api = _buildApiService(adapter);
+    final session = api.captureAuthSnapshot();
 
     final title = await api.generateChatTitle(
       model: 'model-1',
       messages: messages,
       chatId: 'chat-1',
+      authSnapshot: session,
     );
 
     check(title).equals('Weekend in Oslo');
+    // The request is bound to the session it was made for.
+    check(adapter.snapshot).identicalTo(session);
     check(adapter.path).equals('/api/v1/tasks/title/completions');
     check(adapter.body).isNotNull().deepEquals({
       'model': 'model-1',
@@ -96,6 +101,7 @@ class _TaskAdapter implements HttpClientAdapter {
   final Object? response;
   String? path;
   Map<String, dynamic>? body;
+  Object? snapshot;
 
   @override
   Future<ResponseBody> fetch(
@@ -105,6 +111,7 @@ class _TaskAdapter implements HttpClientAdapter {
   ) async {
     check(options.method).equals('POST');
     path = options.path;
+    snapshot = options.extra[ApiAuthInterceptor.authSnapshotExtraKey];
     final data = options.data;
     body = data is Map ? Map<String, dynamic>.from(data) : null;
     return ResponseBody(

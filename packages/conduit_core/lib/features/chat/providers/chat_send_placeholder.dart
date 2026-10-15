@@ -698,6 +698,7 @@ Future<void> durableSend(
         _generateVoiceChatMetadata(
           ref,
           owner: durableContextOwner,
+          authSnapshot: sendMutationOwner.openWebUiAuthSnapshot,
           syncEngine: capturedSyncEngine,
           localChatId: created.id,
           userMessageId: userMessageId,
