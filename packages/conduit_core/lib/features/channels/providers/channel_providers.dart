@@ -153,14 +153,6 @@ class ChannelsList extends _$ChannelsList {
       return;
     }
     setMuted(channelId, stored);
-    final active = ref.read(activeChannelProvider);
-    if (active != null &&
-        active.id == channelId &&
-        active.isChannelMuted != stored) {
-      ref
-          .read(activeChannelProvider.notifier)
-          .set(active.copyWith(isChannelMuted: stored));
-    }
   }
 
   /// Records whether [channelId] notifies for mentions only, from the mute
@@ -170,8 +162,18 @@ class ChannelsList extends _$ChannelsList {
     for (final channel in state.value ?? const <Channel>[]) {
       if (channel.id == channelId) {
         updateChannel(channel.copyWith(isChannelMuted: isChannelMuted));
-        return;
+        break;
       }
+    }
+    // The open channel may not be in the list yet, as when it was opened
+    // from a notification.
+    final active = ref.read(activeChannelProvider);
+    if (active != null &&
+        active.id == channelId &&
+        active.isChannelMuted != isChannelMuted) {
+      ref
+          .read(activeChannelProvider.notifier)
+          .set(active.copyWith(isChannelMuted: isChannelMuted));
     }
   }
 

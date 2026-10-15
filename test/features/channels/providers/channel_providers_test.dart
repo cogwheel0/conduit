@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/channel_message.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -197,6 +198,36 @@ void main() {
       expect(
         identical(container.read(channelsListProvider).value, before),
         isTrue,
+      );
+    });
+  });
+
+  group('ChannelsList.setMuted', () {
+    test('reaches an open channel the list does not hold yet', () async {
+      final api = _FakeChannelApiService(
+        rawChannels: [
+          {'id': 'c1', 'name': 'One', 'updated_at': 1},
+        ],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          authTokenProvider3.overrideWith((ref) => 'token'),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(channelsListProvider.future);
+      // Opened from a notification, before the list caught up.
+      container
+          .read(activeChannelProvider.notifier)
+          .set(Channel.fromJson({'id': 'c2', 'name': 'Two'}));
+
+      container.read(channelsListProvider.notifier).setMuted('c2', true);
+
+      expect(container.read(activeChannelProvider)?.isChannelMuted, isTrue);
+      expect(
+        container.read(channelsListProvider).value!.single.isChannelMuted,
+        isFalse,
       );
     });
   });
