@@ -100,6 +100,38 @@ void main() {
     expect(delivered, 0);
   });
 
+  test('a voice avatar gesture is answered as unavailable', () async {
+    // Open WebUI 0.12.1 waits up to 3 s for each gesture in a voice call.
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    factory.sockets.single.id = 'local-session';
+    final replies = <dynamic>[];
+    var delivered = 0;
+    service.addChatEventHandler(
+      conversationId: 'voice-chat',
+      handler: (_, _) => delivered += 1,
+    );
+
+    service.debugHandleChatEvent({
+      'chat_id': 'voice-chat',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'voice:play_animation',
+        'data': {'name': 'wave', 'model_id': 'model-1'},
+      },
+    }, replies.add);
+
+    expect(replies, [
+      {'status': 'unavailable'},
+    ]);
+    expect(delivered, 0);
+  });
+
   group('a direct tool call is always answered once', () {
     const admission = PersonalToolAdmission(
       kind: PersonalConnectionKind.toolServer,

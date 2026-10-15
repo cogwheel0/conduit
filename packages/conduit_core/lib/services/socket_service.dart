@@ -1513,6 +1513,10 @@ class SocketService {
       'request:terminal:state' => const <String, dynamic>{'connected': false},
       // MCP elicitation has no form here; cancelling lets the tool go on.
       'request:elicitation' => const <String, dynamic>{'action': 'cancel'},
+      // Conduit shows no voice avatar, so a gesture has nothing to play.
+      'voice:play_animation' => const <String, dynamic>{
+        'status': 'unavailable',
+      },
       _ => null,
     };
     if (unsupported != null &&
