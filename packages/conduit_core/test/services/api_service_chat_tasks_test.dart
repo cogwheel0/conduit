@@ -58,6 +58,22 @@ void main() {
     check(adapter.body).isNotNull().not((it) => it.containsKey('chat_id'));
   });
 
+  test('apostrophes in valid JSON answers are kept', () async {
+    final titled = _buildApiService(
+      _TaskAdapter(completion('{"title": "What\'s next?"}')),
+    );
+    check(
+      await titled.generateChatTitle(model: 'model-1', messages: messages),
+    ).equals("What's next?");
+
+    final tagged = _buildApiService(
+      _TaskAdapter(completion('{"tags": ["Rock’n’roll", "Music"]}')),
+    );
+    check(
+      await tagged.generateChatTags(model: 'model-1', messages: messages),
+    ).deepEquals(['Rock’n’roll', 'Music']);
+  });
+
   test('turned-off generation and unreadable answers give nothing', () async {
     // The server answers a disabled task with only a detail.
     final disabled = _buildApiService(

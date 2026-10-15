@@ -573,8 +573,10 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
   static String? _tagName(Object? tag) =>
       tag is String && tag.trim().isNotEmpty ? tag.trim() : null;
 
-  /// The JSON object a task model answered with: its quotes made double and
-  /// the outermost braces taken, as the web client does.
+  /// The JSON object a task model answered with, from its outermost braces.
+  /// An answer that is not JSON as written is read again with its quotes
+  /// made double, as the web client reads every answer; doing that first
+  /// would break titles and tags that hold an apostrophe.
   Future<Map<String, dynamic>?> _generateTaskJson(
     String path, {
     required String model,
@@ -595,16 +597,22 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     final message = first is Map ? first['message'] : null;
     final content = message is Map ? message['content'] : null;
     if (content is! String) return null;
-    final sanitized = content.replaceAll(RegExp('[\'‘’`]'), '"');
-    final start = sanitized.indexOf('{');
-    final end = sanitized.lastIndexOf('}');
+    final start = content.indexOf('{');
+    final end = content.lastIndexOf('}');
     if (start == -1 || end < start) return null;
-    try {
-      final parsed = jsonDecode(sanitized.substring(start, end + 1));
-      return parsed is Map<String, dynamic> ? parsed : null;
-    } on FormatException {
-      return null;
+    final json = content.substring(start, end + 1);
+    for (final candidate in [
+      json,
+      json.replaceAll(RegExp('[\'‘’`]'), '"'),
+    ]) {
+      try {
+        final parsed = jsonDecode(candidate);
+        return parsed is Map<String, dynamic> ? parsed : null;
+      } on FormatException {
+        continue;
+      }
     }
+    return null;
   }
 
   // === Tasks control (parity with Web client) ===
