@@ -522,6 +522,7 @@ class MainActivity : FlutterFragmentActivity() {
     private lateinit var nativeTtsBridge: NativeTtsBridge
     private lateinit var realtimeAudioBridge: RealtimeAudioBridge
     private lateinit var imageGalleryBridge: ImageGalleryBridge
+    private lateinit var telecomCallBridge: TelecomCallBridge
 
     override fun onCreate(savedInstanceState: Bundle?) {
         reconcileInterruptedShareImportIfNeeded()
@@ -629,6 +630,8 @@ class MainActivity : FlutterFragmentActivity() {
         realtimeAudioBridge.setup(flutterEngine)
         imageGalleryBridge = ImageGalleryBridge(this)
         imageGalleryBridge.setup(flutterEngine)
+        telecomCallBridge = TelecomCallBridge(this)
+        telecomCallBridge.setup(flutterEngine)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
         shareChannel = MethodChannel(
