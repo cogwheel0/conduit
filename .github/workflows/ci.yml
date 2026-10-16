@@ -243,3 +243,22 @@ jobs:
         run: dart run tool/verify_arb_descriptions.dart
       - name: Validate ARB locales and placeholders
         run: dart run tool/validate_arb_locales.dart
+
+  # The Python half of push notifications: the shared Web Push library, the
+  # Open WebUI function and the Hermes plugin. Uses the runner's Python.
+  server-plugins:
+    name: Push server plugins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install test dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r server-plugins/requirements-test.txt
+      - name: Check test vectors are up to date
+        run: .venv/bin/python push/test-vectors/generate.py --check
+      - name: Test
+        working-directory: server-plugins
+        run: ../.venv/bin/python -m pytest -q
