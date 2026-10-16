@@ -225,7 +225,13 @@ class CallKitService implements VoiceCallKitPort {
     return FlutterCallkitIncoming.onEvent
         .map(voiceCallKitEventFrom)
         .where((event) => event != null)
-        .cast<VoiceCallKitEvent>();
+        .cast<VoiceCallKitEvent>()
+        .map((event) {
+          // Hung up from the system UI: the call ends without [endCall], and
+          // a connected signal still waiting on Telecom must not follow it.
+          if (event is VoiceCallKitEnded) _liveCallIds.remove(event.callId);
+          return event;
+        });
   }
 
   /// The core event for a plugin [event], or null when a voice call does not

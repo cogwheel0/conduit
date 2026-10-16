@@ -81,6 +81,42 @@ void main() {
       check(pluginMethods()).not((it) => it.contains('callConnected'));
     });
 
+    test('leaves a call hung up from the system UI ended', () async {
+      const eventChannel = EventChannel('flutter_callkit_incoming_events');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      MockStreamHandlerEventSink? pluginEvents;
+      messenger.setMockStreamHandler(
+        eventChannel,
+        MockStreamHandler.inline(
+          onListen: (_, events) => pluginEvents = events,
+        ),
+      );
+      addTearDown(() => messenger.setMockStreamHandler(eventChannel, null));
+
+      final id = await service.startOutgoingVoiceCall(
+        calleeName: 'Model',
+        handle: 'Conduit AI',
+      );
+      // The voice call follows CallKit events for as long as it runs.
+      final subscription = service.events.listen((_) {});
+      addTearDown(subscription.cancel);
+      final marking = service.markCallConnected(id!);
+      await pumpEventQueue();
+
+      // Hanging up from Android's call notification ends the call without
+      // endCall, so only the event says the call is over.
+      pluginEvents!.success(<String, Object?>{
+        'event': 'com.hiennv.flutter_callkit_incoming.ACTION_CALL_ENDED',
+        'body': <String, Object?>{'id': id},
+      });
+      await pumpEventQueue();
+
+      telecomConnection.complete(true);
+      await marking;
+      check(pluginMethods()).not((it) => it.contains('callConnected'));
+    });
+
     test('still marks the call connected without the bridge', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(telecomChannel, null);
