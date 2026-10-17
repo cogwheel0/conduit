@@ -1,6 +1,11 @@
 package app.cogwheel.conduit.push
 
+import android.security.keystore.KeyPermanentlyInvalidatedException
+import java.io.IOException
+import java.security.InvalidKeyException
 import java.security.KeyStoreException
+import java.security.ProviderException
+import java.security.UnrecoverableKeyException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -81,22 +86,78 @@ class PushKeyStoreTest {
         raw.writeBytes(byteArrayOf(1, 2, 3))
         val store = store()
         assertTrue(store.list().isEmpty())
+        // The file and the key go, so nothing is left to refuse a write.
+        assertFalse(raw.exists())
+        assertEquals(1, cipher.resets)
         val created = store.create("owui:a")
         assertEquals(listOf(created.sid), store().list().map { it.sid })
     }
 
     @Test
+    fun aKeyThatCanNeverOpenTheStoreAgainIsReplaced() {
+        store().create("owui:a")
+        cipher.failOpen = PushStoreUnreadableException("key invalidated")
+        val store = store()
+        assertTrue(store.list().isEmpty())
+        assertEquals(1, cipher.resets)
+        cipher.failOpen = null
+        val created = store.create("owui:b")
+        assertEquals(listOf(created.sid), store().list().map { it.sid })
+    }
+
+    @Test
+    fun aKeyThatBrokeAfterReadingIsReplacedOnTheNextWrite() {
+        val store = store()
+        val first = store.create("owui:a")
+        cipher.failNextSeal = PushStoreUnreadableException("key invalidated")
+        val second = store.create("owui:b")
+        assertEquals(1, cipher.resets)
+        assertEquals(listOf(first.sid, second.sid), store().list().map { it.sid })
+    }
+
+    @Test
     fun aTransientKeystoreFailureNeverOverwritesTheStore() {
         val created = store().create("owui:a")
-        cipher.failOpen = KeyStoreException("busy")
+        cipher.failOpen = ProviderException("Keystore daemon busy")
         val failing = store()
         try {
             failing.create("owui:b")
             fail("created while the store was unreadable")
-        } catch (_: KeyStoreException) {
+        } catch (_: ProviderException) {
             // Expected.
         }
         cipher.failOpen = null
+        assertEquals(0, cipher.resets)
         assertEquals(listOf(created.sid), store().list().map { it.sid })
+    }
+
+    @Test
+    fun aTransientSealFailureIsNotRetriedWithANewKey() {
+        val store = store()
+        store.create("owui:a")
+        cipher.failNextSeal = ProviderException("Keystore daemon busy")
+        try {
+            store.create("owui:b")
+            fail("created while the Keystore was busy")
+        } catch (_: ProviderException) {
+            // Expected.
+        }
+        assertEquals(0, cipher.resets)
+        assertEquals(listOf("owui:a"), store().list().map { it.scope })
+    }
+
+    @Test
+    fun onlyPermanentKeystoreFailuresDiscardTheStore() {
+        listOf(
+            UnrecoverableKeyException("gone"),
+            KeyPermanentlyInvalidatedException("lock screen changed"),
+            InvalidKeyException("unusable"),
+            KeyStoreException("entry refused"),
+        ).forEach { assertTrue("$it", it.isPermanentKeystoreFailure()) }
+        listOf(
+            IOException("disk"),
+            ProviderException("Keystore daemon busy"),
+            IllegalStateException("not ready"),
+        ).forEach { assertFalse("$it", it.isPermanentKeystoreFailure()) }
     }
 }

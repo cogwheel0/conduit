@@ -181,6 +181,27 @@ void main() {
       check(bounded.lastStatus).isNull();
     });
 
+    test('a job knows when its delivery targets could not be read', () {
+      HermesJob job(Object? deliver) => HermesJob.fromJson({
+        'id': 'job-deliver',
+        'prompt': 'p',
+        'deliver': ?deliver,
+      })!;
+
+      for (final known in <Object?>[null, '', '  ', 'telegram,conduit']) {
+        check(because: '$known', job(known).deliveryKnown).isTrue();
+      }
+      for (final unknown in <Object>[
+        _repeat('x', kMaxHermesJobStatusCharacters + 1),
+        const ['telegram'],
+        7,
+      ]) {
+        final parsed = job(unknown);
+        check(because: '$unknown', parsed.deliveryKnown).isFalse();
+        check(parsed.deliveryTarget).isNull();
+      }
+    });
+
     test('job displayName never regex-scans a multi-megabyte prompt', () {
       final job = HermesJob(
         id: 'job-display',

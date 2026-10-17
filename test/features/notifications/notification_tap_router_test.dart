@@ -116,8 +116,9 @@ class _RecordingNavigator implements NotificationTapNavigator {
   @override
   Future<void> openHermesSession(
     String sessionId, {
+    required String connectionId,
     required String title,
-  }) async => calls.add('hermes-session:$sessionId:$title');
+  }) async => calls.add('hermes-session:$connectionId/$sessionId:$title');
 
   @override
   void openHermesJobs() => calls.add('hermes-jobs');
@@ -302,7 +303,9 @@ void main() {
           dedupKey: 'hermes:conn-home|hermes:s-1:t-1',
         ),
       );
-      check(navigator.calls).deepEquals(['hermes-session:s-1:Refactor plan']);
+      check(
+        navigator.calls,
+      ).deepEquals(['hermes-session:conn-home/s-1:Refactor plan']);
     });
 
     test('another connection is used first', () async {
@@ -312,7 +315,7 @@ void main() {
       );
       check(
         navigator.calls,
-      ).deepEquals(['use-hermes:conn-work', 'hermes-session:s-1:']);
+      ).deepEquals(['use-hermes:conn-work', 'hermes-session:conn-work/s-1:']);
     });
 
     test('Hermes switched off is turned on through the same flow', () async {

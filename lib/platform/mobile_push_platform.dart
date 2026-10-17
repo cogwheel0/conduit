@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:conduit_core/conduit_core.dart';
 import 'package:flutter/services.dart';
@@ -14,13 +15,40 @@ import 'conduit_platform_apis.g.dart';
 /// A build whose native side has no push bridge answers every call with a
 /// channel error; [availableTransports] turns that into "no transports", so
 /// the coordinator reports push as unavailable instead of failing.
+///
+/// Native counts a callback Dart answered as delivered: a foreground push is
+/// not shown and a tap is not kept for [takeLaunchTap]. So events that
+/// arrive while nobody listens yet are held, at most [heldEventLimit] of
+/// them, and go to the first listener. The push notification listener
+/// subscribes at startup, before the push coordinator.
 class MobilePushPlatform implements PushPlatformPort, PushFlutterApi {
   MobilePushPlatform({PushHostApi? hostApi}) : _host = hostApi ?? PushHostApi();
 
+  /// How many events wait for a listener; the oldest go first.
+  static const int heldEventLimit = 32;
+
   final PushHostApi _host;
-  final StreamController<PushPlatformEvent> _events =
-      StreamController<PushPlatformEvent>.broadcast();
+  late final StreamController<PushPlatformEvent> _events =
+      StreamController<PushPlatformEvent>.broadcast(onListen: _releaseHeld);
+  final ListQueue<PushPlatformEvent> _held = ListQueue<PushPlatformEvent>();
   bool _attached = false;
+
+  void _emit(PushPlatformEvent event) {
+    if (_events.hasListener) {
+      _events.add(event);
+      return;
+    }
+    _held.addLast(event);
+    while (_held.length > heldEventLimit) {
+      _held.removeFirst();
+    }
+  }
+
+  void _releaseHeld() {
+    while (_held.isNotEmpty) {
+      _events.add(_held.removeFirst());
+    }
+  }
 
   void _attach() {
     if (_attached) return;
@@ -156,11 +184,10 @@ class MobilePushPlatform implements PushPlatformPort, PushFlutterApi {
   // PushFlutterApi
 
   @override
-  void onToken(PlatformPushToken token) =>
-      _events.add(PushTokenEvent(_token(token)));
+  void onToken(PlatformPushToken token) => _emit(PushTokenEvent(_token(token)));
 
   @override
-  void onForegroundPush(PlatformPushMessage message) => _events.add(
+  void onForegroundPush(PlatformPushMessage message) => _emit(
     PushForegroundEvent(
       PushMessage(
         sid: message.sid,
@@ -171,20 +198,20 @@ class MobilePushPlatform implements PushPlatformPort, PushFlutterApi {
   );
 
   @override
-  void onTap(PlatformPushTap tap) => _events.add(
+  void onTap(PlatformPushTap tap) => _emit(
     PushTapEvent(PushTap(scope: tap.scope, payloadJson: tap.payloadJson)),
   );
 
   @override
   void onTestReceived(String sid, String nonce) =>
-      _events.add(PushTestReceivedEvent(sid, nonce));
+      _emit(PushTestReceivedEvent(sid, nonce));
 
   @override
-  void onUnregistered(String sid) => _events.add(PushUnregisteredEvent(sid));
+  void onUnregistered(String sid) => _emit(PushUnregisteredEvent(sid));
 
   @override
   void onUnifiedPushEndpoint(String sid, String endpoint) =>
-      _events.add(PushUnifiedPushEndpointEvent(sid, endpoint));
+      _emit(PushUnifiedPushEndpointEvent(sid, endpoint));
 
   static PushTransport _transport(PlatformPushTransport transport) =>
       switch (transport) {

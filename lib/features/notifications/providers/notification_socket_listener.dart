@@ -18,7 +18,12 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart'
+    show HermesBackendMode;
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/features/notifications/services/hermes_push_watches.dart';
+import 'package:conduit_core/features/push/models/push_status.dart';
+import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 
 import '../services/local_notification_service.dart';
@@ -49,7 +54,48 @@ NotificationRouter notificationRouter(Ref ref) {
     // for the same event never both show.
     claim: (dedupKey, localNotificationId) =>
         _claimForPush(ref, dedupKey, localNotificationId),
+    scopeNotificationsEnabled: (scope) => notificationsEnabledForScope(
+      scope,
+      activeValue: ref.read(appSettingsProvider).notificationsEnabled,
+    ),
+    pushCovers: (notification) => pushCoversNotification(
+      ref.read(pushStateIfUsedProvider),
+      notification,
+      watches: ref.read(hermesPushWatchesProvider),
+    ),
   );
+}
+
+/// Whether a push will report [notification]'s event: push is on for its
+/// scope (turned on, not opted out, and a test push decrypted on this
+/// device), and for a Hermes reply, the plugin pushes its session's turns.
+/// It does for a Hermes dashboard (desktop) session on its own, and for an
+/// API server session only while a watch this app registered lasts
+/// ([watches]). An Open WebUI reply pushes only when the account notifies
+/// for all chats: with [PushOrigin.conduit] the server pushes a reply only
+/// to a request Conduit sent, which the app cannot tell from the event.
+@visibleForTesting
+bool pushCoversNotification(
+  PushState? push,
+  AppNotification notification, {
+  required HermesPushWatches watches,
+}) {
+  if (push == null || !push.enabled) return false;
+  final target = push.targets[notification.scope];
+  if (target == null ||
+      target.optedOut ||
+      (target.status != PushStatus.on &&
+          target.status != PushStatus.updateAvailable)) {
+    return false;
+  }
+  return switch (target.target) {
+    HermesPushTarget(:final connectionId, :final mode) =>
+      mode == HermesBackendMode.desktopGateway ||
+          watches.isWatched(connectionId, notification.sourceId),
+    OpenWebUiPushTarget() =>
+      notification.kind == NotificationKind.channelMessage ||
+          target.origin == PushOrigin.any,
+  };
 }
 
 Future<bool> _claimForPush(
@@ -85,9 +131,12 @@ void _showInAppBanner(Ref ref, AppNotification notification) {
   final context = NavigationService.navigatorKey.currentContext;
   if (context == null) return;
   final l10n = currentAppLocalizations();
+  // A failed reply without a body says that it failed, as the system
+  // notification does.
+  final body = notificationDisplayBody(notification, l10n);
   final message = notification.title.isNotEmpty
-      ? '${notification.title}: ${notification.body}'
-      : notification.body;
+      ? '${notification.title}: $body'
+      : body;
   AdaptiveSnackBar.show(
     context,
     message: message,

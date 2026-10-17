@@ -277,11 +277,14 @@ then pick how you want to connect.
   Android.
 - No third-party analytics or advertising SDKs.
 - Diagnostic logging is local and transient.
-- No developer-operated backend receives your data. Traffic goes from your
-  device to the server or provider you configured. Optional push notifications
-  are encrypted on your own server and pass through an open-source relay that
-  cannot read them ([what each party sees](docs/push/THREAT_MODEL.md)).
-  On Android you can use UnifiedPush instead and skip the relay.
+- No developer-operated backend receives your chats or other content. Traffic
+  goes from your device to the server or provider you configured. The one
+  developer-operated service is for optional push notifications: they are
+  encrypted on your own server and pass through an open-source relay we run,
+  which cannot read them and sees only delivery details such as your server's
+  IP address and the time
+  ([what each party sees](docs/push/THREAT_MODEL.md)). On Android you can use
+  UnifiedPush instead and skip the relay.
 - Signing out lets you choose what stays behind. Clearing everything clears
   on-device chats too, and fails safely rather than half-deleting.
 

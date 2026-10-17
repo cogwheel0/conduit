@@ -1,9 +1,12 @@
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/token_validator.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:dio/dio.dart' show DioException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 import 'package:go_router/go_router.dart';
@@ -207,7 +210,7 @@ Future<void> signOutOfAllAccounts(BuildContext context, WidgetRef ref) async {
 /// Makes [accountId] the active account, asking first when that would stop
 /// a reply that is still being written, and opens its sign-in when it needs
 /// one.
-Future<void> switchToSavedAccount(
+Future<OpenWebUiAccountChangeResult?> switchToSavedAccount(
   BuildContext context,
   WidgetRef ref,
   String accountId,
@@ -226,6 +229,7 @@ Future<void> switchToSavedAccount(
     if (result == OpenWebUiAccountChangeResult.needsSignIn) {
       openActiveAccountSignIn(router);
     }
+    return result;
   } catch (error, stackTrace) {
     DebugLogger.error(
       'account-switch-failed',
@@ -234,7 +238,59 @@ Future<void> switchToSavedAccount(
       stackTrace: stackTrace,
     );
     if (context.mounted) UiUtils.showMessage(context, l10n.errorMessage);
+    return null;
   }
+}
+
+/// For signing in to the account in use while the app still takes it for
+/// signed in, as when a push check found its session refused: switching to
+/// it only answers that it is already active.
+///
+/// Asks its server about the session. A token past its expiry, or one the
+/// server refuses, goes through the app's own expired-session flow
+/// ([AuthStateManager.onTokenInvalidated]: a silent sign-in with saved
+/// credentials, else sign-in). Answers whether the session still works; a
+/// server that cannot be reached says nothing against it, and neither does
+/// a refusal that comes after the account or its session changed.
+Future<bool> recheckActiveAccountSession(ProviderContainer container) async {
+  final api = container.read(apiServiceProvider);
+  final token = api?.authToken;
+  final expired =
+      api == null ||
+      token == null ||
+      token.isEmpty ||
+      TokenValidator.validateTokenFormat(token).isExpired;
+  if (!expired) {
+    // Listened to while the server answers, so that signing out and in again
+    // with the same token (an API key) still counts as another session.
+    final session = container.listen(
+      openWebUiAuthSessionEpochProvider,
+      (_, _) {},
+    );
+    final epoch = session.read();
+    try {
+      await api.getCurrentUser(
+        suppressAuthFailureNotification: true,
+        authSnapshot: api.captureAuthSnapshot(),
+      );
+      return true;
+    } on DioException catch (error) {
+      if (error.response?.statusCode != 401) return true;
+      // The expired-session flow clears whatever session is current. A
+      // switch or a sign-in while the server answered made another one
+      // current, which this refusal says nothing about.
+      final current = container.read(apiServiceProvider);
+      if (current?.serverConfig.id != api.serverConfig.id ||
+          current?.authToken != token ||
+          !identical(session.read(), epoch)) {
+        return true;
+      }
+    } finally {
+      session.close();
+    }
+  }
+  await container.read(authStateManagerProvider.notifier).onTokenInvalidated();
+  return false;
 }
 
 /// Makes [accountId] the active account through [controller], asking

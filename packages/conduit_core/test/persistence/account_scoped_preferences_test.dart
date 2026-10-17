@@ -58,6 +58,35 @@ void main() {
         .equals('model-on-a');
   });
 
+  test('the notifications switch also sets the device-level one', () async {
+    await PreferencesStore.put(
+      PreferenceKeys.accountScopedSettingsMigrated,
+      true,
+    );
+    await activate('a');
+    await SettingsService.setNotificationsEnabled(false);
+    // Hermes and Direct follow the device-level switch, which follows the
+    // one the user set last.
+    check(PreferencesStore.getBool(PreferenceKeys.notificationsEnabled))
+        .equals(false);
+    check(
+      PreferencesStore.getBool(
+        accountScopedPreferenceKey(PreferenceKeys.notificationsEnabled, 'a'),
+      ),
+    ).equals(false);
+
+    await activate(null);
+    await SettingsService.setNotificationsEnabled(true);
+    check(PreferencesStore.getBool(PreferenceKeys.notificationsEnabled))
+        .equals(true);
+    // An account's own switch is left as it was.
+    check(
+      PreferencesStore.getBool(
+        accountScopedPreferenceKey(PreferenceKeys.notificationsEnabled, 'a'),
+      ),
+    ).equals(false);
+  });
+
   test('look-and-feel settings stay device-wide', () async {
     await activate('a');
     await SettingsService.setReduceMotion(true);

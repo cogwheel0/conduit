@@ -103,6 +103,8 @@ import 'shared/utils/ui_utils.dart';
 import 'core/utils/tts_voice_utils.dart';
 import 'core/utils/current_localizations.dart';
 import 'features/push/push_host_bindings.dart';
+import 'features/push/widgets/push_target_actions.dart'
+    show setPushEnabledFromNativeSheet;
 import 'features/push/widgets/push_target_detail_sheet.dart';
 
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
@@ -1381,38 +1383,31 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   /// Turns push on or off from the native Notifications sheet. The sheet
   /// shows the push targets row once push is on, and their statuses once
-  /// setup has run, so it is refreshed at both points.
-  Future<void> _setNativePushEnabled(bool value) async {
-    final coordinator = ref.read(pushCoordinatorProvider.notifier);
+  /// setup has run, so it is refreshed at both points. A failure is logged
+  /// once.
+  Future<void> _setNativePushEnabled(bool value) {
     final hydration = ref.read(nativeSheetHydrationServiceProvider);
-    Future<void> refresh() async {
-      await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
-      await hydration.hydrateDetail(NativeSheetRoutes.pushTargets);
-    }
-
-    final setup = coordinator.setEnabled(value);
-    // The switch flips first; setup goes on in the background.
-    for (var i = 0; i < 20; i++) {
-      if (ref.read(pushCoordinatorProvider).enabled == value) break;
-      await Future<void>.delayed(const Duration(milliseconds: 25));
-    }
-    await refresh();
-    unawaited(
-      setup
-          .then((_) => refresh())
-          .catchError((Object error, StackTrace stackTrace) {
-            DebugLogger.error(
-              'native-push-toggle-failed',
-              scope: 'native-sheet',
-              error: error,
-              stackTrace: stackTrace,
-            );
-          }),
+    return setPushEnabledFromNativeSheet(
+      coordinator: ref.read(pushCoordinatorProvider.notifier),
+      enabledNow: () => ref.read(pushCoordinatorProvider).enabled,
+      value: value,
+      refresh: () async {
+        await hydration.hydrateDetail(NativeSheetRoutes.notificationSettings);
+        await hydration.hydrateDetail(NativeSheetRoutes.pushTargets);
+      },
+      onError: (message, error, stackTrace) => DebugLogger.error(
+        message,
+        scope: 'native-sheet',
+        error: error,
+        stackTrace: stackTrace,
+      ),
     );
   }
 
   /// Opens one push target's detail sheet, with its one-tap fixes, over the
-  /// Notifications page, once the native sheet has closed.
+  /// Notifications page, once the native sheet has closed. A target removed
+  /// since the native list was built opens the page alone, which lists the
+  /// targets there are now.
   void _openNativePushTarget(String scope) {
     unawaited(
       NavigationService.router.pushNamed<void>(
@@ -1420,6 +1415,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         extra: const NativeSheetNavigationOrigin(),
       ),
     );
+    final targets = ref.read(pushStateIfUsedProvider)?.targets;
+    if (targets == null || !targets.containsKey(scope)) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = NavigationService.navigatorKey.currentContext;
       if (context == null || !context.mounted) return;

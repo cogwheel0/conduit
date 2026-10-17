@@ -18,7 +18,7 @@ It sends a notification when:
 
 | Event | Who gets it |
 |---|---|
-| A reply finishes | The user who sent the message. By default only for replies requested from Conduit (the request's `User-Agent` starts with `Conduit/`). Each device can switch to "All my chats". |
+| A reply finishes | The user who sent the message. By default only for replies requested from Conduit (the request's `User-Agent` is `Conduit` or starts with `Conduit/`). Each device can switch to "All my chats". |
 | A reply fails | The same user, under the same rule. The preview is empty. |
 | Someone posts a top-level message in a channel | Every other channel member: in standard channels, members who still have read access; in group channels and DMs, the members. Thread replies and model replies don't notify. Messages posted through a channel webhook notify every member. |
 
@@ -55,8 +55,9 @@ away.
 
 ## Requirements
 
-- Open WebUI **0.10.0 or newer**. Open WebUI's editor refuses to save the
-  function on older versions.
+- Open WebUI **0.11.0 or newer**. Its reply events, `chat.finished` and
+  `chat.failed`, first appear in 0.11.0, and Open WebUI's editor refuses to
+  save the function on older versions.
 - **Plugins enabled.** That is the default; `ENABLE_PLUGINS=false` turns them
   off. Conduit reads `features.enable_plugins` from `/api/config`.
 - Outbound HTTPS from the Open WebUI server to the push endpoints your users
@@ -100,13 +101,17 @@ Open the function's gear icon in **Admin Panel → Functions**.
 | `timeout_s` | 5 | Seconds to wait for each push endpoint. |
 | `max_channel_recipients` | 500 | The most people one channel message notifies. 0 turns channel notifications off. |
 
-Endpoints must be `https`. Unless allowed above, each endpoint passes Open
-WebUI's own address check: the one Open WebUI uses for web fetches and webhooks,
-which honors `ENABLE_LOCAL_WEB_FETCH` and `WEB_FETCH_FILTER_LIST`. The function
-sends through Open WebUI's SSRF-safe HTTP session, which checks each address
-again when the connection opens, so a DNS change can't point an endpoint at an
-internal address. That second check doesn't apply to traffic sent through a
-proxy, because the proxy resolves the name.
+Endpoints must be `https`. Unless allowed above, each endpoint must pass Open
+WebUI's own URL check (the one it uses for web fetches, which applies
+`WEB_FETCH_FILTER_LIST`), and every address its host resolves to must be
+public. The function enforces that second rule itself, so it holds even when
+`ENABLE_LOCAL_WEB_FETCH` is on. It checks again on the addresses each
+connection actually uses, so a DNS change can't point an endpoint at an
+internal address. Through a proxy (`HTTPS_PROXY`), that second check covers
+only the connection to your proxy, which may be on a private address; the
+proxy resolves the endpoint itself. A host your server can't resolve at all,
+for example because only the proxy can, shows as `blocked`; list it in
+`extra_allowed_hosts`.
 
 ## Turning it on for users
 
@@ -131,7 +136,7 @@ are:
 
 | Status | Meaning |
 |---|---|
-| `blocked` | The endpoint is on a private address, or Open WebUI's address check rejected it. See `allow_private_endpoints` and `extra_allowed_hosts`. |
+| `blocked` | The endpoint is on a private address, its host doesn't resolve, or Open WebUI's URL check rejected it. See `allow_private_endpoints` and `extra_allowed_hosts`. |
 | `invalid` | The stored subscription is malformed. The function removed it; Conduit registers the device again. |
 | `gone` | The endpoint answered 404 or 410: the app was uninstalled or its push token changed. The function removed it. |
 | `timeout`, `network` | The endpoint couldn't be reached in `timeout_s` seconds. Check outbound HTTPS and proxies. |

@@ -20,6 +20,7 @@ class HermesJob {
     this.lastStatus,
     this.state,
     this.deliveryTarget,
+    this.deliveryKnown = true,
     this.lastError,
     this.lastDeliveryError,
     this.nextRun,
@@ -55,6 +56,12 @@ class HermesJob {
   final String? lastStatus;
   final String? state;
   final String? deliveryTarget;
+
+  /// Whether [deliveryTarget] says where the job delivers: false when the
+  /// server sent a `deliver` this app could not read (not text, or longer
+  /// than [kMaxHermesJobStatusCharacters]). Its delivery targets must not be
+  /// rewritten from here then, or the unread ones would be lost.
+  final bool deliveryKnown;
   final String? lastError;
   final String? lastDeliveryError;
   final DateTime? nextRun;
@@ -74,6 +81,12 @@ class HermesJob {
             allowEmpty: true,
           );
     if (prompt == null) return null;
+
+    final rawDeliver = json['deliver'];
+    final deliveryTarget = validateHermesBoundedString(
+      rawDeliver,
+      maxCharacters: kMaxHermesJobStatusCharacters,
+    );
 
     final bool enabled;
     if (json['enabled'] is bool) {
@@ -101,10 +114,12 @@ class HermesJob {
         json['state'],
         maxCharacters: kMaxHermesJobStatusCharacters,
       ),
-      deliveryTarget: validateHermesBoundedString(
-        json['deliver'],
-        maxCharacters: kMaxHermesJobStatusCharacters,
-      ),
+      deliveryTarget: deliveryTarget,
+      // Missing or blank means the default, `local`.
+      deliveryKnown:
+          rawDeliver == null ||
+          deliveryTarget != null ||
+          (rawDeliver is String && rawDeliver.trim().isEmpty),
       lastError: validateHermesBoundedString(
         json['last_error'],
         maxCharacters: 4096,

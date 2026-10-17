@@ -65,10 +65,14 @@ internal class PushNotifier(context: Context) {
     }
 
     /**
-     * Removes this scope's notifications: pushes (tagged `scope|…`) and the
-     * app's own notifications that claimed a `scope|…` key with their id.
+     * Removes this scope's notifications: pushes and the app's own, which
+     * flutter_local_notifications tags with their dedup key, so both are
+     * tagged `scope|…`. [localNotifications] are the (dedup key, id) pairs
+     * the app claimed, cancelled exactly even if listing fails. Nothing is
+     * cancelled by id alone: untagged ids such as the voice call's belong to
+     * other features.
      */
-    fun cancelScope(scope: String, localNotificationIds: Collection<String>) {
+    fun cancelScope(scope: String, localNotifications: Collection<Pair<String, Int>>) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val prefix = "$scope|"
         try {
@@ -78,8 +82,9 @@ internal class PushNotifier(context: Context) {
         } catch (error: RuntimeException) {
             Log.w(TAG, "Could not list active notifications", error)
         }
-        // flutter_local_notifications posts with a null tag and an int id.
-        localNotificationIds.mapNotNull(String::toIntOrNull).forEach(manager::cancel)
+        localNotifications
+            .filter { (tag, _) -> tag.startsWith(prefix) }
+            .forEach { (tag, id) -> manager.cancel(tag, id) }
     }
 
     companion object {

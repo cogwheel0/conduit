@@ -107,13 +107,24 @@ extension PushKeyRecord: Codable {
 public protocol PushSecretStorage {
   func read(account: String) throws -> Data?
   func write(_ data: Data, account: String) throws
+  /// Stores `data` unless `account` already has a value. False when it did.
+  func add(_ data: Data, account: String) throws -> Bool
   func delete(account: String) throws
   func accounts() throws -> [String]
+}
+
+extension PushSecretStorage {
+  public func add(_ data: Data, account: String) throws -> Bool {
+    guard try read(account: account) == nil else { return false }
+    try write(data, account: account)
+    return true
+  }
 }
 
 public enum PushKeyStoreError: Error, Equatable {
   case keychain(OSStatus)
   case unknownSubscription
+  case tapKeyUnavailable
 }
 
 /// Keychain generic-password items, readable by the app and its
@@ -170,6 +181,17 @@ public struct PushKeychainStorage: PushSecretStorage {
       status = SecItemUpdate(query(account: account) as CFDictionary, changes as CFDictionary)
     }
     guard status == errSecSuccess else { throw PushKeyStoreError.keychain(status) }
+  }
+
+  /// One `SecItemAdd`, so of two processes adding at once exactly one wins.
+  public func add(_ data: Data, account: String) throws -> Bool {
+    var item = query(account: account)
+    item[kSecValueData as String] = data
+    item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    let status = SecItemAdd(item as CFDictionary, nil)
+    if status == errSecDuplicateItem { return false }
+    guard status == errSecSuccess else { throw PushKeyStoreError.keychain(status) }
+    return true
   }
 
   public func delete(account: String) throws {
@@ -242,5 +264,69 @@ public final class PushKeyStore {
 
   public func delete(sid: String) throws {
     try storage.delete(account: sid)
+  }
+}
+
+/// The per-install secret the extension signs every tap with, so the app
+/// opens only notifications the extension decrypted. The iOS counterpart of
+/// the token in Android's tap intents.
+///
+/// A Keychain item in the App Group's access group, readable after the
+/// first unlock and never migrated to another device. Whichever of the app
+/// and the extension needs it first creates it.
+public struct PushTapKey {
+  public static let service = "app.cogwheel.conduit.push.tap"
+  static let account = "tap"
+  static let byteCount = 32
+  private static let label = Data("conduit-tap/1".utf8)
+
+  private let key: SymmetricKey
+
+  init(_ bytes: Data) {
+    key = SymmetricKey(data: bytes)
+  }
+
+  public static func load(accessGroup: String?) throws -> PushTapKey {
+    try load(storage: PushKeychainStorage(accessGroup: accessGroup, service: service))
+  }
+
+  /// The stored key, or a new one. When both processes create one at once,
+  /// the first one stored wins and the other reads it back.
+  public static func load(storage: PushSecretStorage) throws -> PushTapKey {
+    if let stored = try storage.read(account: account) {
+      if stored.count == byteCount { return PushTapKey(stored) }
+      // Unusable: nothing it signed can be checked anyway.
+      try storage.delete(account: account)
+    }
+    let fresh = PushKeyRecord.randomBytes(byteCount)
+    if try storage.add(fresh, account: account) { return PushTapKey(fresh) }
+    guard let stored = try storage.read(account: account), stored.count == byteCount else {
+      throw PushKeyStoreError.tapKeyUnavailable
+    }
+    return PushTapKey(stored)
+  }
+
+  /// HMAC-SHA256 over a label, the scope's length and bytes, and the payload.
+  func signature(scope: String, payloadJSON: String) -> Data {
+    Data(HMAC<SHA256>.authenticationCode(for: Self.message(scope: scope, payloadJSON: payloadJSON), using: key))
+  }
+
+  func isValidSignature(_ signature: Data, scope: String, payloadJSON: String) -> Bool {
+    HMAC<SHA256>.isValidAuthenticationCode(
+      signature,
+      authenticating: Self.message(scope: scope, payloadJSON: payloadJSON),
+      using: key
+    )
+  }
+
+  private static func message(scope: String, payloadJSON: String) -> Data {
+    let scopeBytes = Data(scope.utf8)
+    var length = UInt32(scopeBytes.count).bigEndian
+    var message = label
+    message.append(0)
+    message.append(Data(bytes: &length, count: MemoryLayout<UInt32>.size))
+    message.append(scopeBytes)
+    message.append(Data(payloadJSON.utf8))
+    return message
   }
 }

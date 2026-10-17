@@ -109,6 +109,13 @@ sealed class AppNotification with _$AppNotification {
     /// known.
     String? group,
 
+    /// False when a push for the same event, if one comes, carries another
+    /// [dedupKey], so the ledger the two share cannot tell them apart: a
+    /// Hermes turn this app watched end (it cannot know the server's turn
+    /// id), or a socket frame that named no message. In the background the
+    /// router then leaves the system notification to a verified push.
+    @Default(true) bool sharesPushDedupKey,
+
     /// Whether the user has seen this notification (set by the inbox layer).
     @Default(false) bool read,
   }) = _AppNotification;

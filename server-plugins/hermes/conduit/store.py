@@ -16,7 +16,7 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 try:  # POSIX only; Windows falls back to the in-process lock.
     import fcntl
@@ -129,18 +129,31 @@ class Store:
                 if s.get("sid") != entry["sid"] and not (entry.get("did") and s.get("did") == entry["did"])
             ]
             kept.append(entry)
-            kept.sort(key=lambda s: float(s.get("seen") or 0), reverse=True)
+            # Newest first; on a tie the entry just accepted wins, or it could
+            # be evicted while the caller is told it was stored.
+            kept.sort(key=lambda s: (float(s.get("seen") or 0), s is entry), reverse=True)
             self._write(SUBSCRIPTIONS, {"v": 1, "subs": kept[:MAX_SUBSCRIPTIONS]})
 
     def remove(self, sids: List[str], now: Optional[float] = None) -> int:
         """Deletes the given sids; returns how many were removed."""
-        if not sids:
-            return 0
-        now = time.time() if now is None else now
         drop = set(sids)
+        return self._drop(lambda s: s.get("sid") in drop, now) if drop else 0
+
+    def remove_dead(self, dead: Iterable[Tuple[str, str]], now: Optional[float] = None) -> int:
+        """Deletes subscriptions whose endpoint answered 404 or 410.
+
+        Matches ``(sid, endpoint)``, not the sid alone: the app keeps its sid
+        when it re-registers with a new endpoint, and that fresh entry must
+        survive a late answer from the old one.
+        """
+        drop = set(dead)
+        return self._drop(lambda s: (s.get("sid"), s.get("endpoint")) in drop, now) if drop else 0
+
+    def _drop(self, match: Callable[[Dict[str, Any]], bool], now: Optional[float]) -> int:
+        now = time.time() if now is None else now
         with self._locked():
             current = self.subscriptions(now)
-            kept = [s for s in current if s.get("sid") not in drop]
+            kept = [s for s in current if not match(s)]
             self._write(SUBSCRIPTIONS, {"v": 1, "subs": kept})
         return len(current) - len(kept)
 
@@ -153,17 +166,22 @@ class Store:
         return {str(k): float(v) for k, v in raw.items() if isinstance(v, (int, float)) and v > now}
 
     def watch(self, session_id: str, ttl: int, now: Optional[float] = None) -> int:
-        """Marks a session as started by Conduit until ``now + ttl``; returns the expiry."""
+        """Marks a session as started by Conduit until ``now + ttl``.
+
+        A shorter refresh never brings a watch forward. Returns when the
+        watch ends, as stored.
+        """
         now = time.time() if now is None else now
         expires = int(now + min(max(int(ttl), 1), MAX_WATCH_TTL))
         with self._locked():
             watches = self._watches(now)
             watches[session_id] = max(expires, int(watches.get(session_id, 0)))
             if len(watches) > MAX_WATCHES:
-                keep = sorted(watches.items(), key=lambda item: item[1], reverse=True)[:MAX_WATCHES]
-                watches = dict(keep)
+                # The latest expiries stay, and always the session just watched.
+                keep = sorted(watches.items(), key=lambda item: (item[0] == session_id, item[1]), reverse=True)
+                watches = dict(keep[:MAX_WATCHES])
             self._write(WATCHES, {"v": 1, "watches": watches})
-        return expires
+            return int(watches[session_id])
 
     def is_watched(self, session_id: str, now: Optional[float] = None) -> bool:
         now = time.time() if now is None else now

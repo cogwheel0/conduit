@@ -8682,7 +8682,7 @@
   "@pushStatusPluginsDisabled": {
     "description": "Push status when the Open WebUI server runs with functions (plugins) disabled."
   },
-  "pushStatusServerTooOldOpenWebUi": "Needs Open WebUI 0.10 or newer",
+  "pushStatusServerTooOldOpenWebUi": "Needs Open WebUI 0.11 or newer",
   "@pushStatusServerTooOldOpenWebUi": {
     "description": "Push status when the Open WebUI server is older than the version push needs."
   },
@@ -9006,7 +9006,7 @@
   "@pushPrivacyRelayTitle": {
     "description": "Push privacy explainer section about the Conduit push relay."
   },
-  "pushPrivacyRelayBody": "It passes encrypted notifications on to Apple or Google. It sees when your server sends and a rounded size, never titles, text, accounts or servers. It is open source and keeps no logs or database.",
+  "pushPrivacyRelayBody": "It passes encrypted notifications on to Apple or Google. It sees your server's IP address, when it sends and a rounded size, but never titles, text, accounts, or your server's name or URL. It is open source and keeps no logs or database.",
   "@pushPrivacyRelayBody": {
     "description": "Push privacy explainer: what the relay sees."
   },
@@ -9079,5 +9079,21 @@
   "pushExplainFailed": "Conduit tries again by itself the next time you open it, or you can try again now.",
   "@pushExplainFailed": {
     "description": "Detail-sheet explanation under a push failure (the failure itself is the heading above it); a Retry button follows."
+  },
+  "pushHermesCommandLatest": "This installs the latest published version of the plugin.",
+  "@pushHermesCommandLatest": {
+    "description": "Note under the copyable Hermes plugin install command when this build does not pin a plugin commit, so the command installs whatever version the plugin's repository currently publishes."
+  },
+  "hermesJobCreatedNotifyFailed": "Job created, but notifications couldn't be turned on for it.",
+  "@hermesJobCreatedNotifyFailed": {
+    "description": "Message after creating a Hermes scheduled job with \"Notify me\" on, when the job was created but turning its push notifications on failed. Says the job exists, so the user does not create it again."
+  },
+  "hermesJobUpdatedNotifyFailed": "Job saved, but its notifications couldn't be changed.",
+  "@hermesJobUpdatedNotifyFailed": {
+    "description": "Message after saving a Hermes scheduled job whose \"Notify me\" was changed, when the job was saved but changing its push notifications failed."
+  },
+  "hermesJobNotifyNeedsScheduled": "Turn on Scheduled tasks in Notifications to use this.",
+  "@hermesJobNotifyNeedsScheduled": {
+    "description": "Hint under the disabled \"Notify me\" switch in the Hermes job editor while the \"Scheduled tasks\" notification kind is turned off in the Notifications settings."
   }
 }

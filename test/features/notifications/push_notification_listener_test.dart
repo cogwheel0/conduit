@@ -9,9 +9,13 @@ import 'package:conduit/features/notifications/services/notification_router.dart
 import 'package:conduit/features/notifications/services/notification_sound_service.dart';
 import 'package:conduit/features/notifications/services/notification_tap_router.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show AuthNavigationState, authNavigationStateProvider;
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show SettledActiveAccountId, settledActiveAccountIdProvider;
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,17 +51,26 @@ void main() {
   late _Router router;
   late List<(Object?, String)> opened;
   late ProviderContainer container;
+  // Read when a launch tap first asks; a test sets them before that.
+  late AuthNavigationState authNavigation;
+  late String? activeAccountId;
 
   setUp(() {
     port = _Port();
     router = _Router();
     opened = [];
+    authNavigation = AuthNavigationState.loading;
+    activeAccountId = 'acct-1';
     container = ProviderContainer(
       overrides: [
         pushPlatformPortProvider.overrideWithValue(port),
         notificationRouterProvider.overrideWithValue(router),
         notificationTapRouterProvider.overrideWith(
           (ref) => _TapRouter(ref, opened),
+        ),
+        authNavigationStateProvider.overrideWith((ref) => authNavigation),
+        settledActiveAccountIdProvider.overrideWith(
+          () => _SettledAccount(activeAccountId),
         ),
       ],
     );
@@ -134,6 +147,33 @@ void main() {
     check(port.launchTapTaken).equals(1);
   });
 
+  test(
+    'a launch tap for another account opens while the active one is signed out',
+    () async {
+      authNavigation = AuthNavigationState.needsLogin;
+      port.launchTap = PushTap(scope: 'owui:acct-2', payloadJson: _reply());
+
+      await container
+          .read(pushNotificationListenerProvider.notifier)
+          .handleLaunchTap(openWebUiReady: false);
+
+      // The tap router switches to acct-2, or opens its sign-in.
+      check(opened.single.$2).equals('owui:acct-2');
+    },
+  );
+
+  test('a launch tap for the signed-out active account waits for it', () async {
+    authNavigation = AuthNavigationState.needsLogin;
+    activeAccountId = 'acct-2';
+    port.launchTap = PushTap(scope: 'owui:acct-2', payloadJson: _reply());
+    final listener = container.read(pushNotificationListenerProvider.notifier);
+
+    await listener.handleLaunchTap(openWebUiReady: false);
+    check(opened).isEmpty();
+    await listener.handleLaunchTap(openWebUiReady: true);
+    check(opened.single.$2).equals('owui:acct-2');
+  });
+
   test('a Hermes launch tap opens at once', () async {
     port.launchTap = PushTap(scope: 'hermes:conn-1', payloadJson: _hermesReply());
     await container
@@ -177,6 +217,15 @@ final class _TapRouter extends NotificationTapRouter {
     opened.add((payload, scope));
     return true;
   }
+}
+
+final class _SettledAccount extends SettledActiveAccountId {
+  _SettledAccount(this.accountId);
+
+  final String? accountId;
+
+  @override
+  String? build() => accountId;
 }
 
 final class _NoNavigator implements NotificationTapNavigator {

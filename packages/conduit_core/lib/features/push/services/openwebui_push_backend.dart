@@ -11,9 +11,10 @@ import 'package:conduit_core/features/push/services/push_backend.dart';
 const String kConduitPushFunctionId = 'conduit_push';
 const String kConduitPushFunctionName = 'Conduit Push';
 
-/// The oldest Open WebUI the function runs on (its `Event` functions and
-/// `function.valves_updated`).
-const String kConduitPushMinOpenWebUiVersion = '0.10.0';
+/// The oldest Open WebUI push works on: `Event` functions and
+/// `function.valves_updated` came in 0.10.0, but the reply events
+/// (`chat.finished`, `chat.failed`) only in 0.11.0.
+const String kConduitPushMinOpenWebUiVersion = '0.11.0';
 
 /// The function bundled with the app (`assets/server_plugins/…`).
 final class OpenWebUiFunctionSource {
@@ -308,8 +309,11 @@ final class OpenWebUiPushBackend implements PushBackend {
     };
     await _guard(() async {
       for (var attempt = 0; attempt < 2; attempt++) {
-        final current = openWebUiSubscriptionList(await _readValves());
-        await _writeSubscriptions(mergeOpenWebUiSubscriptions(current, entry));
+        final valves = await _readValves();
+        await _writeSubscriptions(
+          mergeOpenWebUiSubscriptions(openWebUiSubscriptionList(valves), entry),
+          valves,
+        );
         // Read back: another device's write can land in between and drop
         // this one.
         final stored = openWebUiSubscriptionList(await _readValves());
@@ -332,10 +336,11 @@ final class OpenWebUiPushBackend implements PushBackend {
 
   @override
   Future<void> unsubscribe(String sid) => _guard(() async {
-    final current = openWebUiSubscriptionList(await _readValves());
+    final valves = await _readValves();
+    final current = openWebUiSubscriptionList(valves);
     final remaining = removeOpenWebUiSubscription(current, sid);
     if (remaining.length == current.length) return;
-    await _writeSubscriptions(remaining);
+    await _writeSubscriptions(remaining, valves);
   });
 
   @override
@@ -359,13 +364,24 @@ final class OpenWebUiPushBackend implements PushBackend {
   Future<Map<String, dynamic>?> _readValves() async =>
       _map((await _dio.get('$_function/valves/user', options: _options)).data);
 
-  /// Writes only `subscriptions`: the update replaces every user valve, and
-  /// `status` belongs to the function.
-  Future<void> _writeSubscriptions(List<Object?> subscriptions) => _dio.post(
-    '$_function/valves/user/update',
-    data: {'subscriptions': jsonEncode(subscriptions)},
-    options: _options,
-  );
+  /// Writes [subscriptions] with the `status` of [read], the valves they
+  /// were worked out from. The update replaces every user valve, and the
+  /// function goes by `status` to tell a test it already sent from a new
+  /// one; `status` is the function's, so it is carried over as it was read.
+  Future<void> _writeSubscriptions(
+    List<Object?> subscriptions,
+    Map<String, dynamic>? read,
+  ) {
+    final status = read?['status'];
+    return _dio.post(
+      '$_function/valves/user/update',
+      data: {
+        'subscriptions': jsonEncode(subscriptions),
+        if (status is String) 'status': status,
+      },
+      options: _options,
+    );
+  }
 
   Future<Map<String, dynamic>?> _installedFunction() async {
     final data = (await _dio.get('$_functions/', options: _options)).data;
