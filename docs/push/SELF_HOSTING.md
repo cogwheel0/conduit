@@ -146,7 +146,9 @@ example, share this limit.
 The relay speaks plain HTTP, so it must sit behind a reverse proxy that
 terminates TLS. Don't expose its port to the internet: the request path *is*
 the endpoint capability, so it needs TLS on the wire. Turn the proxy's access
-log off for the same reason; the relay itself never logs the path.
+log off for the same reason, and keep its error log from recording failed
+requests, which names them by client address and path. The relay itself never
+logs the path.
 
 The relay also enforces its own timeouts, so a slow or stuck client can't hold
 its connections, whatever the proxy in front does:
@@ -209,10 +211,19 @@ is a different uid on the host; give the files to that one instead. On
 Kubernetes, mount a Secret volume with `defaultMode: 0440` and set the pod's
 `fsGroup` to 65532.
 
-A [Caddy](https://caddyserver.com) site, which writes no access log unless
-you add a `log` directive and sets `X-Forwarded-For` to the real client:
+A [Caddy](https://caddyserver.com) site. Caddy writes no access log unless
+you add a `log` directive, and sets `X-Forwarded-For` to the real client. Its
+handler error log, though, records the client address and path of every request
+it can't proxy, such as a push sent while the relay restarts, so the global
+options turn it off:
 
 ```caddyfile
+{
+	log default {
+		exclude http.log.error
+	}
+}
+
 push.example.com {
 	reverse_proxy 127.0.0.1:8080 {
 		transport http {
