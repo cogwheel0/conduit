@@ -32,7 +32,9 @@ Vault.
 - **Updates:** Ubuntu, Docker and Caddy update themselves. When an update needs a
   reboot, the VM reboots at 03:40 UTC, and pushes sent during that minute fail.
 - **Cost:** about $13 a month in total: the VM about $6.30, the static address
-  about $3.65, the 30 GB disk about $2.40, and the vault a few cents.
+  about $3.65, the 30 GB disk about $2.40, and the vault a few cents. A
+  $25 monthly budget on the resource group emails the subscription owner at 80%
+  of it spent, or when it's forecast to be exceeded.
 
 ## Tasks
 

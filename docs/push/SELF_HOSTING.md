@@ -3,7 +3,8 @@
 The relay turns the Web Push requests your Open WebUI or Hermes server sends
 into APNs and FCM pushes (see [PROTOCOL.md](PROTOCOL.md) §5). It only ever
 handles ciphertext, keeps no database, and writes no access logs. The source
-is in [`relay/`](../../relay).
+is in [`relay/`](../../relay). The official relay runs this setup on an Azure
+VM; [`relay/deploy/azure/`](../../relay/deploy/azure) has its scripts and notes.
 
 > **A self-hosted relay only serves apps you build yourself.** An APNs device
 > token is bound to the app's bundle id and the Apple team that signs it, and
