@@ -1,7 +1,12 @@
 {
 	# No site below has a `log` directive, so Caddy writes no access log:
 	# the request path is a device's endpoint, and the client address is a
-	# server's or a device's.
+	# server's or a device's. Caddy's handler error log would record both for
+	# any request that fails, such as one sent while the relay restarts, so it
+	# is off too; the relay's own journal says when it is down.
+	log default {
+		exclude http.log.error
+	}
 	servers {
 		# Port 443 is open for TCP only, so don't advertise HTTP/3.
 		protocols h1 h2
