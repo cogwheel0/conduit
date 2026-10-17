@@ -26,7 +26,7 @@ final pushPlatformPortProvider = Provider<PushPlatformPort>(
   (ref) => PushPlatformPort.hostDefault,
 );
 
-/// The push relay, or null in a build without `CONDUIT_PUSH_RELAY_URL`.
+/// The push relay, or null in a build that defines `CONDUIT_PUSH_RELAY_URL` empty.
 final pushRelayClientProvider = Provider<PushRelayClient?>((ref) {
   if (kConduitPushRelayUrl.isEmpty) return null;
   final client = PushRelayClient(baseUrl: kConduitPushRelayUrl);

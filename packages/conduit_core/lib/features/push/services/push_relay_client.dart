@@ -4,12 +4,16 @@ import 'package:dio/dio.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
 
-/// The push relay this build uses, from `--dart-define=CONDUIT_PUSH_RELAY_URL`.
+/// The push relay this build uses: the official one, unless the build names
+/// another with `--dart-define=CONDUIT_PUSH_RELAY_URL=<url>`.
 ///
-/// Empty in a build without one: APNs and FCM are then unavailable, and only
-/// UnifiedPush works (on Android).
+/// Only the official app can use the official relay, since APNs and FCM tokens
+/// are bound to the app that registered them; a build of your own needs your
+/// own relay (docs/push/SELF_HOSTING.md). Defining it as empty leaves APNs and
+/// FCM unavailable, so only UnifiedPush works (on Android).
 const String kConduitPushRelayUrl = String.fromEnvironment(
   'CONDUIT_PUSH_RELAY_URL',
+  defaultValue: 'https://conduit-push.swedencentral.cloudapp.azure.com',
 );
 
 /// `GET /v1/info`.

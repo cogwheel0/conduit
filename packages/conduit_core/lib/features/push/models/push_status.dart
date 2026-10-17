@@ -378,8 +378,9 @@ final class PushState {
   /// The device-wide master toggle.
   final bool enabled;
 
-  /// Whether this build was given a relay URL. Without one, APNs and FCM
-  /// cannot be used; UnifiedPush still can.
+  /// Whether this build has a relay URL: the official one unless the build
+  /// defines another, or none. Without one, APNs and FCM cannot be used;
+  /// UnifiedPush still can.
   final bool relayConfigured;
   final List<PushTransport> availableTransports;
 
