@@ -94,7 +94,9 @@ docker image prune --force >/dev/null
 docker builder prune --force --filter until=168h >/dev/null
 
 step "Restart"
-systemctl restart conduit-push-relay
+# Fails while the vault has no provider keys yet; the loop below tells that
+# apart from a real failure.
+systemctl restart conduit-push-relay || true
 for _ in $(seq 1 30); do
   if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
     echo "relay is up: https://$public_host/v1/info"
