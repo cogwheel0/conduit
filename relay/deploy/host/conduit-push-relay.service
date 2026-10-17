@@ -1,0 +1,34 @@
+[Unit]
+Description=Conduit push relay
+Documentation=https://github.com/cogwheel0/conduit/blob/main/docs/push/SELF_HOSTING.md
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+# Keeps retrying while the vault has no provider keys yet.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+# /run/conduit-push holds this run's settings and keys, in memory; systemd
+# removes it when the relay stops.
+RuntimeDirectory=conduit-push
+RuntimeDirectoryMode=0750
+ExecStartPre=/usr/local/libexec/conduit-push/fetch-secrets
+ExecStartPre=-/usr/bin/docker rm --force conduit-push-relay
+# Docker keeps no copy of the relay's output (--log-driver none); the journal
+# gets it from this attached process. The relay logs nothing about requests.
+ExecStart=/usr/bin/docker run --rm --name conduit-push-relay \
+  --env-file /run/conduit-push/relay.env \
+  --volume /run/conduit-push/secrets:/secrets:ro \
+  --publish 127.0.0.1:8080:8080 \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --memory 256m --memory-swap 256m --pids-limit 256 \
+  --log-driver none \
+  conduit-push-relay:current
+ExecStop=/usr/bin/docker stop --time 25 conduit-push-relay
+TimeoutStopSec=40
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

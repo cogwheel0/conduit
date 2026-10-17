@@ -1,0 +1,26 @@
+{
+	# No site below has a `log` directive, so Caddy writes no access log:
+	# the request path is a device's endpoint, and the client address is a
+	# server's or a device's.
+	servers {
+		# Port 443 is open for TCP only, so don't advertise HTTP/3.
+		protocols h1 h2
+		timeouts {
+			read_header 10s
+			idle 2m
+		}
+	}
+}
+
+@HOST@ {
+	request_body {
+		max_size 16KB
+	}
+	reverse_proxy 127.0.0.1:8080 {
+		transport http {
+			# Below the relay's 10-second idle close, so a push never goes out
+			# on a connection the relay is just closing (SELF_HOSTING.md).
+			keepalive 5s
+		}
+	}
+}
