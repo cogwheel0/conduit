@@ -58,7 +58,7 @@ step "Automatic updates (including Docker and Caddy), with a reboot when one nee
 cat >/etc/apt/apt.conf.d/52conduit-unattended-upgrades <<'EOF'
 // Written by relay/deploy/host/install.sh.
 Unattended-Upgrade::Origins-Pattern {
-	"origin=Docker,codename=${distro_codename}";
+	"origin=Docker,archive=${distro_codename}"; // its Release file has no codename
 	"origin=cloudsmith/caddy/stable";
 };
 // The relay keeps nothing on disk, so a reboot only drops pushes sent during it.
