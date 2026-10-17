@@ -75,7 +75,8 @@ install -d -m 0755 /usr/local/libexec/conduit-push
 install -m 0755 "$host_files/fetch-secrets" /usr/local/libexec/conduit-push/fetch-secrets
 install -m 0644 "$host_files/conduit-push-relay.service" /etc/systemd/system/conduit-push-relay.service
 sed "s/@HOST@/$public_host/" "$host_files/Caddyfile.template" >/etc/caddy/Caddyfile.new
-caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile.new >/dev/null
+caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile.new >/dev/null 2>&1 ||
+  { caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile.new; exit 1; }
 mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable --quiet docker caddy conduit-push-relay
@@ -87,7 +88,7 @@ docker tag "conduit-push-relay:$label" conduit-push-relay:current
 # Keep the running image and the one before it, so a bad build can be rolled
 # back with `docker tag conduit-push-relay:<label> conduit-push-relay:current`.
 docker image ls conduit-push-relay --format '{{.Tag}}' |
-  grep -v -x -e current -e "$label" | tail -n +2 |
+  { grep -v -x -e current -e "$label" || true; } | tail -n +2 |
   xargs -r -I{} docker image rm "conduit-push-relay:{}" >/dev/null
 docker image prune --force >/dev/null
 docker builder prune --force --filter until=168h >/dev/null
