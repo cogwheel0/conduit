@@ -42,6 +42,16 @@ bool _activeConversationMatchesSelection(
   return active.id == identity.rawId && !isDirectLocalConversation(active);
 }
 
+/// Refuses an Open WebUI-only action on a LibreChat chat, which must never
+/// reach Open WebUI's API whatever its raw id.
+void _requireNotLibreChat(String conversationId, {Conversation? listed}) {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  if (identity.storage == ChatStorageKind.libreChat ||
+      isLibreChatConversation(listed)) {
+    throw StateError('This action is not available for LibreChat chats yet.');
+  }
+}
+
 String _directLocalSelectionId(ChatStorageIdentity identity) {
   if (identity.storage != null &&
       identity.storage != ChatStorageKind.directLocal) {
@@ -115,6 +125,7 @@ Future<void> pinConversation(
     ref,
     conversationId,
   );
+  _requireNotLibreChat(conversationId, listed: localConversation);
   if (identity.storage == ChatStorageKind.directLocal ||
       isDirectLocalConversation(localConversation)) {
     final locks = _readProvider(ref, chatLocksProvider);
@@ -264,6 +275,7 @@ Future<void> archiveConversation(
       archived &&
       _activeConversationMatchesSelection(activeConversation, conversationId);
 
+  _requireNotLibreChat(conversationId, listed: listedConversation);
   if (identity.storage == ChatStorageKind.directLocal ||
       isDirectLocalConversation(listedConversation)) {
     final locks = _readProvider(ref, chatLocksProvider);
@@ -345,6 +357,7 @@ Future<void> archiveConversation(
 
 // Share conversation
 Future<String?> shareConversation(dynamic ref, String conversationId) async {
+  _requireNotLibreChat(conversationId);
   try {
     final api = _readProvider(ref, apiServiceProvider);
     if (api == null) throw Exception('No API service available');
@@ -385,6 +398,7 @@ Future<void> deleteSharedConversation(
   dynamic ref,
   String conversationId,
 ) async {
+  _requireNotLibreChat(conversationId);
   try {
     final api = _readProvider(ref, apiServiceProvider);
     if (api == null) throw Exception('No API service available');
@@ -423,6 +437,7 @@ Future<void> deleteSharedConversation(
 
 // Clone conversation
 Future<void> cloneConversation(dynamic ref, String conversationId) async {
+  _requireNotLibreChat(conversationId);
   try {
     final api = _readProvider(ref, apiServiceProvider);
     if (api == null) throw Exception('No API service available');

@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
@@ -299,6 +300,61 @@ void main() {
         final messages = result['messages'] as List<Map<String, dynamic>>;
         final metadata = messages.single['metadata'] as Map<String, dynamic>;
         check(metadata).deepEquals({'safe': 'kept'});
+      });
+
+      test('strips forged LibreChat provenance from OpenWebUI', () {
+        // Stop, regenerate and approval routes follow these markers, so an
+        // Open WebUI payload must never be able to claim a LibreChat turn.
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'metadata': {
+            'backend': 'libreChat',
+            'libreChatConversationId': 'victim',
+            'kept': true,
+          },
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Approve the tool call',
+              'metadata': {
+                'transport': 'libreChat',
+                'libreChat': {
+                  'conversationId': 'victim',
+                  'pendingAction': {'actionId': 'a1'},
+                },
+                'LIBRECHAT_stream': 's1',
+                'safe': 'kept',
+              },
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final metadata = messages.single['metadata'] as Map<String, dynamic>;
+        check(metadata).deepEquals({'safe': 'kept'});
+        check(
+          result['metadata'] as Map<String, dynamic>,
+        ).deepEquals({'kept': true});
+      });
+
+      test('strips a forged chat store claim from OpenWebUI', () {
+        // Account clean-up keeps a chat that says it lives in another
+        // account's store, so a payload must never be able to say so.
+        final payload = {
+          'id': 'conv-1',
+          'metadata': {
+            'conduit.chatStorageKind': 'libreChat',
+            'kept': true,
+          },
+        };
+
+        check(
+          Conversation.fromJson(parseFullConversation(payload)).metadata,
+        ).deepEquals({'kept': true});
+        check(
+          Conversation.fromJson(parseConversationSummary(payload)).metadata,
+        ).deepEquals({'kept': true});
       });
     });
 

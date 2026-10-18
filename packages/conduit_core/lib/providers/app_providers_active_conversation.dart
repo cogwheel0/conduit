@@ -5,7 +5,7 @@ final activeConversationProvider =
       ActiveConversationNotifier.new,
     );
 
-enum ActiveConversationRemapNamespace { openWebUi, direct, hermes }
+enum ActiveConversationRemapNamespace { openWebUi, direct, hermes, libreChat }
 
 @immutable
 class ActiveConversationInPlaceRemap {
@@ -176,6 +176,9 @@ ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
   if (storage == ChatStorageKind.openWebUi) {
     return ActiveConversationRemapNamespace.openWebUi;
   }
+  if (storage == ChatStorageKind.libreChat) {
+    return ActiveConversationRemapNamespace.libreChat;
+  }
   if (isNativeHermesConversation(conversation)) {
     return ActiveConversationRemapNamespace.hermes;
   }
@@ -316,6 +319,10 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
 
   if (preferredStorage == ChatStorageKind.directLocal) {
     throw StateError('On-device conversation is unavailable');
+  }
+  // A LibreChat chat is never fetched from Open WebUI, whatever its id.
+  if (preferredStorage == ChatStorageKind.libreChat) {
+    throw StateError('LibreChat conversation is unavailable');
   }
 
   if (openWebUiOwnership == null ||

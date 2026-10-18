@@ -24,6 +24,7 @@ final accountlessPrimaryBackendUsableProvider = Provider<bool>((ref) {
     case PreferredBackend.hermes:
       return ref.watch(hermesConfigProvider).isUsable;
     case PreferredBackend.owui:
+    case PreferredBackend.libreChat:
     case PreferredBackend.unset:
       return false;
   }
@@ -78,6 +79,8 @@ bool _chatEntryReadinessPending(Ref ref) {
     PreferredBackend.direct =>
       ref.read(effectiveDirectConnectionProfilesProvider).isLoading,
     PreferredBackend.hermes => ref.read(hermesSecretsLoadingProvider),
-    PreferredBackend.owui || PreferredBackend.unset => false,
+    PreferredBackend.owui ||
+    PreferredBackend.libreChat ||
+    PreferredBackend.unset => false,
   };
 }
