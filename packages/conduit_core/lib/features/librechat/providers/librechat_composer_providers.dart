@@ -13,8 +13,10 @@ import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
 import 'package:conduit_core/features/librechat/services/librechat_http_client.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 /// The files uploaded to LibreChat for the message being written, by the
@@ -27,9 +29,17 @@ final libreChatUploadedFilesProvider =
 
 class LibreChatUploadedFiles
     extends Notifier<Map<String, Map<String, dynamic>>> {
+  /// Records belong to the account they were uploaded to: another account
+  /// in use starts with none, so a turn can never name a file on a server
+  /// that does not hold it.
   @override
-  Map<String, Map<String, dynamic>> build() =>
-      const <String, Map<String, dynamic>>{};
+  Map<String, Map<String, dynamic>> build() {
+    ref.watch(activeLibreChatAccountProvider.select((account) => account?.id));
+    return const <String, Map<String, dynamic>>{};
+  }
+
+  /// Whether a record for [fileId] is kept.
+  bool has(String fileId) => state.containsKey(fileId);
 
   /// Keeps the record LibreChat returned for an upload.
   void record(Map<String, dynamic> file) {
@@ -227,6 +237,16 @@ final libreChatComposerOptionsProvider =
           );
         }
       }
+      // A server is signed in to in the browser; coming back to the app
+      // reads where each stands again, so a connected one can be used.
+      if (ref.mounted && mcpServers.any((server) => server.needsConnection)) {
+        final resumed = ref
+            .read(appLifecycleProvider)
+            .changes
+            .where((phase) => phase == AppLifecyclePhase.resumed)
+            .listen((_) => ref.invalidateSelf());
+        ref.onDispose(resumed.cancel);
+      }
       return LibreChatComposerOptions(
         webSearch: capabilities.webSearch,
         codeInterpreter: capabilities.codeInterpreter,
@@ -253,10 +273,13 @@ LibreChatToolSelection libreChatToolSelectionFor(Iterable<String> toolIds) {
 
 // ---- prompts ----------------------------------------------------------------
 
-/// The user's LibreChat prompt groups, as `/` commands.
+/// The user's LibreChat prompt groups, as `/` commands; none when the server
+/// does not let them use prompts.
 final libreChatPromptsProvider = FutureProvider<List<Prompt>>((ref) async {
   final api = ref.watch(libreChatApiServiceProvider);
   if (api == null) return const <Prompt>[];
+  final options = await ref.watch(libreChatComposerOptionsProvider.future);
+  if (!options.prompts) return const <Prompt>[];
   final groups = await api.promptGroups();
   return List.unmodifiable([
     for (final group in groups) ?libreChatPromptFromGroup(group),

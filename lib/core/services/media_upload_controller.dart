@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -20,8 +21,14 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:dio/dio.dart' show CancelToken;
+import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
 
 import 'package:conduit_core/models/file_info.dart';
+import 'package:conduit_core/models/model.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 
@@ -1190,6 +1197,7 @@ class MediaUploadController {
     if (nativeShareIdentity != null &&
         selectedModel != null &&
         (isHermesModel(selectedModel) ||
+            isLibreChatModel(selectedModel) ||
             hasReservedDirectIdentity(selectedModel))) {
       // Direct/Hermes attachment data currently lives only in composer memory.
       // A native exact-ID acknowledgement would therefore lose the recovery
@@ -1216,6 +1224,40 @@ class MediaUploadController {
           filePath: filePath,
           fileName: fileName,
           isImage: isImage,
+          inflight: inflight,
+        );
+        _throwIfOperationNotActive(filePath, inflight);
+        inflight.markAccepted();
+      });
+      _throwIfOperationNotActive(filePath, inflight);
+      return;
+    }
+    if (selectedModel != null && isLibreChatModel(selectedModel)) {
+      // The LibreChat account the file was attached under: it goes to that
+      // account's server or nowhere.
+      final accountId = _ref.read(activeLibreChatAccountProvider)?.id;
+      await _localAttachmentPreparationLock.synchronized(() async {
+        _throwIfOperationNotActive(filePath, inflight);
+        // The file goes to the LibreChat server the selected model belongs
+        // to; a model or account switch while it waited must not send it
+        // elsewhere.
+        final currentModel = _ref.read(selectedModelProvider);
+        if (currentModel == null || !isLibreChatModel(currentModel)) {
+          throw const LibreChatApiException(
+            message: 'The selected model changed while preparing this file.',
+          );
+        }
+        _throwIfLibreChatAccountChanged(accountId);
+        onLocalOwnershipAcquired?.call(inflight);
+        _captureCurrentAttachment(filePath, inflight);
+        _throwIfOperationNotActive(filePath, inflight);
+        await _uploadLibreChatAttachment(
+          filePath: filePath,
+          fileName: fileName,
+          mimeType: mimeType,
+          isImage: isImage,
+          model: currentModel,
+          accountId: accountId,
           inflight: inflight,
         );
         _throwIfOperationNotActive(filePath, inflight);
@@ -1908,6 +1950,121 @@ class MediaUploadController {
     );
   }
 
+  /// Uploads an attachment to the LibreChat server of [model], which keeps
+  /// it for the turn that names it. Images go up with their size, converted
+  /// to JPEG first when LibreChat could not read their format.
+  void _throwIfLibreChatAccountChanged(String? accountId) {
+    if (_ref.read(activeLibreChatAccountProvider)?.id != accountId) {
+      throw const LibreChatApiException(
+        message: 'The LibreChat account changed while preparing this file.',
+      );
+    }
+  }
+
+  Future<void> _uploadLibreChatAttachment({
+    required String filePath,
+    required String fileName,
+    required String? mimeType,
+    required bool isImage,
+    required Model model,
+    required String? accountId,
+    required _InflightUpload inflight,
+  }) async {
+    final api = _ref.read(libreChatApiServiceProvider);
+    final target = libreChatTargetOf(model);
+    if (api == null || target == null) {
+      throw const LibreChatApiException(
+        message: 'LibreChat is not signed in.',
+      );
+    }
+    var uploadPath = filePath;
+    var uploadName = fileName;
+    var uploadMime = mimeType ?? _libreChatMimeType(fileName);
+    String? convertedPath;
+    if (isImage && await _shouldConvertImage(fileName.toLowerCase(), null)) {
+      convertedPath = await _ref.read(imageUploadConverterProvider)(filePath);
+      if (convertedPath != null) {
+        uploadPath = convertedPath;
+        final dot = fileName.lastIndexOf('.');
+        uploadName = '${dot > 0 ? fileName.substring(0, dot) : fileName}.jpg';
+        uploadMime = 'image/jpeg';
+      }
+    }
+    try {
+      final bytes = await File(uploadPath).readAsBytes();
+      _throwIfOperationNotActive(filePath, inflight);
+      final size = isImage ? await _libreChatImageSize(bytes) : null;
+      final owned = _ownedAttachment(filePath, inflight);
+      void progress(double value) {
+        if (owned == null) return;
+        _updateAttachmentIfOwned(
+          filePath,
+          inflight,
+          FileUploadState(
+            file: owned.file,
+            // The source's name: the attachment still points at the source,
+            // so a retry converts it again.
+            fileName: fileName,
+            fileSize: bytes.length,
+            progress: value,
+            status: FileUploadStatus.uploading,
+            isImage: isImage,
+          ),
+        );
+      }
+
+      progress(0);
+      final fileId = const Uuid().v4();
+      // Removing the attachment stops its request, so the next file is not
+      // held behind it.
+      final cancelToken = CancelToken();
+      inflight.abortRequest = () {
+        if (!cancelToken.isCancelled) cancelToken.cancel('removed');
+      };
+      if (inflight.isCancelled) inflight.abortRequest!();
+      final record = await api.uploadFile(
+        bytes: bytes,
+        filename: uploadName,
+        fileId: fileId,
+        endpoint: target.endpoint,
+        endpointType: target.endpointType,
+        mimeType: uploadMime,
+        width: size?.width,
+        height: size?.height,
+        agentId: target.agentId,
+        onProgress: (sent, total) {
+          if (total > 0 && _isOperationActive(filePath, inflight)) {
+            progress((sent / total).clamp(0, 0.99).toDouble());
+          }
+        },
+        cancelToken: cancelToken,
+      );
+      _throwIfOperationNotActive(filePath, inflight);
+      // The record is the uploading account's; another account in use
+      // never gets it.
+      _throwIfLibreChatAccountChanged(accountId);
+      final serverId = record['file_id'] is String
+          ? record['file_id'] as String
+          : fileId;
+      _ref.read(libreChatUploadedFilesProvider.notifier).record({
+        ...record,
+        'file_id': serverId,
+      });
+      _updatePreparedHermesState(
+        filePath: filePath,
+        fileName: uploadName,
+        fileSize: bytes.length,
+        fileId: serverId,
+        isImage: isImage,
+        inflight: inflight,
+      );
+    } finally {
+      if (convertedPath != null) {
+        await cleanupTerminalAttachmentFile(convertedPath);
+      }
+    }
+  }
+
   Future<void> _prepareHermesAttachment({
     required String filePath,
     required String fileName,
@@ -2332,9 +2489,14 @@ class _InflightUpload {
     if (readiness != null && !readiness.isCompleted) readiness.complete();
   }
 
+  /// Stops network work in flight for this upload. Unlike the cancel
+  /// handler, it owns no cleanup.
+  void Function()? abortRequest;
+
   Future<bool> cancel() async {
     _cancelled = true;
     _joinable = false;
+    abortRequest?.call();
     final readiness = _cancelHandlerReadiness;
     if (_onCancel == null && readiness != null) {
       await readiness.future;
@@ -2368,3 +2530,47 @@ final class MediaUploadCancelledException implements Exception {
 @Riverpod(keepAlive: true)
 MediaUploadController mediaUploadController(Ref ref) =>
     MediaUploadController(ref);
+
+/// An image's pixel size, read from its header; null when it cannot be
+/// read, in which case LibreChat takes it as a file.
+Future<({int width, int height})?> _libreChatImageSize(Uint8List bytes) async {
+  try {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    try {
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      try {
+        return (width: descriptor.width, height: descriptor.height);
+      } finally {
+        descriptor.dispose();
+      }
+    } finally {
+      buffer.dispose();
+    }
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The type LibreChat checks a file against, from its name.
+String? _libreChatMimeType(String fileName) {
+  final dot = fileName.lastIndexOf('.');
+  if (dot < 0) return null;
+  return switch (fileName.substring(dot + 1).toLowerCase()) {
+    'png' => 'image/png',
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'gif' => 'image/gif',
+    'webp' => 'image/webp',
+    'pdf' => 'application/pdf',
+    'txt' => 'text/plain',
+    'md' => 'text/markdown',
+    'csv' => 'text/csv',
+    'json' => 'application/json',
+    'html' || 'htm' => 'text/html',
+    'docx' =>
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'pptx' =>
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    _ => null,
+  };
+}

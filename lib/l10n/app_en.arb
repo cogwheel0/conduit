@@ -9098,6 +9098,42 @@
   "@libreChatAddAccount": {
     "description": "Row that adds a LibreChat account on the Accounts page."
   },
+  "libreChatFileSearch": "File search",
+  "@libreChatFileSearch": {
+    "description": "Composer toggle that lets a LibreChat turn search the user's uploaded files."
+  },
+  "libreChatMcpConnect": "Connect in LibreChat",
+  "@libreChatMcpConnect": {
+    "description": "Shown on a LibreChat MCP server that needs signing in, which only the LibreChat web app can do; opens it in the browser."
+  },
+  "libreChatApprovalRun": "Allow {tool} to run?",
+  "@libreChatApprovalRun": {
+    "description": "Approval card question when a LibreChat run waits to call a tool.",
+    "placeholders": {
+      "tool": {
+        "type": "String",
+        "example": "echo"
+      }
+    }
+  },
+  "libreChatQuestionProgress": "Question {current} of {total}",
+  "@libreChatQuestionProgress": {
+    "description": "Progress through a LibreChat agent's batch of questions.",
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "libreChatAnswerFailed": "Couldn't send your answer. Try again.",
+  "@libreChatAnswerFailed": {
+    "description": "Shown when answering a LibreChat approval or question didn't reach the server."
+  },
   "libreChatAddAccountMessage": "Enter the address of your LibreChat server.",
   "@libreChatAddAccountMessage": {
     "description": "Intro text of the LibreChat sign-in form."

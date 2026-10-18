@@ -8124,6 +8124,31 @@
   "libreChatBetaLabel": "Beta",
   "libreChatChooserSubtitle": "Zaloguj się na swój serwer LibreChat, aby synchronizować czaty, agentów i nie tylko.",
   "libreChatAddAccount": "Dodaj konto LibreChat",
+  "libreChatFileSearch": "Wyszukiwanie w plikach",
+  "libreChatMcpConnect": "Połącz w LibreChat",
+  "libreChatApprovalRun": "Pozwolić na uruchomienie {tool}?",
+  "@libreChatApprovalRun": {
+    "placeholders": {
+      "tool": {
+        "type": "String",
+        "example": "echo"
+      }
+    }
+  },
+  "libreChatQuestionProgress": "Pytanie {current} z {total}",
+  "@libreChatQuestionProgress": {
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "libreChatAnswerFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
   "libreChatAddAccountMessage": "Wpisz adres swojego serwera LibreChat.",
   "libreChatInvalidAddress": "Wpisz adres serwera, np. chat.example.com.",
   "libreChatUnreachable": "Nie udało się połączyć z serwerem. Sprawdź adres i połączenie.",

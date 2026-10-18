@@ -411,7 +411,9 @@ bool _isDirectServerToolSelection(String id) {
 
 List<String> _extractToolIdsForApi(Iterable<String> selectedToolIds) {
   return selectedToolIds
-      .where((id) => !_isDirectServerToolSelection(id))
+      .where(
+        (id) => !_isDirectServerToolSelection(id) && !isLibreChatToolId(id),
+      )
       .toList(growable: false);
 }
 
