@@ -11,6 +11,11 @@ import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/models/server_memory.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_prompts.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_memories_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
@@ -55,6 +60,10 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
         ref.invalidate(personalizationSettingsProvider);
         ref.invalidate(userMemoriesProvider);
       }
+      if (ref.read(primaryAccountKindProvider) ==
+          PrimaryAccountKind.libreChat) {
+        ref.invalidate(libreChatMemoriesProvider);
+      }
     });
   }
 
@@ -69,6 +78,12 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     final memoriesPermitted = ref
         .watch(memoriesPermittedProvider)
         .maybeWhen(data: (permitted) => permitted, orElse: () => true);
+    // With LibreChat in charge, its server keeps the memories, when its
+    // interface shows them and the user's role may read them.
+    final libreChatCapabilities =
+        ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? ref.watch(libreChatCapabilitiesProvider).asData?.value
+        : null;
 
     return UtilityPageScaffold.settings(
       title: l10n.personalization,
@@ -103,8 +118,282 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
             ),
           ],
         ],
+        if (libreChatCapabilities?.memories ?? false) ...[
+          settingsSectionGap,
+          _buildLibreChatMemorySection(
+            context,
+            ref,
+            ref.watch(libreChatMemoriesProvider),
+            // LibreChat checks adding, changing and switching memories
+            // apart.
+            canAdd: libreChatCapabilities!.createMemories,
+            canEdit: libreChatCapabilities.updateMemories,
+            canToggle: libreChatCapabilities.optOutMemories,
+          ),
+        ],
       ],
     );
+  }
+
+  Widget _buildLibreChatMemorySection(
+    BuildContext context,
+    WidgetRef ref,
+    AsyncValue<LibreChatMemoryState> stateAsync, {
+    required bool canAdd,
+    required bool canEdit,
+    required bool canToggle,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+
+    Future<void> setEnabled(bool value) async {
+      try {
+        await ref.read(libreChatMemoriesProvider.notifier).setEnabled(value);
+      } catch (error) {
+        if (context.mounted) {
+          UiUtils.showMessage(
+            context,
+            error is LibreChatApiException ? error.message : l10n.errorMessage,
+          );
+        }
+      }
+    }
+
+    return Column(
+      key: const Key('librechat-memories'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        stateAsync.when(
+          data: (state) => CustomizationTile(
+            leading: SettingsIconBadge(
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.bookmark,
+                android: Icons.memory,
+              ),
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.memoryTitle,
+            subtitle: state.enabled
+                ? l10n.memoryEnabledDescription
+                : l10n.memoryDisabledDescription,
+            toggled: state.enabled,
+            trailing: AdaptiveSwitch(
+              value: state.enabled,
+              onChanged: canToggle ? setEnabled : null,
+              semanticLabel: l10n.memoryTitle,
+            ),
+            showChevron: false,
+            onTap: canToggle ? () => setEnabled(!state.enabled) : null,
+          ),
+          loading: () => _buildLoadingTile(context, title: l10n.memoryTitle),
+          error: (_, _) => _buildErrorTile(
+            context,
+            title: l10n.memoryTitle,
+            subtitle: l10n.errorMessage,
+          ),
+        ),
+        const SizedBox(height: Spacing.sm),
+        ExpandableCard(
+          title: l10n.manageMemories,
+          subtitle: stateAsync.when(
+            data: (state) {
+              final memories = state.memories;
+              final limit = memories.tokenLimit;
+              return limit == null
+                  ? l10n.savedMemoriesCount(memories.memories.length)
+                  : l10n.libreChatMemoryUsage(memories.totalTokens, limit);
+            },
+            loading: () => '',
+            error: (_, _) => l10n.errorMessage,
+          ),
+          icon: UiUtils.platformIcon(
+            ios: CupertinoIcons.collections,
+            android: Icons.collections_bookmark_outlined,
+          ),
+          child: stateAsync.when(
+            data: (state) => _buildLibreChatMemoryManager(
+              context,
+              ref,
+              state.memories,
+              canAdd: canAdd,
+              canEdit: canEdit,
+            ),
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.all(Spacing.md),
+                child: ConduitLoadingIndicator(isCompact: true),
+              ),
+            ),
+            error: (_, _) => Text(
+              l10n.errorMessage,
+              style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLibreChatMemoryManager(
+    BuildContext context,
+    WidgetRef ref,
+    LibreChatMemories memories, {
+    required bool canAdd,
+    required bool canEdit,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final usage = memories.usage;
+    final list = memories.memories;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (usage != null) ...[
+          AdaptiveProgressIndicator.linear(
+            key: const Key('librechat-memory-usage'),
+            value: usage,
+            minHeight: 4,
+            semanticLabel: l10n.libreChatMemoryUsage(
+              memories.totalTokens,
+              memories.tokenLimit!,
+            ),
+          ),
+          const SizedBox(height: Spacing.md),
+        ],
+        if (canAdd)
+          CustomizationTile(
+            leading: SettingsIconBadge(
+              icon: UiUtils.platformIcon(
+                ios: CupertinoIcons.add_circled,
+                android: Icons.add_circle_outline,
+              ),
+              color: theme.buttonPrimary,
+            ),
+            title: l10n.addMemory,
+            subtitle: l10n.manageMemoriesDescription,
+            onTap: () => _openLibreChatMemoryEditor(context, ref),
+          ),
+        if (list.isEmpty) ...[
+          const SizedBox(height: Spacing.md),
+          Text(
+            l10n.noMemoriesSaved,
+            style: theme.bodyMedium?.copyWith(color: theme.textSecondary),
+          ),
+        ] else ...[
+          const SizedBox(height: Spacing.sm),
+          for (var i = 0; i < list.length; i++) ...[
+            CustomizationTile(
+              key: ValueKey<String>('librechat-memory-${list[i].key}'),
+              leading: SettingsIconBadge(
+                icon: UiUtils.platformIcon(
+                  ios: CupertinoIcons.quote_bubble,
+                  android: Icons.notes_rounded,
+                ),
+                color: theme.buttonPrimary,
+              ),
+              title: list[i].key,
+              subtitle: _truncateMemory(list[i].value),
+              trailing: canEdit
+                  ? ConduitIconButton(
+                      tooltip: l10n.deleteMemory,
+                      onPressed: () =>
+                          _confirmDeleteLibreChatMemory(context, ref, list[i]),
+                      icon: UiUtils.platformIcon(
+                        ios: CupertinoIcons.delete_simple,
+                        android: Icons.delete_outline,
+                      ),
+                      iconColor: theme.error,
+                    )
+                  : null,
+              showChevron: false,
+              onTap: canEdit
+                  ? () => _openLibreChatMemoryEditor(
+                      context,
+                      ref,
+                      memory: list[i],
+                    )
+                  : null,
+            ),
+            if (i != list.length - 1) const SizedBox(height: Spacing.xs),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Future<void> _openLibreChatMemoryEditor(
+    BuildContext context,
+    WidgetRef ref, {
+    LibreChatMemory? memory,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final container = ProviderScope.containerOf(context, listen: false);
+    // The memory belongs to the account the editor opened for; saving it
+    // under another account in use is refused.
+    final accountId = container.read(activeLibreChatAccountProvider)?.id;
+    final keyField = _LibreChatMemoryKeyField(memory?.key ?? '');
+    return _showTextEditorSheet(
+      context,
+      title: memory == null ? l10n.addMemory : l10n.editMemory,
+      description: l10n.memoryEditorDescription,
+      initialValue: memory?.value ?? '',
+      hintText: l10n.memoryHint,
+      // The server can refuse (a key in use, the token budget), so the form
+      // stays open with what was typed.
+      nativeSheet: false,
+      extras: keyField,
+      onSave: (value) async {
+        final key = keyField.controller.text.trim();
+        if (key.isEmpty) {
+          throw LibreChatApiException(message: l10n.libreChatMemoryKeyRequired);
+        }
+        if (container.read(activeLibreChatAccountProvider)?.id != accountId) {
+          throw LibreChatApiException(
+            message: l10n.personalizationMemoryAccountChanged,
+          );
+        }
+        await container
+            .read(libreChatMemoriesProvider.notifier)
+            .save(originalKey: memory?.key, key: key, value: value);
+      },
+    );
+  }
+
+  Future<void> _confirmDeleteLibreChatMemory(
+    BuildContext context,
+    WidgetRef ref,
+    LibreChatMemory memory,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final container = ProviderScope.containerOf(context, listen: false);
+    // The memory is the account's the list showed; another account in use
+    // by the time this is confirmed is not touched.
+    final accountId = container.read(activeLibreChatAccountProvider)?.id;
+    final confirmed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.deleteMemory,
+      message: l10n.deleteMemoryConfirm,
+      confirmText: l10n.deleteMemory,
+      isDestructive: true,
+    );
+    if (!confirmed) return;
+    if (container.read(activeLibreChatAccountProvider)?.id != accountId) {
+      if (context.mounted) {
+        UiUtils.showMessage(context, l10n.personalizationMemoryAccountChanged);
+      }
+      return;
+    }
+    try {
+      await container.read(libreChatMemoriesProvider.notifier).delete(memory.key);
+    } catch (error) {
+      if (context.mounted) {
+        UiUtils.showMessage(
+          context,
+          error is LibreChatApiException ? error.message : l10n.errorMessage,
+        );
+      }
+    }
   }
 
   Widget _buildDefaultModelSection(
@@ -905,9 +1194,11 @@ class _TextEditorSheetState extends State<_TextEditorSheet> {
       }
       // The form keeps what was typed and says why next to it.
       setState(
-        () => _error = error is MemoryOwnerChangedException
-            ? widget.accountChangedMessage
-            : widget.errorMessage,
+        () => _error = switch (error) {
+          MemoryOwnerChangedException() => widget.accountChangedMessage,
+          LibreChatApiException(:final message) => message,
+          _ => widget.errorMessage,
+        },
       );
     } finally {
       if (mounted) {
@@ -991,7 +1282,7 @@ class _TextEditorSheetState extends State<_TextEditorSheet> {
                           ),
                           if (widget.extras case final extras?) ...[
                             const SizedBox(height: Spacing.md),
-                            extras.build(context),
+                            extras.build(context, enabled: !_saving),
                           ],
                         ],
                       ),
@@ -1040,7 +1331,9 @@ class _TextEditorSheetState extends State<_TextEditorSheet> {
 
 /// Extra fields an editor sheet shows under its text box.
 abstract interface class _EditorExtras {
-  Widget build(BuildContext context);
+  /// The fields, taking no input while not [enabled] (as while a save is
+  /// pending, which has read them already).
+  Widget build(BuildContext context, {required bool enabled});
 
   /// Fires when any of the fields changes.
   Listenable get changes;
@@ -1049,6 +1342,46 @@ abstract interface class _EditorExtras {
   bool get dirty;
 
   void dispose();
+}
+
+/// The key a LibreChat memory is stored under.
+final class _LibreChatMemoryKeyField implements _EditorExtras {
+  _LibreChatMemoryKeyField(this._initial)
+    : controller = TextEditingController(text: _initial);
+
+  final String _initial;
+  final TextEditingController controller;
+
+  @override
+  Listenable get changes => controller;
+
+  @override
+  bool get dirty => controller.text != _initial;
+
+  @override
+  void dispose() => controller.dispose();
+
+  @override
+  Widget build(BuildContext context, {required bool enabled}) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.libreChatMemoryKeyLabel,
+          style: theme.label?.copyWith(color: theme.textSecondary),
+        ),
+        const SizedBox(height: Spacing.xs),
+        ConduitInput(
+          key: const Key('librechat-memory-key'),
+          controller: controller,
+          hint: l10n.libreChatMemoryKeyHint,
+          enabled: enabled,
+        ),
+      ],
+    );
+  }
 }
 
 /// Type and path controls for a memory, shown only with Advanced on.
@@ -1086,7 +1419,7 @@ final class _MemoryEditorFields implements _EditorExtras {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, {required bool enabled}) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
 
@@ -1127,14 +1460,14 @@ final class _MemoryEditorFields implements _EditorExtras {
                       label: l10n.memoryTypeUser,
                       cupertinoIcon: CupertinoIcons.person,
                       materialIcon: Icons.person_outline,
-                      enabled: true,
+                      enabled: enabled,
                     ),
                     (
                       value: ServerMemory.contextType,
                       label: l10n.memoryTypeContext,
                       cupertinoIcon: CupertinoIcons.doc_text,
                       materialIcon: Icons.notes_outlined,
-                      enabled: true,
+                      enabled: enabled,
                     ),
                   ],
                 ),
@@ -1162,6 +1495,7 @@ final class _MemoryEditorFields implements _EditorExtras {
           key: const Key('memory-path'),
           controller: pathController,
           hint: l10n.memoryPathHint,
+          enabled: enabled,
         ),
       ],
     );

@@ -4378,5 +4378,11 @@
   "libreChatGoogleUnsupported": "Google no permite iniciar sesión dentro de apps. Usa otro método para iniciar sesión.",
   "libreChatSsoUnfinished": "El inicio de sesión no se completó. Inténtalo de nuevo.",
   "libreChatChangeServer": "Usar otro servidor",
-  "libreChatSessionEnded": "Tu sesión en {server} ha terminado. Vuelve a iniciar sesión."
+  "libreChatSessionEnded": "Tu sesión en {server} ha terminado. Vuelve a iniciar sesión.",
+  "libreChatDuplicateChat": "Duplicar chat",
+  "libreChatCopyFailed": "No se pudo copiar el chat. Comprueba tu conexión e inténtalo de nuevo.",
+  "libreChatMemoryKeyLabel": "Clave",
+  "libreChatMemoryKeyHint": "p. ej. preferencias",
+  "libreChatMemoryKeyRequired": "Ponle una clave al recuerdo.",
+  "libreChatMemoryUsage": "{used} de {limit} tokens usados"
 }

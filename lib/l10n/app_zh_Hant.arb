@@ -4378,5 +4378,11 @@
   "libreChatGoogleUnsupported": "Google 不允許在 App 內登入。請使用其他方式登入。",
   "libreChatSsoUnfinished": "登入未完成。請再試一次。",
   "libreChatChangeServer": "使用其他伺服器",
-  "libreChatSessionEnded": "你在 {server} 上的工作階段已結束。請重新登入。"
+  "libreChatSessionEnded": "你在 {server} 上的工作階段已結束。請重新登入。",
+  "libreChatDuplicateChat": "複製對話",
+  "libreChatCopyFailed": "無法複製對話。請檢查網路連線後再試一次。",
+  "libreChatMemoryKeyLabel": "鍵",
+  "libreChatMemoryKeyHint": "例如 preferences",
+  "libreChatMemoryKeyRequired": "請為記憶指定一個鍵。",
+  "libreChatMemoryUsage": "已使用 {used} / {limit} 個 token"
 }

@@ -76,6 +76,8 @@ import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
     show libreChatRegistryProvider;
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
@@ -92,6 +94,7 @@ import 'core/utils/message_action_settings.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeLibreChatPersonalizationActionId,
         nativeNoVoiceProviderId,
         nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
@@ -840,6 +843,25 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           return;
         }
         final request = scheduledTasksNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
+      if (event.id == nativeLibreChatPersonalizationActionId) {
+        // As for Scheduled tasks: a row from a sheet built while LibreChat
+        // was in charge must not navigate once it no longer is.
+        if (ref.read(primaryAccountKindProvider) !=
+            PrimaryAccountKind.libreChat) {
+          _showNativeOptionUnavailable();
+          return;
+        }
+        // As the other rows' pages: the sheet slides away, not the page in.
+        final request = libreChatPersonalizationNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
             request.routeName,

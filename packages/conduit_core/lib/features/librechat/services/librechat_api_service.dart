@@ -315,7 +315,13 @@ final class LibreChatApiService {
     if (key == 'preferences') {
       final list = (await memories())['memories'];
       for (final memory in list is List ? list : const <Object?>[]) {
-        if (memory is! Map || memory['key'] != key) continue;
+        // An agent's memory of that name is not the user's own, which is the
+        // one the id route changes when no agent is named.
+        if (memory is! Map ||
+            memory['key'] != key ||
+            memory['agentId'] != null) {
+          continue;
+        }
         final id = memory['_id'];
         if (id is String && id.isNotEmpty) {
           return '/api/memories/id/${Uri.encodeComponent(id)}';

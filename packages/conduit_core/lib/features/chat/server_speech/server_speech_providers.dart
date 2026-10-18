@@ -48,26 +48,36 @@ final directVoiceProviderProvider = Provider<DirectVoiceProvider?>((ref) {
 /// null while it loads, or when it cannot be read. A read that failed is
 /// tried again once the device is back online (it was offline, say), or the
 /// app back in the foreground (the server failed while the device stayed
-/// online).
+/// online) -- straight away when that happened while the read was out.
 final libreChatServerSpeechProvider = FutureProvider<LibreChatServerSpeech?>((
   ref,
 ) async {
   final api = ref.watch(libreChatApiServiceProvider);
   if (api == null) return null;
+  var failed = false;
+  var recovered = false;
+  void recover() {
+    if (failed) {
+      ref.invalidateSelf();
+    } else {
+      recovered = true;
+    }
+  }
+
+  ref.listen<bool>(isOnlineProvider, (_, online) {
+    if (online) recover();
+  });
+  final resumed = ref
+      .read(appLifecycleProvider)
+      .changes
+      .where((phase) => phase == AppLifecyclePhase.resumed)
+      .listen((_) => recover());
+  ref.onDispose(resumed.cancel);
   try {
     return await LibreChatServerSpeech.forServer(api);
   } catch (_) {
-    if (ref.mounted) {
-      ref.listen<bool>(isOnlineProvider, (_, online) {
-        if (online) ref.invalidateSelf();
-      });
-      final resumed = ref
-          .read(appLifecycleProvider)
-          .changes
-          .where((phase) => phase == AppLifecyclePhase.resumed)
-          .listen((_) => ref.invalidateSelf());
-      ref.onDispose(resumed.cancel);
-    }
+    failed = true;
+    if (recovered && ref.mounted) ref.invalidateSelf();
     return null;
   }
 });

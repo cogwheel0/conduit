@@ -96,6 +96,22 @@ Future<T> _writeLibreChatChat<T>(
   }
 }
 
+/// Runs [work] with LibreChat database [db] held open, so that an account
+/// switch meanwhile cannot close it before [work] writes to it: what a
+/// server call did is still recorded in the account it was made for.
+Future<T> _holdingLibreChatDatabase<T>(
+  dynamic ref,
+  AppDatabase db,
+  Future<T> Function() work,
+) async {
+  final release = _readProvider(ref, libreChatDatabaseHoldProvider)(db);
+  try {
+    return await work();
+  } finally {
+    await release?.call();
+  }
+}
+
 /// Writes a local envelope change of a LibreChat chat to its account's
 /// database, queues it for the server and starts the outbox. The chats list
 /// follows the database; the open chat is updated here.
@@ -299,24 +315,31 @@ Future<ChatShareLink> _shareLibreChatConversation(
       (throw StateError('The LibreChat account is not signed in.'));
   final rawId = ChatStorageIdentity.parse(conversationId).rawId;
   final db = _libreChatDatabaseFor(ref);
-  final stored = await db.chatsDao.getChat(rawId);
-  final existing = await api.sharedLinkId(rawId);
-  // Only a link the chat already shows is snapshotted again. One made
-  // elsewhere (LibreChat's web app, another device) is handed out as it is,
-  // since updating it would show its recipients newer messages unasked.
-  final shareId = existing == null
-      ? await api.createSharedLink(rawId)
-      : existing == stored?.shareId
-      ? await api.refreshSharedLink(existing)
-      : existing;
-  await _setLibreChatShareId(ref, db, conversationId, shareId);
-  return (
-    shareId: shareId,
-    url: buildLibreChatShareUrl(
-      baseUrl: account.server.baseUrl,
+  return _holdingLibreChatDatabase(ref, db, () async {
+    final stored = await db.chatsDao.getChat(rawId);
+    final existing = await api.sharedLink(rawId);
+    // Only a link the chat already shows is snapshotted again. One made
+    // elsewhere (LibreChat's web app, another device) is handed out as it
+    // is, since updating it would show its recipients newer messages
+    // unasked. Updated, it keeps sharing the chat's files or not, as it was
+    // made.
+    final shareId = existing == null
+        ? await api.createSharedLink(rawId)
+        : existing.shareId == stored?.shareId
+        ? await api.refreshSharedLink(
+            existing.shareId,
+            snapshotFiles: existing.snapshotFiles,
+          )
+        : existing.shareId;
+    await _setLibreChatShareId(ref, db, conversationId, shareId);
+    return (
       shareId: shareId,
-    ),
-  );
+      url: buildLibreChatShareUrl(
+        baseUrl: account.server.baseUrl,
+        shareId: shareId,
+      ),
+    );
+  });
 }
 
 /// Asks LibreChat whether chat [conversationId] has a share link, without
@@ -337,21 +360,25 @@ Future<String?> lookUpLibreChatShareLink(
       (throw StateError('The LibreChat account is not signed in.'));
   final rawId = ChatStorageIdentity.parse(conversationId).rawId;
   final db = _libreChatDatabaseFor(ref);
-  final known = (await db.chatsDao.getChat(rawId))?.shareId;
-  final request = api.sharedLinkId(rawId);
-  final shareId = await (timeout == null ? request : request.timeout(timeout));
-  // A link made or deleted while this asked is newer than its answer, which
-  // is then dropped for what the chat has now.
-  if (await _setLibreChatShareId(
-    ref,
-    db,
-    conversationId,
-    shareId,
-    onlyIf: (stored) => stored == known,
-  )) {
-    return shareId;
-  }
-  return (await db.chatsDao.getChat(rawId))?.shareId;
+  return _holdingLibreChatDatabase(ref, db, () async {
+    final known = (await db.chatsDao.getChat(rawId))?.shareId;
+    final request = api.sharedLinkId(rawId);
+    final shareId = await (timeout == null
+        ? request
+        : request.timeout(timeout));
+    // A link made or deleted while this asked is newer than its answer,
+    // which is then dropped for what the chat has now.
+    if (await _setLibreChatShareId(
+      ref,
+      db,
+      conversationId,
+      shareId,
+      onlyIf: (stored) => stored == known,
+    )) {
+      return shareId;
+    }
+    return (await db.chatsDao.getChat(rawId))?.shareId;
+  });
 }
 
 /// Deletes [conversationId]'s share link, from Open WebUI or LibreChat.
@@ -367,9 +394,11 @@ Future<void> deleteConversationShareLink(
       (throw StateError('The LibreChat account is not signed in.'));
   final rawId = ChatStorageIdentity.parse(conversationId).rawId;
   final db = _libreChatDatabaseFor(ref);
-  final shareId = await api.sharedLinkId(rawId);
-  if (shareId != null) await api.deleteSharedLink(shareId);
-  await _setLibreChatShareId(ref, db, conversationId, null);
+  await _holdingLibreChatDatabase(ref, db, () async {
+    final shareId = await api.sharedLinkId(rawId);
+    if (shareId != null) await api.deleteSharedLink(shareId);
+    await _setLibreChatShareId(ref, db, conversationId, null);
+  });
 }
 
 /// Copies LibreChat chat [conversationId] into a new chat on the server --
@@ -387,10 +416,13 @@ Future<Conversation> copyLibreChatConversation(
       _readProvider(ref, libreChatSyncEngineProvider) ??
       (throw StateError('The LibreChat account is not signed in.'));
   final rawId = ChatStorageIdentity.parse(conversationId).rawId;
-  final copy = upToMessageId == null
-      ? await api.duplicate(rawId)
-      : await api.fork(rawId, messageId: upToMessageId);
-  await engine.storeFetched(copy.conversation, copy.messages);
+  final copy = await _holdingLibreChatDatabase(ref, engine.db, () async {
+    final copy = upToMessageId == null
+        ? await api.duplicate(rawId)
+        : await api.fork(rawId, messageId: upToMessageId);
+    await engine.storeFetched(copy.conversation, copy.messages);
+    return copy;
+  });
   final now = DateTime.now();
   return withChatStorageProvenance(
     stampLibreChatProvenance(

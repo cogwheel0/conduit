@@ -5995,5 +5995,11 @@
   "libreChatGoogleUnsupported": "Google はアプリ内でのサインインを許可していません。別の方法でサインインしてください。",
   "libreChatSsoUnfinished": "サインインが完了しませんでした。もう一度お試しください。",
   "libreChatChangeServer": "別のサーバーを使用",
-  "libreChatSessionEnded": "{server} のセッションが終了しました。もう一度サインインしてください。"
+  "libreChatSessionEnded": "{server} のセッションが終了しました。もう一度サインインしてください。",
+  "libreChatDuplicateChat": "チャットを複製",
+  "libreChatCopyFailed": "チャットをコピーできませんでした。接続を確認してもう一度お試しください。",
+  "libreChatMemoryKeyLabel": "キー",
+  "libreChatMemoryKeyHint": "例: preferences",
+  "libreChatMemoryKeyRequired": "メモリにキーを付けてください。",
+  "libreChatMemoryUsage": "{limit} トークン中 {used} 使用"
 }

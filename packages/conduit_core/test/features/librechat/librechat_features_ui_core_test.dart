@@ -14,12 +14,15 @@ import 'package:conduit_core/features/librechat/services/librechat_server_speech
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/librechat/models/librechat_server.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/sync/primary_sync_provider.dart';
@@ -67,6 +70,22 @@ final class _IdleSyncEngine extends SyncEngine {
     pulls.add(reason);
     return Future<PullResult?>.value(null);
   }
+}
+
+/// The app going to the background and coming back, as the test says.
+final class _Lifecycle implements AppLifecyclePort {
+  final StreamController<AppLifecyclePhase> _changes =
+      StreamController<AppLifecyclePhase>.broadcast();
+
+  @override
+  AppLifecyclePhase? get current => AppLifecyclePhase.resumed;
+
+  @override
+  Stream<AppLifecyclePhase> get changes => _changes.stream;
+
+  void emit(AppLifecyclePhase phase) => _changes.add(phase);
+
+  Future<void> close() => _changes.close();
 }
 
 List<Map<String, dynamic>> _turn(String id) => [
@@ -119,6 +138,9 @@ void main() {
   late AppDatabase owuiDb;
   late AppDatabase directDb;
   late ProviderContainer container;
+  late _Lifecycle lifecycle;
+  // LibreChat database holds taken and not yet released.
+  var databaseHolds = 0;
   // The real date: sessions the fake server issues are checked against the
   // real clock, and would lapse against a fixed one.
   final now = DateTime.now().toUtc();
@@ -129,9 +151,16 @@ void main() {
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
     fake = FakeLibreChatServer(clock: () => now)..addUser();
+    lifecycle = _Lifecycle();
+    addTearDown(lifecycle.close);
+    // Each closed however far the setup gets, the container (registered
+    // last) first.
     libreChatDb = AppDatabase(NativeDatabase.memory());
+    addTearDown(libreChatDb.close);
     owuiDb = AppDatabase(NativeDatabase.memory());
+    addTearDown(owuiDb.close);
     directDb = AppDatabase(NativeDatabase.memory());
+    addTearDown(directDb.close);
     await owuiDb.chatsDao.upsertServerChat(rows: _owuiRows('owui-chat'));
 
     container = ProviderContainer(
@@ -144,12 +173,17 @@ void main() {
         ),
         secureStorageProvider.overrideWithValue(InMemorySecureKeyValueStore()),
         libreChatHttpAdapterProvider.overrideWithValue(fake),
+        libreChatDatabaseHoldProvider.overrideWithValue((database) {
+          databaseHolds++;
+          return () async => databaseHolds--;
+        }),
         libreChatDatabaseProvider.overrideWith((ref) {
           final session = ref.watch(libreChatSessionProvider).asData?.value;
           return session is LibreChatSignedInState ? libreChatDb : null;
         }),
         directLocalDatabaseProvider.overrideWithValue(directDb),
         isOnlineProvider.overrideWith((ref) => ref.watch(_onlineProvider)),
+        appLifecycleProvider.overrideWithValue(lifecycle),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         isAuthenticatedProvider2.overrideWithValue(false),
         reviewerModeProvider.overrideWithValue(false),
@@ -161,6 +195,7 @@ void main() {
         ),
       ],
     );
+    addTearDown(container.dispose);
 
     final auth = LibreChatAuthService(server, adapter: fake);
     final signedIn =
@@ -187,13 +222,7 @@ void main() {
       );
   });
 
-  tearDown(() async {
-    container.dispose();
-    await libreChatDb.close();
-    await owuiDb.close();
-    await directDb.close();
-    PreferencesStore.debugReset();
-  });
+  tearDown(PreferencesStore.debugReset);
 
   Future<void> pull() async {
     final result = await container
@@ -212,6 +241,7 @@ void main() {
   group('share links', () {
     test('create, re-snapshot and delete a LibreChat link', () async {
       String? linked;
+      Object? patch;
       fake
         ..on(
           'GET',
@@ -219,6 +249,8 @@ void main() {
           (request, match) => FakeLibreChatResponse.json({
             'success': linked != null,
             'shareId': linked,
+            // Made in LibreChat without the chat's files, say.
+            'snapshotFiles': false,
           }),
         )
         ..on('POST', '/api/share/lc-1', (request, match) {
@@ -227,6 +259,7 @@ void main() {
         })
         ..on('PATCH', '/api/share/s1', (request, match) {
           linked = 's2';
+          patch = request.data;
           return FakeLibreChatResponse.json({'shareId': 's2'});
         })
         ..on('DELETE', '/api/share/s2', (request, match) {
@@ -243,15 +276,41 @@ void main() {
         (await libreChatDb.chatsDao.getChat('lc-1'))!.shareId,
       ).equals('s1');
 
-      // An existing link is snapshotted again, under a new id.
+      // An existing link is snapshotted again, under a new id, and still
+      // without the files it was made without.
       final second = await shareConversationLink(container, id);
       check(second.url).equals('https://chat.example.com/share/s2');
+      check(patch as Map).deepEquals({'snapshotFiles': false});
 
       await deleteConversationShareLink(container, id);
       check(linked).isNull();
       check((await libreChatDb.chatsDao.getChat('lc-1'))!.shareId).isNull();
       // Nothing went to Open WebUI's store.
       check(await owuiDb.chatsDao.getChat('lc-1')).isNull();
+    });
+
+    test('the database stays held while the server makes the link',
+        () async {
+      final heldDuringRequests = <int>[];
+      fake
+        ..on('GET', '/api/share/link/lc-1', (request, match) {
+          heldDuringRequests.add(databaseHolds);
+          return FakeLibreChatResponse.json({'success': false});
+        })
+        ..on('POST', '/api/share/lc-1', (request, match) {
+          heldDuringRequests.add(databaseHolds);
+          return FakeLibreChatResponse.json({'shareId': 's1'});
+        });
+      final id = conversationScopedId(await listedChat('lc-1'));
+
+      await shareConversationLink(container, id);
+      // An account switch meanwhile cannot close it before the share id is
+      // written.
+      check(heldDuringRequests).length.equals(2);
+      check(heldDuringRequests).every((it) => it.isGreaterThan(0));
+      check(
+        (await libreChatDb.chatsDao.getChat('lc-1'))!.shareId,
+      ).equals('s1');
     });
 
     test('a link made elsewhere is found, and only updated once shown',
@@ -519,6 +578,63 @@ void main() {
       (it) => it.canSynthesize,
       'canSynthesize',
     ).isTrue();
+  });
+
+  test('speech settings a failing server missed are read again when the app '
+      'comes back', () async {
+    var reachable = false;
+    fake.on(
+      'GET',
+      '/api/files/speech/config/get',
+      (request, match) => reachable
+          ? FakeLibreChatResponse.json({
+              'sttExternal': true,
+              'ttsExternal': true,
+            })
+          : FakeLibreChatResponse.json({'message': 'down'}, statusCode: 500),
+    );
+    final subscription = container.listen(
+      libreChatServerSpeechProvider,
+      (_, _) {},
+    );
+    addTearDown(subscription.close);
+    check(await container.read(libreChatServerSpeechProvider.future)).isNull();
+
+    // The device stayed online; the server is back by the time the app is.
+    reachable = true;
+    lifecycle.emit(AppLifecyclePhase.resumed);
+    await pumpEventQueue();
+    check(
+      await container.read(libreChatServerSpeechProvider.future),
+    ).isA<LibreChatServerSpeech>();
+  });
+
+  test('speech settings are read again when the app comes back while they '
+      'are still being read', () async {
+    var reads = 0;
+    fake.on('GET', '/api/files/speech/config/get', (request, match) async {
+      if (++reads > 1) {
+        return FakeLibreChatResponse.json({
+          'sttExternal': true,
+          'ttsExternal': true,
+        });
+      }
+      // The app comes back while this read is out, and the read then fails.
+      lifecycle.emit(AppLifecyclePhase.resumed);
+      await pumpEventQueue();
+      return FakeLibreChatResponse.json({'message': 'down'}, statusCode: 500);
+    });
+    final subscription = container.listen(
+      libreChatServerSpeechProvider,
+      (_, _) {},
+    );
+    addTearDown(subscription.close);
+    await container.read(libreChatServerSpeechProvider.future);
+    await pumpEventQueue();
+    check(
+      await container.read(libreChatServerSpeechProvider.future),
+    ).isA<LibreChatServerSpeech>();
+    check(reads).equals(2);
   });
 
   test('LibreChat is on unless the preference turns it off', () async {

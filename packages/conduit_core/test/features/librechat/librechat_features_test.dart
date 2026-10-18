@@ -488,6 +488,14 @@ void main() {
           '/api/memories',
           (request, match) => FakeLibreChatResponse.json({
             'memories': [
+              // An agent's memory of the same name comes first, and is not
+              // the one shown.
+              {
+                '_id': '665f1c2a9b3e4d0012a7c009',
+                'key': 'preferences',
+                'value': 'Formal tone',
+                'agentId': 'agent_writer',
+              },
               {
                 '_id': '665f1c2a9b3e4d0012a7c001',
                 'key': 'preferences',

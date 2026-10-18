@@ -514,6 +514,9 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               showChatDataControls: ref.read(
                 chatDataControlsEntryVisibleProvider,
               ),
+              showLibreChatPersonalization:
+                  ref.read(primaryAccountKindProvider) ==
+                  PrimaryAccountKind.libreChat,
             ),
             hermesAvatarBytes: hermesAvatarBytes,
           );

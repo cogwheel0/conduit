@@ -55,18 +55,30 @@ final class LibreChatRegistryStore {
   /// out before one of them writes nothing after it.
   final Map<String, int> _signOuts = <String, int>{};
 
-  /// Before account [accountId] is signed out: refuses session writes from
-  /// every store handed out for it so far -- a session switched away from
-  /// can still be saving a renewal or a cookie -- and waits for those already
-  /// saving, so none lands after the clear. A store asked for after this
-  /// writes as usual, for a new sign-in.
+  /// Before account [accountId] is signed out or signed in to again: refuses
+  /// session writes and clears from every store handed out for it so far --
+  /// a session switched away from can still be saving a renewal or a cookie,
+  /// or ending -- and waits for those already under way, so none lands after
+  /// this. A store asked for after this works as usual.
   Future<void> retireSessionStores(String accountId) async {
     _signOuts[accountId] = (_signOuts[accountId] ?? 0) + 1;
-    await Future.wait(_sessionWrites.toList(growable: false));
+    await Future.wait([..._sessionWrites, ..._sessionClears]);
   }
 
   bool _sessionWritesBlocked = false;
+
+  /// Session writes under way, which a block or a retirement waits for.
   final Set<Future<void>> _sessionWrites = <Future<void>>{};
+
+  /// Session clears under way, which a retirement waits for. A full
+  /// sign-out deletes every session itself, and does not wait on them.
+  final Set<Future<void>> _sessionClears = <Future<void>>{};
+
+  static void _track(Set<Future<void>> changes, Future<void> change) {
+    final settled = change.then<void>((_) {}, onError: (Object _) {});
+    changes.add(settled);
+    unawaited(settled.whenComplete(() => changes.remove(settled)));
+  }
 
   /// Full sign-outs begun in this run. A save that waited across one would
   /// put back what it cleared.
@@ -127,12 +139,20 @@ final class _GatedSessionStore implements LibreChatSessionStore {
       return Future.error(StateError('This LibreChat account signed out.'));
     }
     final write = _inner.write(session);
-    final settled = write.then<void>((_) {}, onError: (Object _) {});
-    _owner._sessionWrites.add(settled);
-    unawaited(settled.whenComplete(() => _owner._sessionWrites.remove(settled)));
+    LibreChatRegistryStore._track(_owner._sessionWrites, write);
     return write;
   }
 
+  /// Does nothing once the account was signed out or signed in to again
+  /// since this store was handed out: a session that was replaced, ending,
+  /// must not take its successor with it.
   @override
-  Future<void> clear() => _inner.clear();
+  Future<void> clear() {
+    if ((_owner._signOuts[_accountId] ?? 0) != _signOuts) {
+      return Future<void>.value();
+    }
+    final clear = _inner.clear();
+    LibreChatRegistryStore._track(_owner._sessionClears, clear);
+    return clear;
+  }
 }
