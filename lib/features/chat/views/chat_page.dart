@@ -64,6 +64,8 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_trus
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
@@ -237,8 +239,11 @@ bool shouldShowTemporaryChatAction({
   required bool isHermes,
   required Conversation? activeConversation,
   bool temporaryChatEnforced = false,
+  bool isLibreChat = false,
 }) =>
     !isHermes &&
+    // Temporary chats are Open WebUI's; a LibreChat chat is always saved.
+    !isLibreChat &&
     // The server keeps the chat temporary, and would refuse to save it.
     !temporaryChatEnforced &&
     (activeConversation == null || isTemporaryChat(activeConversation.id));
@@ -4528,10 +4533,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool hasMessages,
     required Color tintColor,
   }) {
+    final selectedModel = ref.watch(selectedModelProvider);
     final showTemporaryAction = shouldShowTemporaryChatAction(
       isHermes: isHermes,
       activeConversation: activeConversation,
       temporaryChatEnforced: ref.watch(temporaryChatEnforcedProvider),
+      isLibreChat:
+          (selectedModel != null && isLibreChatModel(selectedModel)) ||
+          isLibreChatConversation(activeConversation),
     );
     if (!showTemporaryAction) {
       return null;

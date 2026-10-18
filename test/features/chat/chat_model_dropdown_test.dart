@@ -67,6 +67,16 @@ void main() {
     ).isTrue();
   });
 
+  test('temporary chat action is hidden for LibreChat', () {
+    check(
+      shouldShowTemporaryChatAction(
+        isHermes: false,
+        activeConversation: null,
+        isLibreChat: true,
+      ),
+    ).isFalse();
+  });
+
   test('temporary chat action is hidden while the server enforces it', () {
     check(
       shouldShowTemporaryChatAction(

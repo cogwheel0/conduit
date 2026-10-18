@@ -49,6 +49,8 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_insertion.dart'
@@ -285,7 +287,10 @@ bool shouldShowComposerOverflowButton({
   required bool directSupportsImages,
   bool directHasOverflowActions = false,
   bool hermesHasLocalAttachmentActions = false,
+  bool isLibreChatComposer = false,
 }) {
+  // Every '+' action is an Open WebUI, Hermes or Direct one.
+  if (isLibreChatComposer) return false;
   if (isHermesComposer) return hermesHasLocalAttachmentActions;
   return !isDirectComposer || directSupportsImages || directHasOverflowActions;
 }
@@ -1891,7 +1896,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!ref.read(openWebUiAccountAvailableProvider)) return false;
     final model = ref.read(selectedModelProvider);
     return model == null ||
-        (!isHermesModel(model) && !isLocallyMintedDirectModel(model));
+        (!isHermesModel(model) &&
+            !isLibreChatModel(model) &&
+            !isLocallyMintedDirectModel(model));
   }
 
   PromptCommandMatch? _resolvePromptCommand(
@@ -1911,7 +1918,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selectionStart: selection.start,
       selectionEnd: selection.end,
       allowSkills: _openWebUiSkillsAvailable,
-      allowContext: model == null || !isHermesModel(model),
+      allowContext:
+          model == null || (!isHermesModel(model) && !isLibreChatModel(model)),
     );
     if (match == null) return null;
     return PromptCommandMatch(
@@ -3013,6 +3021,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
     final model = ref.read(selectedModelProvider);
+    if (model != null && isLibreChatModel(model)) {
+      return const ComposerOverflowAttachmentAvailability();
+    }
     final hermesMode = model != null && isHermesModel(model);
     if (hermesMode) {
       final inputImages =
@@ -3078,6 +3089,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final selectedModel = ref.read(selectedModelProvider);
+    if (selectedModel != null && isLibreChatModel(selectedModel)) {
+      return const <IosKeyboardAttachmentActionConfig>[];
+    }
     final hermesMode = selectedModel != null && isHermesModel(selectedModel);
 
     final directMode =
@@ -3110,6 +3124,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final selectedModel = ref.read(selectedModelProvider);
     if (selectedModel != null &&
         (isHermesModel(selectedModel) ||
+            isLibreChatModel(selectedModel) ||
             hasReservedDirectIdentity(selectedModel))) {
       return ComposerPersonalConnections.none;
     }
@@ -3489,12 +3504,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final isDirectComposer =
         selectedComposerModel != null &&
         hasReservedDirectIdentity(selectedComposerModel);
+    // A LibreChat turn takes none of Open WebUI's request options: no quick
+    // pills, tools, attachments, code interpreter or personal connections.
+    final isLibreChatComposer =
+        selectedComposerModel != null &&
+        isLibreChatModel(selectedComposerModel);
     final directToolsAvailable =
         isDirectComposer &&
         directBindingSupportsLocalMcp(
           ref.watch(directModelRegistryProvider).resolve(selectedComposerModel),
         );
-    final toolsAsync = isDirectComposer
+    final toolsAsync = isDirectComposer || isLibreChatComposer
         ? const AsyncData<List<Tool>>([])
         : ref.watch(toolsListProvider);
     final directMcpToolsAsync = directToolsAvailable
@@ -3510,6 +3530,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ref.watch(directMcpServersProvider);
     } else if (!kIsWeb &&
         Platform.isIOS &&
+        !isLibreChatComposer &&
         !(selectedComposerModel != null &&
             isHermesModel(selectedComposerModel))) {
       // The native panel offers the account's personal tool servers and
@@ -3598,6 +3619,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           attachmentAvailability.file ||
           attachmentAvailability.photo ||
           attachmentAvailability.camera,
+      isLibreChatComposer: isLibreChatComposer,
     );
     final compactControls = _compactComposerControls(
       showOverflowButton: showOverflowButton,
@@ -3612,7 +3634,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       });
     }
     final nativeConnections =
-        !kIsWeb && Platform.isIOS && !isHermesComposer && !isDirectComposer
+        !kIsWeb &&
+            Platform.isIOS &&
+            !isHermesComposer &&
+            !isDirectComposer &&
+            !isLibreChatComposer
         ? readComposerPersonalConnections(ref.watch)
         : ComposerPersonalConnections.none;
     _builtNativeConnectionsOwner = nativeConnections.owner;
@@ -3659,7 +3685,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
-      if (isHermesComposer || isDirectComposer) {
+      if (isHermesComposer || isDirectComposer || isLibreChatComposer) {
         break;
       }
       final filterId = ComposerOverflowActionIds.filterIdFrom(id);
@@ -3779,7 +3805,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // warning glyph, and a tap says why before offering to turn it off.
     if (codeInterpreterOffer?.selected == true &&
         !isHermesComposer &&
-        !isDirectComposer) {
+        !isDirectComposer &&
+        !isLibreChatComposer) {
       final block = codeInterpreterOffer!.block;
       final blockReason = block == null
           ? null
