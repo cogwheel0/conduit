@@ -548,7 +548,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
       _pinToTopState.isActive && _pinToTopState.isAutoFollowing;
-  String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
+  String? get _pinnedUserMessageId =>
+      _currentMessageId(_pinToTopState.userMessageId);
+
+  /// The pinned reply, by the id it has now: a LibreChat turn swaps the ids
+  /// minted here for the server's while it runs.
+  String? get _pinnedStreamingMessageId =>
+      _currentMessageId(_pinToTopState.streamingMessageId);
+
+  String? _currentMessageId(String? id) => id == null
+      ? null
+      : ref.read(chatMessagesProvider.notifier).currentMessageId(id);
 
   bool get _isUserInteractingWithScroll =>
       _bottomAnchorController.isUserInteractingWithScroll;
@@ -2518,7 +2528,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ChatTurnPhase? assistantPhase,
   ) {
     if (!_shouldAutoFollowPinnedTurn) return;
-    final assistantMessageId = _pinToTopState.streamingMessageId;
+    final assistantMessageId = _pinnedStreamingMessageId;
     if (assistantMessageId == null) return;
     if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
       pinActive: true,
@@ -2536,7 +2546,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
       if (!mounted ||
           scheduledGeneration != _pinPositionGeneration ||
-          _pinToTopState.streamingMessageId != assistantMessageId) {
+          _pinnedStreamingMessageId != assistantMessageId) {
         return;
       }
       ChatMessage? currentAssistant;
@@ -2797,7 +2807,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final paging = watchRef.watch(chatTranscriptPagingProvider);
     final requestedCount = _renderedTranscriptCount(completeMessages, paging);
     final messages = _renderedTranscriptWindow(completeMessages, paging);
-    final pinnedAssistantId = _pinToTopState.streamingMessageId;
+    final pinnedAssistantId = _pinnedStreamingMessageId;
     final pinnedAssistantPhase = pinnedAssistantId == null
         ? null
         : watchRef.watch(

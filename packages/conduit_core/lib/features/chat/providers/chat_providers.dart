@@ -61,6 +61,18 @@ import 'package:conduit_core/database/database_manager.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_message.dart'
+    show kLibreChatRootParentId;
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/features/librechat/services/librechat_message_mapper.dart';
+import 'package:conduit_core/features/librechat/services/librechat_provenance.dart';
+import 'package:conduit_core/features/librechat/services/librechat_stream_client.dart';
+import 'package:conduit_core/features/librechat/services/librechat_sync_engine.dart'
+    show LibreChatSyncEngine;
+import 'package:conduit_core/features/librechat/services/librechat_turn_runner.dart';
 
 import 'package:conduit_core/database/chat_database_repository.dart';
 
@@ -101,6 +113,8 @@ import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/streaming_response_controller.dart';
 
 import 'package:conduit_core/services/streaming_helper.dart';
+import 'package:conduit_core/services/structured_output.dart';
+import 'package:conduit_core/services/structured_output_renderer.dart';
 import 'package:conduit_core/services/openwebui_outlet.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
@@ -192,6 +206,7 @@ part 'chat_headless_completion.dart';
 part 'chat_hermes_projection_store.dart';
 part 'chat_hermes_replay.dart';
 part 'chat_hermes_turns.dart';
+part 'chat_librechat_turns.dart';
 part 'chat_message_structure.dart';
 part 'chat_messages_notifier.dart';
 part 'chat_mutation_ownership.dart';

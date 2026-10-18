@@ -742,6 +742,19 @@ Future<void> regenerateMessage(
     );
     return;
   }
+  if (!reviewerMode &&
+      usesLibreChatTransportForRegeneration(
+        activeConversation,
+        selectedModel,
+      )) {
+    if (!isLibreChatModel(selectedModel)) {
+      throw StateError(
+        'A LibreChat chat continues only with a LibreChat model.',
+      );
+    }
+    await _regenerateLibreChatMessage(ref, model: selectedModel);
+    return;
+  }
   if (activeConversation == null) {
     throw Exception('No active conversation');
   }

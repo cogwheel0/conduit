@@ -11,6 +11,21 @@ Future<void> _sendMessageInternal(
   onAssistantPlaceholderCreated,
   ChatSendVoiceContext? voice,
 ]) async {
+  final libreChatSelected = ref.read(selectedModelProvider) as Model?;
+  final libreChatActive = ref.read(activeConversationProvider) as Conversation?;
+  if (libreChatSelected != null && isLibreChatModel(libreChatSelected)) {
+    return _sendLibreChatMessage(
+      ref,
+      message,
+      attachments,
+      model: libreChatSelected,
+      voice: voice,
+      onAssistantPlaceholderCreated: onAssistantPlaceholderCreated,
+    );
+  }
+  if (isLibreChatConversation(libreChatActive)) {
+    throw StateError('A LibreChat chat continues only with a LibreChat model.');
+  }
   final hermesSelectedAtStart = ref.read(selectedModelProvider) as Model?;
   if (hermesSelectedAtStart != null && isHermesModel(hermesSelectedAtStart)) {
     // Before anything below is captured: switching connections replaces the

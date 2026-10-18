@@ -537,6 +537,28 @@ class Models extends _$Models {
       }
       if (!ref.mounted) return;
     }
+    // LibreChat's catalog is fetched again too: models, agents or specs
+    // added on the server since show up without restarting.
+    if (ref.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+      ref.invalidate(libreChatModelCatalogProvider);
+      try {
+        await ref.read(libreChatModelCatalogProvider.future);
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'catalog-refresh-failed',
+          scope: 'models/librechat',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+      if (!ref.mounted) return;
+      // Open WebUI is parked while LibreChat is in charge: the list is the
+      // app's own transports and the catalog just fetched. Applied here as
+      // well, since a refresh while auth settles keeps the list it has.
+      state = AsyncData<List<Model>>(
+        _reconcileLocalSelection(_withLocalModels(const <Model>[])),
+      );
+    }
     final modelAuth = ref.read(_modelAuthReadinessProvider);
     if (!modelAuth.authenticated && _modelAuthIsPending(modelAuth)) {
       // An explicit refresh during login/revalidation is deferred. This keeps
