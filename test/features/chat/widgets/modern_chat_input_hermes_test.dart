@@ -36,7 +36,7 @@ void main() {
     );
   });
 
-  test('LibreChat composer offers no overflow actions', () {
+  test('LibreChat overflow follows its uploads and tools', () {
     expect(
       shouldShowComposerOverflowButton(
         isHermesComposer: false,
@@ -45,6 +45,16 @@ void main() {
         isLibreChatComposer: true,
       ),
       isFalse,
+    );
+    expect(
+      shouldShowComposerOverflowButton(
+        isHermesComposer: false,
+        isDirectComposer: false,
+        directSupportsImages: false,
+        isLibreChatComposer: true,
+        libreChatHasOverflowActions: true,
+      ),
+      isTrue,
     );
   });
 

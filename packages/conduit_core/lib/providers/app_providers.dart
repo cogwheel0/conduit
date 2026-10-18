@@ -40,6 +40,8 @@ import 'package:conduit_core/features/librechat/providers/librechat_providers.da
 import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show isLibreChatToolId;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import 'package:conduit_core/models/server_config.dart';

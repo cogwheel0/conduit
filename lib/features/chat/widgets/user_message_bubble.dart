@@ -207,6 +207,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         localReferenceFiles.add(file);
         continue;
       }
+      // A LibreChat document stays on its server, which the Open WebUI file
+      // card cannot ask about: it shows by its name and size.
+      if (file['libreChatFileId'] != null && !isImageFile(file)) {
+        localReferenceFiles.add(file);
+        continue;
+      }
 
       final fileUrl = getFileUrl(file);
       if (fileUrl == null) {
@@ -579,7 +585,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         ? ''
         : LocaleDisplayFormatters.bytes(context, size);
     final extension = FileTypeUtils.extensionFromName(filename);
-    final id = file is Map ? file['id']?.toString() ?? '' : '';
+    final id = file is Map
+        ? (file['id'] ?? file['libreChatFileId'])?.toString() ?? ''
+        : '';
 
     return Semantics(
       container: true,

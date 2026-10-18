@@ -52,6 +52,12 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_serv
 import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show isLibreChatModel;
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/librechat/models/librechat_prompts.dart'
+    show isLibreChatPrompt;
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show primaryUserProvider;
+import '../../librechat/widgets/librechat_composer_support.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_insertion.dart'
     as core
@@ -288,9 +294,9 @@ bool shouldShowComposerOverflowButton({
   bool directHasOverflowActions = false,
   bool hermesHasLocalAttachmentActions = false,
   bool isLibreChatComposer = false,
+  bool libreChatHasOverflowActions = false,
 }) {
-  // Every '+' action is an Open WebUI, Hermes or Direct one.
-  if (isLibreChatComposer) return false;
+  if (isLibreChatComposer) return libreChatHasOverflowActions;
   if (isHermesComposer) return hermesHasLocalAttachmentActions;
   return !isDirectComposer || directSupportsImages || directHasOverflowActions;
 }
@@ -1877,6 +1883,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       if (_currentPromptCommand.startsWith('/')) {
         if (_hermesCommandsActive) {
           ref.read(hermesSkillPromptsProvider.future);
+        } else if (_libreChatPromptsActive) {
+          ref.read(libreChatPromptsProvider.future);
         } else {
           ref.read(promptsListProvider.future);
         }
@@ -1897,10 +1905,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   /// The current base prompt list for the `/` overlay, from the source matching
-  /// the active model (Hermes skills or OpenWebUI prompts).
+  /// the active model (Hermes skills, LibreChat prompts or OpenWebUI prompts).
   List<Prompt>? get _activePromptListValue => _hermesCommandsActive
       ? ref.read(hermesSkillPromptsProvider).value
+      : _libreChatPromptsActive
+      ? ref.read(libreChatPromptsProvider).value
       : ref.read(promptsListProvider).value;
+
+  /// Whether `/` lists the LibreChat prompt library rather than Open WebUI's:
+  /// a LibreChat model is selected.
+  bool get _libreChatPromptsActive {
+    final model = ref.read(selectedModelProvider);
+    return model != null && isLibreChatModel(model);
+  }
 
   bool get _openWebUiSkillsAvailable {
     if (!ref.read(openWebUiAccountAvailableProvider)) return false;
@@ -2429,19 +2446,30 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _applyPrompt(Prompt prompt) {
     final TextRange? range = _currentPromptRange;
     if (range == null) return;
+    // The command typed, which the prompt replaces once filled in: a dialog
+    // may be up meanwhile, and the range then has to hold it still.
+    final String text = _controller.text;
+    if (range.start < 0 || range.end > text.length) return;
+    final String command = text.substring(range.start, range.end);
+
+    if (isLibreChatPrompt(prompt)) {
+      unawaited(_applyLibreChatPrompt(prompt, range, command));
+      return;
+    }
 
     // Check if the prompt has variables that need processing
     const parser = PromptVariableParser();
     if (parser.hasVariables(prompt.content)) {
-      _processPromptWithVariables(prompt, range);
+      _processPromptWithVariables(prompt, range, command);
     } else {
-      _insertPromptContent(prompt.content, range);
+      _insertPromptContent(prompt.content, range, command);
     }
   }
 
   Future<void> _processPromptWithVariables(
     Prompt prompt,
     TextRange range,
+    String command,
   ) async {
     // Hide overlay first
     setState(() {
@@ -2515,13 +2543,49 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     // Insert the fully processed content
-    _insertPromptContent(finalContent, range);
+    _insertPromptContent(finalContent, range, command);
   }
 
-  void _insertPromptContent(String content, TextRange range) {
+  /// Fills a LibreChat prompt with LibreChat's own variable grammar and
+  /// special variables, never Open WebUI's.
+  Future<void> _applyLibreChatPrompt(
+    Prompt prompt,
+    TextRange range,
+    String command,
+  ) async {
+    setState(() {
+      _showPromptOverlay = false;
+      _currentPromptCommand = '';
+      _currentPromptRange = null;
+      _promptSelectionIndex = 0;
+    });
+    final filled = await fillLibreChatPromptInteractively(
+      context,
+      prompt,
+      userName: ref.read(primaryUserProvider)?.displayName,
+    );
+    if (!mounted) return;
+    if (filled == null) {
+      _ensureFocusedIfEnabled();
+      return;
+    }
+    _insertPromptContent(filled, range, command);
+  }
+
+  void _insertPromptContent(String content, TextRange range, String command) {
     final String text = _controller.text;
-    final String before = text.substring(0, range.start);
-    final String after = text.substring(range.end);
+    // Dictation can change the text while a prompt's dialog is up. A range
+    // that no longer holds the [command] typed -- another one in its place
+    // included -- says nothing about where the prompt belongs, so the prompt
+    // goes where the caret is instead.
+    final bool rangeHolds =
+        range.start >= 0 &&
+        range.start <= range.end &&
+        range.end <= text.length &&
+        text.substring(range.start, range.end) == command;
+    final TextRange at = rangeHolds ? range : _caretRange(text);
+    final String before = text.substring(0, at.start);
+    final String after = text.substring(at.end);
     final int caret = before.length + content.length;
 
     _controller.value = TextEditingValue(
@@ -2538,6 +2602,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _currentPromptRange = null;
       _promptSelectionIndex = 0;
     });
+  }
+
+  /// The selection to replace in [text], or its end without one.
+  TextRange _caretRange(String text) {
+    final selection = _controller.selection;
+    if (selection.isValid && selection.end <= text.length) {
+      return TextRange(start: selection.start, end: selection.end);
+    }
+    return TextRange.collapsed(text.length);
   }
 
   void _hidePromptOverlay() {
@@ -2840,6 +2913,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     return PromptSuggestionOverlay(
       useHermesSkills: useHermesSkills,
+      useLibreChatPrompts: _libreChatPromptsActive,
       filteredPrompts: _filterPrompts,
       selectionIndex: _promptSelectionIndex,
       onPromptSelected: _applyPrompt,
@@ -3079,7 +3153,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
     final model = ref.read(selectedModelProvider);
     if (model != null && isLibreChatModel(model)) {
-      return const ComposerOverflowAttachmentAvailability();
+      return ComposerOverflowAttachmentAvailability(
+        file: widget.onFileAttachment != null,
+        serverFile: false,
+        photo: widget.onImageAttachment != null,
+        camera: widget.onCameraCapture != null,
+        web: false,
+      );
     }
     final hermesMode = model != null && isHermesModel(model);
     if (hermesMode) {
@@ -3146,19 +3226,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final selectedModel = ref.read(selectedModelProvider);
-    if (selectedModel != null && isLibreChatModel(selectedModel)) {
-      return const <IosKeyboardAttachmentActionConfig>[];
-    }
     final hermesMode = selectedModel != null && isHermesModel(selectedModel);
 
     final directMode =
         selectedModel != null && hasReservedDirectIdentity(selectedModel);
+    // LibreChat offers uploads and its own tools; like Direct, none of Open
+    // WebUI's filters, connections or commands.
+    final libreChatMode =
+        selectedModel != null && isLibreChatModel(selectedModel);
 
     return buildIosKeyboardAttachmentActions(
       l10n: l10n,
       attachmentAvailability: _overflowAttachmentAvailability,
       hermesMode: hermesMode,
-      directMode: directMode,
+      directMode: directMode || libreChatMode,
       webSearchAvailable: webSearchAvailable,
       webSearchEnabled: webSearchEnabled,
       imageGenerationAvailable: imageGenerationAvailable,
@@ -3205,6 +3286,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? (directToolsAvailable
               ? ref.read(directMcpToolsProvider)
               : const AsyncData<List<Tool>>([]))
+        : selectedModel != null && isLibreChatModel(selectedModel)
+        ? ref
+              .read(libreChatComposerOptionsProvider)
+              .whenData((options) => libreChatComposerTools(l10n, options))
         : ref.read(toolsListProvider);
     final availableTools = tools.maybeWhen<List<Tool>>(
       data: (tools) => tools,
@@ -3574,7 +3659,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         selectedComposerModel != null &&
         hasReservedDirectIdentity(selectedComposerModel);
     // A LibreChat turn takes none of Open WebUI's request options: no quick
-    // pills, tools, attachments, code interpreter or personal connections.
+    // pills, code interpreter or personal connections. It has its own
+    // uploads and tools.
     final isLibreChatComposer =
         selectedComposerModel != null &&
         isLibreChatModel(selectedComposerModel);
@@ -3583,8 +3669,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         directBindingSupportsLocalMcp(
           ref.watch(directModelRegistryProvider).resolve(selectedComposerModel),
         );
-    final toolsAsync = isDirectComposer || isLibreChatComposer
+    final AsyncValue<List<Tool>> toolsAsync = isDirectComposer
         ? const AsyncData<List<Tool>>([])
+        : isLibreChatComposer
+        ? ref
+              .watch(libreChatComposerOptionsProvider)
+              .whenData((options) => libreChatComposerTools(l10n, options))
         : ref.watch(toolsListProvider);
     final directMcpToolsAsync = directToolsAvailable
         ? ref.watch(directMcpToolsProvider)
@@ -3597,9 +3687,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         _scheduleNativeKeyboardAttachmentSync();
       });
       ref.watch(directMcpServersProvider);
+    } else if (isLibreChatComposer) {
+      ref.listen(libreChatComposerOptionsProvider, (previous, next) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
     } else if (!kIsWeb &&
         Platform.isIOS &&
-        !isLibreChatComposer &&
         !(selectedComposerModel != null &&
             isHermesModel(selectedComposerModel))) {
       // The native panel offers the account's personal tool servers and
@@ -3689,6 +3782,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           attachmentAvailability.photo ||
           attachmentAvailability.camera,
       isLibreChatComposer: isLibreChatComposer,
+      libreChatHasOverflowActions:
+          attachmentAvailability.file ||
+          attachmentAvailability.photo ||
+          attachmentAvailability.camera ||
+          availableTools.isNotEmpty,
     );
     final compactControls = _compactComposerControls(
       showOverflowButton: showOverflowButton,

@@ -24,12 +24,14 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show accountChangeStopRepliesProvider;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
@@ -213,6 +215,26 @@ final class _ScriptedChat {
   }
 }
 
+/// The app going to the background and coming back, as the test says.
+final class _Lifecycle implements AppLifecyclePort {
+  final StreamController<AppLifecyclePhase> _changes =
+      StreamController<AppLifecyclePhase>.broadcast();
+  AppLifecyclePhase _current = AppLifecyclePhase.resumed;
+
+  @override
+  AppLifecyclePhase? get current => _current;
+
+  @override
+  Stream<AppLifecyclePhase> get changes => _changes.stream;
+
+  void emit(AppLifecyclePhase phase) {
+    _current = phase;
+    _changes.add(phase);
+  }
+
+  Future<void> close() => _changes.close();
+}
+
 /// What the chat shows, for a failure message.
 String Function()? _describeChat;
 
@@ -254,8 +276,12 @@ void main() {
 
   setUpAll(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = true);
 
+  late _Lifecycle lifecycle;
+
   setUp(() async {
     stopFallback = const Duration(seconds: 8);
+    lifecycle = _Lifecycle();
+    addTearDown(lifecycle.close);
     PreferencesStore.installLoader(() async => InMemoryKeyValueStore());
     await PreferencesStore.ensureInitialized();
     fake = FakeLibreChatServer()..addUser();
@@ -289,6 +315,7 @@ void main() {
           sleeps.add(delay);
         }),
         libreChatStopFallbackProvider.overrideWith((ref) => stopFallback),
+        appLifecycleProvider.overrideWithValue(lifecycle),
       ],
     );
     container.listen(chatMessagesProvider, (_, _) {});
@@ -1472,6 +1499,66 @@ void main() {
       check(
         options.mcpServers.singleWhere((s) => s.name == 'github'),
       ).has((it) => it.needsConnection, 'needsConnection').isTrue();
+    });
+
+    test('servers chat cannot pick are not offered', () async {
+      scriptTools();
+      fake.on(
+        'GET',
+        '/api/mcp/servers',
+        (request, match) => FakeLibreChatResponse.json({
+          'everything': {'title': 'Everything'},
+          // Hidden from chat by the admin, and reached only through an
+          // agent: LibreChat drops both from a turn's tools.
+          'github': {'chatMenu': false},
+          'calendar': {'consumeOnly': true},
+        }),
+      );
+      fake.on(
+        'GET',
+        '/api/mcp/tools',
+        (request, match) => FakeLibreChatResponse.json({
+          'servers': {
+            for (final name in ['everything', 'github', 'calendar'])
+              name: {'name': name, 'authenticated': true},
+          },
+        }),
+      );
+      final options = await container.read(
+        libreChatComposerOptionsProvider.future,
+      );
+      check(
+        options.mcpServers.map((server) => server.name),
+      ).deepEquals(['everything']);
+    });
+
+    test('coming back from signing in to a server in the browser reads its '
+        'connection again', () async {
+      scriptTools();
+      var options = await container.read(
+        libreChatComposerOptionsProvider.future,
+      );
+      check(
+        options.mcpServers.singleWhere((s) => s.name == 'github'),
+      ).has((it) => it.needsConnection, 'needsConnection').isTrue();
+      container.listen(libreChatComposerOptionsProvider, (_, _) {});
+
+      fake.on(
+        'GET',
+        '/api/mcp/tools',
+        (request, match) => FakeLibreChatResponse.json({
+          'servers': {
+            'github': {'name': 'github', 'authenticated': true},
+          },
+        }),
+      );
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
+      await pumpEventQueue();
+      options = await container.read(libreChatComposerOptionsProvider.future);
+      check(
+        options.mcpServers.singleWhere((s) => s.name == 'github'),
+      ).has((it) => it.needsConnection, 'needsConnection').isFalse();
     });
 
     test('a turn sends its files and the tools chosen', () async {
