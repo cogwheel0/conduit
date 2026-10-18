@@ -572,7 +572,13 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
         'pinned': conversation.pinned,
         'archived': conversation.isArchived,
       };
-      await _db.chatsDao.upsertServerChat(rows: rows, meta: meta);
+      // LibreChat's conversation does not carry its share link; the one the
+      // app made or found stays, so the chat can still delete it.
+      await _db.chatsDao.upsertServerChat(
+        rows: rows,
+        meta: meta,
+        shareId: existing?.shareId,
+      );
       if (existing == null || !existing.dirty) return false;
       await (_db.update(_db.chats)..where((t) => t.id.equals(id))).write(
         ChatsCompanion(

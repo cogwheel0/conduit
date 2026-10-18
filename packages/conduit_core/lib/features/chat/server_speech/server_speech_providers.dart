@@ -10,6 +10,9 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/features/librechat/services/librechat_server_speech.dart';
 
 import 'direct_server_speech.dart';
 import 'direct_voice_provider_settings.dart';
@@ -38,14 +41,32 @@ final directVoiceProviderProvider = Provider<DirectVoiceProvider?>((ref) {
   return (profile: profile, settings: settings);
 });
 
+/// The signed-in LibreChat account's speech engines, read once per account:
+/// null while it loads, or when it cannot be read.
+final libreChatServerSpeechProvider = FutureProvider<LibreChatServerSpeech?>((
+  ref,
+) async {
+  final api = ref.watch(libreChatApiServiceProvider);
+  if (api == null) return null;
+  try {
+    return await LibreChatServerSpeech.forServer(api);
+  } catch (_) {
+    return null;
+  }
+});
+
 /// Speech for the selected model's own backend, or null when it has none.
 ///
 /// Hermes chats use their gateway's audio relay, which only the Desktop
-/// Gateway serves. Direct and Apple chats use the Voice provider. Every other
-/// model belongs to the Open WebUI server. Audio is never sent to a backend
-/// the chat does not belong to; without one the device engines are used.
+/// Gateway serves. Direct and Apple chats use the Voice provider. LibreChat
+/// chats use their server's speech engines. Every other model belongs to the
+/// Open WebUI server. Audio is never sent to a backend the chat does not
+/// belong to; without one the device engines are used.
 final serverSpeechProviderProvider = Provider<ServerSpeechProvider?>((ref) {
   final model = ref.watch(selectedModelProvider);
+  if (model != null && isLibreChatModel(model)) {
+    return ref.watch(libreChatServerSpeechProvider).asData?.value;
+  }
   if (model != null && isHermesModel(model)) {
     final service = ref.watch(hermesApiServiceProvider);
     return service is HermesDesktopApiService

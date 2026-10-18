@@ -347,6 +347,21 @@ final class LibreChatApiService {
     }
   }
 
+  /// Snapshots shared link [shareId]'s conversation as it is now. LibreChat
+  /// gives the new snapshot a new id, which is returned.
+  Future<String> refreshSharedLink(String shareId) async {
+    try {
+      final response = await _dio.patch<dynamic>(
+        '/api/share/${Uri.encodeComponent(shareId)}',
+        data: const <String, dynamic>{},
+      );
+      final next = _map(response.data)['shareId'];
+      return next is String && next.isNotEmpty ? next : shareId;
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error, fallback: 'Could not update the link.');
+    }
+  }
+
   Future<void> deleteSharedLink(String shareId) async {
     try {
       await _dio.delete<dynamic>('/api/share/${Uri.encodeComponent(shareId)}');
