@@ -82,4 +82,42 @@ void main() {
     check(layout.featured.map((model) => model.id).toList())
         .deepEquals(['model-0', 'model-1', 'model-2', 'model-3', 'model-6']);
   });
+
+  test('groups the models past the featured ones into sorted sections', () {
+    const sections = <String, ModelSelectorSectionKey>{
+      'model-4': (label: 'Ollama', order: 3),
+      'model-5': (label: 'Agents', order: 1),
+      'model-6': (label: 'OpenAI', order: 3),
+      'model-1': (label: 'Agents', order: 1),
+    };
+    final layout = buildModelSelectorLayout(
+      models: [
+        ...models,
+        const Model(id: 'model-7', name: 'Model 7'),
+      ],
+      pinnedModelIds: const [],
+      sectionOf: (model) => sections[model.id],
+    );
+
+    // A featured model stays featured, whatever its section.
+    check(layout.featured.map((model) => model.id).toList())
+        .deepEquals(['model-0', 'model-1', 'model-2', 'model-3']);
+    check(layout.more.map((model) => model.id).toList())
+        .deepEquals(['model-7']);
+    check(layout.sections.map((section) => section.label).toList())
+        .deepEquals(['Agents', 'Ollama', 'OpenAI']);
+    check(layout.sections.map((section) => section.models.single.id).toList())
+        .deepEquals(['model-5', 'model-4', 'model-6']);
+  });
+
+  test('keeps everything past the featured models in more without '
+      'sections', () {
+    final layout = buildModelSelectorLayout(
+      models: models,
+      pinnedModelIds: const ['model-0'],
+    );
+
+    check(layout.sections).isEmpty();
+    check(layout.more).length.equals(6);
+  });
 }
