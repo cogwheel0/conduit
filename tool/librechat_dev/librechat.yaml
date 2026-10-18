@@ -1,0 +1,105 @@
+# LibreChat configuration for Conduit development. It turns on every feature
+# Conduit's LibreChat backend uses, and points chat at an Ollama server on the
+# host so the stack needs no provider keys. The full reference is
+# librechat-src/librechat.example.yaml.
+
+version: 1.3.17
+
+cache: true
+
+interface:
+  modelSelect: true
+  parameters: true
+  presets: true
+  bookmarks: true
+  multiConvo: true
+  memories: true
+  temporaryChat: true
+  runCode: true
+  webSearch: true
+  fileSearch: true
+  prompts:
+    use: true
+    create: true
+    share: false
+    public: false
+  agents:
+    use: true
+    create: true
+    share: false
+    public: false
+  sharedLinks:
+    create: true
+    share: true
+    public: true
+
+endpoints:
+  # Ollama's OpenAI-compatible API on the host. Private addresses are blocked
+  # unless listed here.
+  allowedAddresses:
+    - 'host.docker.internal:11434'
+  custom:
+    - name: 'Ollama'
+      apiKey: 'ollama'
+      baseURL: 'http://host.docker.internal:11434/v1/'
+      models:
+        default: ['llama3.2']
+        fetch: true
+      titleConvo: true
+      titleModel: 'current_model'
+      summarize: false
+      modelDisplayLabel: 'Ollama'
+  agents:
+    # MCP tool calls wait for the user's approval, so the approval card can be
+    # exercised against the MCP server below.
+    toolApproval:
+      enabled: true
+      mode: default
+      ask: ['mcp:*:*']
+    checkpointer:
+      type: mongo
+      ttl: 86400
+
+# A local MCP server with sample tools (echo, add, sampleLLM, ...).
+mcpServers:
+  everything:
+    type: stdio
+    command: npx
+    args:
+      - -y
+      - '@modelcontextprotocol/server-everything'
+    timeout: 60000
+
+memory:
+  personalize: true
+  tokenLimit: 2000
+  agent:
+    enabled: true
+    provider: 'Ollama'
+    model: 'llama3.2'
+
+# Web search needs a search provider, a scraper and a reranker. Uncomment and
+# set the matching keys in .env to test it.
+# webSearch:
+#   serperApiKey: '${SERPER_API_KEY}'
+#   firecrawlApiKey: '${FIRECRAWL_API_KEY}'
+#   jinaApiKey: '${JINA_API_KEY}'
+
+# Server speech for Conduit's voice input and read-aloud. Any OpenAI-compatible
+# speech server works; list a private host:port under allowedAddresses.
+# speech:
+#   stt:
+#     openai:
+#       url: 'http://host.docker.internal:8000/v1/audio/transcriptions'
+#       apiKey: '${STT_API_KEY}'
+#       model: 'whisper-1'
+#     allowedAddresses:
+#       - 'host.docker.internal:8000'
+#   tts:
+#     openai:
+#       url: 'http://host.docker.internal:8020/v1/audio/speech'
+#       apiKey: '${TTS_API_KEY}'
+#       model: 'tts-1'
+#       voices: ['alloy', 'nova']
+#     allowedAddresses:
+#       - 'host.docker.internal:8020'
