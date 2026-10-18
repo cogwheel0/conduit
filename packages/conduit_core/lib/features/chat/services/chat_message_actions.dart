@@ -246,7 +246,9 @@ Future<bool> resendEditedUserMessage(
     await durableSend(
       ref,
       text,
-      editedMessageAttachmentIds(original),
+      isLibreChatConversation(active)
+          ? reattachLibreChatFiles(ref, original)
+          : editedMessageAttachmentIds(original),
       toolIds: toolIds.isNotEmpty ? toolIds : null,
       onAssistantPlaceholderCreated: (handle) => pendingSend = handle,
     );
