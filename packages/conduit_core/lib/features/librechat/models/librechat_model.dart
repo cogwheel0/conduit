@@ -64,6 +64,15 @@ bool isLibreChatModel(Model model) => _mintedTargets[model] != null;
 /// Where [model] sends a turn, or null when it is not a LibreChat model.
 LibreChatTarget? libreChatTargetOf(Model model) => _mintedTargets[model];
 
+/// The picker section LibreChat [model] is listed in, and where that section
+/// sorts; null for any other model.
+({String label, int order})? libreChatModelSection(Model model) {
+  final target = libreChatTargetOf(model);
+  final label = target?.section;
+  if (target == null || label == null) return null;
+  return (label: label, order: target.sectionOrder);
+}
+
 /// Whether a model from elsewhere claims the LibreChat namespace.
 bool hasReservedLibreChatIdentity(Model model) =>
     model.id.startsWith(kLibreChatModelIdPrefix) ||
