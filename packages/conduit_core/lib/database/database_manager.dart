@@ -32,11 +32,18 @@ class DatabaseManager {
   /// Omitting all three is legal at construction time and fails only if the
   /// manager is actually used, which keeps a test that overrides just one of
   /// them from having to supply the others.
+  ///
+  /// A manager whose [databaseFileName] names files another way passes
+  /// [databaseFilePattern] to match them (group 1 the file name, as
+  /// [databaseFileName] gives it) and its own [pendingWipeKey], so its
+  /// sweeps and pending wipes never touch another manager's files.
   DatabaseManager({
     DatabaseOpenerPort Function()? opener,
     Future<Directory> Function()? databaseDirectory,
     AppDatabase Function(String fileName)? openDatabase,
     String Function(String serverId)? databaseFileName,
+    RegExp? databaseFilePattern,
+    String pendingWipeKey = PreferenceKeys.pendingAccountDatabaseWipe,
   }) : _databaseDirectory =
            databaseDirectory ??
            (opener != null
@@ -47,7 +54,9 @@ class DatabaseManager {
            (opener != null
                ? ((fileName) => AppDatabase(opener().open(fileName)))
                : (_) => _missingOpener('openDatabase')),
-       _databaseFileName = databaseFileName ?? fileNameFor;
+       _databaseFileName = databaseFileName ?? fileNameFor,
+       _databaseFilePattern = databaseFilePattern ?? _serverDatabaseFile,
+       _pendingWipeKey = pendingWipeKey;
 
   static Never _missingOpener(String seam) => throw StateError(
     'DatabaseManager needs a DatabaseOpenerPort (or an explicit $seam). '
@@ -57,6 +66,8 @@ class DatabaseManager {
   final Future<Directory> Function() _databaseDirectory;
   final AppDatabase Function(String fileName) _openDatabase;
   final String Function(String serverId) _databaseFileName;
+  final RegExp _databaseFilePattern;
+  final String _pendingWipeKey;
 
   _ManagedDatabase? _active;
   final Map<_ManagedDatabase, Future<void>> _explicitCloseOperations =
@@ -524,7 +535,7 @@ class DatabaseManager {
     // [finishPendingWipe] still deletes them.
     _pendingWipe = (files: files == null ? null : Set.of(files));
     await PreferencesStore.putChecked(
-      PreferenceKeys.pendingAccountDatabaseWipe,
+      _pendingWipeKey,
       pendingAccountDatabaseWipeValue(files),
       bypassAppDataClearBarrier: true,
     );
@@ -532,9 +543,7 @@ class DatabaseManager {
 
   /// Takes up the wipe an earlier run recorded and did not finish.
   void resumePendingWipe() {
-    final recorded = PreferencesStore.getString(
-      PreferenceKeys.pendingAccountDatabaseWipe,
-    );
+    final recorded = PreferencesStore.getString(_pendingWipeKey);
     if (recorded == null) return;
     _pendingWipe = (files: pendingAccountDatabaseWipeFiles(recorded));
   }
@@ -545,7 +554,7 @@ class DatabaseManager {
     final pending = _pendingWipe;
     if (pending == null) return Future<void>.value();
     return _pendingWipeFinish ??= () async {
-      const key = PreferenceKeys.pendingAccountDatabaseWipe;
+      final key = _pendingWipeKey;
       final recorded = PreferencesStore.getString(key);
       try {
         await deleteAllServerDatabases(only: pending.files);
@@ -601,7 +610,7 @@ class DatabaseManager {
         .list(followLinks: false)
         .where((entity) {
           if (entity is! File) return false;
-          final match = _serverDatabaseFile.firstMatch(
+          final match = _databaseFilePattern.firstMatch(
             p.basename(entity.path),
           );
           return match != null && (only == null || only.contains(match[1]));
@@ -842,7 +851,7 @@ class DatabaseManager {
     return {
       await for (final entity in directory.list(followLinks: false))
         if (entity is File)
-          ?_serverDatabaseFile.firstMatch(p.basename(entity.path))?[1],
+          ?_databaseFilePattern.firstMatch(p.basename(entity.path))?[1],
     };
   }
 }
