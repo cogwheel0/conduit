@@ -4367,6 +4367,8 @@
   "libreChatApprovalRun": "允許執行 {tool} 嗎？",
   "libreChatQuestionProgress": "第 {current} 個問題，共 {total} 個",
   "libreChatAnswerFailed": "無法傳送你的回答，請再試一次。",
+  "libreChatApprovalRespond": "回應",
+  "libreChatApprovalArguments": "引數（JSON）",
   "libreChatAddAccountMessage": "輸入你的 LibreChat 伺服器位址。",
   "libreChatInvalidAddress": "輸入伺服器位址，例如 chat.example.com。",
   "libreChatUnreachable": "無法連線到伺服器。請檢查位址和網路連線。",

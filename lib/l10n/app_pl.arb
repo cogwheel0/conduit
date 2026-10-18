@@ -8198,6 +8198,8 @@
     }
   },
   "libreChatAnswerFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
+  "libreChatApprovalRespond": "Odpowiedz",
+  "libreChatApprovalArguments": "Argumenty (JSON)",
   "libreChatAddAccountMessage": "Wpisz adres swojego serwera LibreChat.",
   "libreChatInvalidAddress": "Wpisz adres serwera, np. chat.example.com.",
   "libreChatUnreachable": "Nie udało się połączyć z serwerem. Sprawdź adres i połączenie.",

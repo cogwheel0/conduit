@@ -5984,6 +5984,8 @@
   "libreChatApprovalRun": "{tool} の実行を許可しますか？",
   "libreChatQuestionProgress": "質問 {current} / {total}",
   "libreChatAnswerFailed": "回答を送信できませんでした。もう一度お試しください。",
+  "libreChatApprovalRespond": "応答する",
+  "libreChatApprovalArguments": "引数（JSON）",
   "libreChatAddAccountMessage": "LibreChat サーバーのアドレスを入力してください。",
   "libreChatInvalidAddress": "chat.example.com のようなサーバーアドレスを入力してください。",
   "libreChatUnreachable": "サーバーに接続できませんでした。アドレスと接続を確認してください。",

@@ -4367,6 +4367,8 @@
   "libreChatApprovalRun": "¿Permitir que se ejecute {tool}?",
   "libreChatQuestionProgress": "Pregunta {current} de {total}",
   "libreChatAnswerFailed": "No se pudo enviar tu respuesta. Inténtalo de nuevo.",
+  "libreChatApprovalRespond": "Responder",
+  "libreChatApprovalArguments": "Argumentos (JSON)",
   "libreChatAddAccountMessage": "Introduce la dirección de tu servidor LibreChat.",
   "libreChatInvalidAddress": "Introduce la dirección de un servidor, como chat.example.com.",
   "libreChatUnreachable": "No se pudo conectar con el servidor. Comprueba la dirección y tu conexión.",

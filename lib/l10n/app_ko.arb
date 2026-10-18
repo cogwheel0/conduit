@@ -4139,6 +4139,8 @@
   "libreChatApprovalRun": "{tool} 실행을 허용할까요?",
   "libreChatQuestionProgress": "질문 {current}/{total}",
   "libreChatAnswerFailed": "답변을 보내지 못했습니다. 다시 시도하세요.",
+  "libreChatApprovalRespond": "응답하기",
+  "libreChatApprovalArguments": "인수(JSON)",
   "libreChatAddAccountMessage": "LibreChat 서버 주소를 입력하세요.",
   "libreChatInvalidAddress": "chat.example.com과 같은 서버 주소를 입력하세요.",
   "libreChatUnreachable": "서버에 연결할 수 없습니다. 주소와 연결 상태를 확인하세요.",

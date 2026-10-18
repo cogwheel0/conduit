@@ -6290,6 +6290,8 @@
   "libreChatApprovalRun": "Povoliť spustenie {tool}?",
   "libreChatQuestionProgress": "Otázka {current} z {total}",
   "libreChatAnswerFailed": "Odpoveď sa nepodarilo odoslať. Skúste to znova.",
+  "libreChatApprovalRespond": "Odpovedať",
+  "libreChatApprovalArguments": "Argumenty (JSON)",
   "libreChatAddAccountMessage": "Zadajte adresu svojho servera LibreChat.",
   "libreChatInvalidAddress": "Zadajte adresu servera, napríklad chat.example.com.",
   "libreChatUnreachable": "Server sa nepodarilo kontaktovať. Skontrolujte adresu a pripojenie.",

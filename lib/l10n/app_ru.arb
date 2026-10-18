@@ -4405,6 +4405,8 @@
   "libreChatApprovalRun": "Разрешить запуск {tool}?",
   "libreChatQuestionProgress": "Вопрос {current} из {total}",
   "libreChatAnswerFailed": "Не удалось отправить ответ. Попробуйте ещё раз.",
+  "libreChatApprovalRespond": "Ответить",
+  "libreChatApprovalArguments": "Аргументы (JSON)",
   "libreChatAddAccountMessage": "Введите адрес вашего сервера LibreChat.",
   "libreChatInvalidAddress": "Введите адрес сервера, например chat.example.com.",
   "libreChatUnreachable": "Не удалось подключиться к серверу. Проверьте адрес и подключение.",

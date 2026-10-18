@@ -9195,6 +9195,14 @@
   "@libreChatAnswerFailed": {
     "description": "Shown when answering a LibreChat approval or question didn't reach the server."
   },
+  "libreChatApprovalRespond": "Respond",
+  "@libreChatApprovalRespond": {
+    "description": "Button on a LibreChat tool approval: answer in the tool's place with text instead of running it."
+  },
+  "libreChatApprovalArguments": "Arguments (JSON)",
+  "@libreChatApprovalArguments": {
+    "description": "Label of the field where a LibreChat tool call's arguments are edited before it runs."
+  },
   "libreChatAddAccountMessage": "Enter the address of your LibreChat server.",
   "@libreChatAddAccountMessage": {
     "description": "Intro text of the LibreChat sign-in form."

@@ -41,7 +41,7 @@ const _questions = LibreChatPendingAction({
         'question': 'Which days?',
         'multiSelect': true,
         'options': [
-          {'label': 'Mon'},
+          {'label': 'Mon', 'value': 'monday'},
           'Tue',
         ],
       },
@@ -121,6 +121,91 @@ void main() {
     expect(resolved.single.answers, isNull);
   });
 
+  testWidgets('a call that may only be answered offers just Respond, and '
+      'sends the text', (tester) async {
+    final resolved = await _pump(
+      tester,
+      const LibreChatPendingAction({
+        'actionId': 'act-4',
+        'payload': {
+          'type': 'tool_approval',
+          'action_requests': [
+            {'tool_call_id': 'call-r', 'name': 'lookup'},
+          ],
+          'review_configs': [
+            {
+              'tool_call_id': 'call-r',
+              'allowed_decisions': ['respond'],
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(find.text('Approve'), findsNothing);
+    expect(find.text('Deny'), findsNothing);
+    await tester.tap(find.text('Respond'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '  Sample result  ');
+    await tester.pump();
+    await tester.tap(find.text('Send response'));
+    await tester.pumpAndSettle();
+
+    final decision = resolved.single.decisions!['call-r']!;
+    expect(decision.decision, LibreChatToolDecision.respond);
+    expect(decision.responseText, 'Sample result');
+  });
+
+  testWidgets('an edit runs the call with the arguments typed, once they '
+      'are a JSON object', (tester) async {
+    final resolved = await _pump(
+      tester,
+      const LibreChatPendingAction({
+        'actionId': 'act-5',
+        'payload': {
+          'type': 'tool_approval',
+          'action_requests': [
+            {
+              'tool_call_id': 'call-e',
+              'name': 'echo',
+              'arguments': '{"text":"hi"}',
+            },
+          ],
+          'review_configs': [
+            {
+              'tool_call_id': 'call-e',
+              'allowed_decisions': ['approve', 'reject', 'edit'],
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(find.text('Approve'), findsOneWidget);
+    expect(find.text('Deny'), findsOneWidget);
+    expect(find.text('Respond'), findsNothing);
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '{\n  "text": "hi"\n}',
+    );
+
+    await tester.enterText(find.byType(TextField), '["not", "an object"]');
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    expect(resolved, isEmpty);
+    expect(find.text('Enter a valid JSON object.'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '{"text": "bye"}');
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+
+    final decision = resolved.single.decisions!['call-e']!;
+    expect(decision.decision, LibreChatToolDecision.edit);
+    expect(decision.editedArguments, {'text': 'bye'});
+  });
+
   testWidgets('a batch of questions is answered in turn', (tester) async {
     final resolved = await _pump(tester, _questions);
 
@@ -138,8 +223,39 @@ void main() {
     await tester.tap(find.text('Send response'));
     await tester.pumpAndSettle();
 
-    expect(resolved.single.answers, {'q1': 'Paris', 'q2': 'Mon, Tue'});
+    // Each choice is answered with its value, as LibreChat's client does.
+    expect(resolved.single.answers, {'q1': 'Paris', 'q2': 'monday, Tue'});
     expect(resolved.single.decisions, isNull);
+  });
+
+  testWidgets('a long question scrolls within half the screen', (
+    tester,
+  ) async {
+    final long = LibreChatPendingAction({
+      'actionId': 'act-3',
+      'payload': {
+        'type': 'ask_user_question',
+        'question': {
+          'question': 'Which file?',
+          'description': List.filled(200, 'A line of context.').join('\n'),
+        },
+        'tool_call_id': 'call_q',
+      },
+    });
+    await _pump(tester, long);
+
+    expect(tester.takeException(), isNull);
+    final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+    final card = tester.getSize(
+      find
+          .descendant(
+            of: find.byType(LibreChatComposerPromptOverlay),
+            matching: find.byType(SingleChildScrollView),
+          )
+          .first,
+    );
+    expect(card.height, lessThanOrEqualTo(screen.height / 2));
+    expect(find.text('Send response'), findsOneWidget);
   });
 
   testWidgets('a failed answer can be sent again', (tester) async {
@@ -168,5 +284,12 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Send response'), findsOneWidget);
+
+    // Sent again, the answer goes out again.
+    await tester.enterText(find.byType(TextField), 'yes');
+    await tester.tap(find.text('Send response'));
+    await tester.pumpAndSettle();
+    expect(resolved, hasLength(2));
+    expect(resolved.last.answers, {'call-q': 'yes'});
   });
 }
