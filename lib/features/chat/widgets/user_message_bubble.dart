@@ -55,7 +55,8 @@ class UserMessageBubble extends ConsumerStatefulWidget {
   final bool isStreaming;
   final String? modelName;
   final VoidCallback? onCopy;
-  final VoidCallback onDelete;
+  /// Deletes the message; null where messages cannot be deleted.
+  final VoidCallback? onDelete;
 
   /// Another user's chat (shared folder): only copy is offered.
   final bool readOnly;
@@ -71,7 +72,7 @@ class UserMessageBubble extends ConsumerStatefulWidget {
     this.isStreaming = false,
     this.modelName,
     this.onCopy,
-    required this.onDelete,
+    this.onDelete,
     this.onEdit,
     this.onRegenerate,
     this.onLike,
@@ -769,7 +770,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           }
         },
       ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && widget.onDelete != null)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.delete,
           sfSymbol: 'trash',
@@ -778,7 +779,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           destructive: true,
           onBeforeClose: () => ConduitHaptics.mediumImpact(),
           onSelected: () async {
-            widget.onDelete();
+            widget.onDelete?.call();
           },
         ),
     ];

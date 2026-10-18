@@ -223,6 +223,14 @@ Future<bool> resendEditedUserMessage(
     return false;
   }
   final original = messages[index];
+  // One turn at a time in a LibreChat chat: refused before the transcript
+  // changes, so nothing it shows goes and the edit can be sent once the
+  // reply is done.
+  final openChat = ref.read(activeConversationProvider) as Conversation?;
+  if (isLibreChatConversation(openChat) &&
+      isLibreChatReplyRunning(ref, openChat)) {
+    throw const LibreChatReplyRunningException();
+  }
 
   ChatSendPlaceholderHandle? pendingSend;
   try {

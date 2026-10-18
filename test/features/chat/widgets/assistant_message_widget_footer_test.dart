@@ -158,6 +158,7 @@ Widget _buildAssistantHarness(
   FutureOr<void> Function(String suggestion)? onFollowUpSelected,
   Locale? locale,
   List<Override> overrides = const [],
+  bool deletable = true,
 }) {
   return ProviderScope(
     overrides: [
@@ -192,7 +193,7 @@ Widget _buildAssistantHarness(
           modelName: message.model,
           onCopy: onCopy ?? () {},
           onRegenerate: onRegenerate ?? () {},
-          onDelete: () {},
+          onDelete: deletable ? () {} : null,
           onFollowUpSelected: onFollowUpSelected,
         ),
       ),
@@ -869,6 +870,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.share_outlined), findsOneWidget);
     expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a response that cannot be deleted offers no Delete', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'kept-on-server',
+      role: 'assistant',
+      content: 'Water the seedlings gently.',
+      timestamp: DateTime(2026, 1, 1),
+    );
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message,
+        deletable: false,
+        settings: const AppSettings(inlineMessageActions: ['copy', 'delete']),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.delete_outline), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

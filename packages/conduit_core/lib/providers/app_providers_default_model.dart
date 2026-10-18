@@ -199,10 +199,10 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     }
 
     final currentSelected = ref.read(selectedModelProvider);
-    final configuredDefaultId =
-        currentSelected != null && ref.read(isManualModelSelectionProvider)
-        ? null
-        : ref.read(appSettingsProvider).defaultModel;
+    final configuredDefaultId = _accountlessDefaultModelId(
+      ref,
+      currentSelected,
+    );
     final Model? standalone;
     // Read again: the active connection may have changed during the auth wait,
     // and the synthetic model carries its name.
@@ -656,6 +656,38 @@ Model? _modelForPreferredBackend(
     PreferredBackend.libreChat => models.where(isLibreChatModel).firstOrNull,
     PreferredBackend.owui || PreferredBackend.unset => null,
   };
+}
+
+/// The default model an accountless selection steers toward, or null to
+/// keep [current]: a model the user chose stays, and with LibreChat a chat
+/// open now steers toward its own model -- the default is for new chats.
+///
+/// An automatic choice made as LibreChat's models arrive or refresh changes
+/// the selection, which makes the open chat's own restore of its model stand
+/// down; steering toward that model here keeps the chat on it either way.
+String? _accountlessDefaultModelId(Ref ref, Model? current) {
+  if (current == null) {
+    return _openLibreChatChatModelId(ref) ??
+        ref.read(appSettingsProvider).defaultModel;
+  }
+  if (ref.read(isManualModelSelectionProvider)) return null;
+  if (ref.read(preferredBackendProvider) == PreferredBackend.libreChat &&
+      ref.read(activeConversationProvider) != null) {
+    return _openLibreChatChatModelId(ref);
+  }
+  return ref.read(appSettingsProvider).defaultModel;
+}
+
+/// The saved model of the LibreChat chat open now while LibreChat is the
+/// primary account, else null.
+String? _openLibreChatChatModelId(Ref ref) {
+  if (ref.read(preferredBackendProvider) != PreferredBackend.libreChat) {
+    return null;
+  }
+  final open = ref.read(activeConversationProvider);
+  if (!isLibreChatConversation(open)) return null;
+  final saved = open?.model?.trim();
+  return saved == null || saved.isEmpty ? null : saved;
 }
 
 Model? _accountlessSelection({

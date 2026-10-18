@@ -11,6 +11,27 @@ Future<void> _sendMessageInternal(
   onAssistantPlaceholderCreated,
   ChatSendVoiceContext? voice,
 ]) async {
+  final libreChatSelected = ref.read(selectedModelProvider) as Model?;
+  final libreChatActive = ref.read(activeConversationProvider) as Conversation?;
+  if (libreChatSelected != null && isLibreChatModel(libreChatSelected)) {
+    // An existing chat still opening is not a new chat yet: sending now
+    // would start one on the server, as below for the other backends.
+    if (libreChatActive == null &&
+        ref.read(isLoadingConversationProvider) == true) {
+      throw StateError('Conversation is still loading');
+    }
+    return _sendLibreChatMessage(
+      ref,
+      message,
+      attachments,
+      model: libreChatSelected,
+      voice: voice,
+      onAssistantPlaceholderCreated: onAssistantPlaceholderCreated,
+    );
+  }
+  if (isLibreChatConversation(libreChatActive)) {
+    throw StateError('A LibreChat chat continues only with a LibreChat model.');
+  }
   final hermesSelectedAtStart = ref.read(selectedModelProvider) as Model?;
   if (hermesSelectedAtStart != null && isHermesModel(hermesSelectedAtStart)) {
     // Before anything below is captured: switching connections replaces the

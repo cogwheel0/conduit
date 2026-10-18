@@ -454,6 +454,43 @@ void main() {
     check(row.deleted).isTrue();
   });
 
+  test('a title written across an account switch leaves the new '
+      'account\'s chat alone', () async {
+    await pull();
+    final locks = container.read(libreChatChatLocksProvider);
+    final gate = Completer<void>();
+    unawaited(locks.runExclusive('lc-1', () => gate.future));
+    container
+        .read(conversationsProvider.notifier)
+        .applyLibreChatGeneratedTitle('lc-1', 'Generated title');
+    await pumpEventQueue();
+
+    // Another LibreChat account, whose server has a chat with the same id,
+    // takes over and opens it while the title waits for the chat.
+    container.read(_otherAccountProvider.notifier).set(true);
+    final theirs = withChatStorageProvenance(
+      Conversation(
+        id: 'lc-1',
+        title: 'Their chat',
+        createdAt: DateTime.utc(2026, 10, 18),
+        updatedAt: DateTime.utc(2026, 10, 18),
+      ),
+      ChatStorageKind.libreChat,
+    );
+    container.read(activeConversationProvider.notifier).set(theirs);
+    gate.complete();
+    await locks.runExclusive('lc-1', () async {});
+    await pumpEventQueue();
+
+    check(container.read(activeConversationProvider)?.title).equals(
+      'Their chat',
+    );
+    // The title still reached the account it was made for.
+    check(
+      (await libreChatDb.chatsDao.getChat('lc-1'))!.title,
+    ).equals('Generated title');
+  });
+
   test('share and clone stay unavailable for LibreChat chats', () async {
     final scoped = const ChatStorageIdentity(
       rawId: 'lc-1',
