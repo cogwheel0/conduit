@@ -51,8 +51,9 @@ final class FakeLibreChatUser {
   final String id;
   final String email;
   final String password;
-  final String? name;
-  final String role;
+  /// Changed by a test to have the next refresh carry another name or role.
+  String? name;
+  String role;
 
   /// The one authenticator code this user's two-step check accepts, or null
   /// when the user has no two-step verification.

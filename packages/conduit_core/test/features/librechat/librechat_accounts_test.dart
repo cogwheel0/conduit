@@ -11,10 +11,13 @@ import 'package:conduit_core/features/librechat/providers/librechat_providers.da
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
 import 'package:conduit_core/features/librechat/services/librechat_session_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/database_opener.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
+import 'package:conduit_core/providers/chat_picks_session.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:conduit_core/testing.dart';
@@ -82,6 +85,29 @@ final class _SlowSecureStore extends InMemorySecureKeyValueStore {
   Future<String?> read({required String key}) async {
     await ready;
     return super.read(key: key);
+  }
+}
+
+/// Secure storage whose deletes, or session reads, can be made to fail.
+final class _FlakySecureStore extends InMemorySecureKeyValueStore {
+  _FlakySecureStore(super.seed);
+
+  bool failDeletes = false;
+  bool failSessionReads = false;
+
+  @override
+  Future<String?> read({required String key}) {
+    if (failSessionReads &&
+        key.startsWith(SecureLibreChatSessionStore.keyPrefix)) {
+      return Future.error(StateError('keychain locked'));
+    }
+    return super.read(key: key);
+  }
+
+  @override
+  Future<void> delete({required String key}) {
+    if (failDeletes) return Future.error(StateError('keychain locked'));
+    return super.delete(key: key);
   }
 }
 
@@ -481,6 +507,200 @@ void main() {
       await check(
         container.read(libreChatCapabilitiesProvider.future),
       ).throws<LibreChatApiException>();
+    });
+
+    test('a renewal that changes the role reads its permissions', () async {
+      final user = fake.addUser(email: 'promoted@example.com');
+      final roles = <String>[];
+      fake
+        ..on(
+          'GET',
+          '/api/endpoints',
+          (request, match) => FakeLibreChatResponse.json({
+            'agents': {'capabilities': <String>[]},
+          }),
+        )
+        ..on('GET', '/api/roles/(.+)', (request, match) {
+          roles.add(match.group(1)!);
+          return FakeLibreChatResponse.json({
+            'name': match.group(1),
+            'permissions': <String, dynamic>{},
+          });
+        });
+      final auth = LibreChatAuthService(server, adapter: fake);
+      addTearDown(auth.close);
+      final signedIn =
+          await auth.signIn(email: user.email, password: user.password)
+              as LibreChatSignedIn;
+      await container
+          .read(libreChatAccountsProvider)
+          .saveSignedIn(server: server, session: signedIn.session);
+      await container.read(libreChatSessionProvider.future);
+      await container.read(libreChatCapabilitiesProvider.future);
+      check(roles).deepEquals(['USER']);
+
+      user.role = 'ADMIN';
+      fake.expireAccessTokens();
+      await container.read(libreChatApiServiceProvider)!.currentUser();
+      await container.read(libreChatCapabilitiesProvider.future);
+      check(roles).deepEquals(['USER', 'ADMIN']);
+    });
+
+    test('a renewal that renames the user updates the account labels',
+        () async {
+      final user = fake.addUser(email: 'renamed@example.com', name: 'Old');
+      final auth = LibreChatAuthService(server, adapter: fake);
+      addTearDown(auth.close);
+      final signedIn =
+          await auth.signIn(email: user.email, password: user.password)
+              as LibreChatSignedIn;
+      await container
+          .read(libreChatAccountsProvider)
+          .saveSignedIn(server: server, session: signedIn.session);
+      await container.read(libreChatSessionProvider.future);
+      check(
+        container.read(libreChatPrimaryUserProvider)?.displayName,
+      ).equals('Old');
+
+      user.name = 'New';
+      fake.expireAccessTokens();
+      await container.read(libreChatApiServiceProvider)!.currentUser();
+      check(
+        container.read(libreChatPrimaryUserProvider)?.displayName,
+      ).equals('New');
+    });
+
+    test('a full sign-out stops session writes until it is over', () async {
+      final accounts = container.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final state =
+          await container.read(libreChatSessionProvider.future)
+              as LibreChatSignedInState;
+      final registry = container.read(libreChatRegistryProvider.notifier);
+
+      await registry.blockForAppDataClear();
+      // The clear empties secure storage.
+      await secure.delete(key: SecureLibreChatSessionStore.keyFor(account.id));
+      // A response landing after it does not write the session back.
+      await state.handle.absorbCookies(['connect.sid=late']);
+      check(
+        await SecureLibreChatSessionStore(secure, account.id).read(),
+      ).isNull();
+      await check(
+        accounts.saveSignedIn(server: server, session: await signIn()),
+      ).throws<StateError>();
+
+      registry.resumeAfterAppDataClearAbort();
+      await container
+          .read(libreChatRegistryStoreProvider)
+          .sessionStore(account.id)
+          .write(state.handle.current!);
+      check(
+        await SecureLibreChatSessionStore(secure, account.id).read(),
+      ).isNotNull();
+    });
+
+    test('accounts a full sign-out could not forget are forgotten at the '
+        'next start', () async {
+      final account = await container
+          .read(libreChatAccountsProvider)
+          .saveSignedIn(server: server, session: await signIn());
+      await markLibreChatClearPending();
+
+      final next = newContainer();
+      check(
+        (await next.read(libreChatRegistryProvider.future)).accounts,
+      ).isEmpty();
+      check(
+        await SecureLibreChatSessionStore(secure, account.id).read(),
+      ).isNull();
+      check(
+        PreferencesStore.containsKey(PreferenceKeys.libreChatClearPending),
+      ).isFalse();
+      check(
+        await next.read(libreChatSessionProvider.future),
+      ).isA<LibreChatNoAccount>();
+    });
+
+    test('accounts a failed clear left stay out until a later start clears '
+        'them', () async {
+      final old = await container
+          .read(libreChatAccountsProvider)
+          .saveSignedIn(server: server, session: await signIn());
+      await markLibreChatClearPending();
+      final flaky = _FlakySecureStore(await secure.readAll())
+        ..failDeletes = true;
+      secure = flaky;
+
+      final next = newContainer();
+      check(
+        (await next.read(libreChatRegistryProvider.future)).accounts,
+      ).isEmpty();
+      // A new sign-in would add to the registry left behind.
+      await check(
+        next
+            .read(libreChatAccountsProvider)
+            .saveSignedIn(server: server, session: await signIn()),
+      ).throws<StateError>();
+      check(PreferencesStore.getBool(PreferenceKeys.libreChatClearPending))
+          .equals(true);
+
+      flaky.failDeletes = false;
+      final later = newContainer();
+      check(
+        (await later.read(libreChatRegistryProvider.future)).accounts,
+      ).isEmpty();
+      check(
+        await SecureLibreChatSessionStore(secure, old.id).read(),
+      ).isNull();
+    });
+
+    test('an unreadable session does not stop a full sign-out', () async {
+      final account = await container
+          .read(libreChatAccountsProvider)
+          .saveSignedIn(server: server, session: await signIn());
+      secure = _FlakySecureStore(await secure.readAll())
+        ..failSessionReads = true;
+      final sessions = await newContainer()
+          .read(libreChatAccountsProvider)
+          .sessionsForSignOut();
+      check(sessions.single.$1.id).equals(account.id);
+      check(sessions.single.$2).isNull();
+    });
+
+    test('a full sign-out that cannot forget the accounts still ends their '
+        'sessions on the server', () async {
+      await container
+          .read(libreChatAccountsProvider)
+          .saveSignedIn(server: server, session: await signIn());
+      final flaky = _FlakySecureStore(await secure.readAll());
+      secure = flaky;
+      final accounts = newContainer().read(libreChatAccountsProvider);
+      final sessions = await accounts.sessionsForSignOut();
+
+      flaky.failDeletes = true;
+      await check(accounts.forgetAfterSignOut(sessions)).throws<StateError>();
+      await pumpEventQueue();
+      check(
+        fake.requests.where((request) => request.path == '/api/auth/logout'),
+      ).length.equals(1);
+    });
+
+    test('choosing another LibreChat account starts new chat picks',
+        () async {
+      final accounts = container.read(libreChatAccountsProvider);
+      await accounts.saveSignedIn(server: server, session: await signIn());
+      container.listen(chatPicksSessionProvider, (_, _) {});
+      final before = container.read(chatPicksSessionProvider);
+
+      const other = LibreChatServer(baseUrl: 'https://other.example.com');
+      await accounts.saveSignedIn(server: other, session: await signIn(other));
+      check(
+        container.read(chatPicksSessionProvider),
+      ).not((it) => it.identicalTo(before));
     });
 
     test('a quick switch back opens once the old connection closed', () async {
