@@ -124,6 +124,7 @@ final class FakeLibreChatServer implements HttpClientAdapter {
     this.baseUrl = 'https://chat.example.com',
   }) : _clock = clock ?? DateTime.now {
     _registerAuthRoutes();
+    _registerConversationRoutes();
   }
 
   final DateTime Function() _clock;
@@ -147,6 +148,10 @@ final class FakeLibreChatServer implements HttpClientAdapter {
   /// Requests refused for a non-browser User-Agent.
   int violations = 0;
 
+  /// Called with each request before it is answered, to change what the
+  /// server holds mid-sequence.
+  void Function(FakeLibreChatRequest request)? onRequest;
+
   /// Calls to `/api/auth/refresh` that reached the session check.
   int refreshCalls = 0;
 
@@ -166,6 +171,46 @@ final class FakeLibreChatServer implements HttpClientAdapter {
     'googleLoginEnabled': false,
     'passwordResetEnabled': false,
   };
+
+  /// Conversations by id, as `GET /api/convos/:id` returns them.
+  final Map<String, Map<String, dynamic>> conversations =
+      <String, Map<String, dynamic>>{};
+
+  /// Each conversation's messages, as `GET /api/messages/:id` returns them.
+  final Map<String, List<Map<String, dynamic>>> messages =
+      <String, List<Map<String, dynamic>>>{};
+
+  /// Page size the conversation list uses when the request names none.
+  int defaultPageSize = 25;
+
+  /// Adds a conversation with [messageList]. [updatedAt] defaults to now.
+  Map<String, dynamic> addConversation(
+    String id, {
+    String title = 'New Chat',
+    DateTime? updatedAt,
+    bool pinned = false,
+    bool archived = false,
+    String endpoint = 'Ollama',
+    String? model = 'llama3.2',
+    List<Map<String, dynamic>> messageList = const [],
+  }) {
+    final time = (updatedAt ?? _clock()).toUtc().toIso8601String();
+    final conversation = <String, dynamic>{
+      'conversationId': id,
+      'title': title,
+      'endpoint': endpoint,
+      'model': ?model,
+      'pinned': pinned,
+      'isArchived': archived,
+      'createdAt': time,
+      'updatedAt': time,
+    };
+    conversations[id] = conversation;
+    messages[id] = [
+      for (final message in messageList) {...message, 'conversationId': id},
+    ];
+    return conversation;
+  }
 
   FakeLibreChatUser addUser({
     String email = 'dev@example.com',
@@ -253,6 +298,7 @@ final class FakeLibreChatServer implements HttpClientAdapter {
       options.data,
     );
     requests.add(request);
+    onRequest?.call(request);
 
     final basePath = Uri.parse(baseUrl).path;
     final path = uri.path.startsWith(basePath)
@@ -451,6 +497,120 @@ final class FakeLibreChatServer implements HttpClientAdapter {
         return FakeLibreChatResponse.text('Unauthorized', statusCode: 401);
       }
       return FakeLibreChatResponse.json(user.toJson());
+    });
+  }
+
+  FakeLibreChatResponse? _unauthorized(FakeLibreChatRequest request) =>
+      userFor(request) == null
+      ? FakeLibreChatResponse.text('Unauthorized', statusCode: 401)
+      : null;
+
+  void _registerConversationRoutes() {
+    on('GET', '/api/convos', (request, _) {
+      final refused = _unauthorized(request);
+      if (refused != null) return refused;
+      final query = request.uri.queryParameters;
+      final archived = query['isArchived'] == 'true';
+      final pinnedOnly = query['pinned'] == 'true';
+      final limit = int.tryParse(query['limit'] ?? '') ?? defaultPageSize;
+      final sorted =
+          conversations.values
+              .where(
+                (c) =>
+                    (c['isArchived'] == true) == archived &&
+                    (!pinnedOnly || c['pinned'] == true),
+              )
+              .toList()
+            ..sort(
+              (a, b) =>
+                  DateTime.parse(
+                    b['updatedAt'] as String,
+                  ).compareTo(DateTime.parse(a['updatedAt'] as String)),
+            );
+      final start = int.tryParse(
+        utf8.decode(base64.decode(query['cursor'] ?? 'MA==')),
+      )!;
+      final page = sorted.skip(start).take(limit).toList();
+      final next = start + limit < sorted.length
+          ? base64.encode(utf8.encode('${start + limit}'))
+          : null;
+      return FakeLibreChatResponse.json({
+        'conversations': page,
+        'nextCursor': next,
+      });
+    });
+
+    on('GET', '/api/convos/([^/]+)', (request, match) {
+      final refused = _unauthorized(request);
+      if (refused != null) return refused;
+      final conversation = conversations[match.group(1)];
+      return conversation == null
+          ? FakeLibreChatResponse.json({'message': 'Not found'}, statusCode: 404)
+          : FakeLibreChatResponse.json(conversation);
+    });
+
+    on('GET', '/api/messages/([^/]+)', (request, match) {
+      final refused = _unauthorized(request);
+      if (refused != null) return refused;
+      return FakeLibreChatResponse.json(messages[match.group(1)] ?? const []);
+    });
+
+    FakeLibreChatResponse envelopeWrite(
+      FakeLibreChatRequest request,
+      void Function(Map<String, dynamic> conversation, Map arg) apply,
+    ) {
+      final refused = _unauthorized(request);
+      if (refused != null) return refused;
+      final body = request.data;
+      final arg = body is Map && body['arg'] is Map ? body['arg'] as Map : {};
+      final conversation = conversations[arg['conversationId']];
+      if (conversation == null) {
+        return FakeLibreChatResponse.json({
+          'message': 'Conversation not found',
+        }, statusCode: 404);
+      }
+      apply(conversation, arg);
+      return FakeLibreChatResponse.json(conversation);
+    }
+
+    on(
+      'POST',
+      '/api/convos/update',
+      (request, _) => envelopeWrite(request, (conversation, arg) {
+        conversation['title'] = arg['title'];
+        conversation['updatedAt'] = _clock().toUtc().toIso8601String();
+      }),
+    );
+    // Pinning and archiving leave updatedAt alone, as LibreChat's do.
+    on(
+      'POST',
+      '/api/convos/pin',
+      (request, _) => envelopeWrite(
+        request,
+        (conversation, arg) => conversation['pinned'] = arg['pinned'],
+      ),
+    );
+    on(
+      'POST',
+      '/api/convos/archive',
+      (request, _) => envelopeWrite(
+        request,
+        (conversation, arg) => conversation['isArchived'] = arg['isArchived'],
+      ),
+    );
+    on('DELETE', '/api/convos', (request, _) {
+      final refused = _unauthorized(request);
+      if (refused != null) return refused;
+      final body = request.data;
+      final id = body is Map && body['arg'] is Map
+          ? (body['arg'] as Map)['conversationId']
+          : null;
+      final removed = conversations.remove(id);
+      messages.remove(id);
+      return FakeLibreChatResponse.json({
+        'acknowledged': true,
+        'deletedCount': removed == null ? 0 : 1,
+      });
     });
   }
 
