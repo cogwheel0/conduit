@@ -1025,6 +1025,37 @@ void main() {
       await send;
     });
 
+    test('an image loads with the live session cookie, renewing once when '
+        'refused', () async {
+      var refusals = 0;
+      fake.on('GET', '/images/(.+)', (request, match) {
+        // LibreChat checks the refresh cookie against the live session.
+        final refresh = request.cookies['refreshToken'];
+        if (refusals == 0 || !fake.refreshTokens.containsKey(refresh)) {
+          refusals++;
+          return FakeLibreChatResponse.json({
+            'message': 'Unauthorized',
+          }, statusCode: 401);
+        }
+        return FakeLibreChatResponse(
+          200,
+          contentType: 'image/png',
+          stream: Stream<Uint8List>.value(Uint8List.fromList([137, 80, 78])),
+        );
+      });
+
+      final fetch = container.read(libreChatImageFetcherProvider)!;
+      check(await fetch('/images/user1/f1.png')).deepEquals([137, 80, 78]);
+      check(refusals).equals(1);
+      final loads = fake.requests
+          .where((request) => request.path == '/images/user1/f1.png')
+          .toList();
+      check(loads).length.equals(2);
+      check(
+        loads.last.cookies['refreshToken'],
+      ).not((it) => it.equals(loads.first.cookies['refreshToken']));
+    });
+
     test('prompt groups become slash commands', () async {
       fake.on(
         'GET',
