@@ -9,9 +9,10 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/sync/primary_sync.dart';
+import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
-import 'package:conduit_core/sync/sync_engine.dart';
 
 part 'sync_triggers.g.dart';
 
@@ -65,7 +66,7 @@ class SyncTriggers extends _$SyncTriggers {
         _runEngineOperation(
           'drain-now',
           reason: 'online',
-          run: (engine) => engine.drainNow(),
+          run: (sync) => sync.drainNow(),
         );
       }
     });
@@ -82,7 +83,7 @@ class SyncTriggers extends _$SyncTriggers {
       _runEngineOperation(
         'drain-outbox',
         reason: 'active-conversation',
-        run: (engine) => engine.drainOutbox(),
+        run: (sync) => sync.drainOutbox(),
       );
     });
 
@@ -237,7 +238,7 @@ class SyncTriggers extends _$SyncTriggers {
   bool _requestPull(String reason) {
     Future<PullResult?> pull;
     try {
-      pull = ref.read(syncEngineProvider.notifier).requestPull(reason: reason);
+      pull = ref.read(primarySyncProvider).requestPull(reason: reason);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'engine-operation-failed',
@@ -266,11 +267,11 @@ class SyncTriggers extends _$SyncTriggers {
   void _runEngineOperation(
     String operation, {
     required String reason,
-    required Future<void> Function(SyncEngine engine) run,
+    required Future<void> Function(PrimarySync sync) run,
   }) {
     Future<void> future;
     try {
-      future = run(ref.read(syncEngineProvider.notifier));
+      future = run(ref.read(primarySyncProvider));
     } catch (error, stackTrace) {
       DebugLogger.error(
         'engine-operation-failed',
