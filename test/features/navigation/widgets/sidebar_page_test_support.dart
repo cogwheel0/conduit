@@ -44,6 +44,7 @@ import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -182,6 +183,8 @@ Widget sidebarTestBuildHarness({
   Widget? appearancePage,
   Widget? noteEditor,
   String? initialLocation,
+  // Applied after the rig's own, for what a test needs beyond them.
+  List<Override> extraOverrides = const [],
 }) {
   final availableTerminalServers =
       terminalServers ?? sidebarTestDefaultTerminalServers();
@@ -397,6 +400,7 @@ Widget sidebarTestBuildHarness({
         }
         return loadTerminalServers?.call() ?? availableTerminalServers;
       }),
+      ...extraOverrides,
     ],
     child: MaterialApp.router(
       theme: theme,

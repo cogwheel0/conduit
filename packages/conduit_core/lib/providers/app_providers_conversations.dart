@@ -101,13 +101,17 @@ class Conversations extends _$Conversations {
     // direct-local database is independent and remains available while signed
     // out or while switching servers.
     final repository = ref.watch(chatDatabaseRepositoryProvider);
+    // A LibreChat account owning the Chats tab lists its own database, which
+    // the repository holds only while that account is signed in.
+    final includeAccountDatabase =
+        includeOpenWebUi || repository.hasLibreChatDatabase;
     final authSessionEpoch = ref.watch(openWebUiAuthSessionEpochProvider);
     if (!identical(_paginationRepository, repository) ||
-        _paginationIncludesOpenWebUi != includeOpenWebUi ||
+        _paginationIncludesOpenWebUi != includeAccountDatabase ||
         !identical(_paginationAuthSessionEpoch, authSessionEpoch)) {
       _lastSuccessfulDatabaseProjection = null;
       _paginationRepository = repository;
-      _paginationIncludesOpenWebUi = includeOpenWebUi;
+      _paginationIncludesOpenWebUi = includeAccountDatabase;
       _paginationAuthSessionEpoch = authSessionEpoch;
       _regularChatLimit = _regularPageSize;
       _archivedChatLimit = 0;
@@ -123,7 +127,7 @@ class Conversations extends _$Conversations {
     // start to the FIRST narrow-projection emission. Numeric-only data (no chat
     // content) so nothing untrusted is logged.
     final coldStart = Stopwatch()..start();
-    final listStream = includeOpenWebUi
+    final listStream = includeAccountDatabase
         ? repository.watchMergedChatList(
             regularLimit: _regularChatLimit + 1,
             archivedLimit: _archivedChatLimit > 0 ? _archivedChatLimit + 1 : 0,
@@ -132,7 +136,7 @@ class Conversations extends _$Conversations {
             regularLimit: _regularChatLimit + 1,
             archivedLimit: _archivedChatLimit > 0 ? _archivedChatLimit + 1 : 0,
           );
-    final archivedCountStream = includeOpenWebUi
+    final archivedCountStream = includeAccountDatabase
         ? repository.watchMergedArchivedChatCount()
         : repository.watchDirectLocalArchivedChatCount();
     final archivedCountSubscription = archivedCountStream.listen(
@@ -384,7 +388,9 @@ class Conversations extends _$Conversations {
         : ref.read(appDatabaseProvider);
     final rawId = identity.rawId;
     if (db == null || isTemporaryChat(rawId)) return;
-    final locks = ref.read(chatLocksProvider);
+    final locks = storage == ChatStorageKind.libreChat
+        ? ref.read(libreChatChatLocksProvider)
+        : ref.read(chatLocksProvider);
     final folderConversationRefresh = ref.read(
       _folderConversationRefreshTickProvider.notifier,
     );
@@ -698,6 +704,9 @@ class Conversations extends _$Conversations {
   }
 
   void _writeEnvelopeStub(Conversation conversation) {
+    // A LibreChat chat's rows are written by its own sync and mutations, in
+    // its account's database; never here, and never to Open WebUI's.
+    if (isLibreChatConversation(conversation)) return;
     final directLocal = isDirectLocalConversation(conversation);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
@@ -758,6 +767,7 @@ class Conversations extends _$Conversations {
   }
 
   void _writeEnvelopeUpdate(Conversation conversation) {
+    if (isLibreChatConversation(conversation)) return;
     final directLocal = isDirectLocalConversation(conversation);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
