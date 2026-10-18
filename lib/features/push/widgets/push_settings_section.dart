@@ -44,11 +44,26 @@ class PushSettingsSection extends ConsumerWidget {
     );
     final android = Theme.of(context).platform == TargetPlatform.android;
     final available = push.available;
+    PushCoordinator coordinator() => ref.read(pushCoordinatorProvider.notifier);
+    // On while push can no longer work here (the distributor was removed,
+    // say), the switch still turns it off.
+    final switchable = available || push.enabled;
+    void toggle(bool value) => setPushEnabledFromSwitch(
+      coordinator(),
+      value,
+      onFailed: () {
+        if (!context.mounted) return;
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.errorMessage,
+          type: AdaptiveSnackBarType.warning,
+        );
+      },
+    );
     final showTargets = push.enabled && push.targets.isNotEmpty;
     final accounts = showTargets
         ? pushAccountEntries(ref)
         : const <String, OpenWebUiAccountEntry>{};
-    PushCoordinator coordinator() => ref.read(pushCoordinatorProvider.notifier);
 
     final String subtitle;
     if (available) {
@@ -62,19 +77,15 @@ class PushSettingsSection extends ConsumerWidget {
     final rows = <Widget>[
       UtilityRow(
         key: const Key('push-enabled'),
-        enabled: available,
+        enabled: switchable,
         title: l10n.pushEnabledTitle,
         subtitle: subtitle,
         toggled: push.enabled,
         trailing: AdaptiveSwitch(
           value: push.enabled,
-          onChanged: available
-              ? (value) => unawaited(coordinator().setEnabled(value))
-              : null,
+          onChanged: switchable ? toggle : null,
         ),
-        onTap: available
-            ? () => unawaited(coordinator().setEnabled(!push.enabled))
-            : null,
+        onTap: switchable ? () => toggle(!push.enabled) : null,
       ),
       if (!available && android)
         UtilityRow(

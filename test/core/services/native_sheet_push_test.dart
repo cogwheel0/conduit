@@ -389,6 +389,55 @@ void main() {
     expect(find.text('Needs your admin to set up'), findsOneWidget);
   });
 
+  testWidgets('a row for a target removed since opens the page alone', (
+    tester,
+  ) async {
+    final state = pushStateWith([
+      const PushTargetState(target: pushOwuiTarget, status: PushStatus.on),
+    ]);
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: state,
+      coordinator: FakePushCoordinator(state),
+    );
+
+    await native.control('push-target', pushHermesApiTarget.scope);
+
+    expect(native.pushed.single.path, Routes.notificationSettings);
+    expect(find.byKey(const Key('push-detail-diagnostics')), findsNothing);
+    expect(find.text('Push notifications'), findsNothing);
+  });
+
+  testWidgets('push that can no longer work here can still be turned off', (
+    tester,
+  ) async {
+    // The UnifiedPush distributor was removed while push was on.
+    final fake = FakePushCoordinator(
+      pushStateWith(const [], transports: const []),
+    );
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      push: fake.initial,
+      coordinator: fake,
+    );
+    await native.detailAppeared(_detail);
+    final row = native
+        .items(_detail)
+        .singleWhere((item) => item.id == 'push-enabled');
+    expect(row.kind, PlatformNativeSheetItemKind.toggle);
+    expect(row.value, isTrue);
+
+    await native.control('push-enabled', false);
+    expect(fake.calls, ['setEnabled false']);
+    final off = native
+        .items(_detail)
+        .singleWhere((item) => item.id == 'push-enabled');
+    // Off, it cannot be turned back on here.
+    expect(off.kind, PlatformNativeSheetItemKind.info);
+  });
+
   testWidgets('the scheduled tasks toggle is saved', (tester) async {
     final native = await _pumpApp(tester, advanced: false);
     await native.detailAppeared(_detail);

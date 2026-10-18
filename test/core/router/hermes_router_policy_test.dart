@@ -164,6 +164,9 @@ void main() {
         Routes.hermesSettings,
         Routes.hermesJobs,
         Routes.about,
+        // Device-level notifications and push cover Hermes and Direct.
+        Routes.notificationSettings,
+        Routes.pushPrivacy,
       ]) {
         check(isHermesOnlyAppLocation(location)).isTrue();
       }
@@ -172,7 +175,6 @@ void main() {
     test('does not expose OpenWebUI-only surfaces', () {
       for (final location in <String>[
         Routes.accountSettings,
-        Routes.notificationSettings,
         Routes.notes,
         Routes.channel,
         // Needs a usable Desktop Gateway; the redirect decides it.

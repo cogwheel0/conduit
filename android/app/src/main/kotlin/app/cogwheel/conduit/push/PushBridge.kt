@@ -193,12 +193,20 @@ class PushBridge(private val activity: MainActivity) : PushHostApi {
         )
     }
 
+    /**
+     * Dart claims before it posts and again, with the same id, right after,
+     * so iOS can remove a copy a push overtook. Here the second claim only
+     * answers false: the receiver shares this in-process ledger and never
+     * takes over a key the app claimed, so there is no copy to remove.
+     */
     override fun claimNotification(dedupKey: String, localNotificationId: String?): Boolean =
         PushRuntime.ledger(context).claim(dedupKey, localNotificationId)
 
     override fun cancelScope(scope: String) {
-        val localIds = PushRuntime.ledger(context).claimsFor(scope).mapNotNull { it.localNotificationId }
-        PushNotifier(context).cancelScope(scope, localIds)
+        val local = PushRuntime.ledger(context).claimsFor(scope).mapNotNull { claim ->
+            claim.localNotificationId?.toIntOrNull()?.let { id -> claim.key to id }
+        }
+        PushNotifier(context).cancelScope(scope, local)
     }
 
     override fun takeLaunchTap(): PlatformPushTap? = PushTaps.takeLaunchTap()

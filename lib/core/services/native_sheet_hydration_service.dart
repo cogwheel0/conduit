@@ -125,6 +125,7 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   showScheduledTasks: read(scheduledTasksEntryVisibleProvider),
   showPersonalConnections: read(personalConnectionsEntryVisibleProvider),
   showChatDataControls: read(chatDataControlsEntryVisibleProvider),
+  showNotificationsWithoutAccount: read(notificationsWithoutAccountProvider),
 );
 
 /// Whom the account card atop the native Settings root is for, and what it
@@ -1126,16 +1127,18 @@ class NativeSheetHydrationService {
             : NativeSheetItemKind.info,
         value: s.notificationChatEnabled,
       ),
-      NativeSheetItemConfig(
-        id: 'notification-channel',
-        title: l10n.notificationChannelTitle,
-        subtitle: l10n.notificationChannelDescription,
-        sfSymbol: 'number',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
-        value: s.notificationChannelEnabled,
-      ),
+      // Channels are Open WebUI's; without an account there are none.
+      if (_ref.read(openWebUiAccountAvailableProvider))
+        NativeSheetItemConfig(
+          id: 'notification-channel',
+          title: l10n.notificationChannelTitle,
+          subtitle: l10n.notificationChannelDescription,
+          sfSymbol: 'number',
+          kind: s.notificationsEnabled
+              ? NativeSheetItemKind.toggle
+              : NativeSheetItemKind.info,
+          value: s.notificationChannelEnabled,
+        ),
       NativeSheetItemConfig(
         id: 'notification-scheduled',
         title: l10n.notificationScheduledTitle,

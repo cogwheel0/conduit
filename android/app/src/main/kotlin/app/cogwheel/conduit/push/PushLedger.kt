@@ -42,6 +42,20 @@ class PushLedger internal constructor(
         return true
     }
 
+    /**
+     * Gives back a push's claim on [key] when its notification was not shown
+     * after all, so the message can still show later. A claim the app took
+     * for its own notification stays.
+     */
+    @Synchronized
+    fun release(key: String) {
+        val entries = load()
+        val claim = entries[key] ?: return
+        if (claim.localNotificationId != null) return
+        entries.remove(key)
+        persist(entries)
+    }
+
     /** Live claims whose key belongs to [scope]. */
     @Synchronized
     fun claimsFor(scope: String): List<Claim> {

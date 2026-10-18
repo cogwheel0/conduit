@@ -4195,7 +4195,7 @@
   "pushStatusCanInstall": "No configurado en este servidor",
   "pushStatusUpdateAvailable": "Activado · Actualización disponible",
   "pushStatusPluginsDisabled": "Las funciones están desactivadas en este servidor",
-  "pushStatusServerTooOldOpenWebUi": "Requiere Open WebUI 0.10 o posterior",
+  "pushStatusServerTooOldOpenWebUi": "Requiere Open WebUI 0.11 o posterior",
   "pushStatusServerTooOldHermes": "Requiere una versión más reciente de Hermes",
   "pushStatusNeedsHermesPlugin": "Requiere el plugin de Conduit en Hermes",
   "pushStatusRestartHermes": "Reinicia Hermes para terminar",
@@ -4276,7 +4276,7 @@
   "pushPrivacyServerTitle": "Tu servidor",
   "pushPrivacyServerBody": "Ya tiene tus chats. Para push guarda además la dirección push de este dispositivo, su clave pública, un ID de dispositivo aleatorio y una etiqueta como «iOS». Decide qué contiene una notificación: un título y una vista previa breve.",
   "pushPrivacyRelayTitle": "El relé de Conduit",
-  "pushPrivacyRelayBody": "Pasa las notificaciones cifradas a Apple o Google. Ve cuándo envía tu servidor y un tamaño redondeado, nunca títulos, texto, cuentas ni servidores. Es de código abierto y no guarda registros ni base de datos.",
+  "pushPrivacyRelayBody": "Pasa las notificaciones cifradas a Apple o Google. Ve la dirección IP de tu servidor, cuándo envía y un tamaño redondeado, pero nunca títulos, texto, cuentas ni el nombre o la URL de tu servidor. Es de código abierto y no guarda registros ni base de datos.",
   "pushPrivacyProvidersTitle": "Apple y Google",
   "pushPrivacyProvidersBody": "Entregan la notificación cifrada y no pueden leerla. Si no se puede descifrar, tu teléfono solo muestra «Nueva notificación».",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
@@ -4290,5 +4290,9 @@
   "hermesJobNotifyTitle": "Avisarme",
   "hermesJobNotifyDescription": "Enviar una notificación push cuando esta tarea entregue un resultado.",
   "pushAskAdminMessage": "¿Podrías configurar Conduit Push en nuestro servidor de Open WebUI? Permite a Conduit enviar notificaciones push con cifrado de extremo a extremo. En Panel de administración → Funciones, importa {url} y pon {functionId} como ID de la función. Guía: {guide}",
-  "pushExplainFailed": "Conduit lo volverá a intentar solo la próxima vez que lo abras, o puedes volver a intentarlo ahora."
+  "pushExplainFailed": "Conduit lo volverá a intentar solo la próxima vez que lo abras, o puedes volver a intentarlo ahora.",
+  "pushHermesCommandLatest": "Esto instala la versión publicada más reciente del plugin.",
+  "hermesJobCreatedNotifyFailed": "Tarea creada, pero no se pudieron activar sus notificaciones.",
+  "hermesJobUpdatedNotifyFailed": "Tarea guardada, pero no se pudieron cambiar sus notificaciones.",
+  "hermesJobNotifyNeedsScheduled": "Activa Tareas programadas en Notificaciones para usar esto."
 }

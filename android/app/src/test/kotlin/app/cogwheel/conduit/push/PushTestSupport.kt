@@ -69,8 +69,18 @@ internal object TestWebPush {
 internal class FakeStoreCipher : PushStoreCipher {
     var failOpen: Exception? = null
 
-    override fun seal(plaintext: ByteArray): ByteArray =
-        byteArrayOf(0x7f) + plaintext.map { (it.toInt() xor 0x5a).toByte() }.toByteArray()
+    /** Thrown by the next seal only. */
+    var failNextSeal: Exception? = null
+    var resets = 0
+
+    override fun seal(plaintext: ByteArray): ByteArray {
+        failNextSeal?.let { failNextSeal = null; throw it }
+        return byteArrayOf(0x7f) + plaintext.map { (it.toInt() xor 0x5a).toByte() }.toByteArray()
+    }
+
+    override fun reset() {
+        resets++
+    }
 
     override fun open(sealed: ByteArray): ByteArray {
         failOpen?.let { throw it }

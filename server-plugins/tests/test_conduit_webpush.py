@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -112,11 +113,85 @@ def test_preview_cleaning_is_bounded():
         assert "```" not in case["expected"]
 
 
+MEGABYTE = 1_000_000
+# Far above what linear cleaning takes, far below what the quadratic patterns
+# took (25 KB of "[" took 1.3 s).
+FAST_ENOUGH_S = 0.25
+
+PATHOLOGICAL = {
+    "brackets": "[" * MEGABYTE,
+    "images": "![" * (MEGABYTE // 2),
+    "link_targets": "[a](" * (MEGABYTE // 4),
+    "nested_targets": "[a](x(" * (MEGABYTE // 6),
+    "details": "<details>" * (MEGABYTE // 9),
+    "tags": "<a " * (MEGABYTE // 3),
+    "fences": "\n```" * (MEGABYTE // 4),
+    "whitespace": " " * MEGABYTE,
+}
+
+
+def _elapsed(fn, *args):
+    start = time.perf_counter()
+    fn(*args)
+    return time.perf_counter() - start
+
+
+@pytest.mark.parametrize("name", sorted(PATHOLOGICAL))
+def test_preview_cleaning_of_a_huge_input_is_fast(name):
+    text = PATHOLOGICAL[name]
+    assert _elapsed(lambda: cp.build("reply", "owui", ids={}, title=text, body=text, dedup_key="d")) < FAST_ENOUGH_S
+
+
+@pytest.mark.parametrize("pattern", ["_IMAGE", "_LINK"])
+@pytest.mark.parametrize("name", ["brackets", "images", "link_targets", "nested_targets"])
+def test_link_patterns_are_linear_without_the_input_limit(pattern, name):
+    assert _elapsed(getattr(cp, pattern).sub, "", PATHOLOGICAL[name]) < FAST_ENOUGH_S
+
+
+def test_preview_cleaning_reads_only_the_start_of_a_long_text():
+    assert cp.clean_text("word " * 2000) == ("word " * 800).strip() + cp.ELLIPSIS
+    assert cp.clean_text("x" * cp.CLEAN_INPUT_LIMIT) == "x" * cp.CLEAN_INPUT_LIMIT
+    # A reasoning block the limit cuts open is dropped, never shown.
+    for tag in ("details", "think", "THINKING"):
+        cut_open = "Answer first. <%s>" % tag + "secret reasoning " * 400 + "</%s> More." % tag
+        assert cp.clean_text(cut_open) == "Answer first." + cp.ELLIPSIS
+    assert cp.clean_text("<think>" + "secret " * 1000) == ""
+    # Below the limit an unclosed tag is just markup, as before.
+    assert cp.clean_text("Use the <details> element.") == "Use the element."
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Answer.<think>secret reasoning", "Answer."),
+    ("<think>secret reasoning", ""),
+    ("<THINKING>plan</THINKING>Visible", "Visible"),
+    ("<details><summary>Tool</summary><details>inner</details>secret</details>Visible", "Visible"),
+    ('<details type="reasoning" done="false">\n<summary>Thinking…</summary>\nsecret', ""),
+    ("<|begin_of_thought|>plan<|end_of_thought|><|begin_of_solution|>Answer<|end_of_solution|>", "Answer"),
+    ("<|BEGIN_OF_THOUGHT|>plan<|END_OF_THOUGHT|><|Begin_Of_Solution|>Answer<|END_OF_SOLUTION|>", "Answer"),
+    ("◁THINK▷plan◁/THINK▷Answer", "Answer"),
+    ("◁think▷plan◁/think▷Answer", "Answer"),
+    ("A stray </think> close", "A stray close"),
+    ("No markup at all", "No markup at all"),
+])
+def test_strip_hidden_counts_nesting_and_drops_an_open_block(text, expected):
+    assert cp.clean_text(cp.strip_hidden(text)) == expected
+
+
+def test_links_with_parentheses_in_the_target():
+    assert cp.clean_text("See [Bracket](https://en.wikipedia.org/wiki/Bracket_(disambiguation)) now") == (
+        "See Bracket now"
+    )
+    assert cp.clean_text('A [titled](https://x.y "Title") link and ![](https://x.y/p.png)') == "A titled link and"
+
+
 def test_build_validates_and_caps():
     with pytest.raises(ValueError):
         cp.build("poke", "owui", ids={}, title="", body="", dedup_key="x")
     with pytest.raises(ValueError):
         cp.build("reply", "telegram", ids={}, title="", body="", dedup_key="x")
+    for dedup_key in ("", None, 7):
+        with pytest.raises(ValueError):
+            cp.build("reply", "owui", ids={}, title="", body="", dedup_key=dedup_key)
     built = cp.build(
         "channel", "owui", ids={"channel": 9, "msg": None, "user": "drop"},
         title="t" * 300, body="b" * 900, author="a" * 99, dedup_key="channel:9:1", ts=5,

@@ -37,6 +37,82 @@ void main() {
     }
   });
 
+  group('a huge input', () {
+    const megabyte = 1000000;
+    final pathological = {
+      'brackets': '[' * megabyte,
+      'images': '![' * (megabyte ~/ 2),
+      'link targets': '[a](' * (megabyte ~/ 4),
+      'nested targets': '[a](x(' * (megabyte ~/ 6),
+      'details': '<details>' * (megabyte ~/ 9),
+      'tags': '<a ' * (megabyte ~/ 3),
+      'fences': '\n```' * (megabyte ~/ 4),
+      'whitespace': ' ' * megabyte,
+    };
+    for (final MapEntry(key: name, value: text) in pathological.entries) {
+      test('of $name is cleaned fast', () {
+        final watch = Stopwatch()..start();
+        notificationPreviewText(text);
+        check(watch.elapsed).isLessThan(const Duration(milliseconds: 500));
+      });
+    }
+
+    test('of unclosed links takes linear time even without the cut', () {
+      for (final pattern in [
+        notificationImagePattern,
+        notificationLinkPattern,
+      ]) {
+        for (final name in [
+          'brackets',
+          'images',
+          'link targets',
+          'nested targets',
+        ]) {
+          final text = pathological[name]!;
+          final watch = Stopwatch()..start();
+          text.replaceAll(pattern, '');
+          check(because: '${pattern.pattern} $name', watch.elapsed)
+              .isLessThan(const Duration(milliseconds: 500));
+        }
+      }
+    });
+  });
+
+  test('only the start of a long text is read', () {
+    check(cleanNotificationText('word ' * 2000))
+        .equals('${('word ' * 800).trim()}…');
+    check(cleanNotificationText('x' * notificationCleanInputLimit))
+        .equals('x' * notificationCleanInputLimit);
+    // Counted in code points, as the server counts.
+    check(cleanNotificationText('🦊' * (notificationCleanInputLimit + 1)))
+        .equals('${'🦊' * notificationCleanInputLimit}…');
+    // A reasoning block the limit cuts open is dropped, never shown.
+    for (final tag in ['details', 'think', 'THINKING']) {
+      final cutOpen =
+          'Answer first. <$tag>${'secret reasoning ' * 400}</$tag> More.';
+      check(because: tag, cleanNotificationText(cutOpen))
+          .equals('Answer first.…');
+    }
+    check(cleanNotificationText('<think>${'secret ' * 1000}')).equals('');
+    // Below the limit an unclosed tag is just markup, as before.
+    check(cleanNotificationText('Use the <details> element.'))
+        .equals('Use the element.');
+  });
+
+  test('a link target may hold one pair of parentheses', () {
+    check(
+      cleanNotificationText(
+        'See [Bracket](https://en.wikipedia.org/wiki/Bracket_(disambiguation))'
+        ' now',
+      ),
+    ).equals('See Bracket now');
+    check(
+      cleanNotificationText(
+        'A [titled](https://x.y "Title") link and ![](https://x.y/p.png)',
+      ),
+    ).equals('A titled link and');
+  });
+
   test('a cut never splits a surrogate pair', () {
     final clipped = clipNotificationText('🦊' * 10, 5);
     check(clipped).equals('🦊🦊🦊🦊…');

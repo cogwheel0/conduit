@@ -3,6 +3,7 @@ import Darwin
 import Flutter
 import ImageIO
 import UIKit
+import UserNotifications
 import XCTest
 @testable import Runner
 
@@ -16,6 +17,15 @@ class RunnerTests: XCTestCase {
     // must still satisfy that cast.
     let delegate: AnyObject = AppDelegate()
     XCTAssertNotNil(delegate as? NativeSttCallKitAppDelegate)
+  }
+
+  func testAForegroundPushDartDoesNotTakeKeepsTheExtensionsSound() {
+    let silent = UNMutableNotificationContent()
+    XCTAssertEqual(PushBridge.fallbackPresentation(for: silent), [.banner, .list])
+
+    let sounding = UNMutableNotificationContent()
+    sounding.sound = .default
+    XCTAssertEqual(PushBridge.fallbackPresentation(for: sounding), [.banner, .list, .sound])
   }
 
   func testPccSnapshotDeltaEmitsOnlyNewContent() throws {

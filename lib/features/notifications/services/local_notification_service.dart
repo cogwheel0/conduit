@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/utils/current_localizations.dart';
+import '../../../l10n/app_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -97,7 +98,8 @@ class NotificationTap {
 /// owns its own `conduit_messages` channel and never requests permission at
 /// init — permission is requested only when the user opts in.
 class LocalNotificationService {
-  LocalNotificationService();
+  LocalNotificationService({DateTime Function() now = DateTime.now})
+    : _idCounter = now().millisecondsSinceEpoch & 0x7fffffff;
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -109,7 +111,13 @@ class LocalNotificationService {
   /// Monotonic OS-notification id. Using a counter (rather than a hash of the
   /// dedup key) avoids 31-bit hash collisions silently replacing a notification
   /// in the drawer. De-duplication is handled upstream by the router.
-  int _idCounter = 0;
+  ///
+  /// It starts at the launch time in milliseconds (31 bits, so it wraps about
+  /// every 24.8 days), not at 0, so ids stay unique across launches: the iOS
+  /// push extension removes the app's notification by the id the shared
+  /// ledger keeps for 3 days, and on iOS a reused id replaces the older
+  /// notification under it.
+  int _idCounter;
 
   /// The id the next notification posts with, handed out ahead of [show] so
   /// it can be claimed under (see `NotificationClaim`).
@@ -267,11 +275,7 @@ class LocalNotificationService {
     final title = notification.title.isNotEmpty
         ? notification.title
         : l10n.notificationDefaultTitle;
-    final body =
-        notification.body.isEmpty &&
-            notification.kind == NotificationKind.replyFailed
-        ? l10n.notificationReplyFailedBody
-        : notification.body;
+    final body = notificationDisplayBody(notification, l10n);
 
     final androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -287,7 +291,7 @@ class LocalNotificationService {
       presentAlert: true,
       presentBadge: true,
       presentSound: playSound,
-      threadIdentifier: notification.group,
+      threadIdentifier: notificationThreadIdentifier(notification),
     );
 
     try {
@@ -320,8 +324,8 @@ class LocalNotificationService {
 
   /// Clears the posted notifications of one account or connection ([scope],
   /// see [NotificationScope]), leaving every other one in place. Notifications
-  /// posted before they carried a scope go too: which account they belong to
-  /// is no longer known.
+  /// posted before they carried a scope go too, where they can still be told
+  /// apart (iOS): which account they belong to is no longer known.
   Future<void> cancelScope(String scope) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     if (!_initialized) await initialize();
@@ -349,10 +353,17 @@ class LocalNotificationService {
     String scope,
   ) => [
     for (final notification in active)
-      if (notification.id != null)
-        if (NotificationTap.tryDecode(notification.payload) case final tap?)
-          if (tap.scope == null || tap.scope == scope) notification,
+      if (notification.id != null && _isInScope(notification, scope))
+        notification,
   ];
+
+  static bool _isInScope(ActiveNotification notification, String scope) {
+    final tap = NotificationTap.tryDecode(notification.payload);
+    if (tap != null) return tap.scope == null || tap.scope == scope;
+    // Android lists posted notifications without their payload. Their tag,
+    // the dedup key [show] posts with, starts with the scope.
+    return notification.tag?.startsWith('$scope|') ?? false;
+  }
 
   void dispose() {
     _taps.close();
@@ -364,4 +375,28 @@ LocalNotificationService localNotificationService(Ref ref) {
   final service = LocalNotificationService();
   ref.onDispose(service.dispose);
   return service;
+}
+
+/// The text a notification is shown with: its body, or for a failed reply
+/// without one, that the reply failed. The system notification and the
+/// in-app banner both say it.
+String notificationDisplayBody(
+  AppNotification notification,
+  AppLocalizations l10n,
+) =>
+    notification.body.isEmpty &&
+        notification.kind == NotificationKind.replyFailed
+    ? l10n.notificationReplyFailedBody
+    : notification.body;
+
+/// The iOS thread a notification is listed under: its group, scoped to the
+/// account that posted it, the same way the push extension builds it, so a
+/// local notification and a push for the same chat share one thread and two
+/// accounts never share one.
+@visibleForTesting
+String notificationThreadIdentifier(AppNotification notification) {
+  final group = notification.group;
+  return group == null || group.isEmpty
+      ? notification.scope
+      : '${notification.scope}|$group';
 }

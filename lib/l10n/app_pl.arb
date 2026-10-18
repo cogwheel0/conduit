@@ -7756,7 +7756,7 @@
   "pushStatusCanInstall": "Nieskonfigurowane na tym serwerze",
   "pushStatusUpdateAvailable": "Włączone · Dostępna aktualizacja",
   "pushStatusPluginsDisabled": "Funkcje są wyłączone na tym serwerze",
-  "pushStatusServerTooOldOpenWebUi": "Wymaga Open WebUI 0.10 lub nowszego",
+  "pushStatusServerTooOldOpenWebUi": "Wymaga Open WebUI 0.11 lub nowszego",
   "pushStatusServerTooOldHermes": "Wymaga nowszej wersji Hermes",
   "pushStatusNeedsHermesPlugin": "Wymaga wtyczki Conduit w Hermes",
   "pushStatusRestartHermes": "Uruchom ponownie Hermes, aby dokończyć",
@@ -7837,7 +7837,7 @@
   "pushPrivacyServerTitle": "Twój serwer",
   "pushPrivacyServerBody": "Ma już Twoje czaty. Na potrzeby push przechowuje też adres push tego urządzenia, jego klucz publiczny, losowy identyfikator urządzenia i etykietę, np. „iOS”. To on decyduje, co trafia do powiadomienia: tytuł i krótki podgląd.",
   "pushPrivacyRelayTitle": "Przekaźnik Conduit",
-  "pushPrivacyRelayBody": "Przekazuje zaszyfrowane powiadomienia do Apple lub Google. Widzi, kiedy Twój serwer wysyła, i zaokrąglony rozmiar, nigdy tytuły, tekst, konta ani serwery. Jest open source i nie prowadzi logów ani bazy danych.",
+  "pushPrivacyRelayBody": "Przekazuje zaszyfrowane powiadomienia do Apple lub Google. Widzi adres IP Twojego serwera, kiedy wysyła, i zaokrąglony rozmiar, nigdy tytuły, tekst, konta ani nazwę czy adres URL Twojego serwera. Jest open source i nie prowadzi logów ani bazy danych.",
   "pushPrivacyProvidersTitle": "Apple i Google",
   "pushPrivacyProvidersBody": "Dostarczają zaszyfrowane powiadomienie i nie mogą go odczytać. Jeśli nie da się go odszyfrować, telefon pokaże tylko „Nowe powiadomienie”.",
   "pushPrivacyUnifiedPushTitle": "UnifiedPush",
@@ -7867,5 +7867,9 @@
       }
     }
   },
-  "pushExplainFailed": "Conduit spróbuje ponownie sam przy następnym otwarciu, albo możesz spróbować ponownie teraz."
+  "pushExplainFailed": "Conduit spróbuje ponownie sam przy następnym otwarciu, albo możesz spróbować ponownie teraz.",
+  "pushHermesCommandLatest": "To polecenie instaluje najnowszą opublikowaną wersję wtyczki.",
+  "hermesJobCreatedNotifyFailed": "Utworzono zadanie, ale nie udało się włączyć dla niego powiadomień.",
+  "hermesJobUpdatedNotifyFailed": "Zapisano zadanie, ale nie udało się zmienić jego powiadomień.",
+  "hermesJobNotifyNeedsScheduled": "Aby z tego korzystać, włącz Zaplanowane zadania w Powiadomieniach."
 }
