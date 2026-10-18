@@ -4355,5 +4355,19 @@
   "terminalPortPreviewLoadFailed": "无法加载此页面。",
   "modelMenuAllModels": "所有模型…",
   "citationPreviewOpen": "打开",
-  "workspacePromptHistoryDiffTooLarge": "这些版本过长，无法比较。"
+  "workspacePromptHistoryDiffTooLarge": "这些版本过长，无法比较。",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "测试版",
+  "libreChatChooserSubtitle": "登录你的 LibreChat 服务器，同步聊天、智能体等。",
+  "libreChatAddAccount": "添加 LibreChat 账户",
+  "libreChatAddAccountMessage": "输入你的 LibreChat 服务器地址。",
+  "libreChatInvalidAddress": "输入服务器地址，例如 chat.example.com。",
+  "libreChatUnreachable": "无法连接到服务器。请检查地址和网络连接。",
+  "libreChatNotLibreChat": "此服务器不是 LibreChat。请检查地址。",
+  "libreChatIsOpenWebUi": "这是 Open WebUI 服务器。请在 Open WebUI 标签页中添加。",
+  "libreChatPasswordSignInOff": "此服务器仅允许单点登录。",
+  "libreChatGoogleUnsupported": "Google 不允许在应用内登录。请使用其他方式登录。",
+  "libreChatSsoUnfinished": "登录未完成。请重试。",
+  "libreChatChangeServer": "使用其他服务器",
+  "libreChatSessionEnded": "你在 {server} 上的会话已结束。请重新登录。"
 }

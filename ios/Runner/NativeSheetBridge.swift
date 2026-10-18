@@ -1183,6 +1183,8 @@ func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
         // in a sheet of its own, which cannot present over this one.
         || actionId == "account-switch" || actionId == "account-add"
         || actionId == "account-sign-out" || actionId == "account-direct-edit"
+        || actionId == "account-librechat-use"
+        || actionId == "account-librechat-sign-out"
 }
 
 final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {

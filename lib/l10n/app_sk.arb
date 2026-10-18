@@ -6278,5 +6278,19 @@
   "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať.",
   "modelMenuAllModels": "Všetky modely…",
   "citationPreviewOpen": "Otvoriť",
-  "workspacePromptHistoryDiffTooLarge": "Tieto verzie sú príliš dlhé na porovnanie."
+  "workspacePromptHistoryDiffTooLarge": "Tieto verzie sú príliš dlhé na porovnanie.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Prihláste sa na svoj server LibreChat a synchronizujte chaty, agentov a ďalšie.",
+  "libreChatAddAccount": "Pridať účet LibreChat",
+  "libreChatAddAccountMessage": "Zadajte adresu svojho servera LibreChat.",
+  "libreChatInvalidAddress": "Zadajte adresu servera, napríklad chat.example.com.",
+  "libreChatUnreachable": "Server sa nepodarilo kontaktovať. Skontrolujte adresu a pripojenie.",
+  "libreChatNotLibreChat": "Tento server nie je LibreChat. Skontrolujte adresu.",
+  "libreChatIsOpenWebUi": "Toto je server Open WebUI. Pridajte ho na karte Open WebUI.",
+  "libreChatPasswordSignInOff": "Tento server povoľuje iba jednotné prihlásenie (SSO).",
+  "libreChatGoogleUnsupported": "Google nepovoľuje prihlásenie v aplikáciách. Prihláste sa iným spôsobom.",
+  "libreChatSsoUnfinished": "Prihlásenie sa nedokončilo. Skúste to znova.",
+  "libreChatChangeServer": "Použiť iný server",
+  "libreChatSessionEnded": "Vaša relácia na {server} sa skončila. Prihláste sa znova."
 }

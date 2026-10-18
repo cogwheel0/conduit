@@ -44,17 +44,41 @@ final class LibreChatRegistryStore {
   });
 
   /// The session store of account [accountId].
-  LibreChatSessionStore sessionStore(String accountId) =>
-      _GatedSessionStore(SecureLibreChatSessionStore(_store, accountId), this);
+  LibreChatSessionStore sessionStore(String accountId) => _GatedSessionStore(
+    SecureLibreChatSessionStore(_store, accountId),
+    this,
+    accountId,
+    _signOuts[accountId] ?? 0,
+  );
+
+  /// How many times each account was signed out in this run. A store handed
+  /// out before one of them writes nothing after it.
+  final Map<String, int> _signOuts = <String, int>{};
+
+  /// Before account [accountId] is signed out: refuses session writes from
+  /// every store handed out for it so far -- a session switched away from
+  /// can still be saving a renewal or a cookie -- and waits for those already
+  /// saving, so none lands after the clear. A store asked for after this
+  /// writes as usual, for a new sign-in.
+  Future<void> retireSessionStores(String accountId) async {
+    _signOuts[accountId] = (_signOuts[accountId] ?? 0) + 1;
+    await Future.wait(_sessionWrites.toList(growable: false));
+  }
 
   bool _sessionWritesBlocked = false;
   final Set<Future<void>> _sessionWrites = <Future<void>>{};
+
+  /// Full sign-outs begun in this run. A save that waited across one would
+  /// put back what it cleared.
+  int get clears => _clears;
+  int _clears = 0;
 
   /// Before a full sign-out clears storage: refuses every session write from
   /// now on and waits for those already saving, so none lands after the
   /// clear -- a sign-in finishing, or a live session saving a renewal.
   Future<void> blockSessionWrites() async {
     _sessionWritesBlocked = true;
+    _clears++;
     await Future.wait(_sessionWrites.toList(growable: false));
   }
 
@@ -77,10 +101,19 @@ final class LibreChatRegistryStore {
 /// Session writes that [LibreChatRegistryStore.blockSessionWrites] can stop
 /// and wait for.
 final class _GatedSessionStore implements LibreChatSessionStore {
-  _GatedSessionStore(this._inner, this._owner);
+  _GatedSessionStore(
+    this._inner,
+    this._owner,
+    this._accountId,
+    this._signOuts,
+  );
 
   final LibreChatSessionStore _inner;
   final LibreChatRegistryStore _owner;
+  final String _accountId;
+
+  /// The account's sign-outs when this store was handed out.
+  final int _signOuts;
 
   @override
   Future<LibreChatSession?> read() => _inner.read();
@@ -89,6 +122,9 @@ final class _GatedSessionStore implements LibreChatSessionStore {
   Future<void> write(LibreChatSession session) {
     if (_owner._sessionWritesBlocked) {
       return Future.error(StateError('LibreChat accounts are being cleared.'));
+    }
+    if ((_owner._signOuts[_accountId] ?? 0) != _signOuts) {
+      return Future.error(StateError('This LibreChat account signed out.'));
     }
     final write = _inner.write(session);
     final settled = write.then<void>((_) {}, onError: (Object _) {});

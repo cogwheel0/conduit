@@ -8,6 +8,7 @@ import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_s
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_memory.dart';
@@ -341,6 +342,10 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
   required List<DirectConnectionProfile>? directProfiles,
   bool appleOnDevice = false,
   bool applePcc = false,
+  bool libreChatEnabled = false,
+  List<LibreChatAccount> libreChatAccounts = const [],
+  String? libreChatInChargeId,
+  bool libreChatInChargeSignedIn = true,
 }) {
   final byServer = <String, List<OpenWebUiAccountEntry>>{};
   for (final entry in accounts ?? const <OpenWebUiAccountEntry>[]) {
@@ -396,6 +401,58 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
               for (final entry in group) _nativeAccountItem(entry, l10n),
             ],
           ),
+      if (libreChatEnabled || libreChatAccounts.isNotEmpty)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'accounts-librechat',
+              title: l10n.libreChatTitle,
+              subtitle: l10n.libreChatBetaLabel,
+              sfSymbol: 'bubble.left.and.bubble.right',
+              kind: NativeSheetItemKind.info,
+            ),
+            for (final account in libreChatAccounts)
+              _nativeSwitchItem(
+                id: '$nativeLibreChatUseActionId:${account.id}',
+                title: account.displayName,
+                subtitle: [
+                  if (account.id == libreChatInChargeId &&
+                      !libreChatInChargeSignedIn)
+                    l10n.accountsSignedOut,
+                  account.serverTitle ?? account.host,
+                ].join(' · '),
+                avatarName: account.displayName,
+                checked: account.id == libreChatInChargeId,
+                // The account in charge, signed out, is switched to again,
+                // which opens its sign-in.
+                inUse:
+                    account.id == libreChatInChargeId &&
+                    libreChatInChargeSignedIn,
+                actionId: nativeLibreChatUseActionId,
+                actionValue: account.id,
+              ),
+            _nativeAddItem(
+              'accounts-librechat-add',
+              title: l10n.libreChatAddAccount,
+              kind: 'libreChat',
+            ),
+            // Signs out of the account in charge, after asking; the next
+            // LibreChat account, else Open WebUI, takes over.
+            if (libreChatAccounts.any(
+              (account) => account.id == libreChatInChargeId,
+            ))
+              NativeSheetItemConfig(
+                id: nativeLibreChatSignOutActionId,
+                title: l10n.signOut,
+                sfSymbol: 'rectangle.portrait.and.arrow.right',
+                destructive: true,
+                dismissOnSelect: true,
+                showsDisclosure: false,
+                actionId: nativeLibreChatSignOutActionId,
+                actionValue: libreChatInChargeId,
+              ),
+          ],
+        ),
       NativeSheetSectionConfig(
         items: [
           NativeSheetItemConfig(
@@ -481,8 +538,9 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
             ),
         ],
       ),
-      // With one account, Settings' Sign out already signs out of it.
-      if ((accounts?.length ?? 0) > 1)
+      // With one account, Settings' Sign out (or LibreChat's) already signs
+      // out of it.
+      if ((accounts?.length ?? 0) + libreChatAccounts.length > 1)
         NativeSheetSectionConfig(
           items: [_nativeSignOutItem(l10n, title: l10n.accountsSignOutAll)],
         ),
@@ -603,13 +661,16 @@ const nativeSignOutActionId = 'sign-out';
 
 /// Native Settings rows for accounts and connections. A row that acts on
 /// one carries its id as its action value; an add row, the account sheet's
-/// tab for its kind (`openWebUi`, `hermes`, `direct`), or true for the first.
+/// tab for its kind (`openWebUi`, `libreChat`, `hermes`, `direct`), or true
+/// for the first.
 const nativeAccountSwitchActionId = 'account-switch';
 const nativeAccountAddActionId = 'account-add';
 const nativeAccountSignOutActionId = 'account-sign-out';
 const nativeAccountServerActionId = 'account-server';
 const nativeHermesUseActionId = 'account-hermes-use';
 const nativeDirectEditActionId = 'account-direct-edit';
+const nativeLibreChatUseActionId = 'account-librechat-use';
+const nativeLibreChatSignOutActionId = 'account-librechat-sign-out';
 
 /// The donation rows at the bottom of the native Settings root.
 List<NativeSheetItemConfig> buildNativeSupportItems(AppLocalizations l10n) => [

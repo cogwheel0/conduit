@@ -884,6 +884,7 @@ class RunnerTests: XCTestCase {
     // opens under the sheet.
     for actionId in [
       "account-switch", "account-add", "account-sign-out", "account-direct-edit",
+      "account-librechat-use", "account-librechat-sign-out",
     ] {
       XCTAssertTrue(
         nativeSheetSelectionWaitsForDismiss(actionId: actionId),
