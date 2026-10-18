@@ -1088,6 +1088,7 @@
   "saveChat": "儲存聊天",
   "temporaryChatByDefault": "預設暫時聊天",
   "temporaryChatByDefaultDescription": "新聊天不會儲存到歷史記錄，除非您選擇儲存",
+  "libreChatTemporaryChatOff": "LibreChat 會儲存所有聊天。請關閉暫時聊天後再傳送。",
   "advancedFeatures": "進階",
   "advancedFeaturesDescription": "顯示進階使用者的工具與設定。",
   "chatSettingsTitle": "聊天設定",

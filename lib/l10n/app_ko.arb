@@ -866,6 +866,7 @@
   "saveChat": "채팅 저장",
   "temporaryChatByDefault": "기본적으로 임시 채팅",
   "temporaryChatByDefaultDescription": "새 채팅은 저장하지 않으면 기록에 남지 않습니다",
+  "libreChatTemporaryChatOff": "LibreChat는 모든 채팅을 저장합니다. 보내려면 임시 채팅을 끄세요.",
   "advancedFeatures": "고급",
   "advancedFeaturesDescription": "고급 사용자용 도구와 설정을 표시합니다.",
   "chatSettingsTitle": "채팅 설정",

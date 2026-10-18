@@ -2402,6 +2402,7 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "libreChatTemporaryChatOff": "LibreChat ukladá každý chat. Na odoslanie vypnite dočasný chat.",
   "advancedFeatures": "Pokročilé",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."

@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show LibreChatReplyRunningException;
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -1048,6 +1050,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     // send skipped its outbox drain and the reply waited for the next
     // five-minute sync. The scope's container outlives the bubble.
     final container = ProviderScope.containerOf(context, listen: false);
+    // A LibreChat reply still running refuses the edit before anything
+    // changes: the editor stays open with it, to send once the reply is done.
+    var keepEditing = false;
     try {
       final messageId = widget.message.id?.toString();
       if (messageId == null || messageId.isEmpty) {
@@ -1060,6 +1065,16 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         messageId: messageId,
         newText: newText,
       );
+    } on LibreChatReplyRunningException {
+      keepEditing = true;
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(
+            context,
+          )!.chatDataControlsResponseRunning,
+        );
+      }
     } catch (error, stackTrace) {
       DebugLogger.error(
         'inline-edit-failed',
@@ -1075,7 +1090,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted && !keepEditing) {
         setState(() {
           _isEditing = false;
         });

@@ -1090,6 +1090,7 @@
   "saveChat": "Chat speichern",
   "temporaryChatByDefault": "Standardmäßig temporärer Chat",
   "temporaryChatByDefaultDescription": "Neue Chats werden nicht im Verlauf gespeichert, es sei denn, du speicherst sie manuell",
+  "libreChatTemporaryChatOff": "LibreChat speichert jeden Chat. Schalte den temporären Chat aus, um zu senden.",
   "advancedFeatures": "Erweitert",
   "advancedFeaturesDescription": "Werkzeuge und Einstellungen für Fortgeschrittene anzeigen.",
   "chatSettingsTitle": "Chat-Einstellungen",

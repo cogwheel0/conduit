@@ -1088,6 +1088,7 @@
   "saveChat": "Chat opslaan",
   "temporaryChatByDefault": "Standaard tijdelijke chat",
   "temporaryChatByDefaultDescription": "Nieuwe chats worden niet opgeslagen in de geschiedenis, tenzij je ervoor kiest ze op te slaan",
+  "libreChatTemporaryChatOff": "LibreChat bewaart elke chat. Zet tijdelijke chat uit om te verzenden.",
   "advancedFeatures": "Geavanceerd",
   "advancedFeaturesDescription": "Toon tools en instellingen voor gevorderde gebruikers.",
   "chatSettingsTitle": "Chatinstellingen",

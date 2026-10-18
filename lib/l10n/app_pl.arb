@@ -2671,6 +2671,7 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "libreChatTemporaryChatOff": "LibreChat zapisuje każdy czat. Wyłącz czat tymczasowy, aby wysłać.",
   "advancedFeatures": "Zaawansowane",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."

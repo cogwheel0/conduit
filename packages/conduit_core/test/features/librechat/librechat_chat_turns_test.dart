@@ -1277,6 +1277,13 @@ void main() {
     check(visible().last.error?.content).equals('Model unavailable');
   });
 
+  test('a LibreChat chat offers no Open WebUI fork', () async {
+    await firstTurn('Hi there', 'Hello world');
+    check(container.read(chatBranchControlsProvider)).isFalse();
+    check(container.read(chatForkAvailabilityProvider))
+        .equals(ChatForkAvailability.hidden);
+  });
+
   test('Open WebUI-only toggles are off for LibreChat models', () {
     check(container.read(webSearchAvailableProvider)).isFalse();
     check(container.read(imageGenerationAvailableProvider)).isFalse();

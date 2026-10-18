@@ -49,6 +49,8 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_insertion.dart'
@@ -285,7 +287,10 @@ bool shouldShowComposerOverflowButton({
   required bool directSupportsImages,
   bool directHasOverflowActions = false,
   bool hermesHasLocalAttachmentActions = false,
+  bool isLibreChatComposer = false,
 }) {
+  // Every '+' action is an Open WebUI, Hermes or Direct one.
+  if (isLibreChatComposer) return false;
   if (isHermesComposer) return hermesHasLocalAttachmentActions;
   return !isDirectComposer || directSupportsImages || directHasOverflowActions;
 }
@@ -977,7 +982,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _queueDraft() {
     final text = _controller.text.trim();
     if (text.isEmpty || !widget.enabled) return;
-    final wireText = _controller.toWireFormat().trim();
+    final wireText = _outgoingText();
     final queue = ref.read(chatDraftQueueProvider.notifier);
     if (queue.enqueue(wireText) == null) return;
     ConduitHaptics.mediumImpact();
@@ -998,6 +1003,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool get _isRecoveringRecording =>
       _transcribingRecordingOwner != null &&
       _transcribingRecordingOwner == ref.read(composerDraftContextProvider);
+
+  /// The draft as it goes out: its @mentions in Open WebUI's wire format
+  /// (@GPT-4 → <@M:gpt-4|GPT-4>), or, for a LibreChat model, which takes
+  /// none, the text as shown -- a mention made before switching to it would
+  /// reach LibreChat as markup.
+  String _outgoingText() {
+    final model = ref.read(selectedModelProvider);
+    return (model != null && isLibreChatModel(model)
+            ? _controller.text
+            : _controller.toWireFormat())
+        .trim();
+  }
 
   void _sendMessage() {
     if (_startingVoice || _isTranscribing || _isRecoveringRecording) return;
@@ -1026,9 +1043,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
 
-    // Convert @mentions to OpenWebUI wire format
-    // (e.g. @GPT-4 → <@M:gpt-4|GPT-4>) before sending.
-    final wireText = _controller.toWireFormat().trim();
+    final wireText = _outgoingText();
 
     widget.onSendMessage(wireText);
     _controller.clearMentions();
@@ -1540,7 +1555,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!sameAccount() || !chatMutationTokenStillActive(ref, owner.chat)) {
       return;
     }
-    final wireText = _controller.toWireFormat().trim();
+    final wireText = _outgoingText();
     if (wireText.isEmpty || !widget.enabled) return;
     // Edits made after this point belong to a newer draft.
     final draftGeneration = _editGeneration;
@@ -1891,7 +1906,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!ref.read(openWebUiAccountAvailableProvider)) return false;
     final model = ref.read(selectedModelProvider);
     return model == null ||
-        (!isHermesModel(model) && !isLocallyMintedDirectModel(model));
+        (!isHermesModel(model) &&
+            !isLibreChatModel(model) &&
+            !isLocallyMintedDirectModel(model));
+  }
+
+  /// Whether `@` offers models to switch to. A LibreChat turn takes no
+  /// mention, and a LibreChat chat goes on only with LibreChat's models.
+  bool get _modelMentionsAvailable {
+    final model = ref.read(selectedModelProvider);
+    if (model != null && isLibreChatModel(model)) return false;
+    return !isLibreChatConversation(ref.read(activeConversationProvider));
   }
 
   PromptCommandMatch? _resolvePromptCommand(
@@ -1911,7 +1936,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selectionStart: selection.start,
       selectionEnd: selection.end,
       allowSkills: _openWebUiSkillsAvailable,
-      allowContext: model == null || !isHermesModel(model),
+      allowContext:
+          model == null || (!isHermesModel(model) && !isLibreChatModel(model)),
+      triggers: {
+        ComposerCommandTrigger.prompt,
+        ComposerCommandTrigger.context,
+        ComposerCommandTrigger.skill,
+        if (_modelMentionsAvailable) ComposerCommandTrigger.model,
+      },
     );
     if (match == null) return null;
     return PromptCommandMatch(
@@ -1948,8 +1980,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return filtered;
   }
 
-  List<Model> _filterModels(List<Model> models) =>
-      filterModelsForMention(models, _currentPromptCommand);
+  /// The models `@` offers. A chat goes on only with its own backend: no
+  /// open chat but a LibreChat one takes LibreChat's models (and in that
+  /// one `@` is off).
+  List<Model> _filterModels(List<Model> models) {
+    final chatOpen = ref.read(activeConversationProvider) != null;
+    return filterModelsForMention(
+      chatOpen
+          ? models.where((model) => !isLibreChatModel(model)).toList()
+          : models,
+      _currentPromptCommand,
+    );
+  }
 
   void _clearSkillSuggestions() {
     _skillSuggestionDebounce?.cancel();
@@ -2183,6 +2225,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _applyModel(Model model) {
     final TextRange? range = _currentPromptRange;
     if (range == null) return;
+
+    // A LibreChat turn takes no mention, so its model gets none: the @query
+    // goes, and the model is switched to as the picker would, as a choice
+    // the user made (LibreChat keeps none on the chat, and a refresh of its
+    // models would otherwise go back to the default).
+    if (isLibreChatModel(model)) {
+      _controller.value = TextEditingValue(
+        text: _controller.text.replaceRange(range.start, range.end, ''),
+        selection: TextSelection.collapsed(offset: range.start),
+      );
+      ref.read(isManualModelSelectionProvider.notifier).set(true);
+      ref.read(selectedModelProvider.notifier).set(model);
+      unawaited(saveChatModelChoice(ref, model));
+      setState(() {
+        _hasText = _controller.text.trim().isNotEmpty;
+        _showPromptOverlay = false;
+        _currentPromptCommand = '';
+        _currentPromptRange = null;
+        _promptSelectionIndex = 0;
+      });
+      return;
+    }
 
     // Replace the @query with @ModelName (keep it visible like OpenWebUI).
     final inserted = insertComposerMention(
@@ -2493,6 +2557,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (_currentPromptCommand.startsWith('\$')) {
       return _openWebUiSkillsAvailable;
     }
+    if (_currentPromptCommand.startsWith('@')) return _modelMentionsAvailable;
     final model = ref.read(selectedModelProvider);
     return !(model != null &&
         isHermesModel(model) &&
@@ -3013,6 +3078,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   ComposerOverflowAttachmentAvailability get _overflowAttachmentAvailability {
     final model = ref.read(selectedModelProvider);
+    if (model != null && isLibreChatModel(model)) {
+      return const ComposerOverflowAttachmentAvailability();
+    }
     final hermesMode = model != null && isHermesModel(model);
     if (hermesMode) {
       final inputImages =
@@ -3078,6 +3146,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final selectedModel = ref.read(selectedModelProvider);
+    if (selectedModel != null && isLibreChatModel(selectedModel)) {
+      return const <IosKeyboardAttachmentActionConfig>[];
+    }
     final hermesMode = selectedModel != null && isHermesModel(selectedModel);
 
     final directMode =
@@ -3110,6 +3181,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final selectedModel = ref.read(selectedModelProvider);
     if (selectedModel != null &&
         (isHermesModel(selectedModel) ||
+            isLibreChatModel(selectedModel) ||
             hasReservedDirectIdentity(selectedModel))) {
       return ComposerPersonalConnections.none;
     }
@@ -3431,6 +3503,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
     ref.listen<Model?>(selectedModelProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
+      // A LibreChat model takes no `@` mention: a model list already open
+      // closes.
+      if (_currentPromptCommand.startsWith('@') && !_modelMentionsAvailable) {
+        _hidePromptOverlay();
+      }
+      // Nor does it take `#` context: a list already open closes too.
+      if (_currentPromptCommand.startsWith('#') &&
+          next != null &&
+          isLibreChatModel(next)) {
+        _clearContextSuggestions();
+        _hidePromptOverlay();
+      }
     });
     ref.listen(hermesCapabilitiesProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
@@ -3489,12 +3573,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final isDirectComposer =
         selectedComposerModel != null &&
         hasReservedDirectIdentity(selectedComposerModel);
+    // A LibreChat turn takes none of Open WebUI's request options: no quick
+    // pills, tools, attachments, code interpreter or personal connections.
+    final isLibreChatComposer =
+        selectedComposerModel != null &&
+        isLibreChatModel(selectedComposerModel);
     final directToolsAvailable =
         isDirectComposer &&
         directBindingSupportsLocalMcp(
           ref.watch(directModelRegistryProvider).resolve(selectedComposerModel),
         );
-    final toolsAsync = isDirectComposer
+    final toolsAsync = isDirectComposer || isLibreChatComposer
         ? const AsyncData<List<Tool>>([])
         : ref.watch(toolsListProvider);
     final directMcpToolsAsync = directToolsAvailable
@@ -3510,6 +3599,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ref.watch(directMcpServersProvider);
     } else if (!kIsWeb &&
         Platform.isIOS &&
+        !isLibreChatComposer &&
         !(selectedComposerModel != null &&
             isHermesModel(selectedComposerModel))) {
       // The native panel offers the account's personal tool servers and
@@ -3598,6 +3688,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           attachmentAvailability.file ||
           attachmentAvailability.photo ||
           attachmentAvailability.camera,
+      isLibreChatComposer: isLibreChatComposer,
     );
     final compactControls = _compactComposerControls(
       showOverflowButton: showOverflowButton,
@@ -3612,7 +3703,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       });
     }
     final nativeConnections =
-        !kIsWeb && Platform.isIOS && !isHermesComposer && !isDirectComposer
+        !kIsWeb &&
+            Platform.isIOS &&
+            !isHermesComposer &&
+            !isDirectComposer &&
+            !isLibreChatComposer
         ? readComposerPersonalConnections(ref.watch)
         : ComposerPersonalConnections.none;
     _builtNativeConnectionsOwner = nativeConnections.owner;
@@ -3659,7 +3754,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final List<Widget> quickPills = <Widget>[];
 
     for (final id in selectedQuickPills) {
-      if (isHermesComposer || isDirectComposer) {
+      if (isHermesComposer || isDirectComposer || isLibreChatComposer) {
         break;
       }
       final filterId = ComposerOverflowActionIds.filterIdFrom(id);
@@ -3779,7 +3874,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // warning glyph, and a tap says why before offering to turn it off.
     if (codeInterpreterOffer?.selected == true &&
         !isHermesComposer &&
-        !isDirectComposer) {
+        !isDirectComposer &&
+        !isLibreChatComposer) {
       final block = codeInterpreterOffer!.block;
       final blockReason = block == null
           ? null

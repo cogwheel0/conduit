@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/features/chat/widgets/live_connection_button.dart';
@@ -9,9 +11,12 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/services/librechat_provenance.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -37,13 +42,24 @@ const _models = [
 ];
 
 class _Models extends Models {
+  _Models([this.models = _models, this.pending]);
+
+  final List<Model> models;
+
+  /// Listed when this completes instead, when given.
+  final Future<List<Model>>? pending;
+
   @override
-  Future<List<Model>> build() async => _models;
+  Future<List<Model>> build() => pending ?? Future.value(models);
 }
 
 class _SelectedModel extends SelectedModel {
+  _SelectedModel({this.unpicked = false});
+
+  final bool unpicked;
+
   @override
-  Model? build() => _models.first;
+  Model? build() => unpicked ? null : _models.first;
 }
 
 class _Messages extends ChatMessagesNotifier {
@@ -52,8 +68,12 @@ class _Messages extends ChatMessagesNotifier {
 }
 
 class _Active extends ActiveConversationNotifier {
+  _Active([this.conversation]);
+
+  final Conversation? conversation;
+
   @override
-  Conversation? build() => null;
+  Conversation? build() => conversation;
 }
 
 class _Conversations extends Conversations {
@@ -123,6 +143,10 @@ void main() {
   Future<ProviderContainer> pumpChat(
     WidgetTester tester, {
     required List<String> pinned,
+    List<Model> models = _models,
+    Future<List<Model>>? pendingModels,
+    Conversation? active,
+    bool unpicked = false,
   }) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -132,17 +156,19 @@ void main() {
       retry: (_, _) => null,
       overrides: [
         effectivePinnedModelIdsProvider.overrideWithValue(pinned),
-        activeConversationProvider.overrideWith(_Active.new),
+        activeConversationProvider.overrideWith(() => _Active(active)),
         appDatabaseProvider.overrideWith((ref) => null),
         connectivityServiceProvider.overrideWithValue(_Connectivity()),
         isAuthenticatedProvider2.overrideWithValue(false),
         reviewerModeProvider.overrideWithValue(false),
-        selectedModelProvider.overrideWith(_SelectedModel.new),
+        selectedModelProvider.overrideWith(
+          () => _SelectedModel(unpicked: unpicked),
+        ),
         chatMessagesProvider.overrideWith(_Messages.new),
         optimizedStorageServiceProvider.overrideWithValue(_Storage()),
         isChatStreamingProvider.overrideWith((ref) => false),
         conversationsProvider.overrideWith(_Conversations.new),
-        modelsProvider.overrideWith(_Models.new),
+        modelsProvider.overrideWith(() => _Models(models, pendingModels)),
         foldersProvider.overrideWith(_Folders.new),
         toolsListProvider.overrideWith(_Tools.new),
         textToSpeechControllerProvider.overrideWith(_Speech.new),
@@ -165,8 +191,34 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    if (pendingModels == null) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
     return container;
+  }
+
+  void useIOS18() {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+  }
+
+  Future<void> send(WidgetTester tester, String text) async {
+    await tester.enterText(find.byType(EditableText), text);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.pump();
+  }
+
+  String draft(WidgetTester tester) =>
+      tester.widget<EditableText>(find.byType(EditableText)).controller.text;
+
+  /// Lets a banner shown meanwhile run out its time.
+  Future<void> outlastBanner(WidgetTester tester) async {
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
   }
 
   Finder pill() => find.byType(ConduitAdaptiveAppBarModelSelector);
@@ -242,6 +294,123 @@ void main() {
     expect(find.byType(ModelSelectorSheet), findsOneWidget);
     await closeChat(tester);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets(
+    "a LibreChat chat's menu holds only its own backend's pinned models",
+    (tester) async {
+      final libreChat = libreChatCatalog(
+        startupConfig: const <String, dynamic>{},
+        endpoints: const <String, dynamic>{
+          'Ollama': {'order': 1, 'type': 'custom'},
+        },
+        models: const {
+          'Ollama': ['otter-mini'],
+        },
+      ).single;
+      final now = DateTime(2026, 11);
+      await pumpChat(
+        tester,
+        pinned: ['lantern', libreChat.id],
+        models: [..._models, libreChat],
+        active: withChatStorageProvenance(
+          stampLibreChatProvenance(
+            Conversation(
+              id: 'lc-chat',
+              title: 'Tide tables',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ),
+          ChatStorageKind.libreChat,
+        ),
+      );
+
+      await tapPill(tester);
+
+      final entries = menus.single['menu']! as Map<Object?, Object?>;
+      expect(entries['labels'], ['otter-mini', '', 'All models…']);
+      await closeChat(tester);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    "a LibreChat chat with none of LibreChat's models says so",
+    (tester) async {
+      final now = DateTime(2026, 11);
+      await pumpChat(
+        tester,
+        pinned: const ['lantern'],
+        active: withChatStorageProvenance(
+          stampLibreChatProvenance(
+            Conversation(
+              id: 'lc-chat',
+              title: 'Tide tables',
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ),
+          ChatStorageKind.libreChat,
+        ),
+      );
+
+      await tapPill(tester);
+
+      expect(menus, isEmpty);
+      expect(find.byType(ModelSelectorSheet), findsNothing);
+      expect(find.text('No models available'), findsOneWidget);
+      await outlastBanner(tester);
+      await closeChat(tester);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'a model picked while a send waits for the models is the one it takes',
+    (tester) async {
+      useIOS18();
+      final listed = Completer<List<Model>>();
+      final container = await pumpChat(
+        tester,
+        pinned: const [],
+        unpicked: true,
+        pendingModels: listed.future,
+      );
+
+      await send(tester, 'Hello');
+      container.read(selectedModelProvider.notifier).set(_models.last);
+      listed.complete(_models);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(container.read(selectedModelProvider)?.id, 'lantern');
+      await outlastBanner(tester);
+      await closeChat(tester);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'a send with no model to take says so and keeps the draft',
+    (tester) async {
+      useIOS18();
+      await pumpChat(
+        tester,
+        pinned: const [],
+        models: const [],
+        unpicked: true,
+      );
+
+      await send(tester, 'Hello');
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('No models available'), findsOneWidget);
+      expect(draft(tester), 'Hello');
+      await outlastBanner(tester);
+      await closeChat(tester);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 
   testWidgets('before iOS 26 the pill opens the full list', (tester) async {
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;

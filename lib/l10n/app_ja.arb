@@ -2402,6 +2402,7 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "libreChatTemporaryChatOff": "LibreChat はすべてのチャットを保存します。送信するには一時チャットをオフにしてください。",
   "advancedFeatures": "詳細設定",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
