@@ -8119,5 +8119,27 @@
   "terminalPortPreviewLoadFailed": "Nie udało się wczytać tej strony.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Zaloguj się na swój serwer LibreChat, aby synchronizować czaty, agentów i nie tylko.",
+  "libreChatAddAccount": "Dodaj konto LibreChat",
+  "libreChatAddAccountMessage": "Wpisz adres swojego serwera LibreChat.",
+  "libreChatInvalidAddress": "Wpisz adres serwera, np. chat.example.com.",
+  "libreChatUnreachable": "Nie udało się połączyć z serwerem. Sprawdź adres i połączenie.",
+  "libreChatNotLibreChat": "Ten serwer to nie LibreChat. Sprawdź adres.",
+  "libreChatIsOpenWebUi": "To serwer Open WebUI. Dodaj go na karcie Open WebUI.",
+  "libreChatPasswordSignInOff": "Ten serwer pozwala logować się tylko przez jednokrotne logowanie (SSO).",
+  "libreChatGoogleUnsupported": "Google nie pozwala logować się wewnątrz aplikacji. Zaloguj się w inny sposób.",
+  "libreChatSsoUnfinished": "Logowanie nie zostało zakończone. Spróbuj ponownie.",
+  "libreChatChangeServer": "Użyj innego serwera",
+  "libreChatSessionEnded": "Twoja sesja na {server} wygasła. Zaloguj się ponownie.",
+  "@libreChatSessionEnded": {
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
   }
 }

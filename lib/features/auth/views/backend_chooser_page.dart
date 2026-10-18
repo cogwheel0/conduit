@@ -9,6 +9,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
@@ -99,6 +100,24 @@ class BackendChooserPage extends ConsumerWidget {
                 trailing: _chooserChevron(context),
                 onTap: () => context.go(Routes.serverConnection),
               ),
+              if (ref.watch(libreChatBackendEnabledProvider))
+                UtilitySelectionRow(
+                  key: const Key('backend-chooser-librechat'),
+                  leading: const _LibreChatIcon(),
+                  title: l10n.libreChatTitle,
+                  subtitle: l10n.libreChatChooserSubtitle,
+                  selected: false,
+                  showSelectionIndicator: false,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _BetaBadge(label: l10n.libreChatBetaLabel),
+                      const SizedBox(width: Spacing.xs),
+                      _chooserChevron(context),
+                    ],
+                  ),
+                  onTap: () => context.go(Routes.libreChatSignIn),
+                ),
               UtilitySelectionRow(
                 leading: const _ProviderLogo(
                   assetName: 'assets/icons/hermes_agent.png',
@@ -288,6 +307,60 @@ class _DirectConnectionIcon extends StatelessWidget {
         context.usesCupertinoChrome ? CupertinoIcons.link : Icons.api_rounded,
         color: theme.buttonPrimary,
         size: IconSize.medium,
+      ),
+    );
+  }
+}
+
+class _LibreChatIcon extends StatelessWidget {
+  const _LibreChatIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+
+    return Container(
+      width: _providerLogoSize,
+      height: _providerLogoSize,
+      decoration: BoxDecoration(
+        color: theme.buttonPrimary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
+      ),
+      child: Icon(
+        context.usesCupertinoChrome
+            ? CupertinoIcons.chat_bubble_2
+            : Icons.forum_outlined,
+        color: theme.buttonPrimary,
+        size: IconSize.medium,
+      ),
+    );
+  }
+}
+
+/// Marks an option that is still in beta.
+class _BetaBadge extends StatelessWidget {
+  const _BetaBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.xs,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: theme.buttonPrimary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+      ),
+      child: Text(
+        label,
+        style: AppTypography.labelSmallStyle.copyWith(
+          color: theme.buttonPrimary,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

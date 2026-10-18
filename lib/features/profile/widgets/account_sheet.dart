@@ -2,6 +2,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,10 +16,11 @@ import '../../../shared/widgets/themed_sheets.dart';
 import '../../auth/views/server_connection_page.dart';
 import '../../direct_connections/views/direct_connection_editor_page.dart';
 import '../../hermes/views/hermes_settings_page.dart';
+import '../../librechat/views/librechat_account_form.dart';
 import 'account_actions.dart';
 
 /// The kinds of account and connection the sheet adds, one tab each.
-enum AccountKind { openWebUi, hermes, direct }
+enum AccountKind { openWebUi, hermes, direct, libreChat }
 
 /// What the account sheet opens on.
 sealed class AccountSheetRequest {
@@ -251,6 +253,9 @@ class _AccountSheetRootState extends ConsumerState<_AccountSheetRoot> {
     };
     final kinds = [
       (AccountKind.openWebUi, l10n.backendChooserOpenWebUITitle),
+      if (ref.watch(libreChatBackendEnabledProvider) ||
+          _kind == AccountKind.libreChat)
+        (AccountKind.libreChat, l10n.libreChatTitle),
       (AccountKind.hermes, l10n.sidebarHermesTab),
       (AccountKind.direct, l10n.accountsKindDirect),
     ];
@@ -276,7 +281,9 @@ class _AccountSheetRootState extends ConsumerState<_AccountSheetRoot> {
                   AdaptiveSegmentedControl(
                     key: const Key('account-sheet-kind'),
                     labels: [for (final (_, label) in kinds) label],
-                    selectedIndex: _kind.index,
+                    selectedIndex: kinds.indexWhere(
+                      (entry) => entry.$1 == _kind,
+                    ),
                     onValueChanged: (index) =>
                         setState(() => _kind = kinds[index].$1),
                   ),
@@ -304,6 +311,15 @@ class _AccountSheetRootState extends ConsumerState<_AccountSheetRoot> {
     VoidCallback close,
   ) => switch (kind) {
     AccountKind.openWebUi => _OpenWebUiForm(close: close),
+    AccountKind.libreChat => LibreChatAccountForm(
+      key: const Key('account-sheet-librechat'),
+      onSignedIn: (account) => switchToLibreChatAccount(
+        context,
+        ref,
+        account.id,
+        beforeLeaving: close,
+      ),
+    ),
     AccountKind.hermes => HermesSettingsPage(
       key: const Key('account-sheet-hermes'),
       connectionId: switch (request) {

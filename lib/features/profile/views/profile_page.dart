@@ -27,6 +27,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
@@ -283,6 +284,12 @@ class ProfilePage extends ConsumerWidget {
       hermesInUseId: ref.watch(hermesEnabledProvider)
           ? ref.watch(hermesActiveConnectionIdProvider)
           : null,
+      libreChatPrimary:
+          ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+          ? ref.watch(activeLibreChatAccountProvider)
+          : null,
+      libreChatAccounts:
+          ref.watch(libreChatRegistryProvider).value?.accounts ?? const [],
     );
     final Widget leading = switch (card.kind) {
       AccountCardKind.openWebUi => UserAvatar(
@@ -304,6 +311,13 @@ class ProfilePage extends ConsumerWidget {
           android: Icons.hub_outlined,
         ),
         color: theme.iconSecondary,
+      ),
+      AccountCardKind.libreChat => UserAvatar(
+        size: IconSize.xl,
+        imageUrl: null,
+        fallbackText: card.title.characters.isEmpty
+            ? 'L'
+            : card.title.characters.first.toUpperCase(),
       ),
     };
 

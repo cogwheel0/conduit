@@ -334,11 +334,14 @@ final class LibreChatAccounts {
   LibreChatRegistryStore get _store => _ref.read(libreChatRegistryStoreProvider);
 
   /// Saves the account [session] signed in to on [server] with its session,
-  /// and makes it the LibreChat account in use.
+  /// and makes it the LibreChat account in use when [activate]. Sign-in
+  /// screens save without activating and switch through
+  /// `PrimaryAccountSwitcher`, which asks before stopping a reply.
   Future<LibreChatAccount> saveSignedIn({
     required LibreChatServer server,
     required LibreChatSession session,
     LibreChatServerInfo? info,
+    bool activate = true,
   }) async {
     final registryController = _ref.read(libreChatRegistryProvider.notifier);
     if (registryController.isBlockedForAppDataClear) {
@@ -357,9 +360,11 @@ final class LibreChatAccounts {
     await _store.sessionStore(account.id).write(session);
     await _ref
         .read(libreChatRegistryProvider.notifier)
-        .save(account, activate: true);
+        .save(account, activate: activate);
     // A session saved again for the account in use must reload.
-    _ref.invalidate(libreChatSessionProvider);
+    if (activate || registry.activeId == account.id) {
+      _ref.invalidate(libreChatSessionProvider);
+    }
     return account;
   }
 

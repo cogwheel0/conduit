@@ -4322,5 +4322,19 @@
   "mcpAppOpenLinkConfirm": "Apri",
   "terminalPortPreviewForward": "Avanti",
   "terminalPortPreviewReload": "Ricarica",
-  "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina."
+  "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Accedi al tuo server LibreChat per chat sincronizzate, agenti e altro.",
+  "libreChatAddAccount": "Aggiungi un account LibreChat",
+  "libreChatAddAccountMessage": "Inserisci l'indirizzo del tuo server LibreChat.",
+  "libreChatInvalidAddress": "Inserisci l'indirizzo di un server, ad esempio chat.example.com.",
+  "libreChatUnreachable": "Impossibile raggiungere il server. Controlla l'indirizzo e la connessione.",
+  "libreChatNotLibreChat": "Questo server non è LibreChat. Controlla l'indirizzo.",
+  "libreChatIsOpenWebUi": "Questo è un server Open WebUI. Aggiungilo dalla scheda Open WebUI.",
+  "libreChatPasswordSignInOff": "Questo server consente solo l'accesso Single Sign-On.",
+  "libreChatGoogleUnsupported": "Google non consente l'accesso all'interno delle app. Usa un altro metodo di accesso.",
+  "libreChatSsoUnfinished": "L'accesso non è stato completato. Riprova.",
+  "libreChatChangeServer": "Usa un altro server",
+  "libreChatSessionEnded": "La tua sessione su {server} è scaduta. Accedi di nuovo."
 }

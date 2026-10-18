@@ -9081,5 +9081,67 @@
   "terminalPortPreviewLoadFailed": "Could not load this page.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "libreChatTitle": "LibreChat",
+  "@libreChatTitle": {
+    "description": "Name of the LibreChat backend, shown as a tab, a card title and a page title. Product name; usually not translated."
+  },
+  "libreChatBetaLabel": "Beta",
+  "@libreChatBetaLabel": {
+    "description": "Badge next to LibreChat while its support is in beta."
+  },
+  "libreChatChooserSubtitle": "Sign in to your LibreChat server for synced chats, agents, and more.",
+  "@libreChatChooserSubtitle": {
+    "description": "Subtitle of the LibreChat option on the first-run backend chooser."
+  },
+  "libreChatAddAccount": "Add a LibreChat account",
+  "@libreChatAddAccount": {
+    "description": "Row that adds a LibreChat account on the Accounts page."
+  },
+  "libreChatAddAccountMessage": "Enter the address of your LibreChat server.",
+  "@libreChatAddAccountMessage": {
+    "description": "Intro text of the LibreChat sign-in form."
+  },
+  "libreChatInvalidAddress": "Enter a server address, like chat.example.com.",
+  "@libreChatInvalidAddress": {
+    "description": "Shown when the typed LibreChat server address is not a usable web address."
+  },
+  "libreChatUnreachable": "Couldn't reach the server. Check the address and your connection.",
+  "@libreChatUnreachable": {
+    "description": "Shown when the LibreChat server address could not be reached."
+  },
+  "libreChatNotLibreChat": "This server isn't LibreChat. Check the address.",
+  "@libreChatNotLibreChat": {
+    "description": "Shown when the address answered but is not a LibreChat server."
+  },
+  "libreChatIsOpenWebUi": "This is an Open WebUI server. Add it on the Open WebUI tab.",
+  "@libreChatIsOpenWebUi": {
+    "description": "Shown when the typed address is an Open WebUI server, pointing to the Open WebUI tab of the add-account sheet."
+  },
+  "libreChatPasswordSignInOff": "This server only allows single sign-on.",
+  "@libreChatPasswordSignInOff": {
+    "description": "Shown when the LibreChat server offers only single sign-on, no password sign-in."
+  },
+  "libreChatGoogleUnsupported": "Google doesn't allow signing in inside apps. Use another way to sign in.",
+  "@libreChatGoogleUnsupported": {
+    "description": "Shown instead of starting Google sign-in, which Google blocks inside apps."
+  },
+  "libreChatSsoUnfinished": "Sign-in didn't finish. Try again.",
+  "@libreChatSsoUnfinished": {
+    "description": "Shown when a single sign-on page closed or failed before signing in."
+  },
+  "libreChatChangeServer": "Use a different server",
+  "@libreChatChangeServer": {
+    "description": "Button that goes back to entering another LibreChat server address."
+  },
+  "libreChatSessionEnded": "Your session on {server} ended. Sign in again.",
+  "@libreChatSessionEnded": {
+    "description": "Shown on the LibreChat sign-in page when the saved session for a server ended.",
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
   }
 }
