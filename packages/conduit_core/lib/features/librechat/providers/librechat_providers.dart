@@ -25,15 +25,13 @@ import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
-/// Preference that turns the LibreChat backend on before it ships.
+/// Preference that turns the LibreChat backend off (or back on).
 const String kLibreChatBackendEnabledPreference = 'librechat_backend_enabled_v1';
 
-/// Whether LibreChat can be added and used. Off until the backend is
-/// complete; developers turn it on with
-/// [kLibreChatBackendEnabledPreference].
+/// Whether LibreChat can be added and used. On, labelled Beta while it is
+/// new; [kLibreChatBackendEnabledPreference] set to false turns it off.
 final libreChatBackendEnabledProvider = Provider<bool>(
-  (ref) =>
-      PreferencesStore.getBool(kLibreChatBackendEnabledPreference) ?? false,
+  (ref) => PreferencesStore.getBool(kLibreChatBackendEnabledPreference) ?? true,
 );
 
 /// The HTTP adapter LibreChat clients use; null for the platform's own.

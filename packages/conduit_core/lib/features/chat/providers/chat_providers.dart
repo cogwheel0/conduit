@@ -139,6 +139,7 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import 'package:conduit_core/features/chat/utils/follow_ups_socket_event.dart';
+import 'package:conduit_core/features/chat/utils/chat_share_url.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';

@@ -228,6 +228,28 @@ void main() {
         ..has((it) => it.modelSpecsEnforced, 'modelSpecsEnforced').isTrue();
     });
 
+    test('links are offered only where LibreChat makes them public', () {
+      LibreChatCapabilities read(Map<String, Object> sharedLinks) =>
+          LibreChatCapabilities.from(
+            startupConfig: const {},
+            permissions: {'SHARED_LINKS': sharedLinks},
+            endpoints: const {},
+          );
+      check(
+        read({'CREATE': true, 'SHARE': true, 'SHARE_PUBLIC': true}).sharedLinks,
+      ).isTrue();
+      // Made, they would open for their owner alone.
+      check(
+        read({'CREATE': true, 'SHARE': true, 'SHARE_PUBLIC': false})
+            .sharedLinks,
+      ).isFalse();
+      // LibreChat publishes only on an outright grant.
+      check(read({'CREATE': true}).sharedLinks).isFalse();
+      check(
+        read({'CREATE': false, 'SHARE_PUBLIC': true}).sharedLinks,
+      ).isFalse();
+    });
+
     test('memories are added, changed and switched by separate permissions',
         () {
       final capabilities = LibreChatCapabilities.from(
