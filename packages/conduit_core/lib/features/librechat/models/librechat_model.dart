@@ -77,6 +77,29 @@ List<Model> sanitizeRemoteLibreChatModels(Iterable<Model> models) => models
     )
     .toList(growable: false);
 
+/// The picker id of what a conversation or turn ran on: its spec, else its
+/// agent, else its endpoint and model. Null when none is known.
+///
+/// The same id the catalog mints, so a stored conversation finds its model
+/// in the picker again.
+String? libreChatModelIdFor({
+  String? endpoint,
+  String? model,
+  String? agentId,
+  String? spec,
+}) {
+  if (spec != null && spec.isNotEmpty) {
+    return '${kLibreChatModelIdPrefix}spec:$spec';
+  }
+  if (agentId != null && agentId.isNotEmpty) {
+    return '${kLibreChatModelIdPrefix}agent:$agentId';
+  }
+  if (endpoint == null || endpoint.isEmpty || model == null || model.isEmpty) {
+    return null;
+  }
+  return '${kLibreChatModelIdPrefix}model:${Uri.encodeComponent(endpoint)}/$model';
+}
+
 Model _mint(String id, String name, LibreChatTarget target, {String? icon}) {
   final model = Model(
     id: '$kLibreChatModelIdPrefix$id',
