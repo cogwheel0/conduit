@@ -266,6 +266,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
+      // Below the LibreChat row, out of the test viewport.
+      await tester.ensureVisible(find.text('Connect directly'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Connect directly'));
       await tester.pumpAndSettle();
 
@@ -337,6 +340,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Below the LibreChat row, out of the test viewport.
+      await tester.ensureVisible(find.text('Connect directly'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Connect directly'));
       await tester.pumpAndSettle();
 

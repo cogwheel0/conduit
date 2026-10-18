@@ -209,7 +209,11 @@ void main() {
   testWidgets('LibreChat has no tab while it is off', (
     tester,
   ) async {
-    await pumpSheet(tester, const AddAccountRequest());
+    await pumpSheet(
+      tester,
+      const AddAccountRequest(),
+      overrides: [libreChatBackendEnabledProvider.overrideWithValue(false)],
+    );
     expect(
       find.descendant(
         of: find.byKey(const Key('account-sheet-kind')),
