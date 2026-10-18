@@ -75,6 +75,7 @@ final comparisonRuntimeAvailableProvider = Provider<bool>((ref) {
       (active == null || conversationUsesOpenWebUiStorage(active)) &&
       model != null &&
       !isHermesModel(model) &&
+      !isLibreChatModel(model) &&
       !hasReservedDirectIdentity(model) &&
       ref.watch(directModelRegistryProvider).resolve(model) == null;
 });
@@ -97,6 +98,7 @@ CodeInterpreterBlock? _codeInterpreterBlockForModel(dynamic ref, Model model) {
   if (api == null ||
       !ref.read(isAuthenticatedProvider2) ||
       isHermesModel(model) ||
+      isLibreChatModel(model) ||
       hasReservedDirectIdentity(model)) {
     return CodeInterpreterBlock.notOpenWebUi;
   }
@@ -179,6 +181,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
       models.any(
         (model) =>
             isHermesModel(model) ||
+            isLibreChatModel(model) ||
             hasReservedDirectIdentity(model) ||
             directRegistry.resolve(model) != null,
       )) {
