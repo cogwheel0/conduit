@@ -70,6 +70,7 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart'
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../widgets/live_connection_button.dart';
+import '../../librechat/widgets/librechat_prompt_overlay.dart';
 import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/utils/chat_list_back.dart';
 
@@ -3910,6 +3911,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               .read(directRunRegistryProvider)
                               .hasLiveMcpApproval,
                         );
+                  final pendingLibreChatPrompt = composerRef.watch(
+                    chatMessagesProvider.select(
+                      findPendingLibreChatComposerPrompt,
+                    ),
+                  );
+                  // Only a run live in this app can be answered.
+                  final pendingLibreChatAction = pendingLibreChatPrompt == null
+                      ? null
+                      : libreChatPendingActionFor(
+                          composerRef,
+                          pendingLibreChatPrompt.id,
+                        );
                   final Widget? attachedOverlay;
                   if (persistedPrompt != null) {
                     attachedOverlay = OpenWebUiPromptOverlay(
@@ -3971,6 +3984,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     attachedOverlay = DirectMcpComposerPromptOverlay(
                       key: ValueKey(approval['id']),
                       message: pendingDirectMcpPrompt,
+                    );
+                  } else if (pendingLibreChatAction != null) {
+                    final messageId = pendingLibreChatPrompt!.id;
+                    attachedOverlay = LibreChatComposerPromptOverlay(
+                      key: ValueKey(
+                        '$messageId\u0000${pendingLibreChatAction.actionId}',
+                      ),
+                      action: pendingLibreChatAction,
+                      onResolve: ({decisions, answers}) =>
+                          resolveLibreChatPendingAction(
+                            composerRef,
+                            messageId,
+                            decisions: decisions,
+                            answers: answers,
+                          ),
                     );
                   } else {
                     attachedOverlay = null;
