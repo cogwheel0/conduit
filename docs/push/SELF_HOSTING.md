@@ -210,18 +210,21 @@ With user-namespace remapping or rootless Docker, the container's uid and gid
 65532 are different ids on the host. Find the host ids from the first range in
 `/etc/subuid` and `/etc/subgid` for the user the daemon maps to:
 
-- **With `userns-remap`**, that user is `dockremap`, and container id 65532 is
-  the range's start plus 65532. The daemon still runs as root, so the commands
-  above stay as they are with those two ids in place of 65532, for the files
-  and for the directory's group.
+- **With `userns-remap`**, that user is the one `userns-remap` names in
+  `/etc/docker/daemon.json` (`dockremap` when it says `default`), and
+  container id 65532 is the range's start plus 65532. The daemon still runs
+  as root, so the commands above stay as they are with those two ids in place
+  of 65532, for the files and for the directory's group.
 - **With rootless Docker**, that user is you, and container id 65532 is the
   range's start plus 65531. You run `docker` as yourself, without `sudo`. So
   the directory and `relay.env` belong to you, and the directory's group is
   the mapped gid:
 
   ```bash
-  uid=$(( $(awk -F: -v u="$USER" '$1 == u {print $2; exit}' /etc/subuid) + 65531 ))
-  gid=$(( $(awk -F: -v u="$USER" '$1 == u {print $2; exit}' /etc/subgid) + 65531 ))
+  # The files may name you by user name or by numeric id.
+  start() { awk -F: -v u="$USER" -v n="$(id -u)" '$1 == u || $1 == n {print $2; exit}' "$1"; }
+  uid=$(( $(start /etc/subuid) + 65531 )) gid=$(( $(start /etc/subgid) + 65531 ))
+  [ "$uid" -gt 65531 ] && [ "$gid" -gt 65531 ] || echo "no subordinate range for $USER" >&2
   sudo install -d -m 0750 -o "$USER" -g "$gid" /etc/conduit-push/secrets
   sudo install -m 0400 -o "$uid" -g "$gid" AuthKey_XYZ987WVUT.p8 /etc/conduit-push/secrets/apns.p8
   sudo install -m 0400 -o "$uid" -g "$gid" fcm-service-account.json /etc/conduit-push/secrets/fcm.json
