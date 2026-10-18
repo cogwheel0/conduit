@@ -166,6 +166,11 @@ final class PreferenceKeys {
   /// account is then active by storage's single-account fallback either.
   static const String openWebUiParked = 'openwebui_parked_v1';
 
+  /// A change of the account that owns the Chats tab, between Open WebUI and
+  /// LibreChat, written before the old one is left and cleared once the new
+  /// one has settled. Found at start, the change is finished or undone.
+  static const String primarySwitchIntent = 'primary_switch_intent_v1';
+
   /// Non-secret boot hint only. Direct profile contents and credentials live
   /// exclusively in SecureCredentialStorage.
   static const String directConnectionsConfigured =
