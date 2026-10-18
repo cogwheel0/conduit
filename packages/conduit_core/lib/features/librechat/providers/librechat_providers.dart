@@ -53,17 +53,48 @@ final libreChatRegistryProvider =
 class LibreChatRegistryController extends AsyncNotifier<LibreChatRegistry> {
   LibreChatRegistryStore get _store => ref.read(libreChatRegistryStoreProvider);
 
+  /// A full sign-out is clearing the accounts; see [blockForAppDataClear].
+  bool _appDataClearBlocked = false;
+
+  bool get isBlockedForAppDataClear => _appDataClearBlocked;
+
   @override
-  Future<LibreChatRegistry> build() =>
-      ref.watch(libreChatRegistryStoreProvider).read();
+  Future<LibreChatRegistry> build() {
+    final store = ref.watch(libreChatRegistryStoreProvider);
+    if (_appDataClearBlocked) return Future.value(const LibreChatRegistry());
+    return store.read();
+  }
 
   Future<LibreChatRegistry> _update(
     LibreChatRegistry Function(LibreChatRegistry current) change,
   ) async {
+    if (_appDataClearBlocked) {
+      throw StateError('LibreChat accounts are being cleared.');
+    }
     final next = await _store.update(change);
-    state = AsyncData(next);
+    if (!_appDataClearBlocked) state = AsyncData(next);
     return next;
   }
+
+  /// Before a full sign-out clears storage: no account is in use, so no
+  /// session keeps serving requests or renews into the storage being
+  /// cleared, and no change is saved, until [finishAppDataClear] or
+  /// [resumeAfterAppDataClearAbort]. Waits for a change already saving.
+  Future<void> blockForAppDataClear() async {
+    _appDataClearBlocked = true;
+    state = const AsyncData(LibreChatRegistry());
+    await _store.read();
+  }
+
+  /// The clear did not happen: the accounts come back from storage.
+  void resumeAfterAppDataClearAbort() {
+    if (!_appDataClearBlocked) return;
+    _appDataClearBlocked = false;
+    ref.invalidateSelf();
+  }
+
+  /// The accounts were forgotten: new ones may be added again.
+  void finishAppDataClear() => resumeAfterAppDataClearAbort();
 
   /// Saves [account], replacing the one with its id, and makes it the
   /// LibreChat account in use when [activate].
@@ -309,6 +340,10 @@ final class LibreChatAccounts {
     required LibreChatSession session,
     LibreChatServerInfo? info,
   }) async {
+    final registryController = _ref.read(libreChatRegistryProvider.notifier);
+    if (registryController.isBlockedForAppDataClear) {
+      throw StateError('LibreChat accounts are being cleared.');
+    }
     final registry = await _ref.read(libreChatRegistryProvider.future);
     final id = LibreChatAccount.idFor(server.baseUrl, session.user.id);
     final existing = registry.byId(id);
@@ -357,6 +392,7 @@ final class LibreChatAccounts {
         data: {'error': error.runtimeType.toString()},
       );
       await _holdLeftoverDatabases(
+        keepSavedAccounts: true,
         fallback: {libreChatDatabaseFileName(accountId)},
       );
     }
@@ -365,13 +401,19 @@ final class LibreChatAccounts {
   /// Keeps the databases on disk that no saved account owns closed until
   /// they are deleted, in this run or the next: a sign-out that could not
   /// delete one would otherwise leave it with nothing to retry, and open it
-  /// again for the same account. [fallback] when the files cannot be listed;
-  /// null for every LibreChat database.
-  Future<void> _holdLeftoverDatabases({required Set<String>? fallback}) async {
+  /// again for the same account. With [keepSavedAccounts], the databases of
+  /// accounts still saved are left alone. [fallback] when the files cannot be
+  /// listed; null for every LibreChat database.
+  Future<void> _holdLeftoverDatabases({
+    required bool keepSavedAccounts,
+    required Set<String>? fallback,
+  }) async {
     final manager = _ref.read(libreChatDatabaseManagerProvider);
     Set<String>? leftover = fallback;
     try {
-      final registry = await _store.read();
+      final registry = keepSavedAccounts
+          ? await _store.read()
+          : const LibreChatRegistry();
       final kept = {
         for (final account in registry.accounts)
           libreChatDatabaseFileName(account.id),
@@ -388,6 +430,54 @@ final class LibreChatAccounts {
         scope: 'librechat/accounts',
         data: {'error': error.runtimeType.toString()},
       );
+    }
+  }
+
+  /// Every saved account with its session, read before a full sign-out
+  /// clears the storage they live in.
+  Future<List<(LibreChatAccount, LibreChatSession?)>> sessionsForSignOut()
+  async {
+    final registry = await _ref.read(libreChatRegistryProvider.future);
+    return [
+      for (final account in registry.accounts)
+        (account, await _store.sessionStore(account.id).read()),
+    ];
+  }
+
+  /// After a full sign-out cleared local data: deletes every LibreChat
+  /// database, [accounts]' and any no saved account names any more, and
+  /// forgets the registry, then ends [accounts]' sessions on their servers
+  /// without waiting. Databases that cannot be deleted stay closed until
+  /// they are, in this run or the next.
+  Future<void> forgetAfterSignOut(
+    List<(LibreChatAccount, LibreChatSession?)> accounts,
+  ) async {
+    final manager = _ref.read(libreChatDatabaseManagerProvider);
+    var databasesDeleted = true;
+    try {
+      await manager.deleteAllServerDatabases();
+    } catch (error) {
+      databasesDeleted = false;
+      DebugLogger.warning(
+        'database-delete-failed',
+        scope: 'librechat/accounts',
+        data: {'error': error.runtimeType.toString()},
+      );
+    }
+    try {
+      await _ref.read(libreChatRegistryProvider.notifier).clear();
+    } finally {
+      if (!databasesDeleted) {
+        await _holdLeftoverDatabases(keepSavedAccounts: false, fallback: null);
+      }
+    }
+    for (final (account, session) in accounts) {
+      if (session == null) continue;
+      final auth = LibreChatAuthService(
+        account.server,
+        adapter: _ref.read(libreChatHttpAdapterProvider),
+      );
+      unawaited(auth.signOut(session).whenComplete(auth.close));
     }
   }
 
