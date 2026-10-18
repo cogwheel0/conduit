@@ -7,8 +7,12 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart'
+    show resendEditedUserMessage;
 import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart';
 import 'package:conduit_core/features/librechat/models/librechat_server.dart';
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart';
@@ -26,12 +30,14 @@ import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show accountChangeStopRepliesProvider;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/testing.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -51,6 +57,19 @@ final class _IdleSyncEngine extends SyncEngine {
   @override
   Future<PullResult?> requestPull({required String reason}) =>
       Future<PullResult?>.value(null);
+}
+
+/// A page's ref, which can no longer read once the page has closed.
+final class _PageRef {
+  _PageRef(this._container);
+
+  final ProviderContainer _container;
+  bool closed = false;
+
+  T read<T>(ProviderListenable<T> provider) {
+    if (closed) throw StateError('The page has closed.');
+    return _container.read(provider);
+  }
 }
 
 /// LibreChat's generation routes, scripted: each start is recorded and
@@ -1169,6 +1188,30 @@ void main() {
     await _until(() => !visible().last.isStreaming);
   });
 
+  test('an edit while a reply runs is refused before the transcript changes',
+      () async {
+    await firstTurn('Hi there', 'Hello world');
+    final running = sendMessageWithContainer(container, 'And you?', null);
+    await _until(() => chat.streams.length == 2);
+    final before = [for (final message in visible()) message.id];
+
+    await check(
+      resendEditedUserMessage(
+        container,
+        messageId: visible().first.id,
+        newText: 'Hi again',
+      ),
+    ).throws<LibreChatReplyRunningException>();
+    check([for (final message in visible()) message.id]).deepEquals(before);
+    check(chat.starts).length.equals(2);
+
+    chat
+      ..created('u2-srv', 'And you?', parent: 'a-srv')
+      ..finish('a2-srv', 'Fine');
+    await running;
+    await _until(() => !visible().last.isStreaming);
+  });
+
   test('a second send while a new chat is still starting is refused',
       () async {
     final started = Completer<void>();
@@ -1290,5 +1333,676 @@ void main() {
     check(container.read(comparisonRuntimeAvailableProvider)).isFalse();
     final model = container.read(selectedModelProvider) as Model;
     check(usesLibreChatTransportForRegeneration(null, model)).isTrue();
+  });
+
+  group('composer features', () {
+    void scriptTools() {
+      fake
+        ..on(
+          'GET',
+          '/api/config',
+          (request, match) => FakeLibreChatResponse.json({
+            ...fake.startupConfig,
+            'interface': {'webSearch': true, 'runCode': true},
+          }),
+        )
+        ..on(
+          'GET',
+          '/api/endpoints',
+          (request, match) => FakeLibreChatResponse.json({
+            'Ollama': {'order': 1, 'type': 'custom'},
+            'agents': {
+              'capabilities': ['web_search', 'execute_code', 'file_search'],
+            },
+          }),
+        )
+        ..on(
+          'GET',
+          '/api/roles/(.+)',
+          (request, match) => FakeLibreChatResponse.json({'permissions': {}}),
+        )
+        ..on(
+          'GET',
+          '/api/search/enable',
+          (request, match) => FakeLibreChatResponse.json(false),
+        )
+        ..on(
+          'GET',
+          '/api/mcp/tools',
+          (request, match) => FakeLibreChatResponse.json({
+            'servers': {
+              'everything': {
+                'name': 'everything',
+                'authenticated': true,
+                'tools': [
+                  {'name': 'echo'},
+                ],
+              },
+              'github': {'name': 'github', 'authenticated': false},
+            },
+          }),
+        )
+        ..on(
+          'GET',
+          '/api/mcp/connection/status',
+          (request, match) => FakeLibreChatResponse.json({
+            'connectionStatus': {
+              'everything': {'connectionState': 'connected'},
+            },
+          }),
+        );
+    }
+
+    test('an MCP server is ready by its connection, as LibreChat reads it',
+        () {
+      const userVariables = {
+        'authenticated': false,
+        'authConfig': [
+          {'authField': 'API_KEY'},
+        ],
+      };
+      // Per-user variables saved and connected, though the listing says
+      // otherwise.
+      check(
+        libreChatMcpServerNeedsConnection(userVariables, {
+          'connectionState': 'connected',
+        }),
+      ).isFalse();
+      check(
+        libreChatMcpServerNeedsConnection(userVariables, {
+          'connectionState': 'disconnected',
+        }),
+      ).isTrue();
+      // Connected per request: ready once its variables are saved.
+      check(
+        libreChatMcpServerNeedsConnection(userVariables, {
+          'connectionState': 'disconnected',
+          'requestScoped': true,
+          'configurationState': 'configured',
+          'authorizationState': 'not_required',
+        }),
+      ).isFalse();
+      check(
+        libreChatMcpServerNeedsConnection(userVariables, {
+          'connectionState': 'disconnected',
+          'requestScoped': true,
+          'configurationState': 'needs_configuration',
+        }),
+      ).isTrue();
+      // OAuth not signed in to; signed in.
+      check(
+        libreChatMcpServerNeedsConnection(const {'authenticated': true}, {
+          'connectionState': 'disconnected',
+          'requiresOAuth': true,
+        }),
+      ).isTrue();
+      check(
+        libreChatMcpServerNeedsConnection(const {'authenticated': true}, {
+          'connectionState': 'connected',
+          'requiresOAuth': true,
+        }),
+      ).isFalse();
+      // Asked to sign in again; nothing but the listing to go by.
+      check(
+        libreChatMcpServerNeedsConnection(const {
+          'authenticated': false,
+          'authorizationState': 'reauth_required',
+        }, {'connectionState': 'connected'}),
+      ).isTrue();
+      check(
+        libreChatMcpServerNeedsConnection(const {'authenticated': false}, null),
+      ).isTrue();
+      check(
+        libreChatMcpServerNeedsConnection(const {'authenticated': true}, null),
+      ).isFalse();
+    });
+
+    test('an endpoint model offers the server\'s tools', () async {
+      scriptTools();
+      final options = await container.read(
+        libreChatComposerOptionsProvider.future,
+      );
+      check(options.webSearch).isTrue();
+      check(options.codeInterpreter).isTrue();
+      check(options.fileSearch).isTrue();
+      check(options.mcpServers.map((server) => server.name)).unorderedEquals([
+        'everything',
+        'github',
+      ]);
+      check(
+        options.mcpServers.singleWhere((s) => s.name == 'github'),
+      ).has((it) => it.needsConnection, 'needsConnection').isTrue();
+    });
+
+    test('a turn sends its files and the tools chosen', () async {
+      container.read(libreChatUploadedFilesProvider.notifier).record({
+        'file_id': 'f1',
+        'filepath': '/images/user1/f1.png',
+        'filename': 'photo.png',
+        'type': 'image/png',
+        'width': 4,
+        'height': 3,
+      });
+      // The send's own tools, not those of the composer's unsent draft.
+      container.read(selectedToolIdsProvider.notifier).set([
+        kLibreChatCodeToolId,
+      ]);
+      final send = sendMessageWithContainer(container, 'Look', ['f1'], [
+        kLibreChatWebSearchToolId,
+        '${kLibreChatMcpToolIdPrefix}everything',
+        'owui-tool',
+      ]);
+      await _until(() => chat.starts.isNotEmpty);
+      final body = chat.starts.single;
+      check(body['files'] as List).deepEquals([
+        {
+          'file_id': 'f1',
+          'filepath': '/images/user1/f1.png',
+          'filename': 'photo.png',
+          'type': 'image/png',
+          'width': 4,
+          'height': 3,
+        },
+      ]);
+      check(body['ephemeralAgent'] as Map).deepEquals({
+        'web_search': true,
+        'execute_code': false,
+        'file_search': false,
+        'mcp': ['everything'],
+      });
+      final user = visible().firstWhere((m) => m.role == 'user');
+      check(user.files!.single['url']).equals('/images/user1/f1.png');
+      await _until(() => chat.streams.isNotEmpty);
+      // The upload is spent once the server has its turn.
+      await send;
+      check(container.read(libreChatUploadedFilesProvider)).isEmpty();
+      chat
+        ..created('u-srv', 'Look')
+        ..finish('a-srv', 'Nice');
+      await send;
+    });
+
+    test('a send without tools takes none from the composer', () async {
+      container.read(selectedToolIdsProvider.notifier).set([
+        kLibreChatWebSearchToolId,
+        '${kLibreChatMcpToolIdPrefix}everything',
+      ]);
+      final send = sendMessageWithContainer(container, 'Thanks', null);
+      await _until(() => chat.starts.isNotEmpty);
+      check(chat.starts.single.containsKey('ephemeralAgent')).isFalse();
+      await _until(() => chat.streams.isNotEmpty);
+      chat
+        ..created('u-srv', 'Thanks')
+        ..finish('a-srv', 'Welcome');
+      await send;
+      await _until(() => !visible().last.isStreaming);
+    });
+
+    test('an edited message goes out again with its files', () async {
+      container.read(libreChatUploadedFilesProvider.notifier).record({
+        'file_id': 'f1',
+        'filepath': '/images/user1/f1.png',
+        'filename': 'photo.png',
+        'type': 'image/png',
+      });
+      final send = sendMessageWithContainer(container, 'Look', ['f1']);
+      await _until(() => chat.streams.isNotEmpty);
+      chat
+        ..created('u-srv', 'Look')
+        ..finish('a-srv', 'Nice');
+      await send;
+      await _until(() => !visible().last.isStreaming);
+      check(container.read(libreChatUploadedFilesProvider)).isEmpty();
+
+      final user = visible().firstWhere((m) => m.role == 'user');
+      final edit = resendEditedUserMessage(
+        container,
+        messageId: user.id,
+        newText: 'Look closer',
+      );
+      await _until(() => chat.starts.length == 2);
+      final files = chat.starts.last['files'] as List;
+      check(files).length.equals(1);
+      check((files.single as Map)['file_id']).equals('f1');
+      check((files.single as Map)['filepath']).equals('/images/user1/f1.png');
+      await _until(() => chat.streams.length == 2);
+      chat
+        ..created('u2-srv', 'Look closer')
+        ..finish('a2-srv', 'Closer');
+      await edit;
+    });
+
+    test('a file this session no longer holds stops the send', () async {
+      Object? failure;
+      try {
+        await sendMessageWithContainer(container, 'Look', ['gone']);
+      } catch (error) {
+        failure = error;
+      }
+      check(failure).isNotNull();
+      check(chat.starts).isEmpty();
+    });
+
+    test('a refused start keeps its files for the draft sent again', () async {
+      container.read(libreChatUploadedFilesProvider.notifier).record({
+        'file_id': 'f1',
+        'filepath': '/images/user1/f1.png',
+        'filename': 'photo.png',
+        'type': 'image/png',
+      });
+      chat.startAnswers.add(
+        (body) => FakeLibreChatResponse.json({
+          'message': 'You have hit your message limit.',
+        }, statusCode: 403),
+      );
+      await check(
+        sendMessageWithContainer(container, 'Look', ['f1']),
+      ).throws<LibreChatApiException>();
+      check(container.read(libreChatUploadedFilesProvider).keys)
+          .deepEquals(['f1']);
+
+      // Answering it again sends it as a new turn, with its file.
+      await regenerateMessage(container, 'Look', null);
+      check(chat.starts).length.equals(2);
+      check(chat.starts.last['isRegenerate']).isNull();
+      check(
+        ((chat.starts.last['files'] as List).single as Map)['file_id'],
+      ).equals('f1');
+      await _until(() => chat.streams.isNotEmpty);
+      chat
+        ..created('u-srv', 'Look')
+        ..finish('a-srv', 'Nice');
+      await _until(() => !visible().last.isStreaming);
+    });
+
+    test('regenerating answers again with the message\'s files and the tools '
+        'chosen', () async {
+      container.read(libreChatUploadedFilesProvider.notifier).record({
+        'file_id': 'f1',
+        'filepath': '/images/user1/f1.png',
+        'filename': 'photo.png',
+        'type': 'image/png',
+      });
+      final send = sendMessageWithContainer(container, 'Look', ['f1']);
+      await _until(() => chat.streams.isNotEmpty);
+      chat
+        ..created('u-srv', 'Look')
+        ..finish('a-srv', 'Nice');
+      await send;
+      await _until(() => !visible().last.isStreaming);
+
+      container.read(selectedToolIdsProvider.notifier).set([
+        kLibreChatWebSearchToolId,
+      ]);
+      await regenerateMessage(container, 'Look', null);
+      final body = chat.starts.last;
+      check(body['isRegenerate']).equals(true);
+      check(body['overrideParentMessageId']).equals('u-srv');
+      final file = (body['files'] as List).single as Map;
+      check(file['file_id']).equals('f1');
+      check(file['filepath']).equals('/images/user1/f1.png');
+      check((body['ephemeralAgent'] as Map)['web_search']).equals(true);
+      await _until(() => chat.streams.length == 2);
+      chat
+        ..text('a2-srv', 'Nicer')
+        ..finish('a2-srv', 'Nicer');
+      await _until(() => !visible().last.isStreaming);
+    });
+
+    test('a paused tool is approved through the paused turn\'s settings',
+        () async {
+      final resumes = <Map<String, dynamic>>[];
+      fake.on('POST', '/api/agents/chat/resume', (request, match) {
+        resumes.add(Map<String, dynamic>.from(request.data as Map));
+        return FakeLibreChatResponse.json({'status': 'resumed'});
+      });
+      final send = sendMessageWithContainer(container, 'Echo hi', null);
+      await _until(() => chat.streams.isNotEmpty);
+      chat
+        ..created('u-srv', 'Echo hi')
+        ..emit({
+          'event': 'on_pending_action',
+          'data': {
+            'actionId': 'act_1',
+            'conversationId': 'conv-new',
+            'payload': {
+              'type': 'tool_approval',
+              'action_requests': [
+                {
+                  'name': 'echo_mcp_everything',
+                  'arguments': {'message': 'hi'},
+                  'tool_call_id': 'call_echo',
+                },
+              ],
+              'review_configs': [
+                {
+                  'tool_call_id': 'call_echo',
+                  'allowed_decisions': ['approve', 'reject'],
+                },
+              ],
+            },
+          },
+        });
+      await _until(
+        () => visible().last.metadata?[kLibreChatPendingActionKey] is Map,
+      );
+      final replyId = visible().last.id;
+      final action = libreChatPendingActionFor(container, replyId)!;
+      check(action.toolRequests.single.name).equals('echo_mcp_everything');
+
+      await resolveLibreChatPendingAction(
+        container,
+        replyId,
+        decisions: {
+          'call_echo': const LibreChatToolDecisionInput(
+            LibreChatToolDecision.approve,
+          ),
+        },
+      );
+      final body = resumes.single;
+      check(body['actionId']).equals('act_1');
+      check(body['endpoint']).equals('Ollama');
+      check(body['model']).equals('llama3.2');
+      check(body['generationCreatedAt']).equals(42);
+      check(body.containsKey('text')).isFalse();
+      check(body['decisions'] as List).deepEquals([
+        {'tool_call_id': 'call_echo', 'decision': 'approve'},
+      ]);
+      check(
+        visible().last.metadata?.containsKey(kLibreChatPendingActionKey),
+      ).equals(false);
+      check(libreChatPendingActionFor(container, replyId)).isNull();
+      chat.finish('a-srv', 'hi');
+      await send;
+    });
+
+    test('a second answer to a pause while the first goes out joins it',
+        () async {
+      final resumes = <Map<String, dynamic>>[];
+      final answered = Completer<void>();
+      fake.on('POST', '/api/agents/chat/resume', (request, match) async {
+        resumes.add(Map<String, dynamic>.from(request.data as Map));
+        await answered.future;
+        return FakeLibreChatResponse.json({'status': 'resumed'});
+      });
+      final send = sendMessageWithContainer(container, 'Plan a trip', null);
+      await _until(() => chat.streams.isNotEmpty);
+      chat.emit({
+        'event': 'on_pending_action',
+        'data': {
+          'actionId': 'act_q',
+          'payload': {
+            'type': 'ask_user_question',
+            'question': {'question': 'Which city?'},
+            'tool_call_id': 'call_q',
+          },
+        },
+      });
+      await _until(
+        () => visible().last.metadata?[kLibreChatPendingActionKey] is Map,
+      );
+      final replyId = visible().last.id;
+
+      final first = resolveLibreChatPendingAction(
+        container,
+        replyId,
+        answers: {'call_q': 'Paris'},
+      );
+      await _until(() => resumes.isNotEmpty);
+      // The chat opened again shows the card again, answered again.
+      final second = resolveLibreChatPendingAction(
+        container,
+        replyId,
+        answers: {'call_q': 'Paris'},
+      );
+      answered.complete();
+      await Future.wait([first, second]);
+      check(resumes).length.equals(1);
+      check(libreChatPendingActionFor(container, replyId)).isNull();
+      chat.finish('a-srv', 'Paris it is');
+      await send;
+    });
+
+    test('an answer clears its question though a reconnect reported it '
+        'again meanwhile', () async {
+      final answered = Completer<void>();
+      fake.on('POST', '/api/agents/chat/resume', (request, match) async {
+        await answered.future;
+        return FakeLibreChatResponse.json({'status': 'resumed'});
+      });
+      final send = sendMessageWithContainer(container, 'Plan a trip', null);
+      await _until(() => chat.streams.isNotEmpty);
+      final pause = <String, dynamic>{
+        'actionId': 'act_q',
+        'payload': {
+          'type': 'ask_user_question',
+          'question': {'question': 'Which city?'},
+          'tool_call_id': 'call_q',
+        },
+      };
+      chat.emit({'event': 'on_pending_action', 'data': pause});
+      await _until(
+        () => visible().last.metadata?[kLibreChatPendingActionKey] is Map,
+      );
+      final replyId = visible().last.id;
+      final answer = resolveLibreChatPendingAction(
+        container,
+        replyId,
+        answers: {'call_q': 'Paris'},
+      );
+
+      // The stream drops while the answer goes out, and its snapshot still
+      // has the pause, the server not having taken the answer yet.
+      chat.end();
+      await _until(() => chat.streams.length == 2);
+      chat.emit({
+        'sync': true,
+        'resumeState': {'responseMessageId': 'a-srv', 'pendingAction': pause},
+        'pendingEvents': <Object>[],
+      });
+      await pumpEventQueue();
+      answered.complete();
+      await answer;
+
+      check(libreChatPendingActionFor(container, replyId)).isNull();
+      check(
+        visible().last.metadata?.containsKey(kLibreChatPendingActionKey),
+      ).equals(false);
+      chat.finish('a-srv', 'Paris it is');
+      await send;
+    });
+
+    test('an answer clears the question even when its page closed while '
+        'it went out', () async {
+      final page = _PageRef(container);
+      fake.on('POST', '/api/agents/chat/resume', (request, match) {
+        page.closed = true;
+        return FakeLibreChatResponse.json({'status': 'resumed'});
+      });
+      final send = sendMessageWithContainer(container, 'Plan a trip', null);
+      await _until(() => chat.streams.isNotEmpty);
+      chat.emit({
+        'event': 'on_pending_action',
+        'data': {
+          'actionId': 'act_q',
+          'payload': {
+            'type': 'ask_user_question',
+            'question': {'question': 'Which city?'},
+            'tool_call_id': 'call_q',
+          },
+        },
+      });
+      await _until(
+        () => visible().last.metadata?[kLibreChatPendingActionKey] is Map,
+      );
+      await resolveLibreChatPendingAction(
+        page,
+        visible().last.id,
+        answers: {'call_q': 'Paris'},
+      );
+      check(
+        visible().last.metadata?.containsKey(kLibreChatPendingActionKey),
+      ).equals(false);
+      chat.finish('a-srv', 'Paris it is');
+      await send;
+    });
+
+    test('a pause reported before the saved reply is adopted keeps its '
+        'card', () async {
+      final send = sendMessageWithContainer(container, 'Plan a trip', null);
+      await _until(() => chat.streams.isNotEmpty);
+      chat
+        ..created('u-srv', 'Plan a trip')
+        ..emit({
+          'event': 'on_pending_action',
+          'data': {
+            'actionId': 'act_q',
+            'payload': {
+              'type': 'ask_user_question',
+              'question': {'question': 'Which city?'},
+              'tool_call_id': 'call_q',
+            },
+          },
+        });
+      await _until(
+        () => visible().last.metadata?[kLibreChatPendingActionKey] is Map,
+      );
+      // The history the chat opened with already shows the reply.
+      container.read(chatMessagesProvider.notifier).setMessages([
+        ...container.read(chatMessagesProvider),
+        ChatMessage(
+          id: 'a-srv',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.utc(2026, 10, 18),
+        ),
+      ]);
+      chat.text('a-srv', 'Which city');
+      await _until(() => visible().any((message) => message.id == 'a-srv'));
+      await pumpEventQueue();
+
+      final adopted = visible().singleWhere(
+        (message) => message.id == 'a-srv',
+      );
+      check(adopted.metadata?[kLibreChatPendingActionKey]).isA<Map>();
+      check(libreChatPendingActionFor(container, 'a-srv')).isNotNull();
+      chat.finish('a-srv', 'Paris it is');
+      await send;
+    });
+
+    test('a pause answered elsewhere while the stream was away loses its '
+        'card', () async {
+      final send = sendMessageWithContainer(container, 'Plan a trip', null);
+      await _until(() => chat.streams.isNotEmpty);
+      chat
+        ..created('u-srv', 'Plan a trip')
+        ..emit({
+          'event': 'on_pending_action',
+          'data': {
+            'actionId': 'act_q',
+            'payload': {
+              'type': 'ask_user_question',
+              'question': {'question': 'Which city?'},
+              'tool_call_id': 'call_q',
+            },
+          },
+        });
+      await _until(
+        () => visible().last.metadata?[kLibreChatPendingActionKey] is Map,
+      );
+
+      // The stream drops, and the question is answered in LibreChat's web
+      // app meanwhile: the snapshot it comes back with has no pause.
+      chat.end();
+      await _until(() => chat.streams.length == 2);
+      chat.emit({
+        'sync': true,
+        'resumeState': {
+          'responseMessageId': 'a-srv',
+          'aggregatedContent': [
+            {'type': 'text', 'text': 'Paris, then'},
+          ],
+        },
+        'pendingEvents': <Object>[],
+      });
+      await _until(() => shown().contains('Paris, then'));
+      check(
+        visible().last.metadata?.containsKey(kLibreChatPendingActionKey),
+      ).equals(false);
+      check(libreChatPendingActionFor(container, visible().last.id)).isNull();
+      chat.finish('a-srv', 'Paris it is');
+      await send;
+    });
+
+    test('a question is answered as answer', () async {
+      final resumes = <Map<String, dynamic>>[];
+      fake.on('POST', '/api/agents/chat/resume', (request, match) {
+        resumes.add(Map<String, dynamic>.from(request.data as Map));
+        return FakeLibreChatResponse.json({'status': 'resumed'});
+      });
+      final send = sendMessageWithContainer(container, 'Plan a trip', null);
+      await _until(() => chat.streams.isNotEmpty);
+      chat.emit({
+        'event': 'on_pending_action',
+        'data': {
+          'actionId': 'act_q',
+          'payload': {
+            'type': 'ask_user_question',
+            'question': {'question': 'Which city?'},
+            'tool_call_id': 'call_q',
+          },
+        },
+      });
+      await _until(
+        () => visible().last.metadata?[kLibreChatPendingActionKey] is Map,
+      );
+      await resolveLibreChatPendingAction(
+        container,
+        visible().last.id,
+        answers: {'call_q': 'Paris'},
+      );
+      check(resumes.single['answer']).equals('Paris');
+      chat.finish('a-srv', 'Paris it is');
+      await send;
+    });
+
+    test('prompt groups become slash commands', () async {
+      fake.on(
+        'GET',
+        '/api/roles/(.+)',
+        (request, match) => FakeLibreChatResponse.json({'permissions': {}}),
+      );
+      fake.on(
+        'GET',
+        '/api/prompts/all',
+        (request, match) => FakeLibreChatResponse.json([
+          {
+            '_id': 'g1',
+            'name': 'Email Reply',
+            'command': 'reply',
+            'productionPrompt': {'prompt': 'Reply to {{sender}}'},
+          },
+        ]),
+      );
+      final prompts = await container.read(libreChatPromptsProvider.future);
+      check(prompts.single.command).equals('/reply');
+    });
+
+    test('tool ids map to an ephemeral agent', () {
+      check(
+        libreChatToolSelectionFor([
+          kLibreChatCodeToolId,
+          kLibreChatFileSearchToolId,
+          '${kLibreChatMcpToolIdPrefix}b',
+          '${kLibreChatMcpToolIdPrefix}a',
+        ]).toEphemeralAgent(),
+      ).isNotNull().deepEquals({
+        'web_search': false,
+        'execute_code': true,
+        'file_search': true,
+        'mcp': ['a', 'b'],
+      });
+      check(isLibreChatToolId('owui-tool')).isFalse();
+    });
   });
 }

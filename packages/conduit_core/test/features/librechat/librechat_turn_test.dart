@@ -320,6 +320,41 @@ void main() {
       ).isNull();
     });
 
+    test('a refusal to follow the turn fails it at once', () async {
+      var subscriptions = 0;
+      fake.on('GET', '/api/agents/chat/stream/c1', (request, match) {
+        subscriptions++;
+        return FakeLibreChatResponse.json({
+          'message': 'Your account is suspended.',
+        }, statusCode: 403);
+      });
+      final updates = await runner.run(request).toList();
+      check(subscriptions).equals(1);
+      check(sleeps).isEmpty();
+      check(updates.last).isA<LibreChatTurnFailed>().has(
+        (it) => it.message,
+        'message',
+      ).equals('Your account is suspended.');
+    });
+
+    test('a server error while following is retried', () async {
+      var subscriptions = 0;
+      fake.on('GET', '/api/agents/chat/stream/c1', (request, match) {
+        if (++subscriptions < 3) {
+          return FakeLibreChatResponse.json({
+            'message': 'Busy',
+          }, statusCode: 503);
+        }
+        return _sse(_fixture('fresh_tool_reply.sse'));
+      });
+      final updates = await runner.run(request).toList();
+      check(subscriptions).equals(3);
+      check(updates.last).isA<LibreChatTurnFinished>().has(
+        (it) => it.frame,
+        'frame',
+      ).isNotNull();
+    });
+
     test('resume snapshots alone do not keep a dropping stream alive', () async {
       // Every reconnect gets the same snapshot, and then the stream ends.
       final resume = _fixture('resume_mid_text.sse');

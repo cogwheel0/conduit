@@ -60,6 +60,11 @@ final class LibreChatRun {
   /// The approval or question the run waits on.
   Map<String, dynamic>? pendingAction;
 
+  /// The answer going out to the pause the run waits on. A second answer to
+  /// the same pause (its card shown again, the chat opened again) joins it
+  /// rather than send the decisions twice; a newer pause is answered anew.
+  ({Map<String, dynamic> action, Future<void> request})? _answering;
+
   /// Ids minted here that the server has since replaced, to its ids: a copy
   /// of the chat taken before then shows the server's when it opens again.
   final Map<String, String> _renamed = <String, String>{};
@@ -339,6 +344,52 @@ Map<String, dynamic> _libreChatParametersFor(LibreChatTarget target) =>
     ? Map<String, dynamic>.of(target.preset)
     : const <String, dynamic>{};
 
+/// How an uploaded file shows on the user's message until the server's copy
+/// replaces it: the same descriptor the stored message maps to.
+Map<String, dynamic> _libreChatFileDescriptor(Map<String, dynamic> file) {
+  final type = file['type'];
+  final isImage =
+      (type is String && type.startsWith('image/')) || file['width'] is num;
+  return <String, dynamic>{
+    'type': isImage ? 'image' : 'file',
+    'url': file['filepath'],
+    'name': ?file['filename'],
+    'size': ?file['bytes'],
+    if (type is String) 'content_type': type,
+    'libreChatFileId': ?file['file_id'],
+  };
+}
+
+/// The ids of [message]'s LibreChat uploads, sendable again: records the
+/// composer no longer holds (it forgets them once their turn goes out, and
+/// a reopened chat never had them) are rebuilt from the files the message
+/// shows, so an edited message goes out with its files. Null when it has
+/// none.
+List<String>? reattachLibreChatFiles(dynamic ref, ChatMessage message) {
+  final files = message.files;
+  if (files == null || files.isEmpty) return null;
+  final uploads =
+      ref.read(libreChatUploadedFilesProvider.notifier)
+          as LibreChatUploadedFiles;
+  final ids = <String>[];
+  for (final file in files) {
+    final id = file['libreChatFileId'];
+    if (id is! String || id.isEmpty) continue;
+    if (!uploads.has(id)) {
+      final type = file['content_type'];
+      uploads.record(<String, dynamic>{
+        'file_id': id,
+        'filepath': ?file['url'],
+        'filename': ?file['name'],
+        'bytes': ?file['size'],
+        if (type is String) 'type': type,
+      });
+    }
+    ids.add(id);
+  }
+  return ids.isEmpty ? null : ids;
+}
+
 String _libreChatDraftTitle(String text) {
   final line = text.trim().split('\n').first.trim();
   if (line.isEmpty) return 'New Chat';
@@ -346,21 +397,20 @@ String _libreChatDraftTitle(String text) {
 }
 
 /// Sends [message] in the active LibreChat chat, or starts one, with
-/// [model]. [replacing] is a message of this chat the server never took,
+/// [model] and the tools in [toolIds] (none when null, as for the other
+/// backends). [replacing] is a message of this chat the server never took,
 /// which this send takes the place of, with its reply.
 Future<void> _sendLibreChatMessage(
   dynamic ref,
   String message,
   List<String>? attachments, {
   required Model model,
+  List<String>? toolIds,
   ChatSendVoiceContext? voice,
   void Function(ChatSendPlaceholderHandle handle)?
   onAssistantPlaceholderCreated,
   ChatMessage? replacing,
 }) async {
-  if (attachments != null && attachments.isNotEmpty) {
-    throw StateError('Attachments are not available in LibreChat chats yet.');
-  }
   if (voice?.reply != null) {
     throw StateError('LibreChat chats do not keep spoken answers.');
   }
@@ -384,6 +434,19 @@ Future<void> _sendLibreChatMessage(
   if (target == null || streams == null) {
     throw StateError('The selected LibreChat model is not available.');
   }
+  // Files went up when they were attached; the turn names them. A file
+  // whose upload this session no longer holds stops the send rather than
+  // going out without it.
+  final uploads =
+      ref.read(libreChatUploadedFilesProvider.notifier)
+          as LibreChatUploadedFiles;
+  final fileIds = attachments ?? const <String>[];
+  final files = uploads.recordsFor(fileIds);
+  // The send's own tools: a follow-up that leaves the composer alone does
+  // not take the tools picked for the unsent draft.
+  final tools = libreChatModelTakesTools(model)
+      ? libreChatToolSelectionFor(toolIds ?? const <String>[])
+      : const LibreChatToolSelection();
   final mutationOwner = captureChatMutationOwner(ref, active);
   if (replacing != null) _dropUnsentLibreChatTurn(ref, replacing);
   final existing = ref.read(chatMessagesProvider) as List<ChatMessage>;
@@ -397,6 +460,10 @@ Future<void> _sendLibreChatMessage(
     content: message,
     timestamp: now,
     model: model.id,
+    attachmentIds: fileIds.isEmpty ? null : List<String>.of(fileIds),
+    files: files.isEmpty
+        ? null
+        : [for (final file in files) _libreChatFileDescriptor(file)],
     metadata: <String, dynamic>{
       'parentId': parentId,
       'childrenIds': <String>[assistantId],
@@ -453,10 +520,14 @@ Future<void> _sendLibreChatMessage(
     conversationId: active?.id,
     parentMessageId: parentId,
     clientRequestId: const Uuid().v4(),
+    files: [for (final file in files) libreChatTurnFile(file)],
+    ephemeralAgent: tools.toEphemeralAgent(),
     parameters: _libreChatParametersFor(target),
   );
+  final registry =
+      ref.read(libreChatRunRegistryProvider) as LibreChatRunRegistry;
   await _runLibreChatTurn(
-    ref.read(libreChatRunRegistryProvider) as LibreChatRunRegistry,
+    registry,
     streams: streams,
     owner: _LibreChatConversationOwner(active),
     request: request,
@@ -465,6 +536,10 @@ Future<void> _sendLibreChatMessage(
     model: model,
     sendHandle: handle,
   );
+  // Spent once the server has the turn. A refused one keeps them, for the
+  // draft that is sent again. Read through the registry: the page that sent
+  // may be gone.
+  registry._ref.read(libreChatUploadedFilesProvider.notifier).forget(fileIds);
 }
 
 /// Starts [request] and follows it, trying a start the server deferred
@@ -890,6 +965,12 @@ Future<void> _runLibreChatTurn(
               },
             ),
           );
+        case LibreChatTurnPauseCleared():
+          // Answered elsewhere while the stream was away: its card goes,
+          // and the reply carries on.
+          if (run.pendingAction == null) break;
+          run.pendingAction = null;
+          if (run.assistant != null) updateAssistant(_withoutPendingAction);
         case LibreChatTurnTitled(:final title):
           applyTitle(title);
         case LibreChatTurnFinished(:final frame):
@@ -1149,8 +1230,9 @@ Future<void> _regenerateLibreChatMessage(
     await _sendLibreChatMessage(
       ref,
       replayed.content,
-      null,
+      reattachLibreChatFiles(ref, replayed),
       model: model,
+      toolIds: ref.read(selectedToolIdsProvider) as List<String>,
       replacing: replayed,
     );
     return;
@@ -1168,6 +1250,17 @@ Future<void> _regenerateLibreChatMessage(
   if (active == null || target == null || streams == null) {
     throw StateError('The selected LibreChat model is not available.');
   }
+  // Answered again as it was asked: with the message's files, and the tools
+  // chosen now, as a send takes them.
+  final files =
+      (ref.read(libreChatUploadedFilesProvider.notifier)
+              as LibreChatUploadedFiles)
+          .recordsFor(reattachLibreChatFiles(ref, replayed) ?? const []);
+  final tools = libreChatModelTakesTools(model)
+      ? libreChatToolSelectionFor(
+          ref.read(selectedToolIdsProvider) as List<String>,
+        )
+      : const LibreChatToolSelection();
   final previous = messages.lastOrNull?.role == 'assistant'
       ? messages.last
       : null;
@@ -1208,6 +1301,8 @@ Future<void> _regenerateLibreChatMessage(
     clientRequestId: const Uuid().v4(),
     isRegenerate: true,
     overrideParentMessageId: replayed.id,
+    files: [for (final file in files) libreChatTurnFile(file)],
+    ephemeralAgent: tools.toEphemeralAgent(),
     parameters: _libreChatParametersFor(target),
   );
   await _runLibreChatTurn(
@@ -1219,4 +1314,118 @@ Future<void> _regenerateLibreChatMessage(
     model: model,
     replaces: previous?.id,
   );
+}
+
+/// The pending action of the LibreChat run writing reply [messageId], or
+/// null when none waits.
+LibreChatPendingAction? libreChatPendingActionFor(
+  dynamic ref,
+  String messageId,
+) {
+  final registry =
+      ref.read(libreChatRunRegistryProvider) as LibreChatRunRegistry;
+  final action = registry.forMessage(messageId)?.pendingAction;
+  return action == null ? null : LibreChatPendingAction(action);
+}
+
+/// Answers the approval or questions the LibreChat run writing reply
+/// [messageId] paused on, with [decisions] for tool calls or [answers] for
+/// questions. The run carries on on the stream it was already following.
+///
+/// LibreChat resumes only with the settings the turn paused with, so the
+/// body repeats the turn's own request; a turn followed after reopening its
+/// chat never sent one here, and repeats the selected model's instead.
+Future<void> resolveLibreChatPendingAction(
+  dynamic ref,
+  String messageId, {
+  Map<String, LibreChatToolDecisionInput>? decisions,
+  Map<String, String>? answers,
+}) async {
+  final registry =
+      ref.read(libreChatRunRegistryProvider) as LibreChatRunRegistry;
+  final streams =
+      ref.read(libreChatStreamClientProvider) as LibreChatStreamClient?;
+  final run = registry.forMessage(messageId);
+  final raw = run?.pendingAction;
+  if (run == null || raw == null || streams == null) {
+    throw StateError('The paused LibreChat reply is no longer running.');
+  }
+  final answering = run._answering;
+  if (answering != null && _sameLibreChatPause(answering.action, raw)) {
+    return answering.request;
+  }
+  final action = LibreChatPendingAction(raw);
+  final turn = run.turn.isNotEmpty
+      ? run.turn
+      : _libreChatTurnSettingsFor(
+          ref.read(selectedModelProvider) as Model?,
+          run.conversationId,
+        );
+  final body = answers != null
+      ? action.resumeWithAnswers(
+          answers: answers,
+          turn: turn,
+          generationCreatedAt: run.generationCreatedAt,
+        )
+      : action.resumeWithDecisions(
+          decisions: decisions ?? const {},
+          turn: turn,
+          generationCreatedAt: run.generationCreatedAt,
+        );
+  final request = streams.resumeAfterAction(body);
+  run._answering = (action: raw, request: request);
+  try {
+    await request;
+  } finally {
+    if (identical(run._answering?.action, raw)) run._answering = null;
+  }
+  if (!_sameLibreChatPause(run.pendingAction, raw)) return;
+  run.pendingAction = null;
+  final assistant = run.assistant;
+  if (assistant != null) run.assistant = _withoutPendingAction(assistant);
+  // The caller's ref may be a page's, gone if it closed during the resume;
+  // the run's registry outlives it.
+  registry._ref
+      .read(chatMessagesProvider.notifier)
+      .updateMessageById(run.assistantMessageId, _withoutPendingAction);
+}
+
+/// Whether [a] and [b] are the same pause: one map, or one `actionId` -- a
+/// reconnect's snapshot reports the pause it already had as a new map.
+bool _sameLibreChatPause(Map<String, dynamic>? a, Map<String, dynamic>? b) {
+  if (identical(a, b)) return true;
+  final id = a?['actionId'];
+  return id is String && id.isNotEmpty && id == b?['actionId'];
+}
+
+ChatMessage _withoutPendingAction(ChatMessage message) {
+  final metadata = message.metadata;
+  if (metadata == null || !metadata.containsKey(kLibreChatPendingActionKey)) {
+    return message;
+  }
+  return message.copyWith(
+    metadata: Map<String, dynamic>.of(metadata)
+      ..remove(kLibreChatPendingActionKey),
+  );
+}
+
+/// The settings a turn with [model] in [conversationId] runs with, for a
+/// resume whose original request is not at hand.
+Map<String, dynamic> _libreChatTurnSettingsFor(
+  Model? model,
+  String? conversationId,
+) {
+  final target = model == null ? null : libreChatTargetOf(model);
+  if (target == null) {
+    return <String, dynamic>{'conversationId': conversationId};
+  }
+  return <String, dynamic>{
+    ..._libreChatParametersFor(target),
+    'endpoint': target.endpoint,
+    'endpointType': ?target.endpointType,
+    'model': ?target.model,
+    'agent_id': ?target.agentId,
+    'spec': ?target.spec,
+    'conversationId': conversationId,
+  };
 }

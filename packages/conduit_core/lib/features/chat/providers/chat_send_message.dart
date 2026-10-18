@@ -25,6 +25,7 @@ Future<void> _sendMessageInternal(
       message,
       attachments,
       model: libreChatSelected,
+      toolIds: toolIds,
       voice: voice,
       onAssistantPlaceholderCreated: onAssistantPlaceholderCreated,
     );

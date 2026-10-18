@@ -50,6 +50,13 @@ final class LibreChatTurnPaused extends LibreChatTurnUpdate {
   final Map<String, dynamic> action;
 }
 
+/// The run waits on no one: a resume snapshot without a pause. One shown
+/// before was answered elsewhere (in LibreChat's web app, say) while the
+/// stream was away.
+final class LibreChatTurnPauseCleared extends LibreChatTurnUpdate {
+  const LibreChatTurnPauseCleared();
+}
+
 /// The server titled the conversation.
 final class LibreChatTurnTitled extends LibreChatTurnUpdate {
   const LibreChatTurnTitled(this.title);
@@ -179,6 +186,8 @@ final class LibreChatTurnRunner {
               if (userMessage != null) yield LibreChatTurnCreated(userMessage);
               if (reducer.pendingAction != null) {
                 yield LibreChatTurnPaused(reducer.pendingAction!);
+              } else {
+                yield const LibreChatTurnPauseCleared();
               }
               final title = reducer.title;
               if (title != null) yield LibreChatTurnTitled(title);
@@ -196,6 +205,13 @@ final class LibreChatTurnRunner {
           scope: 'librechat/turn',
           data: {'status': error.statusCode},
         );
+        // A refusal (a ban, a permission taken away) is not a dropped
+        // connection: asking again only repeats it, and the reply cannot
+        // be shown as finished when it was never followed.
+        if (_isRefusal(error.statusCode)) {
+          yield LibreChatTurnFailed(error.message);
+          return;
+        }
       } on DioException catch (error) {
         // The body broke off after the stream opened.
         final cause = error.error;
@@ -224,6 +240,15 @@ final class LibreChatTurnRunner {
       resumeNext = true;
     }
   }
+
+  /// A client error the server would give again: any 4xx but 408 (timed
+  /// out) and 429 (asked to wait), which a retry can outlast.
+  static bool _isRefusal(int? status) =>
+      status != null &&
+      status >= 400 &&
+      status < 500 &&
+      status != 408 &&
+      status != 429;
 
   static LibreChatTurnProgress _progress(LibreChatStreamReducer reducer) =>
       LibreChatTurnProgress(
