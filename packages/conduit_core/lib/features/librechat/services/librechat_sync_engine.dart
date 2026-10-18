@@ -14,6 +14,7 @@ import 'package:conduit_core/sync/backoff.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_entity_adapter.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -87,8 +88,10 @@ final class LibreChatSyncEngine {
   );
   late final LibreChatChatAdapter _adapter;
   late final OutboxDrainer _drainer;
-  Future<void>? _pull;
+  Future<PullResult>? _pull;
   bool _pullAgain = false;
+  Future<void>? _drain;
+  bool _drainAgain = false;
   bool _closed = false;
 
   static bool _alwaysOnline() => true;
@@ -104,10 +107,16 @@ final class LibreChatSyncEngine {
   /// Stops new work; work already running finishes.
   void close() => _closed = true;
 
+  static const PullResult _notPulled = PullResult(
+    success: false,
+    watermarkAdvanced: false,
+  );
+
   /// Pulls what changed. Overlapping calls share one pull, plus at most one
-  /// more after it.
-  Future<void> pull({bool forceReconcile = false}) {
-    if (_closed) return Future<void>.value();
+  /// more after it. Reports how the last pass went; offline, nothing is
+  /// pulled and the result says so.
+  Future<PullResult> pull({bool forceReconcile = false}) {
+    if (_closed) return Future<PullResult>.value(_notPulled);
     final running = _pull;
     if (running != null) {
       _pullAgain = true;
@@ -119,21 +128,33 @@ final class LibreChatSyncEngine {
     return pull.whenComplete(() => _pull = null);
   }
 
-  Future<void> _runPulls(bool forceReconcile) async {
+  Future<PullResult> _runPulls(bool forceReconcile) async {
+    var result = _notPulled;
     do {
       _pullAgain = false;
-      await _pullOnce(forceReconcile);
+      result = await _pullOnce(forceReconcile);
       forceReconcile = _forceReconcileAgain;
       _forceReconcileAgain = false;
     } while (_pullAgain && !_closed);
+    return result;
   }
 
-  Future<void> _pullOnce(bool forceReconcile) async {
-    if (!_isOnline()) return;
-    final result = await runPullFor(_adapter, db: db);
-    if (!result.success || _closed) return;
+  Future<PullResult> _pullOnce(bool forceReconcile) async {
+    if (!_isOnline()) return _notPulled;
+    final pass = await runPullFor(_adapter, db: db);
+    final result = PullResult(
+      success: pass.success && pass.failedFetches == 0,
+      changedChats: pass.changed,
+      failedFetches: pass.failedFetches,
+      watermarkAdvanced: pass.watermarkAdvanced,
+    );
+    if (!pass.success || _closed) return result;
+    // Search reads the full-text index, which a new database builds once
+    // (live writes index themselves after that), as Open WebUI's sync does.
+    await db.buildFtsIfNeeded();
+    if (_closed) return result;
     await _reconcilePins();
-    if (_closed) return;
+    if (_closed) return result;
     final now = _clock.nowEpochSeconds();
     final last = int.tryParse(
       await db.syncMetaDao.getValue(reconciledAtKey) ?? '',
@@ -145,13 +166,14 @@ final class LibreChatSyncEngine {
         await db.syncMetaDao.setValue(reconciledAtKey, '$now');
       }
     }
-    if (_closed) return;
+    if (_closed) return result;
     // The archive is listed apart from the active conversations, so it has
     // its own pass and watermark; without it a chat archived before the
     // first sync would never arrive.
     await runPullFor(_archivedAdapter, db: db);
-    if (_closed) return;
+    if (_closed) return result;
     await _pullDeferred();
+    return result;
   }
 
   /// Fetches the conversations earlier pulls passed over, now that the
@@ -198,8 +220,38 @@ final class LibreChatSyncEngine {
     return true;
   }
 
+  /// Connectivity is back: queued changes waiting out a retry delay are due
+  /// now, then the outbox runs.
+  Future<void> drainNow() async {
+    if (_closed) return;
+    await db.outboxDao.resetBackoffForPending(
+      nowEpochSeconds: _clock.nowEpochSeconds(),
+    );
+    await drain();
+  }
+
   /// Runs the outbox: queued renames, pins, archives, deletes and sends.
-  Future<void> drain() => _closed ? Future<void>.value() : _drainer.drain();
+  ///
+  /// Completes once the work queued when it was called has run: a call made
+  /// while a drain runs joins it, and one more pass follows.
+  Future<void> drain() {
+    if (_closed) return Future<void>.value();
+    final running = _drain;
+    if (running != null) {
+      _drainAgain = true;
+      return running;
+    }
+    final drain = _runDrains();
+    _drain = drain;
+    return drain.whenComplete(() => _drain = null);
+  }
+
+  Future<void> _runDrains() async {
+    do {
+      _drainAgain = false;
+      await _drainer.drain();
+    } while (_drainAgain && !_closed);
+  }
 
   /// Stores a conversation the caller already holds, with its [messages],
   /// as the server has it now (after a reply finished, say).

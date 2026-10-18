@@ -5,8 +5,11 @@ import 'package:meta/meta.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart'
+    show LibreChatAccountChangedException;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 
 import '../../../core/providers/app_startup_providers.dart';
 
@@ -214,10 +217,23 @@ class ConversationSelection extends _$ConversationSelection {
     required int generation,
     required Future<void> canceled,
   }) async {
+    // A LibreChat chat belongs to the account in charge when it was picked;
+    // one read across a switch to another account is never shown.
+    final primary = ref.read(primaryAccountProvider);
     ref.invalidate(loadConversationProvider(scopedId));
-    final full = await _loadUntilCanceled(scopedId, canceled);
+    final Conversation? full;
+    try {
+      full = await _loadUntilCanceled(scopedId, canceled);
+    } on LibreChatAccountChangedException {
+      _logCanceled(scopedId, generation, reason: 'owner-changed');
+      return const ConversationSelectionResult.canceled();
+    }
     if (full == null || !_ownsGeneration(generation)) {
       _logCanceled(scopedId, generation, reason: 'superseded');
+      return const ConversationSelectionResult.canceled();
+    }
+    if (ref.read(primaryAccountProvider) != primary) {
+      _logCanceled(scopedId, generation, reason: 'owner-changed');
       return const ConversationSelectionResult.canceled();
     }
     _commit(summary, full, scopedId: scopedId);

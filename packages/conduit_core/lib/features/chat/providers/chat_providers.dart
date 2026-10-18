@@ -60,6 +60,7 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_manager.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
 
 import 'package:conduit_core/database/chat_database_repository.dart';
 

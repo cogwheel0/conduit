@@ -272,10 +272,13 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   final bool isPinned = conversation.pinned == true;
   final bool isArchived = conversation.archived == true;
   final bool isOnDevice = isDirectLocalConversation(conversation);
+  // LibreChat has no folders, and its share links arrive separately.
+  final bool isLibreChat = isLibreChatConversation(conversation);
   final selectionId = conversationScopedId(conversation);
   final currentFolderId = _conversationFolderId(conversation);
   final canMove =
       !isOnDevice &&
+      !isLibreChat &&
       foldersEnabled &&
       (folders.any((folder) => folder.id != currentFolderId) ||
           currentFolderId != null);
@@ -332,6 +335,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       selectionId,
       conversation.title ?? '',
       isOnDevice: isOnDevice,
+      isLibreChat: isLibreChat,
     );
   }
 
@@ -341,6 +345,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       ref,
       conversation,
       isOnDevice: isOnDevice,
+      isLibreChat: isLibreChat,
     );
   }
 
@@ -382,7 +387,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       onBeforeClose: () => ConduitHaptics.lightImpact(),
       onSelected: toggleArchive,
     ),
-    if (!isOnDevice)
+    if (!isOnDevice && !isLibreChat)
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.share,
         sfSymbol: 'square.and.arrow.up',
@@ -675,6 +680,7 @@ Future<void> _renameConversation(
   String conversationId,
   String currentTitle, {
   required bool isOnDevice,
+  bool isLibreChat = false,
 }) async {
   final l10n = AppLocalizations.of(context)!;
   final newName = await ThemedDialogs.promptTextInput(
@@ -694,6 +700,11 @@ Future<void> _renameConversation(
   try {
     if (isOnDevice) {
       await chat.renameDirectLocalConversation(ref, conversationId, newName);
+      ConduitHaptics.selectionClick();
+      return;
+    }
+    if (isLibreChat) {
+      await chat.renameLibreChatConversation(ref, conversationId, newName);
       ConduitHaptics.selectionClick();
       return;
     }
@@ -894,6 +905,7 @@ Future<void> _confirmAndDeleteConversation(
   WidgetRef ref,
   Conversation conversation, {
   required bool isOnDevice,
+  bool isLibreChat = false,
 }) async {
   final conversationId = conversationScopedId(conversation);
   final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
@@ -910,9 +922,17 @@ Future<void> _confirmAndDeleteConversation(
   if (!confirmed) return;
 
   final deleteError = l10n.failedToDeleteChat;
+  // Read before deleting: the LibreChat delete closes the chat itself, which
+  // would hide that it was the open one.
+  final initiallyActive = ref.read(activeConversationProvider);
+  final wasActive =
+      initiallyActive != null &&
+      conversationMatchesScopedId(initiallyActive, conversationId);
   try {
     if (isOnDevice) {
       await chat.deleteDirectLocalConversation(ref, conversationId);
+    } else if (isLibreChat) {
+      await chat.deleteLibreChatConversation(ref, conversationId);
     } else {
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
@@ -934,7 +954,8 @@ Future<void> _confirmAndDeleteConversation(
     }
     ConduitHaptics.mediumImpact();
     final active = ref.read(activeConversationProvider);
-    if (active != null && conversationMatchesScopedId(active, conversationId)) {
+    if (wasActive ||
+        (active != null && conversationMatchesScopedId(active, conversationId))) {
       chat.clearSelectedFiltersForConversationBoundary(ref);
       ref.read(activeConversationProvider.notifier).clear();
       ref.read(chat.chatMessagesProvider.notifier).clearMessages();
