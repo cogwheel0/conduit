@@ -37,6 +37,7 @@ final codeInterpreterBlockProvider = Provider<CodeInterpreterBlock?>((ref) {
       model == null ||
       !ref.watch(isAuthenticatedProvider2) ||
       isHermesModel(model) ||
+      isLibreChatModel(model) ||
       hasReservedDirectIdentity(model)) {
     return CodeInterpreterBlock.notOpenWebUi;
   }
