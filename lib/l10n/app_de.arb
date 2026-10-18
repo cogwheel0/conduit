@@ -4341,5 +4341,11 @@
   "libreChatGoogleUnsupported": "Google erlaubt keine Anmeldung innerhalb von Apps. Melde dich auf andere Weise an.",
   "libreChatSsoUnfinished": "Die Anmeldung wurde nicht abgeschlossen. Versuche es erneut.",
   "libreChatChangeServer": "Anderen Server verwenden",
-  "libreChatSessionEnded": "Deine Sitzung auf {server} ist abgelaufen. Melde dich erneut an."
+  "libreChatSessionEnded": "Deine Sitzung auf {server} ist abgelaufen. Melde dich erneut an.",
+  "libreChatDuplicateChat": "Chat duplizieren",
+  "libreChatCopyFailed": "Der Chat konnte nicht kopiert werden. Prüfe deine Verbindung und versuche es erneut.",
+  "libreChatMemoryKeyLabel": "Schlüssel",
+  "libreChatMemoryKeyHint": "z. B. vorlieben",
+  "libreChatMemoryKeyRequired": "Gib der Erinnerung einen Schlüssel.",
+  "libreChatMemoryUsage": "{used} von {limit} Tokens verwendet"
 }

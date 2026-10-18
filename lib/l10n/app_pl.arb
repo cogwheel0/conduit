@@ -8166,5 +8166,22 @@
         "example": "chat.example.com"
       }
     }
+  },
+  "libreChatDuplicateChat": "Duplikuj czat",
+  "libreChatCopyFailed": "Nie udało się skopiować czatu. Sprawdź połączenie i spróbuj ponownie.",
+  "libreChatMemoryKeyLabel": "Klucz",
+  "libreChatMemoryKeyHint": "np. preferencje",
+  "libreChatMemoryKeyRequired": "Nadaj wspomnieniu klucz.",
+  "libreChatMemoryUsage": "Wykorzystano {used} z {limit} tokenów",
+  "@libreChatMemoryUsage": {
+    "description": "How much of the server's memory token budget the saved LibreChat memories use.",
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
   }
 }

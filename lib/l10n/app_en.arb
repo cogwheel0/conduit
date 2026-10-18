@@ -9179,5 +9179,37 @@
         "example": "chat.example.com"
       }
     }
+  },
+  "libreChatDuplicateChat": "Duplicate chat",
+  "@libreChatDuplicateChat": {
+    "description": "Chat menu action that copies a LibreChat chat into a new chat on the server."
+  },
+  "libreChatCopyFailed": "Couldn't copy the chat. Check your connection and try again.",
+  "@libreChatCopyFailed": {
+    "description": "Shown when branching or duplicating a LibreChat chat fails."
+  },
+  "libreChatMemoryKeyLabel": "Key",
+  "@libreChatMemoryKeyLabel": {
+    "description": "Label of the field naming a LibreChat memory (its key)."
+  },
+  "libreChatMemoryKeyHint": "e.g. preferences",
+  "@libreChatMemoryKeyHint": {
+    "description": "Placeholder of the LibreChat memory key field."
+  },
+  "libreChatMemoryKeyRequired": "Give the memory a key.",
+  "@libreChatMemoryKeyRequired": {
+    "description": "Shown when a LibreChat memory is saved without a key."
+  },
+  "libreChatMemoryUsage": "{used} of {limit} tokens used",
+  "@libreChatMemoryUsage": {
+    "description": "How much of the server's memory token budget the saved LibreChat memories use.",
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
   }
 }

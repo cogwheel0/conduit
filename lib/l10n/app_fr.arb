@@ -4341,5 +4341,11 @@
   "libreChatGoogleUnsupported": "Google n'autorise pas la connexion depuis une app. Utilisez un autre moyen de connexion.",
   "libreChatSsoUnfinished": "La connexion n'a pas abouti. Réessayez.",
   "libreChatChangeServer": "Utiliser un autre serveur",
-  "libreChatSessionEnded": "Votre session sur {server} a pris fin. Reconnectez-vous."
+  "libreChatSessionEnded": "Votre session sur {server} a pris fin. Reconnectez-vous.",
+  "libreChatDuplicateChat": "Dupliquer la discussion",
+  "libreChatCopyFailed": "Impossible de copier la discussion. Vérifiez votre connexion et réessayez.",
+  "libreChatMemoryKeyLabel": "Clé",
+  "libreChatMemoryKeyHint": "ex. preferences",
+  "libreChatMemoryKeyRequired": "Donnez une clé au souvenir.",
+  "libreChatMemoryUsage": "{used} jetons utilisés sur {limit}"
 }

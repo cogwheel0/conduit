@@ -4379,5 +4379,11 @@
   "libreChatGoogleUnsupported": "Google не разрешает входить внутри приложений. Используйте другой способ входа.",
   "libreChatSsoUnfinished": "Вход не завершён. Попробуйте ещё раз.",
   "libreChatChangeServer": "Использовать другой сервер",
-  "libreChatSessionEnded": "Ваш сеанс на {server} завершён. Войдите снова."
+  "libreChatSessionEnded": "Ваш сеанс на {server} завершён. Войдите снова.",
+  "libreChatDuplicateChat": "Дублировать чат",
+  "libreChatCopyFailed": "Не удалось скопировать чат. Проверьте подключение и повторите попытку.",
+  "libreChatMemoryKeyLabel": "Ключ",
+  "libreChatMemoryKeyHint": "например, preferences",
+  "libreChatMemoryKeyRequired": "Укажите ключ воспоминания.",
+  "libreChatMemoryUsage": "Использовано {used} из {limit} токенов"
 }
