@@ -837,6 +837,18 @@ typedef _OwnedModels = ({
   OpenWebUiCacheOwnershipSnapshot ownership,
 });
 
+/// LibreChat's catalog while LibreChat is the preferred backend, and
+/// nothing otherwise, so choosing a model elsewhere never builds LibreChat's
+/// session or fetches its catalog.
+final _preferredLibreChatCatalogProvider = Provider<AsyncValue<List<Model>>>((
+  ref,
+) {
+  if (ref.watch(preferredBackendProvider) != PreferredBackend.libreChat) {
+    return const AsyncData<List<Model>>(<Model>[]);
+  }
+  return ref.watch(libreChatModelCatalogProvider);
+});
+
 @Riverpod(keepAlive: true)
 class SelectedModel extends _$SelectedModel {
   bool _authenticatedDefaultRestoreScheduled = false;
@@ -867,7 +879,7 @@ class SelectedModel extends _$SelectedModel {
     // LibreChat's models arrive once its account is signed in and its
     // catalog loads; a LibreChat primary picks among them then.
     ref.listen<AsyncValue<List<Model>>>(
-      libreChatModelCatalogProvider,
+      _preferredLibreChatCatalogProvider,
       (previous, next) => _schedulePrimaryAccountlessRestore(),
     );
     ref.listen<bool>(
