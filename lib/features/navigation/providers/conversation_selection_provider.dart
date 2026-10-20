@@ -1,16 +1,20 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:meta/meta.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/database/database_provider.dart';
-import '../../../core/models/conversation.dart';
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../core/providers/app_startup_providers.dart';
-import '../../../core/utils/debug_logger.dart';
-import '../../chat/providers/chat_providers.dart' as chat;
-import '../../chat/providers/context_attachments_provider.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    as chat;
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 
 part 'conversation_selection_provider.g.dart';
 

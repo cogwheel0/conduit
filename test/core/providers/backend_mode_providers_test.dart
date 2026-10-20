@@ -1,10 +1,11 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 /// Unit tests for the synchronous, persisted [preferredBackendProvider] that the
 /// router reads for boot-deterministic Hermes-only routing.
@@ -12,7 +13,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   });
 
   tearDown(() {

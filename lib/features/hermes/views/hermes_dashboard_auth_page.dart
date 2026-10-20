@@ -3,9 +3,13 @@ import 'dart:collection';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/widgets/connection_components.dart';
-import '../models/hermes_config.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
+
 import '../services/hermes_dashboard_cookie_store.dart';
 import '../services/hermes_dashboard_webview_policy.dart';
 
@@ -28,18 +32,15 @@ final class _HermesDashboardAuthPageState
   bool _leftDashboard = false;
   bool _returnedToDashboard = false;
   bool _checking = false;
+  bool _documentStartChecked = false;
   String? _error;
   Set<String>? _cookieBaseline;
   late final int _cookieGeneration;
   late final HermesDashboardWebViewPolicy _policy;
 
-  Uri get _root => Uri.parse(widget.config.baseUrl.trim()).replace(
-    path: Uri.parse(widget.config.baseUrl.trim()).path
-        .replaceFirst(RegExp(r'/v1/?$'), ''),
-  );
+  Uri get _root => hermesDashboardRoot(widget.config.baseUrl);
 
-  Uri get _login =>
-      _root.replace(path: '${_root.path == '/' ? '' : _root.path}/login');
+  Uri get _login => hermesDashboardLoginUrl(_root);
 
   @override
   void initState() {
@@ -47,6 +48,17 @@ final class _HermesDashboardAuthPageState
     _policy = HermesDashboardWebViewPolicy(
       root: _root,
       accessHeaders: widget.config.accessHeaders,
+    );
+    HermesDashboardWebViewPolicy.documentStartScriptsSupported().then(
+      (supported) {
+        _policy.documentStartScripts = supported;
+        if (mounted) setState(() => _documentStartChecked = true);
+      },
+      // Failing closed: an unknown capability is an unsupported one.
+      onError: (_, _) {
+        _policy.documentStartScripts = false;
+        if (mounted) setState(() => _documentStartChecked = true);
+      },
     );
     _cookieGeneration = HermesDashboardCookieStore.begin(_root.toString());
     HermesDashboardCookieStore.snapshot(_root.toString()).then(
@@ -66,21 +78,11 @@ final class _HermesDashboardAuthPageState
   }
 
   Future<bool> _isAuthenticated(InAppWebViewController controller) async {
+    // No access headers in the arguments: they would be readable by the
+    // page. The check is a GET, which interceptSubresource sends with them.
     final result = await controller.callAsyncJavaScript(
-      functionBody: '''
-        const response = await fetch(url, {
-          headers,
-          credentials: 'include',
-          redirect: 'error'
-        });
-        return response.ok;
-      ''',
-      arguments: {
-        'url': _root
-            .replace(path: '${_root.path == '/' ? '' : _root.path}/api/auth/me')
-            .toString(),
-        'headers': _policy.accessHeaders,
-      },
+      functionBody: kHermesDashboardSignInCheckScript,
+      arguments: {'url': hermesDashboardAuthCheckUrl(_root).toString()},
     );
     return result?.error == null && result?.value == true;
   }
@@ -104,12 +106,13 @@ final class _HermesDashboardAuthPageState
               padding: EdgeInsets.all(24),
               child: Text(
                 'Dashboard sign-in with custom gateway headers is not '
-                'supported on iOS. Use native PKCE or remove the headers.',
+                'supported on this device. Use native PKCE or remove the '
+                'headers.',
                 textAlign: TextAlign.center,
               ),
             ),
           )
-        : _cookieBaseline == null
+        : _cookieBaseline == null || !_documentStartChecked
         ? const Center(child: CircularProgressIndicator.adaptive())
         : Stack(
             children: [
@@ -121,50 +124,11 @@ final class _HermesDashboardAuthPageState
                 initialSettings: InAppWebViewSettings(
                   javaScriptEnabled: true,
                   useShouldOverrideUrlLoading: true,
-                  useShouldInterceptAjaxRequest: true,
-                  useShouldInterceptFetchRequest: true,
                   useShouldInterceptRequest: true,
                 ),
-                initialUserScripts: UnmodifiableListView([
-                  UserScript(
-                    source: _policy.bootstrapScript,
-                    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-                  ),
-                ]),
+                initialUserScripts: UnmodifiableListView(_policy.userScripts),
                 shouldInterceptRequest: (_, request) =>
                     _policy.interceptSubresource(request),
-                shouldInterceptAjaxRequest: (_, request) async {
-                  final target = request.url?.uriValue;
-                  if (target != null && _policy.isExact(target)) {
-                    request.headers ??= AjaxRequestHeaders({});
-                    for (final entry in _policy.accessHeaders.entries) {
-                      request.headers!.setRequestHeader(entry.key, entry.value);
-                    }
-                  } else {
-                    final current = request.headers?.getHeaders().map(
-                      (key, value) => MapEntry(key, value.toString()),
-                    );
-                    request.headers = AjaxRequestHeaders(
-                      _policy.crossOriginHeaders(current),
-                    );
-                  }
-                  return request;
-                },
-                shouldInterceptFetchRequest: (_, request) async {
-                  final target = request.url?.uriValue;
-                  if (target != null && _policy.isExact(target)) {
-                    request.headers = _policy.sameOriginHeaders(
-                      request.headers,
-                    );
-                  } else {
-                    request.headers = _policy.crossOriginHeaders(
-                      request.headers?.map(
-                        (key, value) => MapEntry(key, value.toString()),
-                      ),
-                    );
-                  }
-                  return request;
-                },
                 onWebViewCreated: (controller) => _controller = controller,
                 onLoadStart: (_, _) {
                   if (mounted) {
@@ -177,11 +141,13 @@ final class _HermesDashboardAuthPageState
                 onLoadStop: (controller, url) async {
                   if (!mounted) return;
                   setState(() => _loading = false);
-                  final text = url?.toString() ?? '';
-                  if (!_policy.isExact(Uri.parse(text))) {
+                  if (!hermesDashboardShouldCheckSignIn(
+                    loaded: Uri.tryParse(url?.toString() ?? ''),
+                    root: _root,
+                    checking: _checking,
+                  )) {
                     return;
                   }
-                  if (url?.path.endsWith('/login') == true || _checking) return;
                   _checking = true;
                   try {
                     final authenticated = await _isAuthenticated(controller);
@@ -190,12 +156,7 @@ final class _HermesDashboardAuthPageState
                         _root.toString(),
                         generation: _cookieGeneration,
                         baseline: _cookieBaseline!,
-                        retainedNames: const {
-                          'hermes_session_at',
-                          'hermes_session_pkce',
-                          'hermes_session_rt',
-                          'hermes_session_provider',
-                        },
+                        retainedNames: kHermesDashboardRetainedCookieNames,
                       );
                       if (!mounted) return;
                       Navigator.of(this.context).pop(true);

@@ -7,8 +7,7 @@ import 'package:conduit/shared/utils/ui_utils.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 
-/// 40x40 tinted icon badge matching the settings/profile icon-badge pattern
-/// (see `SettingsIconBadge`): 10% fill, 20% hairline border, medium icon.
+/// Plain leading glyph matching the settings rows (see `SettingsIconBadge`).
 class WorkspaceIconBadge extends StatelessWidget {
   const WorkspaceIconBadge({
     super.key,
@@ -21,18 +20,9 @@ class WorkspaceIconBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
+    return SizedBox(
+      width: IconSize.xl,
+      height: IconSize.xl,
       child: Icon(icon, color: color, size: IconSize.medium),
     );
   }

@@ -1,5 +1,5 @@
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +18,35 @@ void main() {
 
       expect(forwarded, isNotNull);
       expect(forwarded!.headers.containsKey('Authorization'), isFalse);
+    });
+
+    test('two-step sign-in requests reach the server without a session', () async {
+      // They authenticate with the challenge token in their body; the sign-in
+      // they finish has no session yet, and must not send another one.
+      for (final path in [
+        '/api/v1/auths/mfa/verify',
+        '/api/v1/auths/mfa/enroll/start',
+        '/api/v1/auths/mfa/enroll/confirm',
+        '/api/v1/auths/mfa/recover',
+      ]) {
+        for (final token in [null, 'other-session']) {
+          final interceptor = ApiAuthInterceptor(
+            serverUrl: _serverUrl,
+            authToken: token,
+          );
+          final handler = _TestRequestInterceptorHandler();
+
+          interceptor.onRequest(RequestOptions(path: path), handler);
+          final forwarded = await handler.forwardedRequest;
+
+          expect(forwarded, isNotNull, reason: '$path ($token)');
+          expect(
+            forwarded!.headers.containsKey('Authorization'),
+            isFalse,
+            reason: '$path ($token)',
+          );
+        }
+      }
     });
 
     test(
@@ -284,46 +313,43 @@ void main() {
       expect(error!.response?.statusCode, 401);
     });
 
-    test(
-      'redirect on auth validation endpoint notifies only cookie-fronted servers',
-      () async {
-        Future<int> redirectNotifications(Map<String, String> headers) async {
-          var authFailureCount = 0;
-          final interceptor = ApiAuthInterceptor(
-            serverUrl: _serverUrl,
-            authToken: 'token',
-            customHeaders: headers,
-            onAuthTokenInvalid: () => authFailureCount++,
-          );
-          final requestHandler = _TestRequestInterceptorHandler();
-          interceptor.onRequest(
-            RequestOptions(path: '/api/v1/auths/'),
-            requestHandler,
-          );
-          final dispatched = await requestHandler.forwardedRequest;
-          final handler = _TestErrorInterceptorHandler();
-          interceptor.onError(
-            DioException(
-              requestOptions: dispatched!,
-              response: Response<dynamic>(
-                requestOptions: dispatched,
-                statusCode: 302,
-                headers: Headers.fromMap({
-                  'location': ['https://auth.example/login'],
-                }),
-              ),
-              type: DioExceptionType.badResponse,
+    test('redirect on auth validation endpoint notifies only cookie-fronted servers', () async {
+      Future<int> redirectNotifications(Map<String, String> headers) async {
+        var authFailureCount = 0;
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'token',
+          customHeaders: headers,
+          onAuthTokenInvalid: () => authFailureCount++,
+        );
+        final requestHandler = _TestRequestInterceptorHandler();
+        interceptor.onRequest(
+          RequestOptions(path: '/api/v1/auths/'),
+          requestHandler,
+        );
+        final dispatched = await requestHandler.forwardedRequest;
+        final handler = _TestErrorInterceptorHandler();
+        interceptor.onError(
+          DioException(
+            requestOptions: dispatched!,
+            response: Response<dynamic>(
+              requestOptions: dispatched,
+              statusCode: 302,
+              headers: Headers.fromMap({
+                'location': ['https://auth.example/login'],
+              }),
             ),
-            handler,
-          );
-          await handler.done;
-          return authFailureCount;
-        }
+            type: DioExceptionType.badResponse,
+          ),
+          handler,
+        );
+        await handler.done;
+        return authFailureCount;
+      }
 
-        expect(await redirectNotifications({'cookie': 'session=abc'}), 1);
-        expect(await redirectNotifications(const {}), 0);
-      },
-    );
+      expect(await redirectNotifications({'cookie': 'session=abc'}), 1);
+      expect(await redirectNotifications(const {}), 0);
+    });
 
     test('401 on auth validation endpoint notifies auth failure', () async {
       var authFailureCount = 0;
@@ -488,15 +514,19 @@ void main() {
             authFailureCount++;
           },
         );
-        final handler = _TestErrorInterceptorHandler();
-
-        interceptor.onError(
-          _dioError(401, 'https://cdn.example/api/v1/auths/'),
-          handler,
+        await _failRequest(
+          interceptor,
+          RequestOptions(path: 'https://cdn.example/api/v1/auths/'),
+          401,
         );
-        await handler.done;
-
         expect(authFailureCount, 0);
+
+        await _failRequest(
+          interceptor,
+          RequestOptions(path: '/api/v1/auths/'),
+          401,
+        );
+        expect(authFailureCount, 1);
       },
     );
 
@@ -549,23 +579,26 @@ void main() {
             authFailureCount++;
           },
         );
-        final handler = _TestErrorInterceptorHandler();
-
-        interceptor.onError(
-          _dioError(
-            401,
-            '/api/v1/auths/',
+        await _failRequest(
+          interceptor,
+          RequestOptions(
+            path: '/api/v1/auths/',
             extra: const {'suppressAuthFailureNotification': true},
           ),
-          handler,
+          401,
         );
-        await handler.done;
-
         expect(authFailureCount, 0);
+
+        await _failRequest(
+          interceptor,
+          RequestOptions(path: '/api/v1/auths/'),
+          401,
+        );
+        expect(authFailureCount, 1);
       },
     );
 
-    test('403 on audio config endpoint does not notify auth failure', () async {
+    test('403 on non-session endpoints does not notify auth failure', () async {
       var authFailureCount = 0;
       final interceptor = ApiAuthInterceptor(
         serverUrl: _serverUrl,
@@ -574,29 +607,15 @@ void main() {
           authFailureCount++;
         },
       );
-      final handler = _TestErrorInterceptorHandler();
+      Future<void> forbidden(String path) =>
+          _failRequest(interceptor, RequestOptions(path: path), 403);
 
-      interceptor.onError(_dioError(403, '/api/v1/audio/config'), handler);
-      await handler.done;
-
+      await forbidden('/api/v1/audio/config');
+      await forbidden('/api/v1/notes');
       expect(authFailureCount, 0);
-    });
 
-    test('403 on notes endpoint does not notify auth failure', () async {
-      var authFailureCount = 0;
-      final interceptor = ApiAuthInterceptor(
-        serverUrl: _serverUrl,
-        authToken: 'token',
-        onAuthTokenInvalid: () {
-          authFailureCount++;
-        },
-      );
-      final handler = _TestErrorInterceptorHandler();
-
-      interceptor.onError(_dioError(403, '/api/v1/notes'), handler);
-      await handler.done;
-
-      expect(authFailureCount, 0);
+      await forbidden('/api/v1/auths/');
+      expect(authFailureCount, 1);
     });
 
     test('auth diagnostics never include path or query values', () async {
@@ -644,20 +663,30 @@ void main() {
   });
 }
 
-DioException _dioError(
+/// Dispatches [options] through [interceptor] as Dio would, then fails the
+/// dispatched request with [statusCode]. Going through onRequest matters: only
+/// a request stamped for the current session may raise an auth failure.
+Future<void> _failRequest(
+  ApiAuthInterceptor interceptor,
+  RequestOptions options,
   int statusCode,
-  String path, {
-  Map<String, dynamic>? extra,
-}) {
-  final request = RequestOptions(path: path, extra: extra);
-  return DioException(
-    requestOptions: request,
-    response: Response<dynamic>(
-      requestOptions: request,
-      statusCode: statusCode,
+) async {
+  final requestHandler = _TestRequestInterceptorHandler();
+  interceptor.onRequest(options, requestHandler);
+  final dispatched = (await requestHandler.forwardedRequest)!;
+  final handler = _TestErrorInterceptorHandler();
+  interceptor.onError(
+    DioException(
+      requestOptions: dispatched,
+      response: Response<dynamic>(
+        requestOptions: dispatched,
+        statusCode: statusCode,
+      ),
+      type: DioExceptionType.badResponse,
     ),
-    type: DioExceptionType.badResponse,
+    handler,
   );
+  await handler.done;
 }
 
 class _TestErrorInterceptorHandler extends ErrorInterceptorHandler {

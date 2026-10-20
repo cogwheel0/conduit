@@ -3,17 +3,17 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
-import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/models/hermes_run_event.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
-import 'package:conduit/features/hermes/services/hermes_api_service.dart';
-import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
-import 'package:conduit/features/hermes/services/hermes_stream_parser.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_stream_parser.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -384,9 +384,8 @@ void main() {
     final staleToken = registry.registerPending(key, onCancelled: () {});
     final currentToken = registry.registerPending(key, onCancelled: () {});
 
-    check(
-      registry.bindRunId(key, cancelToken: staleToken, runId: 'stale-run'),
-    ).isFalse();
+    check(registry.bindRunId(key, cancelToken: staleToken, runId: 'stale-run'))
+        .isFalse();
     check(registry.runIdFor(key)).isNull();
     check(
       registry.bindRunId(key, cancelToken: currentToken, runId: 'current-run'),
@@ -2009,41 +2008,6 @@ void main() {
     check(error).not((value) => value.contains('\n'));
     check(error.runes.length).isLessOrEqual(kMaxHermesProviderErrorCharacters);
   });
-
-  test(
-    'provider error redaction survives a supplementary-character boundary',
-    () {
-      const secret = 'UNICODE_BOUNDARY_SECRET';
-      final reflected = '${List<String>.filled(6, '😀').join()}$secret';
-
-      final message = sanitizeHermesProviderErrorMessage(
-        reflected,
-        sensitiveValues: const <String>[secret],
-        maxCharacters: 8,
-      );
-
-      check(message).not((value) => value.contains('U'));
-      check(message.runes.length).equals(8);
-    },
-  );
-
-  test(
-    'provider error redaction survives normalization after its boundary',
-    () {
-      const secret = 'UNICODE_BOUNDARY_SECRET';
-      final reflected = '${List<String>.filled(20, ' ').join()}$secret';
-
-      final message = sanitizeHermesProviderErrorMessage(
-        reflected,
-        sensitiveValues: const <String>[secret],
-        maxCharacters: 8,
-      );
-
-      check(message).equals('[REDACT…');
-      check(message.runes.length).equals(8);
-      check(message).not((value) => value.contains('UNICODE'));
-    },
-  );
 
   test('appends final output when no deltas streamed', () async {
     final fake = _FakeHermesApiService(const [

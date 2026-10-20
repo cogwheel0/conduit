@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/utils/debug_logger.dart';
-import '../models/hermes_mcp.dart';
-import '../providers/hermes_providers.dart';
-import '../services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 
 final class HermesMcpPage extends ConsumerStatefulWidget {
   const HermesMcpPage({super.key});
@@ -268,11 +269,13 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   String _serverSubtitle(HermesMcpServer server) {
     final result = _testResults[server.name];
     final tools = result?.toolNames ?? server.tools;
+    final filter = server.toolFilter?.summary;
     return [
       server.enabled ? 'Enabled' : 'Disabled',
       if (server.auth?.isNotEmpty == true) server.auth!,
       if (server.description.isNotEmpty) server.description,
       if (tools.isNotEmpty) 'Tools: ${tools.join(', ')}',
+      if (filter != null) 'Tool filter: $filter',
       if (result != null)
         '${result.resources} resources · ${result.prompts} prompts',
     ].join('\n');

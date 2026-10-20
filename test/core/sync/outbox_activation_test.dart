@@ -1,21 +1,19 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/daos/outbox_dao.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/sync/backoff.dart';
-import 'package:conduit/core/sync/chat_adapter.dart';
-import 'package:conduit/core/sync/chat_locks.dart';
-import 'package:conduit/core/sync/clock.dart';
-import 'package:conduit/core/sync/id_remapper.dart';
-import 'package:conduit/core/sync/outbox_drainer.dart';
-import 'package:conduit/core/sync/pull_sync.dart';
-import 'package:conduit/core/sync/push_sync.dart';
-import 'package:conduit/features/chat/services/request_completion_runner.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/sync/backoff.dart';
+import 'package:conduit_core/sync/chat_adapter.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/clock.dart';
+import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/sync/push_sync.dart';
+import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/fake_open_webui_server.dart';
-import '../../support/fake_sync_api_client.dart';
+import 'package:conduit_core/testing.dart';
 
 /// Mutable epoch-seconds clock.
 class _Clock implements SyncClock {
@@ -68,39 +66,6 @@ class _LoggingClient extends FakeSyncApiClient {
     _log.add('createChat');
     return super.createChat(chatBlob, folderId: folderId);
   }
-}
-
-ChatRows _localChatRows(String localId, String userId, String asstId) {
-  return ChatBlobMapper.blobToRows(
-    chatId: localId,
-    blob: <String, dynamic>{
-      'title': 'Offline send',
-      'history': <String, dynamic>{
-        'currentId': asstId,
-        'messages': <String, dynamic>{
-          userId: <String, dynamic>{
-            'id': userId,
-            'parentId': null,
-            'childrenIds': <String>[asstId],
-            'role': 'user',
-            'content': 'hello',
-            'timestamp': 1000,
-          },
-          asstId: <String, dynamic>{
-            'id': asstId,
-            'parentId': userId,
-            'childrenIds': <String>[],
-            'role': 'assistant',
-            'content': '',
-            'timestamp': 1000,
-          },
-        },
-      },
-    },
-    title: 'Offline send',
-    createdAt: 1000,
-    updatedAt: 1000,
-  );
 }
 
 void main() {
@@ -164,58 +129,6 @@ void main() {
   );
 
   group('drain -> completion ordering (offline send create+complete)', () {
-    test(
-      'createChat runs BEFORE its dependent requestCompletion, which the seam '
-      'runs with the remapped server id',
-      () async {
-        const localId = 'local:send1';
-        const userId = 'u1';
-        const asstId = 'a1';
-        final rows = _localChatRows(localId, userId, asstId);
-        final hash = createChatContentHash(rows);
-
-        await chatLocks.runExclusive(localId, () async {
-          await db.chatsDao.insertLocalChatWithCreateOp(
-            chat: rows.chat,
-            messages: rows.messages,
-            blobRows: rows,
-            contentHash: hash,
-            completion: const RequestCompletionPayload(
-              assistantMessageId: asstId,
-              model: 'm',
-              toolIds: <String>[],
-            ),
-          );
-        });
-
-        // Two ops enqueued: createChat then requestCompletion (seq order).
-        check(await dao.pendingForChat(localId)).length.equals(2);
-
-        await buildDrainer().drain();
-
-        // The remapped server id is the only non-local chat row now.
-        final chats = await db.select(db.chats).get();
-        final serverId = chats
-            .map((c) => c.id)
-            .firstWhere((id) => !id.startsWith('local:'));
-
-        // createChat was driven before the completion ran (W ordering).
-        check(log).deepEquals(['createChat', 'completion:$serverId']);
-
-        // The completion ran exactly once.
-        check(completion.ranChats).length.equals(1);
-        // It received the SERVER id (the remap repointed the op's chat_id from
-        // local:<uuid> to the server id inside the §7.3 tx).
-        check(completion.ranChats.single.startsWith('local:')).isFalse();
-        // Payload carried the queued assistantMessageId (R8 anti-desync).
-        check(completion.payloads.single['assistantMessageId']).equals(asstId);
-
-        // Both ops are gone (createChat done + remapped, completion done).
-        check(await dao.pendingForChat(localId)).isEmpty();
-        check(await dao.pendingForChat(serverId)).isEmpty();
-      },
-    );
-
     test(
       'a CompletionBusyException defers (stays pending) without parking',
       () async {

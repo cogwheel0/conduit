@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/terminal/services/terminal_service.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -120,6 +120,31 @@ void main() {
           .isA<Map<String, dynamic>>()
           .deepEquals(<String, dynamic>{'temperature': 0.3});
     });
+
+    test('clearing the system prompt sends an explicit null', () async {
+      // Open WebUI >= 0.11.4 patches `ui` per key, so an omitted key keeps
+      // its old value. Only an explicit null resets it.
+      final adapter = _UserSettingsAdapter(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'system': 'Be concise',
+          'models': <String>['gpt-4o'],
+          'theme': 'dark',
+        },
+      });
+      final api = _buildApi(adapter, authToken: 'account-a');
+      adapter.releaseFirstGet.complete();
+
+      final afterPrompt = await api.updateUserSystemPrompt('   ');
+      final promptUi = adapter.lastSubmitted!['ui'] as Map<String, dynamic>;
+      check(promptUi.containsKey('system')).isTrue();
+      check(promptUi['system']).isNull();
+      check(promptUi['theme']).equals('dark');
+      check(afterPrompt.systemPrompt).isNull();
+
+      // The default-model half of this test on main is not ported:
+      // `updateUserDefaultModel` had no callers and this branch removed
+      // it along with 47 other unreferenced methods.
+    });
   });
 }
 
@@ -142,6 +167,7 @@ final class _UserSettingsAdapter implements HttpClientAdapter {
     : settings = _clone(initialSettings);
 
   Map<String, dynamic> settings;
+  Map<String, dynamic>? lastSubmitted;
   final List<String> requestMethods = <String>[];
   final Completer<void> firstGetEntered = Completer<void>();
   final Completer<void> releaseFirstGet = Completer<void>();
@@ -170,6 +196,7 @@ final class _UserSettingsAdapter implements HttpClientAdapter {
 
       if (options.method == 'POST') {
         final submitted = _clone(options.data as Map<String, dynamic>);
+        lastSubmitted = submitted;
         settings = <String, dynamic>{...settings, ...submitted};
       }
       return _jsonResponse(settings);

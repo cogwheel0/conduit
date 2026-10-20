@@ -31,10 +31,10 @@ final class ConduitCarPlaySceneDelegate: UIResponder,
     }
 
     if #available(iOS 26.4, *) {
-      let didStartFlutter = (UIApplication.shared.delegate as? AppDelegate)?
-        .ensureCarPlayFlutterEngine() ?? false
-      if !didStartFlutter {
-        print("ConduitCarPlaySceneDelegate: CarPlay Flutter engine is not ready")
+      let didStartHost = UIApplication.shared.conduitBridgeHostProvider?
+        .ensureBridgeHost() != nil
+      if !didStartHost {
+        print("ConduitCarPlaySceneDelegate: CarPlay bridge host is not ready")
       }
 
       didNotifyBridgeConnected = true

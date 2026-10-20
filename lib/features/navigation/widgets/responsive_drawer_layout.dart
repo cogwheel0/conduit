@@ -6,7 +6,8 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart' show RenderBox, RenderEditable;
 import 'package:flutter/services.dart';
 
-import '../../../core/services/performance_profiler.dart';
+import 'package:conduit_core/services/performance_profiler.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/drawer_slot.dart';

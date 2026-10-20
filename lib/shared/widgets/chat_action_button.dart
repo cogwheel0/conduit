@@ -42,7 +42,7 @@ class ChatActionButton extends StatelessWidget {
             width: 32,
             height: 32,
             child: Center(
-              child: Icon(icon, size: IconSize.sm, color: foreground),
+              child: Icon(icon, size: IconSize.sm + 2, color: foreground),
             ),
           ),
         ),

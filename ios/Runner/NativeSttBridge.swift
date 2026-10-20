@@ -1244,7 +1244,7 @@ final class NativeCallKitCallOwnership {
   }
 }
 
-final class NativeSttBridge: NSObject, FlutterStreamHandler {
+final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
   static let shared = NativeSttBridge()
   private static let stopAcknowledgementTimeoutNanoseconds: UInt64 =
     1_000_000_000
@@ -1281,7 +1281,8 @@ final class NativeSttBridge: NSObject, FlutterStreamHandler {
     _ = lifecycle.beginStop()
   }
 
-  func configure(messenger: FlutterBinaryMessenger) {
+  func attach(to host: ConduitBridgeHost) {
+    let messenger = host.messenger
     let methodChannel = FlutterMethodChannel(
       name: nativeSttMethodChannelName,
       binaryMessenger: messenger
@@ -2845,7 +2846,12 @@ private final class SFSpeechNativeSttSession: NativeSttSession {
 // CallKit invokes these callbacks natively even while Flutter is suspended.
 // Keep the response-wait microphone owner aligned with the system audio
 // session, and always fulfill actions that the plugin delegates to the app.
-extension AppDelegate: CallkitIncomingAppDelegate {
+//
+// flutter_callkit_incoming looks the callbacks up on the application
+// delegate, so each host conforms its own delegate with an empty extension.
+protocol NativeSttCallKitAppDelegate: CallkitIncomingAppDelegate {}
+
+extension NativeSttCallKitAppDelegate {
   func onAccept(
     _ call: flutter_callkit_incoming.Call,
     _ action: CXAnswerCallAction

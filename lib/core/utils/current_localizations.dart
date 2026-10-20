@@ -2,8 +2,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/widgets.dart';
 
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 AppLocalizations currentAppLocalizations() {

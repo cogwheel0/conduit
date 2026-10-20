@@ -2,7 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/widgets.dart';
 
-import '../models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 
 enum DirectHeaderValidationIssue {
   nameRequired,

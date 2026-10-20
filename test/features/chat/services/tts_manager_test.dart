@@ -2,14 +2,15 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/features/chat/server_speech/openwebui_server_speech.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/services/native_tts_service.dart';
 import 'package:conduit/features/chat/services/tts_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:conduit_core/conduit_core.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -263,7 +264,7 @@ void main() {
       // before a fallback that then plays leaves Stop unable to stop (#709).
       final api = _FailingApiService();
       final native = _FakeNativeTtsService();
-      TtsManager.instance.setApiService(api);
+      TtsManager.instance.setServerSpeech(OpenWebUiServerSpeech(api));
       await TtsManager.instance.debugSetNativeTtsService(native);
       await TtsManager.instance.updateConfig(
         const TtsConfig(preferServer: true),
@@ -281,7 +282,7 @@ void main() {
         check(errors).isEmpty();
       } finally {
         await sub.cancel();
-        TtsManager.instance.setApiService(null);
+        TtsManager.instance.setServerSpeech(null);
         await TtsManager.instance.reset();
         await TtsManager.instance.debugSetNativeTtsService(null);
         api.disposeWorker();
@@ -294,7 +295,7 @@ void main() {
 
     setUp(() async {
       api = _RecordingApiService();
-      TtsManager.instance.setApiService(api);
+      TtsManager.instance.setServerSpeech(OpenWebUiServerSpeech(api));
       await TtsManager.instance.reset();
       await TtsManager.instance.updateConfig(
         const TtsConfig(preferServer: true),
@@ -302,7 +303,7 @@ void main() {
     });
 
     tearDown(() async {
-      TtsManager.instance.setApiService(null);
+      TtsManager.instance.setServerSpeech(null);
       await TtsManager.instance.reset();
       api.disposeWorker();
     });
@@ -537,7 +538,7 @@ void main() {
   group('TtsManager server streaming completion', () {
     test('does not complete while final chunk is still playing', () {
       final completed = isServerTtsPlaybackCompleteForTesting(
-        processingState: ProcessingState.ready,
+        processingState: AudioProcessingState.ready,
         currentIndex: 2,
         lastChunkIndex: 2,
         lastEnqueuedIndex: 2,
@@ -548,7 +549,7 @@ void main() {
 
     test('completes only after final chunk playback completes', () {
       final completed = isServerTtsPlaybackCompleteForTesting(
-        processingState: ProcessingState.completed,
+        processingState: AudioProcessingState.completed,
         currentIndex: 2,
         lastChunkIndex: 2,
         lastEnqueuedIndex: 2,

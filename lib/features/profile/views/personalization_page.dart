@@ -6,20 +6,32 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/models/model.dart';
-import '../../../core/models/server_user_settings.dart';
-import '../../../core/models/server_memory.dart';
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_user_settings.dart';
+import 'package:conduit_core/models/server_memory.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import '../../../core/services/haptic_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
-import '../../../core/services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/discard_changes.dart';
+import '../../../shared/widgets/sheet_handle.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../chat/providers/chat_providers.dart' show restoreDefaultModel;
+import '../../../shared/widgets/themed_sheets.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show restoreDefaultModel;
+
+import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/default_model_sheet.dart';
 import '../widgets/expandable_card.dart';
@@ -52,6 +64,11 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     final appSettings = ref.watch(appSettingsProvider);
     final modelsAsync = ref.watch(modelsProvider);
     final hasOpenWebUiAccount = ref.watch(openWebUiAccountAvailableProvider);
+    // Only an explicit denial hides memories; while the permission loads or
+    // cannot be read the section stays, and the server enforces the answer.
+    final memoriesPermitted = ref
+        .watch(memoriesPermittedProvider)
+        .maybeWhen(data: (permitted) => permitted, orElse: () => true);
 
     return UtilityPageScaffold.settings(
       title: l10n.personalization,
@@ -76,13 +93,15 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
             ref,
             ref.watch(personalizationSettingsProvider),
           ),
-          settingsSectionGap,
-          _buildMemorySection(
-            context,
-            ref,
-            ref.watch(personalizationSettingsProvider),
-            ref.watch(userMemoriesProvider),
-          ),
+          if (memoriesPermitted) ...[
+            settingsSectionGap,
+            _buildMemorySection(
+              context,
+              ref,
+              ref.watch(personalizationSettingsProvider),
+              ref.watch(userMemoriesProvider),
+            ),
+          ],
         ],
       ],
     );
@@ -268,6 +287,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
               subtitle: enabled
                   ? l10n.memoryEnabledDescription
                   : l10n.memoryDisabledDescription,
+              toggled: enabled,
               trailing: AdaptiveSwitch(
                 value: enabled,
                 onChanged: (value) async {
@@ -354,16 +374,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
           ),
           title: l10n.addMemory,
           subtitle: l10n.manageMemoriesDescription,
-          onTap: () => _showTextEditorSheet(
-            context,
-            title: l10n.addMemory,
-            description: l10n.memoryEditorDescription,
-            initialValue: '',
-            hintText: l10n.memoryHint,
-            onSave: (value) async {
-              await ref.read(userMemoriesProvider.notifier).add(value);
-            },
-          ),
+          onTap: () => _openMemoryEditor(context, ref),
         ),
         if (memories.isEmpty) ...[
           const SizedBox(height: Spacing.md),
@@ -399,18 +410,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
                 iconColor: context.conduitTheme.error,
               ),
               showChevron: false,
-              onTap: () => _showTextEditorSheet(
-                context,
-                title: l10n.editMemory,
-                description: l10n.memoryEditorDescription,
-                initialValue: memories[i].content,
-                hintText: l10n.memoryHint,
-                onSave: (value) async {
-                  await ref
-                      .read(userMemoriesProvider.notifier)
-                      .updateItem(memories[i].id, value);
-                },
-              ),
+              onTap: () => _openMemoryEditor(context, ref, memory: memories[i]),
             ),
             if (i != memories.length - 1) const SizedBox(height: Spacing.xs),
           ],
@@ -502,78 +502,18 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     await restoreDefaultModel(ref);
   }
 
-  Future<void> _showTextEditorSheet(
-    BuildContext context, {
-    required String title,
-    required String description,
-    required String initialValue,
-    required String hintText,
-    required Future<void> Function(String value) onSave,
-  }) async {
-    final l10n = AppLocalizations.of(context)!;
-
-    if (Platform.isIOS) {
-      try {
-        final result = await NativeSheetBridge.instance.presentSheet(
-          root: NativeSheetDetailConfig(
-            id: 'text-editor-sheet',
-            title: title,
-            subtitle: description,
-            confirmActionId: 'save',
-            confirmActionLabel: AppLocalizations.of(context)!.save,
-            items: [
-              NativeSheetItemConfig(
-                id: 'text-editor-value',
-                title: title,
-                subtitle: hintText,
-                sfSymbol: 'text.bubble',
-                kind: NativeSheetItemKind.multilineTextField,
-                value: initialValue,
-                placeholder: hintText,
-              ),
-            ],
-          ),
-          rethrowErrors: true,
-        );
-        if (result?.actionId != 'save') {
-          return;
-        }
-        final value = result?.values['text-editor-value'] as String? ?? '';
-        try {
-          await onSave(value);
-          if (context.mounted) {
-            UiUtils.showMessage(context, l10n.saved);
-          }
-        } catch (_) {
-          if (context.mounted) {
-            UiUtils.showMessage(context, l10n.errorMessage);
-          }
-        }
-        return;
-      } catch (_) {
-        if (!context.mounted) {
-          return;
-        }
-      }
-    }
-
-    if (!context.mounted) {
-      return;
-    }
-
-    await showAdaptiveSelectionSheet<void>(
-      context: context,
-      builder: (sheetContext) => _TextEditorSheet(
-        title: title,
-        description: description,
-        initialValue: initialValue,
-        hintText: hintText,
-        cancelLabel: l10n.cancel,
-        saveLabel: l10n.save,
-        errorMessage: l10n.errorMessage,
-        savedMessage: l10n.saved,
-        onSave: onSave,
-      ),
+  Future<void> _openMemoryEditor(
+    BuildContext context,
+    WidgetRef ref, {
+    ServerMemory? memory,
+  }) {
+    final notifier = ref.read(userMemoriesProvider.notifier);
+    return showMemoryEditor(
+      context,
+      notifier: notifier,
+      owner: notifier.captureOwner(),
+      advanced: ref.read(appSettingsProvider).advancedFeaturesEnabled,
+      memory: memory,
     );
   }
 
@@ -583,6 +523,12 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     ServerMemory memory,
   ) async {
     final l10n = AppLocalizations.of(context)!;
+    final notifier = ref.read(userMemoriesProvider.notifier);
+    final owner = notifier.captureOwner();
+    if (owner == null) {
+      UiUtils.showMessage(context, l10n.errorMessage);
+      return;
+    }
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.deleteMemory,
@@ -594,7 +540,13 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
       return;
     }
 
-    await ref.read(userMemoriesProvider.notifier).deleteItem(memory.id);
+    try {
+      await notifier.deleteItem(memory.id, owner: owner);
+    } catch (_) {
+      if (context.mounted) {
+        UiUtils.showMessage(context, l10n.errorMessage);
+      }
+    }
   }
 
   Future<void> _confirmClearMemories(
@@ -602,6 +554,12 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
     WidgetRef ref,
   ) async {
     final l10n = AppLocalizations.of(context)!;
+    final notifier = ref.read(userMemoriesProvider.notifier);
+    final owner = notifier.captureOwner();
+    if (owner == null) {
+      UiUtils.showMessage(context, l10n.errorMessage);
+      return;
+    }
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.clearAllMemories,
@@ -613,26 +571,21 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
       return;
     }
 
-    await ref.read(userMemoriesProvider.notifier).clearAll();
+    try {
+      await notifier.clearAll(owner: owner);
+    } catch (_) {
+      if (context.mounted) {
+        UiUtils.showMessage(context, l10n.errorMessage);
+      }
+    }
   }
 
   Widget _buildLoadingTile(BuildContext context, {required String title}) {
-    final theme = context.conduitTheme;
-    final color = theme.buttonPrimary;
     return CustomizationTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: color.withValues(alpha: 0.2),
-            width: BorderWidth.thin,
-          ),
-        ),
-        alignment: Alignment.center,
-        child: const ConduitLoadingIndicator(isCompact: true),
+      leading: const SizedBox(
+        width: IconSize.xl,
+        height: IconSize.xl,
+        child: Center(child: ConduitLoadingIndicator(isCompact: true)),
       ),
       title: title,
       subtitle: '',
@@ -690,6 +643,178 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
   }
 }
 
+/// Adds a memory, or edits [memory]. The ordinary editor is the content box
+/// alone. With [advanced] it also offers the type and path; a change to either
+/// is sent only when the user made one, so editing the text never reclassifies
+/// a memory.
+///
+/// [owner] is the account the entry point was opened for: the Personalization
+/// page captures it when it is tapped, native Settings when its list was built.
+/// The form refuses to open for another account, and a Save after the account
+/// changes is rejected with the typed input still in the form.
+Future<void> showMemoryEditor(
+  BuildContext context, {
+  required UserMemories notifier,
+  required MemoryOwner? owner,
+  required bool advanced,
+  ServerMemory? memory,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  if (owner == null || !notifier.isCurrentOwner(owner)) {
+    UiUtils.showMessage(context, l10n.errorMessage);
+    return;
+  }
+  final title = memory == null ? l10n.addMemory : l10n.editMemory;
+
+  if (!advanced) {
+    await _showTextEditorSheet(
+      context,
+      title: title,
+      description: l10n.memoryEditorDescription,
+      initialValue: memory?.content ?? '',
+      hintText: l10n.memoryHint,
+      nativeSheet: false,
+      onSave: (value) async {
+        if (memory == null) {
+          await notifier.add(value, owner: owner);
+        } else {
+          await notifier.updateItem(memory.id, value, owner: owner);
+        }
+      },
+    );
+    return;
+  }
+
+  // A type this client does not know (or an old server's missing one) starts
+  // unselected, which keeps whatever the server holds.
+  final knownType =
+      memory?.type == ServerMemory.userType ||
+          memory?.type == ServerMemory.contextType
+      ? memory?.type
+      : null;
+  // The sheet takes over these and disposes them with itself; disposing here
+  // would pull them out from under the closing animation.
+  final fields = _MemoryEditorFields(
+    type: memory == null ? ServerMemory.userType : knownType,
+    path: memory?.path ?? '',
+    editing: memory != null,
+  );
+  await _showTextEditorSheet(
+    context,
+    title: title,
+    description: l10n.memoryEditorDescription,
+    initialValue: memory?.content ?? '',
+    hintText: l10n.memoryHint,
+    nativeSheet: false,
+    extras: fields,
+    onSave: (value) async {
+      final path = fields.pathController.text.trim();
+      if (memory == null) {
+        await notifier.add(
+          value,
+          type: fields.type.value ?? ServerMemory.userType,
+          path: path.isEmpty ? null : path,
+          owner: owner,
+        );
+        return;
+      }
+      final selected = fields.type.value;
+      await notifier.updateItem(
+        memory.id,
+        value,
+        type: selected != null && selected != memory.type ? selected : null,
+        path: path != (memory.path ?? '') ? path : null,
+        owner: owner,
+      );
+    },
+  );
+}
+
+Future<void> _showTextEditorSheet(
+  BuildContext context, {
+  required String title,
+  required String description,
+  required String initialValue,
+  required String hintText,
+  required Future<void> Function(String value) onSave,
+  // The native sheet closes before [onSave] runs, so a rejected save loses the
+  // typed text. Editors whose save can be refused use the Flutter sheet, which
+  // stays open with the input.
+  bool nativeSheet = true,
+  _EditorExtras? extras,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+
+  if (Platform.isIOS && nativeSheet) {
+    try {
+      final result = await NativeSheetBridge.instance.presentSheet(
+        root: NativeSheetDetailConfig(
+          id: 'text-editor-sheet',
+          title: title,
+          subtitle: description,
+          confirmActionId: 'save',
+          confirmActionLabel: AppLocalizations.of(context)!.save,
+          items: [
+            NativeSheetItemConfig(
+              id: 'text-editor-value',
+              title: title,
+              subtitle: hintText,
+              sfSymbol: 'text.bubble',
+              kind: NativeSheetItemKind.multilineTextField,
+              value: initialValue,
+              placeholder: hintText,
+            ),
+          ],
+        ),
+        rethrowErrors: true,
+      );
+      if (result?.actionId != 'save') {
+        return;
+      }
+      final value = result?.values['text-editor-value'] as String? ?? '';
+      try {
+        await onSave(value);
+        if (context.mounted) {
+          UiUtils.showMessage(context, l10n.saved);
+        }
+      } catch (_) {
+        if (context.mounted) {
+          UiUtils.showMessage(context, l10n.errorMessage);
+        }
+      }
+      return;
+    } catch (_) {
+      if (!context.mounted) {
+        return;
+      }
+    }
+  }
+
+  if (!context.mounted) {
+    return;
+  }
+
+  // A form, so a dimmed backdrop: the sheet keeps the user's attention until
+  // it is saved or put away.
+  await ThemedSheets.showCustom<void>(
+    context: context,
+    builder: (sheetContext) => _TextEditorSheet(
+      title: title,
+      description: description,
+      initialValue: initialValue,
+      hintText: hintText,
+      cancelLabel: l10n.cancel,
+      closeLabel: l10n.close,
+      saveLabel: l10n.save,
+      errorMessage: l10n.errorMessage,
+      accountChangedMessage: l10n.personalizationMemoryAccountChanged,
+      savedMessage: l10n.saved,
+      onSave: onSave,
+      extras: extras,
+    ),
+  );
+}
+
 class _TextEditorSheet extends StatefulWidget {
   const _TextEditorSheet({
     required this.title,
@@ -697,10 +822,13 @@ class _TextEditorSheet extends StatefulWidget {
     required this.initialValue,
     required this.hintText,
     required this.cancelLabel,
+    required this.closeLabel,
     required this.saveLabel,
     required this.errorMessage,
+    required this.accountChangedMessage,
     required this.savedMessage,
     required this.onSave,
+    this.extras,
   });
 
   final String title;
@@ -708,10 +836,16 @@ class _TextEditorSheet extends StatefulWidget {
   final String initialValue;
   final String hintText;
   final String cancelLabel;
+  final String closeLabel;
   final String saveLabel;
   final String errorMessage;
+  final String accountChangedMessage;
   final String savedMessage;
   final Future<void> Function(String value) onSave;
+
+  /// Fields shown under the text box. The sheet owns them from here on and
+  /// disposes them with itself.
+  final _EditorExtras? extras;
 
   @override
   State<_TextEditorSheet> createState() => _TextEditorSheetState();
@@ -720,37 +854,60 @@ class _TextEditorSheet extends StatefulWidget {
 class _TextEditorSheetState extends State<_TextEditorSheet> {
   late final TextEditingController _controller;
   bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
+    _controller.addListener(_onEdited);
+    widget.extras?.changes.addListener(_onEdited);
   }
 
   @override
   void dispose() {
+    widget.extras?.changes.removeListener(_onEdited);
     _controller.dispose();
+    widget.extras?.dispose();
     super.dispose();
   }
+
+  /// Rebuilds so the discard guard follows whether anything was changed.
+  void _onEdited() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _dirty =>
+      _controller.text != widget.initialValue ||
+      (widget.extras?.dirty ?? false);
 
   Future<void> _handleSave() async {
     if (_saving) {
       return;
     }
 
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       await widget.onSave(_controller.text);
       if (!mounted) {
         return;
       }
+      ConduitHaptics.success();
       UiUtils.showMessage(context, widget.savedMessage);
       Navigator.of(context).pop();
-    } catch (_) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
-      UiUtils.showMessage(context, widget.errorMessage);
+      // The form keeps what was typed and says why next to it.
+      setState(
+        () => _error = error is MemoryOwnerChangedException
+            ? widget.accountChangedMessage
+            : widget.errorMessage,
+      );
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -761,75 +918,251 @@ class _TextEditorSheetState extends State<_TextEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final viewInsets = MediaQuery.of(context).viewInsets;
+    final dirty = _dirty;
+    void close() => Navigator.of(context).maybePop();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.sidebarBackground,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppBorderRadius.modal),
+    // Back, Cancel, the close button and a swipe all ask before throwing
+    // edits away, and do nothing while a save is on its way. The sheet insets
+    // for the keyboard itself, and the fields scroll in what is left while
+    // Cancel and Save stay in view.
+    return DiscardChangesScope(
+      dirty: dirty,
+      busy: _saving,
+      child: AnimatedPadding(
+        duration: context.motionDuration(AnimationDuration.microInteraction),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
         ),
-        boxShadow: ConduitShadows.modal(context),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            Spacing.lg,
-            Spacing.lg,
-            Spacing.lg,
-            Spacing.lg + viewInsets.bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                widget.title,
-                style: theme.headingSmall?.copyWith(
-                  color: theme.sidebarForeground,
-                ),
-              ),
-              const SizedBox(height: Spacing.xs),
-              Text(
-                widget.description,
-                style: theme.bodySmall?.copyWith(
-                  color: theme.sidebarForeground.withValues(alpha: 0.75),
-                ),
-              ),
-              const SizedBox(height: Spacing.md),
-              ConduitInput(
-                controller: _controller,
-                hint: widget.hintText,
-                maxLines: 6,
-                autofocus: true,
-              ),
-              const SizedBox(height: Spacing.md),
-              Row(
+        child: SheetDismissGuard(
+          guarded: dirty || _saving,
+          onDismissRequest: close,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+            ),
+            child: ConduitModalSheetSurface(
+              showHandle: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(
-                    child: ConduitButton(
-                      text: widget.cancelLabel,
-                      isSecondary: true,
-                      onPressed: _saving
-                          ? null
-                          : () => Navigator.of(context).pop(),
+                  const SheetHandle(),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Semantics(
+                          header: true,
+                          child: Text(
+                            widget.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.headingSmall,
+                          ),
+                        ),
+                      ),
+                      SheetCloseButton(
+                        tooltip: widget.closeLabel,
+                        onPressed: _saving ? null : close,
+                      ),
+                    ],
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.only(top: Spacing.xs),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.description,
+                            style: theme.bodySmall?.copyWith(
+                              color: theme.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: Spacing.md),
+                          ConduitInput(
+                            controller: _controller,
+                            hint: widget.hintText,
+                            maxLines: 6,
+                            autofocus: true,
+                            enabled: !_saving,
+                          ),
+                          if (widget.extras case final extras?) ...[
+                            const SizedBox(height: Spacing.md),
+                            extras.build(context),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: Spacing.sm),
-                  Expanded(
-                    child: ConduitButton(
-                      text: widget.saveLabel,
-                      isLoading: _saving,
-                      onPressed: _saving ? null : _handleSave,
+                  if (_error case final message?) ...[
+                    const SizedBox(height: Spacing.sm),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        message,
+                        key: const Key('text-editor-error'),
+                        style: theme.bodySmall?.copyWith(color: theme.error),
+                      ),
                     ),
+                  ],
+                  const SizedBox(height: Spacing.md),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ConduitButton(
+                          text: widget.cancelLabel,
+                          isSecondary: true,
+                          onPressed: _saving ? null : close,
+                        ),
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Expanded(
+                        child: ConduitButton(
+                          text: widget.saveLabel,
+                          isLoading: _saving,
+                          onPressed: _saving ? null : _handleSave,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Extra fields an editor sheet shows under its text box.
+abstract interface class _EditorExtras {
+  Widget build(BuildContext context);
+
+  /// Fires when any of the fields changes.
+  Listenable get changes;
+
+  /// Whether any field differs from what it started with.
+  bool get dirty;
+
+  void dispose();
+}
+
+/// Type and path controls for a memory, shown only with Advanced on.
+///
+/// [type] is null while no type is chosen, which leaves a memory's existing
+/// classification alone.
+final class _MemoryEditorFields implements _EditorExtras {
+  _MemoryEditorFields({
+    String? type,
+    required String path,
+    required bool editing,
+  }) : _initialType = type,
+       _initialPath = path,
+       _editing = editing,
+       type = ValueNotifier<String?>(type),
+       pathController = TextEditingController(text: path);
+
+  final String? _initialType;
+  final String _initialPath;
+  final bool _editing;
+  final ValueNotifier<String?> type;
+  final TextEditingController pathController;
+
+  @override
+  late final Listenable changes = Listenable.merge([type, pathController]);
+
+  @override
+  bool get dirty =>
+      type.value != _initialType || pathController.text != _initialPath;
+
+  @override
+  void dispose() {
+    type.dispose();
+    pathController.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.memoryTypeLabel,
+          style: theme.label?.copyWith(color: theme.textSecondary),
+        ),
+        const SizedBox(height: Spacing.xs),
+        ValueListenableBuilder<String?>(
+          valueListenable: type,
+          builder: (context, selected, _) {
+            final note = switch (selected) {
+              ServerMemory.userType =>
+                l10n.personalizationMemoryTypeUserDescription,
+              ServerMemory.contextType =>
+                l10n.personalizationMemoryTypeContextDescription,
+              // Only an existing memory can start without a known type.
+              _ when _editing => l10n.personalizationMemoryTypeUnknown,
+              _ => null,
+            };
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // One choice of two, so a segmented control: it reads and
+                // announces as a single exclusive group. An unknown type
+                // leaves both segments unselected.
+                AdaptiveSegmentedSelector<String>(
+                  key: const Key('memory-type'),
+                  value: selected ?? '',
+                  showIcons: false,
+                  onChanged: (value) => type.value = value,
+                  options: [
+                    (
+                      value: ServerMemory.userType,
+                      label: l10n.memoryTypeUser,
+                      cupertinoIcon: CupertinoIcons.person,
+                      materialIcon: Icons.person_outline,
+                      enabled: true,
+                    ),
+                    (
+                      value: ServerMemory.contextType,
+                      label: l10n.memoryTypeContext,
+                      cupertinoIcon: CupertinoIcons.doc_text,
+                      materialIcon: Icons.notes_outlined,
+                      enabled: true,
+                    ),
+                  ],
+                ),
+                if (note != null) ...[
+                  const SizedBox(height: Spacing.xs),
+                  Text(
+                    note,
+                    key: const Key('memory-type-description'),
+                    style: theme.bodySmall?.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: Spacing.md),
+        Text(
+          l10n.memoryPathLabel,
+          style: theme.label?.copyWith(color: theme.textSecondary),
+        ),
+        const SizedBox(height: Spacing.xs),
+        ConduitInput(
+          key: const Key('memory-path'),
+          controller: pathController,
+          hint: l10n.memoryPathHint,
+        ),
+      ],
     );
   }
 }

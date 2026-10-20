@@ -1,12 +1,16 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/account_scoped_preferences.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show settledActiveAccountIdProvider;
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
-import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_constants.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   tearDown(PreferencesStore.debugReset);
@@ -15,7 +19,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarActiveTab: SidebarTabId.channels.name,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -25,7 +29,7 @@ void main() {
 
   test('set persists the selected tab identity', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
     final controller = container.read(sidebarActiveTabProvider.notifier);
@@ -41,7 +45,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarActiveTab: 2,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -71,7 +75,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarActiveTab: 1,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -97,13 +101,47 @@ void main() {
     check(PreferencesStore.getRaw(PreferenceKeys.sidebarActiveTab)).equals(1);
   });
 
+  test('a legacy index does not follow the user to another account', () async {
+    SharedPreferences.setMockInitialValues({
+      PreferenceKeys.accountScopedSettingsMigrated: true,
+      PreferenceKeys.activeServerId: 'a',
+      accountScopedPreferenceKey(PreferenceKeys.sidebarActiveTab, 'a'): 2,
+      accountScopedPreferenceKey(PreferenceKeys.sidebarActiveTab, 'b'):
+          SidebarTabId.notes.name,
+    });
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    container.listen(sidebarActiveTabProvider, (_, _) {});
+    final controller = container.read(sidebarActiveTabProvider.notifier);
+    check(controller.pendingLegacyIndex()).equals(2);
+
+    await PreferencesStore.put(PreferenceKeys.activeServerId, 'b');
+    container.invalidate(settledActiveAccountIdProvider);
+
+    check(container.read(settledActiveAccountIdProvider)).equals('b');
+    final persisted = container.read(sidebarActiveTabProvider);
+    check(controller.pendingLegacyIndex()).isNull();
+    check(
+      resolveSidebarTabSelection(
+        persistedTab: persisted,
+        legacyIndex: controller.pendingLegacyIndex(),
+        visibleTabs: const [
+          SidebarTabId.chats,
+          SidebarTabId.notes,
+          SidebarTabId.channels,
+        ],
+      ),
+    ).equals(SidebarTabId.notes);
+  });
+
   test(
     'clearing a legacy index notifies when the tab value is unchanged',
     () async {
       SharedPreferences.setMockInitialValues({
         PreferenceKeys.sidebarActiveTab: 0,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final notifications = <SidebarTabId>[];
@@ -122,7 +160,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarTabletWidth: 440.0,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -163,7 +201,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.sidebarTabletWidth: 280.0,
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final container = ProviderContainer();
     addTearDown(container.dispose);
 

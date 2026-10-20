@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/services/navigation_service.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/workspace_navigation.dart';
 

@@ -49,18 +49,6 @@ void main() {
       expect(find.byType(MiddleEllipsisText), findsOneWidget);
     });
 
-    testWidgets('widget can be found by type', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: SizedBox(width: 300, child: MiddleEllipsisText('Test')),
-          ),
-        ),
-      );
-
-      expect(find.byType(MiddleEllipsisText), findsOneWidget);
-    });
-
     testWidgets('recomputes truncation when text scale changes', (
       tester,
     ) async {

@@ -5,12 +5,15 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+
+export 'package:conduit_core/features/workspace/models/workspace_transfer.dart'
+    show workspaceImportItemsFromJson;
 
 // ---------------------------------------------------------------------------
 // Import result model + per-item runner (reused by every section importer).
@@ -103,23 +106,6 @@ String _resolveLabel(
       item['id']?.toString();
   if (name != null && name.trim().isNotEmpty) return name.trim();
   return '$fallbackLabel ${index + 1}';
-}
-
-/// Coerces decoded JSON into a list of item maps. Accepts a bare list, a single
-/// object, or an envelope of the form `{ "items": [...] }` / `{ "<key>": [...] }`.
-List<Map<String, dynamic>> workspaceImportItemsFromJson(dynamic decoded) {
-  if (decoded is List) {
-    return workspaceJsonList(decoded);
-  }
-  if (decoded is Map) {
-    final map = workspaceJsonMap(decoded);
-    for (final value in map.values) {
-      if (value is List) return workspaceJsonList(value);
-    }
-    // A single object is treated as a one-item import.
-    return [map];
-  }
-  return const [];
 }
 
 typedef WorkspaceImporter = Future<WorkspaceImportReport> Function(

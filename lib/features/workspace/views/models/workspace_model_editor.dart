@@ -1,15 +1,14 @@
-import 'dart:convert';
-
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/models/workspace_model_draft.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
@@ -417,37 +416,44 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
           data: (value) => value,
           orElse: () => WorkspaceCapabilities.none,
         );
+    final id = _draft.id;
+    // An existing model saves from the sheet, which stays open with the error
+    // when the save fails. A new one keeps the grants for its first save.
+    final saveInSheet = !_readOnly && !_session.isCreate && id.isNotEmpty;
     final grants = await WorkspaceAccessGrantSheet.show(
       context,
       initialGrants: _draft.normalizedAccessGrants,
       capabilities: capabilities.models,
       allowUserGrants: capabilities.allowUserGrants,
+      allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: _readOnly,
+      resourceName: _draft.name,
+      onSave: saveInSheet
+          ? (grants, _) async {
+              final saved = await WorkspaceEditorOperationRunner.stay<void>(
+                session: _session,
+                scope: 'workspace/models',
+                operationLabel: 'model access update',
+                editorMounted: () => mounted,
+                operation: () => ref
+                    .read(workspaceModelsProvider.notifier)
+                    .updateAccess(id, _draft.name, grants),
+                onSuccess: (_) {
+                  _controller.replaceAccessGrants(grants, markDirty: false);
+                  ref.invalidate(workspaceModelDetailProvider(id));
+                  _showSnack(l10n.workspaceModelSaved);
+                },
+              );
+              return saved
+                  ? const WorkspaceAccessSaveOutcome.saved()
+                  : WorkspaceAccessSaveOutcome.failed(
+                      l10n.workspaceModelSaveFailed,
+                    );
+            }
+          : null,
     );
-    if (grants == null || !mounted) return;
-    if (_readOnly) return;
-    if (_session.isCreate) {
-      _controller.replaceAccessGrants(grants);
-      return;
-    }
-    final id = _draft.id;
-    if (id.isEmpty) return;
-    await WorkspaceEditorOperationRunner.stay<void>(
-      session: _session,
-      scope: 'workspace/models',
-      operationLabel: 'model access update',
-      editorMounted: () => mounted,
-      operation: () => ref
-          .read(workspaceModelsProvider.notifier)
-          .updateAccess(id, _draft.name, grants),
-      onSuccess: (_) {
-        _controller.replaceAccessGrants(grants, markDirty: false);
-        ref.invalidate(workspaceModelDetailProvider(id));
-        _showSnack(l10n.workspaceModelSaved);
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceModelSaveFailed, isError: true),
-    );
+    if (grants == null || !mounted || saveInSheet || _readOnly) return;
+    if (_session.isCreate) _controller.replaceAccessGrants(grants);
   }
 
   Future<void> _exportSingle() async {
@@ -468,9 +474,7 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       if (!mounted) return;
       await exportWorkspaceModelsToShare(
         context,
-        models: models
-            .map((m) => WorkspaceModelDraft.fromSummary(m).toForm().toJson())
-            .toList(),
+        models: models.map(workspaceModelExportMap).toList(),
         filename: 'models',
       );
     } catch (error, stackTrace) {
@@ -652,20 +656,11 @@ class _WorkspaceModelFormState extends ConsumerState<_WorkspaceModelForm> {
       // Cap the avatar's dimensions before base64-embedding it so a large source
       // image does not bloat the draft JSON / spike memory. A downscaled image
       // is always re-encoded as PNG; an unchanged image keeps its source mime.
-      final bounded = await WorkspaceModelAvatarCodec.bound(bytes);
-      final String mime;
-      if (identical(bounded, bytes)) {
-        final ext = (file.extension ?? 'png').toLowerCase();
-        mime = switch (ext) {
-          'jpg' || 'jpeg' => 'image/jpeg',
-          'gif' => 'image/gif',
-          'webp' => 'image/webp',
-          _ => 'image/png',
-        };
-      } else {
-        mime = 'image/png';
-      }
-      final dataUrl = 'data:$mime;base64,${base64Encode(bounded)}';
+      final avatar = await WorkspaceModelAvatarCodec.prepare(
+        bytes,
+        extension: file.extension,
+      );
+      final dataUrl = avatar.toDataUrl();
       _controller.setAvatar(dataUrl);
     } catch (error, stackTrace) {
       DebugLogger.error(

@@ -3,25 +3,27 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/socket_transport_availability.dart';
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/persistence/hive_boxes.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/cache_manager.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/socket_transport_availability.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/persistence/hive_boxes.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/cache_manager.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -135,7 +137,7 @@ void main() {
     secureStorageSnapshotReadsBeforeGate.clear();
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     tempDir = await Directory.systemTemp.createTemp(
       'optimized-storage-service-test',
     );
@@ -146,7 +148,7 @@ void main() {
     metadata = await Hive.openBox<dynamic>(HiveBoxNames.metadata);
     workerManager = WorkerManager(maxConcurrentTasks: 1);
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -171,19 +173,19 @@ void main() {
   test('validated active server id reuses cached server configs across repeated lookups', () async {
     await saveServerConfigs(['server-a']);
     await storage.setActiveServerId('server-a');
-    final readsAfterSetup = secureStorageReadCounts['server_configs_v2'] ?? 0;
+    final readsAfterSetup = secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
 
     expect(await storage.getActiveServerId(), 'server-a');
     expect(await storage.getActiveServerId(), 'server-a');
     expect(await storage.getActiveServerId(), 'server-a');
 
-    expect(secureStorageReadCounts['server_configs_v2'] ?? 0, readsAfterSetup);
+    expect(secureStorageReadCounts['openwebui_registry_v1'] ?? 0, readsAfterSetup);
   });
 
   test('server config read failures are not cached as an empty list', () async {
     await saveServerConfigs(['server-a']);
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -193,16 +195,16 @@ void main() {
       workerManager: workerManager,
     );
 
-    secureStorageReadErrors['server_configs_v2'] = PlatformException(
+    secureStorageReadErrors['openwebui_registry_v1'] = PlatformException(
       code: 'read-failed',
       message: 'transient secure storage failure',
     );
     final readsBeforeFailures =
-        secureStorageReadCounts['server_configs_v2'] ?? 0;
+        secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
 
     expect(await storage.getServerConfigs(), isEmpty);
     expect(
-      secureStorageReadCounts['server_configs_v2'],
+      secureStorageReadCounts['openwebui_registry_v1'],
       readsBeforeFailures + 2,
     );
 
@@ -211,17 +213,17 @@ void main() {
       throwsA(isA<PlatformException>()),
     );
     expect(
-      secureStorageReadCounts['server_configs_v2'],
+      secureStorageReadCounts['openwebui_registry_v1'],
       readsBeforeFailures + 3,
     );
 
-    secureStorageReadErrors.remove('server_configs_v2');
+    secureStorageReadErrors.remove('openwebui_registry_v1');
 
     final configs = await storage.getServerConfigs();
 
     expect(configs.map((config) => config.id), ['server-a']);
     expect(
-      secureStorageReadCounts['server_configs_v2'],
+      secureStorageReadCounts['openwebui_registry_v1'],
       readsBeforeFailures + 4,
     );
   });
@@ -229,7 +231,7 @@ void main() {
   test('serverConfigsProvider exposes Keychain failure and recovers after invalidation', () async {
     await saveServerConfigs(['server-a']);
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -238,11 +240,11 @@ void main() {
       ),
       workerManager: workerManager,
     );
-    secureStorageReadErrors['server_configs_v2'] = PlatformException(
+    secureStorageReadErrors['openwebui_registry_v1'] = PlatformException(
       code: 'read-failed',
       message: 'temporarily unavailable',
     );
-    final readsBefore = secureStorageReadCounts['server_configs_v2'] ?? 0;
+    final readsBefore = secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
     final container = ProviderContainer(
       overrides: [optimizedStorageServiceProvider.overrideWithValue(storage)],
     );
@@ -252,14 +254,14 @@ void main() {
       container.read(serverConfigsProvider.future),
       throwsA(isA<PlatformException>()),
     );
-    expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 2);
+    expect(secureStorageReadCounts['openwebui_registry_v1'], readsBefore + 2);
 
-    secureStorageReadErrors.remove('server_configs_v2');
+    secureStorageReadErrors.remove('openwebui_registry_v1');
     container.invalidate(serverConfigsProvider);
 
     final recovered = await container.read(serverConfigsProvider.future);
     expect(recovered.map((config) => config.id), ['server-a']);
-    expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 3);
+    expect(secureStorageReadCounts['openwebui_registry_v1'], readsBefore + 3);
   });
 
   test(
@@ -268,7 +270,7 @@ void main() {
       await saveServerConfigs(['server-a']);
       await storage.setActiveServerId('server-a');
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -277,23 +279,23 @@ void main() {
         ),
         workerManager: workerManager,
       );
-      secureStorageReadErrors['server_configs_v2'] = PlatformException(
+      secureStorageReadErrors['openwebui_registry_v1'] = PlatformException(
         code: 'read-failed',
         message: 'temporarily unavailable',
       );
-      final readsBefore = secureStorageReadCounts['server_configs_v2'] ?? 0;
+      final readsBefore = secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
 
       expect(await storage.getActiveServerId(), isNull);
       expect(
         PreferencesStore.getString(PreferenceKeys.activeServerId),
         'server-a',
       );
-      expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 2);
+      expect(secureStorageReadCounts['openwebui_registry_v1'], readsBefore + 2);
 
-      secureStorageReadErrors.remove('server_configs_v2');
+      secureStorageReadErrors.remove('openwebui_registry_v1');
       expect(await storage.getActiveServerId(), 'server-a');
       expect(await storage.getActiveServerId(), 'server-a');
-      expect(secureStorageReadCounts['server_configs_v2'], readsBefore + 3);
+      expect(secureStorageReadCounts['openwebui_registry_v1'], readsBefore + 3);
     },
   );
 
@@ -302,7 +304,7 @@ void main() {
     () async {
       secureStorageValues['auth_token_v2'] = 'old-token';
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -338,7 +340,7 @@ void main() {
       password: 'old-password',
     );
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -377,7 +379,7 @@ void main() {
       final newConfig = _serverConfig('server-new');
       await storage.saveServerConfigs([oldConfig]);
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -388,9 +390,9 @@ void main() {
       );
       final readEntered = Completer<void>();
       final releaseRead = Completer<void>();
-      secureStorageOperationEntered['read:server_configs_v2'] = readEntered;
-      secureStorageOperationGates['read:server_configs_v2'] = releaseRead;
-      secureStorageSnapshotReadsBeforeGate.add('read:server_configs_v2');
+      secureStorageOperationEntered['read:openwebui_registry_v1'] = readEntered;
+      secureStorageOperationGates['read:openwebui_registry_v1'] = releaseRead;
+      secureStorageSnapshotReadsBeforeGate.add('read:openwebui_registry_v1');
 
       final oldRead = storage.getServerConfigs();
       await readEntered.future;
@@ -399,16 +401,16 @@ void main() {
 
       expect(await oldRead, [oldConfig]);
       await save;
-      final readsAfterSave = secureStorageReadCounts['server_configs_v2'] ?? 0;
+      final readsAfterSave = secureStorageReadCounts['openwebui_registry_v1'] ?? 0;
       expect(await storage.getServerConfigs(), [newConfig]);
-      expect(secureStorageReadCounts['server_configs_v2'] ?? 0, readsAfterSave);
+      expect(secureStorageReadCounts['openwebui_registry_v1'] ?? 0, readsAfterSave);
     },
   );
 
   test('transient auth reads are not negative-cached', () async {
     secureStorageValues['auth_token_v2'] = 'recovered-token';
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -439,7 +441,7 @@ void main() {
         password: 'password',
       );
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -493,7 +495,7 @@ void main() {
       password: 'password',
     );
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -556,7 +558,7 @@ void main() {
   test('token compare-delete propagates exhausted Keychain reads', () async {
     await storage.saveAuthToken('rejected-token');
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -627,7 +629,7 @@ void main() {
         password: 'rejected-password',
       );
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -926,9 +928,10 @@ void main() {
       // token last so every possible termination prefix is unauthenticated or
       // internally consistent.
       // The transaction now re-checks ownership after both strict baseline
-      // snapshots. The eighth check is immediately after the candidate token
-      // write and before publication.
-      canCommit: () => ++checks < 8,
+      // snapshots and after stashing the previous account's session. The
+      // ninth check is immediately after the candidate token write and before
+      // publication.
+      canCommit: () => ++checks < 9,
       publish: () => published = true,
     );
 
@@ -938,15 +941,27 @@ void main() {
     expect(await storage.getActiveServerId(), previous.id);
     expect(await storage.getAuthToken(), 'previous-token');
     expect(await storage.getSavedCredentials(), previousCredentials);
+    // The previous account was stashed before the commit; the rollback hands
+    // its session back to the live slots and leaves no vault copy behind.
+    expect(
+      secureStorageValues.containsKey('auth_token_server_v1:server-a'),
+      isFalse,
+    );
+    expect(
+      secureStorageValues.containsKey('user_credentials_server_v1:server-a'),
+      isFalse,
+    );
     expect(
       secureStorageOperations,
       containsAllInOrder([
+        'write:auth_token_server_v1:server-a',
         'delete:auth_token_v2',
         'delete:user_credentials_v2',
-        'write:server_configs_v2',
+        'write:openwebui_registry_v1',
         'write:auth_token_v2',
+        'delete:auth_token_server_v1:server-a',
         'delete:auth_token_v2',
-        'write:server_configs_v2',
+        'write:openwebui_registry_v1',
         'write:user_credentials_v2',
         'write:auth_token_v2',
       ]),
@@ -967,7 +982,7 @@ void main() {
       // durable state, modeling the strict Keychain read after a long-lived
       // app's cache TTL has elapsed.
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -1032,7 +1047,7 @@ void main() {
       // then fail the second config write while rollback is restoring the
       // baseline. The rollback must remain tokenless and identify uncertainty.
       secureStorageFailureCountdowns['write:auth_token_v2'] = 1;
-      secureStorageFailureCountdowns['write:server_configs_v2'] = 2;
+      secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 2;
       var uncertaintyPublished = false;
 
       await expectLater(
@@ -1377,7 +1392,7 @@ void main() {
       requireActive: false,
     );
     secureStorageFailureCountdowns['write:auth_token_v2'] = 1;
-    secureStorageFailureCountdowns['write:server_configs_v2'] = 2;
+    secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 2;
     var poisoned = false;
 
     await expectLater(
@@ -1423,7 +1438,7 @@ void main() {
         validatedConfig: target,
         requireActive: false,
       );
-      final sharedPreferences = await SharedPreferences.getInstance();
+      final sharedPreferences = await FlutterKeyValueStore.load();
       PreferencesStore.debugOverride(
         sharedPreferences,
         writeInterceptor: (preferences, key, value) async {
@@ -1451,7 +1466,7 @@ void main() {
     },
   );
 
-  test('fresh server selection is bearer-tokenless and preserves exact candidate headers', () async {
+  test('fresh server selection is bearer-tokenless, keeps the prior account and preserves exact candidate headers', () async {
     final previous = _serverConfig('server-a').copyWith(isActive: true);
     final target = _serverConfig('server-b').copyWith(
       apiKey: 'legacy-bearer',
@@ -1486,14 +1501,26 @@ void main() {
     expect(await storage.getAuthToken(), isNull);
     expect(await storage.getSavedCredentials(), isNull);
     expect(await storage.getServerConfigs(), [
+      previous.copyWith(isActive: false),
       target.copyWith(apiKey: null, isActive: true),
     ]);
+    // The account being left stays signed in, in the vault.
+    expect(secureStorageValues['auth_token_server_v1:server-a'], 'previous-token');
+    expect(
+      jsonDecode(secureStorageValues['user_credentials_server_v1:server-a']!)
+          as Map<String, dynamic>,
+      containsPair('username', 'previous-user'),
+    );
+    final stash = secureStorageOperations.indexOf(
+      'write:auth_token_server_v1:server-a',
+    );
     final tokenDelete = secureStorageOperations.indexOf('delete:auth_token_v2');
+    expect(stash, lessThan(tokenDelete));
     final credentialsDelete = secureStorageOperations.indexOf(
       'delete:user_credentials_v2',
     );
     final configWrite = secureStorageOperations.indexOf(
-      'write:server_configs_v2',
+      'write:openwebui_registry_v1',
     );
     expect(tokenDelete, greaterThanOrEqualTo(0));
     expect(credentialsDelete, greaterThan(tokenDelete));
@@ -1560,6 +1587,54 @@ void main() {
     expect(await storage.getAuthToken(), 'previous-token');
   });
 
+  test('a superseded server selection puts back the registry it found', () async {
+    final registry = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(id: 'route-lan', url: 'https://chat.lan'),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          userId: 'user-a',
+          isActive: true,
+          capturedHeaders: const {
+            'route-lan': {'Cookie': 'proxy=a'},
+          },
+        ),
+        OpenWebUiAccount(
+          id: 'account-b',
+          serverId: 'server-chat',
+          userId: 'user-b',
+        ),
+      ],
+    );
+    secureStorageValues['openwebui_registry_v1'] = registry.encode();
+    await PreferencesStore.putChecked(
+      PreferenceKeys.activeServerId,
+      'account-a',
+    );
+    var commitAllowed = true;
+
+    final selected = await storage.selectUnauthenticatedServerConfig(
+      _serverConfig('server-new'),
+      canCommit: () => commitAllowed,
+      publish: () => commitAllowed = false,
+    );
+
+    check(selected).isFalse();
+    check(
+      OpenWebUiRegistry.decode(secureStorageValues['openwebui_registry_v1']!),
+    ).equals(registry);
+    check(await storage.getActiveServerId()).equals('account-a');
+  });
+
   test('logout scrubs proxy cookies and legacy bearer but preserves connection '
       'settings', () async {
     final config = _serverConfig('server-a').copyWith(
@@ -1607,8 +1682,37 @@ void main() {
     ]);
     expect(
       secureStorageOperations.indexOf('delete:auth_token_v2'),
-      lessThan(secureStorageOperations.indexOf('write:server_configs_v2')),
+      lessThan(secureStorageOperations.indexOf('write:openwebui_registry_v1')),
     );
+  });
+
+  test('an endpoint edit through another account on the server ends the '
+      'active session', () async {
+    // Two accounts on one server share its endpoint.
+    final a = ServerConfig(id: 'a', name: 'a', url: 'https://chat.example.com');
+    final b = ServerConfig(id: 'b', name: 'b', url: 'https://chat.example.com');
+    await storage.saveServerConfigs([a, b]);
+    await storage.setActiveServerId('a');
+    await storage.saveAuthToken('token-a');
+    await storage.saveCredentials(
+      serverId: 'a',
+      username: 'account-a',
+      password: 'account-a-secret',
+    );
+
+    // A's copy is unchanged; B's moves the shared endpoint elsewhere.
+    await storage.saveServerConfigs([
+      a,
+      b.copyWith(url: 'https://elsewhere.example.org'),
+    ]);
+
+    final active = (await storage.getServerConfigs()).firstWhere(
+      (config) => config.id == 'a',
+    );
+    expect(active.url, 'https://elsewhere.example.org');
+    // A's bearer and sign-in must not follow it to the new origin.
+    expect(await storage.getAuthToken(), isNull);
+    expect(await storage.getSavedCredentials(), isNull);
   });
 
   test('logout preserves a standalone mTLS identity', () async {
@@ -1636,7 +1740,7 @@ void main() {
     expect(preserved.mtlsPrivateKeyPem, 'standalone-private-key');
     expect(preserved.mtlsPrivateKeyLabel, 'standalone.key');
     expect(preserved.mtlsPrivateKeyPassword, 'standalone-password');
-    expect(secureStorageOperations, isNot(contains('write:server_configs_v2')));
+    expect(secureStorageOperations, isNot(contains('write:openwebui_registry_v1')));
   });
 
   test(
@@ -1674,7 +1778,8 @@ void main() {
     'stripping a stored legacy apiKey on save keeps the active session',
     () async {
       // Simulate a config persisted by a pre-hardening build that still
-      // carries the legacy apiKey bearer field.
+      // carries the legacy apiKey bearer field, in the one-server list the
+      // registry replaces.
       final legacy = _serverConfig('server-a')
           .copyWith(apiKey: 'legacy-bearer', isActive: true);
       secureStorageValues['server_configs_v2'] = jsonEncode([legacy.toJson()]);
@@ -1796,7 +1901,7 @@ void main() {
       // Re-instantiation models a terminated process: the in-memory candidate
       // marker is gone, while secure storage/preferences remain.
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -1986,7 +2091,7 @@ void main() {
       });
       var resolutions = 0;
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -2059,7 +2164,7 @@ void main() {
     });
     var resolutions = 0;
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -2101,7 +2206,7 @@ void main() {
       if (!releaseGate.isCompleted) releaseGate.complete();
     });
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -2162,7 +2267,7 @@ void main() {
         if (!cleanupReleaseGate.isCompleted) cleanupReleaseGate.complete();
       });
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -2289,6 +2394,107 @@ void main() {
     );
   });
 
+  test('a sign-out that keeps server details keeps every route of a server', () async {
+    secureStorageValues['openwebui_registry_v1'] = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(
+              id: 'route-lan',
+              url: 'https://chat.lan',
+              label: 'Home',
+              customHeaders: const {'X-Tenant': 'tenant'},
+              mtlsPrivateKeyPem: 'private-key',
+            ),
+            OpenWebUiEndpoint(
+              id: 'route-away',
+              url: 'https://chat.example.com',
+              label: 'Away',
+              allowSelfSignedCertificates: true,
+            ),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          userId: 'user-a',
+          isActive: true,
+          capturedHeaders: const {
+            'route-away': {'Cookie': 'proxy=a'},
+          },
+        ),
+      ],
+    ).encode();
+    await PreferencesStore.putChecked(
+      PreferenceKeys.activeServerId,
+      'account-a',
+    );
+
+    final cleared = await storage.clearAllIf(
+      canClear: () => true,
+      preserveServerDetails: true,
+    );
+
+    check(cleared).isTrue();
+    check(
+      OpenWebUiRegistry.decode(secureStorageValues['openwebui_registry_v1']!),
+    ).equals(
+      OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: 'server-chat',
+            name: 'Chat',
+            endpoints: [
+              OpenWebUiEndpoint(
+                id: 'route-lan',
+                url: 'https://chat.lan',
+                label: 'Home',
+              ),
+              OpenWebUiEndpoint(
+                id: 'route-away',
+                url: 'https://chat.example.com',
+                label: 'Away',
+                allowSelfSignedCertificates: true,
+              ),
+            ],
+          ),
+        ],
+        accounts: [
+          OpenWebUiAccount(
+            id: 'account-a',
+            serverId: 'server-chat',
+            isActive: true,
+          ),
+        ],
+      ),
+    );
+    check(await storage.getActiveServerId()).equals('account-a');
+  });
+
+  // sign-out blocks preference writes before the wipe, and the restore of
+  // the kept active server id ran into that barrier, so the kept address was
+  // read-suppressed and the app fell back to the backend chooser.
+  test('kept server details survive the sign-out preference barrier', () async {
+    final config = _serverConfig('server-a').copyWith(isActive: true);
+    await storage.saveServerConfigs([config]);
+    await storage.setActiveServerId(config.id);
+    await PreferencesStore.blockWritesForAppDataClear();
+    addTearDown(PreferencesStore.resumeWritesAfterAppDataClear);
+
+    final cleared = await storage.clearAllIf(
+      canClear: () => true,
+      preserveServerDetails: true,
+    );
+
+    check(cleared).isTrue();
+    check(await storage.getServerConfigs()).length.equals(1);
+    check(await storage.getActiveServerId()).equals(config.id);
+  });
+
   test('conditional full wipe removes server details by default', () async {
     await saveServerConfigs(['server-a']);
     await storage.setActiveServerId('server-a');
@@ -2310,7 +2516,7 @@ void main() {
       await PreferencesStore.putChecked(PreferenceKeys.themeMode, 'dark');
       secureStorageValues['hermes_api_key_v1'] = 'hermes-secret';
       secureStorageValues['direct_connection_profiles_v1'] = 'direct-profiles';
-      secureStorageReadErrors['server_configs_v2'] = PlatformException(
+      secureStorageReadErrors['openwebui_registry_v1'] = PlatformException(
         code: 'snapshot-read-failed',
       );
 
@@ -2350,7 +2556,7 @@ void main() {
       secureStorageOperations.clear();
       secureStorageFailureCountdowns['delete:auth_token_v2'] = 1;
       secureStorageFailureCountdowns['delete:user_credentials_v2'] = 1;
-      secureStorageFailureCountdowns['write:server_configs_v2'] = 1;
+      secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 1;
       secureStorageFailureCountdowns['deleteAll:null'] = 1;
 
       Object? caught;
@@ -2365,7 +2571,7 @@ void main() {
           .has((error) => error.message, 'message')
           .equals('delete:auth_token_v2');
       check(secureStorageOperations).contains('delete:user_credentials_v2');
-      check(secureStorageOperations).contains('write:server_configs_v2');
+      check(secureStorageOperations).contains('write:openwebui_registry_v1');
       check(secureStorageOperations).contains('deleteAll:null');
       check(secureStorageValues).containsKey('auth_token_v2');
       check(secureStorageValues).containsKey('user_credentials_v2');
@@ -2374,10 +2580,7 @@ void main() {
       check(await storage.getServerConfigs()).isEmpty();
       check(await storage.getActiveServerId()).isNull();
 
-      final storedConfigs = jsonDecode(
-        secureStorageValues['server_configs_v2']!,
-      ) as List<dynamic>;
-      final storedConfig = ServerConfig.fromJson(storedConfigs.single);
+      final storedConfig = _storedServerConfigs(secureStorageValues).single;
       check(storedConfig.apiKey).isNull();
       check(
         storedConfig.customHeaders.keys
@@ -2390,7 +2593,7 @@ void main() {
 
   test('failed wipe suppression survives cache expiry eviction and clearing until explicit resave', () async {
     storage = OptimizedStorageService(
-      secureStorage: const FlutterSecureStorage(),
+      secureStorage: FlutterSecureKeyValueStore(),
       boxes: HiveBoxes(
         preferences: preferences,
         caches: caches,
@@ -2419,7 +2622,7 @@ void main() {
     );
     secureStorageFailureCountdowns['delete:auth_token_v2'] = 1;
     secureStorageFailureCountdowns['delete:user_credentials_v2'] = 1;
-    secureStorageFailureCountdowns['write:server_configs_v2'] = 1;
+    secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 1;
     secureStorageFailureCountdowns['deleteAll:null'] = 1;
 
     await expectLater(storage.clearAll(), throwsA(isA<PlatformException>()));
@@ -2439,20 +2642,15 @@ void main() {
     expect(await storage.getServerConfigsStrict(), isEmpty);
     expect(await storage.getActiveServerId(), isNull);
 
-    // A later cleanup pass must bypass both the suppression flag and the
-    // negative cache so it can sanitize the retained platform payload.
+    // A later cleanup pass finishes the wipe: what it meant to leave, here
+    // nothing, replaces the platform payload it could not delete, cookie
+    // and all, rather than a copy with only the secrets taken out.
     await storage.clearAuthData();
-    final scrubbedConfigs =
-        jsonDecode(secureStorageValues['server_configs_v2']!) as List<dynamic>;
-    final scrubbedConfig = ServerConfig.fromJson(scrubbedConfigs.single);
-    expect(scrubbedConfig.apiKey, isNull);
-    expect(
-      scrubbedConfig.customHeaders.keys.any(
-        (name) => name.toLowerCase() == 'cookie',
-      ),
-      isFalse,
+    final scrubbed = OpenWebUiRegistry.decode(
+      secureStorageValues['openwebui_registry_v1']!,
     );
-    expect(scrubbedConfig.customHeaders, isEmpty);
+    expect(scrubbed.accounts, isEmpty);
+    expect(scrubbed.servers, isEmpty);
     expect(await storage.getServerConfigsStrict(), isEmpty);
 
     final replacement = _serverConfig('server-b').copyWith(isActive: true);
@@ -2472,6 +2670,154 @@ void main() {
     );
     expect((await storage.getServerConfigsStrict()).single.id, replacement.id);
     expect(await storage.getActiveServerId(), replacement.id);
+  });
+
+  // The old registry is still stored when the wipe's delete fails. A write
+  // building on it once the empty one had left the cache brought back what
+  // the wipe removed: here, the user the account was proven to belong to.
+  test('a write after a failed wipe builds on what the wipe left, however '
+      'long after', () async {
+    storage = OptimizedStorageService(
+      secureStorage: FlutterSecureKeyValueStore(),
+      boxes: HiveBoxes(
+        preferences: preferences,
+        caches: caches,
+        attachmentQueue: attachmentQueue,
+        metadata: metadata,
+      ),
+      workerManager: workerManager,
+      cacheManager: CacheManager(maxEntries: 1),
+      authTokenCacheTtl: Duration.zero,
+      serverIdCacheTtl: Duration.zero,
+      serverConfigsCacheTtl: Duration.zero,
+      credentialsFlagCacheTtl: Duration.zero,
+    );
+    secureStorageValues['openwebui_registry_v1'] = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(id: 'route', url: 'https://chat.example'),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          userId: 'user-a',
+          isActive: true,
+        ),
+      ],
+    ).encode();
+    secureStorageFailureCountdowns['deleteAll:null'] = 1;
+
+    await expectLater(storage.clearAll(), throwsA(isA<PlatformException>()));
+    check(secureStorageValues).containsKey('openwebui_registry_v1');
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    storage.clearCache();
+
+    await storage.saveServerConfigs([
+      const ServerConfig(
+        id: 'account-a',
+        name: 'Chat',
+        url: 'https://chat.example',
+        isActive: true,
+      ),
+    ]);
+
+    final stored = OpenWebUiRegistry.decode(
+      secureStorageValues['openwebui_registry_v1']!,
+    );
+    check(stored.account('account-a')).isNotNull().has(
+      (account) => account.userId,
+      'userId',
+    ).isNull();
+  });
+
+  test('a write after a failed wipe that kept server details builds on '
+      'those details', () async {
+    secureStorageValues['openwebui_registry_v1'] = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(
+              id: 'route',
+              url: 'https://chat.example',
+              label: 'Home',
+            ),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          isActive: true,
+        ),
+      ],
+    ).encode();
+    // The old registry stays, and the details kept are not written back.
+    secureStorageFailureCountdowns['deleteAll:null'] = 1;
+    secureStorageFailureCountdowns['write:openwebui_registry_v1'] = 1;
+
+    await expectLater(
+      storage.clearAllIf(canClear: () => true, preserveServerDetails: true),
+      throwsA(isA<PlatformException>()),
+    );
+    storage.clearCache();
+    await storage.saveServerConfigs([
+      const ServerConfig(
+        id: 'account-a',
+        name: 'Chat',
+        url: 'https://chat.example',
+        isActive: true,
+      ),
+    ]);
+
+    final stored = OpenWebUiRegistry.decode(
+      secureStorageValues['openwebui_registry_v1']!,
+    );
+    check(stored.servers.single.endpoints.single.label).equals('Home');
+  });
+
+  test('a wipe keeping server details after a failed one keeps none of '
+      'what that one removed', () async {
+    secureStorageValues['openwebui_registry_v1'] = OpenWebUiRegistry(
+      servers: [
+        OpenWebUiServer(
+          id: 'server-chat',
+          name: 'Chat',
+          endpoints: [
+            OpenWebUiEndpoint(id: 'route', url: 'https://chat.example'),
+          ],
+        ),
+      ],
+      accounts: [
+        OpenWebUiAccount(
+          id: 'account-a',
+          serverId: 'server-chat',
+          isActive: true,
+        ),
+      ],
+    ).encode();
+    secureStorageFailureCountdowns['deleteAll:null'] = 1;
+    await expectLater(storage.clearAll(), throwsA(isA<PlatformException>()));
+    check(secureStorageValues).containsKey('openwebui_registry_v1');
+
+    await storage.clearAllIf(
+      canClear: () => true,
+      preserveServerDetails: true,
+    );
+
+    final stored = OpenWebUiRegistry.decode(
+      secureStorageValues['openwebui_registry_v1']!,
+    );
+    check(stored.servers).isEmpty();
+    check(stored.accounts).isEmpty();
   });
 
   test('clearAll queued behind a session commit cannot be followed by token resurrection', () async {
@@ -2519,7 +2865,7 @@ void main() {
         if (!resolutionGate.isCompleted) resolutionGate.complete();
       });
       storage = OptimizedStorageService(
-        secureStorage: const FlutterSecureStorage(),
+        secureStorage: FlutterSecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: preferences,
           caches: caches,
@@ -2581,3 +2927,9 @@ Map<String, dynamic> _conversationJson(String id) {
 ServerConfig _serverConfig(String id) {
   return ServerConfig(id: id, name: id, url: 'https://$id.example.com');
 }
+
+/// The accounts persisted in the secure registry, as the configs the app sees.
+List<ServerConfig> _storedServerConfigs(Map<String, String> secureValues) =>
+    OpenWebUiRegistry.decode(
+      secureValues['openwebui_registry_v1']!,
+    ).projectAll();

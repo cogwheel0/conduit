@@ -20,6 +20,7 @@ class AdaptiveTextField extends StatelessWidget {
     this.maxLength,
     this.obscureText = false,
     this.autocorrect = true,
+    this.enableSuggestions = true,
     this.autofocus = false,
     this.enabled = true,
     this.readOnly = false,
@@ -49,6 +50,7 @@ class AdaptiveTextField extends StatelessWidget {
   final int? maxLength;
   final bool obscureText;
   final bool autocorrect;
+  final bool enableSuggestions;
   final bool autofocus;
   final bool enabled;
   final bool readOnly;
@@ -90,6 +92,7 @@ class AdaptiveTextField extends StatelessWidget {
         maxLength: maxLength,
         obscureText: obscureText,
         autocorrect: autocorrect,
+        enableSuggestions: enableSuggestions,
         autofocus: autofocus,
         enabled: enabled,
         readOnly: readOnly,
@@ -113,6 +116,7 @@ class AdaptiveTextField extends StatelessWidget {
       maxLength: maxLength,
       obscureText: obscureText,
       autocorrect: autocorrect,
+      enableSuggestions: enableSuggestions,
       autofocus: autofocus,
       enabled: enabled,
       readOnly: readOnly,

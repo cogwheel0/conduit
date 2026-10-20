@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:collection';
 import 'dart:io' show Platform;
@@ -12,25 +13,54 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../core/models/user.dart';
+import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/models/user.dart';
+
 import '../../../core/network/image_header_utils.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/providers/backend_mode_providers.dart';
-import '../../../core/services/api_service.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+
+import 'package:conduit_core/services/api_service.dart';
+
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directConnectionProfilesProvider;
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/features/automations/providers/automation_providers.dart'
+    show scheduledTasksEntryVisibleProvider;
+import 'package:conduit_core/features/calendar/providers/calendar_providers.dart'
+    show calendarAvailableProvider;
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatDataControlsEntryVisibleProvider;
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../core/utils/native_sheet_utils.dart';
-import '../../../core/utils/user_avatar_utils.dart';
-import '../../../core/utils/user_display_name.dart';
-import '../../hermes/providers/hermes_providers.dart';
+import '../../../core/utils/account_display.dart' show AccountCardKind;
+
+import 'package:conduit_core/utils/user_avatar_utils.dart';
+
+import 'package:conduit_core/utils/user_display_name.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
+import '../../hermes/widgets/hermes_connection_switcher.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
 import 'sidebar_tab_registry.dart';
@@ -152,20 +182,6 @@ Future<Uint8List?> rasterizeSidebarNativeAvatar(
   }
 }
 
-@visibleForTesting
-NativeSheetItemConfig buildDirectConnectionsNativeSheetItem({
-  required String title,
-  required String subtitle,
-}) => NativeSheetItemConfig(
-  id: NativeSheetRoutes.directConnections,
-  title: title,
-  subtitle: subtitle,
-  sfSymbol: 'link.circle',
-  dismissOnSelect: true,
-  actionId: NativeSheetRoutes.directConnections,
-  actionValue: true,
-);
-
 /// Nullable platform seam so the iOS native-sheet failure fallback is
 /// deterministic in widget tests.
 final sidebarNativeProfilePresenterProvider =
@@ -173,6 +189,22 @@ final sidebarNativeProfilePresenterProvider =
       if (!Platform.isIOS) return null;
       return NativeSheetBridge.instance.presentProfileMenu;
     });
+
+/// Counts native Settings sheet openings, so a profile refresh started for
+/// one opening never reaches the next.
+int _nativeProfileSheetGeneration = 0;
+
+/// Whether [next] changes anything the native Settings sheet shows or its
+/// profile editors save back.
+@visibleForTesting
+bool nativeProfileSheetFieldsDiffer(
+  AccountMetadata shown,
+  AccountMetadata next,
+) =>
+    shown.bio != next.bio ||
+    shown.gender != next.gender ||
+    shown.dateOfBirth != next.dateOfBirth ||
+    shown.profileImageUrl != next.profileImageUrl;
 
 typedef SidebarNativeAvatarRequest = ({ApiService api, String avatarUrl});
 
@@ -270,6 +302,7 @@ Widget buildSidebarProfileButton({
   required VoidCallback onPressed,
   required AdaptiveButtonStyle fallbackStyle,
   Color? fallbackColor,
+  Color? nativeSymbolColor,
   Uint8List? nativeAvatarBytes,
   required Widget child,
 }) {
@@ -285,7 +318,7 @@ Widget buildSidebarProfileButton({
           ? CNSymbol(
               'person.crop.circle.fill',
               size: IconSize.large,
-              color: fallbackColor,
+              color: nativeSymbolColor ?? fallbackColor,
             )
           : null,
       imageAsset: avatarBytes == null
@@ -344,13 +377,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     final directTitle = l10n.directConnectionsTitle;
+    final hermesName = ref.watch(hermesActiveConnectionNameProvider);
     final displayName = hermesOnly
-        ? 'Hermes Agent'
+        ? hermesName ?? kHermesDefaultConnectionName
         : directPrimary && user == null
         ? directTitle
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
     final initial = hermesOnly
-        ? 'HA'
+        ? hermesConnectionInitials(hermesName)
         : directPrimary && user == null
         ? directTitle.characters.first.toUpperCase()
         : displayName.isEmpty
@@ -400,47 +434,123 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               .asData
               ?.value;
 
+    Future<void> openProfile() async {
+      await Navigator.of(context).maybePop();
+      if (!context.mounted) return;
+
+      if (nativeProfilePresenter != null) {
+        // Pre-load the Hermes avatar bytes (the config builder is sync, and
+        // avatarBytes must be supplied up front): without an Open WebUI
+        // user, the account card may name a Hermes connection.
+        final hermesAvatarBytes = hermesOnly || user == null
+            ? await _loadHermesAvatarBytes()
+            : null;
+        if (!context.mounted) return;
+        // The sheet lists the other saved accounts as they are when it opens,
+        // so the first open after launch must not beat their load.
+        await _loadSavedAccounts(ref);
+        if (!context.mounted) return;
+        final hasAccountProfile = !hermesOnly && user != null;
+        // The profile details editor preselects the stored gender and birth
+        // date and saves every field, so it must not open on a profile that
+        // was never loaded. A cached one opens the sheet at once; it is
+        // refreshed behind the sheet, which then takes the newer copy, and
+        // its Profile page editors wait for that refresh.
+        final cachedProfile = hasAccountProfile
+            ? ref.read(accountProfileProvider).asData?.value
+            : null;
+        final accountProfile = !hasAccountProfile
+            ? null
+            : cachedProfile ?? await _currentAccountProfile(ref);
+        if (!context.mounted) return;
+        // With no profile at all, the sheet would offer empty fields that a
+        // save writes over the stored ones. The settings page loads the
+        // profile itself and reports a failure, so go there instead.
+        final profileUnavailable = hasAccountProfile && accountProfile == null;
+        if (!profileUnavailable) {
+          final rootAccount = user == null
+              ? null
+              : NativeProfileRootAccount(
+                  displayName: displayName,
+                  email: _extractEmail(user) ?? l10n.noEmailLabel,
+                );
+          final generation = ++_nativeProfileSheetGeneration;
+          final config = _buildNativeProfileSheetConfig(
+            context: context,
+            ref: ref,
+            accountProfile: accountProfile,
+            user: user,
+            api: api,
+            displayName: displayName,
+            initials: initial,
+            rootAccount: rootAccount,
+            // On a cached copy the Profile page waits for the refresh: its
+            // editors save every field, so one opened on the cached copy
+            // would write it over newer server values.
+            profilePending: cachedProfile != null,
+            // Read when the sheet opens, so a toggle made while it was closed
+            // is already reflected; the action re-checks on delivery, and an
+            // Advanced change made inside the sheet rebuilds these rows.
+            visibility: NativeProfileRootVisibility(
+              showCalendar: ref.read(calendarAvailableProvider),
+              canManageWorkspace: canManageWorkspace,
+              showScheduledTasks: ref.read(scheduledTasksEntryVisibleProvider),
+              showPersonalConnections: ref.read(
+                personalConnectionsEntryVisibleProvider,
+              ),
+              showChatDataControls: ref.read(
+                chatDataControlsEntryVisibleProvider,
+              ),
+            ),
+            hermesAvatarBytes: hermesAvatarBytes,
+          );
+          ref
+              .read(nativeSheetHydrationServiceProvider)
+              .rememberProfileRoot(rootAccount);
+          final presented = await nativeProfilePresenter(config);
+          if (presented) {
+            if (cachedProfile != null) {
+              unawaited(
+                _refreshPresentedProfile(
+                  ref,
+                  generation: generation,
+                  shown: cachedProfile,
+                  displayName: displayName,
+                  initials: initial,
+                  user: user,
+                  api: api,
+                  l10n: l10n,
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
+
+      if (context.mounted) {
+        context.pushNamed(
+          sidebarProfileFallbackRouteName(
+            directPrimary: directPrimary,
+            hasOpenWebUiUser: user != null,
+          ),
+        );
+      }
+    }
+
+    // Exclude the native glass button's own node so VoiceOver announces one
+    // labelled control instead of an unlabelled avatar image.
     return Semantics(
       label: l10n.manage,
       button: true,
+      excludeSemantics: true,
+      onTap: openProfile,
       child: buildSidebarProfileButton(
         supportsNativeGlass: supportsNativeGlass,
-        onPressed: () async {
-          await Navigator.of(context).maybePop();
-          if (!context.mounted) return;
-
-          if (nativeProfilePresenter != null) {
-            // Pre-load the Hermes avatar bytes (the config builder is sync, and
-            // avatarBytes must be supplied up front).
-            final hermesAvatarBytes = hermesOnly
-                ? await _loadHermesAvatarBytes()
-                : null;
-            if (!context.mounted) return;
-            final config = _buildNativeProfileSheetConfig(
-              context: context,
-              ref: ref,
-              user: user,
-              api: api,
-              displayName: displayName,
-              initials: initial,
-              canManageWorkspace: canManageWorkspace,
-              hermesAvatarBytes: hermesAvatarBytes,
-            );
-            final presented = await nativeProfilePresenter(config);
-            if (presented) return;
-          }
-
-          if (context.mounted) {
-            context.pushNamed(
-              sidebarProfileFallbackRouteName(
-                directPrimary: directPrimary,
-                hasOpenWebUiUser: user != null,
-              ),
-            );
-          }
-        },
+        onPressed: openProfile,
         fallbackStyle: style,
         fallbackColor: useOpaqueFallback ? iconColor : null,
+        nativeSymbolColor: iconColor,
         nativeAvatarBytes: nativeAvatarBytes,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
@@ -454,203 +564,231 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     );
   }
 
-  NativeProfileSheetConfig _buildNativeProfileSheetConfig({
-    required BuildContext context,
-    required WidgetRef ref,
+  /// The account profile to open the editor on: the one just loaded from the
+  /// server, else the cached one when the refresh fails or takes too long.
+  ///
+  /// A refresh replaces the provider's state with a loading or error value
+  /// that carries no profile, so the cached copy is read before it starts.
+  Future<AccountMetadata?> _currentAccountProfile(WidgetRef ref) async {
+    final cached = ref.read(accountProfileProvider).asData?.value;
+    try {
+      await ref
+          .read(accountProfileProvider.notifier)
+          .refresh()
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      DebugLogger.warning(
+        'account-profile-refresh-failed',
+        scope: 'navigation/profile',
+        data: {'error': error.toString()},
+      );
+    }
+    // The widget can be gone by now, and its ref must not be read then.
+    if (!ref.context.mounted) return cached;
+    return ref.read(accountProfileProvider).asData?.value ?? cached;
+  }
+
+  /// Waits briefly for the saved Open WebUI accounts. The sheet still opens
+  /// without them if they fail or take too long; it then lists only this one.
+  Future<void> _loadSavedAccounts(WidgetRef ref) async {
+    try {
+      await Future.wait([
+        ref.read(openWebUiAccountsProvider.future),
+        // The Accounts page lists them too.
+        ref.read(directConnectionProfilesProvider.future),
+      ]).timeout(const Duration(seconds: 2));
+    } catch (error) {
+      DebugLogger.warning(
+        'saved-accounts-load-failed',
+        scope: 'navigation/profile',
+        data: {'error': error.toString()},
+      );
+    }
+  }
+
+  /// Refreshes the account profile after the Settings sheet opened on the
+  /// cached [shown] copy, hands the sheet the newer one when it differs, and
+  /// then fills in its Profile page, which waited on a loading row.
+  ///
+  /// The page's editors save every field, so they only become reachable once
+  /// the sheet holds the copy the server has now; one opened on the cached
+  /// copy would write its older bio, gender, birth date or photo back. When
+  /// the refresh fails the cached copy is all there is, and the page shows it.
+  ///
+  /// Nothing reaches the sheet once it was closed and opened again, or once
+  /// another account signed in: the sheet belongs to the account it was
+  /// opened for.
+  Future<void> _refreshPresentedProfile(
+    WidgetRef ref, {
+    required int generation,
+    required AccountMetadata shown,
+    required String displayName,
+    required String initials,
+    required dynamic user,
+    required dynamic api,
+    required AppLocalizations l10n,
+  }) async {
+    if (!ref.context.mounted) return;
+    final userId = ref.read(currentUserProvider2)?.id;
+    var refreshed = true;
+    try {
+      await ref
+          .read(accountProfileProvider.notifier)
+          .refresh()
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      refreshed = false;
+      DebugLogger.warning(
+        'account-profile-refresh-failed',
+        scope: 'navigation/profile',
+        data: {'error': error.toString()},
+      );
+    }
+    if (!ref.context.mounted ||
+        generation != _nativeProfileSheetGeneration ||
+        !identical(ref.read(apiServiceProvider), api) ||
+        ref.read(currentUserProvider2)?.id != userId) {
+      return;
+    }
+    // `refresh` keeps a request failure in the provider's state rather than
+    // throwing, so an error or a missing value counts as a failed refresh too:
+    // the page then fills in from the cached copy instead of loading forever.
+    final state = ref.read(accountProfileProvider);
+    final fresh = refreshed && !state.hasError ? state.asData?.value : null;
+    if (fresh != null && fresh.id != shown.id) return;
+    final bridge = NativeSheetBridge.instance;
+    final profile = fresh ?? shown;
+    if (fresh != null && nativeProfileSheetFieldsDiffer(shown, fresh)) {
+      final updated = await bridge.updateProfile(
+        _nativeAccountProfileUser(
+          ref,
+          l10n: l10n,
+          user: user,
+          api: api,
+          displayName: displayName,
+          initials: initials,
+          accountProfile: fresh,
+        ),
+      );
+      // The editors would still read the cached copy, so the page stays on
+      // its loading row.
+      if (!updated) return;
+    }
+    await bridge.applyDetailPatch(
+      detailId: NativeSheetRoutes.profile,
+      items: const [],
+      clearSubtitle: true,
+      sections: buildNativeProfileDetailSections(
+        l10n,
+        displayName: displayName,
+        accountProfile: profile,
+      ),
+    );
+  }
+
+  /// The signed-in account as the native Settings sheet shows and edits it.
+  NativeProfileSheetUser _nativeAccountProfileUser(
+    WidgetRef ref, {
+    required AppLocalizations l10n,
     required dynamic user,
     required dynamic api,
     required String displayName,
     required String initials,
-    required bool canManageWorkspace,
+    required AccountMetadata? accountProfile,
+  }) {
+    final avatarUrl = resolveUserAvatarUrlForUser(api, user);
+    final avatarBytes = _decodeDataImage(avatarUrl);
+    return NativeProfileSheetUser(
+      displayName: displayName,
+      email: _extractEmail(user) ?? l10n.noEmailLabel,
+      initials: initials,
+      avatarUrl: avatarBytes == null ? avatarUrl : null,
+      avatarBytes: avatarBytes,
+      avatarHeaders: avatarUrl == null
+          ? const {}
+          : buildImageHeadersForUrlFromWidgetRef(ref, avatarUrl) ?? const {},
+      bio: accountProfile?.bio,
+      gender: accountProfile?.gender,
+      dateOfBirth: accountProfile?.dateOfBirth,
+      profileImageUrl: accountProfile?.profileImageUrl,
+    );
+  }
+
+  NativeProfileSheetConfig _buildNativeProfileSheetConfig({
+    required BuildContext context,
+    required WidgetRef ref,
+    required AccountMetadata? accountProfile,
+    required dynamic user,
+    required dynamic api,
+    required String displayName,
+    required String initials,
+    required NativeProfileRootAccount? rootAccount,
+    required NativeProfileRootVisibility visibility,
+    bool profilePending = false,
     Uint8List? hermesAvatarBytes,
   }) {
     final l10n = AppLocalizations.of(context)!;
-    // In Hermes-only mode there's no Open WebUI account, so hide the OWUI
-    // account-specific sections (profile, memory, data connection, password,
-    // sign-out) and instead surface a "Connect to Open WebUI" switch entry.
-    final hermesOnly = ref.read(hermesOnlyModeProvider);
-    final avatarUrl = resolveUserAvatarUrlForUser(api, user);
-    final avatarBytes = _decodeDataImage(avatarUrl);
-    final email = _extractEmail(user) ?? l10n.noEmailLabel;
-    final accountProfile = ref.read(accountProfileProvider).asData?.value;
     final appSettings = ref.read(appSettingsProvider);
-    final nativeAudio = buildNativeAudioSheetParts(l10n, appSettings);
-    final settingsTitle = nativeSettingsTitle(l10n);
-    final profileTitle = nativeProfileTitle(l10n);
+    final nativeAudio = buildNativeAudioSheetParts(
+      l10n,
+      appSettings,
+      voiceProviderCandidates:
+          (ref.read(directConnectionProfilesProvider).value ?? const [])
+              .where(canBeVoiceProvider)
+              .toList(growable: false),
+      serverOffersVoiceChoice:
+          ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
+    );
     final appearanceTitle = nativeAppearanceTitle(l10n);
     final chatsTitle = nativeChatsTitle(l10n);
     final aiMemoryTitle = nativeAiMemoryTitle(l10n);
     final dataConnectionTitle = nativeDataConnectionTitle(l10n);
-    final profileSummary = [
-      displayName,
-      if (accountProfile?.bio?.trim().isNotEmpty == true)
-        accountProfile!.bio!.trim(),
-    ].join(' · ');
-    final profileMenuItem = user == null
-        ? null
-        : NativeSheetItemConfig(
-            id: NativeSheetRoutes.profile,
-            title: displayName,
-            subtitle: email,
-            sfSymbol: 'person.crop.circle',
-          );
-    final appItems = <NativeSheetItemConfig>[
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.appearance,
-        title: appearanceTitle,
-        subtitle: l10n.settingsAppearanceSubtitle,
-        sfSymbol: 'paintpalette',
-      ),
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.chats,
-        title: chatsTitle,
-        subtitle: l10n.settingsChatSubtitle,
-        sfSymbol: 'bubble.left.and.bubble.right',
-      ),
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.voice,
-        title: l10n.voice,
-        subtitle: l10n.audioSettingsSubtitle,
-        sfSymbol: 'waveform',
-      ),
-      if (user != null)
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.notificationSettings,
-          title: l10n.notificationsTitle,
-          subtitle: l10n.notificationsSubtitle,
-          sfSymbol: 'bell',
-        ),
-      if (user != null)
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.aiMemory,
-          title: aiMemoryTitle,
-          subtitle: l10n.personalizationSubtitle,
-          sfSymbol: 'wand.and.stars',
-        ),
-    ];
-    final connectionItems = <NativeSheetItemConfig>[
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.hermes,
-        title: l10n.hermesAgentSettingsTitle,
-        subtitle: l10n.hermesAgentSettingsSubtitle,
-        sfSymbol: 'sparkles',
-        iconAsset: 'assets/icons/hermes_agent.png',
-        iconSize: 26,
-        dismissOnSelect: true,
-        actionId: NativeSheetRoutes.hermes,
-        actionValue: true,
-      ),
-      buildDirectConnectionsNativeSheetItem(
-        title: l10n.directConnectionsTitle,
-        subtitle: l10n.directConnectionsSubtitle,
-      ),
-      if (canManageWorkspace)
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.workspace,
-          title: l10n.workspaceTitle,
-          subtitle: l10n.workspaceSubtitle,
-          sfSymbol: 'square.grid.2x2',
-          dismissOnSelect: true,
-          actionId: NativeSheetRoutes.workspace,
-          actionValue: true,
-        ),
-      if (user != null)
-        NativeSheetItemConfig(
-          id: NativeSheetRoutes.dataConnection,
-          title: dataConnectionTitle,
-          subtitle: l10n.connectionHealth,
-          sfSymbol: 'network',
-        ),
-      if (user == null)
-        NativeSheetItemConfig(
-          id: 'add-owui-server',
-          title: l10n.connectOpenWebUITitle,
-          subtitle: l10n.connectOpenWebUISubtitle,
-          sfSymbol: 'plus.circle',
-          dismissOnSelect: true,
-          actionId: 'add-owui-server',
-          actionValue: true,
-        ),
-    ];
-    final aboutItem = NativeSheetItemConfig(
-      id: NativeSheetRoutes.helpAbout,
-      title: l10n.aboutApp,
-      subtitle: l10n.aboutAppSubtitle,
-      sfSymbol: 'info.circle',
+    final card = readNativeAccountCard(ref.read, l10n, account: rootAccount);
+    final sections = buildNativeProfileRootSections(
+      l10n,
+      account: rootAccount,
+      visibility: visibility,
+      card: (title: card.title, subtitle: card.subtitle),
+      otherAccountCount: readNativeOtherAccountCount(ref.read),
     );
-    final signOutItem = user == null
-        ? null
-        : NativeSheetItemConfig(
-            id: 'sign-out',
-            title: l10n.signOut,
-            placeholder: l10n.signOutOptionsDescription,
-            options: [
-              NativeSheetOptionConfig(
-                id: 'keep-server-details',
-                label: l10n.keepServerDetails,
-                subtitle: l10n.keepServerDetailsDescription,
-              ),
-            ],
-            sfSymbol: 'rectangle.portrait.and.arrow.right',
-            destructive: true,
-          );
-    final supportItems = <NativeSheetItemConfig>[
-      NativeSheetItemConfig(
-        id: 'buy-me-a-coffee',
-        title: l10n.buyMeACoffeeTitle,
-        sfSymbol: 'gift',
-        url: 'https://www.buymeacoffee.com/cogwheel0',
-      ),
-      NativeSheetItemConfig(
-        id: 'github-sponsors',
-        title: l10n.githubSponsorsTitle,
-        sfSymbol: 'heart',
-        url: 'https://github.com/sponsors/cogwheel0',
-      ),
-    ];
+    final supportItems = buildNativeSupportItems(l10n);
+    // The native sheet lays itself out from [sections]; the flat lists are
+    // its fallback when a payload carries none.
     final menuItems = <NativeSheetItemConfig>[
-      ?profileMenuItem,
-      ...appItems,
-      ...connectionItems,
-      aboutItem,
-      ?signOutItem,
+      for (final section in sections)
+        if (section.title != l10n.supportConduit) ...section.items,
     ];
 
     return NativeProfileSheetConfig(
-      profileMenuTitle: settingsTitle,
-      profile: hermesOnly
-          ? NativeProfileSheetUser(
-              displayName: 'Hermes Agent',
-              email: _hermesHostLabel(
-                ref,
-                fallback: l10n.hermesSelfHostedAgentLabel,
-              ),
-              initials: 'HA',
-              avatarBytes: hermesAvatarBytes,
-              avatarIsTemplate: true,
-            )
-          : user == null
-          ? NativeProfileSheetUser(
-              displayName: l10n.directConnectionsTitle,
-              email: l10n.directConnectionsSubtitle,
-              initials: l10n.directConnectionsTitle.characters.first
-                  .toUpperCase(),
-            )
-          : NativeProfileSheetUser(
-              displayName: displayName,
-              email: email,
-              initials: initials,
-              avatarUrl: avatarBytes == null ? avatarUrl : null,
-              avatarBytes: avatarBytes,
-              avatarHeaders: avatarUrl == null
-                  ? const {}
-                  : buildImageHeadersForUrlFromWidgetRef(ref, avatarUrl) ??
-                        const {},
-              bio: accountProfile?.bio,
-              gender: accountProfile?.gender,
-              dateOfBirth: accountProfile?.dateOfBirth,
-              profileImageUrl: accountProfile?.profileImageUrl,
-            ),
+      profileMenuTitle: nativeSettingsTitle(l10n),
+      // The account card draws this profile's avatar beside its own text,
+      // so both name the same one.
+      profile: switch (card.kind) {
+        AccountCardKind.hermes => NativeProfileSheetUser(
+          displayName: card.title,
+          email: _hermesHostLabel(
+            ref,
+            fallback: l10n.hermesSelfHostedAgentLabel,
+          ),
+          initials: hermesConnectionInitials(card.title),
+          avatarBytes: hermesAvatarBytes,
+          avatarIsTemplate: true,
+        ),
+        AccountCardKind.direct => NativeProfileSheetUser(
+          displayName: l10n.directConnectionsTitle,
+          email: l10n.directConnectionsSubtitle,
+          initials: l10n.directConnectionsTitle.characters.first.toUpperCase(),
+        ),
+        AccountCardKind.openWebUi => _nativeAccountProfileUser(
+          ref,
+          l10n: l10n,
+          user: user,
+          api: api,
+          displayName: displayName,
+          initials: initials,
+          accountProfile: accountProfile,
+        ),
+      },
       editProfileLabel: l10n.edit,
       editProfileSheet: NativeEditProfileSheetConfig(
         title: l10n.profileDetails,
@@ -681,73 +819,25 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       menuItems: menuItems,
       supportTitle: l10n.supportConduit,
       supportItems: supportItems,
-      sections: [
-        if (profileMenuItem != null)
-          NativeSheetSectionConfig(items: [profileMenuItem]),
-        NativeSheetSectionConfig(items: appItems),
-        NativeSheetSectionConfig(items: connectionItems),
-        NativeSheetSectionConfig(items: [aboutItem]),
-        if (signOutItem != null) NativeSheetSectionConfig(items: [signOutItem]),
-        NativeSheetSectionConfig(
-          title: l10n.supportConduit,
-          items: supportItems,
-        ),
-      ],
+      sections: sections,
       detailSheets: [
-        if (user != null)
+        readNativeAccountsDetail(ref.read, l10n),
+        if (user != null && profilePending)
+          buildNativeLoadingDetail(
+            l10n: l10n,
+            id: NativeSheetRoutes.profile,
+            title: nativeProfileTitle(l10n),
+            subtitle: l10n.loadingShort,
+          )
+        else if (user != null)
           NativeSheetDetailConfig(
             id: NativeSheetRoutes.profile,
-            title: profileTitle,
-            sections: [
-              NativeSheetSectionConfig(
-                items: [
-                  NativeSheetItemConfig(
-                    id: 'profile-photo',
-                    title: l10n.editPhoto,
-                    sfSymbol: 'person.crop.circle',
-                    showsDisclosure: true,
-                  ),
-                ],
-              ),
-              NativeSheetSectionConfig(
-                items: [
-                  NativeSheetItemConfig(
-                    id: 'profile-name',
-                    title: l10n.name,
-                    subtitle: profileSummary,
-                    sfSymbol: 'person.text.rectangle',
-                    showsDisclosure: true,
-                  ),
-                  NativeSheetItemConfig(
-                    id: 'profile-about',
-                    title: l10n.bioLabel,
-                    subtitle: accountProfile?.bio?.trim().isNotEmpty == true
-                        ? accountProfile!.bio!.trim()
-                        : l10n.notSet,
-                    sfSymbol: 'text.bubble',
-                    showsDisclosure: true,
-                  ),
-                  NativeSheetItemConfig(
-                    id: 'profile-details',
-                    title: l10n.profileDetails,
-                    subtitle: l10n.profileDetailsSummary,
-                    sfSymbol: 'person.crop.circle',
-                    showsDisclosure: true,
-                  ),
-                ],
-              ),
-              NativeSheetSectionConfig(
-                title: l10n.accountSettingsTitle,
-                items: [
-                  NativeSheetItemConfig(
-                    id: 'password',
-                    title: l10n.changePasswordTitle,
-                    subtitle: l10n.passwordChangeDescription,
-                    sfSymbol: 'lock',
-                  ),
-                ],
-              ),
-            ],
+            title: nativeProfileTitle(l10n),
+            sections: buildNativeProfileDetailSections(
+              l10n,
+              displayName: displayName,
+              accountProfile: accountProfile,
+            ),
           ),
         if (user != null)
           buildNativePasswordDetail(
@@ -767,6 +857,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           sections: nativeAudio.mainSections,
         ),
         nativeAudio.voicePickerDetail,
+        nativeAudio.voiceProviderDetail,
         buildNativeLoadingDetail(
           l10n: l10n,
           id: NativeSheetRoutes.chats,

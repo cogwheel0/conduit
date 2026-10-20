@@ -1,7 +1,9 @@
 package app.cogwheel.conduit
 
 import android.media.AudioAttributes
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -9,6 +11,7 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
+import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -52,6 +55,8 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
     private var suppressStopForUtteranceId: String? = null
     private val resumeUtteranceIds = mutableSetOf<String>()
     private var appliedVoiceCallRouting: Boolean? = null
+    private val callAudioKeepAlive = SilentCallAudioKeepAlive()
+    private val releaseCallAudioKeepAliveTask = Runnable { callAudioKeepAlive.stop() }
 
     fun setup(flutterEngine: FlutterEngine) {
         MethodChannel(
@@ -122,6 +127,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
 
     fun dispose() {
         stopInternal(emitCancel = false)
+        releaseCallAudioKeepAliveNow()
         tts?.shutdown()
         tts = null
         initState = InitState.NOT_STARTED
@@ -140,6 +146,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                 return
             }
             InitState.FAILED -> {
+                releaseCallAudioKeepAliveNow()
                 tts?.shutdown()
                 tts = null
                 initState = InitState.NOT_STARTED
@@ -184,6 +191,8 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                     pausedRequest = null
                     pausedOffset = 0
                     lastProgressStart = 0
+                    // The next sentence of the answer usually follows at once.
+                    releaseCallAudioKeepAliveSoon()
                     emit(mapOf("type" to "complete"))
                 }
             }
@@ -202,6 +211,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                     pausedOffset = 0
                     lastProgressStart = 0
                     resumeUtteranceIds.remove(utteranceId)
+                    releaseCallAudioKeepAliveNow()
                     emit(
                         mapOf(
                             "type" to "error",
@@ -220,6 +230,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                 }
                 if (activeUtterance?.id == utteranceId) {
                     activeUtterance = null
+                    releaseCallAudioKeepAliveNow()
                     emit(mapOf("type" to "cancel"))
                 }
             }
@@ -264,8 +275,21 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
 
         val text = request.text.substring(baseOffset.coerceIn(0, request.text.length))
         if (text.isBlank()) {
+            if (request.voiceCall) {
+                releaseCallAudioKeepAliveSoon()
+            } else {
+                releaseCallAudioKeepAliveNow()
+            }
             emit(mapOf("type" to "complete"))
             return true
+        }
+
+        // Started before the engine so Conduit is already active on the call
+        // route when the engine's speech begins.
+        if (request.voiceCall) {
+            holdCallAudioKeepAlive()
+        } else {
+            releaseCallAudioKeepAliveNow()
         }
 
         val utteranceId = UUID.randomUUID().toString()
@@ -294,7 +318,31 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
             activeUtterance = null
             resumeUtteranceIds.remove(utteranceId)
         }
+        if (!started) {
+            releaseCallAudioKeepAliveNow()
+        }
         return started
+    }
+
+    // See SilentCallAudioKeepAlive for why a voice call needs this.
+    private fun holdCallAudioKeepAlive() {
+        mainHandler.removeCallbacks(releaseCallAudioKeepAliveTask)
+        callAudioKeepAlive.start()
+    }
+
+    // Answers are spoken a sentence at a time, and the next sentence can wait on
+    // the model. Stopping between sentences would drop the call route and bring
+    // it back for every one, so the keep-alive outlives the last utterance by a
+    // short grace and the next voice-call utterance picks it back up.
+    private fun releaseCallAudioKeepAliveSoon() {
+        mainHandler.removeCallbacks(releaseCallAudioKeepAliveTask)
+        if (!callAudioKeepAlive.isRunning) return
+        mainHandler.postDelayed(releaseCallAudioKeepAliveTask, CALL_AUDIO_KEEP_ALIVE_GRACE_MS)
+    }
+
+    private fun releaseCallAudioKeepAliveNow() {
+        mainHandler.removeCallbacks(releaseCallAudioKeepAliveTask)
+        callAudioKeepAlive.stop()
     }
 
     // Puts the engine on the voice-communication stream for the duration of a
@@ -320,6 +368,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
     }
 
     private fun stopInternal(emitCancel: Boolean): Boolean {
+        releaseCallAudioKeepAliveNow()
         val engine = tts ?: return false
         activeUtterance = null
         pausedRequest = null
@@ -343,6 +392,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         val stopped = engine.stop() != TextToSpeech.ERROR
         if (stopped) {
             activeUtterance = null
+            releaseCallAudioKeepAliveSoon()
             emit(mapOf("type" to "pause"))
         }
         return stopped
@@ -432,5 +482,106 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
     companion object {
         private const val METHOD_CHANNEL = "app.cogwheel.conduit/native_android_tts"
         private const val EVENT_CHANNEL = "app.cogwheel.conduit/native_android_tts/events"
+
+        // Long enough to bridge the wait for the next sentence of a streamed
+        // answer, short enough that the track does not linger once the call
+        // has gone back to listening.
+        private const val CALL_AUDIO_KEEP_ALIVE_GRACE_MS = 5_000L
+    }
+}
+
+/**
+ * Keeps a silent voice-communication track playing in Conduit's own process
+ * while device TTS speaks during a voice call (issue #716).
+ *
+ * The TTS engine renders speech in its own process, so none of that audio
+ * counts as Conduit's. Since Android 12, AudioService keeps an app as the
+ * MODE_IN_COMMUNICATION owner, and applies its setCommunicationDevice() or
+ * speakerphone choice, only while that app's own uid has voice-communication
+ * playback or capture running; a few seconds without either and the mode
+ * falls back to normal and the call's route stops applying. A server STT call
+ * keeps its recorder running, which is enough. With the platform recognizer,
+ * which also runs in another process, nothing of Conduit's is active, so the
+ * engine's speech played from the earpiece whatever the speaker button said,
+ * and the route read-back refused the speaker when the button was pressed.
+ *
+ * Looping a short static buffer of silence keeps the uid active: no thread,
+ * nothing audible, one small buffer. It only matters on Android 12 and newer,
+ * so older versions skip it, and failing to create the track only costs the
+ * route fix: speech carries on as before.
+ */
+private class SilentCallAudioKeepAlive {
+    private var track: AudioTrack? = null
+
+    val isRunning: Boolean
+        get() = track != null
+
+    fun start() {
+        if (track != null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val created = try {
+            createTrack()
+        } catch (error: Exception) {
+            Log.w(TAG, "Unable to create the call audio keep-alive track", error)
+            null
+        } ?: return
+        try {
+            created.play()
+            track = created
+        } catch (error: Exception) {
+            Log.w(TAG, "Unable to start the call audio keep-alive track", error)
+            created.release()
+        }
+    }
+
+    fun stop() {
+        val current = track ?: return
+        track = null
+        try {
+            current.stop()
+        } catch (error: IllegalStateException) {
+            Log.w(TAG, "Unable to stop the call audio keep-alive track", error)
+        }
+        current.release()
+    }
+
+    private fun createTrack(): AudioTrack? {
+        val created = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setBufferSizeInBytes(FRAMES * BYTES_PER_FRAME)
+            .build()
+        // A static track only becomes playable once its data is written, and
+        // loop points can only be set after that.
+        val written = created.write(ShortArray(FRAMES), 0, FRAMES)
+        if (written != FRAMES ||
+            created.state != AudioTrack.STATE_INITIALIZED ||
+            created.setLoopPoints(0, FRAMES, -1) != AudioTrack.SUCCESS
+        ) {
+            Log.w(TAG, "Call audio keep-alive track did not initialize (written=$written)")
+            created.release()
+            return null
+        }
+        return created
+    }
+
+    private companion object {
+        const val TAG = "NativeTtsBridge"
+        const val SAMPLE_RATE = 16_000
+        const val BYTES_PER_FRAME = 2
+
+        // Half a second of silence, looped for as long as the call speaks.
+        const val FRAMES = SAMPLE_RATE / 2
     }
 }

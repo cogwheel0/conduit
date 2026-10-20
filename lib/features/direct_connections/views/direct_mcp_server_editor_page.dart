@@ -5,15 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../core/services/navigation_service.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
-import '../models/direct_mcp_server.dart';
-import '../providers/direct_mcp_providers.dart';
-import '../services/direct_mcp_client.dart';
-import '../services/direct_mcp_oauth.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_mcp_oauth.dart';
 
 class DirectMcpServerEditorPage extends ConsumerStatefulWidget {
   const DirectMcpServerEditorPage({super.key, required this.serverId});

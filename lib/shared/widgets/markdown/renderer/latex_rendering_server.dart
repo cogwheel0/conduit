@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_tex/flutter_tex.dart';
+import 'package:meta/meta.dart';
 
 /// Coordinates startup of the shared MathJax rendering server.
 ///

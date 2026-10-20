@@ -1,5 +1,5 @@
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
-import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';

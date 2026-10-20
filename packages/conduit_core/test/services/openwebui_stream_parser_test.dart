@@ -1,0 +1,1759 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:checks/checks.dart';
+import 'package:conduit_core/services/openwebui_stream_parser.dart';
+import 'package:conduit_core/services/structured_output.dart';
+import 'package:conduit_core/services/structured_output_renderer.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('parseOpenWebUIStream', () {
+    test('skips explicit empty data heartbeats', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data:\n\n'
+            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+            'data: [DONE]\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).length.equals(2);
+      check(updates.first)
+          .isA<OpenWebUIContentDelta>()
+          .has((update) => update.content, 'content')
+          .equals('hi');
+      check(updates.last).isA<OpenWebUIStreamDone>();
+    });
+
+    test('parses delta, usage, and done across split SSE frames', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: {"choices":[{"delta":{"content":"Hel'),
+          utf8.encode('lo"}}]}\n\n'),
+          utf8.encode('data: {"usage":{"total_tokens":3}}\n\n'),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(3);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('Hello');
+      check(updates[1])
+          .isA<OpenWebUIUsageUpdate>()
+          .has((u) => u.usage['total_tokens'], 'total_tokens')
+          .equals(3);
+      check(updates[2]).isA<OpenWebUIStreamDone>();
+    });
+
+    test('parses a simple single-frame delta', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('hi');
+    });
+
+    test(
+      'parses sources, selected model, and structured error frames',
+      () async {
+        final updates = await parseOpenWebUIStream(
+          Stream<List<int>>.fromIterable([
+            utf8.encode('data: {"sources":[{"source":{"id":"src-1"}}]}\n\n'),
+            utf8.encode('data: {"selected_model_id":"model-b"}\n\n'),
+            utf8.encode('data: {"error":{"message":"boom"}}\n\n'),
+          ]),
+        ).toList();
+
+        check(updates).has((it) => it.length, 'length').equals(3);
+        check(updates[0]).isA<OpenWebUISourcesUpdate>();
+        check(updates[1])
+            .isA<OpenWebUISelectedModelUpdate>()
+            .has((u) => u.selectedModelId, 'selectedModelId')
+            .equals('model-b');
+        check(updates[2]).isA<OpenWebUIErrorUpdate>();
+      },
+    );
+
+    test('parses typed top-level error envelopes as errors', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: ${jsonEncode({
+              'type': 'error',
+              'error': {'message': 'boom'},
+            })}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0])
+          .isA<OpenWebUIErrorUpdate>()
+          .has((u) => u.error['message'], 'message')
+          .equals('boom');
+    });
+
+    test('parses OpenWebUI event emitter frames', () async {
+      final citation = {
+        'type': 'citation',
+        'data': {
+          'document': [''],
+          'metadata': [
+            {'source': 'https://example.com'},
+          ],
+          'source': {'name': 'Example Title'},
+        },
+      };
+      final status = {
+        'type': 'status',
+        'data': {'description': 'Searching', 'done': false},
+      };
+
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: ${jsonEncode({'event': citation})}\n\n'),
+          utf8.encode('data: ${jsonEncode(status)}\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) => u.type, 'type')
+          .equals('citation');
+      check(updates[0])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) {
+            final data = u.data as Map<String, dynamic>;
+            final source = data['source'] as Map<String, dynamic>;
+            return source['name'];
+          }, 'source.name')
+          .equals('Example Title');
+      check(updates[1])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) => u.type, 'type')
+          .equals('status');
+    });
+
+    test('preserves direct top-level event payloads', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: ${jsonEncode({'type': 'status', 'description': 'Searching', 'done': false})}\n\n',
+          ),
+          utf8.encode(
+            'data: ${jsonEncode({
+              'type': 'citation',
+              'source': {'name': 'Example Title'},
+            })}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIEventUpdate>()
+          .has(
+            (u) => (u.data as Map<String, dynamic>)['description'],
+            'description',
+          )
+          .equals('Searching');
+      check(updates[1])
+          .isA<OpenWebUIEventUpdate>()
+          .has((u) {
+            final data = u.data as Map<String, dynamic>;
+            final source = data['source'] as Map<String, dynamic>;
+            return source['name'];
+          }, 'source.name')
+          .equals('Example Title');
+    });
+
+    test(
+      'parses trailing final frame without an extra chunk boundary',
+      () async {
+        final updates = await parseOpenWebUIStream(
+          Stream<List<int>>.fromIterable([
+            utf8.encode('data: {"choices":[{"delta":{"content":"done"}}]}\n\n'),
+            utf8.encode('data: [DONE]\n\n'),
+          ]),
+        ).toList();
+
+        check(updates).has((it) => it.length, 'length').equals(2);
+        check(updates[0])
+            .isA<OpenWebUIContentDelta>()
+            .has((u) => u.content, 'content')
+            .equals('done');
+        check(updates[1]).isA<OpenWebUIStreamDone>();
+      },
+    );
+
+    test('parses multiple SSE payloads from a single decoded chunk', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'
+            'data: {"usage":{"total_tokens":2}}\n\n'
+            'data: [DONE]\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(3);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('hi');
+      check(updates[1])
+          .isA<OpenWebUIUsageUpdate>()
+          .has((u) => u.usage['total_tokens'], 'total_tokens')
+          .equals(2);
+      check(updates[2]).isA<OpenWebUIStreamDone>();
+    });
+
+    test('joins multi-line data fields within a single SSE frame', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{\n'
+            'data: "content":"hello"}}]}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('hello');
+    });
+
+    test('handles CRLF boundaries split across decoded chunks', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: {"choices":[{"delta":{"content":"hi"}}]}\r'),
+          utf8.encode('\n\r'),
+          utf8.encode('\ndata: [DONE]\r\n\r'),
+          utf8.encode('\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('hi');
+      check(updates[1]).isA<OpenWebUIStreamDone>();
+    });
+
+    test(
+      'discards trailing unterminated data payloads at stream end',
+      () async {
+        final updates = await parseOpenWebUIStream(
+          Stream<List<int>>.fromIterable([
+            utf8.encode('data: {"choices":[{"delta":{"content":"tail"}}]}'),
+          ]),
+        ).toList();
+
+        check(updates).isEmpty();
+      },
+    );
+
+    test('handles a multibyte UTF-8 character split across chunks', () async {
+      final bytes = utf8.encode(
+        'data: {"choices":[{"delta":{"content":"🙂"}}]}\n\n',
+      );
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          bytes.sublist(0, bytes.length - 1),
+          bytes.sublist(bytes.length - 1),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('🙂');
+    });
+
+    test(
+      'normalizes CRLF-delimited frames and ignores comment lines',
+      () async {
+        final updates = await parseOpenWebUIStream(
+          Stream<List<int>>.fromIterable([
+            utf8.encode(': keepalive\r\n'),
+            utf8.encode('event: message\r\n'),
+            utf8.encode(
+              'data: {"choices":[{"delta":{"content":"hi"}}]}\r\n\r\n',
+            ),
+          ]),
+        ).toList();
+
+        check(updates).has((it) => it.length, 'length').equals(1);
+        check(updates[0])
+            .isA<OpenWebUIContentDelta>()
+            .has((u) => u.content, 'content')
+            .equals('hi');
+      },
+    );
+
+    test('skips keepalive frames that contain no data lines', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(': keepalive\n\n'),
+          utf8.encode('event: ping\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).isEmpty();
+    });
+
+    test('parses reasoning_content delta', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"reasoning_content":"thinking..."}}]}\n\n',
+          ),
+          utf8.encode('data: {"choices":[{"delta":{"content":"result"}}]}\n\n'),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(3);
+      check(updates[0])
+          .isA<OpenWebUIReasoningDelta>()
+          .has((u) => u.content, 'content')
+          .equals('thinking...');
+      check(updates[1])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('result');
+      check(updates[2]).isA<OpenWebUIStreamDone>();
+    });
+
+    test('parses output array from stream chunk', () async {
+      final outputJson = jsonEncode([
+        {
+          'type': 'message',
+          'id': 'msg_001',
+          'status': 'in_progress',
+          'role': 'assistant',
+          'content': [
+            {'type': 'output_text', 'text': 'hello'},
+          ],
+        },
+      ]);
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode('data: {"output":$outputJson}\n\n'),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIOutputUpdate>()
+          .has((u) => u.output.length, 'output.length')
+          .equals(1);
+      check(updates[0])
+          .isA<OpenWebUIOutputUpdate>()
+          .has((u) => u.blocks.length, 'blocks.length')
+          .equals(1);
+      check(updates[0])
+          .isA<OpenWebUIOutputUpdate>()
+          .has((u) => u.blocks.single, 'block')
+          .isA<StructuredOutputTextBlock>()
+          .has((block) => block.text, 'text')
+          .equals('hello');
+      check(updates[1]).isA<OpenWebUIStreamDone>();
+    });
+
+    test(
+      'a non-renderable output snapshot still supersedes legacy text',
+      () async {
+        // Open WebUI checks array presence, not whether it renders text.
+        // Legacy content in this frame must not undo an explicit empty body.
+        final updates = await parseOpenWebUIStream(
+          Stream<List<int>>.fromIterable([
+            utf8.encode(
+              'data: ${jsonEncode({
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': '   '},
+                    ],
+                  },
+                ],
+                'choices': [
+                  {
+                    'delta': {'content': 'hi'},
+                  },
+                ],
+              })}\n\n',
+            ),
+          ]),
+        ).toList();
+
+        check(updates).length.equals(1);
+        check(updates[0])
+            .isA<OpenWebUIOutputUpdate>()
+            .has((u) => u.blocks, 'blocks')
+            .isEmpty();
+      },
+    );
+
+    test(
+      'SSE distinguishes replacement content and nonstream message text',
+      () {
+        final snapshot = parseOpenWebUIParsedPayload({'content': 'replacement'})
+            .single;
+        check(snapshot)
+            .isA<OpenWebUIContentSnapshot>()
+            .has((u) => u.content, 'content')
+            .equals('replacement');
+        final completion = parseOpenWebUIParsedPayload({
+          'choices': [
+            {
+              'message': {'content': 'answer'},
+            },
+          ],
+        }).single;
+        check(completion)
+            .isA<OpenWebUIContentDelta>()
+            .has((u) => u.content, 'content')
+            .equals('answer');
+        final cleared = parseOpenWebUIParsedPayload({
+          'output': <Object?>[],
+          'content': 'stale',
+          'choices': [
+            {
+              'delta': {'content': 'stale'},
+            },
+          ],
+        }).single;
+        check(cleared)
+            .isA<OpenWebUIOutputUpdate>()
+            .has((u) => u.output, 'output')
+            .isEmpty();
+      },
+    );
+
+    test('output supersedes the same-frame delta for mixed chunks', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: ${jsonEncode({
+              'output': [
+                {
+                  'type': 'message',
+                  'content': [
+                    {'type': 'output_text', 'text': 'Hello'},
+                  ],
+                },
+              ],
+              'choices': [
+                {
+                  'delta': {'content': 'Hello'},
+                },
+              ],
+            })}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(1);
+      check(updates[0]).isA<OpenWebUIOutputUpdate>();
+    });
+
+    test('emits usage and output from the same stream chunk', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: ${jsonEncode({
+              'usage': {'total_tokens': 7},
+              'output': [
+                {
+                  'type': 'message',
+                  'content': [
+                    {'type': 'output_text', 'text': 'Hello'},
+                  ],
+                },
+              ],
+            })}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIUsageUpdate>()
+          .has((update) => update.usage['total_tokens'], 'total_tokens')
+          .equals(7);
+      check(updates[1])
+          .isA<OpenWebUIOutputUpdate>()
+          .has((update) => update.blocks.single, 'block')
+          .isA<StructuredOutputTextBlock>()
+          .has((block) => block.text, 'text')
+          .equals('Hello');
+    });
+
+    test('relays Responses-style frames instead of dropping them', () async {
+      // Providers that speak the OpenAI Responses API stream typed events;
+      // the server passes them through unchanged on the SSE path.
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"type":"response.created","sequence_number":0}\n\n',
+          ),
+          utf8.encode(
+            'data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"Counting"}\n\n',
+          ),
+          utf8.encode(
+            'data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":1,"content_index":0,"delta":"21"}\n\n',
+          ),
+          utf8.encode(
+            'data: {"type":"response.completed","response":{"output":[],"usage":{"total_tokens":9}}}\n\n',
+          ),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      check(updates).has((it) => it.length, 'length').equals(6);
+      check(updates[0])
+          .isA<OpenWebUIResponseStreamEvent>()
+          .has((u) => u.type, 'type')
+          .equals('response.created');
+      check(updates[1])
+          .isA<OpenWebUIResponseStreamEvent>()
+          .has((u) => u.type, 'type')
+          .equals('response.reasoning_summary_text.delta');
+      check(updates[2])
+          .isA<OpenWebUIResponseStreamEvent>()
+          .has((u) => u.type, 'type')
+          .equals('response.output_text.delta');
+      check(updates[3])
+          .isA<OpenWebUIResponseStreamEvent>()
+          .has((u) => u.type, 'type')
+          .equals('response.completed');
+      check(updates[4])
+          .isA<OpenWebUIUsageUpdate>()
+          .has((u) => u.usage['total_tokens'], 'total_tokens')
+          .equals(9);
+      check(updates[5]).isA<OpenWebUIStreamDone>();
+    });
+
+    test('parses provider reasoning keys passed through by the server', () async {
+      // Open WebUI relays provider chunks unchanged on the SSE path. OpenRouter
+      // and gateway providers use `reasoning` (plus `reasoning_details`) and
+      // Ollama uses `thinking`; neither carries `reasoning_content`.
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"reasoning":"User asks","reasoning_details":[{"type":"reasoning.text","text":"User asks"}]}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"choices":[{"delta":{"thinking":" for a greeting"}}]}\n\n',
+          ),
+          utf8.encode(
+            'data: {"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"x"}]}}]}\n\n',
+          ),
+          utf8.encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'),
+          utf8.encode('data: [DONE]\n\n'),
+        ]),
+      ).toList();
+
+      // Three content updates plus the terminal [DONE] marker.
+      check(updates).has((it) => it.length, 'length').equals(4);
+      check(updates[0])
+          .isA<OpenWebUIReasoningDelta>()
+          .has((u) => u.content, 'content')
+          .equals('User asks');
+      check(updates[1])
+          .isA<OpenWebUIReasoningDelta>()
+          .has((u) => u.content, 'content')
+          .equals(' for a greeting');
+      check(updates[2])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('Hi');
+    });
+
+    test('parses both reasoning_content and content in same delta', () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"delta":{"reasoning_content":"think","content":"say"}}]}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      // Both should be emitted since the delta contains both fields.
+      check(updates).has((it) => it.length, 'length').equals(2);
+      check(updates[0])
+          .isA<OpenWebUIReasoningDelta>()
+          .has((u) => u.content, 'content')
+          .equals('think');
+      check(updates[1])
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('say');
+    });
+  });
+
+  group('structured output rendering', () {
+    test('preserves multipart message text as one escaped block', () {
+      final serialized = renderStructuredOutputBlocks(
+        parseOpenWebUIStructuredOutput([
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': ' hello '},
+              {'type': 'text', 'text': '<world>\n'},
+            ],
+          },
+        ]),
+      );
+
+      check(serialized).equals(' hello &lt;world&gt;\n');
+    });
+
+    test('renders all text-bearing parts and unknown output content', () {
+      for (final type in ['message', 'provider_specific']) {
+        final serialized = renderStructuredOutputBlocks(
+          parseOpenWebUIStructuredOutput([
+            {
+              'type': type,
+              'content': [
+                {'type': 'custom_text', 'text': 'Hello'},
+                {'text': ' world'},
+                {'text': 2},
+                {'text': null},
+              ],
+            },
+          ]),
+        );
+        check(serialized).equals('Hello world2');
+      }
+    });
+
+    test('replacement text preserves text block ordering around details', () {
+      for (final replacement in ['AB', 'A\nB']) {
+        final rendered = renderStructuredOutputBlocksWithContent(
+          parseOpenWebUIStructuredOutput([
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'A'},
+              ],
+            },
+            {
+              'type': 'reasoning',
+              'status': 'completed',
+              'summary': [
+                {'type': 'summary_text', 'text': 'thinking'},
+              ],
+            },
+            {
+              'type': 'message',
+              'content': [
+                {'type': 'output_text', 'text': 'B'},
+              ],
+            },
+          ]),
+          replacement,
+        );
+
+        check(rendered).startsWith('A\n\n<details type="reasoning"');
+        check(rendered).endsWith('</details>\n\nB');
+      }
+    });
+
+    test('replacement text is appended after detail-only output', () {
+      final rendered = renderStructuredOutputBlocksWithContent(
+        parseOpenWebUIStructuredOutput([
+          {
+            'type': 'reasoning',
+            'status': 'completed',
+            'summary': [
+              {'type': 'summary_text', 'text': 'thinking'},
+            ],
+          },
+        ]),
+        'Final answer',
+      );
+
+      check(rendered).startsWith('<details type="reasoning"');
+      check(rendered).endsWith('</details>\n\nFinal answer');
+    });
+
+    test('ask_user uses its prompt until the tool completes', () {
+      for (final status in ['pending', 'in_progress', 'completed']) {
+        final blocks = parseOpenWebUIStructuredOutput([
+          {
+            'type': 'function_call',
+            'call_id': 'ask',
+            'name': 'ask_user',
+            'status': status,
+          },
+        ]);
+        check(blocks.length).equals(status == 'completed' ? 1 : 0);
+      }
+    });
+
+    test('delegate_task displays the task and background mode', () {
+      for (final entry in <(Object?, String)>[
+        ('{"task":"Check docs"}', 'Sub-agent: "Check docs"'),
+        (
+          {'task': 'Check docs', 'background': true},
+          'Background sub-agent: "Check docs"',
+        ),
+        ({'task': 'x' * 65}, 'Sub-agent: "${'x' * 60}..."'),
+        ('{', 'Sub-agent'),
+      ]) {
+        final block =
+            parseOpenWebUIStructuredOutput([
+                  {
+                    'type': 'function_call',
+                    'call_id': 'subagent',
+                    'name': 'delegate_task',
+                    'arguments': entry.$1,
+                  },
+                ]).single
+                as StructuredOutputToolCallBlock;
+        check(block.name).equals(entry.$2);
+      }
+    });
+
+    test('completed function call stays pending until output arrives', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'function_call',
+          'call_id': 'call-1',
+          'name': 'search',
+          'status': 'completed',
+          'arguments': {'query': 'docs'},
+        },
+      ]);
+      final toolBlock = blocks.single as StructuredOutputToolCallBlock;
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(toolBlock.done).isFalse();
+      check(serialized).contains('<summary>Executing...</summary>');
+      check(serialized).contains('done="false"');
+    });
+
+    test('renders custom tool call output as details', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'custom_tool_call',
+          'id': 'custom-1',
+          'name': 'lookup',
+          'input': {'query': 'docs'},
+        },
+        {
+          'type': 'custom_tool_call_output',
+          'id': 'custom-1',
+          'content': 'result',
+        },
+      ]);
+      final toolBlock = blocks.single as StructuredOutputToolCallBlock;
+
+      check(toolBlock.name).equals('lookup');
+      check(toolBlock.result).equals('result');
+      check(toolBlock.done).isTrue();
+    });
+
+    test('code interpreter fence grows around untrusted backticks', () {
+      final rendered = renderStructuredOutputBlocks(
+        parseOpenWebUIStructuredOutput([
+          {
+            'type': 'code_interpreter',
+            'status': 'completed',
+            'language': 'dart',
+            'code': 'print("before");\n```\nprint("after");',
+          },
+        ]),
+      );
+
+      check(rendered).contains('````dart');
+      check(rendered).contains('print(&quot;after&quot;);');
+    });
+
+    test('escapes generated details body and attributes', () {
+      final serialized = renderStructuredOutputBlocks(
+        parseOpenWebUIStructuredOutput([
+          {
+            'type': 'reasoning',
+            'duration': '1" autofocus="true',
+            'summary': [
+              {
+                'type': 'summary_text',
+                'text': '</details><script>alert(1)</script>',
+              },
+            ],
+          },
+          {
+            'type': 'function_call',
+            'call_id': 'call" onmouseover="x',
+            'name': 'tool<script>',
+            'arguments': {'q': '" onclick="x'},
+          },
+          {
+            'type': 'function_call_output',
+            'call_id': 'call" onmouseover="x',
+            'output': '</details><img src=x onerror=alert(1)>',
+          },
+          {
+            'type': 'code_interpreter',
+            'status': 'completed',
+            'duration': '2',
+            'language': 'dart',
+            'code': '</details><script>alert(1)</script>',
+            'output': {'stdout': '<ok>'},
+          },
+        ]),
+      );
+
+      check(serialized).contains('&lt;/details&gt;');
+      check(serialized).contains('duration="1&quot; autofocus=&quot;true"');
+      check(serialized).contains('id="call&quot; onmouseover=&quot;x"');
+      check(serialized).contains('name="tool&lt;script&gt;"');
+      check(serialized).not((it) => it.contains('<script>'));
+      check(serialized).not((it) => it.contains('onmouseover="x"'));
+      check(serialized).not((it) => it.contains('<img src=x'));
+    });
+
+    test('closes in-progress reasoning once more output follows', () {
+      // Upstream's buildReasoningToken treats a reasoning item followed by any
+      // other item as finished. Per-token `response:completion` streams never
+      // send the status flip, so the following item is the only signal.
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'reasoning',
+          'status': 'in_progress',
+          'summary': [
+            {'type': 'summary_text', 'text': 'thinking'},
+          ],
+        },
+        {
+          'type': 'message',
+          'content': [
+            {'type': 'output_text', 'text': 'answer'},
+          ],
+        },
+      ]);
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(blocks.first)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.done, 'done')
+          .equals(true);
+      check(serialized).contains('<details type="reasoning" done="true"');
+    });
+
+    test('renders a pending reasoning item that has no text yet', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'reasoning',
+          'id': 'rs_1',
+          'summary': <Map<String, dynamic>>[],
+          'content': <Map<String, dynamic>>[],
+        },
+      ]);
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(blocks.single)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.done, 'done')
+          .equals(false);
+      check(serialized).contains('<details type="reasoning" done="false"');
+    });
+
+    test('keeps a finished reasoning item that never produced text', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {'type': 'reasoning', 'id': 'rs_1', 'status': 'completed'},
+        {
+          'type': 'message',
+          'content': [
+            {'type': 'output_text', 'text': 'answer'},
+          ],
+        },
+      ]);
+
+      check(blocks).length.equals(2);
+      check(blocks.first)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.done, 'done')
+          .isTrue();
+      check(blocks.last).isA<StructuredOutputTextBlock>();
+    });
+
+    test('keeps a trailing in-progress reasoning item pending', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'reasoning',
+          'status': 'in_progress',
+          'content': [
+            {'type': 'output_text', 'text': 'thinking'},
+          ],
+        },
+      ]);
+
+      check(blocks.single)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.done, 'done')
+          .equals(false);
+    });
+
+    test('prefers a present summary and concatenates its parts', () {
+      for (final summary in <List<Map<String, dynamic>>>[
+        [],
+        [
+          {'type': 'summary_text', 'text': ''},
+        ],
+        [
+          {'text': 'Hel'},
+          {'text': 'lo'},
+        ],
+      ]) {
+        final block =
+            parseOpenWebUIStructuredOutput([
+                  {
+                    'type': 'reasoning',
+                    'summary': summary,
+                    'content': [
+                      {'text': 'content'},
+                      {'text': ' reasoning'},
+                    ],
+                  },
+                ]).single
+                as StructuredOutputReasoningBlock;
+        check(block.text).equals(
+          summary.isEmpty
+              ? 'content reasoning'
+              : summary.length == 1
+              ? ''
+              : 'Hello',
+        );
+      }
+    });
+
+    test('reads string reasoning content', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {'type': 'reasoning', 'content': 'plain reasoning'},
+      ]);
+
+      check(blocks.single)
+          .isA<StructuredOutputReasoningBlock>()
+          .has((block) => block.text, 'text')
+          .equals('plain reasoning');
+    });
+
+    test('failed and incomplete details finish without a result item', () {
+      for (final status in ['failed', 'incomplete']) {
+        for (final type in [
+          'function_call',
+          'reasoning',
+          'open_webui:code_interpreter',
+          'web_search_call',
+          'file_search_call',
+          'computer_call',
+        ]) {
+          final serialized = renderStructuredOutputBlocks(
+            parseOpenWebUIStructuredOutput([
+              {'type': type, 'status': status, 'id': 'item', 'name': 'lookup'},
+            ]),
+          );
+          check(serialized).contains('done="true"');
+        }
+      }
+    });
+
+    test('serializes upstream code interpreter output shape', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'open_webui:code_interpreter',
+          'status': 'completed',
+          'code': 'print("ok")',
+          'output': {'stdout': 'ok'},
+        },
+      ]);
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(blocks.single)
+          .isA<StructuredOutputCodeInterpreterBlock>()
+          .has((block) => block.language, 'language')
+          .equals('python');
+      check(serialized).contains('<details type="code_interpreter"');
+      check(serialized).contains('```python');
+      check(serialized).contains('print(&quot;ok&quot;)');
+    });
+
+    test('marks non-last code interpreter output done without status', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'open_webui:code_interpreter',
+          'lang': 'python',
+          'code': 'print("ok")',
+        },
+        {
+          'type': 'message',
+          'content': [
+            {'type': 'output_text', 'text': 'answer'},
+          ],
+        },
+      ]);
+      final codeBlock = blocks.first as StructuredOutputCodeInterpreterBlock;
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(codeBlock.done).isTrue();
+      check(serialized)
+          .contains('<details type="code_interpreter" done="true"');
+    });
+
+    test('marks function call done when output item is present', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'function_call',
+          'call_id': 'call-1',
+          'name': 'search',
+          'status': 'completed',
+          'arguments': {'query': 'docs'},
+        },
+        {
+          'type': 'function_call_output',
+          'call_id': 'call-1',
+          'output': 'result',
+        },
+      ]);
+      final toolBlock = blocks.single as StructuredOutputToolCallBlock;
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(toolBlock.done).isTrue();
+      check(serialized).contains('<summary>Tool Executed</summary>');
+      check(serialized).contains('done="true"');
+    });
+
+    test('renders OpenAI built-in tool output types as details', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'web_search_call',
+          'id': 'web-1',
+          'status': 'completed',
+          'action': {
+            'type': 'search',
+            'queries': ['cats', 'dogs'],
+          },
+        },
+        {
+          'type': 'file_search_call',
+          'id': 'file-1',
+          'status': 'in_progress',
+          'queries': ['notes'],
+        },
+        {
+          'type': 'computer_call',
+          'id': 'computer-1',
+          'status': 'completed',
+          'action': {'type': 'click'},
+        },
+      ]);
+      final serialized = renderStructuredOutputBlocks(blocks);
+
+      check(blocks).has((items) => items.length, 'length').equals(3);
+      check(serialized).contains('name="Web Search"');
+      check(serialized).contains('name="File Search"');
+      check(serialized).contains('name="Computer Use"');
+      check(serialized).contains('result="&quot;Search: cats, dogs&quot;"');
+      check(serialized).contains('result="&quot;Queries: notes&quot;"');
+      check(serialized).contains('result="&quot;Action: click&quot;"');
+    });
+
+    test('preserves raw structured tool output values until rendering', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          'type': 'function_call',
+          'call_id': 'call-1',
+          'name': 'search',
+          'arguments': {'query': 'cats'},
+        },
+        {
+          'type': 'function_call_output',
+          'call_id': 'call-1',
+          'output': [
+            {'text': 'one'},
+            {'text': 'two'},
+          ],
+        },
+      ]);
+
+      final toolBlock = blocks.single as StructuredOutputToolCallBlock;
+      check(toolBlock.result)
+          .isA<List<dynamic>>()
+          .has((items) => items.length, 'length')
+          .equals(2);
+      final serialized = renderStructuredOutputBlocks(blocks);
+      check(serialized).contains(
+        'result="[{&quot;text&quot;:&quot;one&quot;},{&quot;text&quot;:&quot;two&quot;}]"',
+      );
+    });
+  });
+
+  group('StructuredOutputStreamingProjector', () {
+    test('projects cumulative plain text with linear materialized work', () {
+      const chunkCount = 4096;
+      final projector = StructuredOutputStreamingProjector();
+      final source = StringBuffer();
+      var visible = StringBuffer();
+      var plainVisible = StringBuffer();
+
+      for (var index = 0; index < chunkCount; index++) {
+        source.write('a');
+        final projection = projector.project([
+          StructuredOutputTextBlock(text: source.toString()),
+        ]);
+        switch (projection) {
+          case StructuredOutputStreamingAppend(
+            :final content,
+            :final plainContentDelta,
+          ):
+            visible.write(content);
+            plainVisible.write(plainContentDelta);
+          case StructuredOutputStreamingReplace(
+            :final content,
+            :final plainContent,
+          ):
+            visible = StringBuffer(content);
+            plainVisible = StringBuffer(plainContent);
+          case null:
+            break;
+        }
+      }
+
+      check(projector.fullProjectionCount).isLessOrEqual(14);
+      check(projector.appendProjectionCount).isGreaterThan(chunkCount - 20);
+      check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 2);
+      check(projector.appendProjectionPlainCharacterCount)
+          .isLessOrEqual(chunkCount);
+      check(visible.toString()).equals(source.toString());
+      check(plainVisible.toString()).equals(source.toString());
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals(
+        renderStructuredOutputBlocks([
+          StructuredOutputTextBlock(text: source.toString()),
+        ]),
+      );
+      check(completed.plainContent).equals(source.toString());
+    });
+
+    test('append projection carries only the raw plain suffix', () {
+      final projector = StructuredOutputStreamingProjector();
+      const prefix = 'abcdefgh';
+      final initial = projector.project([
+        const StructuredOutputTextBlock(text: prefix),
+      ]);
+      check(initial).isA<StructuredOutputStreamingReplace>();
+
+      final append = projector.project([
+        const StructuredOutputTextBlock(text: '$prefix<'),
+      ]);
+      check(append).isA<StructuredOutputStreamingAppend>();
+      final appendProjection = append as StructuredOutputStreamingAppend;
+      check(appendProjection.content).equals('&lt;');
+      check(appendProjection.plainContentDelta).equals('<');
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('$prefix&lt;');
+      check(completed.plainContent).equals('$prefix<');
+    });
+
+    test('records projection reasons and prefix validation work', () {
+      final projector = StructuredOutputStreamingProjector();
+
+      check(
+        projector.project([const StructuredOutputTextBlock(text: 'abcdefgh')]),
+      ).isA<StructuredOutputStreamingReplace>();
+      check(
+        projector.project([const StructuredOutputTextBlock(text: 'abcdefghi')]),
+      ).isA<StructuredOutputStreamingAppend>();
+      final prefixValidationsBeforeForce =
+          projector.metrics.prefixValidationCount;
+      check(
+        projector.project([
+          const StructuredOutputTextBlock(text: 'abcdefghij'),
+        ], forceReplace: true),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      final metrics = projector.metrics;
+      check(metrics.snapshotCount).equals(3);
+      check(metrics.initialReplacementCount).equals(1);
+      check(metrics.forcedReplacementCount).equals(1);
+      check(metrics.immediateReplacementCount).equals(0);
+      check(metrics.geometricReplacementCount).equals(0);
+      check(metrics.appendProjectionCount).equals(1);
+      check(metrics.prefixValidationCount).equals(prefixValidationsBeforeForce);
+      check(metrics.prefixValidationCount).isGreaterThan(0);
+      check(metrics.prefixValidationCandidateCharacterCount)
+          .isGreaterOrEqual(8);
+    });
+
+    test('reuses an exact full projection at terminal finish', () {
+      final projector = StructuredOutputStreamingProjector();
+      final initial = projector.project([
+        const StructuredOutputTextBlock(text: 'complete'),
+      ]);
+      check(initial).isA<StructuredOutputStreamingReplace>();
+
+      final completed = projector.finish();
+      check(identical(completed, initial)).isTrue();
+      check(projector.metrics.terminalExactCacheHitCount).equals(1);
+      check(projector.metrics.terminalRenderCount).equals(0);
+    });
+
+    test('invalidates the terminal exact cache after an append', () {
+      final projector = StructuredOutputStreamingProjector();
+      projector.project([const StructuredOutputTextBlock(text: 'abcdefgh')]);
+      projector.project([const StructuredOutputTextBlock(text: 'abcdefghi')]);
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('abcdefghi');
+      check(projector.metrics.terminalExactCacheHitCount).equals(0);
+      check(projector.metrics.terminalRenderCount).equals(1);
+    });
+
+    test('observes cleanup snapshots without eagerly rendering them', () {
+      final projector = StructuredOutputStreamingProjector();
+      projector.project([const StructuredOutputTextBlock(text: 'before')]);
+
+      projector.observeLatest([const StructuredOutputTextBlock(text: 'after')]);
+
+      check(projector.metrics.observedWithoutProjectionCount).equals(1);
+      check(projector.fullProjectionCount).equals(1);
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('after');
+      check(projector.metrics.terminalRenderCount).equals(1);
+    });
+
+    test('sync to latest bails when the projector never owned the visible '
+        'basis', () {
+      // The observe-only path keeps visible content that may be a strict
+      // superset of the snapshot render; materializing the snapshot here
+      // would shrink the visible content and drop that surplus.
+      final projector = StructuredOutputStreamingProjector();
+      projector.observeLatest([
+        const StructuredOutputTextBlock(text: 'snapshot'),
+      ]);
+
+      check(projector.syncProjectionToLatest()).isNull();
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('snapshot');
+    });
+
+    test('sync to latest still materializes a stale deferred projection', () {
+      final projector = StructuredOutputStreamingProjector();
+      final text = StringBuffer('`code` ');
+      projector.project([StructuredOutputTextBlock(text: text.toString())]);
+      // An indented line may be code, so escapable text on it cannot be
+      // appended; short of the re-render threshold, the snapshot defers.
+      text.write('\n    x < y');
+      check(
+        projector.project([StructuredOutputTextBlock(text: text.toString())]),
+      ).isNull();
+
+      final synced = projector.syncProjectionToLatest();
+      check(synced).isNotNull();
+      check(synced!.content).equals(
+        renderStructuredOutputBlocks([
+          StructuredOutputTextBlock(text: text.toString()),
+        ]),
+      );
+    });
+
+    test('forceReplace overrides an otherwise appendable update', () {
+      final projector = StructuredOutputStreamingProjector();
+      check(
+        projector.project([const StructuredOutputTextBlock(text: 'abcdefgh')]),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      check(
+        projector.project([
+          const StructuredOutputTextBlock(text: 'abcdefgh!'),
+        ], forceReplace: true),
+      ).isA<StructuredOutputStreamingReplace>();
+      check(projector.appendProjectionCount).equals(0);
+    });
+
+    test('bounds cumulative reasoning replacements geometrically', () {
+      const chunkCount = 4096;
+      final projector = StructuredOutputStreamingProjector();
+      final reasoning = StringBuffer();
+
+      for (var index = 0; index < chunkCount; index++) {
+        reasoning.write('r');
+        projector.project([
+          StructuredOutputReasoningBlock(
+            text: reasoning.toString(),
+            done: false,
+          ),
+        ]);
+      }
+
+      check(projector.fullProjectionCount).isLessOrEqual(14);
+      check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 5);
+
+      final completion = projector.project([
+        StructuredOutputReasoningBlock(
+          text: reasoning.toString(),
+          done: true,
+          duration: '4',
+        ),
+      ]);
+      check(completion).isA<StructuredOutputStreamingReplace>();
+      check((completion! as StructuredOutputStreamingReplace).content)
+          .contains('<summary>Thought for 4 seconds</summary>');
+    });
+
+    test('code-bearing streams re-render on the bounded additive schedule', () {
+      // Code-bearing text appends through the tail cursor, and full renders
+      // switch from geometric doubling to additive steps of
+      // max(64, length / 8): denser than geometric, still bounded.
+      const chunkCount = 4096;
+      final projector = StructuredOutputStreamingProjector();
+      final text = StringBuffer('`code` ');
+
+      for (var index = 0; index < chunkCount; index++) {
+        text.write('x');
+        projector.project([StructuredOutputTextBlock(text: text.toString())]);
+      }
+
+      check(projector.fullProjectionCount).isGreaterThan(14);
+      check(projector.fullProjectionCount).isLessOrEqual(64);
+
+      final completion = projector.finish();
+      check(completion).isA<StructuredOutputStreamingReplace>();
+      check(completion!.content).equals(text.toString());
+    });
+
+    test('bounds cumulative tool argument replacements geometrically', () {
+      const chunkCount = 1024;
+      final projector = StructuredOutputStreamingProjector();
+      final arguments = StringBuffer();
+
+      for (var index = 0; index < chunkCount; index++) {
+        arguments.write('a');
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'search',
+            arguments: arguments.toString(),
+            done: false,
+          ),
+        ]);
+      }
+
+      check(projector.fullProjectionCount).isLessOrEqual(12);
+      check(projector.fullProjectionCharacterCount).isLessThan(chunkCount * 6);
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).contains(arguments.toString());
+    });
+
+    test('tool status changes project immediately without argument growth', () {
+      for (final hasAnswer in [false, true]) {
+        final projector = StructuredOutputStreamingProjector();
+        final arguments = 'x' * 200;
+        List<StructuredOutputBlock> snapshot(String status, String answer) =>
+            parseOpenWebUIStructuredOutput([
+              {
+                'type': 'function_call',
+                'call_id': 'call',
+                'name': 'search',
+                'arguments': arguments,
+                'status': status,
+              },
+              if (hasAnswer)
+                {
+                  'type': 'message',
+                  'content': [
+                    {'text': answer},
+                  ],
+                },
+            ]);
+        final initial = projector.project(snapshot('in_progress', 'Answer'));
+        check(initial!.content).contains('<summary>Preparing...</summary>');
+        var answer = 'Answer';
+        for (final entry in const [
+          ('completed', 'Executing...'),
+          ('pending', 'Tool Approval Needed'),
+          ('failed', 'Tool Executed'),
+        ]) {
+          answer += '!';
+          final update = projector.project(snapshot(entry.$1, answer));
+          check(update).isA<StructuredOutputStreamingReplace>();
+          check(update!.content).contains('status="${entry.$1}"');
+          check(update.content).contains('<summary>${entry.$2}</summary>');
+        }
+      }
+    });
+
+    test(
+      'plain projections separate message items while tail deltas append',
+      () {
+        final projector = StructuredOutputStreamingProjector();
+        final first = projector.project([
+          const StructuredOutputTextBlock(text: 'First'),
+          const StructuredOutputTextBlock(text: 'Second'),
+        ]) as StructuredOutputStreamingReplace;
+        check(first.plainContent).equals('First\nSecond');
+        final next = projector.project([
+          const StructuredOutputTextBlock(text: 'First'),
+          const StructuredOutputTextBlock(text: 'Second!'),
+        ]) as StructuredOutputStreamingAppend;
+        check(next.plainContentDelta).equals('!');
+        check(projector.finish()!.plainContent).equals('First\nSecond!');
+      },
+    );
+
+    test('bounds deeply nested structured values', () {
+      Object nested(String leaf) {
+        Object value = leaf;
+        for (var depth = 0; depth < 128; depth += 1) {
+          value = <Object?>[value];
+        }
+        return value;
+      }
+
+      final projector = StructuredOutputStreamingProjector();
+      check(
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'deep',
+            arguments: nested('before'),
+            done: false,
+          ),
+        ]),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      check(
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'deep',
+            arguments: nested('after'),
+            done: false,
+          ),
+        ]),
+      ).isA<StructuredOutputStreamingReplace>();
+    });
+
+    test('handles equivalent cyclic structured values safely', () {
+      List<Object?> cyclicValue() {
+        final value = <Object?>[];
+        value.add(value);
+        return value;
+      }
+
+      final projector = StructuredOutputStreamingProjector();
+      check(
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'cyclic',
+            arguments: cyclicValue(),
+            done: false,
+          ),
+        ]),
+      ).isA<StructuredOutputStreamingReplace>();
+
+      check(
+        projector.project([
+          StructuredOutputToolCallBlock(
+            id: 'call-1',
+            name: 'cyclic',
+            arguments: cyclicValue(),
+            done: false,
+          ),
+        ]),
+      ).isNull();
+    });
+
+    for (final (label, leaf) in <(String, Object?)>[
+      ('null', null),
+      ('equal scalar', 1),
+    ]) {
+      test('counts broad flat $label values against the node budget', () {
+        List<Object?> broadValue() =>
+            List<Object?>.filled(100001, leaf, growable: false);
+
+        final projector = StructuredOutputStreamingProjector();
+        check(
+          projector.project([
+            StructuredOutputToolCallBlock(
+              id: 'call-1',
+              name: 'broad',
+              arguments: broadValue(),
+              done: false,
+            ),
+          ]),
+        ).isA<StructuredOutputStreamingReplace>();
+
+        check(
+          projector.project([
+            StructuredOutputToolCallBlock(
+              id: 'call-1',
+              name: 'broad',
+              arguments: broadValue(),
+              done: false,
+            ),
+          ]),
+        ).isA<StructuredOutputStreamingReplace>();
+      });
+    }
+
+    test('replaces a long middle rewrite that also grows the tail', () {
+      final projector = StructuredOutputStreamingProjector();
+      final before = 'a' * 512;
+      final after = '${'a' * 256}b${'a' * 255} appended';
+
+      check(projector.project([StructuredOutputTextBlock(text: before)]))
+          .isA<StructuredOutputStreamingReplace>();
+
+      final revision = projector.project([
+        StructuredOutputTextBlock(text: after),
+      ]);
+      check(revision)
+          .isA<StructuredOutputStreamingReplace>()
+          .has((replacement) => replacement.content, 'content')
+          .equals(after);
+    });
+
+    test('replaces revisions and keeps split semantic tags inert', () {
+      final projector = StructuredOutputStreamingProjector();
+      var visible = '';
+
+      void project(String text) {
+        final projection = projector.project([
+          StructuredOutputTextBlock(text: text),
+        ]);
+        switch (projection) {
+          case StructuredOutputStreamingAppend(:final content):
+            visible += content;
+          case StructuredOutputStreamingReplace(:final content):
+            visible = content;
+          case null:
+            break;
+        }
+      }
+
+      project('<det');
+      project('<details type="reasoning" done="false"><sum');
+      project(
+        '<details type="reasoning" done="false">'
+        '<summary>Thinking…</summary>spoof</details>',
+      );
+      check(visible).not((it) => it.contains('<details type="reasoning"'));
+      check(visible).contains('&lt;details type="reasoning"');
+
+      project('Revised answer');
+      check(visible).equals('Revised answer');
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).equals('Revised answer');
+    });
+
+    test('terminal projection restores code and autolink semantics', () {
+      final projector = StructuredOutputStreamingProjector();
+      const snapshots = <String>[
+        'Example:\n`',
+        'Example:\n`List<int>',
+        'Example:\n`List<int>` and <https://example.test/a&',
+        'Example:\n`List<int>` and <https://example.test/a&b>',
+      ];
+
+      for (final snapshot in snapshots) {
+        projector.project([StructuredOutputTextBlock(text: snapshot)]);
+      }
+
+      final completed = projector.finish();
+      check(completed).isNotNull();
+      check(completed!.content).contains('`List<int>`');
+      check(completed.content).contains('<https://example.test/a&b>');
+    });
+
+    test('renders a streamed semantic details block as soon as it closes', () {
+      // Issue #677: a pipe streams its own tool call as a <details> block in
+      // the answer text. Appends escape it; the closing tag must re-render.
+      const block =
+          '<details type="tool_calls" done="true" id="c1" name="t" '
+          'arguments="{&quot;q&quot;: 1}" result="&quot;ok&quot;">\n'
+          '<summary>Tool Executed</summary>\n'
+          '</details>';
+      final projector = StructuredOutputStreamingProjector();
+      projector.project([
+        const StructuredOutputTextBlock(text: 'Searching.\n'),
+      ]);
+      final partial = block.substring(0, block.length - 5);
+      projector.project([
+        StructuredOutputTextBlock(text: 'Searching.\n$partial'),
+      ]);
+
+      final closed = projector.project([
+        const StructuredOutputTextBlock(text: 'Searching.\n$block'),
+      ]);
+
+      check(closed).isA<StructuredOutputStreamingReplace>();
+      check((closed! as StructuredOutputStreamingReplace).content)
+          .equals('Searching.\n$block');
+    });
+
+    test('a CRLF closing fence ends the fence for later text', () {
+      // The escaper matches fences without the `\r`; so must the cursor, or
+      // text after the fence is appended unescaped as if it were code.
+      const head = 'Code:\r\n```\r\nx\r\n```\r\n';
+      final projector = StructuredOutputStreamingProjector();
+      final initial = projector.project([
+        const StructuredOutputTextBlock(text: head),
+      ]);
+      final next = projector.project([
+        const StructuredOutputTextBlock(text: '${head}after <b>bold</b>'),
+      ]);
+
+      check(next).isA<StructuredOutputStreamingAppend>();
+      final visible =
+          (initial! as StructuredOutputStreamingReplace).content +
+          (next! as StructuredOutputStreamingAppend).content;
+      check(visible).equals(
+        renderStructuredOutputBlocks([
+          const StructuredOutputTextBlock(text: '${head}after <b>bold</b>'),
+        ]),
+      );
+    });
+
+    test('keeps an answer after reasoning visible once it contains code', () {
+      // Issue #751: the first backtick used to disable appends while the
+      // doubling threshold armed by the reasoning-sized render stayed in
+      // place, so the answer stopped updating until it was nearly as long as
+      // the reasoning, usually until completion.
+      final reasoning = StructuredOutputReasoningBlock(
+        text: 'Weighing the options. ' * 200,
+        done: true,
+        duration: '3',
+      );
+      const answer =
+          'Use `List<int>` with `where`, so a && b holds.\n\n'
+          '```dart\nfinal xs = <int>[1, 2].where((x) => x > 1);\n```\n\n'
+          'Then `print(xs)`; the result is (2).';
+      final projector = StructuredOutputStreamingProjector();
+      var visible = StringBuffer();
+      var projections = 0;
+      var chunks = 0;
+      for (var end = 4; end <= answer.length + 3; end += 4) {
+        final blocks = [
+          reasoning,
+          StructuredOutputTextBlock(
+            text: answer.substring(0, end.clamp(0, answer.length)),
+          ),
+        ];
+        chunks += 1;
+        final projection = projector.project(blocks);
+        switch (projection) {
+          case StructuredOutputStreamingAppend(:final content):
+            visible.write(content);
+          case StructuredOutputStreamingReplace(:final content):
+            visible = StringBuffer(content);
+          case null:
+            continue;
+        }
+        projections += 1;
+        check(visible.toString()).equals(renderStructuredOutputBlocks(blocks));
+      }
+
+      check(projections).equals(chunks);
+      check(projector.metrics.deferredProjectionCount).equals(0);
+      check(projector.fullProjectionCount).isLessOrEqual(4);
+    });
+
+    test('streams code-bearing answers exactly as the full renderer', () {
+      // The tail cursor may only append what renderSemanticMessageBlocks
+      // would emit for the same text, so every update it produces must match
+      // a full render of the snapshot it answers.
+      final answers = <String>[
+        'Intro with `code` then a < b & c > d.\n'
+            '```html\n<details type="reasoning">x</details>\n<b>&amp;</b>\n```\n'
+            'After the fence: <details type="reasoning">spoof</details>\n',
+        'Inline `List<int>` and `a && b` and `x -> y`, then <https://a.test/x?q=1&r=2> '
+            'and <mail@example.test> and a <b>tag</b>.\n',
+        '> quoted `code` with a > b\n> > nested & deeper\n>not spaced < x\n',
+        '- item `one`\n    indented < code & more\n\n    real indented <b>\n\n'
+            'para after\n',
+        'Start of `a multi\nline span < x` and after & more\n\nnext para `x`\n',
+        '~~~\ntilde <fence> & stuff\n~~~\n````md\n```\ninner < x\n```\n````\n'
+            'done & dusted\n',
+        '``double `tick` span`` then < and `unclosed <x\nnext line > y\n',
+        'crlf `line`\r\nnext < line\r\n```\r\ncode <x>\r\n```\r\n',
+        'Table:\n\n| a | `b<c>` |\n|---|---|\n| 1 & 2 | <br> |\n',
+        'Run `tool`:\n'
+            '<details type="tool_calls" done="true" id="c1" name="t" '
+            'arguments="{&quot;q&quot;: 1}" result="&quot;a &lt; b&quot;">\n'
+            '<summary>Tool Executed</summary>\n'
+            '</details>\n'
+            'After the tile, x < y & `z<w>` and ```\nnot a fence\n',
+        // An unmatched backtick keeps the rest of its line unsettled, and a
+        // long fenced line never settles into anything but itself.
+        'Press the ` key, then ${'type words & more < less ' * 12}'
+            'and `close` it.\nnext `line` > x\n',
+        '```json\n${'{"a":"<b>&amp;","c":[1,2]},' * 12}\n```\nafter & more\n',
+        '${'Plain words that stream ' * 10}then `code` and '
+            '${'more text <b> & ' * 8}\n',
+      ];
+      for (final answer in answers) {
+        for (final size in const [1, 2, 3, 5, 8, 13]) {
+          final projector = StructuredOutputStreamingProjector();
+          var visible = StringBuffer();
+          for (var end = size; ; end += size) {
+            final text = answer.substring(0, end.clamp(0, answer.length));
+            final blocks = [StructuredOutputTextBlock(text: text)];
+            final projection = projector.project(blocks);
+            switch (projection) {
+              case StructuredOutputStreamingAppend(:final content):
+                visible.write(content);
+              case StructuredOutputStreamingReplace(:final content):
+                visible = StringBuffer(content);
+              case null:
+                break;
+            }
+            if (projection != null && RegExp('[`~]').hasMatch(text)) {
+              check(
+                because: 'chunk size $size at $end of ${jsonEncode(answer)}',
+                visible.toString(),
+              ).equals(renderStructuredOutputBlocks(blocks));
+            }
+            if (end >= answer.length) break;
+          }
+        }
+      }
+    });
+  });
+}

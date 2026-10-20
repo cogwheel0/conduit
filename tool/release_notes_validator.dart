@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:conduit/features/release_notes/models/release_version.dart';
+import 'package:conduit_core/features/release_notes/data/release_notes_catalog.dart';
+import 'package:conduit_core/features/release_notes/models/release_version.dart';
 
 /// Localization keys the release-notes sheet chrome still reads from ARB.
 const releaseNotesShellLocalizationKeys = <String>[
@@ -12,15 +13,9 @@ const releaseNotesShellLocalizationKeys = <String>[
   'releaseNotesSupportPromptMessage',
 ];
 
-/// Icon names allowed in release-note JSON `icon` fields. Keep in sync with
-/// `releaseNoteIcon` in
-/// `lib/features/release_notes/data/release_notes_repository.dart`.
-const releaseNoteValidatorIconNames = <String>{
-  'local',
-  'hermes',
-  'direct',
-  'polish',
-};
+/// Icon names allowed in release-note JSON `icon` fields: the names the
+/// parser in conduit_core keeps, which the app maps to a glyph.
+const releaseNoteValidatorIconNames = releaseNoteIconNames;
 
 const _templateLocale = 'en';
 

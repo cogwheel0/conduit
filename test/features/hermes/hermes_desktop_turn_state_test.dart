@@ -3,19 +3,20 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/features/hermes/models/hermes_bot.dart';
-import 'package:conduit/features/hermes/models/hermes_chat_input.dart';
-import 'package:conduit/features/hermes/services/hermes_backend_service.dart';
-import 'package:conduit/features/hermes/models/hermes_run_event.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/services/hermes_desktop_api_service.dart';
-import 'package:conduit/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
 
@@ -94,6 +95,19 @@ final class _GatewayHarness {
         'session_id': runtimeId,
         'payload': {'running': running},
       },
+    }),
+  );
+
+  /// Pushes a turn event for [runtimeId], e.g. `message.start`.
+  void event(
+    String runtimeId,
+    String type, [
+    Map<String, dynamic> payload = const {},
+  ]) => incoming.add(
+    jsonEncode({
+      'jsonrpc': '2.0',
+      'method': 'event',
+      'params': {'type': type, 'session_id': runtimeId, 'payload': payload},
     }),
   );
 
@@ -275,7 +289,7 @@ void main() {
 
   test('continued chats request the latest transcript page', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final harness = _GatewayHarness();
     final adapter = _StubAdapter();
     final rpc = HermesDesktopRpcClient(
@@ -313,6 +327,7 @@ void main() {
       sessionId: 'stored-existing',
       options: const HermesDesktopSessionOptions(),
     );
+    harness.event('runtime-existing', 'message.start');
     harness.sessionInfo('runtime-existing', running: false);
     await response.events.toList();
 
@@ -326,7 +341,7 @@ void main() {
     'a session the gateway refuses to resume still loads over REST',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final harness = _GatewayHarness();
       final adapter = _StubAdapter(
         messages: const [
@@ -383,7 +398,7 @@ void main() {
 
   test('a REST failure after a refused resume is not swallowed', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final harness = _GatewayHarness();
     final adapter = _FailingMessagesAdapter(status: 404);
     final rpc = HermesDesktopRpcClient(
@@ -425,7 +440,7 @@ void main() {
 
   test('a new bot chat opens before its first prompt is persisted', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final harness = _GatewayHarness();
     final adapter = _StubAdapter();
     final rpc = HermesDesktopRpcClient(
@@ -477,7 +492,7 @@ void main() {
     'bot chat transcripts use gateway history instead of dashboard REST',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final harness = _GatewayHarness();
       final adapter = _StubAdapter();
       final rpc = HermesDesktopRpcClient(
@@ -543,7 +558,7 @@ void main() {
     'every bot-chat RPC names the bot profile, never the connection one',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final harness = _GatewayHarness();
       final rpc = HermesDesktopRpcClient(
         channelFactory: (_, _, {httpClient}) => harness.channel,
@@ -588,10 +603,10 @@ void main() {
       await service.steer('stored-bot', 'hello');
       await service.queue('stored-bot', 'later');
       await service.renameSession('stored-bot', 'Renamed');
-      await service.resolveApprovalForSession(
+      await service.resolveApprovalChoiceForSession(
         'stored-bot',
         approvalId: 'req-1',
-        approved: true,
+        choice: 'once',
       );
       await service.respondToDecision(
         storedSessionId: 'stored-bot',
@@ -633,7 +648,7 @@ void main() {
 
   test('bot sends keep the bot profile model settings', () async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final harness = _GatewayHarness();
     final rpc = HermesDesktopRpcClient(
       channelFactory: (_, _, {httpClient}) => harness.channel,
@@ -685,6 +700,7 @@ void main() {
         fast: true,
       ),
     );
+    harness.event('runtime-bot', 'message.start');
     harness.sessionInfo('runtime-bot', running: false);
     await response.events.toList();
 
@@ -704,4 +720,86 @@ void main() {
     check(adapter.requested.where((uri) => uri.path.endsWith('/messages')))
         .isEmpty();
   });
+  // the gateway reports `session.info` asynchronously after a session is
+  // created or resumed. An idle one that lands while `prompt.submit` is in
+  // flight was replayed after the acknowledgement and ended the turn before
+  // its first delta, leaving an empty reply.
+  test('an idle session.info from before the turn does not end it', () async {
+    final deltas = await _replyAfterPreTurnFrames(
+      (harness) => harness.sessionInfo('runtime-race', running: false),
+    );
+    check(deltas).equals('Hello there.');
+  });
+
+  test(
+    'a late tool event does not let an idle session.info end the turn',
+    () async {
+      final deltas = await _replyAfterPreTurnFrames((harness) {
+        harness.event('runtime-race', 'tool.complete', {'name': 'earlier'});
+        harness.sessionInfo('runtime-race', running: false);
+      });
+      check(deltas).equals('Hello there.');
+    },
+  );
+}
+
+/// Streams a reply while [preTurnFrames] arrive before `prompt.submit` is
+/// acknowledged, and returns the text that reached the caller.
+Future<String> _replyAfterPreTurnFrames(
+  void Function(_GatewayHarness harness) preTurnFrames,
+) async {
+  SharedPreferences.setMockInitialValues({});
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+  final harness = _GatewayHarness();
+  final rpc = HermesDesktopRpcClient(
+    channelFactory: (_, _, {httpClient}) => harness.channel,
+  );
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'session-token',
+      ),
+    ),
+    dio: _statusDio(),
+    rpc: rpc,
+  );
+  addTearDown(() async {
+    service.close();
+    await harness.dispose();
+  });
+
+  harness.responder = (method) {
+    if (method == 'prompt.submit') {
+      // Delivered before the acknowledgement, as on the wire.
+      preTurnFrames(harness);
+      return {'status': 'streaming'};
+    }
+    return switch (method) {
+      'session.resume' => {
+        'session_id': 'runtime-race',
+        'stored_session_id': 'stored-race',
+        'running': false,
+      },
+      'config.get' => {'value': 'medium'},
+      _ => const {},
+    };
+  };
+
+  final response = await service.streamDesktopResponse(
+    HermesChatInput.text('hello'),
+    sessionId: 'stored-race',
+    options: const HermesDesktopSessionOptions(),
+  );
+  final events = response.events.toList();
+  await Future<void>.delayed(Duration.zero);
+  harness.event('runtime-race', 'message.start');
+  harness.event('runtime-race', 'message.delta', {'text': 'Hello there.'});
+  harness.event('runtime-race', 'message.complete', {'text': 'Hello there.'});
+  harness.sessionInfo('runtime-race', running: false);
+
+  final deltas = (await events).whereType<HermesTokenDelta>();
+  return deltas.map((event) => event.content).join();
 }

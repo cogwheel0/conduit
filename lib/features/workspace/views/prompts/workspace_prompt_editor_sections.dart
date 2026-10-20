@@ -1,9 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/widgets/workspace_access_grants.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_fields.dart';
 import 'package:conduit/features/workspace/widgets/workspace_editor_scaffold.dart';
@@ -247,15 +247,11 @@ final class WorkspacePromptAccessTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final principals = workspaceSharedPrincipals(grants);
-    final isPublic = workspaceGrantsArePublic(grants);
     return WorkspaceResourceTile(
       key: const Key('workspace-prompt-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
+      icon: workspaceAccessSummaryIcon(grants),
       title: l10n.workspacePromptManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
+      subtitle: workspaceAccessSummary(l10n, grants),
       onTap: onTap,
     );
   }

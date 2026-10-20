@@ -5,24 +5,50 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/auth/auth_state_manager.dart';
-import '../../../core/auth/webview_cookie_helper.dart';
-import '../../../core/models/server_config.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
-import '../../../core/services/connectivity_service.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/services/worker_manager.dart';
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+
+import '../../../platform/webview_cookie_helper.dart';
+
+import 'package:conduit_core/auth/proxy_session.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_route_resolver.dart'
+    show openWebUiRouteResolverProvider;
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../l10n/app_localizations.dart';
-import '../providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import 'proxy_auth_page.dart';
-import 'server_connection_page.dart' show mergeCapturedProxyCookiesIntoHeaders;
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sign_out_options_dialog.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
+
+/// The route a renewed proxy session of [account] is saved to: the one its
+/// projection was read from, found by the connection it carries as saving
+/// it does, though the app may since have selected another.
+@visibleForTesting
+String? renewedProxyRouteId(
+  OpenWebUiRegistry registry,
+  ServerConfig account, {
+  required Map<String, String> selection,
+}) {
+  final saved = registry.account(account.id);
+  final server = saved == null ? null : registry.server(saved.serverId);
+  return server
+      ?.routeForConnection(account, selectedEndpointId: selection[server.id])
+      .id;
+}
 
 class ConnectionIssuePage extends ConsumerStatefulWidget {
   const ConnectionIssuePage({super.key});
@@ -181,6 +207,13 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
       );
       final storage = ref.read(optimizedStorageServiceProvider);
       final configs = await storage.getServerConfigsStrict();
+      // Where the save below files the cookies; the app can have moved to
+      // another route while the sign-in was open.
+      final renewedRoute = renewedProxyRouteId(
+        await storage.getOpenWebUiRegistryStrict(),
+        activeServer,
+        selection: storage.endpointSelection,
+      );
       // Same server identity: the storage layer keeps the account session
       // when only custom headers change.
       await storage.saveServerConfigs([
@@ -189,6 +222,10 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
       ]);
       ref.invalidate(serverConfigsProvider);
       ref.invalidate(activeServerProvider);
+      // Its refusals were of the session just replaced.
+      ref
+          .read(openWebUiRouteResolverProvider.notifier)
+          .proxySessionRenewed(renewedRoute);
       await ref.read(activeServerProvider.future);
       if (!mounted) return;
 

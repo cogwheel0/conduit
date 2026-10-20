@@ -4,15 +4,15 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/models/ollama_keep_alive.dart';
-import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
-import 'package:conduit/features/direct_connections/services/direct_http_client.dart';
-import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
-import 'package:conduit/features/direct_connections/services/ollama_cloud_tools.dart';
-import 'package:conduit/features/direct_connections/services/openai_compatible_adapter.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
+import 'package:conduit_core/features/direct_connections/services/ollama_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/ollama_cloud_tools.dart';
+import 'package:conduit_core/features/direct_connections/services/openai_compatible_adapter.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
@@ -4822,7 +4822,10 @@ void main() {
                     requiresUserDecision: false,
                     execute: (arguments) async {
                       executedArguments = arguments;
-                      return const DirectToolResult(text: 'sunny');
+                      return const DirectToolResult(
+                        text: 'sunny',
+                        value: {'forecast': 'sunny'},
+                      );
                     },
                   ),
                 ),
@@ -4831,6 +4834,11 @@ void main() {
               .toList();
 
       expect(executedArguments, {'city': 'Paris'});
+      // The UI gets the structured value (web_search results become source
+      // chips); the model still gets the text, asserted on the replay below.
+      expect(events.whereType<DirectToolCallCompleted>().single.result, {
+        'forecast': 'sunny',
+      });
       expect(
         events.whereType<DirectContentDelta>().map((event) => event.content),
         ['Checking.', 'It is sunny.'],

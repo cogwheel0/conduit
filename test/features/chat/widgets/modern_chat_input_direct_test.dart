@@ -1,24 +1,26 @@
 import 'dart:ui' show SemanticsAction;
 
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/tool.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
-import 'package:conduit/features/direct_connections/direct_connections.dart';
-import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
+import 'package:conduit/shared/widgets/horizontal_overflow_fade.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
@@ -113,30 +115,46 @@ void main() {
     );
   });
 
-  test('direct send policy filters unsupported tools and search conflicts', () {
+  test('direct send policy keeps on-device search beside MCP tools', () {
+    // On-device search is another local tool, so it coexists with MCP.
     final apple = normalizeDirectToolSelectionForBinding(
       binding: const DirectModelBinding(
         profileId: kApplePccProfileId,
         adapterKey: kApplePccAdapterKey,
         remoteModelId: kApplePccRemoteModelId,
       ),
+      webSearchMode: DirectWebSearchMode.onDevice,
       enableWebSearch: true,
       localMcpToolIds: const ['local_mcp:home'],
     );
     expect(apple.localMcpToolIds, ['local_mcp:home']);
-    expect(apple.enableWebSearch, isFalse);
+    expect(apple.enableWebSearch, isTrue);
 
+    // A provider-hosted search tool can't share a request with local tools.
     final openRouter = normalizeDirectToolSelectionForBinding(
       binding: const DirectModelBinding(
         profileId: 'openrouter',
         adapterKey: kOpenAiCompatibleAdapterKey,
         remoteModelId: 'model',
       ),
+      webSearchMode: DirectWebSearchMode.providerHosted,
       enableWebSearch: true,
       localMcpToolIds: const ['local_mcp:home'],
     );
     expect(openRouter.localMcpToolIds, ['local_mcp:home']);
     expect(openRouter.enableWebSearch, isFalse);
+
+    final noTools = normalizeDirectToolSelectionForBinding(
+      binding: const DirectModelBinding(
+        profileId: 'ollama',
+        adapterKey: kOllamaAdapterKey,
+        remoteModelId: 'gemma',
+      ),
+      webSearchMode: DirectWebSearchMode.unavailable,
+      enableWebSearch: true,
+      localMcpToolIds: const [],
+    );
+    expect(noTools.enableWebSearch, isFalse);
   });
 
   test('native composer glass uses non-animated cursor opacity', () {
@@ -191,66 +209,6 @@ void main() {
       expect(first[2], isA<IOSSystemContextMenuItemSelectAll>());
     },
   );
-
-  test('native toolbar action groups preserve action and menu order', () {
-    final actions = [
-      ConduitNativeToolbarAction(
-        iosSymbol: 'square.and.pencil',
-        accessibilityLabel: 'New Chat',
-        onPressed: () {},
-      ),
-      ConduitNativeToolbarAction(
-        iosSymbol: 'ellipsis',
-        accessibilityLabel: 'More',
-        menuItems: [
-          ConduitNativeToolbarMenuItem(
-            label: 'Rename',
-            iosSymbol: 'pencil',
-            onSelected: () {},
-          ),
-          ConduitNativeToolbarMenuItem(
-            label: 'Delete',
-            iosSymbol: 'trash',
-            isDestructive: true,
-            onSelected: () {},
-          ),
-        ],
-      ),
-    ];
-    final creationParams = encodeConduitNativeToolbarActionGroupParams(actions);
-    final params = creationParams['actions']! as List<Map<String, Object?>>;
-
-    check(creationParams.containsKey('symbolSize')).isFalse();
-    check(params.length).equals(2);
-    check(params[0]['iosSymbol']).equals('square.and.pencil');
-    check(params[0].containsKey('symbolSize')).isFalse();
-    check(params[1]['iosSymbol']).equals('ellipsis');
-    final menuItems = params[1]['menuItems']! as List<Map<String, Object?>>;
-    check(menuItems.map((item) => item['label']))
-        .deepEquals(['Rename', 'Delete']);
-    check(menuItems[1]['isDestructive']).equals(true);
-  });
-
-  test('native toolbar action groups leave glyph sizing to the package', () {
-    final params = encodeConduitNativeToolbarActionGroupParams([
-      ConduitNativeToolbarAction(
-        iosSymbol: 'ellipsis',
-        accessibilityLabel: 'More',
-        menuItems: [
-          ConduitNativeToolbarMenuItem(
-            label: 'Delete',
-            isDestructive: true,
-            onSelected: () {},
-          ),
-        ],
-      ),
-    ]);
-    final actions = params['actions']! as List<Map<String, Object?>>;
-
-    check(actions).length.equals(1);
-    check(actions.single['iosSymbol']).equals('ellipsis');
-    check(actions.single.containsKey('symbolSize')).isFalse();
-  });
 
   test('native toolbar menu adapters preserve values, order, and state', () {
     String? selected;
@@ -923,7 +881,8 @@ void main() {
       expect(find.text('Photo'), findsNothing);
       expect(find.text('Camera'), findsNothing);
       expect(find.text('Web Search'), findsOneWidget);
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+      // Toggle rows mark the enabled state with a trailing checkmark.
+      expect(find.byIcon(Icons.check_rounded), findsNothing);
       expect(
         tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
         isTrue,
@@ -931,7 +890,7 @@ void main() {
 
       await tester.tap(find.text('Web Search'));
       await tester.pump();
-      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
@@ -1867,6 +1826,45 @@ void main() {
     );
     expect(find.byKey(const ValueKey('composer-quick-pills')), findsOneWidget);
     expect(find.text('Web'), findsOneWidget);
+  });
+
+  testWidgets('a single quick pill paints no overflow cue (issue #745)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          appSettingsProvider.overrideWith(_QuickPillAppSettingsNotifier.new),
+          webSearchAvailableProvider.overrideWithValue(true),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // The pill row has room to spare, so the trailing cue must not paint. It
+    // used to draw the page background over the composer surface, which read
+    // as a black square next to the mic.
+    final fade = find.byType(HorizontalOverflowFade);
+    expect(fade, findsOneWidget);
+    expect(
+      find.descendant(of: fade, matching: find.byType(ShaderMask)),
+      findsNothing,
+    );
+    check(
+      tester
+          .widgetList<DecoratedBox>(
+            find.descendant(of: fade, matching: find.byType(DecoratedBox)),
+          )
+          .map((box) => box.decoration)
+          .whereType<BoxDecoration>()
+          .where((decoration) => decoration.gradient != null),
+    ).isEmpty();
   });
 }
 

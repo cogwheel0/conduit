@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Native cookie manager for accessing cookies from the platform's cookie store.
 ///

@@ -90,6 +90,140 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Novità",
+      "intro": "Ciao! Il ragionamento resta nel suo blocco mentre scorre. I tag think non compaiono più nella risposta. I PDF arrivano di nuovo al modello. La voce viene trascritta quando smetti di parlare, e il pulsante altoparlante funziona. La barra di scorrimento della chat non salta più.",
+      "bullets": [
+        {
+          "text": "Ragionamento: resta nel suo blocco mentre il modello scrive. I tag think non compaiono più nella risposta. I blocchi degli strumenti restano al posto giusto.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voce e file: quando smetti di parlare, compare Trascrizione. Su Android, il riconoscimento sul dispositivo usa qualsiasi riconoscitore installato. Il pulsante altoparlante ferma la risposta già in riproduzione. Gli allegati PDF vengono inviati di nuovo al modello. Le citazioni possono mostrare il titolo della pagina. Se una sessione proxy scade, puoi accedere di nuovo senza disconnetterti.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: in fase di configurazione puoi controllare il Desktop Gateway anche se l'interruttore è ancora spento.",
+          "icon": "hermes"
+        }
+      ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Novità",
+      "intro": "Ciao! Apple Private Cloud Compute compare nell'elenco dei modelli e risponde. Su iPhone, Interrompi ti lascia interrompere l'assistente mentre parla. Open WebUI 0.11.4 funziona, e cancellare il prompt di sistema o il modello predefinito cancella il valore salvato. Le liste di sistema non chiudono più l'app, il blocco nero accanto al microfono è sparito, e una risposta finita non torna come se fosse ancora in corso.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: compare nell'elenco dei modelli e risponde. Apple On-Device e Private Cloud Compute usano il simbolo di Apple.",
+          "icon": "direct"
+        },
+        {
+          "text": "Interrompi: le impostazioni vocali dell'iPhone ce l'hanno. L'assistente continua ad ascoltare mentre parla, e puoi interromperlo. Scegliere un'opzione in una lista di sistema non chiude più l'app. Il blocco nero accanto al microfono sparisce quando la riga ci sta. Una risposta finita resta finita dopo l'aggiornamento, e Interrompi generazione resta spento.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: nessun avviso di compatibilità. Cancellare il prompt di sistema o il modello predefinito cancella il valore salvato.",
+          "icon": "direct"
+        }
+      ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Novità",
+      "intro": "Ciao! Le risposte di Open WebUI scorrono più fluidamente, le chiamate agli strumenti sono leggibili e gli elenchi delle attività conservano i progressi. Le chiamate vocali mantengono l'altoparlante scelto. Condivisione e scorciatoie aprono di nuovo le chat senza un account Open WebUI. Ho rinnovato anche chat e impostazioni.",
+      "bullets": [
+        {
+          "text": "Open WebUI: le risposte continuano ad aggiornarsi dopo codice o ragionamento. Le chiamate agli strumenti compaiono in blocchi invece che come testo grezzo e gli elenchi delle attività conservano i progressi quando riapri una chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Voce: le chiamate restano sull'altoparlante scelto e, dopo la chiamata, gli altri suoni tornano all'uscita normale. Il pulsante dell'altoparlante mostra l'uscita che senti davvero.",
+          "icon": "polish"
+        },
+        {
+          "text": "Condivisione e scorciatoie: widget, scorciatoie dell'app, Siri e Assistente Android aprono chat Direct o Hermes senza un account Open WebUI. I file condivisi mantengono il nome; riconoscimento vocale e tastiera Android si ripristinano in modo più affidabile.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat e impostazioni: campo di scrittura, barra laterale e azioni dei messaggi più ordinati. Le icone della barra e le impostazioni seguono i colori del tema scelto, con contrasto migliore ed etichette per gli screen reader.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Novità",
+      "intro": "Ciao! Le chat Direct possono cercare sul web dal tuo dispositivo e le immagini si aprono in una galleria da sfogliare con un gesto. Puoi passare tra le risposte rigenerate direttamente sotto la risposta. Ho anche corretto la configurazione di Hermes, il riconoscimento vocale di Android e diversi problemi di chat e impostazioni.",
+      "bullets": [
+        {
+          "text": "Ricerca web: i modelli Direct senza ricerca integrata possono cercare e leggere pagine dal tuo dispositivo, inclusi i modelli Ollama e Apple che supportano gli strumenti. Scegli il motore di ricerca, il filtro di ricerca sicura e la regione nelle impostazioni. I modelli Direct mostrano anche il logo del loro creatore.",
+          "icon": "direct"
+        },
+        {
+          "text": "Immagini: sfoglia gli allegati delle chat e dei canali con un gesto, ingrandiscili e condividili. iOS usa Quick Look per le immagini supportate; Android permette di salvarle in Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat e canali: passa tra le risposte rigenerate con le frecce sotto la risposta. Le chat Direct conservano le versioni precedenti quando le riapri e i messaggi modificati vengono reinviati correttamente. Le caselle di spunta Markdown vengono visualizzate. I thread dei canali mostrano risposte, modifiche, eliminazioni e reazioni in tempo reale.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes e voce: l’accesso e i test di connessione di Desktop Gateway funzionano durante la configurazione e le risposte non terminano più prima che arrivi il primo testo. Il riconoscimento vocale di Android riprova con una variante supportata della lingua scelta. La dettatura delle note segue la tua impostazione di conversione da voce a testo.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Impostazioni e account: le impostazioni native di iOS usano la tua lingua, i dettagli dell’area di lavoro si aggiornano dopo il salvataggio e toccare una notifica apre la conversazione giusta. Uscire dall’account cancella le connessioni Direct e Hermes; conservare i dati del server funziona. Le finestre di dialogo e le liste di controllo nelle note tornano a funzionare su iOS.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Novità",
+      "intro": "Ciao! Puoi tenere connessi più account Open WebUI e passare dall’uno all’altro, e salvare più connessioni Hermes. Le chiamate possono parlare con una voce in tempo reale che puoi interrompere. Open WebUI 0.12 funziona, compreso l’accesso in due passaggi, e altre funzioni di Open WebUI non richiedono più Avanzate.",
+      "bullets": [
+        {
+          "text": "Account: tieni connessi più account Open WebUI, su uno o più server, e cambia dal tuo profilo o dalla nuova pagina Account in cima alle Impostazioni. Aggiungi qualsiasi account o connessione da un unico pannello. Un server può avere più indirizzi, come LAN, Tailscale e un proxy pubblico; l’app usa il primo che risponde.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: salva più connessioni con un nome, come Casa e Ricerca, e passa dall’una all’altra dalla barra laterale, dalle impostazioni o da Account. Una chat la cui sessione appartiene a un’altra connessione propone di passare a quella.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Chiamate in tempo reale: con Open WebUI 0.12, Direct e Hermes Desktop Gateway, le chiamate possono parlare con una voce in tempo reale di OpenAI, e se le parli sopra si ferma. Scegli un Provider vocale nelle impostazioni audio per le chat Direct e Apple. La trascrizione e la sintesi vocale del server seguono il backend di ogni chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: l’app funziona senza avvisi di compatibilità. La verifica in due passaggi all’accesso funziona, inclusi configurazione e codici di recupero. Esportazione delle skill, condivisione delle cartelle, chat temporanee obbligatorie e approvazione degli strumenti seguono la 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Funzioni di Open WebUI: coda delle bozze, interprete di codice, rami, pubblico della chat, cartelle progetto, condivisione, membri dei canali e calendario non richiedono più Avanzate. Avanzate aggiunge confronto tra modelli, attività pianificate, webhook e controlli dei dati. Le chat grandi non vengono più riscaricate a ogni apertura e il livello di ragionamento scelto resta impostato.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Novità",
+      "intro": "Ciao! Open WebUI 0.12.2 funziona, e i canali mostrano le app che vi rispondono e possono avvisarti solo per le menzioni. Le chiamate vocali proseguono nonostante il rumore di fondo e i gesti dell’avatar, e il pulsante dell’altoparlante funziona dall’inizio delle chiamate su Android.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: l’app funziona senza avviso di compatibilità. Le chat avviate da una chiamata in tempo reale ricevono titolo e tag generati, secondo le tue impostazioni di titoli e tag.",
+          "icon": "direct"
+        },
+        {
+          "text": "Canali: i messaggi delle app mostrano il nome dell’app, schede, pulsanti e link. Premere un pulsante lo invia all’app, e le risposte visibili solo a te compaiono sotto il messaggio finché non le chiudi. Imposta un canale o un messaggio diretto su Solo menzioni per evitare badge e notifiche, a meno che non ti menzionino.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chiamate vocali: il rumore di fondo non interrompe più la voce in tempo reale a metà frase; si mette in pausa e riprende se non è stato detto nulla. I gesti dell’avatar non ritardano più le risposte di tre secondi. Su Android il pulsante dell’altoparlante funziona dall’inizio della chiamata, e una chiamata non blocca più le tue telefonate nei primi due minuti.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

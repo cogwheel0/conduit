@@ -19,11 +19,19 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-    applicationId = "app.cogwheel.conduit"
-    minSdk = flutter.minSdkVersion
-    targetSdk = flutter.targetSdkVersion
-    versionCode = flutter.versionCode
-    versionName = flutter.versionName
+        applicationId = "app.cogwheel.conduit"
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        // Flutter adds x86_64 by default for non-split builds. Ship only ARM ABIs.
+        // Split builds set their ABIs through --target-platform instead.
+        if (providers.gradleProperty("split-per-abi").orNull != "true") {
+            ndk {
+                abiFilters.clear()
+                abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
+            }
+        }
     }
 
     compileOptions {
@@ -78,6 +86,7 @@ dependencies {
     implementation("com.google.mlkit:genai-speech-recognition:1.0.0-alpha1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
     // Real org.json for JVM unit tests; the mockable android.jar only stubs it.
     testImplementation("org.json:json:20240303")
 }

@@ -2,17 +2,18 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/features/chat/server_speech/openwebui_server_speech.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
-import 'package:conduit/features/chat/services/server_vad_recorder.dart';
+import 'package:conduit_core/features/chat/services/server_vad_recorder.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler_platform_interface/permission_handler_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
-import 'package:record/record.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -253,7 +254,7 @@ void main() {
     final recorder = _FakeServerVadRecorder();
     final service = _SupportedVoiceInputService(
       nativeStt: nativeStt,
-      api: _MockApiService(),
+      serverSpeech: () => OpenWebUiServerSpeech(_MockApiService()),
       serverVadRecorderFactory: () => recorder,
       supportsNativeResponseWaitCapture: true,
     );
@@ -275,12 +276,33 @@ void main() {
     await nativeStt.dispose();
   });
 
+  test('server-only speech uses the device in a chat that cannot transcribe',
+      () async {
+    final nativeStt = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(
+      nativeStt: nativeStt,
+      serverSpeech: () => null,
+      supportsNativeResponseWaitCapture: true,
+    );
+    service.updatePreference(SttPreference.serverOnly);
+    check(service.prefersServerOnly).isFalse();
+    check(service.prefersDeviceOnly).isTrue();
+
+    await service.initialize();
+    await service.startListening();
+    check(service.isUsingNativeLocalStt).isTrue();
+
+    await service.stopListening();
+    await service.dispose();
+    await nativeStt.dispose();
+  });
+
   group('VoiceInputService server STT consumers', () {
     test('cancels a queued server recorder start after stop', () async {
       final recorder = _FakeServerVadRecorder();
       final service = _SupportedVoiceInputService(
         nativeStt: _FakeNativeSttService(),
-        api: _MockApiService(),
+        serverSpeech: () => OpenWebUiServerSpeech(_MockApiService()),
         serverVadRecorderFactory: () => recorder,
       );
       service.updatePreference(SttPreference.serverOnly);
@@ -323,33 +345,6 @@ void main() {
     });
   });
 
-  group('VoiceInputService.androidServerVadRecordConfig', () {
-    test('uses speech recognition routing outside voice calls', () {
-      final config = VoiceInputService.androidServerVadRecordConfigForTesting(
-        voiceCallSession: false,
-      );
-
-      check(config.audioSource).equals(AndroidAudioSource.voiceRecognition);
-      check(config.audioManagerMode).equals(AudioManagerMode.modeNormal);
-      check(config.manageBluetooth).isTrue();
-    });
-
-    test('uses communication routing during voice calls', () {
-      final config = VoiceInputService.androidServerVadRecordConfigForTesting(
-        voiceCallSession: true,
-      );
-
-      check(config.audioSource).equals(AndroidAudioSource.voiceCommunication);
-      check(config.audioManagerMode)
-          .equals(AudioManagerMode.modeInCommunication);
-      // The coordinator owns SCO/communication-device routing during calls.
-      // record_android's Bluetooth manager clears the communication device on
-      // every recorder stop, which knocked device TTS back to the earpiece
-      // (issue #716), so the plugin must not manage Bluetooth here.
-      check(config.manageBluetooth).isFalse();
-    });
-  });
-
   group('ServerVadRecorderSession', () {
     test(
       'rejects denied permission without connecting VAD or recording',
@@ -360,7 +355,9 @@ void main() {
 
         await check(
           session.start(
-            config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+            config: const AudioCaptureConfig(
+              profile: AudioCaptureProfile.dictation,
+            ),
             iosAudioSessionManagedExternally: false,
             connectVad: (_) async => connected = true,
             onRecorderError: (_, _) {},
@@ -379,7 +376,9 @@ void main() {
       StreamSubscription<Uint8List>? vadSubscription;
 
       await session.start(
-        config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+        config: const AudioCaptureConfig(
+          profile: AudioCaptureProfile.dictation,
+        ),
         iosAudioSessionManagedExternally: true,
         connectVad: (audioStream) async {
           recorder.calls.add('vad-ready');
@@ -420,7 +419,9 @@ void main() {
       StreamSubscription<Uint8List>? vadSubscription;
 
       await session.start(
-        config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+        config: const AudioCaptureConfig(
+          profile: AudioCaptureProfile.dictation,
+        ),
         iosAudioSessionManagedExternally: true,
         connectVad: (audioStream) async {
           vadSubscription = audioStream.listen(received.add);
@@ -471,7 +472,9 @@ void main() {
         StreamSubscription<Uint8List>? vadSubscription;
 
         await session.start(
-          config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+          config: const AudioCaptureConfig(
+            profile: AudioCaptureProfile.dictation,
+          ),
           iosAudioSessionManagedExternally: true,
           connectVad: (audioStream) async {
             vadSubscription = audioStream.listen((_) {});
@@ -503,7 +506,9 @@ void main() {
         StreamSubscription<Uint8List>? vadSubscription;
 
         await session.start(
-          config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+          config: const AudioCaptureConfig(
+            profile: AudioCaptureProfile.dictation,
+          ),
           iosAudioSessionManagedExternally: false,
           connectVad: (audioStream) async {
             vadSubscription = audioStream.listen((_) {});
@@ -529,7 +534,9 @@ void main() {
       StreamSubscription<Uint8List>? vadSubscription;
 
       final future = session.start(
-        config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+        config: const AudioCaptureConfig(
+          profile: AudioCaptureProfile.dictation,
+        ),
         iosAudioSessionManagedExternally: false,
         connectVad: (audioStream) async {
           vadSubscription = audioStream.listen((_) {});
@@ -562,7 +569,9 @@ void main() {
         StreamSubscription<Uint8List>? vadSubscription;
 
         final startFuture = session.start(
-          config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+          config: const AudioCaptureConfig(
+            profile: AudioCaptureProfile.dictation,
+          ),
           iosAudioSessionManagedExternally: false,
           connectVad: (audioStream) async {
             vadSubscription = audioStream.listen((_) {});
@@ -588,7 +597,9 @@ void main() {
       StreamSubscription<Uint8List>? vadSubscription;
 
       await session.start(
-        config: const RecordConfig(encoder: AudioEncoder.pcm16bits),
+        config: const AudioCaptureConfig(
+          profile: AudioCaptureProfile.dictation,
+        ),
         iosAudioSessionManagedExternally: false,
         connectVad: (audioStream) async {
           vadSubscription = audioStream.listen((_) {});
@@ -742,7 +753,7 @@ class _MockPermissionHandlerPlatform extends Mock
 
 class _MockApiService extends Mock implements ApiService {}
 
-class _FakeServerVadRecorder implements ServerVadRecorderClient {
+class _FakeServerVadRecorder implements AudioCapturePort {
   _FakeServerVadRecorder({
     this.permissionGranted = true,
     this.startError,
@@ -770,7 +781,7 @@ class _FakeServerVadRecorder implements ServerVadRecorderClient {
   }
 
   @override
-  Future<Stream<Uint8List>> startStream(RecordConfig config) async {
+  Future<Stream<Uint8List>> startStream(AudioCaptureConfig config) async {
     calls.add('start-stream');
     if (startError case final error?) throw error;
     return audio.stream;
@@ -791,7 +802,7 @@ class _FakeServerVadRecorder implements ServerVadRecorderClient {
 class _SupportedVoiceInputService extends VoiceInputService {
   _SupportedVoiceInputService({
     required super.nativeStt,
-    super.api,
+    super.serverSpeech,
     super.serverVadRecorderFactory,
     this.deviceLocaleTag = 'en-US',
     this.usesAutomaticNativeLanguage = true,

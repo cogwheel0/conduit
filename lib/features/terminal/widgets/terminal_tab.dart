@@ -7,12 +7,16 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
-import '../../navigation/models/sidebar_navigation_model.dart';
+
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+
 import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 import '../controllers/terminal_browser_controller.dart';
 import '../controllers/terminal_context_controller.dart';
+import '../controllers/terminal_controller_gateways.dart';
 import '../controllers/terminal_coordinator.dart';
+import '../controllers/xterm_terminal_screen.dart';
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
 import '../services/terminal_service.dart';
@@ -36,7 +40,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   final ScrollController _filesScrollController = ScrollController();
   final ScrollController _portsScrollController = ScrollController();
 
-  late final TerminalCoordinator _coordinator;
+  late final TerminalCoordinator<XtermTerminalScreen> _coordinator;
 
   bool _fullscreen = false;
 
@@ -46,23 +50,34 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   @override
   void initState() {
     super.initState();
-    _coordinator = TerminalCoordinator(
-      ref: ref,
+    _coordinator = TerminalCoordinator<XtermTerminalScreen>(
+      read: ref.read,
+      listen: ref.listenManual,
+      screen: XtermTerminalScreen(),
       isActive: () => mounted && widget.isActive,
       disconnectedLabel: () =>
           AppLocalizations.of(context)!.terminalDisconnectedStatus,
       onBrowserFailure: _handleBrowserFailure,
       onContextFailure: _handleContextFailure,
+      platformGateway: const DefaultTerminalBrowserPlatformGateway(),
+      schedulePostFrame: (callback) =>
+          WidgetsBinding.instance.addPostFrameCallback((_) => callback()),
     );
     _coordinator.addListener(_handleControllerChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _coordinator.start();
     });
-    ref.listenManual<String?>(terminalDisplayFileProvider, (_, path) {
-      if (path == null) return;
+    ref.listenManual<TerminalFileRequest?>(terminalDisplayFileProvider, (
+      _,
+      request,
+    ) {
+      final route = _displayRoute;
+      _displayRoute = null;
+      if (route?.isActive == true) route!.navigator?.removeRoute(route);
+      if (request == null) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_displayFile(path));
+        if (mounted) unawaited(_displayFile(request));
       });
     }, fireImmediately: true);
   }
@@ -76,6 +91,12 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
 
     if (widget.isActive) {
       _coordinator.activate();
+      final request = ref.read(terminalDisplayFileProvider);
+      if (request != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_displayFile(request));
+        });
+      }
       return;
     }
 
@@ -104,6 +125,12 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   void _handleControllerChanged() {
     if (mounted) {
       setState(() {});
+      final request = ref.read(terminalDisplayFileProvider);
+      if (request != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_displayFile(request));
+        });
+      }
     }
   }
 
@@ -121,8 +148,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         buildPlatformPageRoute<void>(
           fullscreenDialog: true,
           builder: (_) => TerminalFullscreenPage(
-            terminal: _coordinator.terminal,
-            controller: _coordinator.terminalController,
+            terminal: _coordinator.screen.terminal,
+            controller: _coordinator.screen.controller,
           ),
         ),
       );
@@ -165,9 +192,30 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         ?.showSnackBar(SnackBar(content: Text(sanitizeUtf16(message))));
   }
 
-  Future<void> _displayFile(String requestedPath) async {
-    ref.read(terminalDisplayFileProvider.notifier).clear();
-    final path = normalizeTerminalPath(requestedPath);
+  TerminalFileRequest? _displayingRequest;
+  ModalRoute<dynamic>? _displayRoute;
+
+  Future<void> _displayFile(TerminalFileRequest request) async {
+    // Discovery and fallback selection can still be loading when the event
+    // first mounts this tab. Controller updates retry the pending request.
+    if (!widget.isActive ||
+        _coordinator.loadingFiles ||
+        _coordinator.loadingPorts ||
+        _coordinator.captureOperationContext() == null ||
+        _displayingRequest == request ||
+        ref.read(terminalDisplayFileProvider) != request) {
+      return;
+    }
+    _displayingRequest = request;
+    try {
+      await _showRequestedFile(request);
+    } finally {
+      if (_displayingRequest == request) _displayingRequest = null;
+    }
+  }
+
+  Future<void> _showRequestedFile(TerminalFileRequest request) async {
+    final path = normalizeTerminalPath(request.path);
     await _coordinator.navigateTo(parentTerminalPath(path));
     if (!mounted) return;
 
@@ -185,7 +233,21 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
       path: path,
       isDirectory: false,
     );
-    await showTerminalFilePreview(context, _coordinator, entry);
+    if (ref.read(terminalDisplayFileProvider) != request) return;
+    await showTerminalFilePreview(
+      context,
+      _coordinator,
+      entry,
+      page: request.page,
+      onShown: (route) => _displayRoute = route,
+      isCurrent: () =>
+          mounted && ref.read(terminalDisplayFileProvider) == request,
+    );
+    // Read failures are handled by the coordinator. Consume the attempt so a
+    // later tab activation cannot unexpectedly reopen an old failed request.
+    if (mounted && ref.read(terminalDisplayFileProvider) == request) {
+      ref.read(terminalDisplayFileProvider.notifier).clear();
+    }
   }
 
   @override
@@ -225,8 +287,8 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
           padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
           child: sidebarPanel == TerminalSidebarPanel.console
               ? TerminalConsoleSection(
-                  terminal: _coordinator.terminal,
-                  terminalController: _coordinator.terminalController,
+                  terminal: _coordinator.screen.terminal,
+                  terminalController: _coordinator.screen.controller,
                   portsScrollController: _portsScrollController,
                   selectedServer: selectedServer,
                   connectionState: connectionState,

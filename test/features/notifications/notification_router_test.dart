@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/settings_service.dart';
-import 'package:conduit/features/notifications/models/app_notification.dart';
-import 'package:conduit/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/features/notifications/models/app_notification.dart';
+import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_router.dart';
 import 'package:conduit/features/notifications/services/notification_sound_service.dart';
@@ -224,5 +224,23 @@ void main() {
       check(unreads).isEmpty();
       verifyNever(() => sound.play());
     });
+
+    // Open WebUI 0.12.1: a channel set to mentions only keeps counting
+    // unread messages but does not alert.
+    for (final foreground in [true, false]) {
+      test('a muted channel message counts as unread without alerting '
+          '(${foreground ? 'foreground' : 'background'})', () async {
+        final router = build(foreground: foreground);
+        check(
+          await router.route(_channel(), alert: false),
+        ).equals(NotificationSurface.suppressed);
+        check(unreads).length.equals(1);
+        check(banners).isEmpty();
+        verifyNever(() => sound.play());
+        verifyNever(
+          () => local.show(any(), playSound: any(named: 'playSound')),
+        );
+      });
+    }
   });
 }

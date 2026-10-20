@@ -75,6 +75,7 @@ class AdaptiveButton extends StatelessWidget {
     this.borderRadius,
     this.minSize,
     this.enabled = true,
+    this.semanticLabel,
     this.useSmoothRectangleBorder = true,
     this.useNative = true,
   }) : child = null,
@@ -93,6 +94,7 @@ class AdaptiveButton extends StatelessWidget {
     this.borderRadius,
     this.minSize,
     this.enabled = true,
+    this.semanticLabel,
     this.useSmoothRectangleBorder = true,
     this.useNative = true,
   }) : label = null,
@@ -114,6 +116,7 @@ class AdaptiveButton extends StatelessWidget {
     this.borderRadius,
     this.minSize,
     this.enabled = true,
+    this.semanticLabel,
     this.useSmoothRectangleBorder = true,
     this.useNative = true,
   }) : label = null,
@@ -133,6 +136,7 @@ class AdaptiveButton extends StatelessWidget {
     this.borderRadius,
     this.minSize,
     this.enabled = true,
+    this.semanticLabel,
     this.useSmoothRectangleBorder = true,
     this.useNative = true,
   }) : label = null,
@@ -157,11 +161,18 @@ class AdaptiveButton extends StatelessWidget {
   final BorderRadius? borderRadius;
   final Size? minSize;
   final bool enabled;
+  final String? semanticLabel;
   final bool useSmoothRectangleBorder;
   final bool useNative;
 
-  bool get _canUseNative =>
-      useNative && PlatformUiCapabilities.usesNativeIOS26 && child == null;
+  // Material's AlertDialog sizes its body with IntrinsicWidth, and the native
+  // button lays out through a LayoutBuilder, which cannot report intrinsic
+  // sizes. Inside one, the dialog fails layout and leaves only its barrier.
+  bool _canUseNative(BuildContext context) =>
+      useNative &&
+      PlatformUiCapabilities.usesNativeIOS26 &&
+      child == null &&
+      context.findAncestorWidgetOfExactType<AlertDialog>() == null;
 
   double get _defaultHeight => switch (size) {
     AdaptiveButtonSize.small => 28,
@@ -181,7 +192,18 @@ class AdaptiveButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (_canUseNative) {
+    final button = _buildButton(context);
+    return semanticLabel == null || !_canUseNative(context)
+        ? button
+        : Semantics(label: semanticLabel, child: button);
+  }
+
+  Widget _semanticContent(Widget content) => semanticLabel == null
+      ? content
+      : Semantics(label: semanticLabel, excludeSemantics: true, child: content);
+
+  Widget _buildButton(BuildContext context) {
+    if (_canUseNative(context)) {
       final resolvedPadding = padding?.resolve(Directionality.of(context));
       final resolvedRadius = borderRadius?.resolve(Directionality.of(context));
       final config = CNButtonConfig(
@@ -289,7 +311,7 @@ class AdaptiveButton extends StatelessWidget {
       borderRadius: resolvedRadius,
       color: background,
       minimumSize: minSize ?? Size(0, _defaultHeight),
-      child: _content(fallbackColor: foreground),
+      child: _semanticContent(_content(fallbackColor: foreground)),
     );
     final borderSide = style == AdaptiveButtonStyle.bordered
         ? BorderSide(color: primary)
@@ -350,13 +372,17 @@ class AdaptiveButton extends StatelessWidget {
         : borderRadius == null
         ? null
         : RoundedRectangleBorder(borderRadius: effectiveRadius);
-    final primaryContent = _content(
-      fallbackColor: textColor ?? colorScheme.onPrimary,
-      wrapCustomChild: false,
+    final primaryContent = _semanticContent(
+      _content(
+        fallbackColor: textColor ?? colorScheme.onPrimary,
+        wrapCustomChild: false,
+      ),
     );
-    final accentContent = _content(
-      fallbackColor: textColor ?? color ?? colorScheme.primary,
-      wrapCustomChild: false,
+    final accentContent = _semanticContent(
+      _content(
+        fallbackColor: textColor ?? color ?? colorScheme.primary,
+        wrapCustomChild: false,
+      ),
     );
     return switch (style) {
       AdaptiveButtonStyle.filled => ElevatedButton(
@@ -494,6 +520,7 @@ class AdaptivePopupMenuButton<T> {
     required void Function(int index, AdaptivePopupMenuItem<T> entry)
     onSelected,
     Color? tint,
+    Color? iconColor,
     double size = 44,
     double? iconSize,
     bool enabled = true,
@@ -505,10 +532,11 @@ class AdaptivePopupMenuButton<T> {
         key: key,
         buttonIcon: icon is String
             ? iconSize == null
-                  ? CNSymbol(icon)
-                  : CNSymbol(icon, size: iconSize)
+                  ? CNSymbol(icon, color: iconColor)
+                  : CNSymbol(icon, size: iconSize, color: iconColor)
             : null,
         buttonCustomIcon: icon is IconData ? icon : null,
+        buttonCustomIconColor: icon is IconData ? iconColor : null,
         items: _nativeItems<T>(items),
         onSelected: (index) {
           if (enabled) {
@@ -527,7 +555,7 @@ class AdaptivePopupMenuButton<T> {
         onSelected: (index, entry) {
           if (enabled) onSelected(index, entry);
         },
-        tint: tint,
+        tint: iconColor ?? tint,
         height: size,
       );
     }

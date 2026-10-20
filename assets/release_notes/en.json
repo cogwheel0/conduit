@@ -90,6 +90,140 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "What's new",
+      "intro": "Hi! Reasoning stays in its own block as it streams. Think tags no longer appear in the answer. PDFs reach the model again. Speech turns into text after you stop talking, and the speaker button works. I also stopped the chat scrollbar from jumping.",
+      "bullets": [
+        {
+          "text": "Reasoning: it stays in its own block while the model writes. Think tags no longer appear in the answer. Tool blocks stay in the right place.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voice and files: after you stop talking, Transcribing appears. Android device speech uses any installed recognizer. The speaker button stops the reply that is already playing. PDF attachments are sent to the model again. Citations can show page titles. If a proxy session expires, you can sign in again without logging out.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: you can check the Desktop Gateway during setup even when the toggle is still off.",
+          "icon": "hermes"
+        }
+      ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "What's new",
+      "intro": "Hi! Apple Private Cloud Compute is in the model picker and answers. On iPhone, Barge in lets you interrupt the assistant while it speaks. Open WebUI 0.11.4 works, and clearing the system prompt or the default model clears the saved value. I also fixed system lists that crashed, a black block next to the mic, and finished replies that showed Stop again.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: it shows in the model picker and answers. Apple On-Device and Private Cloud Compute use Apple's symbol.",
+          "icon": "direct"
+        },
+        {
+          "text": "Barge in: the iPhone voice sheet includes this toggle. The assistant keeps listening while it speaks, so you can interrupt it. Choosing an option in a system list no longer crashes the app. The black block next to the mic is gone when the row fits on screen. A finished reply stays finished after a refresh, and the Stop button stays off.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: the app talks to it without a compatibility warning. Clearing the system prompt or the default model clears the saved value.",
+          "icon": "direct"
+        }
+      ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI replies stream more smoothly, with readable tool calls and task checklists that keep their progress. Voice calls keep the speaker route you chose. Shares and shortcuts open chats again without an Open WebUI account. I also refreshed chat and settings.",
+      "bullets": [
+        {
+          "text": "Open WebUI: answers keep updating after code or reasoning. Tool calls appear as blocks instead of raw markup, and task checklists keep their progress when you reopen a chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Voice: calls stay on the chosen speaker, and other audio returns to normal afterward. The speaker button reflects the route you actually hear.",
+          "icon": "polish"
+        },
+        {
+          "text": "Sharing and shortcuts: widgets, app shortcuts, Siri, and Android Assistant can open Direct or Hermes chats without an Open WebUI account. Shared files keep their names; Android speech recognition and keyboard layout recover more reliably.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat and settings: cleaner composer, sidebar, and message actions. Toolbar icons and settings follow your theme colors, with clearer contrast and screen reader labels.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "What's new",
+      "intro": "Hi! Direct chats can search the web from your device, and images open in a gallery you can swipe through. You can switch between regenerated answers right below the reply. I also fixed Hermes setup, Android speech recognition, and a batch of chat and settings bugs.",
+      "bullets": [
+        {
+          "text": "Web search: Direct models without their own search can search and read pages from your device, including Ollama and Apple models that support tools. Choose the search engine, safe search, and region in settings. Direct models also show their maker's logo.",
+          "icon": "direct"
+        },
+        {
+          "text": "Images: swipe through attachments in chat and channels, zoom, and share. iOS uses Quick Look for supported images; Android can save to Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat and channels: switch regenerated answers with the arrows below the reply. Direct chats keep earlier versions when reopened, and edited messages resend correctly. Markdown checkboxes render. Channel threads show replies, edits, deletions, and reactions live.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes and voice: Desktop Gateway sign-in and connection tests work during setup, and replies no longer end before the first text arrives. Android speech retries a supported variant of your chosen language. Note dictation follows your speech-to-text setting.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Settings and accounts: native iOS settings follow your language, workspace details refresh after saving, and notification taps open the right conversation. Sign-out clears Direct and Hermes connections; keeping server details works. iOS dialogs and note checklists work again.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "What's new",
+      "intro": "Hi! You can keep several Open WebUI accounts signed in and switch between them, and save several Hermes connections. Calls can talk with a realtime voice you can interrupt. Open WebUI 0.12 works, including two-step sign-in, and more Open WebUI features no longer need Advanced.",
+      "bullets": [
+        {
+          "text": "Accounts: keep several Open WebUI accounts signed in, on one server or several, and switch from your profile or the new Accounts page at the top of Settings. Add any account or connection from one sheet. A server can have several addresses, such as LAN, Tailscale and a public proxy; the app uses the first one that answers.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: save several named connections, such as Home and Research, and switch between them from the sidebar, settings or Accounts. A chat whose session belongs to another connection offers to switch to it.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Realtime calls: on Open WebUI 0.12, Direct and the Hermes Desktop Gateway, calls can talk with an OpenAI realtime voice, and speaking over it stops it. Choose a Voice provider in Audio settings for Direct and Apple chats. Server speech to text and text to speech follow each chat's own backend.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: the app works without a compatibility warning. Two-step verification at sign-in works, including setup and recovery codes. Skill export, folder sharing, enforced temporary chats and tool approvals follow 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI features: the draft queue, code interpreter, branches, chat audience, project folders, sharing, channel members and calendar no longer need Advanced. Advanced adds model comparison, scheduled tasks, webhooks and data controls. Large chats no longer download again on every open, and the reasoning effort you choose sticks.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI 0.12.2 works, and channels show the apps that answer in them and can notify you for mentions only. Voice calls keep going through background noise and avatar gestures, and the speaker button works from the start of Android calls.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: the app works without a compatibility warning. Chats a realtime call starts get a generated title and tags, following your title and tag settings.",
+          "icon": "direct"
+        },
+        {
+          "text": "Channels: messages from apps show the app's name, cards, buttons and links. Pressing a button sends it to the app, and replies only you can see appear under the message until you dismiss them. Set a channel or direct message to Mentions only to skip badges and notifications unless you're mentioned.",
+          "icon": "direct"
+        },
+        {
+          "text": "Voice calls: background noise no longer cuts off a realtime voice mid-sentence; it pauses, and carries on if nothing was said. Avatar gestures no longer hold up replies for three seconds. On Android, the speaker button works from the start of a call, and a call no longer blocks your own phone calls for its first two minutes.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

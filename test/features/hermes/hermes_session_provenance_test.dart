@@ -1,11 +1,12 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 Conversation _conversation({String id = 'local:hermes_session'}) =>
     Conversation(
@@ -22,7 +23,7 @@ Conversation _conversation({String id = 'local:hermes_session'}) =>
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     HermesMixedSessionBindingTrustStore.debugResetRuntimeState();
   });
 
@@ -165,7 +166,7 @@ void main() {
     final writeStarted = Completer<void>();
     final releaseWrite = Completer<void>();
     var gateFirstWrite = true;
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await FlutterKeyValueStore.load();
     PreferencesStore.debugOverride(
       preferences,
       writeInterceptor: (preferences, key, value) async {

@@ -1,20 +1,24 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/auth_state_manager.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -139,7 +143,10 @@ class _ModelsApiService extends ApiService {
   bool fail = false;
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async {
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     getModelsCalls += 1;
     if (!getModelsStarted.isCompleted) getModelsStarted.complete();
     await responseGate?.future;
@@ -163,9 +170,30 @@ class _PendingDefaultModelApi extends ApiService {
   }
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async => const [
-    Model(id: 'owui/stale', name: 'Stale OpenWebUI model'),
-  ];
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async => const [Model(id: 'owui/stale', name: 'Stale OpenWebUI model')];
+}
+
+class _UnreachableDefaultApi extends ApiService {
+  _UnreachableDefaultApi(this.workerManager)
+    : super(serverConfig: _modelsServer, workerManager: workerManager);
+
+  final WorkerManager workerManager;
+
+  @override
+  Future<String?> getDefaultModel() async =>
+      throw StateError('proxy session expired');
+}
+
+class _FixedModels extends Models {
+  _FixedModels(this.models);
+
+  final List<Model> models;
+
+  @override
+  Future<List<Model>> build() async => models;
 }
 
 class _PendingModels extends Models {
@@ -284,13 +312,6 @@ void main() {
       check(models[1].metadata?['hermesConfiguredDefault']).equals(true);
       check(models[2]).identicalTo(configured);
       check(configured.metadata?['hermesConfiguredDefault']).equals(false);
-    });
-
-    test('Desktop keeps the default when discovery is empty', () {
-      final models = appendHermesModelIfUsable(const [], hermesUsable: true);
-
-      check(models).length.equals(1);
-      check(models.single.name).equals('Hermes Agent');
     });
 
     test('modelsProvider includes Desktop default and discovery', () async {
@@ -663,6 +684,82 @@ void main() {
       },
     );
 
+    // when an Open WebUI account's models fail to load (the login proxy
+    // expired its cookie), the fallback picked the first remaining model, an
+    // on-device or Direct one the user never chose for this account.
+    test(
+      'an Open WebUI account without models does not fall back to local ones',
+      () async {
+        final local = DirectModelRegistry().replaceProfileModels(
+          DirectConnectionProfile(
+            id: 'local-profile',
+            name: 'On device',
+            adapterKey: 'ollama',
+            baseUrl: 'http://localhost:11434',
+          ),
+          [DirectRemoteModel(id: 'local-model')],
+        ).single;
+        final workerManager = WorkerManager();
+        final api = _UnreachableDefaultApi(workerManager);
+        final container = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            preferredBackendProvider.overrideWith(
+              () => _FakePreferredBackendController(PreferredBackend.owui),
+            ),
+            isAuthenticatedProvider2.overrideWithValue(true),
+            isAuthLoadingProvider2.overrideWithValue(false),
+            authStatusProvider.overrideWithValue(AuthStatus.authenticated),
+            authTokenProvider3.overrideWithValue('token'),
+            activeServerProvider.overrideWith((ref) async => _modelsServer),
+            apiServiceProvider.overrideWithValue(api),
+            appSettingsProvider.overrideWithValue(const AppSettings()),
+            optimizedStorageServiceProvider.overrideWithValue(
+              _FakeOptimizedStorageService(),
+            ),
+            hermesConfigProvider.overrideWith(
+              () => _FakeHermesConfigController(_usableHermes),
+            ),
+            modelsProvider.overrideWith(
+              () => _FixedModels([local, hermesSyntheticModel()]),
+            ),
+          ],
+        );
+        _addOwnedApiCleanup(container, api, workerManager);
+        await container.read(activeServerProvider.future);
+
+        check(await container.read(defaultModelProvider.future)).isNull();
+        check(container.read(selectedModelProvider)).isNull();
+      },
+    );
+
+    test('a missing Open WebUI model is replaced only by another one', () {
+      final local = DirectModelRegistry().replaceProfileModels(
+        DirectConnectionProfile(
+          id: 'local-profile',
+          name: 'On device',
+          adapterKey: 'ollama',
+          baseUrl: 'http://localhost:11434',
+        ),
+        [DirectRemoteModel(id: 'local-model')],
+      ).single;
+      const missing = Model(id: 'owui-gone', name: 'Gone');
+      const other = Model(id: 'owui-other', name: 'Other');
+
+      check(
+        replacementForUnavailableLocalModel(
+          models: [local, hermesSyntheticModel()],
+          current: missing,
+        ),
+      ).isNull();
+      check(
+        replacementForUnavailableLocalModel(
+          models: [local, other],
+          current: missing,
+        ),
+      ).identicalTo(other);
+    });
+
     test(
       'authenticated default still selects Hermes when the api is unavailable',
       () async {
@@ -741,6 +838,51 @@ void main() {
 
       check(model).isNotNull();
       check(isHermesModel(model!)).isTrue();
+    });
+
+    test('default model follows a switch while resolving', () async {
+      final hermesController = _MutableHermesConfigController(
+        _usableHermes.copyWith(
+          connectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          name: 'Alpha',
+        ),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWithValue(false),
+          preferredBackendProvider.overrideWith(
+            () => _FakePreferredBackendController(PreferredBackend.hermes),
+          ),
+          isAuthenticatedProvider2.overrideWithValue(false),
+          isAuthLoadingProvider2.overrideWithValue(false),
+          authStatusProvider.overrideWithValue(AuthStatus.unauthenticated),
+          apiServiceProvider.overrideWithValue(null),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _FakeOptimizedStorageService(),
+          ),
+          hermesConfigProvider.overrideWith(() => hermesController),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Let startup reconciliation settle, then clear the selection: with
+      // nothing selected, no selection follows the switch below.
+      container.read(selectedModelProvider);
+      await pumpEventQueue();
+      container.read(selectedModelProvider.notifier).set(null);
+
+      final pendingDefault = container.read(defaultModelProvider.future);
+      hermesController.setConfig(
+        _usableHermes.copyWith(
+          connectionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          name: 'Beta',
+        ),
+      );
+      await pendingDefault;
+
+      check(container.read(selectedModelProvider))
+          .isNotNull()
+          .has((model) => model.name, 'name')
+          .equals('Beta');
     });
 
     test('default model reacts when reviewer mode is enabled', () async {

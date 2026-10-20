@@ -2,6 +2,9 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -12,7 +15,7 @@ import '../utils/current_localizations.dart';
 part 'callkit_service.g.dart';
 
 /// Thin wrapper around `flutter_callkit_incoming` for voice calls.
-class CallKitService {
+class CallKitService implements VoiceCallKitPort {
   CallKitService({Uuid? uuid})
     : _uuid = uuid ?? const Uuid(),
       _callKitAllowed = _computeCallKitAllowed();
@@ -22,10 +25,28 @@ class CallKitService {
   bool _loggedCallKitDisabled = false;
   static const int _defaultCallDurationMs = 2 * 60 * 60 * 1000; // 2 hours
 
+  /// The Telecom call the plugin hosts an Android call in, as
+  /// `TelecomCallBridge.kt` answers for it.
+  static const MethodChannel _androidTelecomCallChannel = MethodChannel(
+    'app.cogwheel.conduit/telecom_call',
+  );
+
+  /// Calls started here and not ended yet.
+  final Set<String> _liveCallIds = <String>{};
+
+  /// Runs the Android Telecom handoff on a test host, where the bridge channel
+  /// is mocked. The real platform check still wins on a device.
+  @visibleForTesting
+  bool debugTreatAsAndroid = false;
+
+  bool get _isAndroid => Platform.isAndroid || debugTreatAsAndroid;
+
   /// Returns whether CallKit can be used on this device/region.
+  @override
   bool get isAvailable => _callKitAllowed;
 
   /// Requests the notification/full-screen intent permissions needed on Android.
+  @override
   Future<void> requestPermissions() async {
     if (!_shouldUseCallKit('request permissions')) return;
     final l10n = currentAppLocalizations();
@@ -44,6 +65,7 @@ class CallKitService {
   }
 
   /// Starts an outgoing call with the native UI and returns the call id.
+  @override
   Future<String?> startOutgoingVoiceCall({
     required String calleeName,
     required String handle,
@@ -62,6 +84,7 @@ class CallKitService {
     );
     try {
       await FlutterCallkitIncoming.startCall(params);
+      _liveCallIds.add(id);
       return id;
     } catch (error, stackTrace) {
       developer.log(
@@ -74,10 +97,25 @@ class CallKitService {
     }
   }
 
-  /// Marks the current call as connected so iOS shows an incrementing timer.
+  /// Marks the current call as connected: iOS shows an incrementing timer,
+  /// and Android's Telecom call moves from dialing to active.
+  ///
+  /// On Android the plugin places the call in Telecom a moment after
+  /// [startOutgoingVoiceCall] returns, and drops a connected signal that
+  /// arrives before Telecom's connection does. The call then stays dialing:
+  /// Telecom ends it two minutes in, and it blocks the user's own phone calls
+  /// until then (issue #846). Standard calls mark themselves connected within
+  /// that moment, so this waits for the connection before telling the plugin.
+  @override
   Future<void> markCallConnected(String id) async {
     if (!_shouldUseCallKit('mark call connected')) return;
 
+    if (_isAndroid) {
+      await _awaitTelecomConnection(id);
+      // Hung up while Telecom set the call up. Connecting it now would put
+      // the plugin's ongoing-call notification back up after the call.
+      if (!_liveCallIds.contains(id)) return;
+    }
     try {
       await FlutterCallkitIncoming.setCallConnected(id);
     } catch (error, stackTrace) {
@@ -90,10 +128,30 @@ class CallKitService {
     }
   }
 
+  /// Waits until Telecom has created the plugin's connection for call [id],
+  /// or the bridge gives up on it.
+  Future<void> _awaitTelecomConnection(String id) async {
+    try {
+      await _androidTelecomCallChannel.invokeMethod<bool>(
+        'awaitConnection',
+        <String, Object?>{'callId': id},
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'Telecom connection wait failed: $error',
+        name: 'callkit',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   /// Ends a specific call id.
+  @override
   Future<void> endCall(String id) async {
     if (!_shouldUseCallKit('end call')) return;
 
+    _liveCallIds.remove(id);
     await _safe(() => FlutterCallkitIncoming.endCall(id));
   }
 
@@ -101,6 +159,7 @@ class CallKitService {
   Future<void> endAllCalls() async {
     if (!_shouldUseCallKit('end all calls')) return;
 
+    _liveCallIds.clear();
     await _safe(FlutterCallkitIncoming.endAllCalls);
   }
 
@@ -133,6 +192,7 @@ class CallKitService {
   }
 
   /// Checks for active calls and clears them if they are not tracked by the app.
+  @override
   Future<void> checkAndCleanActiveCalls() async {
     if (!_shouldUseCallKit('check active calls')) return;
 
@@ -155,14 +215,40 @@ class CallKitService {
     }
   }
 
-  /// Stream of CallKit events from the native layer.
-  Stream<CallEvent> get events {
+  /// The CallKit events a voice call reacts to (end, decline, timeout and
+  /// mute from the system UI), mapped to the core's call events.
+  @override
+  Stream<VoiceCallKitEvent> get events {
     if (!_callKitAllowed) {
-      return const Stream<CallEvent>.empty();
+      return const Stream<VoiceCallKitEvent>.empty();
     }
     return FlutterCallkitIncoming.onEvent
+        .map(voiceCallKitEventFrom)
         .where((event) => event != null)
-        .cast();
+        .cast<VoiceCallKitEvent>()
+        .map((event) {
+          // Hung up from the system UI: the call ends without [endCall], and
+          // a connected signal still waiting on Telecom must not follow it.
+          if (event is VoiceCallKitEnded) _liveCallIds.remove(event.callId);
+          return event;
+        });
+  }
+
+  /// The core event for a plugin [event], or null when a voice call does not
+  /// react to it.
+  static VoiceCallKitEvent? voiceCallKitEventFrom(CallEvent? event) {
+    return switch (event) {
+      CallEventActionCallEnded(:final callKitParams) => VoiceCallKitEnded(
+        callKitParams.id,
+      ),
+      CallEventActionCallDecline(:final callKitParams) => VoiceCallKitEnded(
+        callKitParams.id,
+      ),
+      CallEventActionCallTimeout(:final id) => VoiceCallKitEnded(id),
+      CallEventActionCallToggleMute(:final id, :final isMuted) =>
+        VoiceCallKitMuteToggled(id, isMuted: isMuted),
+      _ => null,
+    };
   }
 
   CallKitParams _buildParams({

@@ -1,22 +1,26 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/models/chat_message.dart';
-import '../../../core/providers/app_providers.dart'
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/providers/app_providers.dart'
     show activeConversationProvider;
-import '../../../core/utils/debug_logger.dart';
-import '../../chat/providers/chat_providers.dart'
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         captureHermesApprovalProjectionStateUpdater,
         chatMessagesProvider,
         hermesRunKeyForConversation;
-import '../models/hermes_run_event.dart';
-import '../providers/hermes_providers.dart';
-import '../services/hermes_desktop_api_service.dart';
-import '../services/hermes_run_transport.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
+
 import 'hermes_approval_card.dart';
 import 'hermes_decision_card.dart';
 
@@ -64,7 +68,7 @@ ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
         _nonEmptyString(decision['runtimeId']) != null &&
         storedSessionId != null &&
         expiresAt != null &&
-        expiresAt.isAfter(DateTime.now().toUtc())) {
+        expiresAt.isAfter(clock.now().toUtc())) {
       return message;
     }
   }
@@ -238,7 +242,7 @@ class _HermesComposerPromptOverlayState
     final expiresAt = DateTime.tryParse(
       decision['expiresAt']?.toString() ?? '',
     );
-    if (expiresAt == null || !expiresAt.isAfter(DateTime.now().toUtc())) {
+    if (expiresAt == null || !expiresAt.isAfter(clock.now().toUtc())) {
       return null;
     }
     final requestId = _nonEmptyString(decision['requestId']);
@@ -258,7 +262,7 @@ class _HermesComposerPromptOverlayState
     if (ownerConversationId == null || storedSessionId == null) {
       return null;
     }
-    _expiryTimer = Timer(expiresAt.difference(DateTime.now().toUtc()), () {
+    _expiryTimer = Timer(expiresAt.difference(clock.now().toUtc()), () {
       if (mounted) setState(() {});
     });
     return HermesDecisionCard(
@@ -273,7 +277,7 @@ class _HermesComposerPromptOverlayState
       },
       multiSelect: decision['multiSelect'] == true,
       onSubmit: (value) async {
-        if (!expiresAt.isAfter(DateTime.now().toUtc())) return false;
+        if (!expiresAt.isAfter(clock.now().toUtc())) return false;
         final service = ref.read(hermesApiServiceProvider);
         if (service is! HermesDesktopApiService) return false;
         final configController = ref.read(hermesConfigProvider.notifier);

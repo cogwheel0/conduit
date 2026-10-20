@@ -1,16 +1,19 @@
-import 'package:conduit/core/models/backend_config.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit/features/auth/views/authentication_page.dart';
 import 'package:conduit/features/auth/views/backend_chooser_page.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/direct_connections/views/direct_connection_editor_page.dart';
-import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
 import 'package:conduit/features/direct_connections/views/direct_connections_page.dart';
 import 'package:conduit/features/hermes/views/hermes_settings_page.dart';
@@ -24,6 +27,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
+import 'package:conduit/features/direct_connections/providers/apple_pcc_providers.dart';
 
 class AdaptiveAuthHarness {
   AdaptiveAuthHarness({
@@ -34,14 +40,48 @@ class AdaptiveAuthHarness {
     this.textScaler,
     this.appleOnDeviceStatus,
     this.applePccStatus,
+    this.accountlessBackendUsable = false,
+    this.authActions,
+    this.savedUsername,
+    this.addingAccountFrom,
+    this.abandonablePendingSignIn = false,
+    this.accountsController,
+    this.savedServersError,
+    this.replyBeingWritten = false,
   }) {
-    when(() => _storage.getSavedCredentials()).thenAnswer((_) async => null);
+    when(() => _storage.getSavedCredentials()).thenAnswer(
+      (_) async => savedUsername == null ? null : {'username': savedUsername!},
+    );
     when(() => _storage.getAuthTokenStrict()).thenAnswer((_) async => '');
     when(() => _storage.getSavedCredentialsStrict())
         .thenAnswer((_) async => null);
     when(() => _storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => _storage.saveLocalUserAvatar(null)).thenAnswer((_) async {});
     when(() => _storage.getReviewerMode()).thenAnswer((_) async => false);
+    if (savedServersError case final error?) {
+      when(
+        () => _storage.getOpenWebUiRegistryStrict(),
+      ).thenAnswer((_) async => throw error);
+    }
+    if (authActions != null) {
+      // A sign-in attempt first saves the server it was opened for.
+      registerFallbackValue(server);
+      when(
+        () => _storage.selectUnauthenticatedServerConfig(
+          any(),
+          canCommit: any(named: 'canCommit'),
+          onRollbackUncertain: any(named: 'onRollbackUncertain'),
+          publish: any(named: 'publish'),
+        ),
+      ).thenAnswer((_) async => true);
+      registerFallbackValue(const BackendConfig());
+      when(() => _storage.getLocalBackendConfig())
+          .thenAnswer((_) async => null);
+      when(() => _storage.saveLocalBackendConfig(any()))
+          .thenAnswer((_) async {});
+      when(() => _storage.saveLocalTransportOptions(any()))
+          .thenAnswer((_) async {});
+    }
   }
 
   final ServerConfig server;
@@ -51,10 +91,47 @@ class AdaptiveAuthHarness {
   final TextScaler? textScaler;
   final PlatformPccStatus? appleOnDeviceStatus;
   final PlatformPccStatus? applePccStatus;
+
+  /// Whether an Apple, Direct, or Hermes backend already works, as when Open
+  /// WebUI is added from settings rather than during first-time setup.
+  final bool accountlessBackendUsable;
+
+  /// Replaces the sign-in actions, so a test controls the outcome of an attempt.
+  final AuthActions? authActions;
+
+  /// The username of the sign-in saved on the device, if any.
+  final String? savedUsername;
+
+  /// The account another one is being added from, if one is.
+  final String? addingAccountFrom;
+
+  /// Whether the active account is an added one whose sign-in never
+  /// finished, which sign-in pages offer to drop.
+  final bool abandonablePendingSignIn;
+
+  /// Replaces the account actions, so a test sees which it asked for.
+  final OpenWebUiAccountsController? accountsController;
+
+  /// What reading the saved servers fails with, as a Keychain error does.
+  final Object? savedServersError;
+
+  /// Whether a reply is still being written that leaving the active account
+  /// would stop.
+  final bool replyBeingWritten;
+
+  /// How many times the replies being written were stopped.
+  int repliesStopped = 0;
+
+  /// The device storage, for a test to see what was saved.
+  OptimizedStorageService get storage => _storage;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
   final ErrorWidgetBuilder _previousErrorWidgetBuilder = ErrorWidget.builder;
   final void Function(FlutterErrorDetails)? _previousFlutterOnError =
       FlutterError.onError;
+
+  /// When set, the route rebuilds the page as the app's router does when the
+  /// route's `extra` is gone: with no server or backend config.
+  final routeExtraLost = ValueNotifier<bool>(false);
 
   late GoRouter router;
   bool _disposed = false;
@@ -67,26 +144,83 @@ class AdaptiveAuthHarness {
         GoRoute(
           path: Routes.authentication,
           name: RouteNames.authentication,
-          builder: (_, _) => AuthenticationPage(
-            serverConfig: server,
-            backendConfig: backendConfig,
+          builder: (_, _) => ValueListenableBuilder<bool>(
+            valueListenable: routeExtraLost,
+            builder: (_, extraLost, _) => extraLost
+                ? const AuthenticationPage()
+                : AuthenticationPage(
+                    serverConfig: server,
+                    backendConfig: backendConfig,
+                  ),
           ),
         ),
         GoRoute(
           path: Routes.serverConnection,
           name: RouteNames.serverConnection,
-          builder: (_, _) => const ServerConnectionPage(),
+          builder: (_, state) => ServerConnectionPage(
+            handoff: state.extra is ServerConnectionHandoff
+                ? state.extra as ServerConnectionHandoff
+                : null,
+          ),
+        ),
+        GoRoute(
+          path: Routes.addServer,
+          name: RouteNames.addServer,
+          builder: (_, state) => ServerConnectionPage(
+            addingAccount: true,
+            serverId: switch (state.extra) {
+              final String serverId => serverId,
+              ServerConnectionHandoff(:final serverId) => serverId,
+              _ => null,
+            },
+            handoff: state.extra is ServerConnectionHandoff
+                ? state.extra as ServerConnectionHandoff
+                : null,
+          ),
         ),
         GoRoute(
           path: Routes.backendChooser,
           name: RouteNames.backendChooser,
           builder: (_, _) => const BackendChooserPage(),
         ),
+        GoRoute(
+          path: Routes.chat,
+          name: RouteNames.chat,
+          builder: (_, _) => const SizedBox(key: ValueKey<String>('chat')),
+        ),
       ],
     );
     return ProviderScope(
       overrides: [
+        if (authActions != null) ...[
+          authActionsProvider.overrideWithValue(authActions!),
+          // A sign-in attempt first waits for the API client of the selected
+          // server.
+          apiServiceProvider.overrideWithValue(_selectedServerApi()),
+        ],
+        accountlessPrimaryBackendUsableProvider.overrideWithValue(
+          accountlessBackendUsable,
+        ),
         optimizedStorageServiceProvider.overrideWithValue(_storage),
+        if (addingAccountFrom != null)
+          accountAdditionOriginProvider.overrideWith(
+            () => _AddingAccountFrom(addingAccountFrom!),
+          ),
+        // Answered here, not read from the mocked storage: a read that fails
+        // keeps the connection page from leaving an addition.
+        pendingSignInAbandonableProvider.overrideWith(
+          (_) async => abandonablePendingSignIn,
+        ),
+        if (replyBeingWritten) ...[
+          accountChangeReplyGuardProvider.overrideWithValue(() => true),
+          accountChangeStopRepliesProvider.overrideWithValue(
+            () => repliesStopped++,
+          ),
+        ],
+        if (accountsController != null)
+          openWebUiAccountsControllerProvider.overrideWithValue(
+            accountsController!,
+          ),
         activeServerProvider.overrideWith((_) async => server),
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => appleOnDeviceStatus ?? _unavailableAppleStatus(),
@@ -111,6 +245,13 @@ class AdaptiveAuthHarness {
     );
   }
 
+  ApiService _selectedServerApi() {
+    final api = _MockApiService();
+    when(() => api.authToken).thenReturn(null);
+    when(() => api.serverConfig).thenReturn(server);
+    return api;
+  }
+
   Future<void> unmount(WidgetTester tester) async {
     await tester.pumpWidget(const SizedBox.shrink());
     dispose();
@@ -121,9 +262,19 @@ class AdaptiveAuthHarness {
     _disposed = true;
     PlatformUiCapabilities.debugPlatformOverride = null;
     router.dispose();
+    routeExtraLost.dispose();
     ErrorWidget.builder = _previousErrorWidgetBuilder;
     FlutterError.onError = _previousFlutterOnError;
   }
+}
+
+final class _AddingAccountFrom extends AccountAdditionOrigin {
+  _AddingAccountFrom(this.accountId);
+
+  final String accountId;
+
+  @override
+  String? build() => accountId;
 }
 
 PlatformPccStatus _unavailableAppleStatus() => PlatformPccStatus(
@@ -181,12 +332,12 @@ class BackendOnboardingHarness {
     router.go(initialLocation);
     return ProviderScope(
       overrides: [
-        secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
         // The host test platform is never iOS; keep the Apple rows reachable so
         // onboarding coverage still exercises them.
         applePccPlatformSupportedProvider.overrideWithValue(true),
         applePccAdapterProvider.overrideWithValue(
-          ApplePccAdapter(hostApi: _AvailablePccHost()),
+          ApplePccAdapter(host: _AvailablePccHost()),
         ),
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => _unavailableAppleStatus(),
@@ -219,7 +370,7 @@ class BackendOnboardingHarness {
 
 /// Answers status probes instantly so Apple discovery never leaves a pending
 /// platform-channel timer behind in widget tests.
-final class _AvailablePccHost extends PccHostApi {
+final class _AvailablePccHost extends UnavailableApplePccHost {
   @override
   Future<PlatformPccStatus> getStatus(PlatformAppleModel model) async =>
       PlatformPccStatus(
@@ -233,7 +384,7 @@ final class _AvailablePccHost extends PccHostApi {
 Future<void> initializeBackendOnboardingStorage() async {
   SharedPreferences.setMockInitialValues({});
   PreferencesStore.debugReset();
-  PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   FlutterSecureStorage.setMockInitialValues({});
 }
 
@@ -243,6 +394,8 @@ void usePhoneViewport(WidgetTester tester) {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 }
+
+class _MockApiService extends Mock implements ApiService {}
 
 class _MockOptimizedStorageService extends Mock
     implements OptimizedStorageService {}

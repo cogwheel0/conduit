@@ -2,9 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../../../core/models/backend_config.dart';
-import '../../../core/services/api_service.dart';
-import '../../../core/services/settings_service.dart';
+import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart'
+    show VoiceModeSpeech;
+import 'package:conduit_core/models/backend_config.dart';
+
+import 'package:conduit_core/features/chat/server_speech/server_speech.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'tts_manager.dart';
 
 export 'tts_manager.dart'
@@ -25,15 +30,15 @@ export 'tts_manager.dart'
 /// This service is used by the [TextToSpeechController] and [VoiceCallService]
 /// to interact with TTS. It translates [TtsEvent]s from the manager into
 /// callbacks for backward compatibility.
-class TextToSpeechService {
+class TextToSpeechService implements VoiceModeSpeech {
   TextToSpeechService({
-    ApiService? api,
+    ServerSpeechProvider? serverSpeech,
     BackendConfig? backendConfig,
     Future<BackendConfig?> Function()? loadBackendConfig,
   }) : _backendConfig = backendConfig,
        _loadBackendConfig = loadBackendConfig {
-    // Set the API service on the manager
-    TtsManager.instance.setApiService(api);
+    // Set the chat backend's speech on the manager
+    TtsManager.instance.setServerSpeech(serverSpeech);
     TtsManager.instance.applyBackendConfig(backendConfig);
 
     // Listen to TTS events and route to callbacks
@@ -67,6 +72,10 @@ class TextToSpeechService {
   /// Whether server TTS is available.
   bool get serverEngineAvailable => TtsManager.instance.serverAvailable;
 
+  /// Whether the server voice is picked in Audio settings.
+  bool get serverOffersVoiceChoice =>
+      TtsManager.instance.serverOffersVoiceChoice;
+
   /// Whether server TTS is preferred and available.
   bool get prefersServerEngine {
     final config = TtsManager.instance.config;
@@ -78,6 +87,7 @@ class TextToSpeechService {
   }
 
   /// Raw TTS lifecycle events for consumers that should not replace callbacks.
+  @override
   Stream<TtsEvent> get events => TtsManager.instance.events;
 
   /// Registers callbacks for TTS lifecycle events.
@@ -102,6 +112,7 @@ class TextToSpeechService {
   }
 
   /// Initializes the TTS engine.
+  @override
   Future<bool> initialize({
     String? deviceVoice,
     String? serverVoice,
@@ -145,6 +156,7 @@ class TextToSpeechService {
 
   /// Marks playback as belonging to a voice call so device TTS uses the
   /// call's audio route instead of the media stream.
+  @override
   void setVoiceCallActive(bool active) {
     TtsManager.instance.setVoiceCallActive(active);
   }
@@ -163,6 +175,7 @@ class TextToSpeechService {
   }
 
   /// Starts an incremental TTS session for streaming assistant responses.
+  @override
   Future<void> startStreamingTts() async {
     if (!_initialized) {
       await initialize();
@@ -171,6 +184,7 @@ class TextToSpeechService {
   }
 
   /// Feeds the accumulated assistant response into the active streaming TTS.
+  @override
   Future<void> feedStreamingText(String accumulatedText) async {
     if (!_initialized) {
       await initialize();
@@ -179,26 +193,31 @@ class TextToSpeechService {
   }
 
   /// Finalizes the active streaming TTS session and flushes remaining text.
+  @override
   Future<void> finishStreamingTts({String? finalText}) async {
     await TtsManager.instance.finishStreaming(finalText: finalText);
   }
 
   /// Cancels an active streaming TTS session.
+  @override
   Future<void> stopStreamingTts() async {
     await TtsManager.instance.stopStreaming();
   }
 
   /// Pauses the current playback.
+  @override
   Future<void> pause() async {
     await TtsManager.instance.pause();
   }
 
   /// Resumes paused playback.
+  @override
   Future<void> resume() async {
     await TtsManager.instance.resume();
   }
 
   /// Stops the current playback.
+  @override
   Future<void> stop() async {
     await TtsManager.instance.stop();
   }
@@ -261,6 +280,7 @@ class TextToSpeechService {
   }
 
   /// Splits text into chunks for TTS playback.
+  @override
   List<String> splitTextForSpeech(String text) {
     return TtsManager.instance.splitTextForSpeech(text);
   }

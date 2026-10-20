@@ -3,9 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/web_search/web_search.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   group('AppSettings', () {
@@ -246,28 +249,9 @@ void main() {
         check(copy.sttLanguageCode).equals('pl');
         check(copy.darkMode).equals(false);
       });
-
-      test('does not mutate the original', () {
-        const original = AppSettings();
-        original.copyWith(reduceMotion: true, animationSpeed: 2.0);
-
-        check(original.reduceMotion).equals(false);
-        check(original.animationSpeed).equals(1.0);
-      });
     });
 
     group('equality', () {
-      test('two default instances are equal', () {
-        const a = AppSettings();
-        const b = AppSettings();
-        check(a).equals(b);
-      });
-
-      test('identical instance is equal', () {
-        const a = AppSettings();
-        check(a == a).equals(true);
-      });
-
       test('instances with same non-default values are equal', () {
         final a = const AppSettings().copyWith(
           darkMode: false,
@@ -337,12 +321,6 @@ void main() {
     });
 
     group('hashCode', () {
-      test('equal objects have the same hashCode', () {
-        const a = AppSettings();
-        const b = AppSettings();
-        check(a.hashCode).equals(b.hashCode);
-      });
-
       test('copies with same values have same hashCode', () {
         final a = const AppSettings().copyWith(
           darkMode: false,
@@ -405,7 +383,7 @@ void main() {
   group('SettingsService voice locale persistence', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     });
 
     tearDown(PreferencesStore.debugReset);
@@ -433,7 +411,7 @@ void main() {
   group('SettingsService OpenRouter image model persistence', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     });
 
     tearDown(PreferencesStore.debugReset);
@@ -486,6 +464,98 @@ void main() {
     });
   });
 
+  group('AppSettingsNotifier web search preferences', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('persist across reloads, and Auto region clears the code', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+
+      await notifier.setWebSearchEngine(WebSearchEngineChoice.brave);
+      await notifier.setWebSearchSafeSearch(SafeSearch.strict);
+      await notifier.setWebSearchRegion('de-de');
+
+      final reloaded = await SettingsService.loadSettings();
+      check(reloaded.webSearchEngine).equals(WebSearchEngineChoice.brave);
+      check(reloaded.webSearchSafeSearch).equals(SafeSearch.strict);
+      check(reloaded.webSearchRegion).equals('de-de');
+
+      await notifier.setWebSearchRegion(kWebSearchRegionAuto);
+      check(PreferencesStore.containsKey(PreferenceKeys.webSearchRegion))
+          .isFalse();
+      check((await SettingsService.loadSettings()).webSearchRegion).isNull();
+    });
+  });
+
+  group('AppSettingsNotifier advanced features preference', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('starts off, survives a restart even when enabled before hydration, '
+        'and reset turns it off', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      check(container.read(appSettingsProvider).advancedFeaturesEnabled)
+          .isFalse();
+
+      await container
+          .read(appSettingsProvider.notifier)
+          .setAdvancedFeaturesEnabled(true);
+      check(container.read(appSettingsProvider).advancedFeaturesEnabled)
+          .isTrue();
+
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      check(restarted.read(appSettingsProvider).advancedFeaturesEnabled)
+          .isTrue();
+
+      await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+      final afterReset = ProviderContainer();
+      addTearDown(afterReset.dispose);
+      check(afterReset.read(appSettingsProvider).advancedFeaturesEnabled)
+          .isFalse();
+    });
+  });
+
+  group('AppSettingsNotifier Voice provider', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('survives a restart, and reset clears it for good', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setDirectVoiceProvider(
+            const DirectVoiceProviderSettings(profileId: 'voice'),
+          );
+
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      check(restarted.read(appSettingsProvider).directVoiceProvider?.profileId)
+          .equals('voice');
+
+      await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+      final afterReset = ProviderContainer();
+      addTearDown(afterReset.dispose);
+      check(afterReset.read(appSettingsProvider).directVoiceProvider).isNull();
+    });
+  });
+
   group('SettingsService.normalizeSttLanguageCode', () {
     test('normalizes two-letter language codes', () {
       check(SettingsService.normalizeSttLanguageCode('PL')).equals('pl');
@@ -512,30 +582,6 @@ void main() {
       check(SettingsService.normalizeSttLanguageCode('polish')).isNull();
       check(SettingsService.normalizeSttLanguageCode('p')).isNull();
       check(SettingsService.normalizeSttLanguageCode('eng')).isNull();
-    });
-  });
-
-  group('Enum values', () {
-    test('SttPreference has expected values', () {
-      check(SttPreference.values).length.equals(2);
-      check(SttPreference.values).contains(SttPreference.deviceOnly);
-      check(SttPreference.values).contains(SttPreference.serverOnly);
-    });
-
-    test('TtsEngine has expected values', () {
-      check(TtsEngine.values).length.equals(2);
-      check(TtsEngine.values).contains(TtsEngine.device);
-      check(TtsEngine.values).contains(TtsEngine.server);
-    });
-
-    test('AndroidAssistantTrigger has expected values', () {
-      check(AndroidAssistantTrigger.values).length.equals(3);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.overlay);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.newChat);
-      check(AndroidAssistantTrigger.values)
-          .contains(AndroidAssistantTrigger.voiceCall);
     });
   });
 

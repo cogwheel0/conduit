@@ -36,7 +36,7 @@ class ReleaseNotesBanner extends ConsumerWidget {
           : Builder(
               builder: (context) {
                 final title = l10n.releaseNotesAnnouncementTitle(
-                  data.releaseSeries,
+                  data.currentVersion,
                 );
                 final learnMore = l10n.releaseNotesLearnMore;
                 return Padding(
@@ -70,10 +70,12 @@ class ReleaseNotesBanner extends ConsumerWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  // Wraps so the full version stays readable
+                                  // at large text sizes and in long locales.
                                   Text(
                                     title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.clip,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
                                     style: theme.bodyMedium?.copyWith(
                                       color: theme.textPrimary,
                                       fontWeight: FontWeight.w700,
@@ -123,12 +125,5 @@ class ReleaseNotesBanner extends ConsumerWidget {
               },
             ),
     );
-  }
-}
-
-extension on ReleaseNotesBannerData {
-  String get releaseSeries {
-    final segments = currentVersion.split('.');
-    return segments.take(2).join('.');
   }
 }

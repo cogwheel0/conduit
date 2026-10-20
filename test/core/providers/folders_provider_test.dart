@@ -6,21 +6,20 @@
 library;
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/models/folder.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/sync/pull_sync.dart';
-import 'package:conduit/core/sync/sync_api_client.dart';
-import 'package:conduit/core/sync/sync_engine.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/sync/sync_api_client.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/fake_open_webui_server.dart';
-import '../../support/fake_sync_api_client.dart';
+import 'package:conduit_core/testing.dart';
 
 class _RecordingSyncEngine extends SyncEngine {
   _RecordingSyncEngine(this.pulls);

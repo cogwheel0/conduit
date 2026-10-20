@@ -1,5 +1,5 @@
 import 'package:conduit/features/navigation/providers/sidebar_tab_scroll_registry.dart';
-import 'package:conduit/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

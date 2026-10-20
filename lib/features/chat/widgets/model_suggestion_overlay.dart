@@ -5,8 +5,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/model.dart';
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/model_avatar.dart';

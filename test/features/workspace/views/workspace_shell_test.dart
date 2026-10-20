@@ -4,15 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/profile/views/profile_page.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/workspace_page.dart';
@@ -571,12 +571,22 @@ void main() {
     expect(find.byKey(const Key('settings-category-ai')), findsNothing);
     expect(find.byKey(const Key('settings-category-server')), findsNothing);
     expect(find.byKey(const Key('workspace-entry')), findsOneWidget);
+    // Connection rows follow in the next group.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('data-connection-entry')),
+      find.byType(ListView),
+      const Offset(0, -200),
+    );
     expect(find.byKey(const Key('data-connection-entry')), findsOneWidget);
 
-    await tester.scrollUntilVisible(
+    // The centered profile header is tall; bring the whole row on screen.
+    await tester.dragUntilVisible(
       find.byKey(const Key('workspace-entry')),
-      -300,
+      find.byType(ListView),
+      const Offset(0, 200),
     );
+    await tester.ensureVisible(find.byKey(const Key('workspace-entry')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('workspace-entry')));
     await tester.pumpAndSettle();
     expect(find.text('workspace target'), findsOneWidget);

@@ -57,7 +57,7 @@ git submodule update --init --recursive
 ```bash
 flutter pub get
 dart run build_runner build
-flutter run -d ios
+XCODE_XCCONFIG_FILE="$PWD/ios/Flutter/ArmOnly.xcconfig" flutter run -d ios
 # or
 flutter run -d android
 ```
@@ -68,6 +68,10 @@ models, JSON serialization, Drift tables, and Pigeon bindings all generate into
 new worktree has none of them, so the analyzer will report hundreds of errors
 until codegen runs. If you see missing-symbol errors that look impossible, run
 codegen before you start debugging.
+
+The iOS simulator build targets Apple Silicon only. The `XCODE_XCCONFIG_FILE`
+setting excludes x86_64 from Swift packages as well as the app and extensions.
+Use an ARM emulator or device for Android development.
 
 Pigeon remains pinned separately because its analyzer constraint does not
 overlap the Dart 3.13-compatible Riverpod and Freezed generators. Install its
@@ -92,13 +96,14 @@ iOS audio sessions.
 flutter pub get
 dart run build_runner build
 flutter analyze
-flutter test
+dart run tool/run_test_shards.dart
 ```
 
-`flutter analyze` and `flutter test` are the local gates before handing work
-off. GitHub Actions only runs localization validation (`.github/workflows/l10n.yml`)
-and releases (`.github/workflows/release.yml`). Nothing checks analyzer or test
-health on every push, so run them yourself.
+`flutter analyze` and the test suite are the local gates before handing work
+off. `tool/run_test_shards.dart` runs every test file through a few combined
+entrypoints, which is much faster than plain `flutter test`; use
+`flutter test <file>` for a single file. CI (`.github/workflows/ci.yml`) runs
+the analyzer and this test runner on pushes to `main` and on pull requests.
 
 Tests use `flutter_test` with `package:checks` for assertions and `mocktail` for
 mocks. Lints come from `flutter_lints` plus `riverpod_lint`.
@@ -107,11 +112,11 @@ mocks. Lints come from `flutter_lints` plus `riverpod_lint`.
 
 ```bash
 # Android
-flutter build apk --release
-flutter build appbundle --release
+flutter build apk --target-platform android-arm,android-arm64 --release
+flutter build appbundle --target-platform android-arm,android-arm64 --release
 
 # iOS
-flutter build ios --release
+XCODE_XCCONFIG_FILE="$PWD/ios/Flutter/ArmOnly.xcconfig" flutter build ios --release
 ```
 
 `scripts/release.sh` drives the tagged release flow used by the maintainer.

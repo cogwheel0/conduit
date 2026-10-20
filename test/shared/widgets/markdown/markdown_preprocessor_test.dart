@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/shared/widgets/markdown/markdown_preprocessor.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -309,6 +309,35 @@ void main() {
       check(firstLine.contains('other="x">')).isTrue();
       check(firstLine.contains('&lt;br&gt;')).isTrue();
       check(firstLine.contains('<br>')).isFalse();
+    });
+
+    // Salvaged from PR #743 (issue #677): a stream interrupted inside a
+    // semantic opening tag can never render as a block, so drop the stub.
+    test('drops a trailing semantic opener cut off before its >', () {
+      const raw =
+          'Answer text.\n\n'
+          '<details type="tool_calls" done="false" id="call_1" '
+          'arguments="{&quot;query&quot;: &quot;ca';
+      check(ConduitMarkdownPreprocessor.normalize(raw)).equals('Answer text.');
+    });
+
+    test('keeps truncated openers that are not a trailing semantic tag', () {
+      for (final raw in [
+        // Prefix of a semantic type.
+        'Answer.\n\n<details type="reasoning_example" done="false',
+        // Not at the start of a line.
+        'Use <details type="tool_calls" to mark calls',
+        // More lines follow the opener.
+        '<details type="tool_calls" x="1\nstill text after',
+        // Inside code.
+        'Example:\n\n```html\n<details type="tool_calls" done="true"',
+        'Inline `<details type="tool_calls" done="true"`',
+      ]) {
+        check(
+          because: raw,
+          ConduitMarkdownPreprocessor.normalize(raw),
+        ).contains('<details type=');
+      }
     });
 
     test('many unterminated markers finish quickly (bounded work)', () {

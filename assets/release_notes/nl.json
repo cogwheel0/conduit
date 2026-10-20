@@ -90,6 +90,140 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Nieuw",
+      "intro": "Hoi! Het redeneren blijft in zijn eigen blok terwijl het streamt. Think-tags verschijnen niet meer in het antwoord. PDF's komen weer bij het model aan. Spraak wordt omgezet in tekst als je stopt met praten, en de luidsprekerknop werkt. De chat-scrollbar springt niet meer.",
+      "bullets": [
+        {
+          "text": "Redeneren: het blijft in zijn eigen blok terwijl het model schrijft. Think-tags verschijnen niet meer in het antwoord. Toolblokken blijven op de juiste plek.",
+          "icon": "polish"
+        },
+        {
+          "text": "Spraak en bestanden: als je stopt met praten, verschijnt Transcriberen. Android-apparaatherkenning gebruikt elke geïnstalleerde herkenner. De luidsprekerknop stopt het antwoord dat al speelt. PDF-bijlagen gaan weer naar het model. Citaten kunnen paginatitels tonen. Als een proxy-sessie verloopt, kun je opnieuw inloggen zonder uit te loggen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: tijdens het instellen kun je de Desktop Gateway controleren, ook als de schakelaar nog uit staat.",
+          "icon": "hermes"
+        }
+      ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Nieuw",
+      "intro": "Hoi! Apple Private Cloud Compute staat in de modellijst en antwoordt. Op de iPhone kun je met Onderbreken de assistent onderbreken terwijl die praat. Open WebUI 0.11.4 werkt, en als je de systeemprompt of het standaardmodel wist, is de opgeslagen waarde weg. Systeemlijsten crashen niet meer, het zwarte blok naast de microfoon is weg, en een afgerond antwoord lijkt na verversen niet meer alsof het nog streamt.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: staat in de modellijst en antwoordt. Apple On-Device en Private Cloud Compute gebruiken het symbool van Apple.",
+          "icon": "direct"
+        },
+        {
+          "text": "Onderbreken: het spraakscherm op de iPhone heeft de schakelaar. De assistent blijft luisteren terwijl die praat, en je kunt hem onderbreken. Een optie kiezen in een systeemlijst crasht de app niet meer. Het zwarte blok naast de microfoon is weg als de rij past. Een afgerond antwoord blijft afgerond na verversen, en Stop met genereren blijft weg.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: geen compatibiliteitswaarschuwing. Als je de systeemprompt of het standaardmodel wist, is de opgeslagen waarde weg.",
+          "icon": "direct"
+        }
+      ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Nieuw",
+      "intro": "Hoi! Antwoorden van Open WebUI verschijnen vloeiender, toolaanroepen zijn leesbaar en takenlijsten onthouden hun voortgang. Spraakoproepen blijven op de gekozen luidspreker. Delen en snelkoppelingen openen weer chats zonder Open WebUI-account. Ik heb ook de chat en instellingen opgefrist.",
+      "bullets": [
+        {
+          "text": "Open WebUI: antwoorden blijven na code of redenering bijgewerkt worden. Toolaanroepen verschijnen als blokken in plaats van ruwe opmaak, en takenlijsten onthouden hun voortgang als je een chat opnieuw opent.",
+          "icon": "direct"
+        },
+        {
+          "text": "Spraak: oproepen blijven op de gekozen luidspreker. Daarna gebruikt ander geluid weer de normale uitvoer. De luidsprekerknop laat zien waar je het geluid echt hoort.",
+          "icon": "polish"
+        },
+        {
+          "text": "Delen en snelkoppelingen: widgets, app-snelkoppelingen, Siri en de Android Assistent openen Direct- of Hermes-chats zonder Open WebUI-account. Gedeelde bestanden behouden hun naam; spraakherkenning en toetsenbordindeling op Android herstellen betrouwbaarder.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat en instellingen: overzichtelijker invoerveld, zijbalk en berichtacties. Werkbalkpictogrammen en instellingen volgen de kleuren van je thema, met beter contrast en labels voor schermlezers.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Nieuw",
+      "intro": "Hoi! Direct-chats kunnen vanaf je apparaat op het web zoeken, en afbeeldingen openen in een galerij waar je doorheen kunt vegen. Je kunt direct onder het antwoord tussen opnieuw gegenereerde antwoorden wisselen. Ik heb ook de Hermes-configuratie, Android-spraakherkenning en een aantal fouten in chat en instellingen verholpen.",
+      "bullets": [
+        {
+          "text": "Webzoeken: Direct-modellen zonder eigen zoekfunctie kunnen vanaf je apparaat zoeken en pagina’s lezen, ook Ollama- en Apple-modellen die tools ondersteunen. Kies de zoekmachine, het filter voor veilig zoeken en de regio in de instellingen. Direct-modellen tonen ook het logo van hun maker.",
+          "icon": "direct"
+        },
+        {
+          "text": "Afbeeldingen: veeg door bijlagen in chats en kanalen, zoom in en deel ze. iOS gebruikt Quick Look voor ondersteunde afbeeldingen; Android kan ze opslaan in Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat en kanalen: wissel tussen opnieuw gegenereerde antwoorden met de pijlen onder het antwoord. Direct-chats bewaren eerdere versies als je ze opnieuw opent, en bewerkte berichten worden correct opnieuw verzonden. Markdown-selectievakjes worden weergegeven. Kanaalthreads tonen antwoorden, bewerkingen, verwijderingen en reacties direct.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes en spraak: aanmelden en verbindingstests voor de Desktop Gateway werken tijdens het instellen, en antwoorden stoppen niet meer voordat de eerste tekst verschijnt. Android-spraakherkenning probeert een ondersteunde variant van je gekozen taal. Notities dicteren volgt je instelling voor spraak naar tekst.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Instellingen en accounts: de native iOS-instellingen gebruiken je taal, werkruimtedetails worden na het opslaan bijgewerkt, en tikken op een melding opent het juiste gesprek. Afmelden wist Direct- en Hermes-verbindingen; servergegevens bewaren werkt. iOS-dialogen en takenlijsten in notities werken weer.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Nieuw",
+      "intro": "Hoi! Je kunt meerdere Open WebUI-accounts ingelogd houden en ertussen wisselen, en meerdere Hermes-verbindingen bewaren. Gesprekken kunnen praten met een realtime stem die je kunt onderbreken. Open WebUI 0.12 werkt, inclusief inloggen in twee stappen, en meer Open WebUI-functies hebben Geavanceerd niet meer nodig.",
+      "bullets": [
+        {
+          "text": "Accounts: houd meerdere Open WebUI-accounts ingelogd, op één of meer servers, en wissel via je profiel of de nieuwe pagina Accounts bovenaan Instellingen. Voeg elk account of elke verbinding toe vanuit één venster. Een server kan meerdere adressen hebben, zoals LAN, Tailscale en een openbare proxy; de app gebruikt het eerste dat antwoordt.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: bewaar meerdere verbindingen met een naam, zoals Thuis en Onderzoek, en wissel ertussen via de zijbalk, de instellingen of Accounts. Een chat waarvan de sessie bij een andere verbinding hoort, biedt aan daarnaar over te schakelen.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Realtime gesprekken: met Open WebUI 0.12, Direct en de Hermes Desktop Gateway kunnen gesprekken praten met een realtime stem van OpenAI, en door erdoorheen te praten stopt hij. Kies een Spraakprovider in de audio-instellingen voor Direct- en Apple-chats. Spraak-naar-tekst en tekst-naar-spraak via de server volgen de backend van elke chat.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: de app werkt zonder compatibiliteitswaarschuwing. Verificatie in twee stappen bij het inloggen werkt, inclusief instellen en herstelcodes. Vaardigheden exporteren, mappen delen, verplichte tijdelijke chats en goedkeuring van tools volgen 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI-functies: de conceptwachtrij, code-interpreter, vertakkingen, chatpubliek, projectmappen, delen, kanaalleden en agenda hebben Geavanceerd niet meer nodig. Geavanceerd voegt modelvergelijking, geplande taken, webhooks en gegevensbeheer toe. Grote chats worden niet meer bij elke opening opnieuw gedownload, en het gekozen redeneerniveau blijft bewaard.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Nieuw",
+      "intro": "Hoi! Open WebUI 0.12.2 werkt, en kanalen tonen de apps die erin antwoorden en kunnen je alleen bij vermeldingen een melding sturen. Spraakgesprekken gaan door ondanks achtergrondgeluid en avatargebaren, en de luidsprekerknop werkt vanaf het begin van Android-gesprekken.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: de app werkt zonder compatibiliteitswaarschuwing. Chats die een realtime gesprek start, krijgen een gegenereerde titel en tags, volgens je instellingen voor titels en tags.",
+          "icon": "direct"
+        },
+        {
+          "text": "Kanalen: berichten van apps tonen de naam van de app, kaarten, knoppen en links. Een knop indrukken stuurt die naar de app, en antwoorden die alleen jij ziet verschijnen onder het bericht tot je ze sluit. Zet een kanaal of direct bericht op Alleen vermeldingen om badges en meldingen over te slaan, tenzij je wordt vermeld.",
+          "icon": "direct"
+        },
+        {
+          "text": "Spraakgesprekken: achtergrondgeluid kapt de realtime stem niet meer midden in een zin af; hij pauzeert en gaat verder als er niets is gezegd. Avatargebaren houden antwoorden niet meer drie seconden op. Op Android werkt de luidsprekerknop vanaf het begin van een gesprek, en een gesprek blokkeert de eerste twee minuten niet meer je eigen telefoongesprekken.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

@@ -1,19 +1,19 @@
 import 'dart:async';
 
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/folder.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/folder.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
-import 'package:conduit/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
@@ -182,6 +182,25 @@ void main() {
     expect(container.read(temporaryChatEnabledProvider), isTrue);
   });
 
+  testWidgets('sessions without an Open WebUI account hide folders', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        hasApiService: false,
+        folders: const [Folder(id: 'folder', name: 'Folder')],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('folders-section-leading')),
+      findsNothing,
+    );
+    expect(find.text('Folder'), findsNothing);
+  });
+
   testWidgets('tapping a folder row opens the folder route', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
 
@@ -263,7 +282,7 @@ void main() {
     );
     expect(
       tintDecoration.borderRadius,
-      BorderRadius.circular(AppBorderRadius.card),
+      BorderRadius.circular(AppBorderRadius.md),
     );
     expect(
       tester.widget<Text>(find.text('Parent Folder')).style?.color,

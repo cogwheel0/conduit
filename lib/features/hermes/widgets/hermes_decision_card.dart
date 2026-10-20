@@ -1,3 +1,5 @@
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+
 import 'dart:convert';
 
 import 'package:material_ui/material_ui.dart';
@@ -6,7 +8,8 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/composer_prompt_surface.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../models/hermes_run_event.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 
 final class HermesDecisionCard extends StatefulWidget {
   const HermesDecisionCard({
@@ -130,7 +133,7 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
                   runSpacing: Spacing.xs,
                   children: [
                     for (final choice in widget.choices)
-                      FilterChip(
+                      AdaptiveChip.filter(
                         label: Text(choice),
                         selected: _selectedChoices.contains(choice),
                         onSelected: _submitting

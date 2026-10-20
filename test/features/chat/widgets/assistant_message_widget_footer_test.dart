@@ -1,12 +1,13 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/services/settings_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
-import 'package:conduit/features/chat/providers/queued_completion_provider.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/features/chat/widgets/enhanced_attachment.dart';
@@ -125,6 +126,7 @@ Widget _buildAssistantHarness(
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
   FutureOr<void> Function(String suggestion)? onFollowUpSelected,
+  Locale? locale,
 }) {
   return ProviderScope(
     overrides: [
@@ -137,6 +139,7 @@ Widget _buildAssistantHarness(
     ],
     child: MaterialApp(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
+      locale: locale,
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, child) => MediaQuery(
@@ -457,10 +460,24 @@ void main() {
 
     expect(find.text('1 Source'), findsOneWidget);
     expect(find.text('2/2'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
     expect(find.byIcon(Icons.refresh), findsOneWidget);
-    expect(find.byIcon(Icons.chevron_left), findsNothing);
-    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    // The version pager is inline, not in the overflow. On the latest
+    // version only "back" is available.
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Prev')),
+      matchesSemantics(
+        label: 'Prev',
+        isButton: true,
+        hasEnabledState: true,
+        isEnabled: true,
+        hasTapAction: true,
+      ),
+    );
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Next')),
+      matchesSemantics(label: 'Next', isButton: true, hasEnabledState: true),
+    );
     expect(find.byIcon(Icons.more_horiz_rounded), findsOneWidget);
 
     final refreshPosition = tester.getTopLeft(find.byIcon(Icons.refresh));
@@ -470,16 +487,16 @@ void main() {
       find.byIcon(Icons.more_horiz_rounded),
     );
 
-    expect(sourcePosition.dx, greaterThan(refreshPosition.dx));
-    expect(versionPosition.dx, greaterThan(sourcePosition.dx));
-    expect(overflowPosition.dx, greaterThan(sourcePosition.dx));
-    expect(overflowPosition.dx, greaterThan(versionPosition.dx));
+    // Order: version pager, icon buttons, the inline overflow, info chips.
+    expect(refreshPosition.dx, greaterThan(versionPosition.dx));
+    expect(overflowPosition.dx, greaterThan(refreshPosition.dx));
+    expect(sourcePosition.dx, greaterThan(overflowPosition.dx));
 
     await tester.tap(find.byIcon(Icons.more_horiz_rounded));
     await tester.pumpAndSettle();
 
-    expect(find.text('Prev'), findsOneWidget);
-    expect(find.text('Next'), findsOneWidget);
+    expect(find.text('Prev'), findsNothing);
+    expect(find.text('Next'), findsNothing);
     expect(find.text('Info'), findsOneWidget);
   });
 
@@ -514,7 +531,7 @@ void main() {
 
       check(find.text('1 Source').evaluate()).length.equals(1);
       check(find.byType(ChatActionButton).evaluate()).isEmpty();
-      check(find.byIcon(Icons.content_copy).evaluate()).isEmpty();
+      check(find.byIcon(Icons.content_copy_outlined).evaluate()).isEmpty();
       check(find.byIcon(Icons.refresh).evaluate()).isEmpty();
       check(find.byIcon(Icons.more_horiz_rounded).evaluate()).isEmpty();
     },
@@ -560,7 +577,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.volume_up));
+    await tester.tap(find.byIcon(Icons.volume_up_outlined));
     await tester.pumpAndSettle();
 
     check(spoken).length.equals(1);
@@ -607,6 +624,39 @@ void main() {
     // Dispose the control before advancing that guard timer in widget tests.
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 500));
+  });
+
+  testWidgets('a voice reply names itself in the app language', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'voice-reply',
+      role: 'assistant',
+      content: 'Hi there.',
+      timestamp: DateTime(2026),
+      model: 'gpt-realtime',
+      metadata: const {
+        kMessageVoiceMetadataKey: {
+          'model': 'gpt-realtime',
+          'speech': [
+            {'item_id': 'item-1', 'transcript': 'Hi there.'},
+          ],
+        },
+      },
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, locale: const Locale('en')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('gpt-realtime · spoken'), findsOneWidget);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, locale: const Locale('de')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('gpt-realtime · gesprochen'), findsOneWidget);
+    expect(find.text('gpt-realtime · spoken'), findsNothing);
   });
 
   testWidgets('assistant header follows the active version model', (
@@ -686,7 +736,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Older version'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
     expect(
       tester
           .widget<StreamingMarkdownWidget>(find.byType(StreamingMarkdownWidget))
@@ -877,7 +927,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('actions')), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsOneWidget);
+    expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
     expect(find.byIcon(Icons.refresh), findsOneWidget);
     expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
     expect(find.text('Ask again'), findsOneWidget);
@@ -888,7 +938,7 @@ void main() {
       isFalse,
     );
 
-    await tester.tap(find.byIcon(Icons.content_copy));
+    await tester.tap(find.byIcon(Icons.content_copy_outlined));
     await tester.pump();
     await tester.tap(find.byIcon(Icons.refresh));
     await tester.pump();
@@ -929,28 +979,45 @@ void main() {
     },
   );
 
-  testWidgets('errored streaming message shows the action footer and error', (
-    tester,
-  ) async {
-    final message = ChatMessage(
-      id: 'assistant-errored-streaming',
-      role: 'assistant',
-      content: 'Partial answer',
-      timestamp: DateTime(2024, 1, 1),
-      isStreaming: true,
-      error: const ChatMessageError(content: 'boom'),
-    );
+  for (final recoverable in [false, true]) {
+    testWidgets(
+      'error footer follows recoverability $recoverable until completion',
+      (tester) async {
+        final message = ChatMessage(
+          id: 'assistant-errored-streaming',
+          role: 'assistant',
+          content: 'Partial answer',
+          timestamp: DateTime(2024, 1, 1),
+          isStreaming: true,
+          error: const ChatMessageError(content: 'boom'),
+          metadata: {'openwebuiRecoverableError': recoverable},
+        );
 
-    await tester.pumpWidget(
-      _buildAssistantHarness(message, isStreaming: true, isChatStreaming: true),
-    );
-    await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message,
+            isStreaming: true,
+            isChatStreaming: true,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-    // error -> failed phase takes precedence over the still-set isStreaming
-    // flag: the action row and error banner surface.
-    expect(find.byKey(const ValueKey('actions')), findsOneWidget);
-    expect(find.text('boom'), findsOneWidget);
-  });
+        expect(
+          find.byKey(const ValueKey('actions')),
+          recoverable ? findsNothing : findsOneWidget,
+        );
+        expect(find.text('boom'), findsOneWidget);
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message.copyWith(isStreaming: false),
+            isChatStreaming: false,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('actions')), findsOneWidget);
+      },
+    );
+  }
 
   testWidgets('a turn that fails mid-stream reveals the action footer', (
     tester,
@@ -1170,35 +1237,6 @@ void main() {
     expect(tester.widget<FadeTransition>(fadeFinder).opacity.value, 1);
   });
 
-  testWidgets('completed response-done metadata enables copy', (tester) async {
-    var copyTapCount = 0;
-    final message = ChatMessage(
-      id: 'assistant-response-done-copy',
-      role: 'assistant',
-      content: 'Visible response body',
-      timestamp: DateTime(2024, 1, 1),
-      isStreaming: false,
-      metadata: const {'responseDone': true},
-    );
-
-    await tester.pumpWidget(
-      _buildAssistantHarness(
-        message,
-        isStreaming: false,
-        isChatStreaming: false,
-        onCopy: () => copyTapCount += 1,
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byIcon(Icons.content_copy), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.content_copy));
-    await tester.pump();
-
-    expect(copyTapCount, 1);
-  });
-
   testWidgets(
     'completed response-done metadata renders long plain content with final body mode',
     (tester) async {
@@ -1307,10 +1345,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.volume_up), findsOneWidget);
+    expect(find.byIcon(Icons.volume_up_outlined), findsOneWidget);
     final ttsButton = tester.widget<ChatActionButton>(
       find.ancestor(
-        of: find.byIcon(Icons.volume_up),
+        of: find.byIcon(Icons.volume_up_outlined),
         matching: find.byType(ChatActionButton),
       ),
     );
@@ -1411,56 +1449,6 @@ void main() {
     );
   });
 
-  testWidgets('completed response-done metadata enables regenerate', (
-    tester,
-  ) async {
-    var regenerateTapCount = 0;
-    final message = ChatMessage(
-      id: 'assistant-response-done-regenerate',
-      role: 'assistant',
-      content: 'Visible response body',
-      timestamp: DateTime(2024, 1, 1),
-      isStreaming: false,
-      metadata: const {'responseDone': true},
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          textToSpeechControllerProvider.overrideWith(
-            _TestTextToSpeechController.new,
-          ),
-          isChatStreamingProvider.overrideWithValue(false),
-        ],
-        child: MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: AssistantMessageWidget(
-              message: message,
-              isStreaming: false,
-              showFollowUps: false,
-              animateOnMount: false,
-              modelName: message.model,
-              onCopy: () {},
-              onRegenerate: () => regenerateTapCount += 1,
-              onDelete: () {},
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byIcon(Icons.refresh), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.refresh));
-    await tester.pump();
-
-    expect(regenerateTapCount, 1);
-  });
-
   testWidgets('queued offline placeholder shows retry and cancel actions', (
     tester,
   ) async {
@@ -1523,7 +1511,7 @@ void main() {
     );
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsNothing);
+    expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
   });
 
   testWidgets('failed queued completion keeps partial content and recovery', (
@@ -1584,7 +1572,7 @@ void main() {
     expect(find.text('Send failed'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsNothing);
+    expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
   });
 
   testWidgets('pending queued completion keeps partial content and recovery', (
@@ -1645,6 +1633,6 @@ void main() {
     expect(find.text('Queued offline'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
-    expect(find.byIcon(Icons.content_copy), findsNothing);
+    expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
   });
 }

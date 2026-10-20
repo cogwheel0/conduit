@@ -1,30 +1,700 @@
+import 'package:flutter/foundation.dart' show Uint8List, immutable;
 import 'package:intl/intl.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../shared/utils/locale_display_formatters.dart';
-import '../models/model.dart';
-import '../models/server_memory.dart';
-import '../models/socket_health.dart';
+
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/models/account_metadata.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_memory.dart';
+import 'package:conduit_core/models/socket_health.dart';
+
 import '../services/native_sheet_bridge.dart';
-import '../services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+
+import 'package:conduit_core/providers/app_providers.dart'
+    show OpenWebUiAccountEntry;
+
+import '../../features/hermes/widgets/hermes_connection_switcher.dart'
+    show hermesConnectionSummary;
+import 'account_display.dart';
 import 'tts_voice_utils.dart';
 
 String nativeQuickActionsTitle(AppLocalizations l10n) {
   return l10n.quickActionsDescription;
 }
 
-String nativeSettingsTitle(AppLocalizations _) => 'Settings';
+String nativeSettingsTitle(AppLocalizations l10n) => l10n.settingsTitle;
 
-String nativeProfileTitle(AppLocalizations _) => 'Profile';
+String nativeProfileTitle(AppLocalizations l10n) => l10n.profileTitle;
 
 String nativeAppearanceTitle(AppLocalizations l10n) => l10n.settingsAppearance;
 
-String nativeChatsTitle(AppLocalizations _) => 'Chats';
+String nativeChatsTitle(AppLocalizations l10n) => l10n.sidebarChatsTab;
 
-String nativeAiMemoryTitle(AppLocalizations _) => 'AI and Memory';
+String nativeAiMemoryTitle(AppLocalizations l10n) => l10n.aiAndMemoryTitle;
 
 String nativeDataConnectionTitle(AppLocalizations l10n) =>
     l10n.settingsDataAndConnection;
+
+/// Rows of the native About page. The server rows are left out when there
+/// is no Open WebUI server (Hermes-only).
+List<NativeSheetItemConfig> buildNativeAboutItems(
+  AppLocalizations l10n, {
+  required String appVersion,
+  String? serverName,
+  String? serverVersion,
+}) => [
+  NativeSheetItemConfig(
+    id: 'app-version',
+    title: l10n.appVersion,
+    subtitle: appVersion,
+    sfSymbol: 'app.badge',
+    kind: NativeSheetItemKind.info,
+  ),
+  if (serverName != null)
+    NativeSheetItemConfig(
+      id: 'server-name',
+      title: l10n.serverNameLabel,
+      subtitle: serverName,
+      sfSymbol: 'server.rack',
+      kind: NativeSheetItemKind.info,
+    ),
+  if (serverVersion != null)
+    NativeSheetItemConfig(
+      id: 'server-version',
+      title: l10n.serverVersionLabel,
+      subtitle: serverVersion,
+      sfSymbol: 'number',
+      kind: NativeSheetItemKind.info,
+    ),
+  // Release notes and the licenses open Flutter pages, so they close the
+  // sheet like the other rows that leave it, and say so with a chevron.
+  NativeSheetItemConfig(
+    id: NativeSheetRoutes.releaseNotesManual,
+    title: l10n.releaseNotesTitle,
+    sfSymbol: 'sparkles',
+    showsDisclosure: true,
+    dismissOnSelect: true,
+  ),
+  NativeSheetItemConfig(
+    id: 'github',
+    title: l10n.githubRepository,
+    sfSymbol: 'chevron.left.forwardslash.chevron.right',
+    url: 'https://github.com/cogwheel0/conduit',
+  ),
+  NativeSheetItemConfig(
+    id: NativeSheetRoutes.openSourceLicenses,
+    title: l10n.openSourceLicenses,
+    sfSymbol: 'doc.text',
+    showsDisclosure: true,
+    dismissOnSelect: true,
+  ),
+];
+
+/// Which rows of the native Settings root the signed-in account is offered.
+/// Each flag is read from the same provider the Flutter Settings page
+/// watches, so both lists show the same entries.
+@immutable
+class NativeProfileRootVisibility {
+  const NativeProfileRootVisibility({
+    this.showCalendar = false,
+    this.canManageWorkspace = false,
+    this.showScheduledTasks = false,
+    this.showPersonalConnections = false,
+    this.showChatDataControls = false,
+  });
+
+  final bool showCalendar;
+  final bool canManageWorkspace;
+  final bool showScheduledTasks;
+  final bool showPersonalConnections;
+  final bool showChatDataControls;
+
+  @override
+  bool operator ==(Object other) =>
+      other is NativeProfileRootVisibility &&
+      other.showCalendar == showCalendar &&
+      other.canManageWorkspace == canManageWorkspace &&
+      other.showScheduledTasks == showScheduledTasks &&
+      other.showPersonalConnections == showPersonalConnections &&
+      other.showChatDataControls == showChatDataControls;
+
+  @override
+  int get hashCode => Object.hash(
+    showCalendar,
+    canManageWorkspace,
+    showScheduledTasks,
+    showPersonalConnections,
+    showChatDataControls,
+  );
+}
+
+/// The account a native Settings root was built for: its profile row, or
+/// none when there is no Open WebUI account (Hermes-only or Direct).
+@immutable
+class NativeProfileRootAccount {
+  const NativeProfileRootAccount({
+    required this.displayName,
+    required this.email,
+  });
+
+  final String displayName;
+  final String email;
+}
+
+/// The sections of the native Settings root, in the order the Flutter
+/// Settings page uses: the account card -- whom Settings is for, leading to
+/// every account and connection, with Add account under it -- then the
+/// signed-in account's own rows, the everyday settings, places, and an
+/// Advanced group that only exists while it has a row.
+///
+/// Pure, so the open sheet can be rebuilt with the same rows when a setting
+/// it depends on (Advanced) changes while it is up.
+///
+/// [otherAccountCount] counts the saved Open WebUI accounts besides the
+/// active one, and is null when they could not be read in time. There may
+/// be several then, and signing out signs out of every one, so the sign-out
+/// row says so.
+List<NativeSheetSectionConfig> buildNativeProfileRootSections(
+  AppLocalizations l10n, {
+  required NativeProfileRootAccount? account,
+  required NativeProfileRootVisibility visibility,
+  required ({String title, String? subtitle}) card,
+  int? otherAccountCount = 0,
+}) {
+  final hasAccount = account != null;
+  final cardItems = <NativeSheetItemConfig>[
+    NativeSheetItemConfig(
+      id: nativeAccountsDetailId,
+      title: card.title,
+      subtitle: card.subtitle,
+      sfSymbol: 'person.crop.circle',
+      usesProfileAvatar: true,
+    ),
+    _nativeAddItem(
+      nativeAccountAddActionId,
+      title: l10n.accountsAddAccount,
+      kind: null,
+    ),
+  ];
+  // What belongs to the Open WebUI account signed in.
+  final accountItems = <NativeSheetItemConfig>[
+    if (hasAccount) ...[
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.profile,
+        title: l10n.profileTitle,
+        sfSymbol: 'person.crop.circle',
+      ),
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.notificationSettings,
+        title: l10n.notificationsTitle,
+        sfSymbol: 'bell',
+      ),
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.aiMemory,
+        title: nativeAiMemoryTitle(l10n),
+        sfSymbol: 'wand.and.stars',
+      ),
+      NativeSheetItemConfig(
+        id: NativeSheetRoutes.dataConnection,
+        title: nativeDataConnectionTitle(l10n),
+        sfSymbol: 'network',
+      ),
+    ],
+  ];
+  // Single-line settings rows, so each title and its symbol carry the
+  // meaning without a descriptive subtitle.
+  final appItems = <NativeSheetItemConfig>[
+    NativeSheetItemConfig(
+      id: NativeSheetRoutes.appearance,
+      title: nativeAppearanceTitle(l10n),
+      sfSymbol: 'paintpalette',
+    ),
+    NativeSheetItemConfig(
+      id: NativeSheetRoutes.chats,
+      title: nativeChatsTitle(l10n),
+      sfSymbol: 'bubble.left.and.bubble.right',
+    ),
+    NativeSheetItemConfig(
+      id: NativeSheetRoutes.voice,
+      title: l10n.voice,
+      sfSymbol: 'waveform',
+    ),
+  ];
+  // Everyday server places: things to open and use, not to configure.
+  final placeItems = <NativeSheetItemConfig>[
+    if (visibility.showCalendar)
+      _nativeRootPageItem(
+        NativeSheetRoutes.calendar,
+        title: l10n.calendarTitle,
+        sfSymbol: 'calendar',
+      ),
+    if (visibility.canManageWorkspace)
+      _nativeRootPageItem(
+        NativeSheetRoutes.workspace,
+        title: l10n.workspaceTitle,
+        sfSymbol: 'square.grid.2x2',
+      ),
+  ];
+  // Power-user pages Advanced reveals. The group goes with its last row, so
+  // turning Advanced off leaves no empty heading behind.
+  final advancedItems = <NativeSheetItemConfig>[
+    if (visibility.showScheduledTasks)
+      _nativeRootPageItem(
+        NativeSheetRoutes.scheduledTasks,
+        title: l10n.scheduledTasksTitle,
+        sfSymbol: 'clock.arrow.circlepath',
+      ),
+    if (visibility.showPersonalConnections)
+      _nativeRootPageItem(
+        NativeSheetRoutes.personalConnections,
+        title: l10n.personalConnectionsTitle,
+        sfSymbol: 'server.rack',
+      ),
+    if (visibility.showChatDataControls)
+      _nativeRootPageItem(
+        NativeSheetRoutes.chatDataControls,
+        title: l10n.chatDataControlsTitle,
+        sfSymbol: 'externaldrive',
+      ),
+  ];
+  return [
+    NativeSheetSectionConfig(items: cardItems),
+    if (accountItems.isNotEmpty)
+      NativeSheetSectionConfig(
+        title: l10n.accountSettingsTitle,
+        items: accountItems,
+      ),
+    NativeSheetSectionConfig(items: appItems),
+    if (placeItems.isNotEmpty) NativeSheetSectionConfig(items: placeItems),
+    if (advancedItems.isNotEmpty)
+      NativeSheetSectionConfig(
+        title: l10n.advancedFeatures,
+        footer: l10n.profileAdvancedFooter,
+        items: advancedItems,
+      ),
+    NativeSheetSectionConfig(
+      items: [
+        NativeSheetItemConfig(
+          id: NativeSheetRoutes.helpAbout,
+          title: l10n.aboutApp,
+          sfSymbol: 'info.circle',
+        ),
+      ],
+    ),
+    if (hasAccount)
+      NativeSheetSectionConfig(
+        items: [
+          // With several accounts, Sign out leaves this one and the next
+          // takes over; signing out of all is on the Accounts page. With
+          // one, it is what it always was.
+          if (otherAccountCount != null && otherAccountCount > 0)
+            NativeSheetItemConfig(
+              id: nativeAccountSignOutActionId,
+              title: l10n.signOut,
+              sfSymbol: 'rectangle.portrait.and.arrow.right',
+              destructive: true,
+              dismissOnSelect: true,
+              showsDisclosure: false,
+              actionId: nativeAccountSignOutActionId,
+              actionValue: true,
+            )
+          else
+            _nativeSignOutItem(
+              l10n,
+              title: otherAccountCount == null
+                  ? l10n.accountsSignOutAll
+                  : l10n.signOut,
+            ),
+        ],
+      ),
+    NativeSheetSectionConfig(
+      title: l10n.supportConduit,
+      items: buildNativeSupportItems(l10n),
+    ),
+  ];
+}
+
+/// Id of the native Accounts page, pushed from the account card.
+const nativeAccountsDetailId = 'accounts';
+
+/// The native Accounts page: a card for each Open WebUI server -- its own
+/// row opening its page, its accounts under it, the active one checked --
+/// then Hermes with its connections, the one in use checked, and Direct
+/// with its providers, each opening its editor. A card's empty list offers
+/// to add its first; + in the bar adds any.
+///
+/// [accounts] and [directProfiles] are null when they could not be read in
+/// time; [hermesInUseId] is null while Hermes is off.
+NativeSheetDetailConfig buildNativeAccountsDetail(
+  AppLocalizations l10n, {
+  required List<OpenWebUiAccountEntry>? accounts,
+  required List<HermesConnectionProfile> hermesConnections,
+  required String? hermesInUseId,
+  required List<DirectConnectionProfile>? directProfiles,
+  bool appleOnDevice = false,
+  bool applePcc = false,
+}) {
+  final byServer = <String, List<OpenWebUiAccountEntry>>{};
+  for (final entry in accounts ?? const <OpenWebUiAccountEntry>[]) {
+    byServer.putIfAbsent(entry.server.id, () => []).add(entry);
+  }
+  final saved = directProfiles ?? const <DirectConnectionProfile>[];
+  return NativeSheetDetailConfig(
+    id: nativeAccountsDetailId,
+    title: l10n.accountsTitle,
+    trailingActionId: nativeAccountAddActionId,
+    trailingActionSfSymbol: 'plus',
+    sections: [
+      if (accounts == null)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'accounts-unreadable',
+              title: l10n.errorMessage,
+              sfSymbol: 'exclamationmark.triangle',
+              kind: NativeSheetItemKind.info,
+            ),
+          ],
+        )
+      else if (accounts.isEmpty)
+        NativeSheetSectionConfig(
+          items: [
+            NativeSheetItemConfig(
+              id: 'accounts-openwebui',
+              title: l10n.backendChooserOpenWebUITitle,
+              sfSymbol: 'server.rack',
+              iconAsset: 'assets/icons/open_webui.png',
+              kind: NativeSheetItemKind.info,
+            ),
+            _nativeAddItem(
+              'accounts-openwebui-add',
+              title: l10n.connectOpenWebUITitle,
+              kind: 'openWebUi',
+            ),
+          ],
+        )
+      else
+        for (final group in byServer.values)
+          NativeSheetSectionConfig(
+            items: [
+              NativeSheetItemConfig(
+                id: '$nativeAccountServerActionId:${group.first.server.id}',
+                title: serverDisplayName(group.first.server),
+                avatarName: serverDisplayName(group.first.server),
+                dismissOnSelect: true,
+                actionId: nativeAccountServerActionId,
+                actionValue: group.first.server.id,
+              ),
+              for (final entry in group) _nativeAccountItem(entry, l10n),
+            ],
+          ),
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'accounts-hermes',
+            title: l10n.hermesAgentSettingsTitle,
+            sfSymbol: 'sparkles',
+            iconAsset: 'assets/icons/hermes_agent.png',
+            iconSize: 26,
+            dismissOnSelect: true,
+            actionId: NativeSheetRoutes.hermes,
+            actionValue: true,
+          ),
+          for (final connection in hermesConnections)
+            _nativeSwitchItem(
+              id: '$nativeHermesUseActionId:${connection.id}',
+              title: connection.name,
+              subtitle: hermesConnectionSummary(connection),
+              sfSymbol: connection.mode == HermesBackendMode.desktopGateway
+                  ? 'desktopcomputer'
+                  : 'cloud',
+              inUse: connection.id == hermesInUseId,
+              actionId: nativeHermesUseActionId,
+              actionValue: connection.id,
+            ),
+          if (hermesConnections.isEmpty)
+            _nativeAddItem(
+              'accounts-hermes-add',
+              title: l10n.hermesAddConnection,
+              kind: 'hermes',
+            ),
+        ],
+      ),
+      NativeSheetSectionConfig(
+        items: [
+          _nativeRootPageItem(
+            NativeSheetRoutes.directConnections,
+            title: l10n.directConnectionsTitle,
+            sfSymbol: 'link.circle',
+          ),
+          if (appleOnDevice)
+            NativeSheetItemConfig(
+              id: 'accounts-apple-on-device',
+              title: l10n.backendChooserAppleOnDeviceTitle,
+              sfSymbol: 'iphone',
+              dismissOnSelect: true,
+              actionId: NativeSheetRoutes.directConnections,
+              actionValue: true,
+            ),
+          if (applePcc)
+            NativeSheetItemConfig(
+              id: 'accounts-apple-pcc',
+              title: l10n.backendChooserApplePccTitle,
+              sfSymbol: 'lock.shield',
+              dismissOnSelect: true,
+              actionId: NativeSheetRoutes.directConnections,
+              actionValue: true,
+            ),
+          for (final profile in saved)
+            NativeSheetItemConfig(
+              id: '$nativeDirectEditActionId:${profile.id}',
+              title: profile.name,
+              subtitle: [
+                directProviderName(profile, l10n),
+                if (!profile.enabled) l10n.disabledLabel,
+              ].join(' · '),
+              sfSymbol: profile.adapterKey == kOllamaAdapterKey
+                  ? 'desktopcomputer'
+                  : 'cloud',
+              dismissOnSelect: true,
+              actionId: nativeDirectEditActionId,
+              actionValue: profile.id,
+            ),
+          // Not offered while the saved ones are unread: the Direct page
+          // says why, and adds from there.
+          if (directProfiles != null &&
+              saved.isEmpty &&
+              !appleOnDevice &&
+              !applePcc)
+            _nativeAddItem(
+              'accounts-direct-add',
+              title: l10n.addDirectConnection,
+              kind: 'direct',
+            ),
+        ],
+      ),
+      // With one account, Settings' Sign out already signs out of it.
+      if ((accounts?.length ?? 0) > 1)
+        NativeSheetSectionConfig(
+          items: [_nativeSignOutItem(l10n, title: l10n.accountsSignOutAll)],
+        ),
+    ],
+  );
+}
+
+/// A saved Open WebUI account under its server: switched to on a tap, but
+/// the one in use, signed in, stays put.
+NativeSheetItemConfig _nativeAccountItem(
+  OpenWebUiAccountEntry entry,
+  AppLocalizations l10n,
+) {
+  final name = accountDisplayName(entry, l10n);
+  return _nativeSwitchItem(
+    id: '$nativeAccountSwitchActionId:${entry.id}',
+    title: name,
+    subtitle: accountSubtitle(entry, l10n),
+    avatarName: name,
+    avatarBytes: _dataUrlBytes(entry.summary.profileImage),
+    checked: entry.isActive,
+    inUse: entry.isActive && entry.hasSession,
+    actionId: nativeAccountSwitchActionId,
+    actionValue: entry.id,
+  );
+}
+
+/// A row to switch to, checked when [checked] (by default, when [inUse]);
+/// the one in use has nothing to switch to and does nothing.
+NativeSheetItemConfig _nativeSwitchItem({
+  required String id,
+  required String title,
+  required String? subtitle,
+  required bool inUse,
+  required String actionId,
+  required String actionValue,
+  bool? checked,
+  String sfSymbol = 'person.crop.circle',
+  String? avatarName,
+  Uint8List? avatarBytes,
+}) => NativeSheetItemConfig(
+  id: id,
+  title: title,
+  subtitle: subtitle,
+  sfSymbol: sfSymbol,
+  avatarName: avatarName,
+  avatarBytes: avatarBytes,
+  checked: checked ?? inUse,
+  kind: inUse ? NativeSheetItemKind.info : NativeSheetItemKind.navigation,
+  dismissOnSelect: !inUse,
+  showsDisclosure: false,
+  actionId: inUse ? null : actionId,
+  actionValue: inUse ? null : actionValue,
+);
+
+/// A row, in the accent color, that closes the sheet to add an account or
+/// connection -- on the account sheet's tab for [kind], when given.
+NativeSheetItemConfig _nativeAddItem(
+  String id, {
+  required String title,
+  required String? kind,
+}) => NativeSheetItemConfig(
+  id: id,
+  title: title,
+  sfSymbol: 'plus',
+  accent: true,
+  dismissOnSelect: true,
+  showsDisclosure: false,
+  actionId: nativeAccountAddActionId,
+  actionValue: kind ?? true,
+);
+
+NativeSheetItemConfig _nativeSignOutItem(
+  AppLocalizations l10n, {
+  required String title,
+}) => NativeSheetItemConfig(
+  id: nativeSignOutActionId,
+  title: title,
+  placeholder: l10n.signOutOptionsDescription,
+  options: [
+    NativeSheetOptionConfig(
+      id: 'keep-server-details',
+      label: l10n.keepServerDetails,
+      subtitle: l10n.keepServerDetailsDescription,
+    ),
+  ],
+  sfSymbol: 'rectangle.portrait.and.arrow.right',
+  destructive: true,
+);
+
+/// The bytes of a picture saved as a data URL, as Open WebUI keeps uploaded
+/// ones; null for anything else.
+Uint8List? _dataUrlBytes(String? url) {
+  if (url == null || !url.startsWith('data:image')) return null;
+  try {
+    return UriData.parse(url).contentAsBytes();
+  } on FormatException {
+    return null;
+  }
+}
+
+/// Control id of the Advanced toggle in the native Chats page.
+const nativeAdvancedFeaturesId = 'advanced-features';
+
+/// Control id of the "Show citation page titles" toggle in the native Chats
+/// page.
+const nativeCitationShowTitlesId = 'citation-show-titles';
+
+/// Control id the accountless "Connect to Open WebUI" root row sends.
+const nativeConnectOpenWebUiActionId = 'add-owui-server';
+
+/// Control id of the root Sign out row.
+const nativeSignOutActionId = 'sign-out';
+
+/// Native Settings rows for accounts and connections. A row that acts on
+/// one carries its id as its action value; an add row, the account sheet's
+/// tab for its kind (`openWebUi`, `hermes`, `direct`), or true for the first.
+const nativeAccountSwitchActionId = 'account-switch';
+const nativeAccountAddActionId = 'account-add';
+const nativeAccountSignOutActionId = 'account-sign-out';
+const nativeAccountServerActionId = 'account-server';
+const nativeHermesUseActionId = 'account-hermes-use';
+const nativeDirectEditActionId = 'account-direct-edit';
+
+/// The donation rows at the bottom of the native Settings root.
+List<NativeSheetItemConfig> buildNativeSupportItems(AppLocalizations l10n) => [
+  NativeSheetItemConfig(
+    id: 'buy-me-a-coffee',
+    title: l10n.buyMeACoffeeTitle,
+    sfSymbol: 'gift',
+    url: 'https://www.buymeacoffee.com/cogwheel0',
+  ),
+  NativeSheetItemConfig(
+    id: 'github-sponsors',
+    title: l10n.githubSponsorsTitle,
+    sfSymbol: 'heart',
+    url: 'https://github.com/sponsors/cogwheel0',
+  ),
+];
+
+/// A root row that closes the sheet and opens a Flutter page; it sends its
+/// own id as the control id.
+NativeSheetItemConfig _nativeRootPageItem(
+  String id, {
+  required String title,
+  required String sfSymbol,
+}) => NativeSheetItemConfig(
+  id: id,
+  title: title,
+  sfSymbol: sfSymbol,
+  dismissOnSelect: true,
+  actionId: id,
+  actionValue: true,
+);
+
+/// The sections of the native Profile page. [accountProfile] supplies the
+/// About text; with none loaded the rows show it as not set.
+List<NativeSheetSectionConfig> buildNativeProfileDetailSections(
+  AppLocalizations l10n, {
+  required String displayName,
+  required AccountMetadata? accountProfile,
+}) {
+  final bio = accountProfile?.bio?.trim();
+  final hasBio = bio != null && bio.isNotEmpty;
+  return [
+    NativeSheetSectionConfig(
+      items: [
+        NativeSheetItemConfig(
+          id: 'profile-photo',
+          title: l10n.editPhoto,
+          sfSymbol: 'person.crop.circle',
+          showsDisclosure: true,
+        ),
+      ],
+    ),
+    NativeSheetSectionConfig(
+      items: [
+        NativeSheetItemConfig(
+          id: 'profile-name',
+          title: l10n.name,
+          subtitle: [displayName, if (hasBio) bio].join(' · '),
+          sfSymbol: 'person.text.rectangle',
+          showsDisclosure: true,
+        ),
+        NativeSheetItemConfig(
+          id: 'profile-about',
+          title: l10n.bioLabel,
+          subtitle: hasBio ? bio : l10n.notSet,
+          sfSymbol: 'text.bubble',
+          showsDisclosure: true,
+        ),
+        NativeSheetItemConfig(
+          id: 'profile-details',
+          title: l10n.profileDetails,
+          subtitle: l10n.profileDetailsSummary,
+          sfSymbol: 'person.crop.circle',
+          showsDisclosure: true,
+        ),
+      ],
+    ),
+    NativeSheetSectionConfig(
+      title: l10n.accountSettingsTitle,
+      items: [
+        NativeSheetItemConfig(
+          id: 'password',
+          title: l10n.changePasswordTitle,
+          subtitle: l10n.passwordChangeDescription,
+          sfSymbol: 'lock',
+        ),
+      ],
+    ),
+  ];
+}
 
 String? resolveNativeSheetModelName(List<Model> models, String? modelId) {
   if (modelId == null || modelId.isEmpty) return null;
@@ -87,16 +757,39 @@ class NativeAudioSheetParts {
   const NativeAudioSheetParts({
     required this.mainSections,
     required this.voicePickerDetail,
+    required this.voiceProviderDetail,
   });
 
   final List<NativeSheetSectionConfig> mainSections;
   final NativeSheetDetailConfig voicePickerDetail;
+  final NativeSheetDetailConfig voiceProviderDetail;
 }
 
+/// The Voice provider choice that clears it.
+const nativeNoVoiceProviderId = 'none';
+
+/// The text fields of the Voice provider page, by item id.
+const nativeVoiceProviderFieldIds = {
+  'voice-provider-transcription-model':
+      DirectVoiceProviderField.transcriptionModel,
+  'voice-provider-speech-model': DirectVoiceProviderField.speechModel,
+  'voice-provider-speech-voice': DirectVoiceProviderField.speechVoice,
+  'voice-provider-realtime-model': DirectVoiceProviderField.realtimeModel,
+  'voice-provider-realtime-voice': DirectVoiceProviderField.realtimeVoice,
+  'voice-provider-realtime-instructions':
+      DirectVoiceProviderField.realtimeInstructions,
+};
+
+/// [voiceProviderCandidates] are the connections that can be the Voice
+/// provider. [serverOffersVoiceChoice] hides the server voice picker for
+/// backends that speak with their own voice.
 NativeAudioSheetParts buildNativeAudioSheetParts(
   AppLocalizations l10n,
   AppSettings appSettings, {
   List<Map<String, dynamic>> ttsVoices = const <Map<String, dynamic>>[],
+  List<DirectConnectionProfile> voiceProviderCandidates =
+      const <DirectConnectionProfile>[],
+  bool serverOffersVoiceChoice = true,
 }) {
   final sttSegment = NativeSheetItemConfig(
     id: 'stt-engine',
@@ -209,11 +902,20 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
       sttLanguageField,
       silenceSlider,
     ],
+    NativeSheetItemConfig(
+      id: 'voice-barge-in',
+      title: l10n.voiceBargeIn,
+      subtitle: l10n.voiceBargeInDescription,
+      sfSymbol: 'waveform',
+      kind: NativeSheetItemKind.toggle,
+      value: appSettings.voiceBargeInEnabled,
+    ),
   ];
 
   final ttsItems = <NativeSheetItemConfig>[
     ttsSegment,
-    voicePickerNav,
+    if (appSettings.ttsEngine == TtsEngine.device || serverOffersVoiceChoice)
+      voicePickerNav,
     if (appSettings.ttsEngine == TtsEngine.device) speechRateSlider,
     previewNav,
   ];
@@ -225,12 +927,156 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     items: const [],
   );
 
+  final voiceProvider = appSettings.directVoiceProvider;
+  final chosenProvider = voiceProviderCandidates
+      .where((profile) => profile.id == voiceProvider?.profileId)
+      .firstOrNull;
+  NativeSheetItemConfig providerField(
+    String id,
+    String title,
+    String? value,
+    String placeholder,
+  ) => NativeSheetItemConfig(
+    id: id,
+    title: title,
+    sfSymbol: 'textformat',
+    kind: NativeSheetItemKind.textField,
+    value: value ?? '',
+    placeholder: placeholder,
+  );
+
+  final voiceProviderDetail = NativeSheetDetailConfig(
+    id: NativeSheetRoutes.voiceProvider,
+    title: l10n.voiceProviderTitle,
+    sections: [
+      NativeSheetSectionConfig(
+        footer: voiceProviderCandidates.isEmpty
+            ? l10n.voiceProviderNoConnections
+            : l10n.voiceProviderDescription,
+        items: [
+          NativeSheetItemConfig(
+            id: 'voice-provider-connection',
+            title: l10n.voiceProviderConnection,
+            sfSymbol: 'link',
+            kind: NativeSheetItemKind.dropdown,
+            value: chosenProvider?.id ?? nativeNoVoiceProviderId,
+            options: [
+              NativeSheetOptionConfig(
+                id: nativeNoVoiceProviderId,
+                label: l10n.voiceProviderNone,
+              ),
+              for (final profile in voiceProviderCandidates)
+                NativeSheetOptionConfig(
+                  id: profile.id,
+                  label: profile.name,
+                  subtitle: profile.baseUrl,
+                ),
+            ],
+          ),
+        ],
+      ),
+      if (chosenProvider != null) ...[
+        NativeSheetSectionConfig(
+          title: l10n.sttSettings,
+          items: [
+            providerField(
+              'voice-provider-transcription-model',
+              l10n.voiceProviderTranscriptionModel,
+              voiceProvider?.transcriptionModel,
+              'whisper-1',
+            ),
+          ],
+        ),
+        NativeSheetSectionConfig(
+          title: l10n.ttsSettings,
+          footer: l10n.voiceProviderModelsHint,
+          items: [
+            providerField(
+              'voice-provider-speech-model',
+              l10n.voiceProviderSpeechModel,
+              voiceProvider?.speechModel,
+              'tts-1',
+            ),
+            providerField(
+              'voice-provider-speech-voice',
+              l10n.voice,
+              voiceProvider?.speechVoice,
+              'alloy',
+            ),
+          ],
+        ),
+        NativeSheetSectionConfig(
+          title: l10n.voiceCallModeTitle,
+          footer: l10n.voiceProviderRealtimeFooter,
+          items: [
+            providerField(
+              'voice-provider-realtime-model',
+              l10n.voiceProviderRealtimeModel,
+              voiceProvider?.realtimeModel,
+              'gpt-realtime-2.1-mini',
+            ),
+            providerField(
+              'voice-provider-realtime-voice',
+              l10n.voice,
+              voiceProvider?.realtimeVoice,
+              'marin',
+            ),
+            NativeSheetItemConfig(
+              id: 'voice-provider-realtime-instructions',
+              title: l10n.voiceProviderRealtimeInstructions,
+              sfSymbol: 'text.alignleft',
+              kind: NativeSheetItemKind.multilineTextField,
+              value: voiceProvider?.realtimeInstructions ?? '',
+              placeholder: l10n.voiceProviderRealtimeInstructionsHint,
+            ),
+          ],
+        ),
+      ],
+    ],
+  );
+
   return NativeAudioSheetParts(
     mainSections: [
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'voice-call-mode',
+            title: l10n.voiceCallModeTitle,
+            subtitle: appSettings.voiceCallMode == VoiceCallMode.auto
+                ? l10n.voiceCallModeRealtimeDescription
+                : l10n.voiceCallModeStandardDescription,
+            sfSymbol: 'phone.badge.waveform',
+            kind: NativeSheetItemKind.segment,
+            value: appSettings.voiceCallMode.name,
+            options: [
+              NativeSheetOptionConfig(
+                id: VoiceCallMode.auto.name,
+                label: l10n.voiceCallModeRealtime,
+              ),
+              NativeSheetOptionConfig(
+                id: VoiceCallMode.standard.name,
+                label: l10n.voiceCallModeStandard,
+              ),
+            ],
+          ),
+        ],
+      ),
       NativeSheetSectionConfig(items: sttItems),
       NativeSheetSectionConfig(items: ttsItems),
+      NativeSheetSectionConfig(
+        footer: l10n.voiceProviderDescription,
+        items: [
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.voiceProvider,
+            title: l10n.voiceProviderTitle,
+            subtitle: chosenProvider?.name ?? l10n.voiceProviderNone,
+            sfSymbol: 'waveform',
+          ),
+        ],
+      ),
     ],
     voicePickerDetail: voicePickerDetail,
+    voiceProviderDetail: voiceProviderDetail,
   );
 }
 
@@ -396,6 +1242,64 @@ NativeSheetDetailConfig buildNativeSystemPromptDetail(
   );
 }
 
+/// Control id the native Webhook destinations row sends to open the Flutter
+/// Notifications page, where the destinations are managed.
+const nativeNotificationTargetsActionId = 'notification-targets';
+
+/// The Webhook destinations row of the native Notifications sheet. The native
+/// sheet has no editor for them, so the row closes it and opens the Flutter
+/// page, which holds the list and editor. [count] is how many the account
+/// has; with none read yet the row shows no count.
+NativeSheetItemConfig buildNativeNotificationTargetsItem(
+  AppLocalizations l10n, {
+  int? count,
+}) {
+  return NativeSheetItemConfig(
+    id: 'notification-targets',
+    title: l10n.notificationTargetsTitle,
+    subtitle: count == null ? null : l10n.nativeWebhookDestinationsCount(count),
+    sfSymbol: 'bell.and.waves.left.and.right',
+    dismissOnSelect: true,
+    actionId: nativeNotificationTargetsActionId,
+  );
+}
+
+/// The Webhook destinations group of the native Notifications sheet, with the
+/// explanation of what they are as its footer.
+NativeSheetSectionConfig buildNativeNotificationTargetsSection(
+  AppLocalizations l10n, {
+  int? count,
+}) {
+  return NativeSheetSectionConfig(
+    footer: l10n.notificationTargetsDescription,
+    items: [buildNativeNotificationTargetsItem(l10n, count: count)],
+  );
+}
+
+/// Control id the native Add memory row sends to open the Flutter editor.
+const nativeMemoryEditorNewActionId = 'memory-editor-new';
+
+/// Prefix of the control id a native memory row sends to open the Flutter
+/// editor for one memory; the memory id follows, URI-encoded.
+const nativeMemoryEditorActionPrefix = 'memory-editor:';
+
+/// The Add memory row. The native sheet holds a content box and nothing else,
+/// so with [advanced] the row closes it and opens the Flutter editor, which
+/// also has the type and path.
+NativeSheetItemConfig buildNativeMemoryAddItem(
+  AppLocalizations l10n, {
+  required bool advanced,
+}) {
+  return NativeSheetItemConfig(
+    id: 'memory-add',
+    title: l10n.addMemory,
+    subtitle: l10n.manageMemoriesDescription,
+    sfSymbol: 'plus.circle',
+    dismissOnSelect: advanced,
+    actionId: advanced ? nativeMemoryEditorNewActionId : null,
+  );
+}
+
 NativeSheetDetailConfig buildNativeMemoryAddDetail(AppLocalizations l10n) {
   return NativeSheetDetailConfig(
     id: 'memory-add',
@@ -414,10 +1318,28 @@ NativeSheetDetailConfig buildNativeMemoryAddDetail(AppLocalizations l10n) {
   );
 }
 
+/// What the Advanced row of a memory shows: its type and path.
+String nativeSheetMemoryClassification(
+  AppLocalizations l10n,
+  ServerMemory memory,
+) {
+  final type = switch (memory.type) {
+    ServerMemory.userType => l10n.memoryTypeUser,
+    ServerMemory.contextType => l10n.memoryTypeContext,
+    final other? => other,
+    null => l10n.notSet,
+  };
+  final path = memory.path;
+  return path == null || path.isEmpty ? type : '$type · $path';
+}
+
+/// The detail for each memory: its text and Delete, plus with [advanced] a row
+/// that opens the Flutter editor for the type and path.
 List<NativeSheetDetailConfig> buildNativeMemoryEditDetails(
   AppLocalizations l10n,
-  List<ServerMemory> memories,
-) {
+  List<ServerMemory> memories, {
+  bool advanced = false,
+}) {
   return [
     for (final memory in memories)
       NativeSheetDetailConfig(
@@ -433,6 +1355,16 @@ List<NativeSheetDetailConfig> buildNativeMemoryEditDetails(
             value: memory.content,
             placeholder: l10n.memoryHint,
           ),
+          if (advanced)
+            NativeSheetItemConfig(
+              id: 'memory-classification:${Uri.encodeComponent(memory.id)}',
+              title: l10n.memoryTypeLabel,
+              subtitle: nativeSheetMemoryClassification(l10n, memory),
+              sfSymbol: 'tag',
+              dismissOnSelect: true,
+              actionId:
+                  '$nativeMemoryEditorActionPrefix${Uri.encodeComponent(memory.id)}',
+            ),
           NativeSheetItemConfig(
             id: 'memory-delete:${Uri.encodeComponent(memory.id)}',
             title: l10n.deleteMemory,
@@ -550,7 +1482,7 @@ List<NativeSheetItemConfig> nativeSocketHealthItems(
       NativeSheetItemConfig(
         id: 'socket-health-null',
         title: l10n.socketNotConnected,
-        sfSymbol: 'cloud.fill',
+        sfSymbol: 'cloud',
         kind: NativeSheetItemKind.info,
       ),
     ];
@@ -597,7 +1529,7 @@ List<NativeSheetItemConfig> nativeSocketHealthItems(
         title: l10n.socketLastHeartbeat(
           _nativeFormatHeartbeatRelative(l10n, health.lastHeartbeat!),
         ),
-        sfSymbol: 'heart.fill',
+        sfSymbol: 'heart',
         kind: NativeSheetItemKind.info,
       ),
     );

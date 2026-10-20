@@ -1,8 +1,9 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/folder.dart';
-import 'package:conduit/core/providers/app_providers.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -14,7 +15,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/features/chat/providers/chat_providers.dart' as chat;
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    as chat;
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 
@@ -196,7 +198,7 @@ List<ConduitContextMenuAction> buildConversationActions({
   required WidgetRef ref,
   required dynamic conversation,
 }) {
-  final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
+  final foldersEnabled = ref.watch(foldersAvailableProvider);
   final folders = foldersEnabled
       ? ref
             .watch(foldersProvider)
@@ -618,7 +620,14 @@ Future<void> _renameConversation(
     }
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service');
-    await api.updateConversation(rawConversationId, title: newName);
+    // A title being generated for this chat waits for the rename, and keeps
+    // it.
+    await ref
+        .read(chatTitleLocksProvider)
+        .runExclusive(
+          rawConversationId,
+          () => api.updateConversation(rawConversationId, title: newName),
+        );
     ConduitHaptics.selectionClick();
     ref
         .read(conversationsProvider.notifier)

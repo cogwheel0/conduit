@@ -268,6 +268,11 @@ class AdaptiveScaffold extends StatelessWidget {
       style: CupertinoTheme.of(context).textTheme.textStyle,
       child: content,
     );
+    // CupertinoPageScaffold provides no Material, but page bodies host
+    // Material controls (text fields, chips, Fleather checklist boxes) that
+    // assert one. A transparency Material paints nothing; it sits outside the
+    // Cupertino text style so that style still applies to the body.
+    content = Material(type: MaterialType.transparency, child: content);
 
     Widget page = CupertinoPageScaffold(
       resizeToAvoidBottomInset: resizeToAvoidBottomInset ?? !useNativeTabBar,

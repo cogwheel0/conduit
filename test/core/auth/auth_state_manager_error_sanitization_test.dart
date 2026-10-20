@@ -1,19 +1,21 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/auth_state_manager.dart';
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/user.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 const _passwordSecret = 'foreground-password-secret';
 const _tokenSecret = 'foreground-token-secret-long-enough';
@@ -38,7 +40,7 @@ void main() {
     'foreground auth flows never publish, throw, or log reflected secrets',
     () async {
       SharedPreferences.setMockInitialValues({});
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       addTearDown(PreferencesStore.debugReset);
 
       final captured = StringBuffer();
@@ -55,14 +57,17 @@ void main() {
               .thenAnswer((_) async => null);
           when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
           when(() => storage.clearAuthData()).thenAnswer((_) async {});
-          when(() => storage.clearAuthDataIf(canClear: any(named: 'canClear')))
-              .thenAnswer((invocation) async {
-                final canClear =
-                    invocation.namedArguments[#canClear] as bool Function();
-                if (!canClear()) return false;
-                await storage.clearAuthData();
-                return true;
-              });
+          when(
+            () => storage.clearActiveAccountAuthDataIf(
+              canClear: any(named: 'canClear'),
+            ),
+          ).thenAnswer((invocation) async {
+            final canClear =
+                invocation.namedArguments[#canClear] as bool Function();
+            if (!canClear()) return false;
+            await storage.clearAuthData();
+            return true;
+          });
 
           final api = _ReflectingAuthApi(mode);
           _stubOwnershipCapture(storage, api.serverConfig);
@@ -138,9 +143,8 @@ void main() {
     },
   );
 
-  test(
-    'background stored-token validation never logs reflected secrets',
-    () async {
+  test('background stored-token validation never logs reflected secrets', () {
+    fakeAsync((async) {
       final storage = _Storage();
       when(() => storage.getAuthTokenStrict())
           .thenAnswer((_) async => _tokenSecret);
@@ -164,18 +168,10 @@ void main() {
       };
 
       try {
-        await container.read(authStateManagerProvider.future);
-        // The background validation retry ladder sleeps roughly 6.7s in total
-        // (0/200ms/500ms/1s/2s/3s) before resolving a transient failure, so
-        // the deadline here must comfortably exceed it.
-        for (var attempt = 0; attempt < 2000; attempt++) {
-          if (captured.toString().contains(
-            'background-auth-validation-deferred',
-          )) {
-            break;
-          }
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
+        container.read(authStateManagerProvider.future);
+        // The background validation retry ladder sleeps 6.7s in total
+        // (0/200ms/500ms/1s/2s/3s) before resolving a transient failure.
+        async.elapse(const Duration(seconds: 7));
       } finally {
         debugPrint = previousDebugPrint;
       }
@@ -194,8 +190,8 @@ void main() {
       ]) {
         check(visible).not((value) => value.contains(secret));
       }
-    },
-  );
+    });
+  });
 
   test(
     'LDAP-disabled 400 publishes only the recognized safe message',

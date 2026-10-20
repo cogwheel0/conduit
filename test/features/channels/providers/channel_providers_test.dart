@@ -1,12 +1,14 @@
 import 'dart:async';
 
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/channel_message.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/channels/providers/channel_providers.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/channel.dart';
+import 'package:conduit_core/models/channel_message.dart';
+import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -200,6 +202,74 @@ void main() {
     });
   });
 
+  group('ChannelsList.setMuted', () {
+    test('reaches an open channel the list does not hold yet', () async {
+      final api = _FakeChannelApiService(
+        rawChannels: [
+          {'id': 'c1', 'name': 'One', 'updated_at': 1},
+        ],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          authTokenProvider3.overrideWith((ref) => 'token'),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(channelsListProvider.future);
+      // Opened from a notification, before the list caught up.
+      container
+          .read(activeChannelProvider.notifier)
+          .set(Channel.fromJson({'id': 'c2', 'name': 'Two'}));
+
+      container.read(channelsListProvider.notifier).setMuted('c2', true);
+
+      expect(container.read(activeChannelProvider)?.isChannelMuted, isTrue);
+      expect(
+        container.read(channelsListProvider).value!.single.isChannelMuted,
+        isFalse,
+      );
+    });
+  });
+
+  for (final open in [true, false]) {
+    test('a list still loading cannot undo a mute '
+        '(${open ? 'open' : 'other'} channel)', () async {
+      final api = _QueuedChannelsApi();
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          authTokenProvider3.overrideWith((ref) => 'token'),
+        ],
+      );
+      addTearDown(container.dispose);
+      // Watched, as the sidebar watches it.
+      final subscription = container.listen(channelsListProvider, (_, _) {});
+      addTearDown(subscription.close);
+      await container.read(channelsListProvider.future);
+      if (open) {
+        container
+            .read(activeChannelProvider.notifier)
+            .set(Channel.fromJson({'id': 'c2', 'name': 'Two'}));
+      }
+
+      final loading = container.read(channelsListProvider.notifier).refresh();
+      container.read(channelsListProvider.notifier).setMuted('c2', true);
+      // Read before the mute reached the server.
+      api.complete(1, <Map<String, dynamic>>[
+        <String, dynamic>{'id': 'c2', 'name': 'Two', 'is_channel_muted': false},
+      ]);
+      await loading;
+      await _waitFor(() => api.requestCount == 3);
+      api.complete(2, <Map<String, dynamic>>[
+        <String, dynamic>{'id': 'c2', 'name': 'Two', 'is_channel_muted': true},
+      ]);
+      final channels = await container.read(channelsListProvider.future);
+
+      expect(channels.single.isChannelMuted, isTrue);
+    });
+  }
+
   group('ChannelMessages pagination ownership', () {
     test('first-page fetch reruns after a live message arrives', () async {
       final api = _QueuedChannelContentApi();
@@ -234,6 +304,110 @@ void main() {
         'socket-message',
         'history',
       ]);
+    });
+
+    test(
+      'an edit response keeps what a live event changed meanwhile',
+      () async {
+        final api = _QueuedChannelContentApi();
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final provider = channelMessagesProvider('channel');
+        final subscription = container.listen(provider, (_, _) {});
+        addTearDown(subscription.close);
+        final firstPage = container.read(provider.future);
+        await _waitFor(() => api.messageRequestCount == 1);
+        api.completeMessages(0, const <Map<String, dynamic>>[]);
+        await firstPage;
+
+        final notifier = container.read(provider.notifier);
+        notifier.prependMessage(
+          const ChannelMessage(id: 'm1', content: 'before', replyCount: 1),
+        );
+        // A reply arrives over the socket while the edit request is in flight.
+        notifier.updateMessage(
+          const ChannelMessage(id: 'm1', content: 'before', replyCount: 2),
+        );
+        notifier.applyEditResponse(
+          const ChannelMessage(id: 'm1', content: 'after'),
+        );
+
+        final message = container.read(provider).requireValue.single;
+        expect(message.content, 'after');
+        expect(message.replyCount, 2);
+      },
+    );
+
+    test('a post response gives a bare socket echo its sender', () async {
+      final api = _QueuedChannelContentApi();
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      final provider = channelMessagesProvider('channel');
+      final subscription = container.listen(provider, (_, _) {});
+      addTearDown(subscription.close);
+      final firstPage = container.read(provider.future);
+      await _waitFor(() => api.messageRequestCount == 1);
+      api.completeMessages(0, const <Map<String, dynamic>>[]);
+      await firstPage;
+
+      final notifier = container.read(provider.notifier);
+      // The socket event wins the race and names only the sender's id.
+      notifier.prependMessage(
+        const ChannelMessage(id: 'm1', userId: 'user-1', content: 'hi'),
+      );
+      notifier.prependMessage(
+        const ChannelMessage(
+          id: 'm1',
+          userId: 'user-1',
+          content: 'hi',
+          user: ChannelMessageUser(id: 'user-1', name: 'Alice'),
+        ),
+      );
+
+      final message = container.read(provider).requireValue.single;
+      expect(message.userName, 'Alice');
+    });
+
+    test('fillSender names only the sender of a bare message', () async {
+      final api = _QueuedChannelContentApi();
+      final container = ProviderContainer(
+        overrides: [apiServiceProvider.overrideWithValue(api)],
+      );
+      addTearDown(container.dispose);
+      final provider = channelMessagesProvider('channel');
+      final subscription = container.listen(provider, (_, _) {});
+      addTearDown(subscription.close);
+      final firstPage = container.read(provider.future);
+      await _waitFor(() => api.messageRequestCount == 1);
+      api.completeMessages(0, const <Map<String, dynamic>>[]);
+      await firstPage;
+
+      const alice = User(
+        id: 'user-1',
+        username: 'alice',
+        email: 'alice@example.test',
+        name: 'Alice',
+        role: 'user',
+      );
+      final notifier = container.read(provider.notifier);
+      notifier.prependMessage(
+        const ChannelMessage(id: 'mine', userId: 'user-1', content: 'a'),
+      );
+      notifier.prependMessage(
+        const ChannelMessage(id: 'theirs', userId: 'user-2', content: 'b'),
+      );
+      notifier.fillSender('mine', alice);
+      notifier.fillSender('theirs', alice);
+
+      final messages = {
+        for (final m in container.read(provider).requireValue) m.id: m,
+      };
+      expect(messages['mine']!.userName, 'Alice');
+      expect(messages['theirs']!.userName, 'Unknown');
     });
 
     test('first-page refresh preserves live updates and deletions', () async {
@@ -343,6 +517,82 @@ void main() {
           isTrue,
         );
         expect(messages.length, 52);
+      },
+    );
+
+    test(
+      'thread first-page fetch reruns after a reply it may hold changes',
+      () async {
+        final api = _QueuedChannelContentApi();
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final provider = threadMessagesProvider('channel', 'parent');
+        final subscription = container.listen(provider, (_, _) {});
+        addTearDown(subscription.close);
+        final firstPage = container.read(provider.future);
+        await _waitFor(() => api.threadRequestCount == 1);
+
+        // Both replies are in the pending page, not yet in the list.
+        container
+            .read(provider.notifier)
+            .updateMessage(
+              const ChannelMessage(id: 'edit-me', content: 'live edit'),
+            );
+        container.read(provider.notifier).removeMessage('delete-me');
+        api.completeThread(0, const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'edit-me', 'content': 'stale edit'},
+          <String, dynamic>{'id': 'delete-me', 'content': 'stale delete'},
+        ]);
+        await firstPage;
+
+        await _waitFor(() => api.threadRequestCount == 2);
+        api.completeThread(1, const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'edit-me', 'content': 'live edit'},
+        ]);
+        final replies = await container.read(provider.future);
+        expect(replies.single.content, 'live edit');
+      },
+    );
+
+    test(
+      'an older thread page cannot bring back a reply edited meanwhile',
+      () async {
+        final api = _QueuedChannelContentApi();
+        final container = ProviderContainer(
+          overrides: [apiServiceProvider.overrideWithValue(api)],
+        );
+        addTearDown(container.dispose);
+        final provider = threadMessagesProvider('channel', 'parent');
+        final subscription = container.listen(provider, (_, _) {});
+        addTearDown(subscription.close);
+        final firstPage = container.read(provider.future);
+        await _waitFor(() => api.threadRequestCount == 1);
+        api.completeThread(0, [
+          for (var i = 0; i < 50; i++)
+            <String, dynamic>{'id': 'reply-$i', 'content': 'reply $i'},
+        ]);
+        await firstPage;
+
+        final olderPage = container.read(provider.notifier).loadMore();
+        await _waitFor(() => api.threadRequestCount == 2);
+        container
+            .read(provider.notifier)
+            .updateMessage(
+              const ChannelMessage(id: 'older-reply', content: 'live edit'),
+            );
+        api.completeThread(1, const <Map<String, dynamic>>[
+          <String, dynamic>{'id': 'older-reply', 'content': 'stale edit'},
+        ]);
+        await olderPage;
+
+        final replies = container.read(provider).requireValue;
+        expect(
+          replies.any((message) => message.content == 'stale edit'),
+          false,
+        );
+        expect(replies, hasLength(50));
       },
     );
 

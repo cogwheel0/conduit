@@ -2,7 +2,7 @@ import 'package:checks/checks.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/profile/views/audio_settings_page.dart';
 import 'package:conduit/features/profile/widgets/stt_language_picker.dart';

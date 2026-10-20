@@ -4,17 +4,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/services/navigation_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../controllers/hermes_connection_controller.dart';
-import '../models/hermes_capabilities.dart';
-import '../models/hermes_config.dart';
-import '../providers/hermes_providers.dart';
-import '../services/hermes_desktop_api_service.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 
 class HermesCapabilitiesSection extends ConsumerWidget {
   const HermesCapabilitiesSection({super.key});
@@ -57,23 +60,33 @@ class _CapabilityChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final color = enabled ? theme.success : theme.textSecondary;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.sm,
-        vertical: Spacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(enabled ? Icons.check : Icons.remove, size: 14, color: color),
-          const SizedBox(width: Spacing.xs),
-          Text(label, style: AppTypography.captionStyle.copyWith(color: color)),
-        ],
+    // The check or dash and the colour are the only signs of the state, so
+    // assistive technology is told it.
+    return Semantics(
+      label: '$label, ${enabled ? l10n.enabled : l10n.disabled}',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.sm,
+          vertical: Spacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(enabled ? Icons.check : Icons.remove, size: 14, color: color),
+            const SizedBox(width: Spacing.xs),
+            Text(
+              label,
+              style: AppTypography.captionStyle.copyWith(color: color),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -465,14 +478,57 @@ class _SettingsBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    return SizedBox(
+      width: IconSize.xl,
+      height: IconSize.xl,
+      child: Icon(icon, size: IconSize.medium, color: theme.buttonPrimary),
+    );
+  }
+}
+
+/// Explains a secure-storage outage that keeps Hermes credentials unreadable
+/// and offers a retry. Renders nothing while credentials are readable.
+class HermesSecretsErrorBanner extends ConsumerWidget {
+  const HermesSecretsErrorBanner({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final secretsError = ref.watch(hermesSecretsErrorProvider);
+    if (secretsError == null) return const SizedBox.shrink();
+    final secretsLoading = ref.watch(hermesSecretsLoadingProvider);
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     return Container(
-      width: 32,
-      height: 32,
+      margin: const EdgeInsets.only(bottom: Spacing.lg),
+      padding: const EdgeInsets.all(Spacing.md),
       decoration: BoxDecoration(
-        color: theme.buttonPrimary.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+        color: theme.error.withValues(alpha: 0.08),
+        border: Border.all(color: theme.error.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(AppBorderRadius.md),
       ),
-      child: Icon(icon, size: 18, color: theme.buttonPrimary),
+      child: Row(
+        children: [
+          Icon(Icons.lock_outline, color: theme.error),
+          const SizedBox(width: Spacing.sm),
+          Expanded(
+            child: Text(
+              l10n.hermesSecretsUnavailable,
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: theme.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(width: Spacing.sm),
+          ConduitButton(
+            text: l10n.retry,
+            isSecondary: true,
+            isLoading: secretsLoading,
+            onPressed: secretsLoading
+                ? null
+                : () => ref.read(hermesConfigProvider.notifier).retrySecrets(),
+          ),
+        ],
+      ),
     );
   }
 }

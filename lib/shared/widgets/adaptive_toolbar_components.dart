@@ -504,6 +504,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
     this.iosSymbol,
     this.onPressed,
     this.iconColor,
+    this.semanticLabel,
   });
 
   /// Icon shown inside the control.
@@ -518,8 +519,26 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   /// Optional icon tint.
   final Color? iconColor;
 
+  /// Accessibility label. Without it, VoiceOver reads the native glass
+  /// button's generated SF Symbol description (e.g. "drag").
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
+    final label = semanticLabel;
+    final button = _buildButton(context);
+    if (label == null) return button;
+    return Semantics(
+      label: label,
+      button: true,
+      enabled: onPressed != null,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: button,
+    );
+  }
+
+  Widget _buildButton(BuildContext context) {
     final effectiveIconColor = iconColor ?? context.conduitTheme.textPrimary;
     final controlExtent = conduitScaledControlExtent(context);
     final iconExtent = conduitScaledIconExtent(context, IconSize.appBar);
@@ -613,35 +632,6 @@ class ConduitNativeToolbarAction {
   final bool enabled;
 }
 
-/// Serializes native toolbar actions without leaking their Dart callbacks.
-List<Map<String, Object?>> encodeConduitNativeToolbarActions(
-  List<ConduitNativeToolbarAction> actions,
-) => [
-  for (final action in actions)
-    <String, Object?>{
-      'iosSymbol': action.iosSymbol,
-      'accessibilityLabel': action.accessibilityLabel,
-      'enabled': action.enabled,
-      if (action.tintColor != null) 'tintColor': action.tintColor!.toARGB32(),
-      if (action.menuItems.isNotEmpty)
-        'menuItems': <Map<String, Object?>>[
-          for (final item in action.menuItems)
-            <String, Object?>{
-              'label': item.label,
-              if (item.iosSymbol != null) 'iosSymbol': item.iosSymbol,
-              'isDestructive': item.isDestructive,
-              'isChecked': item.isChecked,
-              'enabled': item.enabled,
-            },
-        ],
-    },
-];
-
-/// Builds the native creation payload with navigation-bar optical sizing.
-Map<String, Object?> encodeConduitNativeToolbarActionGroupParams(
-  List<ConduitNativeToolbarAction> actions,
-) => <String, Object?>{'actions': encodeConduitNativeToolbarActions(actions)};
-
 /// A cupertino_native_better toolbar surface for adjacent shared actions.
 class ConduitNativeToolbarActionGroup extends StatelessWidget {
   const ConduitNativeToolbarActionGroup({super.key, required this.actions})
@@ -686,6 +676,16 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
     );
   }
 
+  /// Colors the symbol itself so trailing actions render the exact theme
+  /// color, like the leading button and the sidebar's glass group. A bare
+  /// control tint lets Liquid Glass lift the foreground to a brighter shade.
+  /// Pre-colored symbols skip UIKit's disabled dimming, so apply it here.
+  static Color? _symbolColor(ConduitNativeToolbarAction action) {
+    final color = action.tintColor;
+    if (color == null || action.enabled) return color;
+    return color.withValues(alpha: color.a * 0.35);
+  }
+
   Widget _buildAction(ConduitNativeToolbarAction action, double extent) {
     if (action.menuItems.isEmpty) {
       return Semantics(
@@ -697,6 +697,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
           icon: CNSymbol(
             action.iosSymbol,
             size: kConduitNativeSingleActionSymbolExtent,
+            color: _symbolColor(action),
           ),
           onPressed: action.onPressed,
           enabled: action.enabled,
@@ -719,6 +720,7 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
       child: AdaptivePopupMenuButton.icon<int>(
         icon: action.iosSymbol,
         iconSize: kConduitNativeSingleActionSymbolExtent,
+        iconColor: _symbolColor(action),
         tint: action.tintColor,
         size: extent,
         enabled: action.enabled,
@@ -933,23 +935,6 @@ ValueKey<Object> conduitNativeModelSelectorViewKey(
   double titleFontSize = 17,
 }) => ValueKey<Object>((foregroundColor.toARGB32(), titleFontSize));
 
-/// Builds the native model-selector payload without truncating accessibility
-/// content that does not participate in UIKit layout measurement.
-Map<String, Object?> encodeConduitNativeModelSelectorParams({
-  required String label,
-  required String? symbolName,
-  required Color foregroundColor,
-  required double titleFontSize,
-  required bool enabled,
-}) => <String, Object?>{
-  'label': label,
-  'symbolName': symbolName,
-  'symbolPadding': _kConduitNativeModelChevronPadding,
-  'foregroundColor': foregroundColor.toARGB32(),
-  'titleFontSize': titleFontSize,
-  'enabled': enabled,
-};
-
 class _ConduitNativeModelSelectorButton extends StatelessWidget {
   const _ConduitNativeModelSelectorButton({
     super.key,
@@ -1048,7 +1033,8 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       MediaQuery.textScalerOf(context),
     );
     final boundedLabel = boundConduitNativeModelLabel(label);
-    const leadingPadding = 10.0;
+    // Equal side insets so the label and chevron sit centered in the pill.
+    const horizontalInset = 13.0;
     final targetWidth = isLoading
         ? safeMaxWidth.clamp(0.0, 104.0).toDouble()
         : usesNativeGlass
@@ -1066,7 +1052,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
             textStyle: effectiveTextStyle,
             maxWidth: safeMaxWidth,
             minWidth: 96,
-            horizontalPadding: leadingPadding + Spacing.xs + 12,
+            horizontalPadding: horizontalInset * 2,
             // Only reserve chevron space when a chevron is actually rendered.
             trailingWidth: showChevron ? chevronSize + Spacing.xs : 0,
           );
@@ -1075,7 +1061,7 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(minHeight: controlExtent),
         child: Padding(
-          padding: EdgeInsets.only(left: leadingPadding, right: Spacing.xs),
+          padding: const EdgeInsets.symmetric(horizontal: horizontalInset),
           child: Center(
             widthFactor: 1,
             child: isLoading
@@ -1245,6 +1231,7 @@ class ConduitAdaptiveToolbarOverflowButton<T> extends StatelessWidget {
       size: Size.square(controlExtent),
       child: AdaptivePopupMenuButton.icon<T>(
         icon: Platform.isIOS ? iosIcon : materialIcon,
+        iconColor: tintColor,
         tint: tintColor,
         size: controlExtent,
         buttonStyle: PopupButtonStyle.glass,

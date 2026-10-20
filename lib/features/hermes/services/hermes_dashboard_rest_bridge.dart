@@ -1,158 +1,189 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
-import '../models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_rest_session.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
+
 import 'hermes_dashboard_cookie_store.dart';
+import 'hermes_dashboard_webview_policy.dart';
 
-final class HermesDashboardRestBridge {
-  HermesDashboardRestBridge({required this.config, required Uri root})
-    : _root = root,
-      _cookieGeneration = HermesDashboardCookieStore.begin(root.toString()),
-      _cookieBaseline = HermesDashboardCookieStore.snapshot(root.toString());
+/// The dashboard REST bridge over a headless `flutter_inappwebview` page.
+/// When the page opens, how requests queue and what counts as an answer is
+/// conduit_core's [HermesDashboardRestSession].
+final class HermesDashboardRestBridge implements HermesDashboardBridge {
+  factory HermesDashboardRestBridge({
+    required Uri root,
+    required Map<String, String> accessHeaders,
+  }) {
+    final origin = root.toString();
+    final generation = HermesDashboardCookieStore.begin(origin);
+    final baseline = HermesDashboardCookieStore.snapshot(origin);
+    return HermesDashboardRestBridge._(
+      accessHeaders,
+      HermesDashboardRestSession(
+        root: root,
+        accessHeaders: accessHeaders,
+        openPage: _HeadlessDashboardPage.new,
+        beforeOpen: () => baseline,
+        afterResponse: () async => HermesDashboardCookieStore.register(
+          origin,
+          generation: generation,
+          baseline: await baseline,
+        ),
+      ),
+    );
+  }
 
-  final HermesConfig config;
-  final Uri _root;
-  final int _cookieGeneration;
-  final Future<Set<String>> _cookieBaseline;
-  HeadlessInAppWebView? _webView;
-  InAppWebViewController? _controller;
-  Future<InAppWebViewController>? _ready;
-  Future<void> _tail = Future<void>.value();
+  HermesDashboardRestBridge._(this._accessHeaders, this._session);
 
+  final Map<String, String> _accessHeaders;
+  final HermesDashboardRestSession _session;
+
+  @override
   Future<({int status, String body})> request(
     String method,
     Uri uri, {
     String? body,
-  }) {
-    final completer = Completer<({int status, String body})>();
-    _tail = _tail.then((_) async {
-      try {
-        final controller = await _ensureReady();
-        final result = await controller
-            .callAsyncJavaScript(
-              functionBody: '''
-            const response = await fetch(url, {
-              method,
-              headers,
-              credentials: 'include',
-              redirect: 'error',
-              body: bodyValue
-            });
-            const size = Number(response.headers.get('content-length') || 0);
-            if (size > 4194304) throw new Error('response-too-large');
-            const reader = response.body?.getReader();
-            const decoder = new TextDecoder();
-            let bytes = 0;
-            let text = '';
-            while (reader) {
-              const chunk = await reader.read();
-              if (chunk.done) break;
-              bytes += chunk.value.byteLength;
-              if (bytes > 4194304) throw new Error('response-too-large');
-              text += decoder.decode(chunk.value, {stream: true});
-              if (text.length > 2097152) throw new Error('response-too-large');
-            }
-            text += decoder.decode();
-            return {status: response.status, body: text};
-          ''',
-              arguments: {
-                'url': uri.toString(),
-                'method': method,
-                'headers': {
-                  ...config.accessHeaders,
-                  if (body != null) 'Content-Type': 'application/json',
-                },
-                'bodyValue': body,
-              },
-            )
-            .timeout(const Duration(seconds: 30));
-        if (result?.error != null || result?.value is! Map) {
-          throw StateError('Hermes dashboard request failed.');
-        }
-        final value = result!.value as Map;
-        final status = value['status'];
-        if (status is! num) {
-          throw StateError('Hermes dashboard returned an invalid status.');
-        }
-        await HermesDashboardCookieStore.register(
-          _root.toString(),
-          generation: _cookieGeneration,
-          baseline: await _cookieBaseline,
-        );
-        completer.complete((
-          status: status.toInt(),
-          body: value['body']?.toString() ?? '',
-        ));
-      } catch (error, stackTrace) {
-        completer.completeError(error, stackTrace);
-      }
-    });
-    return completer.future;
+  }) async {
+    // The headers reach the page through a script that must run before the
+    // page's own, so a device that cannot guarantee that (an Android WebView
+    // without document-start scripts, or iOS, which has no header support at
+    // all) never sends them.
+    if (_accessHeaders.isNotEmpty &&
+        !await HermesDashboardWebViewPolicy.headersSupported(_accessHeaders)) {
+      throw StateError(
+        'This WebView cannot add the gateway headers safely, so the Hermes '
+        'dashboard is unavailable.',
+      );
+    }
+    return _session.request(method, uri, body: body);
   }
 
-  Future<InAppWebViewController> _ensureReady() async {
-    final current = _ready;
-    if (current != null) return current;
-    await _cookieBaseline;
-    final ready = Completer<InAppWebViewController>();
-    _ready = ready.future.timeout(const Duration(seconds: 15));
-    late final HeadlessInAppWebView webView;
-    webView = HeadlessInAppWebView(
+  @override
+  Future<void> reload() => _session.reload();
+
+  @override
+  Future<void> close() => _session.close();
+}
+
+/// The hidden page adds the access headers to its dashboard requests as the
+/// sign-in page does ([HermesDashboardWebViewPolicy]: GETs natively, other
+/// methods through the fetch/XHR script); requests never pass them as
+/// script arguments.
+final class _HeadlessDashboardPage implements HermesDashboardPage {
+  _HeadlessDashboardPage(Uri root, Map<String, String> headers)
+    : _policy = HermesDashboardWebViewPolicy(
+        root: root,
+        accessHeaders: headers,
+      ) {
+    _webView = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(
-        url: WebUri(_root.toString()),
-        headers: config.accessHeaders,
+        url: WebUri(root.toString()),
+        headers: headers,
       ),
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+        useShouldInterceptRequest: headers.isNotEmpty,
+        useShouldOverrideUrlLoading: true,
+      ),
+      // The main frame never leaves the dashboard's exact origin, and a
+      // redirect within it keeps the access headers, which a plain redirect
+      // would drop and the gateway would then refuse.
+      shouldOverrideUrlLoading: (controller, action) async {
+        if (!hermesDashboardRestPageAllowsNavigation(
+          target: action.request.url?.uriValue,
+          isMainFrame: action.isForMainFrame != false,
+          root: root,
+        )) {
+          return NavigationActionPolicy.CANCEL;
+        }
+        if (action.isForMainFrame == false || headers.isEmpty) {
+          return NavigationActionPolicy.ALLOW;
+        }
+        final current = action.request.headers ?? const {};
+        final alreadyInjected = headers.entries.every(
+          (entry) => current[entry.key] == entry.value,
+        );
+        if (alreadyInjected) return NavigationActionPolicy.ALLOW;
+        await controller.loadUrl(
+          urlRequest: URLRequest(
+            url: action.request.url,
+            method: action.request.method,
+            body: action.request.body,
+            headers: _policy.sameOriginHeaders(current),
+          ),
+        );
+        return NavigationActionPolicy.CANCEL;
+      },
+      initialUserScripts: UnmodifiableListView(_policy.userScripts),
+      shouldInterceptRequest: (_, request) =>
+          _policy.interceptSubresource(request),
       onWebViewCreated: (controller) => _controller = controller,
       onLoadStop: (controller, url) {
         final loaded = Uri.tryParse(url?.toString() ?? '');
-        if (loaded != null && _isExactOrigin(loaded) && !ready.isCompleted) {
-          ready.complete(controller);
+        if (loaded != null &&
+            hermesDashboardIsExactOrigin(loaded, root) &&
+            !_loaded.isCompleted) {
+          _loaded.complete();
         }
       },
       onReceivedError: (_, request, _) {
-        if (request.isForMainFrame == true && !ready.isCompleted) {
-          ready.completeError(StateError('Hermes dashboard could not load.'));
+        if (request.isForMainFrame == true && !_loaded.isCompleted) {
+          _loaded.completeError(StateError('Hermes dashboard could not load.'));
         }
       },
     );
-    _webView = webView;
-    try {
-      await webView.run();
-      return await _ready!;
-    } catch (_) {
-      await webView.dispose();
-      _webView = null;
-      _controller = null;
-      _ready = null;
-      rethrow;
+    _webView.run().catchError((Object error, StackTrace stackTrace) {
+      if (!_loaded.isCompleted) _loaded.completeError(error, stackTrace);
+    });
+  }
+
+  final HermesDashboardWebViewPolicy _policy;
+  late final HeadlessInAppWebView _webView;
+  InAppWebViewController? _controller;
+  final Completer<void> _loaded = Completer<void>();
+
+  @override
+  Future<void> get loaded => _loaded.future;
+
+  InAppWebViewController get _live =>
+      _controller ?? (throw StateError('Hermes dashboard is not loaded.'));
+
+  @override
+  Future<Object?> callAsyncJavaScript(
+    String functionBody,
+    Map<String, Object?> arguments,
+  ) async {
+    final result = await _live.callAsyncJavaScript(
+      functionBody: functionBody,
+      arguments: arguments,
+    );
+    if (result?.error != null) {
+      throw StateError('Hermes dashboard request failed.');
     }
+    return result?.value;
   }
 
-  bool _isExactOrigin(Uri uri) =>
-      uri.scheme.toLowerCase() == _root.scheme.toLowerCase() &&
-      uri.host.toLowerCase() == _root.host.toLowerCase() &&
-      uri.port == _root.port;
+  @override
+  Future<Object?> evaluateJavaScript(String source) =>
+      _live.evaluateJavascript(source: source);
 
-  Future<void> reload() async {
-    final controller = _controller;
-    if (controller == null) return;
-    await controller.reload();
-    await Future<void>(() async {
-      while (await controller.evaluateJavascript(
-            source: 'document.readyState',
-          ) !=
-          'complete') {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
-    }).timeout(const Duration(seconds: 15));
-  }
+  @override
+  Future<Uri?> currentUrl() async => (await _live.getUrl())?.uriValue;
 
-  Future<void> close() async {
-    await _tail;
-    await _webView?.dispose();
-    _webView = null;
-    _controller = null;
-    _ready = null;
+  @override
+  Future<void> reload() => _live.reload();
+
+  @override
+  Future<void> dispose() async {
+    // The policy's client closes even when the WebView fails to dispose.
+    try {
+      await _webView.dispose();
+    } finally {
+      _policy.close();
+    }
   }
 }

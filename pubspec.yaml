@@ -1,11 +1,24 @@
 name: conduit
 description: Open-source mobile client for Open-WebUI
-version: 4.1.5+146
+version: 4.2.1+152
 publish_to: 'none'
 
 environment:
   sdk: ">=3.13.0 <4.0.0"
   flutter: ">=3.47.0"
+
+# Pub workspace. The Flutter mobile app stays the workspace root so
+# `flutter run`/`flutter test` keep working from here with no extra flags;
+# the shared packages resolve against the same single lockfile, which is what
+# stops the app and the packages from drifting onto different versions.
+#
+# Members declare `resolution: workspace`. Add new members here *and* there —
+# pub fails loudly if only one side is updated.
+workspace:
+  - packages/conduit_core
+  - packages/conduit_ddgs
+  - packages/conduit_markdown
+  - packages/conduit_theme
 
 dependencies:
   flutter:
@@ -17,8 +30,19 @@ dependencies:
   flutter_driver:
     sdk: flutter
   
+  # Shared desktop/mobile packages (pub workspace members).
+  conduit_core:
+    path: packages/conduit_core
+  conduit_markdown:
+    path: packages/conduit_markdown
+  conduit_theme:
+    path: packages/conduit_theme
+
   # State Management
   flutter_riverpod: ^3.4.3
+  # Non-UI code imports the Flutter-free Riverpod directly, so that those
+  # files can move into packages/conduit_core unchanged.
+  riverpod: ^3.4.3
   
   # Navigation
   go_router: ^18.0.1
@@ -73,6 +97,9 @@ dependencies:
   path_provider: ^2.1.4
   
   # Utilities
+  clock: ^1.1.2
+  collection: ^1.19.1
+  meta: ^1.16.0
   path: ^1.9.0
   uuid: ^4.6.0
   crypto: ^3.0.3
@@ -91,7 +118,7 @@ dependencies:
   connectivity_plus: ^7.3.0
   flutter_cache_manager: ^3.4.1
   http: ^1.5.0
-  flutter_callkit_incoming: ^3.1.5
+  flutter_callkit_incoming: ^3.1.6
   quick_actions: ^1.1.0
   html_unescape: ^2.0.0
   home_widget: ^0.9.3
@@ -111,6 +138,7 @@ dependencies:
   fleather: ^1.27.0
   # Document model + markdown/HTML codecs backing the Fleather note editor.
   parchment: ^1.27.0
+  flutter_webrtc: ^1.6.2+hotfix.4
 
 # Required while mermaid_flutter declares mermaid_core from the hosted source:
 # Pub cannot combine that source with Conduit's unpublished path package, even
@@ -130,6 +158,7 @@ dependency_overrides:
   objective_c: 9.6.0
 
 dev_dependencies:
+  analyzer: ^13.3.0
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
@@ -141,7 +170,6 @@ dev_dependencies:
   riverpod_lint: ^3.1.9
   mocktail: ^1.0.4
   checks: ^0.3.1
-  collection: ^1.19.1
   drift_dev: ^2.34.0
   fake_async: ^1.3.3
   # Used only in tests to mock the microphone permission platform channel.
@@ -159,6 +187,7 @@ flutter:
   assets:
     - THIRD_PARTY_NOTICES.md
     - assets/icons/
+    - assets/model_logos/
     - assets/release_notes/
     - assets/chartjs.min.js
     - assets/flutter_tex.js

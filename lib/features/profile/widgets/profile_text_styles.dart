@@ -7,7 +7,9 @@ TextStyle? profileTitleTextStyle(BuildContext context, {bool large = false}) {
   final baseStyle = large ? theme.headingMedium : theme.bodyMedium;
 
   return baseStyle?.copyWith(
-    color: theme.sidebarForeground,
+    // Page text, not the sidebar's: these tiles sit on settings surfaces, and
+    // some palettes tint the sidebar foreground (T3 Chat uses pink).
+    color: theme.textPrimary,
     fontWeight: FontWeight.w600,
   );
 }
@@ -17,6 +19,6 @@ TextStyle? profileSubtitleTextStyle(BuildContext context) {
   final baseStyle = theme.bodySmall;
 
   return baseStyle?.copyWith(
-    color: theme.sidebarForeground.withValues(alpha: 0.75),
+    color: theme.textSecondary,
   );
 }

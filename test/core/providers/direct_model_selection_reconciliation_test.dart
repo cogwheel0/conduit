@@ -1,24 +1,27 @@
 import 'dart:async';
 
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
-import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../support/fake_time.dart';
 
 final class _PendingDiscovery extends DirectModelDiscoveryController {
   _PendingDiscovery(this.completer);
@@ -92,7 +95,10 @@ final class _CountingModelsApi extends ApiService {
   int getModelsCalls = 0;
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async {
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     getModelsCalls++;
     if (started != null && !started!.isCompleted) started!.complete();
     await release?.future;
@@ -366,7 +372,7 @@ void main() {
     await first;
   });
 
-  test(
+  fakeTimeTest(
     'equivalent direct discovery does not loop cached model refreshes',
     () async {
       final profile = DirectConnectionProfile(

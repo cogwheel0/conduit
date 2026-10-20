@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 
 import 'package:material_ui/material_ui.dart';
@@ -5,12 +6,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../core/models/channel_message.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/api_service.dart';
+import 'package:conduit_core/models/channel_message.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+
 import '../../../core/utils/model_icon_utils.dart';
-import '../../../core/utils/user_avatar_utils.dart'
+
+import 'package:conduit_core/utils/user_avatar_utils.dart'
     show resolveUserProfileImageUrl;
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_components.dart';
@@ -18,10 +22,15 @@ import '../../../shared/widgets/measure_size.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/widgets/modern_chat_input.dart';
-import '../providers/channel_providers.dart';
+
+import 'package:conduit_core/features/channels/providers/channel_app_replies.dart';
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+
 import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
+import 'channel_app_content.dart';
 import 'channel_message_content.dart';
+import 'channel_message_reactions.dart';
 
 /// Side panel (tablet) or bottom sheet (mobile) for
 /// viewing and replying to a message thread.
@@ -33,6 +42,7 @@ class ThreadPanel extends ConsumerStatefulWidget {
     required this.channelId,
     required this.parentMessage,
     required this.onClose,
+    required this.onReactionTap,
     this.overflowButtonBuilder,
   });
 
@@ -44,6 +54,9 @@ class ThreadPanel extends ConsumerStatefulWidget {
 
   /// Called when the user closes the panel.
   final VoidCallback onClose;
+
+  /// Toggles the signed-in user's [emoji] reaction on a reply.
+  final void Function(ChannelMessage reply, String emoji) onReactionTap;
 
   /// Builder for the overflow (+) attachment button.
   final Widget Function(double size)? overflowButtonBuilder;
@@ -83,10 +96,37 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
           widget.parentMessage.id != parentMessageId) {
         return;
       }
-      final message = ChannelMessage.fromJson(json);
-      ref
-          .read(threadMessagesProvider(channelId, parentMessageId).notifier)
-          .prependMessage(message);
+      final me = ref.read(currentUserProvider).value;
+      final posted = ChannelMessage.fromJson(json);
+      final replies = ref.read(
+        threadMessagesProvider(channelId, parentMessageId).notifier,
+      );
+      replies.prependMessage(
+        me == null ? posted : posted.withSenderIfMissing(me),
+      );
+      if (me == null) {
+        // The user is still loading. Do not hold the reply back for it.
+        unawaited(
+          ref.read(currentUserProvider.future).then<void>((user) {
+            if (user == null ||
+                !mounted ||
+                !isChannelRequestOwnerCurrent(
+                  ref: ref,
+                  api: api,
+                  authSessionEpoch: authSessionEpoch,
+                ) ||
+                widget.channelId != channelId ||
+                widget.parentMessage.id != parentMessageId) {
+              return;
+            }
+            try {
+              replies.fillSender(posted.id, user);
+            } on StateError {
+              // The thread was disposed while the user loaded.
+            }
+          }, onError: (_) {}),
+        );
+      }
     } catch (e, st) {
       developer.log(
         'Failed to send thread reply',
@@ -108,91 +148,199 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
     final threadAsync = ref.watch(
       threadMessagesProvider(widget.channelId, widget.parentMessage.id),
     );
+    // Private app replies in this thread, as Open WebUI's thread view keeps
+    // them apart from the channel's.
+    final appRepliesProvider = channelAppRepliesProvider(
+      widget.channelId,
+      widget.parentMessage.id,
+    );
+    final appReplies = ref.watch(appRepliesProvider);
+    final appReplyActions = _AppReplyActions(
+      channelId: widget.channelId,
+      parentId: widget.parentMessage.id,
+      replies: appReplies.values.toList(),
+      onReply: ref.read(appRepliesProvider.notifier).add,
+      onDismiss: ref.read(appRepliesProvider.notifier).dismiss,
+    );
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.surfaceBackground,
-        border: Border(left: BorderSide(color: theme.dividerColor)),
-      ),
-      child: Column(
-        children: [
-          _ThreadHeader(theme: theme, onClose: widget.onClose),
-          const Divider(height: 1),
-          _ParentMessageTile(
-            message: widget.parentMessage,
-            api: api,
-            theme: theme,
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: threadAsync.when(
-                    data: (messages) => _ThreadReplies(
-                      messages: messages
-                          .where((m) => m.id != widget.parentMessage.id)
-                          .toList(),
-                      api: api,
-                      theme: theme,
-                      bottomPadding: _composerHeight + bottomInset,
-                    ),
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => Center(
-                      child: Text(
-                        e.toString(),
-                        style: AppTypography.bodyMediumStyle.copyWith(
-                          color: theme.error,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: bottomInset,
-                  child: ConduitChromeGradientFade.bottom(
-                    contentHeight: (_composerHeight - Spacing.xl).clamp(
-                      0.0,
-                      double.infinity,
-                    ),
-                    fadeHeight: Spacing.md,
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: bottomInset,
-                  child: RepaintBoundary(
-                    child: MeasureSize(
-                      onChange: (size) {
-                        if (!mounted) return;
-                        setState(() => _composerHeight = size.height);
-                      },
-                      child: SafeArea(
-                        top: false,
-                        left: false,
-                        right: false,
-                        minimum: const EdgeInsets.only(bottom: Spacing.sm),
-                        child: ModernChatInput(
-                          onSendMessage: _sendReply,
-                          placeholder: l10n.replyInputPlaceholder,
-                          overflowButtonBuilder: widget.overflowButtonBuilder,
-                          bottomPadding: 0,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+    // The phone sheet can be a native one with no Material behind it, and the
+    // reaction chips need one.
+    return Material(
+      type: MaterialType.transparency,
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.surfaceBackground,
+          border: Border(left: BorderSide(color: theme.dividerColor)),
+        ),
+        child: Column(
+          children: [
+            _ThreadHeader(theme: theme, onClose: widget.onClose),
+            const Divider(height: 1),
+            _ParentMessageTile(
+              message: widget.parentMessage,
+              api: api,
+              theme: theme,
+              appReplies: appReplyActions,
             ),
-          ),
-        ],
+            const Divider(height: 1),
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: threadAsync.when(
+                      data: (messages) => _ThreadReplies(
+                        messages: messages
+                            .where((m) => m.id != widget.parentMessage.id)
+                            .toList(),
+                        api: api,
+                        theme: theme,
+                        currentUserId: ref.watch(currentUserProvider).value?.id,
+                        onReactionTap: widget.onReactionTap,
+                        appReplies: appReplyActions,
+                        bottomPadding: _composerHeight + bottomInset,
+                      ),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (e, _) => Center(
+                        child: Text(
+                          e.toString(),
+                          style: AppTypography.bodyMediumStyle.copyWith(
+                            color: theme.error,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: bottomInset,
+                    child: ConduitChromeGradientFade.bottom(
+                      contentHeight: (_composerHeight - Spacing.xl).clamp(
+                        0.0,
+                        double.infinity,
+                      ),
+                      fadeHeight: Spacing.md,
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: bottomInset,
+                    child: RepaintBoundary(
+                      child: MeasureSize(
+                        onChange: (size) {
+                          if (!mounted) return;
+                          setState(() => _composerHeight = size.height);
+                        },
+                        child: SafeArea(
+                          top: false,
+                          left: false,
+                          right: false,
+                          minimum: const EdgeInsets.only(bottom: Spacing.sm),
+                          child: ModernChatInput(
+                            onSendMessage: _sendReply,
+                            placeholder: l10n.replyInputPlaceholder,
+                            overflowButtonBuilder: widget.overflowButtonBuilder,
+                            bottomPadding: 0,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+/// The private app replies of a thread and how to add or dismiss one.
+class _AppReplyActions {
+  const _AppReplyActions({
+    required this.channelId,
+    required this.parentId,
+    required this.replies,
+    required this.onReply,
+    required this.onDismiss,
+  });
+
+  final String channelId;
+  final String parentId;
+  final List<AppChannelReplyEvent> replies;
+  final ValueChanged<AppChannelReplyEvent> onReply;
+  final ValueChanged<String> onDismiss;
+
+  /// The app cards of [message], when an app posted it.
+  Widget cardsOf(ChannelMessage message) => message.isAppMessage
+      ? ChannelAppMessageCards(
+          // Rows are reused by position; a button's state stays with its
+          // message.
+          key: ValueKey(message.id),
+          message: message,
+          channelId: channelId,
+          parentId: parentId,
+          onReply: onReply,
+        )
+      : const SizedBox.shrink();
+
+  /// The private replies shown under [message].
+  List<Widget> repliesTo(ChannelMessage message, {double avatarSize = 28}) => [
+    for (final reply in replies)
+      if (reply.messageId == message.id)
+        ChannelPrivateAppReply(
+          key: ValueKey<String>('thread-app-reply-${reply.key}'),
+          event: reply,
+          avatarSize: avatarSize,
+          onDismiss: () => onDismiss(reply.key),
+        ),
+  ];
+}
+
+/// The avatar of a thread message's sender: a model, an app or a user.
+Widget _senderAvatar(ApiService? api, ChannelMessage message, double size) {
+  if (isModelMessage(message)) {
+    return ModelAvatar(
+      size: size,
+      imageUrl: buildModelAvatarUrl(api, message.meta?['model_id'] as String?),
+      label: messageDisplayName(message),
+    );
+  }
+  final imageUrl = resolveUserProfileImageUrl(
+    api,
+    message.user?.profileImageUrl,
+  );
+  if (message.isAppMessage) {
+    return ChannelAppAvatar(size: size, imageUrl: imageUrl);
+  }
+  return UserAvatar(
+    size: size,
+    imageUrl: imageUrl,
+    fallbackText: message.userName,
+  );
+}
+
+/// The sender's name, with the "App" label for an app.
+Widget _senderName(ConduitThemeExtension theme, ChannelMessage message) {
+  final name = Text(
+    messageDisplayName(message),
+    style: AppTypography.bodySmallStyle.copyWith(
+      color: theme.textSecondary,
+      fontWeight: FontWeight.w500,
+      letterSpacing: 0.1,
+    ),
+  );
+  if (!message.isAppMessage) return name;
+  return Row(
+    children: [
+      Flexible(child: name),
+      const SizedBox(width: Spacing.xs),
+      const ChannelAppBadge(),
+    ],
+  );
 }
 
 /// Header row with "Thread" title and a close button.
@@ -236,60 +384,46 @@ class _ParentMessageTile extends StatelessWidget {
     required this.message,
     this.api,
     required this.theme,
+    required this.appReplies,
   });
 
   final ChannelMessage message;
   final ApiService? api;
   final ConduitThemeExtension theme;
+  final _AppReplyActions appReplies;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final tile = Padding(
       padding: const EdgeInsets.all(Spacing.md),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildAvatar(),
+          _senderAvatar(api, message, 28),
           const SizedBox(width: Spacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  messageDisplayName(message),
-                  style: AppTypography.bodySmallStyle.copyWith(
-                    color: theme.textSecondary,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.1,
-                  ),
-                ),
+                _senderName(theme, message),
                 const SizedBox(height: Spacing.xxs),
                 ChannelMessageContent(
                   content: message.content,
                   stateScopeId: 'channel-thread-parent:${message.id}',
                 ),
                 ChannelMessageAttachments(files: message.data?['files']),
+                appReplies.cardsOf(message),
               ],
             ),
           ),
         ],
       ),
     );
-  }
-
-  Widget _buildAvatar() {
-    if (isModelMessage(message)) {
-      final modelId = message.meta!['model_id'] as String?;
-      return ModelAvatar(
-        size: 28,
-        imageUrl: buildModelAvatarUrl(api, modelId),
-        label: messageDisplayName(message),
-      );
-    }
-    return UserAvatar(
-      size: 28,
-      imageUrl: resolveUserProfileImageUrl(api, message.user?.profileImageUrl),
-      fallbackText: message.userName,
+    final replies = appReplies.repliesTo(message);
+    if (replies.isEmpty) return tile;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [tile, ...replies],
     );
   }
 }
@@ -300,12 +434,18 @@ class _ThreadReplies extends StatelessWidget {
     required this.messages,
     this.api,
     required this.theme,
+    required this.currentUserId,
+    required this.onReactionTap,
+    required this.appReplies,
     this.bottomPadding = 0,
   });
 
   final List<ChannelMessage> messages;
   final ApiService? api;
   final ConduitThemeExtension theme;
+  final String? currentUserId;
+  final void Function(ChannelMessage reply, String emoji) onReactionTap;
+  final _AppReplyActions appReplies;
   final double bottomPadding;
 
   @override
@@ -320,6 +460,10 @@ class _ThreadReplies extends StatelessWidget {
         ),
       );
     }
+    // Rows are keyed by message, so what a row holds moves with it.
+    final indexById = {
+      for (final (index, message) in messages.indexed) message.id: index,
+    };
     return ListView.builder(
       reverse: false,
       padding: EdgeInsets.fromLTRB(
@@ -329,9 +473,11 @@ class _ThreadReplies extends StatelessWidget {
         Spacing.sm + bottomPadding,
       ),
       itemCount: messages.length,
+      findChildIndexCallback: (key) =>
+          key is ValueKey<String> ? indexById[key.value] : null,
       itemBuilder: (context, index) {
         final message = messages[index];
-        return Padding(
+        final row = Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: Spacing.md,
             vertical: Spacing.xs,
@@ -339,48 +485,41 @@ class _ThreadReplies extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (isModelMessage(message))
-                ModelAvatar(
-                  size: 24,
-                  imageUrl: buildModelAvatarUrl(
-                    api,
-                    message.meta?['model_id'] as String?,
-                  ),
-                  label: messageDisplayName(message),
-                )
-              else
-                UserAvatar(
-                  size: 24,
-                  imageUrl: resolveUserProfileImageUrl(
-                    api,
-                    message.user?.profileImageUrl,
-                  ),
-                  fallbackText: message.userName,
-                ),
+              _senderAvatar(api, message, 24),
               const SizedBox(width: Spacing.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      messageDisplayName(message),
-                      style: AppTypography.bodySmallStyle.copyWith(
-                        color: theme.textSecondary,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.1,
-                      ),
-                    ),
+                    _senderName(theme, message),
                     const SizedBox(height: 2),
                     ChannelMessageContent(
                       content: message.content,
                       stateScopeId: 'channel-thread:${message.id}',
                     ),
                     ChannelMessageAttachments(files: message.data?['files']),
+                    appReplies.cardsOf(message),
+                    if (message.reactions.isNotEmpty)
+                      ChannelMessageReactions(
+                        reactions: message.reactions,
+                        currentUserId: currentUserId,
+                        onReactionTap: (emoji) => onReactionTap(message, emoji),
+                      ),
                   ],
                 ),
               ),
             ],
           ),
+        );
+        final replies = appReplies.repliesTo(message, avatarSize: 24);
+        return KeyedSubtree(
+          key: ValueKey<String>(message.id),
+          child: replies.isEmpty
+              ? row
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [row, ...replies],
+                ),
         );
       },
     );

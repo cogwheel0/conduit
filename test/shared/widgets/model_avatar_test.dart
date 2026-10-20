@@ -30,18 +30,6 @@ void main() {
       expect(find.byIcon(Icons.psychology), findsOneWidget);
     });
 
-    testWidgets('widget can be found by type', (tester) async {
-      await tester.pumpWidget(
-        ProviderScope(
-          child: MaterialApp(
-            home: Scaffold(body: ModelAvatar(size: 40, label: 'Test')),
-          ),
-        ),
-      );
-
-      expect(find.byType(ModelAvatar), findsOneWidget);
-    });
-
     testWidgets('renders bundled asset avatars', (tester) async {
       await tester.pumpWidget(
         const ProviderScope(

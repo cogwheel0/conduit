@@ -1,11 +1,15 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/utils/debug_logger.dart';
-import '../../../shared/models/connection_attempt.dart';
-import '../models/direct_connection_profile.dart';
-import '../models/direct_remote_model.dart';
-import '../services/direct_adapter_helpers.dart';
-import 'direct_connection_editor_draft.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/models/connection_attempt.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+
 import 'direct_connection_editor_form.dart';
 
 enum DirectEditorOperation { idle, saving, testing, deleting }
@@ -246,8 +250,14 @@ typedef DirectDeleteConfirmation = Future<bool> Function(
 final class DirectConnectionEditorWorkflow extends ChangeNotifier {
   DirectConnectionEditorWorkflow({
     required DirectConnectionEditorGateway gateway,
+    String? defaultConnectionName,
   }) : _gateway = gateway,
-       form = DirectConnectionEditorForm(mode: gateway.mode),
+       form = defaultConnectionName == null
+           ? DirectConnectionEditorForm(mode: gateway.mode)
+           : DirectConnectionEditorForm(
+               mode: gateway.mode,
+               defaultName: defaultConnectionName,
+             ),
        _resourceState = gateway.resourceState {
     form.addListener(_handleFormChanged);
     _resourceSubscription = gateway.subscribe(

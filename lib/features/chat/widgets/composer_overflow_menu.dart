@@ -10,15 +10,23 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
-import '../../../shared/widgets/platform_ui/platform_ui.dart';
-import '../../../core/models/toggle_filter.dart';
-import '../../../core/models/tool.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/models/toggle_filter.dart';
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../terminal/providers/terminal_providers.dart';
-import '../../direct_connections/direct_connections.dart';
-import '../../direct_connections/providers/direct_mcp_providers.dart';
-import '../providers/chat_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
+
+import '../../integrations/views/personal_connection_messages.dart';
+
 import 'composer_overflow_items.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -33,6 +41,8 @@ class ToggleTile extends StatelessWidget {
     required this.selected,
     required this.onToggle,
     required this.theme,
+    this.isAction = false,
+    this.enabled = true,
   });
 
   final Widget glyph;
@@ -42,56 +52,101 @@ class ToggleTile extends StatelessWidget {
   final VoidCallback onToggle;
   final ConduitThemeExtension theme;
 
+  /// A command row that opens something: announced as a button, never as a
+  /// toggle, and marked with a chevron instead of a checkmark.
+  final bool isAction;
+
+  /// A row that only explains itself, such as an option the server cannot
+  /// offer, stays visible but cannot be tapped.
+  final bool enabled;
+
   @override
   Widget build(BuildContext context) {
+    // A flat menu row: plain glyph, regular-weight title, and a
+    // checkmark only while the option is on.
+    void handleTap() {
+      ConduitHaptics.selectionClick();
+      onToggle();
+    }
+
+    // The labelled node replaces the InkWell's, so it must carry the tap.
     return Semantics(
       button: true,
-      toggled: selected,
+      enabled: enabled,
+      toggled: isAction ? null : selected,
       label: title,
       hint: (subtitle?.isEmpty ?? true) ? null : subtitle,
-      child: ConduitCard(
-        padding: const EdgeInsets.all(Spacing.md),
-        onTap: () {
-          ConduitHaptics.selectionClick();
-          onToggle();
-        },
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            glyph,
-            const SizedBox(width: Spacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      excludeSemantics: true,
+      onTap: enabled ? handleTap : null,
+      child: Opacity(
+        opacity: enabled ? 1.0 : Alpha.disabled,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppBorderRadius.md),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: enabled ? handleTap : null,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.xs,
+                vertical: Spacing.xs + Spacing.xxs,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    title,
-                    style: AppTypography.bodyMediumStyle.copyWith(
-                      color: theme.sidebarForeground,
-                      fontWeight: FontWeight.w600,
+                  glyph,
+                  const SizedBox(width: Spacing.sm + Spacing.xs),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: AppTypography.bodyMediumStyle.copyWith(
+                            color: theme.textPrimary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (subtitle != null && subtitle!.isNotEmpty)
+                          Text(
+                            subtitle!,
+                            // A command or an option that is off explains
+                            // itself, so it gets room to finish the sentence.
+                            maxLines: isAction || !enabled ? 2 : 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.labelSmallStyle.copyWith(
+                              color: theme.textSecondary,
+                            ),
+                          ),
+                      ],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  if (subtitle != null && subtitle!.isNotEmpty) ...[
-                    const SizedBox(height: Spacing.xs),
-                    Text(
-                      subtitle!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.bodySmallStyle.copyWith(
-                        color: theme.sidebarForeground.withValues(alpha: 0.75),
-                      ),
-                    ),
-                  ],
+                  const SizedBox(width: Spacing.sm),
+                  SizedBox(
+                    width: IconSize.small,
+                    child: isAction
+                        ? Icon(
+                            Platform.isIOS
+                                ? CupertinoIcons.chevron_forward
+                                : Icons.chevron_right,
+                            color: theme.textSecondary,
+                            size: IconSize.small,
+                          )
+                        : selected
+                        ? Icon(
+                            Platform.isIOS
+                                ? CupertinoIcons.checkmark_alt
+                                : Icons.check_rounded,
+                            color: theme.textPrimary,
+                            size: IconSize.small,
+                          )
+                        : null,
+                  ),
                 ],
               ),
             ),
-            const SizedBox(width: Spacing.sm),
-            IgnorePointer(
-              child: AdaptiveSwitch(value: selected, onChanged: (_) {}),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -137,6 +192,9 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
     this.onCameraCapture,
     this.onWebAttachment,
     this.onMcpContent,
+    this.onToolSettings,
+    this.onCompareModels,
+    this.compareModelsHasMessage = true,
   });
 
   /// Restricts the sheet to device-local attachment actions supplied by the
@@ -151,6 +209,17 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
   final VoidCallback? onCameraCapture;
   final VoidCallback? onWebAttachment;
   final VoidCallback? onMcpContent;
+
+  /// Opens the personal tool settings sheet. Null hides the Advanced command.
+  final VoidCallback? onToolSettings;
+
+  /// Starts a model comparison from the composer's message. Null hides the
+  /// Advanced command.
+  final VoidCallback? onCompareModels;
+
+  /// Whether the composer holds a message to compare. Until it does, the
+  /// command stays visible but off and says why.
+  final bool compareModelsHasMessage;
 
   @override
   ConsumerState<ComposerAttachmentKeyboard> createState() =>
@@ -246,6 +315,10 @@ class _ComposerAttachmentKeyboardState
           webSearchEnabled: webSearchEnabled,
           imageGenerationAvailable: imageGenAvailable,
           imageGenerationEnabled: imageGenEnabled,
+          // Only an Open WebUI server runs the interpreter.
+          codeInterpreter: restrictedMode
+              ? null
+              : ref.watch(codeInterpreterOfferProvider),
         ).map((item) {
           return _buildOverflowItemTile(
             item: item,
@@ -265,6 +338,9 @@ class _ComposerAttachmentKeyboardState
     final selectedTerminalId = restrictedMode
         ? null
         : ref.watch(selectedTerminalIdProvider);
+    final clearedConnections = restrictedMode
+        ? const <String>[]
+        : ref.watch(personalSelectionNoticeProvider);
     final availableTerminalServersAsync = restrictedMode
         ? null
         : ref.watch(terminalAvailableServersProvider);
@@ -302,13 +378,10 @@ class _ComposerAttachmentKeyboardState
             },
             loading: () => directMode
                 ? const SizedBox.shrink()
-                : Center(
-                    child: SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: BorderWidth.thin,
-                      ),
+                : const Center(
+                    child: ConduitLoadingIndicator(
+                      size: IconSize.lg,
+                      isCompact: true,
                     ),
                   ),
             error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
@@ -319,9 +392,9 @@ class _ComposerAttachmentKeyboardState
             future: userSettingsFuture,
             builder: (context, snapshot) {
               final settings = snapshot.data;
-              final directToolServers = _extractConfiguredServers(
+              final directToolServers = effectivePersonalServerList(
                 settings,
-                'toolServers',
+                PersonalConnectionKind.toolServer.settingsKey,
               );
               final directToolTiles = <Widget>[];
               for (var index = 0; index < directToolServers.length; index++) {
@@ -330,7 +403,10 @@ class _ComposerAttachmentKeyboardState
                   continue;
                 }
 
-                final selectionId = _directServerSelectionId(server, index);
+                final selectionId = personalToolServerSelectionId(
+                  directToolServers,
+                  index,
+                );
                 final isSelected = selectedToolIds.contains(selectionId);
                 directToolTiles.add(
                   _buildToggleTile(
@@ -419,7 +495,7 @@ class _ComposerAttachmentKeyboardState
 
     final listItems = <Widget>[
       SizedBox(
-        height: 94,
+        height: MediaQuery.textScalerOf(context).scale(_attachmentTileHeight),
         child: HorizontalOverflowFade(
           child: HorizontalScrollGestureBoundary(
             child: ListView.separated(
@@ -429,20 +505,47 @@ class _ComposerAttachmentKeyboardState
               padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
               itemCount: attachments.length,
               separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
-              itemBuilder: (_, index) =>
-                  SizedBox(width: 76, child: attachments[index]),
+              // Tiles widen to fit longer localized labels.
+              itemBuilder: (_, index) => ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minWidth: _attachmentTileWidth,
+                  maxWidth: _attachmentTileMaxWidth,
+                ),
+                child: IntrinsicWidth(child: attachments[index]),
+              ),
             ),
           ),
         ),
       ),
       if (featureTiles.isNotEmpty) ...[
-        const SizedBox(height: Spacing.xs),
-        ...withVerticalSpacing(featureTiles, Spacing.xxs),
+        const SizedBox(height: Spacing.sm),
+        ...featureTiles,
       ],
+      if (!restrictedMode && widget.onCompareModels != null)
+        ..._buildCompareModelsTiles(l10n),
       if (!widget.localAttachmentsOnly) ...[
         const SizedBox(height: Spacing.sm),
         _buildSectionLabel(l10n.tools),
         toolsSection,
+        if (!restrictedMode && widget.onToolSettings != null)
+          ..._buildToolSettingsTiles(l10n),
+      ],
+      if (clearedConnections.isNotEmpty) ...[
+        const SizedBox(height: Spacing.sm),
+        _buildInfoCard(
+          l10n.personalConnectionsSelectionCleared(
+            personalSelectionNoticeText(l10n, clearedConnections),
+          ),
+        ),
+        Align(
+          alignment: AlignmentDirectional.centerEnd,
+          child: TextButton(
+            key: const Key('personal-selection-notice-dismiss'),
+            onPressed: () =>
+                ref.read(personalSelectionNoticeProvider.notifier).clear(),
+            child: Text(l10n.ok),
+          ),
+        ),
       ],
       if (!restrictedMode) ...[integrationsSection],
     ];
@@ -507,12 +610,72 @@ class _ComposerAttachmentKeyboardState
     );
   }
 
+  /// The Advanced "Tool settings" command, built from the same item the
+  /// native iOS panel renders so both surfaces offer the identical action.
+  List<Widget> _buildToolSettingsTiles(AppLocalizations l10n) {
+    final theme = context.conduitTheme;
+    return [
+      for (final item in buildComposerOverflowToolSettingsItems(
+        l10n: l10n,
+        available: true,
+      ))
+        Padding(
+          padding: const EdgeInsets.only(top: Spacing.xxs),
+          child: ToggleTile(
+            glyph: _buildIconGlyph(
+              icon: item.iconFor(useCupertino: Platform.isIOS),
+              selected: false,
+              theme: theme,
+            ),
+            title: item.label,
+            subtitle: item.subtitle,
+            selected: false,
+            isAction: true,
+            // The composer's handler captures the owner before it dismisses
+            // this panel, so it runs synchronously from the tap.
+            onToggle: widget.onToolSettings!,
+            theme: theme,
+          ),
+        ),
+    ];
+  }
+
+  /// The Advanced "Compare models" command, built from the same item the
+  /// native iOS panel renders so both surfaces offer the identical action.
+  List<Widget> _buildCompareModelsTiles(AppLocalizations l10n) {
+    final theme = context.conduitTheme;
+    return [
+      for (final item in buildComposerOverflowComparisonItems(
+        l10n: l10n,
+        available: true,
+        hasMessage: widget.compareModelsHasMessage,
+      ))
+        Padding(
+          padding: const EdgeInsets.only(top: Spacing.xxs),
+          child: ToggleTile(
+            glyph: _buildIconGlyph(
+              icon: item.iconFor(useCupertino: Platform.isIOS),
+              selected: false,
+              theme: theme,
+            ),
+            title: item.label,
+            subtitle: item.subtitle,
+            selected: false,
+            isAction: true,
+            enabled: item.enabled,
+            onToggle: widget.onCompareModels!,
+            theme: theme,
+          ),
+        ),
+    ];
+  }
+
   Widget _buildSectionLabel(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.xxs),
       child: Text(
         text,
-        style: AppTypography.labelStyle.copyWith(
+        style: AppTypography.labelSmallStyle.copyWith(
           color: context.conduitTheme.textSecondary.withValues(
             alpha: Alpha.strong,
           ),
@@ -535,24 +698,6 @@ class _ComposerAttachmentKeyboardState
     );
   }
 
-  List _extractConfiguredServers(Map<String, dynamic>? settings, String key) {
-    if (settings == null) {
-      return const [];
-    }
-
-    final rootValue = settings[key];
-    if (rootValue is List) {
-      return rootValue;
-    }
-
-    final uiValue = settings['ui'];
-    if (uiValue is Map && uiValue[key] is List) {
-      return uiValue[key] as List;
-    }
-
-    return const [];
-  }
-
   bool _isServerEnabled(dynamic server) {
     if (server is! Map) {
       return false;
@@ -569,14 +714,6 @@ class _ComposerAttachmentKeyboardState
     }
 
     return true;
-  }
-
-  String _directServerSelectionId(dynamic server, int index) {
-    final serverId = server is Map ? server['id']?.toString().trim() : null;
-    final suffix = serverId != null && serverId.isNotEmpty
-        ? serverId
-        : index.toString();
-    return 'direct_server:$suffix';
   }
 
   String _serverTitle(dynamic server, {required String fallbackPrefix}) {
@@ -638,74 +775,66 @@ class _ComposerAttachmentKeyboardState
     }
   }
 
+  static const double _attachmentTileWidth = 78;
+  static const double _attachmentTileMaxWidth = 160;
+  static const double _attachmentTileHeight = 58;
+
+  /// Attach tile: a filled rounded square holding its icon and
+  /// label, so a row of them reads as one control group.
   Widget _buildAction({
     required ComposerOverflowItem item,
     VoidCallback? onTap,
   }) {
     final theme = context.conduitTheme;
     final bool enabled = onTap != null;
-    final Color iconColor = enabled ? theme.buttonPrimary : theme.iconDisabled;
-    final Color textColor = enabled
-        ? theme.sidebarForeground
-        : theme.sidebarForeground.withValues(alpha: Alpha.disabled);
+    final Color foreground = enabled ? theme.textPrimary : theme.iconDisabled;
+    final VoidCallback? handleTap = onTap == null
+        ? null
+        : () {
+            ConduitHaptics.lightImpact();
+            widget.onDismiss?.call();
+            Future.microtask(onTap);
+          };
 
+    // The labelled node replaces the InkWell's, so it must carry the tap.
     return Semantics(
       button: true,
       enabled: enabled,
       label: item.label,
       excludeSemantics: true,
+      onTap: handleTap,
       child: Opacity(
         opacity: enabled ? 1.0 : Alpha.disabled,
         child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          color: theme.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppBorderRadius.md + 2),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: onTap == null
-                ? null
-                : () {
-                    ConduitHaptics.lightImpact();
-                    widget.onDismiss?.call();
-                    Future.microtask(onTap);
-                  },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 76,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: enabled
-                        ? iconColor.withValues(alpha: 0.10)
-                        : theme.surfaceContainer.withValues(alpha: 0.60),
-                    borderRadius: BorderRadius.circular(AppBorderRadius.round),
-                    border: Border.all(
-                      color: enabled
-                          ? iconColor.withValues(alpha: 0.18)
-                          : Colors.transparent,
-                      width: BorderWidth.thin,
+            onTap: handleTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    item.iconFor(useCupertino: Platform.isIOS),
+                    color: foreground,
+                    size: IconSize.message,
+                  ),
+                  const SizedBox(height: Spacing.xxs),
+                  Text(
+                    item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: AppTypography.labelSmallStyle.copyWith(
+                      color: foreground,
+                      height: 1.1,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  alignment: Alignment.center,
-                  child: Icon(
-                    item.iconFor(useCupertino: Platform.isIOS),
-                    color: iconColor,
-                    size: IconSize.medium,
-                  ),
-                ),
-                const SizedBox(height: Spacing.xs),
-                Text(
-                  item.label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: AppTypography.labelMediumStyle.copyWith(
-                    color: textColor,
-                    height: 1.1,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -720,6 +849,7 @@ class _ComposerAttachmentKeyboardState
     required bool value,
     required ValueChanged<bool> onChanged,
     String? iconUrl,
+    bool enabled = true,
   }) {
     final theme = context.conduitTheme;
     final glyph = iconUrl != null && iconUrl.isNotEmpty
@@ -732,6 +862,7 @@ class _ComposerAttachmentKeyboardState
       selected: value,
       onToggle: () => onChanged(!value),
       theme: theme,
+      enabled: enabled,
     );
   }
 
@@ -745,6 +876,7 @@ class _ComposerAttachmentKeyboardState
       subtitle: item.subtitle,
       value: item.selected,
       onChanged: onChanged,
+      enabled: item.enabled,
     );
   }
 
@@ -773,21 +905,7 @@ class _ComposerAttachmentKeyboardState
     required bool selected,
     required ConduitThemeExtension theme,
   }) {
-    final color = selected ? theme.buttonPrimary : theme.iconPrimary;
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, color: color, size: IconSize.medium),
-    );
+    return Icon(icon, color: theme.iconPrimary, size: IconSize.message);
   }
 
   Widget _buildFilterGlyph({
@@ -795,27 +913,17 @@ class _ComposerAttachmentKeyboardState
     required bool selected,
     required ConduitThemeExtension theme,
   }) {
-    final color = selected ? theme.buttonPrimary : theme.iconPrimary;
-    final fallback = Icon(
+    if (iconUrl != null && iconUrl.isNotEmpty) {
+      return ModelAvatar(
+        size: IconSize.message,
+        imageUrl: iconUrl,
+        label: null,
+      );
+    }
+    return Icon(
       Platform.isIOS ? CupertinoIcons.sparkles : Icons.auto_awesome,
-      color: color,
-      size: IconSize.medium,
-    );
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: iconUrl != null && iconUrl.isNotEmpty
-          ? ModelAvatar(size: 40, imageUrl: iconUrl, label: null)
-          : fallback,
+      color: theme.iconPrimary,
+      size: IconSize.message,
     );
   }
 }

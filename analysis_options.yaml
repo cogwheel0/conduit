@@ -19,6 +19,8 @@ analyzer:
     - macos/**
     - linux/**
     - pigeons/**
+    # Its own package, with its own pubspec; the root does not resolve it.
+    - tool/pigeon_codegen/**
     - third_party/**
 
 plugins:

@@ -1,18 +1,19 @@
 import 'dart:async';
 
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/app_intents_service.dart';
-import 'package:conduit/core/services/home_widget_service.dart';
-import 'package:conduit/core/services/quick_actions_service.dart';
-import 'package:conduit/core/utils/android_assistant_handler.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit/platform/app_intents_service.dart';
+import 'package:conduit/platform/home_widget_service.dart';
+import 'package:conduit/platform/quick_actions_service.dart';
+import 'package:conduit/platform/android_assistant_handler.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/chat/voice_call/presentation/voice_call_launcher.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 const _assistantChannel = 'app.cogwheel.conduit/assistant';
 const _codec = StandardMethodCodec();
@@ -22,7 +23,7 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   });
 
   tearDown(() {
@@ -58,11 +59,11 @@ void main() {
     expect(launcher.startNewConversationCalls, [isTrue]);
   });
 
-  test('voice quick action bypasses a signed-out queue head', () {
+  test('voice quick action bypasses a queue head that is not chat-ready', () {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_voice_call'],
-        authState: AuthNavigationState.needsLogin,
+        chatReady: false,
         voiceCanBypassAuthLoading: false,
       ),
       isNull,
@@ -70,7 +71,7 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_new_chat', 'conduit_voice_call'],
-        authState: AuthNavigationState.needsLogin,
+        chatReady: false,
         voiceCanBypassAuthLoading: false,
       ),
       isNull,
@@ -78,7 +79,7 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_new_chat', 'conduit_voice_call'],
-        authState: AuthNavigationState.needsLogin,
+        chatReady: false,
         voiceCanBypassAuthLoading: true,
       ),
       1,
@@ -86,7 +87,7 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_voice_call'],
-        authState: AuthNavigationState.needsLogin,
+        chatReady: false,
         voiceCanBypassAuthLoading: true,
       ),
       0,
@@ -94,23 +95,7 @@ void main() {
     expect(
       quickActionDispatchIndex(
         queuedTypes: const ['conduit_voice_call'],
-        authState: AuthNavigationState.loading,
-        voiceCanBypassAuthLoading: false,
-      ),
-      isNull,
-    );
-    expect(
-      quickActionDispatchIndex(
-        queuedTypes: const ['conduit_new_chat', 'conduit_voice_call'],
-        authState: AuthNavigationState.loading,
-        voiceCanBypassAuthLoading: true,
-      ),
-      1,
-    );
-    expect(
-      quickActionDispatchIndex(
-        queuedTypes: const ['conduit_voice_call'],
-        authState: AuthNavigationState.authenticated,
+        chatReady: true,
         voiceCanBypassAuthLoading: false,
       ),
       0,

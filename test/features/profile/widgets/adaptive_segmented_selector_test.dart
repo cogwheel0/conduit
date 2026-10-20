@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit/features/profile/widgets/adaptive_segmented_selector.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -16,7 +17,7 @@ void main() {
     TargetPlatform.android,
   ]) {
     testWidgets(
-      'does not select a disabled current value on ${platform.name}',
+      'settings segments keep one icon and reject disabled values on ${platform.name}',
       (tester) async {
         await tester.pumpWidget(
           MaterialApp(
@@ -47,11 +48,15 @@ void main() {
         );
 
         if (platform == TargetPlatform.iOS) {
+          expect(find.byIcon(CupertinoIcons.circle), findsNWidgets(2));
+          expect(find.byIcon(Icons.circle_outlined), findsNothing);
           final selector = tester.widget<CupertinoSlidingSegmentedControl<int>>(
             find.byType(CupertinoSlidingSegmentedControl<int>),
           );
           check(selector.groupValue).isNull();
         } else {
+          expect(find.byIcon(Icons.circle_outlined), findsNWidgets(2));
+          expect(find.byIcon(CupertinoIcons.circle), findsNothing);
           final selector = tester.widget<SegmentedButton<int>>(
             find.byType(SegmentedButton<int>),
           );
@@ -66,7 +71,7 @@ void main() {
 
   testWidgets('selection emits one haptic', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     final calls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

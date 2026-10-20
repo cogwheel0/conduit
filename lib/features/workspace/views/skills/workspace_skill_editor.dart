@@ -7,10 +7,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/models/workspace_skill_content.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
@@ -396,37 +397,43 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   Future<void> _manageAccess() async {
     final l10n = AppLocalizations.of(context)!;
     final capabilities = _capabilities;
+    final summary = widget.summary;
+    // An existing skill saves from the sheet, which stays open with the error
+    // when the save fails. A new one keeps the grants for its first save.
     final grants = await WorkspaceAccessGrantSheet.show(
       context,
       initialGrants: _grants,
       capabilities: capabilities.skills,
       allowUserGrants: capabilities.allowUserGrants,
+      allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: !_writeAccess,
+      resourceName: summary?.name,
+      onSave: summary != null && _writeAccess
+          ? (grants, _) async {
+              final saved = await WorkspaceEditorOperationRunner.stay<void>(
+                session: _session,
+                scope: 'workspace/skills',
+                operationLabel: 'skill access update',
+                editorMounted: () => mounted,
+                operation: () => ref
+                    .read(workspaceSkillsProvider.notifier)
+                    .updateAccess(summary.id, grants),
+                onSuccess: (_) {
+                  setState(() => _grants = grants);
+                  _showSnack(l10n.workspaceSkillSaved);
+                },
+              );
+              return saved
+                  ? const WorkspaceAccessSaveOutcome.saved()
+                  : WorkspaceAccessSaveOutcome.failed(
+                      l10n.workspaceSkillSaveFailed,
+                    );
+            }
+          : null,
     );
-    if (grants == null || !mounted) return;
-    final summary = widget.summary;
-    // In create mode (or without write access) the grants are held locally and
-    // persisted with the first save.
-    if (summary == null || !_writeAccess) {
-      setState(() => _grants = grants);
-      if (summary == null) _session.markDirty();
-      return;
-    }
-    await WorkspaceEditorOperationRunner.stay<void>(
-      session: _session,
-      scope: 'workspace/skills',
-      operationLabel: 'skill access update',
-      editorMounted: () => mounted,
-      operation: () => ref
-          .read(workspaceSkillsProvider.notifier)
-          .updateAccess(summary.id, grants),
-      onSuccess: (_) {
-        setState(() => _grants = grants);
-        _showSnack(l10n.workspaceSkillSaved);
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceSkillSaveFailed, isError: true),
-    );
+    if (grants == null || !mounted || summary != null) return;
+    setState(() => _grants = grants);
+    _session.markDirty();
   }
 
   /// Markdown import: reads a `.md` file, parses front-matter, and prefills the
@@ -486,7 +493,7 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
         items,
         importItem: (item) => ref
             .read(workspaceSkillsProvider.notifier)
-            .importSkill(_formFromImport(item)),
+            .importSkill(workspaceSkillFormFromImport(item)),
         labelOf: (item) =>
             item['name']?.toString() ?? item['id']?.toString() ?? '',
       ),
@@ -504,7 +511,9 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
           .read(workspaceSkillsProvider.notifier)
           .exportAll();
       if (!mounted) return;
-      final payload = [for (final item in skills) _exportMap(item)];
+      final payload = [
+        for (final item in skills) workspaceSkillExportMap(item),
+      ];
       await WorkspaceExportController().shareJson(
         filename: 'skills',
         data: payload,
@@ -709,15 +718,11 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
   }
 
   Widget _accessTile(AppLocalizations l10n) {
-    final principals = workspaceSharedPrincipals(_grants);
-    final isPublic = workspaceGrantsArePublic(_grants);
     return WorkspaceResourceTile(
       key: const Key('workspace-skill-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
+      icon: workspaceAccessSummaryIcon(_grants),
       title: l10n.workspaceSkillManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
+      subtitle: workspaceAccessSummary(l10n, _grants),
       onTap: _manageAccess,
     );
   }
@@ -804,29 +809,6 @@ class _WorkspaceSkillFormState extends ConsumerState<_WorkspaceSkillForm> {
       context,
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
-    );
-  }
-
-  Map<String, dynamic> _exportMap(WorkspaceSkillSummary item) => {
-    'id': item.id,
-    'name': item.name,
-    if (item.description != null) 'description': item.description,
-    'content': item.content ?? '',
-    'meta': item.meta,
-    'is_active': item.isActive,
-  };
-
-  WorkspaceSkillForm _formFromImport(Map<String, dynamic> json) {
-    final rawId = json['id']?.toString().trim() ?? '';
-    final name = json['name']?.toString() ?? json['title']?.toString() ?? '';
-    final id = rawId.isEmpty ? WorkspaceSkillContent.slugify(name) : rawId;
-    return WorkspaceSkillForm(
-      id: id,
-      name: name,
-      description: json['description']?.toString(),
-      content: json['content']?.toString() ?? '',
-      meta: json['meta'] is Map ? workspaceJsonMap(json['meta']) : const {},
-      isActive: workspaceBool(json['is_active'], true),
     );
   }
 

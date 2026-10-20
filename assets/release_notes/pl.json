@@ -90,6 +90,140 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Co nowego",
+      "intro": "Cześć! Rozumowanie zostaje we własnym bloku, gdy się streamuje. Tagi think nie pojawiają się już w odpowiedzi. PDF-y znowu docierają do modelu. Głos zamienia się w tekst, gdy przestajesz mówić, a przycisk głośnika działa. Pasek przewijania czatu już nie skacze.",
+      "bullets": [
+        {
+          "text": "Rozumowanie: zostaje we własnym bloku, gdy model pisze. Tagi think nie pojawiają się już w odpowiedzi. Bloki narzędzi zostają na swoim miejscu.",
+          "icon": "polish"
+        },
+        {
+          "text": "Głos i pliki: gdy przestajesz mówić, pojawia się Transkrypcja. Rozpoznawanie mowy na Androidzie używa dowolnego zainstalowanego silnika. Przycisk głośnika zatrzymuje odpowiedź, która już gra. Załączniki PDF są znowu wysyłane do modelu. Cytowania mogą pokazywać tytuł strony. Jeśli sesja proxy wygaśnie, możesz zalogować się ponownie bez wylogowania.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: podczas konfiguracji możesz sprawdzić Desktop Gateway nawet gdy przełącznik jest jeszcze wyłączony.",
+          "icon": "hermes"
+        }
+      ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Co nowego",
+      "intro": "Cześć! Apple Private Cloud Compute jest na liście modeli i odpowiada. Na iPhonie Przerywanie pozwala przerwać asystentowi, gdy mówi. Open WebUI 0.11.4 działa, a wyczyszczenie promptu systemowego albo domyślnego modelu kasuje zapisaną wartość. Listy systemowe już nie wywalają aplikacji, czarny blok obok mikrofonu zniknął, a skończona odpowiedź po odświeżeniu nie wraca jakby nadal się pisała.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: jest na liście modeli i odpowiada. Apple On-Device i Private Cloud Compute używają symbolu Apple.",
+          "icon": "direct"
+        },
+        {
+          "text": "Przerywanie: ustawienia głosu na iPhonie mają ten przełącznik. Asystent słucha dalej, gdy mówi, i możesz mu przerwać. Wybranie opcji na liście systemowej nie wywala już aplikacji. Czarny blok obok mikrofonu znika, gdy wiersz się mieści. Skończona odpowiedź zostaje skończona po odświeżeniu, a Zatrzymaj generowanie zostaje wyłączone.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: bez ostrzeżenia o zgodności. Wyczyszczenie promptu systemowego albo domyślnego modelu kasuje zapisaną wartość.",
+          "icon": "direct"
+        }
+      ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Co nowego",
+      "intro": "Cześć! Odpowiedzi z Open WebUI wyświetlają się płynniej, wywołania narzędzi są czytelne, a listy zadań zachowują postęp. Rozmowy głosowe pozostają na wybranym głośniku. Udostępnianie i skróty znów otwierają czaty bez konta Open WebUI. Odświeżyłem też czat i ustawienia.",
+      "bullets": [
+        {
+          "text": "Open WebUI: odpowiedzi aktualizują się dalej po kodzie lub rozumowaniu. Wywołania narzędzi pojawiają się w blokach zamiast jako surowy kod, a listy zadań zachowują postęp po ponownym otwarciu czatu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Głos: rozmowy korzystają z wybranego głośnika, a po zakończeniu pozostałe dźwięki wracają do zwykłego wyjścia. Przycisk głośnika pokazuje wyjście, które rzeczywiście słyszysz.",
+          "icon": "polish"
+        },
+        {
+          "text": "Udostępnianie i skróty: widżety, skróty aplikacji, Siri i Asystent Androida otwierają czaty Direct lub Hermes bez konta Open WebUI. Udostępnione pliki zachowują nazwy; rozpoznawanie mowy i układ klawiatury na Androidzie przywracają się pewniej.",
+          "icon": "direct"
+        },
+        {
+          "text": "Czat i ustawienia: czytelniejsze pole wpisywania, pasek boczny i działania na wiadomościach. Ikony paska narzędzi i ustawienia używają kolorów wybranego motywu, z lepszym kontrastem i etykietami dla czytników ekranu.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Co nowego",
+      "intro": "Cześć! Czaty Direct mogą przeszukiwać internet z Twojego urządzenia, a obrazy otwierają się w galerii, którą można przeglądać gestem przesunięcia. Między ponownie wygenerowanymi odpowiedziami przełączysz się tuż pod odpowiedzią. Poprawiłem też konfigurację Hermes, rozpoznawanie mowy w Androidzie oraz kilka błędów czatu i ustawień.",
+      "bullets": [
+        {
+          "text": "Wyszukiwanie w sieci: modele Direct bez własnej wyszukiwarki mogą wyszukiwać i czytać strony z Twojego urządzenia, w tym modele Ollama i Apple obsługujące narzędzia. W ustawieniach wybierzesz wyszukiwarkę, filtr bezpiecznego wyszukiwania i region. Modele Direct pokazują też logo swojego twórcy.",
+          "icon": "direct"
+        },
+        {
+          "text": "Obrazy: przeglądaj załączniki w czatach i kanałach gestem przesunięcia, powiększaj je i udostępniaj. iOS używa Quick Look dla obsługiwanych obrazów; Android pozwala zapisywać je w Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Czat i kanały: przełączaj ponownie wygenerowane odpowiedzi strzałkami pod odpowiedzią. Czaty Direct zachowują wcześniejsze wersje po ponownym otwarciu, a edytowane wiadomości są poprawnie wysyłane ponownie. Pola wyboru w Markdown są wyświetlane. Wątki kanałów pokazują odpowiedzi, edycje, usunięcia i reakcje na żywo.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes i głos: logowanie i testy połączenia Desktop Gateway działają podczas konfiguracji, a odpowiedzi nie kończą się już przed nadejściem pierwszego tekstu. Rozpoznawanie mowy w Androidzie próbuje obsługiwanego wariantu wybranego języka. Dyktowanie notatek korzysta z Twojego ustawienia zamiany mowy na tekst.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Ustawienia i konta: natywne ustawienia iOS używają wybranego języka, szczegóły obszaru roboczego odświeżają się po zapisaniu, a stuknięcie powiadomienia otwiera właściwą rozmowę. Wylogowanie usuwa połączenia Direct i Hermes; zachowanie danych serwera działa. Okna dialogowe i listy zadań w notatkach znów działają na iOS.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Co nowego",
+      "intro": "Cześć! Możesz mieć zalogowanych kilka kont Open WebUI i przełączać się między nimi oraz zapisać kilka połączeń Hermes. Rozmowy mogą mówić głosem na żywo, który możesz przerwać. Open WebUI 0.12 działa, łącznie z logowaniem dwuetapowym, a kolejne funkcje Open WebUI nie wymagają już opcji Zaawansowane.",
+      "bullets": [
+        {
+          "text": "Konta: miej zalogowanych kilka kont Open WebUI, na jednym lub kilku serwerach, i przełączaj się z profilu albo z nowej strony Konta na górze Ustawień. Każde konto lub połączenie dodasz z jednego arkusza. Serwer może mieć kilka adresów, np. LAN, Tailscale i publiczne proxy; aplikacja używa pierwszego, który odpowie.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: zapisz kilka nazwanych połączeń, np. Dom i Badania, i przełączaj się między nimi z paska bocznego, ustawień lub strony Konta. Czat, którego sesja należy do innego połączenia, zaproponuje przełączenie na nie.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Rozmowy na żywo: w Open WebUI 0.12, Direct i Hermes Desktop Gateway rozmowy mogą mówić głosem OpenAI na żywo, a gdy zaczniesz mówić, głos milknie. Dla czatów Direct i Apple wybierz Dostawcę głosu w ustawieniach dźwięku. Zamiana mowy na tekst i tekstu na mowę na serwerze działa zgodnie z backendem każdego czatu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: aplikacja działa bez ostrzeżenia o zgodności. Weryfikacja dwuetapowa przy logowaniu działa, łącznie z konfiguracją i kodami odzyskiwania. Eksport umiejętności, udostępnianie folderów, wymuszone czaty tymczasowe i zatwierdzanie narzędzi działają zgodnie z wersją 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Funkcje Open WebUI: kolejka szkiców, interpreter kodu, gałęzie, odbiorcy czatu, foldery projektów, udostępnianie, członkowie kanałów i kalendarz nie wymagają już opcji Zaawansowane. Zaawansowane dodaje porównanie modeli, zaplanowane zadania, webhooki i zarządzanie danymi. Duże czaty nie są już pobierane od nowa przy każdym otwarciu, a wybrany poziom rozumowania zostaje zapamiętany.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Co nowego",
+      "intro": "Cześć! Open WebUI 0.12.2 działa, a kanały pokazują aplikacje, które w nich odpowiadają, i mogą powiadamiać Cię tylko o wzmiankach. Rozmowy głosowe trwają mimo hałasu w tle i gestów awatara, a przycisk głośnika działa od początku rozmów na Androidzie.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: aplikacja działa bez ostrzeżenia o zgodności. Czaty rozpoczęte przez rozmowę na żywo dostają wygenerowany tytuł i tagi, zgodnie z Twoimi ustawieniami tytułów i tagów.",
+          "icon": "direct"
+        },
+        {
+          "text": "Kanały: wiadomości od aplikacji pokazują nazwę aplikacji, karty, przyciski i linki. Naciśnięcie przycisku wysyła go do aplikacji, a odpowiedzi widoczne tylko dla Ciebie pojawiają się pod wiadomością, dopóki ich nie zamkniesz. Ustaw kanał lub wiadomość bezpośrednią na Tylko wzmianki, aby pominąć plakietki i powiadomienia, chyba że ktoś Cię wspomni.",
+          "icon": "direct"
+        },
+        {
+          "text": "Rozmowy głosowe: hałas w tle nie przerywa już głosu na żywo w połowie zdania; głos się zatrzymuje i mówi dalej, jeśli nic nie zostało powiedziane. Gesty awatara nie opóźniają już odpowiedzi o trzy sekundy. Na Androidzie przycisk głośnika działa od początku rozmowy, a rozmowa nie blokuje już Twoich połączeń telefonicznych przez pierwsze dwie minuty.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

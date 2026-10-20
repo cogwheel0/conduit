@@ -246,10 +246,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
 
     return AdaptiveRouteShell(
       backgroundColor:
-          widget.backgroundColor ??
-          (context.usesCupertinoChrome
-              ? CupertinoColors.systemGroupedBackground.resolveFrom(context)
-              : context.conduitTheme.surfaceBackground),
+          widget.backgroundColor ?? context.conduitTheme.groupedBackground,
       appBar: appBar,
       body: Stack(
         children: [
@@ -292,6 +289,8 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
                 contentHeight:
                     mediaQuery.viewPadding.top +
                     conduitAdaptiveToolbarHeightOf(context),
+                // Settings titles sit over scrolling rows; keep them legible.
+                solidBehindChrome: true,
               ),
             ),
         ],

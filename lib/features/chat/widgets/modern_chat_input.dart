@@ -1,5 +1,4 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart'
     show ValueNotifier, kIsWeb, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
@@ -17,48 +16,73 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import '../providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/composer/composer_commands.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/chat/providers/personal_valves_providers.dart';
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
+import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
+
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
 import '../services/ios_native_paste_service.dart';
 import '../services/ios_keyboard_attachment_bridge.dart';
-import '../providers/context_attachments_provider.dart';
-import '../providers/knowledge_cache_provider.dart';
+
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
+
 import '../../notes/providers/notes_providers.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../prompts/providers/prompts_providers.dart';
-import '../../hermes/controllers/hermes_busy_turn_controller.dart';
-import '../../hermes/models/hermes_model.dart';
-import '../../hermes/models/hermes_config.dart';
-import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/services/hermes_local_document_service.dart';
-import '../../direct_connections/direct_connections.dart';
-import '../../direct_connections/providers/direct_mcp_providers.dart';
-import '../../direct_connections/services/direct_mcp_client.dart';
+
+import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_controller.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_insertion.dart'
+    as core
+    show directMcpInsertionFitsComposer;
+import 'package:conduit_core/features/direct_connections/controllers/direct_mcp_content_insertion.dart'
+    show insertContentAtSelection;
+
 import '../../direct_connections/views/direct_mcp_content_sheet.dart';
-import '../../workspace/models/workspace_resources.dart';
-import '../../../core/models/tool.dart';
-import '../../../core/models/model.dart';
-import '../../../core/models/prompt.dart';
-import '../../../core/models/toggle_filter.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/navigation_service.dart';
+
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+
+import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/prompt.dart';
+import 'package:conduit_core/models/toggle_filter.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
+import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
-import '../../../core/services/location_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/services/location_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../chat/services/voice_input_service.dart';
-import '../../../core/models/knowledge_base.dart';
-import '../../../core/models/knowledge_base_file.dart';
+
+import 'package:conduit_core/models/knowledge_base.dart';
+import 'package:conduit_core/models/knowledge_base_file.dart';
 
 import '../../../shared/utils/platform_utils.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 
 import '../../../shared/widgets/modal_safe_area.dart';
 import '../../../shared/widgets/model_avatar.dart';
@@ -66,14 +90,21 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/horizontal_overflow_fade.dart';
-import '../../../core/utils/prompt_variable_parser.dart';
+
+import 'package:conduit_core/utils/prompt_variable_parser.dart';
+
 import '../../prompts/widgets/prompt_variable_dialog.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
+import 'chat_draft_queue_sheet.dart';
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
+import 'chat_comparison_widgets.dart';
 import 'composer_overflow_items.dart';
 import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
+import 'personal_valves_sheet.dart';
 import 'model_suggestion_overlay.dart';
 import 'prompt_suggestion_overlay.dart';
 import 'skill_suggestion_overlay.dart';
@@ -97,28 +128,30 @@ TextEditingValue composerTextValueAfterInsertion(
   TextEditingValue current,
   String content,
 ) {
-  final text = current.text;
   final selection = current.selection;
-  final start = selection.isValid
-      ? selection.start.clamp(0, text.length).toInt()
-      : text.length;
-  final end = selection.isValid
-      ? selection.end.clamp(0, text.length).toInt()
-      : text.length;
-  final before = text.substring(0, start);
+  final inserted = insertContentAtSelection(
+    current.text,
+    selectionStart: selection.isValid ? selection.start : null,
+    selectionEnd: selection.isValid ? selection.end : null,
+    content: content,
+  );
   return TextEditingValue(
-    text: '$before$content${text.substring(end)}',
-    selection: TextSelection.collapsed(offset: before.length + content.length),
+    text: inserted.text,
+    selection: TextSelection.collapsed(offset: inserted.caret),
     composing: TextRange.empty,
   );
 }
 
 @visibleForTesting
-bool directMcpInsertionFitsComposer(TextEditingValue current, String content) =>
-    utf8
-        .encode(composerTextValueAfterInsertion(current, content).text)
-        .length <=
-    kDirectMcpMaxInsertionBytes;
+bool directMcpInsertionFitsComposer(TextEditingValue current, String content) {
+  final selection = current.selection;
+  return core.directMcpInsertionFitsComposer(
+    current.text,
+    selectionStart: selection.isValid ? selection.start : null,
+    selectionEnd: selection.isValid ? selection.end : null,
+    content: content,
+  );
+}
 
 /// Returns a stable UIKit edit-menu model for the composer.
 ///
@@ -252,6 +285,11 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
   required List<String> selectedToolIds,
   required List<ToggleFilter> availableFilters,
   required List<String> selectedFilterIds,
+  ComposerPersonalConnections connections = ComposerPersonalConnections.none,
+  bool toolSettingsAvailable = false,
+  bool compareModelsAvailable = false,
+  bool hasMessage = true,
+  CodeInterpreterOffer? codeInterpreter,
 }) {
   final items = buildComposerOverflowItems(
     l10n: l10n,
@@ -268,6 +306,17 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
         ? const <ToggleFilter>[]
         : availableFilters,
     selectedFilterIds: selectedFilterIds,
+    // Personal tool servers and terminals belong to the Open WebUI account.
+    connections: hermesMode || directMode
+        ? ComposerPersonalConnections.none
+        : connections,
+    // Personal valves are an Open WebUI server feature.
+    toolSettingsAvailable: !hermesMode && !directMode && toolSettingsAvailable,
+    // Comparing models is an Open WebUI server feature.
+    compareModelsAvailable:
+        !hermesMode && !directMode && compareModelsAvailable,
+    hasMessage: hasMessage,
+    codeInterpreter: codeInterpreter,
   );
 
   return items
@@ -297,6 +346,14 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
           subtitle: item.subtitle,
           sfSymbol: item.sfSymbol,
           section: item.section.nativeValue,
+          // Headings come from the app's strings, never the native side.
+          sectionTitle: item.section.titleFor(l10n),
+          kind: item.kind == ComposerOverflowItemKind.toggle
+              ? IosKeyboardAttachmentActionKind.toggle
+              : IosKeyboardAttachmentActionKind.command,
+          stateLabel: item.kind == ComposerOverflowItemKind.toggle
+              ? (item.selected ? l10n.switchOnLabel : l10n.switchOffLabel)
+              : null,
           enabled: item.enabled,
           selected: item.selected,
           dismissesKeyboard: item.dismissesKeyboard,
@@ -307,6 +364,16 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
 
 class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
+
+  /// Sends the composer's message to several models as one comparison turn.
+  /// Null where the host cannot run one. Completes with the committed turn, or
+  /// null if it was not durably admitted; the composer keeps its draft unless
+  /// it was, and clears it only while it still shows the chat the turn is in.
+  final Future<ChatSendPlaceholderHandle?> Function(
+    String text,
+    List<Model> models,
+  )?
+  onCompareSend;
   final bool enabled;
   final double? bottomPadding;
 
@@ -347,6 +414,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
   const ModernChatInput({
     super.key,
     required this.onSendMessage,
+    this.onCompareSend,
     this.enabled = true,
     this.bottomPadding,
     this.managesSystemKeyboardInset = false,
@@ -383,6 +451,13 @@ TextStyle _composerInputTextStyle(bool isRecording) =>
 const double _maxCompactComposerControlScale = 1.25;
 const double _cupertinoComposerOverflowIconExtent = IconSize.large;
 const double _materialComposerOverflowIconExtent = 28;
+
+/// The account and the chat a comparison send was started in.
+typedef _ComparisonOwner = ({
+  Object? api,
+  Object? epoch,
+  ChatMutationOwnerToken chat,
+});
 
 typedef _ComposerTypography = ({
   ui.TextDirection direction,
@@ -482,7 +557,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const Duration _contextSuggestionDelay = Duration(milliseconds: 250);
   static const int _maxContextSuggestionsPerType = 4;
 
-  static const double _composerRadius = AppBorderRadius.card;
+  // The expanded composer keeps a soft, pill-like corner.
+  static const double _composerRadius = AppBorderRadius.xl;
   static const double _composerHorizontalInset = Spacing.sm;
   static const double _composerControlSize = TouchTarget.minimum;
   static const double _composerPrimaryVisualSize = 32;
@@ -523,6 +599,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// Tracks the last time the user edited text, used to detect unexpected
   /// focus loss during active typing (e.g. from widget tree restructures).
   DateTime _lastEditTime = DateTime(0);
+
+  /// Counts edits to the composer text. A send that completes later may clear
+  /// the composer only if nothing was edited since it took the draft, even
+  /// when the text was typed back to what it was.
+  int _editGeneration = 0;
+  String _observedText = '';
   StreamSubscription<String>? _voiceStreamSubscription;
   final Object _nativePasteHandlerOwner = Object();
   StreamSubscription<IosKeyboardAttachmentEvent>?
@@ -549,6 +631,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     <WorkspaceSkillSummary>[],
   );
   bool _isNativeAttachmentPanelVisible = false;
+  // Account the personal connection rows in the native panel were built for,
+  // and the one the latest build produced. A native tap is applied only while
+  // the panel's account is still the signed-in one.
+  ComposerConnectionsOwner? _nativeConnectionsOwner;
+  ComposerConnectionsOwner? _builtNativeConnectionsOwner;
+  bool _nativeConnectionToggleBusy = false;
   bool _isFallbackAttachmentPanelVisible = false;
   bool _fallbackPanelReplacedKeyboard = false;
   double _fallbackAttachmentPanelHeight = 300;
@@ -556,7 +644,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool _desktopQueueActionBusy = false;
 
   bool get _isRouteVisible =>
-      !ThemedSheets.hasActiveSheet &&
+      !ThemedSheets.isCoveredBySheet(context) &&
       TickerMode.valuesOf(context).enabled &&
       (ModalRoute.isCurrentOf(context) ?? true);
 
@@ -584,6 +672,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Removed ref.listen here; it must be used from build in this Riverpod version
 
     // Listen for text and selection changes in the composer
+    _observedText = _controller.text;
     _controller.addListener(_handleComposerChanged);
 
     if (!kIsWeb && Platform.isIOS) {
@@ -712,7 +801,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   void _handleActiveSheetChanged() {
     if (!mounted) return;
-    if (ThemedSheets.hasActiveSheet && _isFallbackAttachmentPanelVisible) {
+    if (ThemedSheets.isCoveredBySheet(context) &&
+        _isFallbackAttachmentPanelVisible) {
       _dismissFallbackAttachmentPanel();
       return;
     }
@@ -777,9 +867,50 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
   }
 
+  /// Whether the typed message would be queued behind the running response
+  /// rather than sent. Enter, the expanded editor's Send and the Queue action
+  /// all follow it, so none of them starts a second turn mid-response.
+  bool get _queuesInsteadOfSending => ref.read(chatDraftQueueOfferProvider);
+
+  /// Queues what is typed, with the composer's files, and clears the composer.
+  /// A draft the queue refuses (the response just ended) leaves it untouched.
+  /// Queueing is a send, so it is felt once, as one, whichever way it came.
+  void _queueDraft() {
+    final text = _controller.text.trim();
+    if (text.isEmpty || !widget.enabled) return;
+    final wireText = _controller.toWireFormat().trim();
+    final queue = ref.read(chatDraftQueueProvider.notifier);
+    if (queue.enqueue(wireText) == null) return;
+    ConduitHaptics.mediumImpact();
+    _controller.clearMentions();
+    _controller.clear();
+    _focusNode.requestFocus();
+    // Drafts do not survive a restart, so say so once per session.
+    if (queue.takeLifetimeNotice() && mounted) {
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.queuedDraftsSessionNote,
+        type: AdaptiveSnackBarType.info,
+        duration: const Duration(seconds: 5),
+      );
+    }
+  }
+
   void _sendMessage() {
     final text = _controller.text.trim();
     if (text.isEmpty || !widget.enabled) return;
+    if (_queuesInsteadOfSending) {
+      _queueDraft();
+      return;
+    }
+    // A project draft that starts with two saved models sends to both, through
+    // the same committed-turn path as the Compare command. A host that cannot
+    // admit a comparison sends the message the ordinary way.
+    final saved = ref.read(folderDraftComparisonModelsProvider);
+    if (saved != null && widget.onCompareSend != null) {
+      unawaited(_sendComparison(saved, _captureComparisonOwner()));
+      return;
+    }
 
     // Convert @mentions to OpenWebUI wire format
     // (e.g. @GPT-4 → <@M:gpt-4|GPT-4>) before sending.
@@ -858,9 +989,42 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       case ComposerOverflowActionIds.mcpContent:
         if (availability.mcpContent) unawaited(_openDirectMcpContent());
         return;
+      case ComposerOverflowActionIds.toolSettings:
+        _openToolSettings();
+        return;
+      case ComposerOverflowActionIds.compareModels:
+        // The same command the Flutter menu runs: one controller for both.
+        unawaited(_openCompareModels());
+        return;
       default:
+        if (isComposerConnectionAction(id)) {
+          unawaited(_toggleNativeConnection(id));
+          return;
+        }
         toggleComposerOverflowSelection(ref, id);
         return;
+    }
+  }
+
+  Future<void> _toggleNativeConnection(String id) async {
+    // A second tap while a terminal change is still being saved would read the
+    // old selection and repeat the same change, so it is ignored.
+    if (_nativeConnectionToggleBusy) return;
+    _nativeConnectionToggleBusy = true;
+    try {
+      await toggleComposerConnectionSelection(
+        ref,
+        id,
+        opened: _nativeConnectionsOwner,
+      );
+    } catch (error) {
+      DebugLogger.error(
+        'native-connection-toggle-failed',
+        scope: 'chat/composer',
+        error: error,
+      );
+    } finally {
+      _nativeConnectionToggleBusy = false;
     }
   }
 
@@ -1120,6 +1284,119 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _ensureFocusedIfEnabled();
   }
 
+  /// Opens personal tool settings for both the native iOS keyboard menu and
+  /// the Flutter overflow panel. The account owner is captured inside
+  /// [showPersonalToolSettings] before anything here awaits or dismisses.
+  /// The chosen code interpreter cannot run this turn: says why, and offers to
+  /// turn it off, which a tap on a working pill does directly.
+  void _explainBlockedCodeInterpreter(String reason) {
+    final l10n = AppLocalizations.of(context)!;
+    AdaptiveSnackBar.show(
+      context,
+      message: reason,
+      type: AdaptiveSnackBarType.warning,
+      action: l10n.codeInterpreterTurnOff,
+      onActionPressed: () => setComposerOverflowSelection(
+        ref,
+        actionId: ComposerOverflowActionIds.codeInterpreter,
+        selected: false,
+      ),
+    );
+  }
+
+  void _openToolSettings() {
+    if (!mounted || _isDeactivated) return;
+    unawaited(showPersonalToolSettings(context, ref));
+    _dismissFallbackAttachmentPanel();
+  }
+
+  /// Whether this composer offers "Compare models": the command is available,
+  /// and the screen hosting it can admit a comparison turn. [read] is
+  /// `ref.read` or `ref.watch`.
+  bool _comparisonCommandAvailable(dynamic read) =>
+      widget.onCompareSend != null &&
+      (read(comparisonCommandAvailableProvider) as bool);
+
+  /// "Compare models": asks which models, then sends the composer's message to
+  /// all of them as one turn. Both the Flutter menu and the native iOS panel
+  /// land here.
+  Future<void> _openCompareModels() async {
+    if (!mounted || _isDeactivated || !widget.enabled) return;
+    if (!_comparisonCommandAvailable(ref.read)) return;
+    final l10n = AppLocalizations.of(context)!;
+    _dismissFallbackAttachmentPanel();
+    final draft = _controller.text.trim();
+    if (draft.isEmpty) {
+      AdaptiveSnackBar.show(
+        context,
+        message: l10n.chatCompareNeedsMessage,
+        type: AdaptiveSnackBarType.info,
+      );
+      return;
+    }
+    await _hideNativeKeyboardAttachmentPanel();
+    if (!mounted || _isDeactivated) return;
+    final owner = _captureComparisonOwner();
+    final models = await showComparisonSetupSheet(context, ref);
+    await _sendComparison(models, owner);
+  }
+
+  /// The account and the chat this composer is showing, named before anything
+  /// awaits. A new chat has no conversation yet.
+  _ComparisonOwner _captureComparisonOwner() => (
+    api: ref.read(apiServiceProvider),
+    epoch: ref.read(openWebUiAuthSessionEpochProvider),
+    chat: captureChatMutationOwner(ref, ref.read(activeConversationProvider)),
+  );
+
+  /// Sends the composer's message to [models] as one comparison turn and clears
+  /// the composer once that turn is committed. [models] is null when the user
+  /// chose none. The setup command and a project draft that starts with saved
+  /// models both send through here.
+  Future<void> _sendComparison(
+    List<Model>? models,
+    _ComparisonOwner owner,
+  ) async {
+    bool sameAccount() =>
+        mounted &&
+        !_isDeactivated &&
+        identical(ref.read(apiServiceProvider), owner.api) &&
+        identical(ref.read(openWebUiAuthSessionEpochProvider), owner.epoch);
+    // The turn goes to whichever chat is active when it is sent, so the chat
+    // the user composed in must still be it.
+    if (models == null ||
+        !sameAccount() ||
+        !chatMutationTokenStillActive(ref, owner.chat)) {
+      return;
+    }
+    final wireText = _controller.toWireFormat().trim();
+    if (wireText.isEmpty || !widget.enabled) return;
+    final send = widget.onCompareSend;
+    if (send == null) return;
+    // Edits made after this point belong to a newer draft.
+    final draftGeneration = _editGeneration;
+    // The draft is the user's until the turn is durably admitted: a refusal
+    // leaves its text, mentions and attachments exactly where they are.
+    final committed = await send(wireText, models);
+    // Clear only the composer that sent the turn: same account, showing the
+    // chat the turn went into, and not edited since.
+    if (committed == null ||
+        !sameAccount() ||
+        !committed.ownsActiveChat(ref) ||
+        draftGeneration != _editGeneration) {
+      return;
+    }
+    _controller.clearMentions();
+    _controller.clear();
+    _focusNode.unfocus();
+    unawaited(_hideAttachmentPanels());
+    try {
+      SystemChannels.textInput.invokeMethod('TextInput.hide');
+    } catch (_) {
+      // Silently handle if keyboard dismissal fails
+    }
+  }
+
   Future<void> _openDirectMcpContent() async {
     if (!widget.enabled) return;
     final selection = _controller.selection;
@@ -1146,8 +1423,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     _controller.value = composerTextValueAfterInsertion(restored, content);
     _ensureFocusedIfEnabled();
   }
-
-  static final RegExp _promptCommandBoundary = RegExp(r'\s');
 
   _ComposerTypography _composerTypography(BuildContext context) {
     final direction = Directionality.of(context);
@@ -1273,6 +1548,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   void _handleComposerChanged() {
+    if (_controller.text != _observedText) {
+      _observedText = _controller.text;
+      _editGeneration++;
+    }
     if (!mounted || _isDeactivated) return;
     _lastEditTime = DateTime.now();
 
@@ -1411,43 +1690,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool enabled,
   ) {
     if (!enabled) return null;
-    if (!selection.isValid || !selection.isCollapsed) return null;
-
-    final int cursor = selection.start;
-    if (cursor < 0 || cursor > text.length) return null;
-    if (cursor == 0) return null;
-
-    int start = cursor;
-    while (start > 0) {
-      final String previous = text.substring(start - 1, start);
-      if (_promptCommandBoundary.hasMatch(previous)) {
-        break;
-      }
-      start--;
-    }
-
-    final String candidate = text.substring(start, cursor);
-    if (candidate.isEmpty ||
-        !(candidate.startsWith('/') ||
-            candidate.startsWith('#') ||
-            candidate.startsWith('@') ||
-            candidate.startsWith('\$'))) {
-      return null;
-    }
-
-    if (candidate.startsWith('\$') && !_openWebUiSkillsAvailable) {
-      return null;
-    }
-
-    // `#` suggestions are OpenWebUI knowledge and server-file resources. A
-    // Hermes session cannot resolve those ids, so do not offer a control whose
-    // result would be silently dropped by the active transport.
-    if (candidate.startsWith('#')) {
-      final model = ref.read(selectedModelProvider);
-      if (model != null && isHermesModel(model)) return null;
-    }
-
-    return PromptCommandMatch(command: candidate, start: start, end: cursor);
+    if (!selection.isValid) return null;
+    final model = ref.read(selectedModelProvider);
+    // The token rules are conduit_core's (composer_commands.dart). `$` needs
+    // Open WebUI skills; `#` suggestions are Open WebUI knowledge and
+    // server-file resources, which a Hermes session cannot resolve, so the
+    // control is not offered there.
+    final match = resolveComposerCommand(
+      text,
+      selectionStart: selection.start,
+      selectionEnd: selection.end,
+      allowSkills: _openWebUiSkillsAvailable,
+      allowContext: model == null || !isHermesModel(model),
+    );
+    if (match == null) return null;
+    return PromptCommandMatch(
+      command: match.command,
+      start: match.start,
+      end: match.end,
+    );
   }
 
   List<Prompt> _filterPrompts(List<Prompt> prompts) {
@@ -1477,23 +1738,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return filtered;
   }
 
-  List<Model> _filterModels(List<Model> models) {
-    if (models.isEmpty) return const <Model>[];
-    final String query = _currentPromptCommand.toLowerCase().trim();
-    final String searchQuery = query.startsWith('@')
-        ? query.substring(1)
-        : query;
-
-    if (searchQuery.isEmpty) return models;
-
-    return models
-        .where(
-          (m) =>
-              m.name.toLowerCase().contains(searchQuery) ||
-              m.id.toLowerCase().contains(searchQuery),
-        )
-        .toList();
-  }
+  List<Model> _filterModels(List<Model> models) =>
+      filterModelsForMention(models, _currentPromptCommand);
 
   void _clearSkillSuggestions() {
     _skillSuggestionDebounce?.cancel();
@@ -1529,19 +1775,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     try {
-      final response = await api.getWorkspaceSkills(
-        query: query.isEmpty ? null : query,
-        page: 1,
-      );
+      final skills = await searchComposerSkills(api, query: query);
       if (!_skillSuggestionRequestIsCurrent(command, requestId, api, token)) {
         return;
       }
-      final skills = response.items
-          .where(
-            (skill) =>
-                skill.isActive && skill.id.isNotEmpty && skill.name.isNotEmpty,
-          )
-          .toList(growable: false);
       setState(() {
         _skillSuggestions = AsyncData(skills);
         _promptSelectionIndex = skills.isEmpty
@@ -1625,143 +1862,56 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     final l10n = AppLocalizations.of(context)!;
-    final normalizedQuery = query.isEmpty ? null : query;
-    final notesEnabled = ref.read(notesFeatureEnabledProvider);
-
-    List<Map<String, dynamic>> noteResults = const <Map<String, dynamic>>[];
-    List<Map<String, dynamic>> baseResults = const <Map<String, dynamic>>[];
-    List<Map<String, dynamic>> fileResults = const <Map<String, dynamic>>[];
-
-    Future<List<Map<String, dynamic>>> safeSearch(
-      Future<List<Map<String, dynamic>>> Function() loader,
-    ) async {
-      try {
-        return await loader();
-      } catch (_) {
-        return const <Map<String, dynamic>>[];
-      }
-    }
-
-    await Future.wait<void>([
-      if (notesEnabled)
-        () async {
-          try {
-            noteResults = await api.searchNotes(query: normalizedQuery);
-          } on DioException catch (error) {
-            final statusCode = error.response?.statusCode;
-            if ((statusCode == 401 || statusCode == 403) &&
-                mounted &&
-                !_isDeactivated &&
-                identical(ref.read(apiServiceProvider), api) &&
-                ref.read(authTokenProvider3) == token) {
-              ref.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
-            }
-            noteResults = const <Map<String, dynamic>>[];
-          } catch (_) {
-            noteResults = const <Map<String, dynamic>>[];
-          }
-        }(),
-      () async {
-        baseResults = await safeSearch(
-          () => api.searchKnowledgeBases(query: normalizedQuery),
-        );
-      }(),
-      () async {
-        fileResults = await safeSearch(
-          () => api.searchKnowledgeFiles(query: normalizedQuery),
-        );
-      }(),
-    ]);
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    // The searches and the rows they become are conduit_core's
+    // (composer_commands.dart); this adds the icons.
+    final search = await searchComposerContext(
+      api,
+      query: query,
+      includeNotes: ref.read(notesFeatureEnabledProvider),
+      // As soon as the notes search is refused, not after the slower ones.
+      onNotesForbidden: () {
+        if (mounted &&
+            !_isDeactivated &&
+            identical(ref.read(apiServiceProvider), api) &&
+            ref.read(authTokenProvider3) == token) {
+          ref.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
+        }
+      },
+    );
 
     if (!mounted || _isDeactivated) return;
     if (requestId != _contextSuggestionRequestId) return;
     if (!_currentPromptCommand.startsWith('#')) return;
     if (_currentPromptCommand != command) return;
 
-    String titleForNote(Map<String, dynamic> json) {
-      final title = _ComposerContextSuggestion.stringValue(json['title']);
-      return title ?? l10n.untitled;
-    }
-
-    String titleForBase(Map<String, dynamic> json) {
-      return _ComposerContextSuggestion.stringValue(json['name']) ??
-          _ComposerContextSuggestion.stringValue(json['title']) ??
-          l10n.knowledgeBase;
-    }
-
-    String titleForFile(Map<String, dynamic> json) {
-      final meta = _ComposerContextSuggestion.mapValue(json['meta']);
-      return _ComposerContextSuggestion.stringValue(meta?['name']) ??
-          _ComposerContextSuggestion.stringValue(meta?['filename']) ??
-          _ComposerContextSuggestion.stringValue(json['filename']) ??
-          _ComposerContextSuggestion.stringValue(json['name']) ??
-          l10n.file;
-    }
-
-    String? fileCollectionName(Map<String, dynamic> json) {
-      final collection = _ComposerContextSuggestion.mapValue(
-        json['collection'],
-      );
-      return _ComposerContextSuggestion.stringValue(collection?['name']) ??
-          _ComposerContextSuggestion.stringValue(json['collection_name']);
-    }
-
-    String? fileSource(Map<String, dynamic> json) {
-      final meta = _ComposerContextSuggestion.mapValue(json['meta']);
-      return _ComposerContextSuggestion.stringValue(meta?['source']) ??
-          _ComposerContextSuggestion.stringValue(json['source']);
-    }
-
-    final List<_ComposerContextSuggestion> suggestions =
-        <_ComposerContextSuggestion>[
-          ...noteResults.take(_maxContextSuggestionsPerType).map((json) {
-            final id = _ComposerContextSuggestion.stringValue(json['id']);
-            if (id == null) return null;
-            return _ComposerContextSuggestion(
-              type: _ComposerContextSuggestionType.note,
-              id: id,
-              displayName: titleForNote(json),
-              icon: Theme.of(context).platform == TargetPlatform.iOS
-                  ? CupertinoIcons.doc_text
-                  : Icons.sticky_note_2_outlined,
-            );
-          }).whereType<_ComposerContextSuggestion>(),
-          ...baseResults.take(_maxContextSuggestionsPerType).map((json) {
-            final id = _ComposerContextSuggestion.stringValue(json['id']);
-            if (id == null) return null;
-            return _ComposerContextSuggestion(
-              type: _ComposerContextSuggestionType.knowledgeBase,
-              id: id,
-              displayName: titleForBase(json),
-              subtitle: _ComposerContextSuggestion.stringValue(
-                json['description'],
-              ),
-              icon: Theme.of(context).platform == TargetPlatform.iOS
-                  ? CupertinoIcons.folder
-                  : Icons.folder_outlined,
-            );
-          }).whereType<_ComposerContextSuggestion>(),
-          ...fileResults.take(_maxContextSuggestionsPerType).map((json) {
-            final id = _ComposerContextSuggestion.stringValue(json['id']);
-            if (id == null) return null;
-
-            final collectionName = fileCollectionName(json);
-            final source = fileSource(json);
-            final subtitle = collectionName ?? source;
-
-            return _ComposerContextSuggestion(
-              type: _ComposerContextSuggestionType.knowledgeFile,
-              id: id,
-              displayName: titleForFile(json),
-              subtitle: subtitle,
-              collectionName: collectionName,
-              source: source,
-              icon: Theme.of(context).platform == TargetPlatform.iOS
-                  ? CupertinoIcons.doc
-                  : Icons.description_outlined,
-            );
-          }).whereType<_ComposerContextSuggestion>(),
-        ];
+    final List<_ComposerContextSuggestion> suggestions = [
+      for (final suggestion in buildComposerContextSuggestions(
+        notes: search.notes,
+        bases: search.bases,
+        files: search.files,
+        untitledLabel: l10n.untitled,
+        knowledgeBaseLabel: l10n.knowledgeBase,
+        fileLabel: l10n.file,
+        perType: _maxContextSuggestionsPerType,
+      ))
+        _ComposerContextSuggestion(
+          type: suggestion.type,
+          id: suggestion.id,
+          displayName: suggestion.displayName,
+          subtitle: suggestion.subtitle,
+          collectionName: suggestion.collectionName,
+          source: suggestion.source,
+          icon: switch (suggestion.type) {
+            _ComposerContextSuggestionType.note =>
+              isIOS ? CupertinoIcons.doc_text : Icons.sticky_note_2_outlined,
+            _ComposerContextSuggestionType.knowledgeBase =>
+              isIOS ? CupertinoIcons.folder : Icons.folder_outlined,
+            _ComposerContextSuggestionType.knowledgeFile =>
+              isIOS ? CupertinoIcons.doc : Icons.description_outlined,
+          },
+        ),
+    ];
 
     setState(() {
       _isContextSuggestionLoading = false;
@@ -1774,51 +1924,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
   }
 
-  ({String text, int cursorOffset}) _removeCommandToken(
-    String text,
-    TextRange range,
-  ) {
-    final String before = text.substring(0, range.start);
-
-    int tokenEnd = range.end;
-    while (tokenEnd < text.length) {
-      final nextCharacter = text.substring(tokenEnd, tokenEnd + 1);
-      if (_promptCommandBoundary.hasMatch(nextCharacter)) {
-        break;
-      }
-      tokenEnd++;
-    }
-
-    String after = text.substring(tokenEnd);
-    final String? previousBoundary = before.isEmpty
-        ? null
-        : before.substring(before.length - 1);
-    final String? nextBoundary = after.isEmpty ? null : after.substring(0, 1);
-
-    if (previousBoundary != null &&
-        nextBoundary != null &&
-        _promptCommandBoundary.hasMatch(previousBoundary) &&
-        _promptCommandBoundary.hasMatch(nextBoundary)) {
-      after = after.substring(1);
-    } else if (before.isEmpty &&
-        nextBoundary != null &&
-        _promptCommandBoundary.hasMatch(nextBoundary)) {
-      after = after.substring(1);
-    }
-
-    return (text: '$before$after', cursorOffset: before.length);
-  }
-
   void _applyContextSuggestion(_ComposerContextSuggestion suggestion) {
     final TextRange? range = _currentPromptRange;
     if (range == null) return;
 
     ConduitHaptics.selectionClick();
 
-    final result = _removeCommandToken(_controller.text, range);
+    final result = removeComposerCommandToken(
+      _controller.text,
+      range.start,
+      range.end,
+    );
     _controller.value = TextEditingValue(
       text: result.text,
-      selection: TextSelection.collapsed(offset: result.cursorOffset),
+      selection: TextSelection.collapsed(offset: result.caret),
       composing: TextRange.empty,
     );
 
@@ -1856,24 +1975,29 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (range == null) return;
 
     // Replace the @query with @ModelName (keep it visible like OpenWebUI).
-    final String text = _controller.text;
-    final String before = text.substring(0, range.start);
-    final String after = text.substring(range.end);
-    final String mention = '@${model.name} ';
-    final String newText = '$before$mention$after';
-    final int newCursor = before.length + mention.length;
+    final inserted = insertComposerMention(
+      _controller.text,
+      ComposerCommandMatch(
+        command: _currentPromptCommand,
+        start: range.start,
+        end: range.end,
+      ),
+      prefix: '@',
+      label: model.name,
+    );
+    final String newText = inserted.text;
 
     _controller.value = TextEditingValue(
       text: newText,
-      selection: TextSelection.collapsed(offset: newCursor),
+      selection: TextSelection.collapsed(offset: inserted.caret),
     );
 
     // Track the mention range for styled rendering
     // (exclude trailing space) and store the model ID
     // so we can convert to OpenWebUI wire format on send.
     _controller.addMention(
-      range.start,
-      range.start + mention.trimRight().length,
+      inserted.mentionStart,
+      inserted.mentionEnd,
       idType: 'M',
       id: model.id,
       label: model.name,
@@ -1895,23 +2019,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final range = _currentPromptRange;
     if (range == null) return;
 
-    final text = _controller.text;
-    final before = text.substring(0, range.start);
-    final after = text.substring(range.end);
-    final mention = '\$${skill.name} ';
-    final newText = '$before$mention$after';
-    final newCursor = before.length + mention.length;
+    final inserted = insertComposerMention(
+      _controller.text,
+      ComposerCommandMatch(
+        command: _currentPromptCommand,
+        start: range.start,
+        end: range.end,
+      ),
+      prefix: '\$',
+      label: skill.name,
+    );
+    final newText = inserted.text;
 
     _controller.value = TextEditingValue(
       text: newText,
-      selection: TextSelection.collapsed(offset: newCursor),
+      selection: TextSelection.collapsed(offset: inserted.caret),
     );
     _controller.addMention(
-      range.start,
-      range.start + mention.trimRight().length,
+      inserted.mentionStart,
+      inserted.mentionEnd,
       id: skill.id,
       label: skill.name,
-      kind: MentionKind.skill,
+      kind: ComposerMentionKind.skill,
     );
 
     setState(() {
@@ -2078,6 +2207,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       userName: user?.name ?? user?.email,
       userLanguage: locale.languageCode,
       userLocation: userLocation,
+      clipboard: ref.read(clipboardPortProvider),
     );
     final processor = PromptProcessor(
       parser: parser,
@@ -2727,6 +2857,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required List<String> selectedToolIds,
     required List<ToggleFilter> availableFilters,
     required List<String> selectedFilterIds,
+    required ComposerPersonalConnections connections,
+    required bool toolSettingsAvailable,
+    required bool compareModelsAvailable,
+    required bool hasMessage,
+    required CodeInterpreterOffer? codeInterpreter,
   }) {
     if (kIsWeb || !Platform.isIOS) {
       return const <IosKeyboardAttachmentActionConfig>[];
@@ -2751,11 +2886,31 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selectedToolIds: selectedToolIds,
       availableFilters: availableFilters,
       selectedFilterIds: selectedFilterIds,
+      connections: connections,
+      toolSettingsAvailable: toolSettingsAvailable,
+      compareModelsAvailable: compareModelsAvailable,
+      hasMessage: hasMessage,
+      codeInterpreter: codeInterpreter,
     );
   }
 
+  /// Personal connections for the native panel; none for the model families
+  /// that have no Open WebUI account behind them.
+  ComposerPersonalConnections _currentNativeConnections() {
+    final selectedModel = ref.read(selectedModelProvider);
+    if (selectedModel != null &&
+        (isHermesModel(selectedModel) ||
+            hasReservedDirectIdentity(selectedModel))) {
+      return ComposerPersonalConnections.none;
+    }
+    return readComposerPersonalConnections(ref.read);
+  }
+
   List<IosKeyboardAttachmentActionConfig>
-  _currentNativeKeyboardAttachmentActions({required AppLocalizations l10n}) {
+  _currentNativeKeyboardAttachmentActions({
+    required AppLocalizations l10n,
+    required ComposerPersonalConnections connections,
+  }) {
     final selectedModel = ref.read(selectedModelProvider);
     final directMode =
         selectedModel != null && hasReservedDirectIdentity(selectedModel);
@@ -2785,6 +2940,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       availableFilters:
           ref.read(selectedModelProvider)?.filters ?? const <ToggleFilter>[],
       selectedFilterIds: ref.read(selectedFilterIdsProvider),
+      connections: connections,
+      toolSettingsAvailable: ref.read(personalValvesCommandAvailableProvider),
+      compareModelsAvailable: _comparisonCommandAvailable(ref.read),
+      hasMessage: _controller.text.trim().isNotEmpty,
+      codeInterpreter: ref.read(codeInterpreterOfferProvider),
     );
   }
 
@@ -2803,15 +2963,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         return;
       }
 
-      final actions = _currentNativeKeyboardAttachmentActions(l10n: l10n);
+      final connections = _currentNativeConnections();
+      final actions = _currentNativeKeyboardAttachmentActions(
+        l10n: l10n,
+        connections: connections,
+      );
       if (actions.isEmpty) {
         // An empty configuration is intentionally ignored by the bridge. Hide
         // an already-open panel when the newly selected model (for example,
         // Hermes) supports no native attachment actions.
+        _nativeConnectionsOwner = null;
         unawaited(IosKeyboardAttachmentBridge.instance.hide());
         return;
       }
 
+      _nativeConnectionsOwner = connections.owner;
       unawaited(
         IosKeyboardAttachmentBridge.instance.configure(actions: actions),
       );
@@ -2824,6 +2990,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ConduitHaptics.selectionClick();
 
     if (!kIsWeb && Platform.isIOS && nativeActions.isNotEmpty) {
+      // These actions were built by the latest build, for its account.
+      _nativeConnectionsOwner = _builtNativeConnectionsOwner;
       final handled = await _toggleNativeKeyboardAttachmentPanel(nativeActions);
       if (handled) {
         return;
@@ -3036,6 +3204,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     ref.listen<bool>(imageGenerationEnabledProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
+    ref.listen<CodeInterpreterOffer?>(codeInterpreterOfferProvider, (
+      previous,
+      next,
+    ) {
+      _scheduleNativeKeyboardAttachmentSync();
+    });
     ref.listen<List<String>>(selectedToolIdsProvider, (previous, next) {
       _scheduleNativeKeyboardAttachmentSync();
     });
@@ -3079,6 +3253,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final webSearchAvailable = ref.watch(webSearchAvailableProvider);
     final imageGenEnabled = ref.watch(imageGenerationEnabledProvider);
     final imageGenAvailable = ref.watch(imageGenerationAvailableProvider);
+    final codeInterpreterOffer = ref.watch(codeInterpreterOfferProvider);
     final l10n = AppLocalizations.of(context)!;
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     final isCreatingDraftNote = ref.watch(
@@ -3113,6 +3288,24 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         _scheduleNativeKeyboardAttachmentSync();
       });
       ref.watch(directMcpServersProvider);
+    } else if (!kIsWeb &&
+        Platform.isIOS &&
+        !(selectedComposerModel != null &&
+            isHermesModel(selectedComposerModel))) {
+      // The native panel offers the account's personal tool servers and
+      // terminals, so it follows their settings, availability and owner.
+      ref.listen(personalConnectionsSessionProvider, (previous, next) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
+      ref.listen(personalConnectionsProvider, (previous, next) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
+      ref.listen(terminalAvailableServersProvider, (previous, next) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
+      ref.listen<String?>(selectedTerminalIdProvider, (previous, next) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
     }
     final bool showWebPill = selectedQuickPills.contains('web');
     final bool showImagePillPref = selectedQuickPills.contains('image');
@@ -3194,6 +3387,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         }
       });
     }
+    final nativeConnections =
+        !kIsWeb && Platform.isIOS && !isHermesComposer && !isDirectComposer
+        ? readComposerPersonalConnections(ref.watch)
+        : ComposerPersonalConnections.none;
+    _builtNativeConnectionsOwner = nativeConnections.owner;
     final nativeAttachmentActions = _nativeKeyboardAttachmentActions(
       l10n: l10n,
       webSearchAvailable: webSearchAvailable,
@@ -3204,6 +3402,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       selectedToolIds: selectedToolIds,
       availableFilters: availableFilters,
       selectedFilterIds: selectedFilterIds,
+      connections: nativeConnections,
+      toolSettingsAvailable: ref.watch(personalValvesCommandAvailableProvider),
+      compareModelsAvailable: _comparisonCommandAvailable(ref.watch),
+      hasMessage: _hasText,
+      codeInterpreter: codeInterpreterOffer,
     );
 
     final focusTick = ref.watch(inputFocusTriggerProvider);
@@ -3347,17 +3550,60 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     }
 
+    // A chosen code interpreter stays in view, and can be turned off here,
+    // even when it can no longer run. Then it reads as inactive, with a
+    // warning glyph, and a tap says why before offering to turn it off.
+    if (codeInterpreterOffer?.selected == true &&
+        !isHermesComposer &&
+        !isDirectComposer) {
+      final block = codeInterpreterOffer!.block;
+      final blockReason = block == null
+          ? null
+          : codeInterpreterBlockReason(l10n, block);
+      quickPills.add(
+        _buildPillButton(
+          key: const ValueKey<String>('composer-code-interpreter-pill'),
+          icon: blockReason != null
+              ? (Platform.isIOS
+                    ? CupertinoIcons.exclamationmark_triangle
+                    : Icons.warning_amber_rounded)
+              : (Platform.isIOS
+                    ? CupertinoIcons.chevron_left_slash_chevron_right
+                    : Icons.code),
+          iconColor: blockReason != null ? context.conduitTheme.warning : null,
+          label: l10n.codeInterpreter,
+          isActive: blockReason == null,
+          dense: true,
+          semanticsHint: blockReason,
+          onTap: !widget.enabled || _isRecording
+              ? null
+              : blockReason != null
+              ? () => _explainBlockedCodeInterpreter(blockReason)
+              : () => setComposerOverflowSelection(
+                  ref,
+                  actionId: ComposerOverflowActionIds.codeInterpreter,
+                  selected: false,
+                ),
+        ),
+      );
+    }
+
     // Keep focused single-line input compact. Move to the two-tier shell only
     // when the text becomes multiline or selected quick pills need a row.
     // At accessibility text sizes, keeping the growing controls and editable
     // text in one row can leave too little width for even the placeholder.
     // Use the existing two-tier layout so Dynamic Type remains uncapped and
     // every control keeps its full touch target.
+    // A message typed during a response can be queued, which needs room for the
+    // Queue action beside Stop, as Hermes's turn actions do.
+    final bool showQueueAction =
+        _hasText && isGenerating && ref.watch(chatDraftQueueOfferProvider);
     final bool showCompactComposer =
         conduitSystemControlScaleOf(context) <=
             _maxCompactComposerControlScale &&
         quickPills.isEmpty &&
         !_isMultiline &&
+        !showQueueAction &&
         !(isDesktopHermesComposer && isGenerating && _hasText);
     final bool showCreateDraftNoteAction =
         !showCompactComposer &&
@@ -3505,6 +3751,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       ? () => unawaited(_sendDesktopBusyMessage(steer: false))
                       : null,
                 ),
+              ],
+              if (showQueueAction) ...[
+                _buildPillButton(
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.list_bullet
+                      : Icons.queue_rounded,
+                  label: l10n.queueDraftAction,
+                  isActive: true,
+                  dense: true,
+                  // _queueDraft gives the one haptic, and only if it queued.
+                  haptic: false,
+                  onTap: widget.enabled && !_isRecording ? _queueDraft : null,
+                ),
+                const SizedBox(width: Spacing.xs),
               ],
               if (showCreateDraftNoteAction) ...[
                 const SizedBox(width: Spacing.xs),
@@ -3678,6 +3938,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               child: widget.attachedOverlay!,
             ),
           ?compactPromptOverlay,
+          const ChatDraftQueueRow(),
           shell,
         ],
       ),
@@ -3747,6 +4008,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       onMcpContent: attachmentAvailability.mcpContent
           ? _openDirectMcpContent
           : null,
+      onToolSettings: ref.watch(personalValvesCommandAvailableProvider)
+          ? _openToolSettings
+          : null,
+      onCompareModels: _comparisonCommandAvailable(ref.watch)
+          ? () => unawaited(_openCompareModels())
+          : null,
+      compareModelsHasMessage: _hasText,
     );
 
     return PopScope(
@@ -4491,12 +4759,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildPillButton({
+    Key? key,
     required IconData icon,
     required String label,
     required bool isActive,
     VoidCallback? onTap,
     String? iconUrl,
     bool dense = false,
+    bool haptic = true,
+    Color? iconColor,
+    String? semanticsHint,
   }) {
     final bool enabled = onTap != null;
     final theme = context.conduitTheme;
@@ -4513,17 +4785,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? theme.textPrimary
         : theme.textSecondary.withValues(alpha: enabled ? 1.0 : Alpha.disabled);
 
-    final Color iconColor = isActive ? theme.buttonPrimary : textColor;
+    final Color glyphColor =
+        iconColor ?? (isActive ? theme.buttonPrimary : textColor);
 
     return Semantics(
+      key: key,
       button: true,
       enabled: enabled,
+      hint: semanticsHint,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap == null
             ? null
             : () {
-                ConduitHaptics.mediumImpact();
+                if (haptic) ConduitHaptics.mediumImpact();
                 onTap();
               },
         child: AnimatedContainer(
@@ -4547,7 +4822,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       imageUrl: iconUrl,
                       label: label,
                     )
-                  : Icon(icon, size: IconSize.chip, color: iconColor),
+                  : Icon(icon, size: IconSize.chip, color: glyphColor),
               SizedBox(width: dense ? Spacing.xs : Spacing.xs + 1),
               AnimatedDefaultTextStyle(
                 duration: context.motionDuration(
@@ -4893,7 +5168,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           title: widget.placeholder ?? l10n.sendMessage,
           value: _controller.text,
           placeholder: widget.placeholder ?? l10n.messageHintText,
-          sendLabel: l10n.send,
+          sendLabel: _queuesInsteadOfSending
+              ? l10n.queueDraftAction
+              : l10n.send,
           valueId: 'expanded-text-value',
           sendActionId: 'send-expanded-text',
           closeActionId: 'close-expanded-text',
@@ -5123,8 +5400,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 }
 
-enum _ComposerContextSuggestionType { note, knowledgeBase, knowledgeFile }
+/// conduit_core's suggestion kinds (composer_commands.dart).
+typedef _ComposerContextSuggestionType = ComposerContextSuggestionType;
 
+/// A core [ComposerContextSuggestion] with the icon this composer draws.
 class _ComposerContextSuggestion {
   const _ComposerContextSuggestion({
     required this.type,
@@ -5143,26 +5422,6 @@ class _ComposerContextSuggestion {
   final String? collectionName;
   final String? source;
   final IconData icon;
-
-  static String? stringValue(Object? value) {
-    final text = value?.toString().trim();
-    if (text == null || text.isEmpty) {
-      return null;
-    }
-    return text;
-  }
-
-  static Map<String, dynamic>? mapValue(Object? value) {
-    if (value is Map<String, dynamic>) {
-      return value;
-    }
-    if (value is Map) {
-      return value.map(
-        (key, entryValue) => MapEntry(key.toString(), entryValue),
-      );
-    }
-    return null;
-  }
 }
 
 class _ContextSuggestionPlaceholder extends StatelessWidget {

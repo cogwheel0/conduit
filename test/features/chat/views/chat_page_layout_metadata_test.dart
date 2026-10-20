@@ -1,21 +1,22 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/chat/views/chat_bottom_anchor_controller.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/chat/views/chat_bottom_anchor_controller.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
-import 'package:conduit/features/chat/views/chat_turn_render_state.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
-import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1293,33 +1294,11 @@ void main() {
     },
   );
 
-  test('message content growth preserves bottom anchor when already pinned', () {
-    final shouldKeepBottomAnchored =
-        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: false,
-        );
-
-    expect(shouldKeepBottomAnchored, isTrue);
-  });
-
   test('keyboard inset growth does not jump when user left the bottom', () {
     final shouldKeepBottomAnchored =
         debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting(
           previousBottomInset: 0,
           nextBottomInset: 320,
-          isAnchoredToBottom: false,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: false,
-        );
-
-    expect(shouldKeepBottomAnchored, isFalse);
-  });
-
-  test('message content growth does not jump when user left the bottom', () {
-    final shouldKeepBottomAnchored =
-        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
           isAnchoredToBottom: false,
           isUserInteractingWithScroll: false,
           wantsPinToTop: false,
@@ -1640,23 +1619,26 @@ void main() {
     },
   );
 
-  test('message content growth ignores pin-to-top mode and manual scrolling', () {
-    final whilePinnedToTop =
-        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: false,
-          wantsPinToTop: true,
-        );
-    final whileUserScrolling =
-        debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting(
-          isAnchoredToBottom: true,
-          isUserInteractingWithScroll: true,
-          wantsPinToTop: false,
-        );
+  test(
+    'message content growth ignores pin-to-top mode and manual scrolling',
+    () {
+      final whilePinnedToTop =
+          shouldKeepConversationBottomAnchoredOnContentSizeChange(
+            isAnchoredToBottom: true,
+            isUserInteractingWithScroll: false,
+            wantsPinToTop: true,
+          );
+      final whileUserScrolling =
+          shouldKeepConversationBottomAnchoredOnContentSizeChange(
+            isAnchoredToBottom: true,
+            isUserInteractingWithScroll: true,
+            wantsPinToTop: false,
+          );
 
-    expect(whilePinnedToTop, isFalse);
-    expect(whileUserScrolling, isFalse);
-  });
+      expect(whilePinnedToTop, isFalse);
+      expect(whileUserScrolling, isFalse);
+    },
+  );
 
   test(
     'refresh ignores native Hermes and direct-local id collisions',
@@ -1854,7 +1836,7 @@ final class _GatedConversationRefreshApi extends ApiService {
   int fetches = 0;
 
   @override
-  Future<Conversation> getConversation(String id) {
+  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) {
     fetches++;
     if (!started.isCompleted) started.complete();
     return response.future;

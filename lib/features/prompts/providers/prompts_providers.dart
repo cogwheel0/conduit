@@ -1,21 +1,3 @@
-import 'package:riverpod_annotation/riverpod_annotation.dart';
-
-import 'package:conduit/core/models/prompt.dart';
-import 'package:conduit/core/services/prompts_service.dart';
-
-part 'prompts_providers.g.dart';
-
-@Riverpod(keepAlive: true)
-Future<List<Prompt>> promptsList(Ref ref) async {
-  final promptsService = ref.watch(promptsServiceProvider);
-  if (promptsService == null) return const <Prompt>[];
-  return promptsService.getPrompts();
-}
-
-@Riverpod(keepAlive: true)
-class ActivePromptCommand extends _$ActivePromptCommand {
-  @override
-  String? build() => null;
-
-  void set(String? command) => state = command;
-}
+// Moved to the core so the desktop daemon serves the workspace
+// through the same providers; the mobile app keeps importing it from here.
+export 'package:conduit_core/features/prompts/providers/prompts_providers.dart';

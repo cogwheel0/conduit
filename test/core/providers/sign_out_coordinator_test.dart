@@ -1,19 +1,25 @@
 import 'dart:io';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/auth_state_manager.dart';
-import 'package:conduit/core/database/app_database.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/database_manager.dart';
-import 'package:conduit/core/database/mappers/chat_blob_mapper.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/secure_credential_storage.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/database_manager.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/database_opener.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:drift/drift.dart' show QueryExecutor;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -40,6 +46,21 @@ final class _ClearedAuthStateManager extends AuthStateManager {
   }
 }
 
+/// Wipes the device stores the way the real full-data clear does.
+final class _WipingAuthStateManager extends _ClearedAuthStateManager {
+  @override
+  Future<FullAppDataClearOutcome> logoutAndClearAppData({
+    required bool keepServerDetails,
+    required Future<void> Function() beforeClear,
+  }) async {
+    await beforeClear();
+    await PreferencesStore.clear();
+    await SecureCredentialStorage(instance: ref.read(secureStorageProvider))
+        .clearAll();
+    return FullAppDataClearOutcome.cleared;
+  }
+}
+
 final class _EmptyDirectProfiles extends DirectConnectionProfilesController {
   @override
   Future<List<DirectConnectionProfile>> build() async => const [];
@@ -49,6 +70,40 @@ final class _EmptyHermesConfig extends HermesConfigController {
   @override
   HermesConfig build() => const HermesConfig();
 }
+
+/// Storage whose account registry, and everything else, cannot be read.
+final class _UnreadableStorage implements OptimizedStorageService {
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('storage is unreadable');
+}
+
+/// Opens databases in [directory] the way drift_flutter names them.
+final class _DirectoryDatabaseOpener implements DatabaseOpenerPort {
+  const _DirectoryDatabaseOpener(this.directory);
+
+  final Directory directory;
+
+  @override
+  QueryExecutor open(String fileName) =>
+      NativeDatabase(File(p.join(directory.path, '$fileName.sqlite')));
+
+  @override
+  Future<Directory> databaseDirectory() async => directory;
+}
+
+Directory _tempDatabaseDirectory() {
+  final directory = Directory.systemTemp.createTempSync('conduit_sign_out_db');
+  addTearDown(() {
+    if (directory.existsSync()) directory.deleteSync(recursive: true);
+  });
+  return directory;
+}
+
+/// Writes a database file for [accountId] where the account manager looks.
+File _accountDatabaseFile(Directory directory, String accountId) => File(
+  p.join(directory.path, '${DatabaseManager.fileNameFor(accountId)}.sqlite'),
+)..writeAsStringSync('chats of $accountId');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -72,6 +127,7 @@ void main() {
         directLocalDatabasePurgeProvider.overrideWithValue(() async {
           purgeCalls++;
         }),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
       ],
     );
     addTearDown(container.dispose);
@@ -115,6 +171,7 @@ void main() {
           directLocalDatabasePurgeProvider.overrideWithValue(() async {
             purgeCalls++;
           }),
+          openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
         ],
       );
       addTearDown(container.dispose);
@@ -130,6 +187,69 @@ void main() {
     },
   );
 
+  // Riverpod keeps a notifier instance across `invalidate`, so a completed
+  // clear must release the controllers' sign-out barriers itself. Otherwise
+  // their rebuilds keep serving the connections captured before the wipe.
+  test('a completed clear forgets Direct, MCP and Hermes connections and lets '
+      'new ones be added', () async {
+    final container = ProviderContainer(
+      overrides: [
+        authStateManagerProvider.overrideWith(_WipingAuthStateManager.new),
+        directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    final profiles = container.read(directConnectionProfilesProvider.notifier);
+    await container.read(directConnectionProfilesProvider.future);
+    await profiles.upsert(
+      DirectConnectionProfile(
+        id: 'before',
+        name: 'Before sign-out',
+        adapterKey: 'openai-compatible',
+        baseUrl: 'http://localhost:1234/v1',
+        apiKey: 'sk-before',
+      ),
+    );
+    final mcpServers = container.read(directMcpServersProvider.notifier);
+    await container.read(directMcpServersProvider.future);
+    await mcpServers.upsert(_mcpServer('mcp-before'));
+    final hermes = container.read(hermesConfigProvider.notifier);
+    await hermes.saveConnection(baseUrl: 'http://localhost:8642');
+    check(container.read(hermesConfigProvider).baseUrl).isNotEmpty();
+
+    await container
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: false);
+
+    check(await container.read(directConnectionProfilesProvider.future))
+        .isEmpty();
+    check(await container.read(directMcpServersProvider.future)).isEmpty();
+    check(container.read(hermesConfigProvider).baseUrl).isEmpty();
+
+    await profiles.upsert(
+      DirectConnectionProfile(
+        id: 'after',
+        name: 'After sign-out',
+        adapterKey: 'openai-compatible',
+        baseUrl: 'http://localhost:1235/v1',
+      ),
+    );
+    check(
+      (await container.read(directConnectionProfilesProvider.future))
+          .map((profile) => profile.id),
+    ).deepEquals(['after']);
+    await mcpServers.upsert(_mcpServer('mcp-after'));
+    check(
+      (await container.read(directMcpServersProvider.future))
+          .map((server) => server.id),
+    ).deepEquals(['mcp-after']);
+    await hermes.saveConnection(baseUrl: 'http://localhost:8643');
+    check(container.read(hermesConfigProvider).baseUrl)
+        .equals('http://localhost:8643');
+  });
+
   test('a completed clear leaves no incomplete-clear marker', () async {
     final container = ProviderContainer(
       overrides: [
@@ -139,6 +259,7 @@ void main() {
         directConnectionProfilesProvider.overrideWith(_EmptyDirectProfiles.new),
         hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
         directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
       ],
     );
     addTearDown(container.dispose);
@@ -152,6 +273,32 @@ void main() {
 
     check(PreferencesStore.getBool(PreferenceKeys.incompleteAppDataClear))
         .isNull();
+  });
+
+  test('a completed clear resets host-registered providers', () async {
+    var builds = 0;
+    final registered = Provider<int>((ref) => ++builds);
+    final container = ProviderContainer(
+      overrides: [
+        authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+        directConnectionProfilesProvider.overrideWith(_EmptyDirectProfiles.new),
+        hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+        directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+        openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
+        signOutResetTargetsProvider.overrideWithValue([registered]),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(authStateManagerProvider.future);
+    await container.read(directConnectionProfilesProvider.future);
+    container.read(hermesConfigProvider);
+    check(container.read(registered)).equals(1);
+
+    await container
+        .read(signOutCoordinatorProvider)
+        .signOut(keepServerDetails: true);
+
+    check(container.read(registered)).equals(2);
   });
 
   test('an incomplete clear leaves the restart marker armed', () async {
@@ -222,6 +369,134 @@ void main() {
     },
   );
 
+  test(
+    'a full sign-out deletes every account database without the registry',
+    () async {
+      final directory = _tempDatabaseDirectory();
+      final active = _accountDatabaseFile(directory, 'active');
+      final inactive = _accountDatabaseFile(directory, 'inactive');
+      final directLocal = File(
+        p.join(directory.path, '$kDirectLocalDatabaseFileName.sqlite'),
+      )..writeAsStringSync('device chats');
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'active');
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+          directConnectionProfilesProvider.overrideWith(
+            _EmptyDirectProfiles.new,
+          ),
+          hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+          directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+          optimizedStorageServiceProvider.overrideWithValue(
+            _UnreadableStorage(),
+          ),
+          databaseOpenerProvider.overrideWithValue(
+            _DirectoryDatabaseOpener(directory),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      container.read(hermesConfigProvider);
+
+      await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: true);
+
+      check(active.existsSync()).isFalse();
+      check(inactive.existsSync()).isFalse();
+      check(directLocal.existsSync()).isTrue();
+      check(
+        PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).isFalse();
+    },
+  );
+
+  test(
+    'account databases that cannot be deleted are left to the next start',
+    () async {
+      var attempts = 0;
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+          directConnectionProfilesProvider.overrideWith(
+            _EmptyDirectProfiles.new,
+          ),
+          hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+          directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+          openWebUiDatabaseSweepProvider.overrideWithValue(() async {
+            attempts++;
+            throw const FileSystemException('busy');
+          }),
+          openWebUiDatabaseFilesProvider.overrideWithValue(
+            () async => {'server_b', 'server_a'},
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      container.read(hermesConfigProvider);
+
+      final result = await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: true);
+
+      check(result).equals(SignOutRequestResult.completed);
+      check(attempts).equals(3);
+      // The files left behind, by name: an account signed in to afterwards
+      // must not lose its data at the next start.
+      check(
+        PreferencesStore.getString(PreferenceKeys.pendingAccountDatabaseWipe),
+      ).equals('["server_a","server_b"]');
+    },
+  );
+
+  test('the next start deletes them before any database opens', () async {
+    final directory = _tempDatabaseDirectory();
+    final leftover = _accountDatabaseFile(directory, 'signed-out');
+    // Signed in to after the sign-out that could not finish.
+    final later = _accountDatabaseFile(directory, 'signed-in-later');
+    final directLocal = File(
+      p.join(directory.path, '$kDirectLocalDatabaseFileName.sqlite'),
+    )..writeAsStringSync('device chats');
+    await PreferencesStore.put(
+      PreferenceKeys.pendingAccountDatabaseWipe,
+      pendingAccountDatabaseWipeValue({
+        DatabaseManager.fileNameFor('signed-out'),
+      }),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        databaseOpenerProvider.overrideWithValue(
+          _DirectoryDatabaseOpener(directory),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final manager = container.read(databaseManagerProvider);
+    final attempt = manager.openForServerIdIfReady('signed-out');
+    check(attempt).isA<DatabaseOpenDeferred>();
+    await (attempt as DatabaseOpenDeferred).retryAfter;
+    for (var i = 0; i < 20; i++) {
+      if (!PreferencesStore.containsKey(
+        PreferenceKeys.pendingAccountDatabaseWipe,
+      )) {
+        break;
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    check(leftover.existsSync()).isFalse();
+    check(later.existsSync()).isTrue();
+    check(directLocal.existsSync()).isTrue();
+    check(
+      PreferencesStore.containsKey(PreferenceKeys.pendingAccountDatabaseWipe),
+    ).isFalse();
+  });
+
   test('direct-local purge reopens an empty on-device chat store', () async {
     final tempDir = Directory.systemTemp.createTempSync(
       'conduit_sign_out_direct_local',
@@ -270,3 +545,9 @@ void main() {
     check(await reopened.chatsDao.getChat('device-chat')).isNull();
   });
 }
+
+DirectMcpServer _mcpServer(String id) => DirectMcpServer(
+  id: id,
+  name: 'Server $id',
+  endpoint: 'https://$id.example/mcp',
+);

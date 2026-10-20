@@ -1,10 +1,12 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/prompt.dart';
+import 'package:conduit_core/models/prompt.dart';
+
 import '../../../shared/theme/theme_extensions.dart';
 import '../../prompts/providers/prompts_providers.dart';
-import '../../hermes/providers/hermes_providers.dart';
+
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 

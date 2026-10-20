@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/services/enhanced_accessibility_service.dart';
+import 'package:conduit/shared/services/enhanced_accessibility_service.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 

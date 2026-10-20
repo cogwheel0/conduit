@@ -1,44 +1,20 @@
+import 'package:conduit_core/features/chat/composer/composer_mentions.dart';
 import 'package:material_ui/material_ui.dart';
 
-enum MentionKind { entity, skill }
-
-/// Metadata for a tracked mention (range + identity).
-class MentionData {
-  MentionData({
-    required this.range,
-    required this.idType,
-    required this.id,
-    required this.label,
-    required this.kind,
-  });
-
-  TextRange range;
-
-  /// 'M' for model, 'U' for user, 'C' for channel.
-  final String idType;
-
-  /// The entity ID (e.g. model ID).
-  final String id;
-
-  /// Display label (e.g. model name).
-  final String label;
-
-  final MentionKind kind;
-}
+export 'package:conduit_core/features/chat/composer/composer_mentions.dart'
+    show ComposerMentionKind;
 
 /// A [TextEditingController] that renders tracked `@mention` spans
 /// with distinct styling inside the text field.
 ///
 /// Mentions are registered explicitly via [addMention] (typically
-/// when the user selects a model from the `@` overlay). The
-/// controller keeps the ranges in sync as the user edits surrounding
-/// text — if a mention's text is modified it is automatically
-/// removed from tracking.
+/// when the user selects a model from the `@` overlay). The ranges, how they
+/// follow edits and the wire format are conduit_core's
+/// [ComposerMentionTracker]: a mention whose text is modified is dropped.
 class MentionTextEditingController extends TextEditingController {
   MentionTextEditingController({super.text});
 
-  /// Active mention data, sorted by [TextRange.start].
-  final List<MentionData> _mentionData = <MentionData>[];
+  final ComposerMentionTracker _mentions = ComposerMentionTracker();
 
   /// The color used for mention text. Updated by the widget that
   /// owns this controller whenever the theme changes.
@@ -58,103 +34,25 @@ class MentionTextEditingController extends TextEditingController {
     String idType = 'M',
     String id = '',
     String label = '',
-    MentionKind kind = MentionKind.entity,
+    ComposerMentionKind kind = ComposerMentionKind.entity,
   }) {
-    _mentionData
-      ..add(
-        MentionData(
-          range: TextRange(start: start, end: end),
-          idType: idType,
-          id: id,
-          label: label,
-          kind: kind,
-        ),
-      )
-      ..sort((a, b) => a.range.start.compareTo(b.range.start));
+    _mentions.add(start, end, idType: idType, id: id, label: label, kind: kind);
   }
 
   /// Removes all tracked mentions.
-  void clearMentions() => _mentionData.clear();
+  void clearMentions() => _mentions.clear();
 
   /// Converts display text to the OpenWebUI wire format.
   ///
   /// Replaces each tracked mention span (e.g. `@GPT-4`)
   /// with `<@M:model_id|GPT-4>`.
-  String toWireFormat() {
-    final String plainText = text;
-    if (_mentionData.isEmpty) return plainText;
-
-    final buf = StringBuffer();
-    int cursor = 0;
-
-    for (final m in _mentionData) {
-      final start = m.range.start.clamp(0, plainText.length);
-      final end = m.range.end.clamp(start, plainText.length);
-      if (start == end) continue;
-
-      buf.write(plainText.substring(cursor, start));
-      buf.write(
-        m.kind == MentionKind.skill
-            ? '<\$${m.id}|${m.label}>'
-            : '<@${m.idType}:${m.id}|${m.label}>',
-      );
-      cursor = end;
-    }
-
-    if (cursor < plainText.length) {
-      buf.write(plainText.substring(cursor));
-    }
-    return buf.toString();
-  }
+  String toWireFormat() => _mentions.toWireFormat(text);
 
   @override
   set value(TextEditingValue newValue) {
     // Adjust mention ranges when text length changes.
-    if (_mentionData.isNotEmpty) {
-      _reconcileMentions(text, newValue.text);
-    }
+    _mentions.reconcile(text, newValue.text);
     super.value = newValue;
-  }
-
-  /// Walks the diff between [oldText] and [newText] and
-  /// shifts / invalidates mention ranges accordingly.
-  void _reconcileMentions(String oldText, String newText) {
-    if (oldText == newText) return;
-
-    final int delta = newText.length - oldText.length;
-    int changeStart = 0;
-    final int minLen = oldText.length < newText.length
-        ? oldText.length
-        : newText.length;
-    while (changeStart < minLen &&
-        oldText[changeStart] == newText[changeStart]) {
-      changeStart++;
-    }
-
-    final List<MentionData> updated = <MentionData>[];
-    for (final MentionData m in _mentionData) {
-      final boundaryInsertionIsDelimiter =
-          changeStart == m.range.end &&
-          delta > 0 &&
-          newText.substring(changeStart, changeStart + delta).trim().isEmpty;
-      if (changeStart > m.range.end ||
-          (changeStart == m.range.end &&
-              (delta <= 0 || boundaryInsertionIsDelimiter))) {
-        // After this mention — keep as-is.
-        updated.add(m);
-      } else if (changeStart <= m.range.start) {
-        // Before this mention — shift it.
-        m.range = TextRange(
-          start: m.range.start + delta,
-          end: m.range.end + delta,
-        );
-        updated.add(m);
-      }
-      // Overlaps the mention — drop it.
-    }
-    _mentionData
-      ..clear()
-      ..addAll(updated);
   }
 
   @override
@@ -164,7 +62,8 @@ class MentionTextEditingController extends TextEditingController {
     required bool withComposing,
   }) {
     final String plainText = text;
-    if (plainText.isEmpty || _mentionData.isEmpty) {
+    final ranges = _mentions.rangesIn(plainText);
+    if (plainText.isEmpty || ranges.isEmpty) {
       return TextSpan(style: style, text: plainText);
     }
 
@@ -177,21 +76,23 @@ class MentionTextEditingController extends TextEditingController {
     final List<InlineSpan> children = <InlineSpan>[];
     int cursor = 0;
 
-    for (final MentionData m in _mentionData) {
-      final int start = m.range.start.clamp(0, plainText.length);
-      final int end = m.range.end.clamp(start, plainText.length);
-      if (start == end) continue;
-
-      if (start > cursor) {
+    for (final range in ranges) {
+      if (range.start > cursor) {
         children.add(
-          TextSpan(text: plainText.substring(cursor, start), style: style),
+          TextSpan(
+            text: plainText.substring(cursor, range.start),
+            style: style,
+          ),
         );
       }
 
       children.add(
-        TextSpan(text: plainText.substring(start, end), style: mentionStyle),
+        TextSpan(
+          text: plainText.substring(range.start, range.end),
+          style: mentionStyle,
+        ),
       );
-      cursor = end;
+      cursor = range.end;
     }
 
     if (cursor < plainText.length) {

@@ -1,4 +1,4 @@
-import 'package:conduit/core/models/channel.dart';
+import 'package:conduit_core/models/channel.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/conduit_input_styles.dart';

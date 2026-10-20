@@ -185,7 +185,12 @@ class UtilityStatusBanner extends StatelessWidget {
             if (progress)
               SizedBox.square(
                 dimension: IconSize.small,
-                child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                child: context.usesCupertinoChrome
+                    ? CupertinoActivityIndicator(
+                        radius: IconSize.small / 2,
+                        color: color,
+                      )
+                    : CircularProgressIndicator(strokeWidth: 2, color: color),
               )
             else
               Icon(

@@ -1,12 +1,18 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
-import 'package:conduit/core/services/socket_service.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
+import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+
+import 'package:conduit_core/testing.dart';
 
 Future<void> _flushMicrotasks([int count = 1]) async {
   for (var i = 0; i < count; i++) {
@@ -17,16 +23,461 @@ Future<void> _flushMicrotasks([int count = 1]) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('inactive remains foreground and does not force reconnect', () async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await _flushMicrotasks();
+  test('client execution RPCs fail explicitly without a chat listener and reject foreign sessions', () async {
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    factory.sockets.single.id = 'local-session';
+    final replies = <dynamic>[];
+    for (final type in ['execute', 'execute:python']) {
+      for (final session in ['other-session', 'local-session']) {
+        service.debugHandleChatEvent({
+          'chat_id': 'background-chat',
+          'message_id': 'assistant',
+          'data': {
+            'type': type,
+            'data': {'session_id': session, 'code': 'untrusted code'},
+          },
+        }, (dynamic result) => replies.add(result));
+      }
+    }
+    expect(replies, hasLength(2));
+    expect(replies[0]['error'], contains('does not support'));
+    expect(replies[1]['stderr'], contains('does not support'));
+    expect(replies[1]['stdout'], isEmpty);
+    expect(replies[1]['result'], isNull);
+  });
 
-    final service = _RecordingSocketService();
+  test('terminal and MCP requests are answered without a chat listener', () async {
+    // Open WebUI 0.12 waits up to 5 s for a terminal's AGENTS.md and up to
+    // 240 s for an MCP elicitation before going on with the turn.
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    factory.sockets.single.id = 'local-session';
+    final replies = <String, dynamic>{};
+    for (final (type, data) in [
+      (
+        'request:terminal',
+        {'terminal_id': 't1', 'path': '/files/cwd', 'session_id': 'local-session'},
+      ),
+      ('request:terminal:state', {'terminal_id': 't1', 'session_id': 'local-session'}),
+      ('request:elicitation', {'mode': 'form', 'message': 'Pick one', 'server_name': 'mcp'}),
+    ]) {
+      service.debugHandleChatEvent({
+        'chat_id': 'background-chat',
+        'message_id': 'assistant',
+        'data': {'type': type, 'data': data},
+      }, (dynamic result) => replies[type] = result);
+    }
+
+    expect(replies['request:terminal'], isEmpty);
+    expect(replies['request:terminal:state'], {'connected': false});
+    expect(replies['request:elicitation'], {'action': 'cancel'});
+
+    // The server's note that such a request is over needs no handling.
+    var delivered = 0;
+    service.addChatEventHandler(
+      conversationId: 'background-chat',
+      handler: (_, _) => delivered += 1,
+    );
+    service.debugHandleChatEvent({
+      'chat_id': 'background-chat',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'request:interaction:done',
+        'data': {'interaction_id': 'interaction-1'},
+      },
+    });
+    expect(delivered, 0);
+  });
+
+  test('a voice avatar gesture is answered as unavailable', () async {
+    // Open WebUI 0.12.1 waits up to 3 s for each gesture in a voice call.
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    factory.sockets.single.id = 'local-session';
+    final replies = <dynamic>[];
+    var delivered = 0;
+    service.addChatEventHandler(
+      conversationId: 'voice-chat',
+      handler: (_, _) => delivered += 1,
+    );
+
+    service.debugHandleChatEvent({
+      'chat_id': 'voice-chat',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'voice:play_animation',
+        'data': {'name': 'wave', 'model_id': 'model-1'},
+      },
+    }, replies.add);
+
+    expect(replies, [
+      {'status': 'unavailable'},
+    ]);
+    expect(delivered, 0);
+  });
+
+  group('a direct tool call is always answered once', () {
+    const admission = PersonalToolAdmission(
+      kind: PersonalConnectionKind.toolServer,
+      identity: 'tools',
+      url: 'https://tools.example',
+      operations: <String>{'search'},
+    );
+
+    Future<
+      ({
+        SocketService service,
+        List<dynamic> replies,
+        int Function({String chatId, String callId}) send,
+        void Function() admit,
+        void Function(String) setSession,
+      })
+    >
+    connected() async {
+      final factory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        socketFactory: factory.create,
+      );
+      addTearDown(service.dispose);
+      await service.connect();
+      factory.sockets.single.id = 'local-session';
+      final replies = <dynamic>[];
+      var calls = 0;
+      int send({String chatId = 'background-chat', String? callId}) {
+        service.debugHandleChatEvent({
+          'chat_id': chatId,
+          'message_id': 'assistant',
+          'data': {
+            'type': 'execute:tool',
+            'data': {
+              'id': callId ?? 'call-${calls++}',
+              'session_id': 'local-session',
+              'name': 'search',
+              'server': {'url': 'https://tools.example'},
+            },
+          },
+        }, (dynamic reply) => replies.add(reply));
+        return calls;
+      }
+
+      void admit() => service.admitPersonalToolServers(
+        chatId: 'background-chat',
+        messageId: 'assistant',
+        sessionId: 'local-session',
+        connections: const [admission],
+      );
+
+      return (
+        service: service,
+        replies: replies,
+        send: ({chatId = 'background-chat', callId = ''}) =>
+            send(chatId: chatId, callId: callId.isEmpty ? null : callId),
+        admit: admit,
+        setSession: (id) => factory.sockets.single.id = id,
+      );
+    }
+
+    test('with no executor, or one that throws', () async {
+      final c = await connected();
+      c.admit();
+
+      c.send();
+      await _flushMicrotasks(2);
+      expect(c.replies, hasLength(1));
+      expect(c.replies.single['error'], isNotEmpty);
+
+      c.service.toolExecutionHandler = (
+        call, {
+        required admitted,
+        required isActive,
+      }) async => throw StateError('boom');
+      c.send();
+      await _flushMicrotasks(2);
+      expect(c.replies, hasLength(2));
+      expect(c.replies.last['error'], isNotEmpty);
+    });
+
+    test('with an executor that never finishes', () async {
+      final c = await connected();
+      c.admit();
+      c.service.toolExecutionHandler = (
+        call, {
+        required admitted,
+        required isActive,
+      }) => Completer<Object?>().future;
+
+      fakeAsync((async) {
+        c.send();
+        async.elapse(
+          SocketService.toolExecutionTimeout - const Duration(seconds: 1),
+        );
+        expect(c.replies, isEmpty);
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(c.replies, hasLength(1));
+        expect(c.replies.single['error'], isNotEmpty);
+      });
+    });
+
+    test(
+      'a call that timed out is no longer active for its executor',
+      () async {
+        final c = await connected();
+        c.admit();
+        late bool Function() active;
+        final started = Completer<void>();
+        c.service.toolExecutionHandler =
+            (call, {required admitted, required isActive}) {
+              active = isActive;
+              started.complete();
+              return Completer<Object?>().future;
+            };
+
+        fakeAsync((async) {
+          c.send();
+          async.flushMicrotasks();
+          expect(started.isCompleted, isTrue);
+          expect(active(), isTrue);
+          async.elapse(
+            SocketService.toolExecutionTimeout + const Duration(seconds: 1),
+          );
+          async.flushMicrotasks();
+          // The executor is still running, but must not start anything now.
+          expect(active(), isFalse);
+        });
+      },
+    );
+
+    test('a call whose connection ended is no longer active', () async {
+      final c = await connected();
+      c.admit();
+      late bool Function() active;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) {
+            active = isActive;
+            return Completer<Object?>().future;
+          };
+
+      c.send();
+      await _flushMicrotasks();
+      expect(active(), isTrue);
+      c.service.dispose();
+
+      expect(active(), isFalse);
+    });
+
+    test(
+      'is given exactly what the chat request admitted, and only for it',
+      () async {
+        final c = await connected();
+        Map<String, dynamic>? seen;
+        List<PersonalToolAdmission>? seenAdmitted;
+        c.service.toolExecutionHandler =
+            (call, {required admitted, required isActive}) async {
+              seen = call;
+              seenAdmitted = admitted;
+              return 'ok';
+            };
+
+        // Nothing was sent for this chat yet: refused, and the executor never ran.
+        c.send();
+        await _flushMicrotasks(2);
+        expect(c.replies.single['error'], 'Tool Server Not Found');
+        expect(seen, isNull);
+
+        c.admit();
+        c.send();
+        await _flushMicrotasks(2);
+        expect(seen?['chat_id'], 'background-chat');
+        expect(seen?['message_id'], 'assistant');
+        expect(seenAdmitted, [admission]);
+        expect(c.replies.last, 'ok');
+
+        // Another chat is not covered by it.
+        seen = null;
+        c.send(chatId: 'another-chat');
+        await _flushMicrotasks(2);
+        expect(seen, isNull);
+        expect(c.replies.last['error'], 'Tool Server Not Found');
+      },
+    );
+
+    test('a request for another session admits nothing here', () async {
+      final c = await connected();
+      var ran = false;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            ran = true;
+            return 'ok';
+          };
+      c.service.admitPersonalToolServers(
+        chatId: 'background-chat',
+        messageId: 'assistant',
+        sessionId: 'previous-session',
+        connections: const [admission],
+      );
+
+      c.send();
+      await _flushMicrotasks(2);
+
+      expect(ran, isFalse);
+      expect(c.replies.single['error'], 'Tool Server Not Found');
+    });
+
+    test('a finished completion stops admitting its callbacks', () async {
+      final c = await connected();
+      var runs = 0;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            runs++;
+            return 'ok';
+          };
+      c.admit();
+      c.send();
+      await _flushMicrotasks(2);
+      expect(runs, 1);
+
+      c.service.debugHandleChatEvent({
+        'chat_id': 'background-chat',
+        'message_id': 'assistant',
+        'data': {
+          'type': 'chat:completion',
+          'data': {'done': true},
+        },
+      });
+      c.send();
+      await _flushMicrotasks(2);
+
+      expect(runs, 1);
+      expect(c.replies.last['error'], 'Tool Server Not Found');
+    });
+
+    test('only a bounded number of requests stay admitted', () async {
+      final c = await connected();
+      var runs = 0;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            runs++;
+            return 'ok';
+          };
+      // One more request than fits: the first, oldest one is dropped.
+      for (var i = 0; i <= 32; i++) {
+        c.service.admitPersonalToolServers(
+          chatId: i == 0 ? 'background-chat' : 'chat-$i',
+          messageId: 'assistant',
+          sessionId: 'local-session',
+          connections: const [admission],
+        );
+      }
+
+      c.send();
+      await _flushMicrotasks(2);
+
+      expect(runs, 0);
+      expect(c.replies.single['error'], 'Tool Server Not Found');
+    });
+
+    test('a completed call is answered again without running again', () async {
+      final c = await connected();
+      c.admit();
+      var runs = 0;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            runs++;
+            return <Object?>[
+              {'created': runs},
+              <String, String>{},
+            ];
+          };
+
+      c.send(callId: 'same-call');
+      await _flushMicrotasks(2);
+      c.send(callId: 'same-call');
+      await _flushMicrotasks(2);
+
+      expect(runs, 1);
+      expect(c.replies, hasLength(2));
+      expect(c.replies.last, c.replies.first);
+    });
+
+    test(
+      'a completed call too large to keep is answered with an error',
+      () async {
+        final c = await connected();
+        c.admit();
+        var runs = 0;
+        c.service.toolExecutionHandler =
+            (call, {required admitted, required isActive}) async {
+              runs++;
+              return 'x' * (SocketService.maxCompletedToolReplyChars + 1);
+            };
+
+        c.send(callId: 'big-call');
+        await _flushMicrotasks(2);
+        c.send(callId: 'big-call');
+        await _flushMicrotasks(2);
+
+        expect(runs, 1);
+        expect(c.replies, hasLength(2));
+        expect(
+          c.replies.first,
+          hasLength(SocketService.maxCompletedToolReplyChars + 1),
+        );
+        expect(c.replies.last['error'], contains('already ran'));
+      },
+    );
+
+    test('only a bounded number of completed calls are remembered', () async {
+      final c = await connected();
+      c.admit();
+      var runs = 0;
+      c.service.toolExecutionHandler =
+          (call, {required admitted, required isActive}) async {
+            runs++;
+            return 'ok';
+          };
+
+      for (var i = 0; i <= SocketService.maxCompletedToolCalls; i++) {
+        c.send(callId: 'call-id-$i');
+        await _flushMicrotasks(2);
+      }
+      final before = runs;
+      // The first call has been forgotten, the last is still remembered.
+      c.send(callId: 'call-id-${SocketService.maxCompletedToolCalls}');
+      await _flushMicrotasks(2);
+      expect(runs, before);
+      c.send(callId: 'call-id-0');
+      await _flushMicrotasks(2);
+      expect(runs, before + 1);
+    });
+  });
+
+  test('inactive remains foreground and does not force reconnect', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
+
+    final service = _RecordingSocketService(lifecycle: lifecycle);
     addTearDown(service.dispose);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.inactive);
-    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    lifecycle.emit(AppLifecyclePhase.inactive);
+    lifecycle.emit(AppLifecyclePhase.resumed);
     await _flushMicrotasks(2);
 
     expect(service.isAppForeground, isTrue);
@@ -34,11 +485,11 @@ void main() {
   });
 
   test('best-effort connect observes a throwing socket factory', () async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await _flushMicrotasks();
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
 
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: (_, _, _) => throw StateError('factory failed'),
     );
@@ -55,9 +506,12 @@ void main() {
   });
 
   test('a waiterless forced fallback reports its factory failure', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     var factoryCalls = 0;
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       websocketOnly: true,
       socketFactory: (base, builder, config) {
@@ -93,17 +547,16 @@ void main() {
   });
 
   test('resuming from background forces a fresh socket connection', () async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await _flushMicrotasks();
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
 
-    final service = _RecordingSocketService();
+    final service = _RecordingSocketService(lifecycle: lifecycle);
     addTearDown(service.dispose);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
     expect(service.isAppForeground, isFalse);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    lifecycle.emit(AppLifecyclePhase.resumed);
     await _flushMicrotasks(2);
 
     expect(service.isAppForeground, isTrue);
@@ -113,20 +566,22 @@ void main() {
   test(
     'resume reconnect is guarded while a forced connect is in flight',
     () async {
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _flushMicrotasks();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
 
       final connectGate = Completer<void>();
-      final service = _RecordingSocketService(connectGate: connectGate);
+      final service = _RecordingSocketService(
+        connectGate: connectGate,
+        lifecycle: lifecycle,
+      );
       addTearDown(service.dispose);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.hidden);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.hidden);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
 
       expect(service.forceConnectCalls, [true]);
@@ -139,8 +594,11 @@ void main() {
   test(
     'force reconnect restores dynamic event listeners on the new socket',
     () async {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         socketFactory: socketFactory.create,
       );
@@ -169,8 +627,11 @@ void main() {
   );
 
   test('forced reconnects coalesce until the active attempt settles', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       authToken: 'session-token',
       socketFactory: socketFactory.create,
@@ -209,12 +670,12 @@ void main() {
   });
 
   test('pausing during handshake allows a fresh socket on resume', () async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await _flushMicrotasks();
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
 
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -225,8 +686,8 @@ void main() {
 
     // The test socket deliberately emits no disconnect terminal event while
     // it is still negotiating.
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
-    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    lifecycle.emit(AppLifecyclePhase.paused);
+    lifecycle.emit(AppLifecyclePhase.resumed);
     await _flushMicrotasks(2);
 
     expect(socketFactory.sockets, hasLength(2));
@@ -234,8 +695,11 @@ void main() {
   });
 
   test('going offline during handshake allows a fresh socket online', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -281,8 +745,11 @@ void main() {
   );
 
   test('connect backs repeated Socket.IO retries off to one minute', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -334,12 +801,12 @@ void main() {
   test(
     'resume reconnect emits onReconnect after the new socket connects',
     () async {
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _flushMicrotasks();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
 
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         socketFactory: socketFactory.create,
       );
@@ -351,8 +818,8 @@ void main() {
       });
       addTearDown(reconnectSub.cancel);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
 
       expect(socketFactory.sockets, hasLength(1));
@@ -369,12 +836,12 @@ void main() {
   test(
     'resume reconnect still emits onReconnect after watchdog releases latch',
     () async {
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _flushMicrotasks();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
 
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         socketFactory: socketFactory.create,
         resumeReconnectWatchdogTimeout: const Duration(milliseconds: 10),
@@ -387,8 +854,8 @@ void main() {
       });
       addTearDown(reconnectSub.cancel);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
@@ -404,8 +871,11 @@ void main() {
   );
 
   test('resume reconciles an already-connected background lease without replacing it', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -423,11 +893,11 @@ void main() {
     final lease = service.acquireBackgroundActivityLease();
     addTearDown(lease.dispose);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
     expect(socket.connected, isTrue);
     expect(socket.io.reconnection, isTrue);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    lifecycle.emit(AppLifecyclePhase.resumed);
     await _flushMicrotasks(2);
 
     expect(socketFactory.sockets, hasLength(1));
@@ -437,8 +907,11 @@ void main() {
   });
 
   test('background disables reconnect for an idle socket', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -448,14 +921,17 @@ void main() {
     final socket = socketFactory.sockets.single;
     expect(socket.io.reconnection, isTrue);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
     expect(socket.io.reconnection, isFalse);
     expect(service.backgroundActivityLeaseCount, 0);
   });
 
   test('late reconnect success is retired while transport is gated', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -472,7 +948,7 @@ void main() {
     await _flushMicrotasks(2);
     expect(service.isConnected, isTrue);
 
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
     socket.connected = true;
     socket.emitReserved('reconnect', 1);
     await _flushMicrotasks(2);
@@ -485,8 +961,11 @@ void main() {
   test(
     'late initial connect cannot authenticate after the app pauses',
     () async {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         authToken: 'session-token',
         socketFactory: socketFactory.create,
@@ -498,7 +977,7 @@ void main() {
       final outgoingEvents = <String>[];
       socket.onAnyOutgoing((event, _) => outgoingEvents.add(event.toString()));
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.emit(AppLifecyclePhase.paused);
       // Model the platform delivering a successful handshake callback after the
       // pause already retired the negotiating transport.
       socket.connected = true;
@@ -514,12 +993,12 @@ void main() {
   test(
     'late forced connect cannot authenticate or signal reconnect when offline',
     () async {
-      final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _flushMicrotasks();
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
 
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         authToken: 'session-token',
         socketFactory: socketFactory.create,
@@ -531,8 +1010,8 @@ void main() {
       );
       addTearDown(reconnectSub.cancel);
 
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
       final socket = socketFactory.sockets.single;
       final outgoingEvents = <String>[];
@@ -553,8 +1032,11 @@ void main() {
   test(
     'resume while offline reconciles after network recovery connects',
     () async {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final socketFactory = _RecordingSocketFactory();
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         socketFactory: socketFactory.create,
       );
@@ -568,8 +1050,8 @@ void main() {
       await service.connect();
       final socket = socketFactory.sockets.single;
       service.updateNetworkAvailability(false);
-      service.didChangeAppLifecycleState(AppLifecycleState.paused);
-      service.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      lifecycle.emit(AppLifecyclePhase.paused);
+      lifecycle.emit(AppLifecyclePhase.resumed);
       await _flushMicrotasks(2);
 
       expect(socket.io.reconnection, isFalse);
@@ -712,8 +1194,11 @@ void main() {
     });
 
     test('expired scopes and ninth-scope eviction leave gap tombstones', () {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       var now = DateTime(2026);
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         now: () => now,
       );
@@ -770,7 +1255,10 @@ void main() {
     );
 
     test('token rotation reports a replay gap to pending handlers', () {
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final service = SocketService(
+        lifecycle: lifecycle,
         serverConfig: _serverConfig,
         authToken: 'old-token',
       );
@@ -791,8 +1279,11 @@ void main() {
   });
 
   test('active stream lease keeps reconnect enabled in background', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -805,7 +1296,7 @@ void main() {
       keepsAliveInBackground: true,
       handler: (_, _) {},
     );
-    service.didChangeAppLifecycleState(AppLifecycleState.paused);
+    lifecycle.emit(AppLifecyclePhase.paused);
 
     expect(socketFactory.sockets.single.io.reconnection, isTrue);
     expect(service.backgroundActivityLeaseCount, 1);
@@ -816,8 +1307,11 @@ void main() {
   });
 
   test('a handler lease does not create the initial transport', () async {
+    final lifecycle = FakeAppLifecycle();
+    addTearDown(lifecycle.dispose);
     final socketFactory = _RecordingSocketFactory();
     final service = SocketService(
+      lifecycle: lifecycle,
       serverConfig: _serverConfig,
       socketFactory: socketFactory.create,
     );
@@ -847,7 +1341,7 @@ const _serverConfig = ServerConfig(
 );
 
 class _RecordingSocketService extends SocketService {
-  _RecordingSocketService({Completer<void>? connectGate})
+  _RecordingSocketService({Completer<void>? connectGate, super.lifecycle})
     : _connectGate = connectGate,
       super(serverConfig: _serverConfig);
 

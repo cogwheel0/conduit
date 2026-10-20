@@ -374,6 +374,122 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
+  "signInAccountPendingApproval": "Váš účet čeká na schválení správcem. Zkuste to znovu, až bude schválen.",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
+  "signInTwoStepVerificationRequired": "Tento účet používá dvoufázové ověření. Přihlaste se znovu a pak zadejte kód z ověřovací aplikace.",
+  "@signInTwoStepVerificationRequired": {
+    "description": "Sign-in error when saved credentials met Open WebUI's two-step verification, which needs a code typed in."
+  },
+  "twoStepVerifyTitle": "Potvrďte přihlášení",
+  "@twoStepVerifyTitle": {
+    "description": "Title of the sign-in step that asks for a two-step verification code."
+  },
+  "twoStepEnrollTitle": "Nastavte ověřovací aplikaci",
+  "@twoStepEnrollTitle": {
+    "description": "Title of the sign-in step that adds an authenticator app for two-step verification."
+  },
+  "twoStepRecoverTitle": "Obnovte ověřovací aplikaci",
+  "@twoStepRecoverTitle": {
+    "description": "Title of the sign-in step that redeems an administrator's two-step verification recovery token."
+  },
+  "twoStepVerifyDescription": "Zadejte šestimístný kód z ověřovací aplikace.",
+  "@twoStepVerifyDescription": {
+    "description": "Instruction for entering a two-step verification code."
+  },
+  "twoStepRecoveryCodeDescription": "Zadejte jeden z kódů pro obnovení, které jste si uložili.",
+  "@twoStepRecoveryCodeDescription": {
+    "description": "Instruction for signing in with a saved two-step verification recovery code."
+  },
+  "twoStepEnrollDescription": "Přidejte tento účet do ověřovací aplikace a pak zadejte šestimístný kód, který zobrazí.",
+  "@twoStepEnrollDescription": {
+    "description": "Instruction for adding the account to an authenticator app during sign-in."
+  },
+  "twoStepRecoverDescription": "Správce pro tento účet resetoval dvoufázové ověření. Zadejte token pro obnovení, který vám dal.",
+  "@twoStepRecoverDescription": {
+    "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
+  },
+  "twoStepCodeLabel": "Ověřovací kód",
+  "@twoStepCodeLabel": {
+    "description": "Label of the field for an authenticator app code."
+  },
+  "twoStepRecoveryCodeLabel": "Kód pro obnovení",
+  "@twoStepRecoveryCodeLabel": {
+    "description": "Label of the field for a two-step verification recovery code."
+  },
+  "twoStepResetTokenLabel": "Token pro obnovení",
+  "@twoStepResetTokenLabel": {
+    "description": "Label of the field for an administrator's two-step verification recovery token."
+  },
+  "twoStepUseRecoveryCode": "Použít kód pro obnovení",
+  "@twoStepUseRecoveryCode": {
+    "description": "Switches the two-step verification field to a recovery code."
+  },
+  "twoStepUseAuthenticatorCode": "Použít ověřovací kód",
+  "@twoStepUseAuthenticatorCode": {
+    "description": "Switches the two-step verification field back to an authenticator app code."
+  },
+  "twoStepBackToSignIn": "Zpět na přihlášení",
+  "@twoStepBackToSignIn": {
+    "description": "Leaves the two-step verification step for the sign-in form."
+  },
+  "twoStepOpenAuthenticator": "Přidat do ověřovací aplikace",
+  "@twoStepOpenAuthenticator": {
+    "description": "Opens an authenticator app on this device to add the account."
+  },
+  "twoStepSetupKeyLabel": "Klíč pro nastavení",
+  "@twoStepSetupKeyLabel": {
+    "description": "Label above the secret key to type into an authenticator app."
+  },
+  "twoStepCopySetupKey": "Kopírovat klíč pro nastavení",
+  "@twoStepCopySetupKey": {
+    "description": "Copies the authenticator setup key."
+  },
+  "twoStepQrCodeLabel": "QR kód pro ověřovací aplikaci",
+  "@twoStepQrCodeLabel": {
+    "description": "Accessibility label of the QR code for an authenticator app."
+  },
+  "twoStepSetupLoading": "Připravuje se ověřovací aplikace…",
+  "@twoStepSetupLoading": {
+    "description": "Shown while the authenticator setup key loads."
+  },
+  "twoStepSetupFailed": "Klíč pro nastavení se nepodařilo načíst.",
+  "@twoStepSetupFailed": {
+    "description": "Shown when the authenticator setup key could not be loaded."
+  },
+  "twoStepNoAuthenticatorApp": "Žádná aplikace ho nedokázala přidat. Zkopírujte klíč pro nastavení do ověřovací aplikace.",
+  "@twoStepNoAuthenticatorApp": {
+    "description": "Shown when no app on the device could open the authenticator link."
+  },
+  "twoStepRecoveryCodesTitle": "Uložte si kódy pro obnovení",
+  "@twoStepRecoveryCodesTitle": {
+    "description": "Title of the screen that shows new two-step verification recovery codes once."
+  },
+  "twoStepRecoveryCodesDescription": "Každý kód vás jednou přihlásí, pokud přijdete o ověřovací aplikaci. Uložte je na bezpečné místo: znovu se nezobrazí.",
+  "@twoStepRecoveryCodesDescription": {
+    "description": "Explains new two-step verification recovery codes before continuing."
+  },
+  "twoStepCopyRecoveryCodes": "Kopírovat kódy pro obnovení",
+  "@twoStepCopyRecoveryCodes": {
+    "description": "Copies the new two-step verification recovery codes."
+  },
+  "twoStepInvalidCode": "Tento kód nefungoval. Zkontrolujte ho a zkuste to znovu.",
+  "@twoStepInvalidCode": {
+    "description": "Shown when a two-step verification code or recovery token was not accepted."
+  },
+  "twoStepExpired": "Platnost tohoto kroku vypršela. Vraťte se na přihlášení a začněte znovu.",
+  "@twoStepExpired": {
+    "description": "Shown when the two-step verification step expired or no longer applies."
+  },
+  "twoStepTooManyAttempts": "Příliš mnoho pokusů. Počkejte několik minut a pak se přihlaste znovu.",
+  "@twoStepTooManyAttempts": {
+    "description": "Shown when the server refuses more two-step verification codes for now."
+  },
+  "twoStepFailed": "Kód se nepodařilo ověřit. Zkuste to znovu.",
+  "@twoStepFailed": {
+    "description": "Shown when a two-step verification code could not be checked, for example offline."
+  },
   "serverRedirectingHttps": "Server přesměrovává požadavky. Zkontrolujte konfiguraci HTTPS serveru.",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."
@@ -1181,6 +1297,7 @@
     "description": "Error shown when a picked certificate or key file cannot be read as text."
   },
   "mutualTlsHandshakeFailed": "Server odmítl přihlašovací údaje mTLS. Ověřte, že certifikát, privátní klíč a heslo jsou správné.",
+  "mutualTlsConnectionClosed": "Server ukončil spojení před odpovědí. Pokud vyžaduje klientský certifikát, ověřte, že certifikát, privátní klíč a heslo jsou správné.",
   "@mutualTlsHandshakeFailed": {
     "description": "Connection error shown when the TLS handshake fails while mTLS credentials are configured."
   },
@@ -1435,7 +1552,7 @@
   "@sttEngineDeviceDescription": {
     "description": "Description shown when on-device speech-to-text preference is active."
   },
-  "sttEngineServerDescription": "Vždy odesílat nahrávky na váš server Open WebUI k přepisu.",
+  "sttEngineServerDescription": "Nahrávky se k přepisu odesílají na server chatu: do Open WebUI, Hermes nebo u chatů Direct a Apple k poskytovateli hlasu.",
   "@sttEngineServerDescription": {
     "description": "Description shown when server speech-to-text preference is active."
   },
@@ -1501,7 +1618,7 @@
   "@ttsEngineDeviceDescription": {
     "description": "Description shown when on-device text-to-speech preference is active."
   },
-  "ttsEngineServerDescription": "Vždy vyžadovat zvuk z vašeho serveru Open WebUI.",
+  "ttsEngineServerDescription": "Řeč vytváří server chatu: Open WebUI, Hermes nebo u chatů Direct a Apple poskytovatel hlasu.",
   "@ttsEngineServerDescription": {
     "description": "Description shown when server text-to-speech preference is active."
   },
@@ -1512,6 +1629,36 @@
   "ttsServerUnavailableWarning": "Chcete-li použít tuto možnost, připojte se k serveru se zapnutým převodem textu na řeč.",
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
+  },
+  "voiceProviderTitle": "Poskytovatel hlasu",
+  "voiceProviderDescription": "Chaty Direct a Apple používají toto připojení, když je „Řeč na text“ nebo „Text na řeč“ nastaveno na „Server“.",
+  "voiceProviderConnection": "Připojení",
+  "voiceProviderNone": "Žádný",
+  "voiceProviderNoConnections": "Přidejte připojení Direct kompatibilní s OpenAI, abyste ho zde mohli vybrat.",
+  "voiceProviderTranscriptionModel": "Model přepisu",
+  "voiceProviderSpeechModel": "Model syntézy řeči",
+  "voiceProviderModelsHint": "Použijte názvy modelů, které uvádí váš poskytovatel. Pokud pole necháte prázdné, daný směr použije toto zařízení.",
+  "voiceProviderRealtimeModel": "Model v reálném čase",
+  "voiceProviderRealtimeInstructions": "Pokyny",
+  "voiceProviderRealtimeInstructionsHint": "Nechte prázdné, aby se použily pokyny Conduit.",
+  "voiceProviderRealtimeFooter": "Hovory v chatech Direct a Apple vede tento hlas a model přepisu výše mu pomáhá sledovat, co říkáte.",
+  "voiceCallModeTitle": "Hovory",
+  "voiceCallModeRealtime": "V reálném čase",
+  "voiceCallModeStandard": "Standardní",
+  "voiceCallModeRealtimeDescription": "Mluvte s hlasem v reálném čase, pokud ho server chatu nebo poskytovatel hlasu nabízí; můžete mu skočit do řeči. Ostatní hovory jsou standardní.",
+  "voiceCallModeStandardDescription": "Hovor vás poslouchá, odešle, co jste řekli, a pak odpověď přečte nahlas.",
+  "voiceCallNoticeTranscriptionFailed": "Tomu nebylo dobře rozumět. Řekněte to prosím znovu.",
+  "voiceCallNoticeReplyIncomplete": "Odpověď hlasu byla přerušena.",
+  "voiceCallNoticeTranscriptNotSaved": "Část hovoru se nepodařilo uložit do chatu.",
+  "voiceReplySpokenLabel": "{model} · hlasem",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
   },
   "ttsSettings": "Text na řeč",
   "@ttsSettings": {
@@ -2181,6 +2328,271 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "advancedFeatures": "Pokročilé",
+  "@advancedFeatures": {
+    "description": "Label for the setting that reveals additional chat tools and settings."
+  },
+  "advancedFeaturesDescription": "Zobrazit nástroje a nastavení pro pokročilé uživatele.",
+  "@advancedFeaturesDescription": {
+    "description": "Description for the Advanced setting that reveals additional chat tools and settings."
+  },
+  "chatSettingsTitle": "Nastavení chatu",
+  "chatSettingsApplied": "Nastavení chatu použito",
+  "chatSettingsAppliedDescription": "Tento chat má uložená nastavení a používají se pro každou odpověď.",
+  "chatSettingsTurnOnAdvanced": "Pro změnu zapněte Pokročilé",
+  "chatSettingsDescription": "Tato nastavení platí jen pro tento chat. Vše nastavené na „Vaše výchozí“ používá výchozí hodnotu z vašeho nastavení.",
+  "chatSettingsSystemPrompt": "Systémový prompt",
+  "chatSettingsSystemPromptEmptyNote": "Prázdný prompt neodešle žádný systémový prompt, ani když máte výchozí. Zvolte „Vaše výchozí“, aby se použil váš výchozí.",
+  "chatSettingsParameters": "Parametry",
+  "chatSettingsInherit": "Vaše výchozí",
+  "chatSettingsModelDefault": "Výchozí modelu",
+  "chatSettingsCustom": "Vlastní",
+  "chatSettingsResetAll": "Obnovit vše",
+  "chatSettingsOtherKept": "Ostatní uložená nastavení zůstanou beze změny.",
+  "chatSettingsSystemPromptLocked": "Váš účet nemůže měnit systémový prompt.",
+  "chatSettingsParametersLocked": "Váš účet nemůže měnit parametry.",
+  "chatSettingsOwnerChanged": "Účet nebo chat se změnil. Otevřete nastavení znovu a zkuste to znovu.",
+  "chatSettingTemperature": "Teplota",
+  "chatSettingTopP": "Top P",
+  "chatSettingTopK": "Top K",
+  "chatSettingMinP": "Min P",
+  "chatSettingFrequencyPenalty": "Penalizace frekvence",
+  "chatSettingPresencePenalty": "Penalizace přítomnosti",
+  "chatSettingMaxTokens": "Max. počet tokenů",
+  "chatSettingSeed": "Seed",
+  "chatSettingStop": "Zastavovací sekvence",
+  "chatSettingFunctionCalling": "Volání nástrojů",
+  "chatSettingFunctionCallingNative": "Nativní",
+  "chatSettingFunctionCallingLegacy": "Starší",
+  "chatSettingResponseFormat": "Formát odpovědi",
+  "chatSettingErrorRequired": "Zadejte hodnotu.",
+  "chatSettingErrorNotANumber": "Zadejte číslo.",
+  "chatSettingErrorNotAWholeNumber": "Zadejte celé číslo.",
+  "chatSettingErrorRange": "Zadejte hodnotu od {min} do {max}.",
+  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "chatSettingErrorMinimum": "Zadejte {min} nebo více.",
+  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "chatSettingErrorNotJson": "Zadejte slovo, např. json, nebo platné schéma JSON.",
+  "chatSettingErrorNotAChoice": "Vyberte podporovanou hodnotu.",
+  "personalConnectionsTitle": "Osobní připojení",
+  "@personalConnectionsTitle": {
+    "description": "Title of the screen and Profile entry for managing personal tool servers and terminals stored in the Open WebUI account."
+  },
+  "personalConnectionsStoredOn": "Uloženo pro {account} na {server}",
+  "@personalConnectionsStoredOn": {
+    "description": "Line naming the Open WebUI account {account} on the server {server} that stores the personal connections.",
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsKeyStorageNote": "Klíče se ukládají na serveru spolu s nastavením vašeho účtu Open WebUI.",
+  "@personalConnectionsKeyStorageNote": {
+    "description": "Note that connection keys are saved in the Open WebUI account settings on the server."
+  },
+  "personalConnectionsTerminals": "Terminály",
+  "@personalConnectionsTerminals": {
+    "description": "Section heading for personal terminal connections."
+  },
+  "personalConnectionsEmptyToolServers": "Nejsou uloženy žádné servery nástrojů.",
+  "@personalConnectionsEmptyToolServers": {
+    "description": "Empty state when the account has no personal tool servers."
+  },
+  "personalConnectionsEmptyTerminals": "Nejsou uloženy žádné terminály.",
+  "@personalConnectionsEmptyTerminals": {
+    "description": "Empty state when the account has no personal terminals."
+  },
+  "personalConnectionsAddToolServer": "Přidat server nástrojů",
+  "@personalConnectionsAddToolServer": {
+    "description": "Button that opens the form for a new personal tool server."
+  },
+  "personalConnectionsAddTerminal": "Přidat terminál",
+  "@personalConnectionsAddTerminal": {
+    "description": "Button that opens the form for a new personal terminal."
+  },
+  "personalConnectionsEditToolServer": "Upravit server nástrojů",
+  "@personalConnectionsEditToolServer": {
+    "description": "Title of the form for changing a personal tool server."
+  },
+  "personalConnectionsEditTerminal": "Upravit terminál",
+  "@personalConnectionsEditTerminal": {
+    "description": "Title of the form for changing a personal terminal."
+  },
+  "personalConnectionsUnavailableServer": "Váš server Open WebUI nepovolil osobní servery nástrojů a terminály.",
+  "@personalConnectionsUnavailableServer": {
+    "description": "Message shown when the Open WebUI server has not enabled personal tool servers and terminals."
+  },
+  "personalConnectionsUnavailablePermission": "Váš účet nesmí spravovat osobní servery nástrojů a terminály.",
+  "@personalConnectionsUnavailablePermission": {
+    "description": "Message shown when the account is not allowed to manage personal tool servers and terminals."
+  },
+  "personalConnectionsLoadFailed": "Osobní připojení se nepodařilo načíst.",
+  "@personalConnectionsLoadFailed": {
+    "description": "Error shown when the personal connections could not be loaded."
+  },
+  "personalConnectionsSaveFailed": "Uložení se nezdařilo. Vaše připojení nebyla změněna.",
+  "@personalConnectionsSaveFailed": {
+    "description": "Error shown when saving a personal connection failed and nothing changed."
+  },
+  "personalConnectionsSaveRejected": "Server tuto změnu neuložil. Váš účet možná nesmí ukládat osobní připojení.",
+  "@personalConnectionsSaveRejected": {
+    "description": "Error shown when the server accepted the request but did not keep the personal connection change."
+  },
+  "personalConnectionsOwnerChanged": "Váš účet nebo přístup se od otevření změnil. Nic nebylo uloženo ani odesláno a vaše zadání zůstávají zde. Pro pokračování otevřete toto připojení znovu.",
+  "@personalConnectionsOwnerChanged": {
+    "description": "Shown on a personal connection form when the signed-in account or its access changed after the form opened; the form's actions are refused and its entries are kept."
+  },
+  "personalConnectionsSavedForPreviousAccount": "Uloženo do účtu, pod kterým byl tento formulář otevřen. Právě přihlášený účet se nezměnil.",
+  "@personalConnectionsSavedForPreviousAccount": {
+    "description": "Shown on a personal connection form after a save finished for the account the form was opened under, while another account is now signed in."
+  },
+  "personalConnectionsDuplicate": "Jiné připojení už tento identifikátor používá.",
+  "@personalConnectionsDuplicate": {
+    "description": "Error shown when another personal connection already has the same identity."
+  },
+  "personalConnectionsNotFound": "Toto připojení bylo jinde změněno nebo odstraněno. Načtěte znovu a zkuste to znovu.",
+  "@personalConnectionsNotFound": {
+    "description": "Error shown when the connection being edited was changed or removed elsewhere."
+  },
+  "personalConnectionsUrl": "URL",
+  "@personalConnectionsUrl": {
+    "description": "Label of the server address field."
+  },
+  "personalConnectionsPath": "Cesta",
+  "@personalConnectionsPath": {
+    "description": "Label of the field holding the path of the OpenAPI document or terminal specification."
+  },
+  "personalConnectionsSpecSource": "Specifikace OpenAPI",
+  "@personalConnectionsSpecSource": {
+    "description": "Label of the choice between fetching the OpenAPI document and pasting it."
+  },
+  "personalConnectionsSpecFromUrl": "Načíst z URL",
+  "@personalConnectionsSpecFromUrl": {
+    "description": "Option that fetches the OpenAPI document from a URL."
+  },
+  "personalConnectionsSpecInline": "Vložit JSON",
+  "@personalConnectionsSpecInline": {
+    "description": "Option that stores a pasted OpenAPI JSON document."
+  },
+  "personalConnectionsSpecJson": "JSON OpenAPI",
+  "@personalConnectionsSpecJson": {
+    "description": "Label of the field holding a pasted OpenAPI JSON document."
+  },
+  "personalConnectionsDescriptionField": "Popis",
+  "@personalConnectionsDescriptionField": {
+    "description": "Label of the optional description field."
+  },
+  "personalConnectionsAuth": "Ověřování",
+  "@personalConnectionsAuth": {
+    "description": "Label of the authentication mode choice."
+  },
+  "personalConnectionsKeyKept": "Uložený klíč zůstává. Zadáním ho nahradíte.",
+  "@personalConnectionsKeyKept": {
+    "description": "Hint shown instead of a stored key: the saved key is kept unless the user types a new one."
+  },
+  "personalConnectionsKeyRemove": "Odebrat uložený klíč",
+  "@personalConnectionsKeyRemove": {
+    "description": "Button that removes the saved key when the connection is saved."
+  },
+  "personalConnectionsKeyWillRemove": "Uložený klíč bude odebrán.",
+  "@personalConnectionsKeyWillRemove": {
+    "description": "Notice that the saved key will be removed when the connection is saved."
+  },
+  "personalConnectionsKeyKeep": "Ponechat uložený klíč",
+  "@personalConnectionsKeyKeep": {
+    "description": "Button that cancels removing the saved key."
+  },
+  "personalConnectionsTestConnection": "Otestovat připojení",
+  "@personalConnectionsTestConnection": {
+    "description": "Button that checks that a personal connection answers, without saving it."
+  },
+  "personalConnectionsTestOk": "Připojení funguje. Nalezeno operací: {count}.",
+  "@personalConnectionsTestOk": {
+    "description": "Result of a successful tool server check with the number {count} of operations it exposes.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "personalConnectionsTestOkTerminal": "Terminál odpověděl.",
+  "@personalConnectionsTestOkTerminal": {
+    "description": "Result of a successful terminal check."
+  },
+  "personalConnectionsTestUnauthorized": "Hostitel klíč odmítl.",
+  "@personalConnectionsTestUnauthorized": {
+    "description": "Result when the host rejected the key."
+  },
+  "personalConnectionsTestUnreachable": "Hostitele se nepodařilo kontaktovat.",
+  "@personalConnectionsTestUnreachable": {
+    "description": "Result when the host could not be reached."
+  },
+  "personalConnectionsTestInvalidSpec": "Hostitel nevrátil platný dokument OpenAPI.",
+  "@personalConnectionsTestInvalidSpec": {
+    "description": "Result when the host did not return a valid OpenAPI document."
+  },
+  "personalConnectionsTestInvalidTarget": "Nejdřív zadejte platnou URL a cestu.",
+  "@personalConnectionsTestInvalidTarget": {
+    "description": "Result when the URL or path is missing or invalid."
+  },
+  "personalConnectionsTestUnsupportedAuth": "Tento způsob ověřování zde nelze otestovat.",
+  "@personalConnectionsTestUnsupportedAuth": {
+    "description": "Result when the connection uses an authentication mode that cannot be tested here."
+  },
+  "personalConnectionsUnsupported": "Toto připojení používá nastavení, která aplikace nemůže upravit. Stále ho můžete zapnout, vypnout nebo smazat.",
+  "@personalConnectionsUnsupported": {
+    "description": "Explains that a connection uses settings the app cannot edit, so it can only be switched or deleted."
+  },
+  "personalConnectionsDeleteTitle": "Smazat připojení?",
+  "@personalConnectionsDeleteTitle": {
+    "description": "Title of the confirmation for deleting a personal connection."
+  },
+  "personalConnectionsDeleteMessage": "{name} bude odebráno z vašeho účtu Open WebUI.",
+  "@personalConnectionsDeleteMessage": {
+    "description": "Confirmation text naming the personal connection {name} that will be deleted.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsUrlRequired": "Zadejte URL.",
+  "@personalConnectionsUrlRequired": {
+    "description": "Validation error for an empty URL."
+  },
+  "personalConnectionsUrlInvalid": "Zadejte úplnou URL s http nebo https.",
+  "@personalConnectionsUrlInvalid": {
+    "description": "Validation error for a URL that is not a full http or https address."
+  },
+  "personalConnectionsPathRequired": "Zadejte cestu.",
+  "@personalConnectionsPathRequired": {
+    "description": "Validation error for an empty path."
+  },
+  "personalConnectionsSpecInvalid": "Zadejte platný dokument JSON OpenAPI.",
+  "@personalConnectionsSpecInvalid": {
+    "description": "Validation error for pasted text that is not a valid OpenAPI JSON document."
+  },
+  "personalConnectionsSelectionCleared": "Odebráno z tohoto chatu, protože se připojení změnilo: {names}",
+  "@personalConnectionsSelectionCleared": {
+    "description": "Notice that chat selections were removed because the connections named in {names} changed.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "personalConnectionsTerminalOneActive": "Zapnutím jednoho terminálu se ostatní vypnou.",
+  "@personalConnectionsTerminalOneActive": {
+    "description": "Hint that switching one terminal on switches the others off."
+  },
+  "personalConnectionsNoAccount": "Chcete-li spravovat osobní připojení, přihlaste se k účtu Open WebUI.",
+  "@personalConnectionsNoAccount": {
+    "description": "Message shown when no Open WebUI account is signed in, so personal connections cannot be managed."
+  },
   "chatSaved": "Chat uložen do historie",
   "@chatSaved": {
     "description": "Snackbar message shown after saving a temporary chat."
@@ -2412,6 +2824,21 @@
   "@channelCreateError": {
     "description": "Snackbar message when channel creation fails"
   },
+  "channelNotifyAllMessages": "Všechny zprávy",
+  "channelNotifyMentionsOnly": "Jen zmínky",
+  "channelAppBadge": "Aplikace",
+  "channelAppOnlyVisibleToYou": "Vidíte jen vy",
+  "channelAppDismiss": "Zavřít",
+  "channelAppErrorFallback": "Aplikace tuto operaci nedokázala dokončit.",
+  "channelAppDownload": "Stáhnout {filename}",
+  "@channelAppDownload": {
+    "placeholders": {
+      "filename": {
+        "type": "String",
+        "example": "report.md"
+      }
+    }
+  },
   "channelMessageHint": "Zpráva...",
   "@channelMessageHint": {
     "description": "Hint text for the channel message input field"
@@ -2442,7 +2869,7 @@
   "@shareChatDeleteLink": {
     "description": "Action label to delete the current shared chat link."
   },
-  "shareChatDeleteAndCreate": "a vytvořit nový sdílený odkaz.",
+  "shareChatDeleteAndCreate": "Odstraní současný odkaz, abyste mohli vytvořit nový.",
   "@shareChatDeleteAndCreate": {
     "description": "Continuation text after the delete shared link action."
   },
@@ -2662,6 +3089,11 @@
   "@memoryHint": {
     "description": "Hint text for the memory editor."
   },
+  "memoryTypeLabel": "Typ",
+  "memoryTypeUser": "Uživatel",
+  "memoryTypeContext": "Kontext",
+  "memoryPathLabel": "Cesta (volitelné)",
+  "memoryPathHint": "např. projects/conduit",
   "addMemory": "Přidat paměť",
   "@addMemory": {
     "description": "Button label for creating a memory."
@@ -2697,10 +3129,6 @@
       "formattedTime": {}
     }
   },
-  "advancedPromptOverrides": "Pokročilá přepsání promptů",
-  "@advancedPromptOverrides": {
-    "description": "Title for advanced model/folder prompt override settings."
-  },
   "advancedPromptOverridesDescription": "Přepsání promptů na úrovni modelu jsou v části Aplikace a chat.",
   "@advancedPromptOverridesDescription": {
     "description": "Subtitle for the advanced prompt overrides shortcut."
@@ -2712,14 +3140,6 @@
   "audioSettingsSubtitle": "Řeč na text a text na řeč",
   "@audioSettingsSubtitle": {
     "description": "Subtitle for the audio settings hub tile."
-  },
-  "appAndChat": "Aplikace a chat",
-  "@appAndChat": {
-    "description": "Title for the app and chat settings page."
-  },
-  "appAndChatSubtitle": "Motiv, jazyk, chování chatu a pokročilá přepsání",
-  "@appAndChatSubtitle": {
-    "description": "Subtitle for the app and chat settings hub tile."
   },
   "accountSettingsTitle": "Účet",
   "@accountSettingsTitle": {
@@ -3504,7 +3924,7 @@
   "settingsAppearance": "Vzhled",
   "settingsAppearanceSubtitle": "Motiv, paleta barev a jazyk",
   "settingsChatSubtitle": "Chování chatu, rychlé akce a pokročilé prompty",
-  "workspaceTitle": "Workspace",
+  "workspaceTitle": "Pracovní prostor",
   "workspaceSubtitle": "Manage server resources and access.",
   "workspaceModels": "Models",
   "workspaceKnowledge": "Knowledge",
@@ -3521,16 +3941,15 @@
   "workspaceEditorComingSoon": "This editor will be available in the next Workspace milestone.",
   "workspaceSearchHint": "Search workspace resources",
   "workspaceLoadMore": "Load more",
-  "workspaceAccessTitle": "Sharing & access",
-  "workspaceAccessSharingDisabled": "Sharing is turned off for this resource, so access is read-only.",
   "workspaceAccessPublicDisabled": "You do not have permission to share this publicly.",
   "workspaceAccessPeopleHeading": "People & groups",
   "workspaceAccessUsersDisabled": "Sharing with individual people is disabled; you can share with groups only.",
   "workspaceAccessEmpty": "Not shared with anyone yet.",
   "workspaceAccessAddPeople": "Add people or groups",
   "workspaceAccessAddGroups": "Add groups",
-  "workspaceAccessVisibilityLabel": "Public",
-  "workspaceAccessVisibilityDescription": "Anyone on this server can view this resource.",
+  "workspaceAccessAddUsers": "Přidat lidi",
+  "workspaceAccessGroupsDisabled": "Sdílení se skupinami je vypnuté, můžete sdílet jen s jednotlivými lidmi.",
+  "workspaceAccessGrantsDisabled": "Nemáte oprávnění sdílet s lidmi ani se skupinami. Stávající přístup zůstává zachován.",
   "workspaceAccessGroupBadge": "Group",
   "workspaceAccessUserBadge": "Person",
   "workspaceAccessCanEdit": "Can edit",
@@ -4611,7 +5030,7 @@
   "reviewerModeEnabled": "Reviewer mode enabled. You can open the demo without a server.",
   "reviewerModeDisabled": "Reviewer mode disabled.",
   "openSourceLicenses": "Open source licenses",
-  "directConnectionsTitle": "Direct Connections",
+  "directConnectionsTitle": "Přímá připojení",
   "directConnectionsSubtitle": "Connect to OpenAI-compatible APIs and Ollama",
   "directConnectionsDescription": "Connect to model providers without Open WebUI. Credentials are stored securely on this device and sent to the provider with requests.",
   "directConnectionsCombinedDescription": "Připojte se přímo k poskytovatelům modelů pomocí připojení synchronizovaných z Open WebUI nebo uložených pouze v tomto zařízení.",
@@ -4636,6 +5055,8 @@
   "addDirectConnection": "Add connection",
   "editDirectConnection": "Edit connection",
   "directConnectionName": "Connection name",
+  "directDefaultConnectionName": "Můj poskytovatel",
+  "sidebarButtonLabel": "Postranní panel",
   "directConnectionNameRequired": "Enter a connection name.",
   "directConnectionUrlInvalid": "Use a valid http:// or https:// URL.",
   "directConnectionCredentialsReentryRequired": "Re-enter credentials when changing servers.",
@@ -4920,5 +5341,814 @@
     }
   }
   ,"directBearerDescription": "Odešle přihlašovací údaje v hlavičce Authorization: Bearer. Většina serverů kompatibilních s OpenAI (llama.cpp, vLLM, LM Studio, Ollama) to očekává."
-  ,"directApiKeyHeaderAzureOnlyDescription": "Odešle přihlašovací údaje v hlavičce api-key. Používejte pouze pro Azure OpenAI; ostatní servery kompatibilní s OpenAI očekávají token Bearer."
+  ,"directApiKeyHeaderAzureOnlyDescription": "Odešle přihlašovací údaje v hlavičce api-key. Používejte pouze pro Azure OpenAI; ostatní servery kompatibilní s OpenAI očekávají token Bearer.",
+  "appleOnDeviceUnavailable": "Apple On-Device není na tomto zařízení dostupný.",
+  "applePccContextSize": "Kontext {tokens} tokenů",
+  "@applePccContextSize": {"description": "Apple PCC context size label.", "placeholders": {"tokens": {"type": "String"}}},
+  "applePccCurrentLanguageUnsupported": "Aktuální jazyk zařízení nemusí být podporován.",
+  "applePccOnDeviceFallback": "Záloha v zařízení",
+  "applePccOnDeviceFallbackSubtitle": "Použít menší model Apple v zařízení, když je PCC nedostupné. Požadavky s uvažováním tuto zálohu nikdy nepoužijí.",
+  "applePccQuotaApproaching": "Blížíte se dennímu limitu využití",
+  "applePccQuotaReached": "Denní limit využití vyčerpán",
+  "applePccQuotaResetsAt": "Obnovení: {time}",
+  "@applePccQuotaResetsAt": {"description": "Apple PCC quota reset time.", "placeholders": {"time": {"type": "String"}}},
+  "applePccShowQuotaOptions": "Zobrazit možnosti využití",
+  "applePccStatusAvailable": "Dostupné",
+  "applePccUnavailable": "Apple Private Cloud Compute není na tomto zařízení dostupný.",
+  "backendChooserAppleOnDeviceSubtitle": "Spusťte soukromý model Apple přímo v tomto zařízení, i bez připojení.",
+  "backendChooserAppleOnDeviceTitle": "Apple On-Device",
+  "backendChooserApplePccSubtitle": "Používejte soukromý cloudový model Apple bez klíče API.",
+  "backendChooserApplePccTitle": "Apple Private Cloud Compute",
+  "backendChooserAppleSectionTitle": "Apple Intelligence",
+  "backendChooserModelApisSectionTitle": "API modelů",
+  "backendChooserSelfHostedSectionTitle": "Vlastní hostované služby",
+  "citationShowTitles": "Zobrazovat názvy stránek u citací",
+  "citationShowTitlesDescription": "V odznacích citací používat názvy stránek místo domén webů",
+  "directContextCompactionDescription": "Tyto modely neuvádějí velikost kontextového okna. Conduit použije zvolený limit ke zhuštění starších zpráv dříve, než budou požadavky příliš velké.",
+  "directContextCompactionPickerDescription": "Vyberte kontextové okno, které má Conduit použít pro automatické zhuštění.",
+  "directContextCompactionTitle": "Zhuštění kontextu",
+  "directContextLimit": "Limit kontextu: {tokens}",
+  "@directContextLimit": {"description": "Provider-neutral model context limit label.", "placeholders": {"tokens": {"type": "String"}}},
+  "notificationSystemSettingsDescription": "Změňte oprávnění, zvuk a možnosti bannerů pro Conduit.",
+  "notificationSystemSettingsOpenFailed": "Systémové nastavení oznámení se nepodařilo otevřít.",
+  "notificationTargetsTitle": "Cíle webhooků",
+  "notificationTargetsDescription": "Váš server Open WebUI odesílá události na tyto adresy URL, i když je tato aplikace zavřená.",
+  "notificationTargetsAdd": "Přidat cíl",
+  "notificationTargetsEmpty": "Zatím žádné cíle webhooků.",
+  "notificationTargetsLoadFailed": "Cíle webhooků se nepodařilo načíst.",
+  "notificationTargetsStale": "Uloženo, ale seznam se nepodařilo obnovit.",
+  "notificationTargetsUnavailable": "Cíle webhooků nejsou pro tento účet k dispozici.",
+  "notificationTargetsAccountChanged": "Účet se změnil. Zavřete toto okno a otevřete cíl znovu.",
+  "notificationTargetNewTitle": "Nový cíl",
+  "notificationTargetEditTitle": "Upravit cíl",
+  "notificationTargetNameLabel": "Název (volitelné)",
+  "notificationTargetNameHint": "např. team-chat",
+  "notificationTargetUrlLabel": "URL webhooku",
+  "notificationTargetUrlHint": "https://example.com/webhook",
+  "notificationTargetUrlKeepHint": "Nechte prázdné, aby zůstala stávající adresa URL",
+  "notificationTargetUrlRequired": "Zadejte URL webhooku.",
+  "notificationTargetEnabledTitle": "Povoleno",
+  "notificationTargetDeliveryLabel": "Doručování",
+  "notificationTargetDeliveryAway": "Když jste pryč",
+  "notificationTargetDeliveryAlways": "Vždy",
+  "notificationTargetEventsLabel": "Události",
+  "notificationTargetEventsUnavailable": "Seznam událostí serveru se nepodařilo načíst.",
+  "notificationTargetUnknownEvent": "Není v seznamu událostí tohoto serveru. Zůstává přihlášená k odběru, dokud ji nevypnete.",
+  "notificationTargetDefaultBadge": "Výchozí",
+  "notificationTargetMakeDefault": "Nastavit jako výchozí",
+  "notificationTargetTest": "Odeslat testovací oznámení",
+  "notificationTargetTestSent": "Testovací oznámení bylo odesláno.",
+  "notificationTargetTestFailed": "Testovací oznámení se nepodařilo doručit.",
+  "notificationTargetDelete": "Smazat cíl",
+  "notificationTargetDeleteConfirm": "Smazat {name}? Váš server na něj přestane odesílat oznámení.",
+  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
+  "notificationSystemSettingsTitle": "Systémové nastavení oznámení",
+  "proxyAuthSignInAgain": "Znovu se přihlásit přes proxy",
+  "readOnly": "Jen pro čtení",
+  "readOnlySharedChat": "Tento chat byl sdílen s vámi. Zprávy může posílat pouze jeho vlastník.",
+  "reasoningEffortDeep": "Hluboké",
+  "reasoningEffortLight": "Lehké",
+  "reasoningEffortModerate": "Střední",
+  "sharedBadge": "Sdíleno",
+  "sharedFolderOwner": "Sdílí {name}",
+  "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "transcribingAudio": "Přepis...",
+  "chatTaskProgress": "Úkoly: dokončeno {completed} z {total}",
+  "@chatTaskProgress": {
+    "description": "Summary of the Open WebUI task checklist above the chat composer.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatTaskPending": "Čeká",
+  "chatTaskInProgress": "Probíhá",
+  "chatTaskCompleted": "Dokončeno",
+  "chatTaskCancelled": "Zrušeno",
+  "webSearchSettingsFooterAuto": "Používají modely Direct bez vlastního vyhledávání na webu. Vyhledávání probíhá z tohoto zařízení: dotazy jdou na DuckDuckGo, a pokud neodpoví, na Brave, Bing, Mojeek nebo Wikipedii. Stránky, které model čte, se také načítají z tohoto zařízení.",
+  "webSearchSettingsFooterEngine": "Používají modely Direct bez vlastního vyhledávání na webu. Vyhledávání probíhá z tohoto zařízení a dotazy jdou pouze na {engine}. Stránky, které model čte, se také načítají z tohoto zařízení.",
+  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "webSearchEngineLabel": "Vyhledávač",
+  "webSearchEngineAuto": "Automaticky",
+  "webSearchSafeSearchLabel": "Bezpečné vyhledávání",
+  "webSearchSafeSearchStrict": "Přísné",
+  "webSearchSafeSearchModerate": "Střední",
+  "webSearchSafeSearchOff": "Vypnuto",
+  "webSearchRegionLabel": "Oblast",
+  "webSearchRegionAuto": "Podle zařízení",
+  "webSearchRegionWorldwide": "Celosvětově",
+  "directModelToolsUnsupported": "Tento model neumí používat nástroje, a proto nemůže vyhledávat na webu. Vypněte vyhledávání na webu a všechny nástroje a zkuste to znovu.",
+  "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modely} many{{count} modelu} other{{count} modelů}}",
+  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "imageViewerPosition": "{current} z {total}",
+  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "saveImage": "Uložit obrázek",
+  "imageSaved": "Obrázek uložen",
+  "imageSaveFailed": "Obrázek se nepodařilo uložit.",
+  "settingsTitle": "Nastavení",
+  "profileTitle": "Profil",
+  "aiAndMemoryTitle": "AI a paměť",
+  "voiceCallMinimize": "Minimalizovat",
+  "@voiceCallMinimize": {
+    "description": "Accessibility label for the button that shrinks the voice call panel to a small pill."
+  },
+  "voiceCallExpand": "Rozbalit",
+  "@voiceCallExpand": {
+    "description": "Accessibility label for the button that opens the minimized voice call pill back into the full panel."
+  },
+  "askConduitAction": "Zeptat se Conduitu",
+  "voiceCallStartTimeout": "Spuštění hlasového hovoru trvalo příliš dlouho. Zkuste to znovu.",
+  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "voiceCallNoSpeech": "Nebyla zjištěna žádná řeč.",
+  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "voiceCallFailed": "Hlasový hovor nemohl pokračovat.",
+  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "personalToolSettings": "Nastavení nástrojů",
+  "personalToolSettingsDescription": "Vaše osobní možnosti pro vybrané nástroje a model.",
+  "personalToolSettingsYours": "Vaše nastavení",
+  "personalToolSettingsUnavailable": "Vaše nastavení není pro tuto položku k dispozici.",
+  "personalToolSettingsOwnerChanged": "Přihlášený účet se změnil, proto se nic neuložilo. Znovu otevřete nastavení a pokračujte.",
+  "personalToolSettingsInvalid": "Server tyto hodnoty nepřijal.",
+  "noteReadOnlyNotice": "Tato poznámka je jen pro čtení. Můžete si ji přečíst, ale ne změnit.",
+  "noteAccessUnverifiedNotice": "Znovu se připojte a ověřte, že můžete tuto poznámku upravovat.",
+  "noteAccessRevokedNotice": "Tuto poznámku už nemůžete upravovat. Neuložené změny zůstávají zde.",
+  "noteSaveAsOwnNote": "Uložit jako moji poznámku",
+  "noteDiscardChanges": "Zahodit změny",
+  "noteSessionChangedNotice": "Přihlášený účet se změnil, takže tato poznámka nebyla uložena.",
+  "noteNoAccess": "K této poznámce už nemáte přístup.",
+  "noteShare": "Sdílet poznámku",
+  "folderShareSettings": "Sdílet složku",
+  "chatShareAudience": "Kdo má přístup",
+  "chatShareAudienceDescription": "Zvolte, kdo může tento chat otevřít",
+  "resourceSharingSaved": "Sdílení bylo aktualizováno",
+  "resourceSharingFiltered": "Uloženo. Server ponechal jen část přístupu, který jste zvolili.",
+  "resourceSharingSessionChanged": "Přihlášený účet se změnil, takže nebylo nic uloženo. Zavřete toto okno a otevřete je znovu.",
+  "resourceSharingDenied": "Už nemůžete měnit, kdo má k tomuto přístup.",
+  "resourceSharingMissing": "Tato položka už neexistuje.",
+  "resourceSharingLoadFailed": "Nepodařilo se načíst, kdo má přístup.",
+  "resourceSharingSaveFailed": "Přístup se nepodařilo uložit. Zkuste to znovu.",
+  "resourceAudiencePrivateHint": "Otevřít ji mohou jen lidé a skupiny uvedené níže.",
+  "resourceAudienceOpenHint": "Zobrazit ji může kdokoli s odkazem.",
+  "channelMembersSearchHint": "Hledat členy",
+  "channelMembersEmpty": "Nebyli nalezeni žádní členové.",
+  "channelMembersLoadFailed": "Členy se nepodařilo načíst.",
+  "channelMembersLoadMore": "Načíst další",
+  "channelMembersLoadMoreFailed": "Další členy se nepodařilo načíst. Klepnutím to zkusíte znovu.",
+  "channelMembersAdd": "Přidat členy",
+  "channelMembersAddConfirm": "Přidat",
+  "channelMembersRemoveMember": "Odebrat {name}",
+  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "channelMembersChangeFailed": "Členy se nepodařilo aktualizovat. Zkuste to znovu.",
+  "channelMembersChangeDenied": "Server tuto změnu nepovolil.",
+  "channelMembersChangeNotPermitted": "Nemůžete spravovat členy tohoto kanálu.",
+  "chatBranchContinueFromResponse": "Pokračovat odtud",
+  "chatBranchForkChat": "Rozvětvit do nového chatu",
+  "chatBranchSwitcherSemantics": "Upravená zpráva, verze {position} z {total}. Zobrazit všechny verze.",
+  "@chatBranchSwitcherSemantics": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchSheetTitle": "Verze zprávy",
+  "chatBranchSheetDescription": "Vyberte verzi, od které chcete pokračovat. Každá verze si ponechává vlastní odpovědi.",
+  "chatBranchVersionTitle": "Verze {position}",
+  "@chatBranchVersionTitle": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchVersionCurrent": "Zobrazeno",
+  "chatBranchSelectedNotice": "Pokračování od verze {position} z {total}",
+  "@chatBranchSelectedNotice": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatBranchWaitForResponse": "Počkejte, až tato odpověď skončí.",
+  "chatBranchUnavailable": "Větve tohoto chatu zde nelze měnit.",
+  "chatBranchOwnerChanged": "Přihlášený účet se změnil, takže nebylo nic změněno.",
+  "chatBranchMessageMissing": "Tato verze už není dostupná.",
+  "chatForkOffline": "Pro rozvětvení tohoto chatu se připojte k internetu.",
+  "chatForkForbidden": "Váš účet nemůže rozvětvovat chaty.",
+  "chatForkSourceMissing": "Server už tento chat nemá.",
+  "chatForkUnsupported": "Tento server nemůže rozvětvovat chaty.",
+  "chatForkFailed": "Chat se nepodařilo rozvětvit. Zkuste to znovu.",
+  "codeInterpreter": "Interpret kódu",
+  "codeInterpreterDescription": "Spouštějte kód na serveru pro analýzu dat a vytváření souborů.",
+  "codeInterpreterBrowserEngine": "Tento server spouští kód v prohlížeči, což Conduit neumí.",
+  "codeInterpreterUnavailable": "Pro tento server, účet nebo model není dostupný.",
+  "folderProjectSettings": "Nastavení projektu",
+  "folderProjectSettingsDescription": "Výchozí hodnoty pro nové chaty v této složce. Server na každý chat v ní použije její znalosti a systémový prompt.",
+  "folderProjectModels": "Výchozí modely",
+  "folderProjectModelsHint": "Nový chat začne prvním dostupným z těchto modelů.",
+  "folderProjectNoKnowledge": "Žádné připojené znalosti.",
+  "folderProjectNoModels": "Žádný výchozí model. Nové chaty používají tvůj výchozí model.",
+  "folderProjectAddKnowledge": "Přidat znalosti",
+  "folderProjectAddModel": "Přidat model",
+  "folderProjectNothingToAdd": "Není co dalšího přidat.",
+  "folderProjectNotAvailable": "Nedostupné — nové chaty ji vynechají",
+  "folderProjectMoveUp": "Posunout {name} nahoru",
+  "folderProjectRemove": "Odebrat {name}",
+  "folderProjectKindCollection": "Znalostní báze",
+  "folderProjectKindFile": "Soubor",
+  "folderProjectKindNote": "Poznámka",
+  "folderProjectOwnerChanged": "Přihlášený účet se změnil, takže se nic neuložilo. Znovu otevři nastavení projektu a pokračuj.",
+  "folderProjectReadOnly": "Tato sdílená složka je jen pro čtení, takže její nastavení projektu nelze změnit.",
+  "folderProjectGone": "Tato složka už není dostupná.",
+  "folderProjectModelFallbackNotice": "Výchozí model této složky není dostupný, proto se použije tvůj výchozí model.",
+  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTasksTitle": "Naplánované úlohy",
+  "scheduledTasksDescription": "Váš server Open WebUI spouští tyto úlohy podle vlastního plánu, i když je tento telefon offline.",
+  "scheduledTasksUnavailable": "Naplánované úlohy nejsou pro tento účet na tomto serveru k dispozici.",
+  "scheduledTasksSearchHint": "Hledat úlohy",
+  "scheduledTasksFilterAll": "Vše",
+  "scheduledTasksFilterActive": "Aktivní",
+  "scheduledTasksFilterPaused": "Pozastavené",
+  "scheduledTasksEmpty": "Zatím žádné naplánované úlohy.",
+  "scheduledTasksEmptyFiltered": "Žádné úlohy neodpovídají.",
+  "scheduledTasksLoadFailed": "Naplánované úlohy se nepodařilo načíst.",
+  "scheduledTasksStale": "Tento seznam může být neaktuální. Klepnutím ho obnovíte.",
+  "scheduledTasksLoadMore": "Načíst další",
+  "scheduledTasksAdd": "Nová naplánovaná úloha",
+  "scheduledTasksAccountChanged": "Účet se změnil. Chcete-li pokračovat, znovu otevřete naplánované úlohy.",
+  "scheduledTasksNotFound": "Tato úloha už neexistuje.",
+  "scheduledTaskStatusActive": "Aktivní",
+  "scheduledTaskStatusPaused": "Pozastavená",
+  "scheduledTaskNextRun": "Příští spuštění: {time}",
+  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNoNextRun": "Žádné další spuštění",
+  "scheduledTaskLastRun": "Poslední spuštění: {time}",
+  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskNeverRun": "Dosud nespuštěno",
+  "scheduledTaskScheduleOnce": "Jednou",
+  "scheduledTaskScheduleDaily": "Denně",
+  "scheduledTaskScheduleWeekly": "Týdně",
+  "scheduledTaskScheduleOnceSummary": "Jednou, {date}",
+  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "scheduledTaskScheduleDailySummary": "Denně v {time}",
+  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "scheduledTaskScheduleWeeklySummary": "{days} v {time}",
+  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "scheduledTaskScheduleCustom": "Vlastní plán",
+  "scheduledTaskNewTitle": "Nová naplánovaná úloha",
+  "scheduledTaskEditTitle": "Upravit naplánovanou úlohu",
+  "scheduledTaskNameLabel": "Název",
+  "scheduledTaskPromptLabel": "Pokyny",
+  "scheduledTaskPromptHint": "Co má model udělat při každém spuštění?",
+  "scheduledTaskModelLabel": "Model",
+  "scheduledTaskModelChoose": "Zvolte model",
+  "scheduledTaskModelUnavailable": "{id} (již není k dispozici)",
+  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "scheduledTaskScheduleLabel": "Plán",
+  "scheduledTaskTimeLabel": "Čas",
+  "scheduledTaskDateLabel": "Datum",
+  "scheduledTaskDaysLabel": "Dny",
+  "scheduledTaskAdvancedSchedule": "Pokročilý plán",
+  "scheduledTaskRruleLabel": "Pravidlo opakování",
+  "scheduledTaskRruleKept": "Tento plán používá pravidlo, které ovládací prvky neumějí upravit. Zůstane beze změny, pokud ho nezměníte.",
+  "scheduledTaskTimezoneNote": "Časy se řídí časovým pásmem vašeho účtu Open WebUI, které se může lišit od tohoto zařízení.",
+  "scheduledTaskActiveLabel": "Aktivní",
+  "scheduledTaskDestinationLabel": "Výsledek jde do",
+  "scheduledTaskDestinationChat": "Nového chatu",
+  "scheduledTaskDestinationChannel": "Kanálu",
+  "scheduledTaskFolderLabel": "Složka",
+  "scheduledTaskFolderNone": "Žádná",
+  "scheduledTaskFolderUnavailable": "Uložená složka (již není k dispozici)",
+  "scheduledTaskChannelChoose": "Zvolte kanál",
+  "scheduledTaskChannelUnavailable": "Uložený kanál (již není k dispozici)",
+  "scheduledTaskChannelNoWrite": "Do tohoto kanálu nemůžete přispívat.",
+  "scheduledTaskNameRequired": "Zadejte název.",
+  "scheduledTaskPromptRequired": "Zadejte pokyny.",
+  "scheduledTaskModelRequired": "Zvolte model.",
+  "scheduledTaskModelUnavailableIssue": "Zvolte model, který je nyní k dispozici.",
+  "scheduledTaskChannelRequired": "Zvolte kanál.",
+  "scheduledTaskChannelUnavailableIssue": "Zvolte kanál, který je nyní k dispozici.",
+  "scheduledTaskFolderUnavailableIssue": "Zvolte složku, která je nyní k dispozici, nebo žádnou.",
+  "scheduledTaskScheduleIncomplete": "Dokončete plán.",
+  "scheduledTaskSaveFailed": "Tuto úlohu se nepodařilo uložit.",
+  "scheduledTaskRunNow": "Spustit nyní",
+  "scheduledTaskRunRequested": "Spuštění bylo vyžádáno. Server ho provede na pozadí a výsledek se po dokončení zobrazí v Historii.",
+  "scheduledTaskRunRequestFailed": "Spuštění se nepodařilo vyžádat.",
+  "scheduledTaskNextRunsLabel": "Připravovaná spuštění ze serveru",
+  "scheduledTaskHistoryTitle": "Historie",
+  "scheduledTaskHistoryEmpty": "Zatím žádná spuštění.",
+  "scheduledTaskHistoryLoadFailed": "Historii se nepodařilo načíst.",
+  "scheduledTaskRunSucceeded": "Úspěšné",
+  "scheduledTaskRunFailedStatus": "Neúspěšné",
+  "scheduledTaskViewChat": "Zobrazit chat",
+  "scheduledTaskViewChannel": "Zobrazit kanál",
+  "scheduledTaskOpenResultFailed": "Tento výsledek se nepodařilo otevřít.",
+  "scheduledTaskDelete": "Smazat úlohu",
+  "scheduledTaskDeleteConfirm": "Úloha {name} se na serveru přestane spouštět a její historie spuštění bude odstraněna.",
+  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "scheduledTaskChangeFailed": "Tuto úlohu se nepodařilo změnit.",
+  "scheduledTaskTerminalKept": "K této úloze je připojen terminál. Při úpravě zůstane zachován.",
+  "scheduledTaskPromptSection": "Pokyny",
+  "queueDraftAction": "Do fronty",
+  "queuedDraftsTitle": "Zprávy ve frontě",
+  "queuedDraftsCount": "{count, plural, one{{count} zpráva ve frontě} few{{count} zprávy ve frontě} many{{count} zprávy ve frontě} other{{count} zpráv ve frontě}}",
+  "queuedDraftsSessionNote": "Zprávy ve frontě se uchovávají jen po dobu, kdy je Conduit otevřený. Po dokončení odpovědi se odešlou společně jako jedna zpráva.",
+  "queuedDraftSendNow": "Zastavit a odeslat",
+  "queuedDraftUploading": "Čekání na dokončení nahrávání souboru",
+  "queuedDraftFileFailed": "Soubor se nenahrál. Zkuste to znovu, nebo jej odeberte.",
+  "queuedDraftsSendFailed": "Zprávy ve frontě se nepodařilo odeslat. Zůstávají ve frontě.",
+  "queuedDraftsSending": "Odesílání zpráv z fronty…",
+  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "calendarTitle": "Kalendář",
+  "calendarUnavailable": "Kalendář není pro tento účet na tomto serveru k dispozici.",
+  "calendarTimezoneNote": "Časy se zobrazují v časovém pásmu tohoto zařízení.",
+  "calendarRangeLabel": "{start} – {end}",
+  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "calendarToday": "Dnes",
+  "calendarEmpty": "V tomto období nejsou žádné události.",
+  "calendarLoadFailed": "Kalendář se nepodařilo načíst.",
+  "calendarStale": "Kalendář může být neaktuální.",
+  "calendarAddEvent": "Nová událost",
+  "calendarManageCalendars": "Kalendáře",
+  "calendarAllDay": "Celý den",
+  "calendarRepeatsMarker": "Opakuje se",
+  "calendarUntitledEvent": "Událost bez názvu",
+  "calendarScheduledUpcoming": "Naplánovaná úloha",
+  "calendarScheduledRunFinished": "Spuštění úlohy skončilo",
+  "calendarScheduledRunFailed": "Spuštění úlohy selhalo",
+  "calendarScheduledEntryReadOnly": "Naplánované úlohy se spravují na stránce Naplánované úlohy, ne jako události.",
+  "calendarEventDetailTitle": "Událost",
+  "calendarEventSeriesNote": "Tato událost se opakuje. Změny a smazání se týkají celé série.",
+  "calendarRsvpPrompt": "Vaše odpověď",
+  "calendarRsvpAccepted": "Zúčastním se",
+  "calendarRsvpTentative": "Možná",
+  "calendarRsvpDeclined": "Nezúčastním se",
+  "calendarRsvpPending": "Zatím bez odpovědi",
+  "calendarRsvpFailed": "Vaši odpověď se nepodařilo odeslat.",
+  "calendarEventEdit": "Upravit",
+  "calendarEventEditSeries": "Upravit sérii",
+  "calendarEventDelete": "Smazat",
+  "calendarEventDeleteSeries": "Smazat sérii",
+  "calendarEventDeleteConfirm": "Smazat {title}? Tuto akci nelze vrátit zpět.",
+  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteSeriesConfirm": "Smazat {title} a všechna jeho opakování? Tuto akci nelze vrátit zpět.",
+  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "calendarEventDeleteFailed": "Tuto událost se nepodařilo smazat.",
+  "calendarEventLoadFailed": "Tuto událost se nepodařilo otevřít k úpravám.",
+  "calendarEventReadOnly": "Tuto událost nemůžete měnit. Na pozvánku však stále můžete odpovědět.",
+  "calendarEventGone": "Tato událost už neexistuje. Program se obnovuje.",
+  "calendarNewEventTitle": "Nová událost",
+  "calendarEditEventTitle": "Upravit událost",
+  "calendarEditSeriesTitle": "Upravit sérii",
+  "calendarFieldTitle": "Název",
+  "calendarFieldDescription": "Popis",
+  "calendarFieldLocation": "Místo",
+  "calendarFieldAllDay": "Celý den",
+  "calendarFieldStarts": "Začátek",
+  "calendarFieldStartTime": "Čas začátku",
+  "calendarFieldEnds": "Konec",
+  "calendarFieldEndTime": "Čas konce",
+  "calendarAddEnd": "Přidat čas konce",
+  "calendarFieldRepeat": "Opakování",
+  "calendarRepeatNone": "Neopakuje se",
+  "calendarRepeatDaily": "Denně",
+  "calendarRepeatWeekdays": "Ve všední dny",
+  "calendarRepeatWeekly": "Týdně",
+  "calendarRepeatMonthly": "Měsíčně",
+  "calendarRepeatYearly": "Ročně",
+  "calendarRepeatCustom": "Vlastní opakování",
+  "calendarRepeatKept": "Tato událost se opakuje podle pravidla, které zde nelze upravit. Zůstane zachováno, pokud nezvolíte jiné opakování.",
+  "calendarRecurrenceTimezoneNote": "Opakování se řídí časovým pásmem vašeho účtu, které se může lišit od pásma tohoto zařízení.",
+  "calendarFieldCalendar": "Kalendář",
+  "calendarChooseCalendar": "Zvolte kalendář",
+  "calendarFieldAttendees": "Lidé",
+  "calendarAddPeople": "Přidat lidi",
+  "calendarInvitedPerson": "Pozvaná osoba",
+  "calendarRemovePerson": "Odebrat {name}",
+  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "calendarAttendeesNote": "Pozvaní lidé odpovídají sami za sebe. Jejich odpovědi zůstanou zachovány, když změníte seznam.",
+  "calendarNoWritableCalendar": "Nemáte žádný kalendář, do kterého můžete přidávat události. Chcete-li pokračovat, vytvořte kalendář.",
+  "calendarTitleRequired": "Zadejte název.",
+  "calendarCalendarRequired": "Zvolte kalendář.",
+  "calendarEndBeforeStart": "Konec nemůže být před začátkem.",
+  "calendarSaveFailed": "Tuto událost se nepodařilo uložit.",
+  "calendarCalendarsTitle": "Kalendáře",
+  "calendarPickTitle": "Zvolte kalendář",
+  "calendarEmptyCalendars": "Zatím žádné kalendáře.",
+  "calendarDefaultBadge": "Výchozí",
+  "calendarSharedBadge": "Sdílený",
+  "calendarReadOnlyBadge": "Jen pro čtení",
+  "calendarMakeDefault": "Nastavit jako výchozí",
+  "calendarMakeDefaultFailed": "Výchozí kalendář se nepodařilo změnit.",
+  "calendarNewCalendar": "Nový kalendář",
+  "calendarNewCalendarHint": "Název kalendáře",
+  "calendarCreateCalendar": "Vytvořit kalendář",
+  "calendarNameRequired": "Zadejte název kalendáře.",
+  "calendarCreateFailed": "Kalendář se nepodařilo vytvořit.",
+  "calendarWriteDenied": "Váš účet to v tomto kalendáři nemůže změnit.",
+  "calendarNotInvited": "Na tuto událost nejste pozváni.",
+  "calendarNotFound": "Tento kalendář nebo událost se nepodařilo najít.",
+  "calendarAccountChanged": "Účet se změnil, když bylo toto otevřené. Zavřete to a zkuste to znovu.",
+  "chatDataControlsTitle": "Správa dat",
+  "chatDataControlsStoredOn": "Chaty účtu {account} na serveru {server}",
+  "@chatDataControlsStoredOn": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsMediaNote": "Export obsahuje historii chatů, nastavení a odkazy na přílohy uložené na serveru. Samotné připojené soubory a obrázky zahrnuty nejsou.",
+  "chatDataControlsLocalOnly": "{count, plural, one{{count} chat je jen v tomto zařízení} few{{count} chaty jsou jen v tomto zařízení} many{{count} chatu je jen v tomto zařízení} other{{count} chatů je jen v tomto zařízení}}",
+  "@chatDataControlsLocalOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsent": "{count, plural, one{{count} chat má změny, které server nepřijal} few{{count} chaty mají změny, které server nepřijal} many{{count} chatu má změny, které server nepřijal} other{{count} chatů má změny, které server nepřijal}}",
+  "@chatDataControlsUnsent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsUnsyncedNote": "Export je vynechá, dokud nebudou odeslány.",
+  "chatDataControlsSyncNow": "Synchronizovat",
+  "chatDataControlsSyncing": "Synchronizace…",
+  "chatDataControlsBackupSection": "Export a import",
+  "chatDataControlsManageSection": "Všechny chaty",
+  "chatDataControlsExportLibrary": "Exportovat všechny chaty",
+  "chatDataControlsImport": "Importovat chaty",
+  "chatDataControlsArchiveAll": "Archivovat všechny chaty",
+  "chatDataControlsUnarchiveAll": "Obnovit všechny chaty z archivu",
+  "chatDataControlsUnshareAll": "Odebrat všechny odkazy ke sdílení",
+  "chatDataControlsDeleteAll": "Smazat všechny chaty",
+  "chatDataControlsExporting": "Exportuje se… přečtených chatů: {count}",
+  "@chatDataControlsExporting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportReady": "Export je připraven. Uložených chatů: {count}",
+  "@chatDataControlsExportReady": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsExportEmpty": "Na serveru nejsou žádné chaty k exportu.",
+  "chatDataControlsExportFailed": "Nic nebylo uloženo. Export byl přerušen nebo je neúplný.",
+  "chatDataControlsExportStopped": "Export byl zastaven. Nic nebylo uloženo.",
+  "chatDataControlsExportConfirmTitle": "Exportovat kopii ze serveru?",
+  "chatDataControlsExportConfirmMessage": "Tím se uloží chaty účtu {account} uložené na serveru {server}. Chaty, které existují jen na tomto zařízení, a změny, které server nepřijal, nejsou zahrnuty.",
+  "@chatDataControlsExportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsExportAction": "Exportovat",
+  "chatDataControlsImportConfirmTitle": "Importovat tyto chaty?",
+  "chatDataControlsImportConfirmMessage": "Přidat chaty ze souboru k účtu {account} na serveru {server}? Chaty: {chats}. Zprávy: {messages}. Chaty, které tam už jsou, se nenahrazují; import přidá kopie.",
+  "@chatDataControlsImportConfirmMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      },
+      "chats": {
+        "type": "int"
+      },
+      "messages": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportAction": "Importovat",
+  "chatDataControlsImportInvalid": "Tento soubor není exportem chatů z Open WebUI.",
+  "chatDataControlsImportEmpty": "Tento soubor neobsahuje žádné chaty.",
+  "chatDataControlsImportTooLarge": "Tento soubor je příliš velký na import najednou.",
+  "chatDataControlsImportBadEntry": "Chat číslo {position} v souboru nelze importovat.",
+  "@chatDataControlsImportBadEntry": {
+    "placeholders": {
+      "position": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportChooseAnother": "Zvolit jiný soubor",
+  "chatDataControlsImportFile": "Soubor: {name}",
+  "@chatDataControlsImportFile": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsImported": "Import dokončen. Importovaných chatů: {count}",
+  "@chatDataControlsImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsImportedSyncNote": "Některé se zde zobrazí po další synchronizaci.",
+  "chatDataControlsImportUnknown": "Server neodpověděl, takže není známo, zda byly chaty importovány. Před dalším importem zkontrolujte své chaty; dvojitý import přidá kopie.",
+  "chatDataControlsForbidden": "Tento účet to nesmí dělat.",
+  "chatDataControlsArchiveAllMessage": "Archivovat na serveru všechny vaše chaty? Později je můžete obnovit z archivu.",
+  "chatDataControlsUnarchiveAllMessage": "Obnovit na serveru z archivu všechny vaše archivované chaty?",
+  "chatDataControlsUnshareAllMessage": "Odebrat všechny odkazy ke sdílení, které jste vytvořili? Lidé s odkazem ztratí přístup. Chaty zůstanou.",
+  "chatDataControlsDeleteAllMessage": "Smazat všechny chaty účtu {account} na serveru {server}? Tuto akci nelze vrátit zpět. Chaty, které existují jen na tomto zařízení, zůstanou zachovány.",
+  "@chatDataControlsDeleteAllMessage": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
+  "chatDataControlsDeleteUnsentMessage": "Na server ještě neodesláno – chaty se změnami: {edits}; chaty s odpověďmi ve frontě: {replies}. Smazáním se zahodí.",
+  "@chatDataControlsDeleteUnsentMessage": {
+    "placeholders": {
+      "edits": {
+        "type": "int"
+      },
+      "replies": {
+        "type": "int"
+      }
+    }
+  },
+  "chatDataControlsResponseRunning": "Odpověď se ještě generuje. Zastavte ji a zkuste to znovu.",
+  "chatDataControlsLocalChanged": "Chat, který byl jen na tomto zařízení, se během čekání dostal na server. Nic se nezměnilo. Zkontrolujte to a zkuste to znovu.",
+  "chatDataControlsRefused": "Server to nemohl provést. Nic se nezměnilo.",
+  "chatDataControlsUnknown": "Server neodpověděl, takže výsledek není znám. Zkontrolujte své chaty; opakování je bezpečné.",
+  "chatDataControlsOwnerChanged": "Přihlášený účet se změnil. Nic se neprovedlo.",
+  "chatDataControlsAccountUnknown": "Tento účet se zatím nepodařilo identifikovat. Synchronizujte a zkuste to znovu.",
+  "chatDataControlsWaiting": "Čeká se na dokončení synchronizace…",
+  "chatExportAction": "Exportovat chat",
+  "chatExportJson": "Záloha (JSON)",
+  "chatExportJsonDescription": "Celý chat se všemi větvemi a jejich nastavením. Open WebUI ho umí importovat.",
+  "chatExportMarkdown": "Přepis (Markdown)",
+  "chatExportMarkdownDescription": "Konverzace, ve které jste, jako čitelný text. Nejde o zálohu.",
+  "chatExportUnsentNote": "Zahrnuje změny, které server ještě nepřijal.",
+  "chatExportFailed": "Chat se nepodařilo exportovat.",
+  "chatDataControlsWorkChanged": "Na tomto zařízení se během čekání objevily neodeslané změny. Nic nebylo smazáno. Zkontrolujte to a zkuste to znovu.",
+  "chatComparisonTabsLabel": "Odpovědi modelů",
+  "chatComparisonSlotLabel": "{model} · {number}",
+  "@chatComparisonSlotLabel": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      },
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "chatComparisonUnnamedModel": "Model",
+  "chatComparisonSlotResponding": "Odpovídá",
+  "chatComparisonSlotFailed": "Selhalo",
+  "chatMergedResponseTitle": "Sloučená odpověď",
+  "chatCompareModelsAction": "Porovnat modely",
+  "chatCompareModelsDescription": "Odeslat dvěma modelům a porovnat odpovědi.",
+  "chatCompareNeedsMessage": "Nejprve napište zprávu",
+  "chatCompareFirstModel": "První model",
+  "chatCompareSecondModel": "Druhý model",
+  "chatCompareChooseModel": "Vyberte model",
+  "chatCompareStart": "Porovnat",
+  "chatCompareErrorUnavailable": "Porovnávání modelů není v tomto chatu k dispozici.",
+  "chatCompareErrorModelUnavailable": "{count, plural, =1{Model {models} není na tomto serveru k dispozici.} other{Modely {models} nejsou na tomto serveru k dispozici.}}",
+  "@chatCompareErrorModelUnavailable": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorVision": "{count, plural, =1{Model {models} neumí číst obrázky. Odstraňte obrázek nebo zvolte jiný model.} other{Modely {models} neumějí číst obrázky. Odstraňte obrázek nebo zvolte jiné modely.}}",
+  "@chatCompareErrorVision": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorTerminal": "{count, plural, =1{Model {models} neumí použít vybraný terminál. Vypněte terminál nebo zvolte jiný model.} other{Modely {models} neumějí použít vybraný terminál. Vypněte terminál nebo zvolte jiné modely.}}",
+  "@chatCompareErrorTerminal": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorInterpreter": "{count, plural, =1{Model {models} neumí spouštět interpret kódu. Vypněte ho nebo zvolte jiný model.} other{Modely {models} neumějí spouštět interpret kódu. Vypněte ho nebo zvolte jiné modely.}}",
+  "@chatCompareErrorInterpreter": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortOverride": "{count, plural, =1{Tento chat ukládá úroveň uvažování, kterou model {models} neumí použít. Odstraňte ji v nastavení chatu nebo zvolte jiný model.} other{Tento chat ukládá úroveň uvažování, kterou modely {models} neumějí použít. Odstraňte ji v nastavení chatu nebo zvolte jiné modely.}}",
+  "@chatCompareErrorEffortOverride": {
+    "placeholders": {
+      "models": {
+        "type": "String"
+      }
+    }
+  },
+  "chatCompareErrorEffortPicker": "Zvolené modely potřebují různé úrovně uvažování. Nastavte pro oba stejnou úroveň nebo zvolte jiné modely.",
+  "chatMergeResponsesAction": "Sloučit odpovědi",
+  "chatMergeStopAction": "Zastavit sloučení",
+  "chatMergeErrorUnavailable": "Tento server neumí slučovat odpovědi.",
+  "chatMergeErrorFailed": "Sloučení odpovědí se nezdařilo. Původní odpovědi zůstávají beze změny.",
+  "chatMergeErrorNotMergeable": "Než půjde odpovědi sloučit, každá z nich musí skončit nějakým textem.",
+  "chatMergeErrorOwnerChanged": "Účet nebo chat se změnil, proto bylo sloučení zastaveno.",
+  "chatComparisonStopAnswerAction": "Zastavit tuto odpověď",
+  "chatMergeChooseDescription": "Zvolte odpovědi ke sloučení. Vyberte alespoň dvě; původní odpovědi zůstanou beze změny.",
+  "folderProjectComparisonFallbackNotice": "Uložené modely tohoto projektu nelze použít všechny, proto chat začíná s menším počtem. Porovnání používá právě dva.",
+  "advancedFeaturesFooter": "Přidá porovnání modelů, nastavení jednotlivých chatů, nastavení nástrojů, naplánované úlohy, osobní připojení, webhooky a správu dat. Vypnutím je pouze skryjete; vše, co už je nastavené, dál funguje.",
+  "profileAdvancedFooter": "Zobrazeno, protože je v Nastavení > Chat zapnuto Pokročilé.",
+  "advancedRequiredTitle": "Součást Pokročilého",
+  "advancedRequiredMessage": "{feature} je funkce režimu Pokročilé. Zapněte Pokročilé, chcete-li ji použít. Vše, co už je nastavené, dál funguje.",
+  "advancedTurnOn": "Zapnout Pokročilé",
+  "promptOverridesTitle": "Přepsání promptů",
+  "chatSettingsStopHint": "Vaše výchozí (oddělené čárkami)",
+  "chatSettingsUseYourDefault": "Použít vaše výchozí",
+  "personalToolSettingsSaved": "Nastavení nástrojů uloženo",
+  "personalToolSettingsLoadFailed": "Nastavení nástrojů se nepodařilo načíst.",
+  "personalToolSettingsSaveFailed": "Nastavení nástrojů se nepodařilo uložit.",
+  "scheduledTaskDeleteTitle": "Smazat naplánovanou úlohu?",
+  "scheduledTaskRunning": "Probíhá…",
+  "scheduledTaskRunFinished": "Spuštění bylo dokončeno.",
+  "scheduledTaskRunFailedNotice": "Spuštění selhalo. Podrobnosti najdete v Historii.",
+  "scheduledTaskLastRunFailed": "Poslední spuštění selhalo",
+  "scheduledTaskRruleRuns": "Spouští se: {summary}",
+  "scheduledTaskFolderSearchHint": "Hledat složky",
+  "scheduledTasksEmptyHint": "Nechte model plnit vaše pokyny podle plánu, například ranní přehled zpráv.",
+  "scheduledTasksShowAll": "Zobrazit všechny úlohy",
+  "personalConnectionsEmptyToolServersHint": "Přidejte server nástrojů OpenAPI a používejte jeho nástroje v chatech.",
+  "personalConnectionsEmptyTerminalsHint": "Přidejte terminálový server, který mohou modely používat z vašich chatů.",
+  "chatCompareModelPair": "{first} a {second}",
+  "chatDataControlsNoAccount": "Přihlaste se k účtu Open WebUI, abyste mohli spravovat jeho chaty.",
+  "chatDataControlsAccountChanged": "Účet se změnil. Vraťte se zpět a otevřete Správu dat znovu.",
+  "chatDataControlsArchiveAllConfirm": "Archivovat vše",
+  "chatDataControlsUnarchiveAllConfirm": "Zrušit archivaci všech",
+  "chatDataControlsUnshareAllConfirm": "Odebrat odkazy",
+  "chatDataControlsDeleteAllConfirm": "Smazat všechny chaty",
+  "chatDataControlsDiscardAndDeleteConfirm": "Zahodit a smazat všechny chaty",
+  "chatDataControlsDeleteFooter": "Odstraní všechny chaty účtu {account} ze serveru {server}. Chaty, které jsou jen v tomto zařízení, zůstanou.",
+  "chatDataControlsImporting": "{count, plural, one{Importuje se {count} chat…} few{Importují se {count} chaty…} many{Importuje se {count} chatu…} other{Importuje se {count} chatů…}}",
+  "chatDataControlsImportFooter": "Import přidává kopie. Nikdy nenahrazuje chaty, které už na serveru jsou.",
+  "nativeSheetOptionUnavailable": "Tato možnost teď není k dispozici.",
+  "nativeWebhookDestinationsCount": "{count, plural, =0{Žádné} =1{1 cíl} few{{count} cíle} other{{count} cílů}}",
+  "chatBranchForkOpened": "Odtud byl otevřen nový chat",
+  "queuedDraftStopFailed": "Aktuální odpověď se nepodařilo zastavit. Vaše zpráva je stále ve frontě.",
+  "queuedDraftRemoved": "Odebráno z fronty",
+  "queuedDraftUndo": "Zpět",
+  "chatExportPreparing": "Připravuje se export…",
+  "chatStopResponseFailed": "Tuto odpověď se nepodařilo zastavit.",
+  "calendarStartsAt": "Začátek {time}",
+  "calendarEndsAt": "Konec {time}",
+  "calendarDayToday": "Dnes · {date}",
+  "calendarDayTomorrow": "Zítra · {date}",
+  "calendarPreviousDays": "{count, plural, =1{Předchozí den} few{Předchozí {count} dny} other{Předchozích {count} dní}}",
+  "calendarNextDays": "{count, plural, =1{Následující den} few{Následující {count} dny} other{Následujících {count} dní}}",
+  "calendarRemoveEnd": "Odebrat čas konce",
+  "calendarEventReadOnlyNotInvited": "Tuto událost nemůžete měnit.",
+  "calendarFieldOrganizer": "Organizátor",
+  "calendarColorName": "{color, select, blue{Modrá} green{Zelená} amber{Jantarová} red{Červená} purple{Fialová} teal{Tyrkysová} other{Barva}}",
+  "calendarVisibilityFooter": "Zobrazují se události ze zaškrtnutých kalendářů. Klepnutím na kalendář jeho události zobrazíte nebo skryjete.",
+  "personalizationMemoryTypeUserDescription": "Preference, fakt nebo pokyn týkající se vás.",
+  "personalizationMemoryTypeContextDescription": "Souvislosti, na které se má pamatovat v dalších chatech.",
+  "personalizationMemoryTypeUnknown": "Tato paměť má typ, který aplikace nezná. Zůstane beze změny, dokud nevyberete jiný.",
+  "personalizationMemoryAccountChanged": "Účet se změnil. Zavřete toto okno a otevřete paměť znovu.",
+  "notificationTargetDeliveryAwayDescription": "Jen když Open WebUI nepoužíváte.",
+  "notificationTargetDeliveryAlwaysDescription": "Pokaždé, i když jste aktivní.",
+  "notificationTargetTestNeedsSave": "Chcete-li změny otestovat, nejprve je uložte.",
+  "notificationTargetNameHelper": "Později jej nelze změnit. Ponechte prázdné, chcete-li použít hostitele z URL.",
+  "notificationTargetIdLabel": "Název",
+  "codeInterpreterTurnOff": "Vypnout",
+  "libraryShareTitle": "Sdílet",
+  "libraryGeneralAccess": "Obecný přístup",
+  "libraryAccessOnlyPeopleAdded": "Jen přidaní lidé",
+  "libraryAccessEveryoneOnServer": "Všichni na tomto serveru",
+  "libraryAccessAnyoneWithLink": "Kdokoli s odkazem",
+  "libraryAccessEveryoneHint": "Kdokoli s účtem na tomto serveru ji může zobrazit.",
+  "libraryAccessLinkNotAllowed": "Nemáte oprávnění sdílet pomocí odkazu.",
+  "libraryAccessCanView": "Může zobrazit",
+  "libraryAccessLevelFor": "Přístup pro {name}",
+  "libraryAccessRemovePrincipal": "Odebrat {name}",
+  "libraryAccessUnknownPerson": "Neznámá osoba",
+  "libraryAccessUnknownGroup": "Neznámá skupina",
+  "libraryAccessOwner": "Vlastník",
+  "libraryAccessOwnerOnlyNotice": "Kdo má přístup, může měnit jen vlastník a lidé s oprávněním upravovat.",
+  "libraryAccessAccountCantShare": "Váš účet tuto položku nemůže sdílet.",
+  "libraryAccessPartialSave": "Uloženo, ale {names} nemohli získat přístup.",
+  "libraryAccessDone": "Hotovo",
+  "libraryAccessSummaryOnlyYou": "Jen vy",
+  "libraryAccessSummaryShared": "{count, plural, =1{Sdíleno s 1 osobou nebo skupinou} few{Sdíleno s {count} osobami nebo skupinami} many{Sdíleno s {count} osobami nebo skupinami} other{Sdíleno s {count} osobami nebo skupinami}}",
+  "libraryPickerAddCount": "{count, plural, =0{Přidat} other{Přidat ({count})}}",
+  "libraryPickerHasAccess": "Má přístup",
+  "libraryPickerAlreadyMember": "Už je členem",
+  "libraryPickerSearchGroups": "Hledat skupiny",
+  "libraryChannelRemoveTitle": "Odebrat {name}?",
+  "libraryChannelRemoveMessage": "Tento kanál ani jeho zprávy už neuvidí.",
+  "libraryChannelRemoveConfirm": "Odebrat",
+  "libraryChannelMemberRemoved": "{name} byl(a) odebrán(a)",
+  "libraryChannelMembersAdded": "Členové přidáni",
+  "libraryNoteSharedBy": "Sdílí {name}. Poznámku můžete zobrazit, ale ne upravit.",
+  "libraryNoteOpen": "Otevřít",
+  "chatDataControlsArchivedAll": "Všechny chaty byly archivovány.",
+  "chatDataControlsUnarchivedAll": "Všechny chaty byly obnoveny z archivu.",
+  "chatDataControlsUnsharedAll": "Všechny odkazy pro sdílení byly odstraněny.",
+  "chatDataControlsDeletedAll": "Všechny chaty byly smazány.",
+  "notificationTargetMakeDefaultNeedsSave": "Chcete-li tento cíl nastavit jako výchozí, nejprve uložte změny.",
+  "hermesConnectionsSectionTitle": "Připojení",
+  "hermesAddConnection": "Přidat připojení",
+  "hermesNewConnectionTitle": "Nové připojení",
+  "hermesConnectionNameHint": "Zobrazuje se ve výběru modelu a na postranním panelu",
+  "hermesNoConnectionsTitle": "Žádná připojení Hermes",
+  "hermesNoConnectionsSubtitle": "Přidejte server Hermes a chatujte se svým agentem.",
+  "hermesActiveConnection": "Aktivní",
+  "hermesUseConnection": "Použít toto připojení",
+  "hermesInactiveConnectionNotice": "Přepněte na toto připojení, abyste viděli jeho stav a mohli spravovat server.",
+  "hermesSignInActivatesConnection": "Přihlášením se z něj stane aktivní připojení.",
+  "hermesDeleteConnectionTitle": "Smazat připojení?",
+  "hermesDeleteConnectionMessage": "Tímto z tohoto zařízení odstraníte {name} a jeho přihlašovací údaje.",
+  "hermesDeleteConnectionFailed": "Toto připojení nelze smazat.",
+  "hermesSwitchConnectionFailed": "Na toto připojení nelze přepnout.",
+  "hermesSwitchConnectionTitle": "Přepnout připojení",
+  "hermesSwitchConnectionPromptTitle": "Přepnout na {name}?",
+  "hermesSwitchConnectionPromptMessage": "Relace Hermes tohoto chatu patří k připojení {name}. Přepněte, abyste v ní mohli pokračovat, nebo ponechte současné připojení a začněte novou relaci.",
+  "hermesSwitchConnectionConfirm": "Přepnout",
+  "hermesKeepCurrentConnection": "Ponechat současné",
+  "accountsTitle": "Účty",
+  "accountsAddAccount": "Přidat účet",
+  "accountsManage": "Spravovat účty",
+  "accountsSignedOut": "Odhlášeno",
+  "accountsActive": "Aktivní",
+  "accountsAddAccountTitle": "Přidat účet",
+  "accountsAddAccountMessage": "Přihlaste se k dalšímu účtu na uloženém serveru, nebo se připojte k novému.",
+  "accountsNewServer": "Nový server",
+  "accountsContinueWith": "Pokračovat se serverem {server}",
+  "accountsKindDirect": "Přímé",
+  "accountsAddOnThisServer": "Přidat účet na tomto serveru",
+  "accountsSwitch": "Přepnout",
+  "accountsSignOutOf": "Odhlásit se z účtu {name}",
+  "accountsSignOutConfirmTitle": "Odhlásit se z účtu {name}?",
+  "accountsSignOutConfirmMessage": "Účet a chaty, které uložil, budou z tohoto zařízení odstraněny. Ostatní účty zůstanou přihlášené.",
+  "accountsSignOutAll": "Odhlásit se ze všech účtů",
+  "accountsReplyInProgressTitle": "Odpověď se ještě generuje",
+  "accountsSwitchStopsReply": "Přepnutí účtu ji zastaví.",
+  "accountsSignOutStopsReply": "Odhlášení ji zastaví.",
+  "accountsSwitchAnyway": "Přesto přepnout",
+  "accountsAddressChangeStopsReply": "Změna používané adresy ji zastaví.",
+  "accountsAddressChangeAnyway": "Přesto změnit",
+  "accountsSignOutAnyway": "Přesto se odhlásit",
+  "accountsServerAddresses": "Adresy",
+  "accountsServerAddressesHelp": "Conduit se připojí přes první adresu, která odpoví, počínaje shora. Pořadí změníte přetažením.",
+  "accountsAddAddress": "Přidat adresu",
+  "accountsEditAddress": "Upravit adresu",
+  "accountsSaveAddress": "Uložit adresu",
+  "accountsAddressInUse": "Používá se",
+  "accountsAddressName": "Název (volitelné)",
+  "accountsAddressNameHint": "Domácí síť, Tailscale…",
+  "accountsAddressDifferentServer": "Tato adresa vede na jiný server nebo k jinému účtu na něm.",
+  "accountsAddressNeedsSignIn": "Nejprve se přihlaste k účtu na tomto serveru, aby bylo možné adresu ověřit.",
+  "accountsRemoveAddress": "Odebrat adresu",
+  "accountsRemoveAddressMessage": "Conduit přestane tuto adresu zkoušet. Vaše účty zůstanou přihlášené.",
+  "accountsAddressConfirmTitle": "Ověřit tuto adresu?",
+  "accountsAddressConfirmMessage": "Aby Conduit ověřil, že {host} je tento server, pošle mu relaci účtu uloženého v tomto zařízení. Pokračujte, jen pokud této adrese důvěřujete.",
+  "accountsAddressConfirmAction": "Ověřit adresu"
 }

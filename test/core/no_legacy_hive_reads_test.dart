@@ -1,7 +1,7 @@
 /// CDT-RFC-001 §11 Phase 1 acceptance (b): no production code path reads the
 /// legacy Hive `local_conversations` / `local_folders` caches. The deleted
 /// accessors (`getLocalConversations`, `getLocalFolders`, and their save
-/// counterparts) must not reappear anywhere under lib/.
+/// counterparts) must not reappear in the app or its packages.
 library;
 
 import 'dart:io';
@@ -10,13 +10,22 @@ import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('lib/ contains no legacy conversation/folder cache accessors', () {
+  test('no legacy conversation/folder cache accessors in shipped code', () {
     final pattern = RegExp(
       r'getLocalConversations|getLocalFolders|'
       r'saveLocalConversations|saveLocalFolders',
     );
     final offenders = <String>[];
-    for (final entity in Directory('lib').listSync(recursive: true)) {
+    final roots = [
+      Directory('lib'),
+      ...Directory('packages')
+          .listSync()
+          .whereType<Directory>()
+          .map((package) => Directory('${package.path}/lib')),
+    ].where((root) => root.existsSync());
+    for (final entity in roots.expand(
+      (root) => root.listSync(recursive: true),
+    )) {
       if (entity is! File || !entity.path.endsWith('.dart')) {
         continue;
       }

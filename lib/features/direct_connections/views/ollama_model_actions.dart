@@ -4,16 +4,18 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../models/ollama_keep_alive.dart';
-import '../models/ollama_thinking.dart';
-import '../providers/direct_connection_providers.dart';
+
+import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
+import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 
 enum _OllamaModelAction { load, unload, keepAlive, thinking }
 

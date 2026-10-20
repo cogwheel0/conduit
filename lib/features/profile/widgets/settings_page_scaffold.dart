@@ -18,8 +18,10 @@ class SettingsSectionHeader extends StatelessWidget {
     final native = context.usesCupertinoChrome;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-      child: Text(
-        title,
+      child: Semantics(
+        header: true,
+        child: Text(
+          title,
         style:
             (native
                     ? AppTypography.bodySmallStyle
@@ -28,11 +30,14 @@ class SettingsSectionHeader extends StatelessWidget {
                   color: context.conduitTheme.textSecondary,
                   fontWeight: native ? FontWeight.w400 : FontWeight.w600,
                 ),
+        ),
       ),
     );
   }
 }
 
+/// Leading glyph for settings rows: a plain monochrome icon in a fixed box,
+/// so every title shares one leading edge.
 class SettingsIconBadge extends StatelessWidget {
   const SettingsIconBadge({super.key, required this.icon, required this.color});
 
@@ -41,18 +46,9 @@ class SettingsIconBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
+    return SizedBox(
+      width: IconSize.xl,
+      height: IconSize.xl,
       child: Icon(icon, color: color, size: IconSize.medium),
     );
   }

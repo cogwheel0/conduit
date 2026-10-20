@@ -2,8 +2,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../models/workspace_knowledge.dart';
-import '../models/workspace_resources.dart';
+
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
+
 import '../workspace_navigation.dart';
 import 'workspace_status_pill.dart';
 import 'workspace_tiles.dart';
@@ -137,32 +139,36 @@ class WorkspaceCollectionResourceTile extends StatelessWidget {
         child: tile,
       );
     }
+    // Rows join into one grouped card like InsetGroupedList: the palette's
+    // grouped surface with inset hairlines between rows. A per-side border
+    // with mixed colors cannot be painted with rounded corners, which left
+    // the first row of a multi-row list blank.
     final theme = context.conduitTheme;
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: theme.surfaceContainer.withValues(alpha: 0.68),
-        border: Border(
-          left: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
-          top: index == 0
-              ? BorderSide(color: theme.cardBorder, width: BorderWidth.thin)
-              : BorderSide.none,
-          right: BorderSide(color: theme.cardBorder, width: BorderWidth.thin),
-          bottom: BorderSide(
-            color: groupedLast ? theme.cardBorder : theme.dividerColor,
-            width: BorderWidth.thin,
-          ),
-        ),
-        borderRadius: BorderRadius.vertical(
-          top: index == 0
-              ? const Radius.circular(AppBorderRadius.card)
-              : Radius.zero,
-          bottom: groupedLast
-              ? const Radius.circular(AppBorderRadius.card)
-              : Radius.zero,
+    final radius = Radius.circular(
+      context.usesCupertinoChrome ? AppBorderRadius.md : AppBorderRadius.card,
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.vertical(
+        top: index == 0 ? radius : Radius.zero,
+        bottom: groupedLast ? radius : Radius.zero,
+      ),
+      child: ColoredBox(
+        color: theme.groupedSurface,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            tile,
+            if (!groupedLast)
+              Divider(
+                height: BorderWidth.thin,
+                thickness: BorderWidth.thin,
+                indent: Spacing.md,
+                color: theme.dividerColor,
+              ),
+          ],
         ),
       ),
-      child: tile,
     );
   }
 }

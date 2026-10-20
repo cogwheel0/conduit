@@ -2,8 +2,9 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/models/socket_health.dart';
-import '../../../core/services/socket_service.dart';
+import 'package:conduit_core/models/socket_health.dart';
+import 'package:conduit_core/services/socket_service.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
@@ -11,11 +12,7 @@ import '../../../shared/widgets/utility_components.dart';
 
 /// Widget that displays socket connection health with real-time updates.
 class SocketHealthCard extends StatefulWidget {
-  const SocketHealthCard({
-    super.key,
-    required this.socketService,
-    this.title,
-  });
+  const SocketHealthCard({super.key, required this.socketService, this.title});
 
   final SocketService socketService;
 
@@ -205,9 +202,7 @@ class SocketHealthCardState extends State<SocketHealthCard> {
                     l10n.socketLastHeartbeat(
                       _formatLastHeartbeat(l10n, health.lastHeartbeat!),
                     ),
-                    style: theme.bodySmall?.copyWith(
-                      color: theme.textTertiary,
-                    ),
+                    style: theme.bodySmall?.copyWith(color: theme.textTertiary),
                   ),
                 ],
               ),

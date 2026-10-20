@@ -35,3 +35,11 @@ export 'package:cupertino_native_better/cupertino_native_better.dart'
         CNTabBarRouteObserver,
         LiquidGlassConfig,
         LiquidGlassContainer;
+
+export 'src/adaptive_chip.dart';
+
+export 'src/adaptive_progress.dart';
+
+export 'src/adaptive_value_segmented_control.dart';
+
+export 'src/adaptive_floating_action_button.dart';

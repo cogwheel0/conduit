@@ -13,6 +13,7 @@ class AdaptiveSwitch extends StatelessWidget {
     required this.onChanged,
     this.activeColor,
     this.thumbColor,
+    this.semanticLabel,
   });
 
   final bool value;
@@ -20,8 +21,18 @@ class AdaptiveSwitch extends StatelessWidget {
   final Color? activeColor;
   final Color? thumbColor;
 
+  /// Accessibility label. Without it, VoiceOver announces only the value.
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
+    final label = semanticLabel;
+    final control = _buildControl(context);
+    if (label == null) return control;
+    return Semantics(label: label, child: control);
+  }
+
+  Widget _buildControl(BuildContext context) {
     final effectiveOnChanged = onChanged == null
         ? null
         : PlatformUiCapabilities.isIOS
@@ -78,6 +89,8 @@ class AdaptiveSlider extends StatefulWidget {
     this.label,
     this.activeColor,
     this.thumbColor,
+    this.semanticLabel,
+    this.semanticValue,
   });
 
   final double value;
@@ -90,6 +103,8 @@ class AdaptiveSlider extends StatefulWidget {
   final String? label;
   final Color? activeColor;
   final Color? thumbColor;
+  final String? semanticLabel;
+  final String? semanticValue;
 
   @override
   State<AdaptiveSlider> createState() => _AdaptiveSliderState();
@@ -135,6 +150,17 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
 
   @override
   Widget build(BuildContext context) {
+    final slider = _buildSlider(context);
+    return widget.semanticLabel == null && widget.semanticValue == null
+        ? slider
+        : Semantics(
+            label: widget.semanticLabel,
+            value: widget.semanticValue,
+            child: slider,
+          );
+  }
+
+  Widget _buildSlider(BuildContext context) {
     if (PlatformUiCapabilities.usesNativeIOS26 &&
         widget.onChangeStart == null &&
         widget.onChangeEnd == null) {
@@ -333,6 +359,8 @@ class AdaptiveCheckbox extends StatelessWidget {
     this.checkColor,
     this.focusColor,
     this.hoverColor,
+    this.visualDensity,
+    this.materialTapTargetSize,
   });
 
   final bool? value;
@@ -342,6 +370,8 @@ class AdaptiveCheckbox extends StatelessWidget {
   final Color? checkColor;
   final Color? focusColor;
   final Color? hoverColor;
+  final VisualDensity? visualDensity;
+  final MaterialTapTargetSize? materialTapTargetSize;
 
   @override
   Widget build(BuildContext context) {
@@ -359,6 +389,8 @@ class AdaptiveCheckbox extends StatelessWidget {
         checkColor: checkColor,
         focusColor: focusColor,
         hoverColor: hoverColor,
+        visualDensity: visualDensity,
+        materialTapTargetSize: materialTapTargetSize,
       );
     }
     final selected = value != false;

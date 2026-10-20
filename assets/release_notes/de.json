@@ -90,6 +90,140 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Das Nachdenken bleibt in seinem eigenen Block, während es streamt. Think-Tags erscheinen nicht mehr in der Antwort. PDFs kommen wieder beim Modell an. Die Stimme wird transkribiert, wenn du aufhörst zu reden, und der Lautsprecher-Knopf funktioniert. Der Chat-Scrollbar springt nicht mehr.",
+      "bullets": [
+        {
+          "text": "Nachdenken: es bleibt in seinem eigenen Block, während das Modell schreibt. Think-Tags erscheinen nicht mehr in der Antwort. Tool-Blöcke bleiben an der richtigen Stelle.",
+          "icon": "polish"
+        },
+        {
+          "text": "Sprache und Dateien: wenn du aufhörst zu reden, erscheint Transkribieren. Android-Gerätesprache nutzt jeden installierten Erkenner. Der Lautsprecher-Knopf stoppt die Antwort, die schon läuft. PDF-Anhänge werden wieder an das Modell geschickt. Zitate können Seitentitel zeigen. Wenn eine Proxy-Sitzung abläuft, kannst du dich wieder anmelden, ohne dich abzumelden.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: beim Einrichten kannst du das Desktop Gateway prüfen, auch wenn der Schalter noch aus ist.",
+          "icon": "hermes"
+        }
+      ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Apple Private Cloud Compute steht in der Modellauswahl und antwortet. Auf dem iPhone kannst du mit Dazwischenreden den Assistenten unterbrechen, während er spricht. Open WebUI 0.11.4 funktioniert, und wenn du den System-Prompt oder das Standardmodell löschst, ist der gespeicherte Wert weg. Systemlisten stürzen nicht mehr ab, der schwarze Block neben dem Mikrofon ist weg, und eine fertige Antwort sieht nach dem Aktualisieren nicht mehr so aus, als würde sie noch streamen.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: steht in der Modellauswahl und antwortet. Apple On-Device und Private Cloud Compute nutzen Apples Symbol.",
+          "icon": "direct"
+        },
+        {
+          "text": "Dazwischenreden: das Sprachmenü auf dem iPhone hat den Schalter. Der Assistent hört weiter zu, während er spricht, und du kannst ihn unterbrechen. Eine Option in einer Systemliste wählen stürzt die App nicht mehr ab. Der schwarze Block neben dem Mikrofon ist weg, wenn die Zeile passt. Eine fertige Antwort bleibt nach dem Aktualisieren fertig, und Generierung stoppen bleibt aus.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: keine Kompatibilitätswarnung. Wenn du den System-Prompt oder das Standardmodell löschst, ist der gespeicherte Wert weg.",
+          "icon": "direct"
+        }
+      ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Antworten von Open WebUI streamen flüssiger, Werkzeugaufrufe sind lesbar und Aufgabenlisten behalten ihren Fortschritt. Sprachanrufe bleiben auf dem gewählten Lautsprecher. Teilen und Kurzbefehle öffnen Chats wieder ohne Open-WebUI-Konto. Auch Chat und Einstellungen habe ich überarbeitet.",
+      "bullets": [
+        {
+          "text": "Open WebUI: Antworten laufen nach Code oder Überlegungen weiter. Werkzeugaufrufe erscheinen als Blöcke statt als Rohtext, und Aufgabenlisten behalten ihren Fortschritt, wenn du einen Chat erneut öffnest.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sprache: Anrufe bleiben auf dem gewählten Lautsprecher. Danach läuft anderer Ton wieder über den normalen Ausgang. Die Lautsprechertaste zeigt den Ausgang an, den du tatsächlich hörst.",
+          "icon": "polish"
+        },
+        {
+          "text": "Teilen und Kurzbefehle: Widgets, App-Kurzbefehle, Siri und der Android Assistant öffnen Direct- oder Hermes-Chats ohne Open-WebUI-Konto. Geteilte Dateien behalten ihre Namen; Spracherkennung und Tastaturlayout unter Android erholen sich zuverlässiger.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat und Einstellungen: übersichtlichere Eingabe, Seitenleiste und Nachrichtenaktionen. Symbole in der Werkzeugleiste und Einstellungen folgen deinen Designfarben, mit besserem Kontrast und Beschriftungen für Screenreader.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Direct-Chats können vom Gerät aus das Web durchsuchen, und Bilder öffnen sich in einer Galerie zum Durchwischen. Zwischen neu generierten Antworten kannst du direkt unter der Antwort wechseln. Ich habe auch die Hermes-Einrichtung, die Android-Spracherkennung und einige Fehler in Chat und Einstellungen behoben.",
+      "bullets": [
+        {
+          "text": "Websuche: Direct-Modelle ohne eigene Suche können vom Gerät aus suchen und Seiten lesen, auch Ollama- und Apple-Modelle mit Werkzeugunterstützung. Suchmaschine, Suchfilter und Region wählst du in den Einstellungen. Direct-Modelle zeigen außerdem das Logo ihres Herstellers.",
+          "icon": "direct"
+        },
+        {
+          "text": "Bilder: Wische durch Anhänge in Chats und Kanälen, zoome und teile sie. iOS nutzt Quick Look für unterstützte Bilder; Android kann sie in Pictures/Conduit speichern.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat und Kanäle: Mit den Pfeilen unter der Antwort wechselst du zwischen neu generierten Antworten. Direct-Chats behalten frühere Versionen beim erneuten Öffnen, und bearbeitete Nachrichten werden wieder korrekt gesendet. Markdown-Kontrollkästchen werden dargestellt. Kanal-Threads zeigen Antworten, Änderungen, Löschungen und Reaktionen live.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes und Sprache: Anmeldung und Verbindungstests für das Desktop Gateway funktionieren während der Einrichtung. Antworten enden nicht mehr, bevor der erste Text ankommt. Die Android-Spracherkennung versucht eine unterstützte Variante deiner gewählten Sprache. Beim Diktieren von Notizen gilt deine Einstellung für die Spracherkennung.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Einstellungen und Konten: Die nativen iOS-Einstellungen nutzen deine Sprache, Workspace-Details aktualisieren sich nach dem Speichern, und ein Tippen auf eine Benachrichtigung öffnet die richtige Unterhaltung. Abmelden entfernt Direct- und Hermes-Verbindungen; Serverdetails lassen sich behalten. iOS-Dialoge und Checklisten in Notizen funktionieren wieder.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Du kannst mehrere Open WebUI-Konten angemeldet lassen und zwischen ihnen wechseln sowie mehrere Hermes-Verbindungen speichern. Anrufe können mit einer Echtzeitstimme sprechen, die du unterbrechen kannst. Open WebUI 0.12 funktioniert, auch mit zweistufiger Anmeldung, und weitere Open WebUI-Funktionen brauchen „Erweitert“ nicht mehr.",
+      "bullets": [
+        {
+          "text": "Konten: Lass mehrere Open WebUI-Konten angemeldet, auf einem oder mehreren Servern, und wechsle über dein Profil oder die neue Seite „Konten“ oben in den Einstellungen. Jedes Konto und jede Verbindung fügst du über ein Blatt hinzu. Ein Server kann mehrere Adressen haben, etwa LAN, Tailscale und einen öffentlichen Proxy; die App nutzt die erste, die antwortet.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: Speichere mehrere benannte Verbindungen, etwa „Zuhause“ und „Recherche“, und wechsle über die Seitenleiste, die Einstellungen oder „Konten“. Gehört die Sitzung eines Chats zu einer anderen Verbindung, bietet er an, zu ihr zu wechseln.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Echtzeitanrufe: Mit Open WebUI 0.12, Direct und dem Hermes Desktop Gateway können Anrufe mit einer OpenAI-Echtzeitstimme sprechen, und wenn du dazwischen sprichst, verstummt sie. Für Direct- und Apple-Chats wählst du in den Audioeinstellungen einen Sprachanbieter. Sprache-zu-Text und Text-zu-Sprache über den Server folgen dem Backend des jeweiligen Chats.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: Die App funktioniert ohne Kompatibilitätswarnung. Die Zwei-Faktor-Verifizierung bei der Anmeldung funktioniert, inklusive Einrichtung und Wiederherstellungscodes. Skill-Export, Ordnerfreigabe, erzwungene temporäre Chats und Werkzeugfreigaben folgen 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI-Funktionen: Entwurfswarteschlange, Code-Interpreter, Verzweigungen, Chat-Publikum, Projektordner, Freigaben, Kanalmitglieder und Kalender brauchen „Erweitert“ nicht mehr. „Erweitert“ bietet Modellvergleich, geplante Aufgaben, Webhooks und Datenverwaltung. Große Chats werden nicht mehr bei jedem Öffnen neu geladen, und der gewählte Denkaufwand bleibt erhalten.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Open WebUI 0.12.2 funktioniert, und Kanäle zeigen die Apps, die darin antworten, und können dich nur bei Erwähnungen benachrichtigen. Sprachanrufe laufen trotz Hintergrundgeräuschen und Avatar-Gesten weiter, und die Lautsprechertaste funktioniert bei Android-Anrufen von Anfang an.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: Die App funktioniert ohne Kompatibilitätswarnung. Chats, die ein Echtzeitanruf startet, bekommen einen generierten Titel und Tags, gemäß deinen Einstellungen für Titel und Tags.",
+          "icon": "direct"
+        },
+        {
+          "text": "Kanäle: Nachrichten von Apps zeigen den Namen der App, Karten, Schaltflächen und Links. Ein Tipp auf eine Schaltfläche schickt sie an die App, und Antworten, die nur du siehst, erscheinen unter der Nachricht, bis du sie ausblendest. Stell einen Kanal oder eine Direktnachricht auf „Nur Erwähnungen“, um Badges und Benachrichtigungen zu vermeiden, außer du wirst erwähnt.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sprachanrufe: Hintergrundgeräusche schneiden der Echtzeitstimme nicht mehr mitten im Satz das Wort ab; sie pausiert und spricht weiter, wenn nichts gesagt wurde. Avatar-Gesten halten Antworten nicht mehr drei Sekunden auf. Unter Android funktioniert die Lautsprechertaste ab Anrufbeginn, und ein Anruf blockiert in den ersten zwei Minuten nicht mehr deine eigenen Telefonate.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

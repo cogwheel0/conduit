@@ -8,21 +8,22 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/utils/file_type_utils.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
-import '../../hermes/services/hermes_session_provenance.dart';
-import '../../tools/providers/tools_providers.dart';
-import '../providers/chat_providers.dart';
-import '../utils/file_utils.dart';
-import '../utils/message_targeting.dart';
+
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
+import 'package:conduit_core/features/chat/utils/file_utils.dart';
+
 import 'enhanced_attachment.dart';
 import 'enhanced_image_attachment.dart';
+import 'image_gallery_scope.dart';
 
 // Pre-compiled regex for extracting file IDs from URLs (performance optimization)
 // Handles both /api/v1/files/{id} and /api/v1/files/{id}/content formats
@@ -118,7 +119,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     // Add images first
     if (imageFiles.isNotEmpty) {
-      widgets.add(_buildFileImageLayout(imageFiles, imageFiles.length));
+      widgets.add(
+        ImageGalleryScope(
+          items: _imageViewerItems(imageFiles),
+          child: _buildFileImageLayout(imageFiles, imageFiles.length),
+        ),
+      );
     }
 
     // Add non-image files
@@ -220,6 +226,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     _lastFilePartitions = partitions;
     return partitions;
   }
+
+  /// Lets the full-screen viewer page through this message's images.
+  List<ImageViewerItem> _imageViewerItems(List<dynamic> imageFiles) => [
+    for (final file in imageFiles)
+      if (getFileUrl(file) case final url?)
+        ImageViewerItem(attachmentId: url, httpHeaders: _headersForFile(file)),
+  ];
 
   Widget _buildFileImageLayout(List<dynamic> imageFiles, int imageCount) {
     if (imageCount == 1) {
@@ -788,14 +801,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       MediaQuery.sizeOf(context).width * 0.78,
       640.0,
     );
-    final bubbleBorderColor = theme.chatBubbleUserText.withValues(
-      alpha: theme.isDark ? 0.16 : 0.08,
-    );
-    const bubbleBorderRadius = BorderRadius.only(
-      topLeft: Radius.circular(AppBorderRadius.chatBubble),
-      topRight: Radius.circular(AppBorderRadius.chatBubble),
-      bottomLeft: Radius.circular(AppBorderRadius.chatBubble),
-      bottomRight: Radius.circular(AppBorderRadius.md),
+    // Tail-less, borderless fill: the neutral tone alone separates the turn.
+    const bubbleBorderRadius = BorderRadius.all(
+      Radius.circular(AppBorderRadius.chatBubble),
     );
     final actions = _buildMessageActions(context);
     final attachmentContent = hasFilesFromArray
@@ -828,14 +836,13 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                       actions: actions,
                       child: Container(
                         key: const Key('user-message-bubble-surface'),
-                        padding: const EdgeInsets.all(Spacing.sm + Spacing.xs),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Spacing.md,
+                          vertical: Spacing.sm + Spacing.xxs,
+                        ),
                         decoration: BoxDecoration(
                           color: theme.chatBubbleUser,
                           borderRadius: bubbleBorderRadius,
-                          border: Border.all(
-                            color: bubbleBorderColor,
-                            width: BorderWidth.thin,
-                          ),
                         ),
                         child: _isEditing
                             ? Focus(
@@ -1016,67 +1023,6 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     _editFocusNode.unfocus();
   }
 
-  List<String>? _inlineEditAttachmentIds() {
-    final attachmentIds = widget.message.attachmentIds;
-    if (attachmentIds is List && attachmentIds.isNotEmpty) {
-      final ids = attachmentIds
-          .map((id) => id?.toString().trim())
-          .whereType<String>()
-          .where((id) => id.isNotEmpty)
-          .toList(growable: false);
-      if (ids.isNotEmpty) {
-        return ids;
-      }
-    }
-
-    final files = widget.message.files;
-    if (files is! List || files.isEmpty) {
-      return null;
-    }
-
-    final ids = <String>[];
-    final seen = <String>{};
-    void addId(String? value) {
-      final id = value?.trim();
-      if (id == null || id.isEmpty || !seen.add(id)) {
-        return;
-      }
-      ids.add(id);
-    }
-
-    for (final file in files) {
-      if (file is! Map) {
-        continue;
-      }
-      // Skip note attachments: their id is a note id, not an uploaded file id,
-      // so feeding it to durableSend as a file attachment triggers a failing
-      // file-info lookup and re-sends the note as a bogus regular file.
-      if (_isRenderableNoteAttachment(file)) {
-        continue;
-      }
-      // Hermes local descriptors are historical references, not upload ids.
-      // Re-sending one through the OpenWebUI attachment path would cause an
-      // invalid file-info lookup and could target the wrong backend.
-      if (_isHermesLocalFileReference(file)) {
-        continue;
-      }
-      final explicitId = file['id']?.toString();
-      if (explicitId != null && explicitId.trim().isNotEmpty) {
-        addId(explicitId);
-        continue;
-      }
-
-      final fileUrl = getFileUrl(file);
-      if (fileUrl == null) {
-        continue;
-      }
-      final fileIdMatch = _fileIdPattern.firstMatch(fileUrl);
-      addId(fileIdMatch?.group(1) ?? fileUrl);
-    }
-
-    return ids.isEmpty ? null : ids;
-  }
-
   Future<void> _saveInlineEdit() async {
     final newText = _editController.text.trim();
     final oldText = (widget.message.content ?? '').toString();
@@ -1085,46 +1031,24 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       return;
     }
 
-    ChatSendPlaceholderHandle? pendingSend;
+    // Resending drops this message from the transcript, which disposes this
+    // bubble while the send is still running. A WidgetRef read after that
+    // fails; the ownership helpers turn the failure into "no database", so the
+    // send skipped its outbox drain and the reply waited for the next
+    // five-minute sync. The scope's container outlives the bubble.
+    final container = ProviderScope.containerOf(context, listen: false);
     try {
       final messageId = widget.message.id?.toString();
       if (messageId == null || messageId.isEmpty) {
         return;
       }
-
-      final messages = ref.read(chatMessagesProvider);
-      final idx = indexOfMessageId(messages, messageId);
-      if (idx >= 0) {
-        final active = ref.read(activeConversationProvider);
-        if (isNativeHermesConversation(active)) {
-          await regenerateEditedHermesUserMessage(
-            ref,
-            messageId: messageId,
-            content: newText,
-          );
-        } else {
-          final keep = truncateMessagesAfterId(
-            messages,
-            messageId,
-            includeTarget: false,
-          );
-          ref.read(chatMessagesProvider.notifier).setMessages(keep);
-
-          // Durable send of the edited text as a new turn (updateChat +
-          // requestCompletion under the chat lock), then drive streaming.
-          final attachments = _inlineEditAttachmentIds();
-          final toolIds = ref.read(selectedToolIdsProvider);
-          await durableSend(
-            ref,
-            newText,
-            attachments,
-            toolIds: toolIds.isNotEmpty ? toolIds : null,
-            onAssistantPlaceholderCreated: (handle) {
-              pendingSend = handle;
-            },
-          );
-        }
-      }
+      // Core re-sends the edit: Hermes replays it, anything else truncates
+      // after the message and sends the new text as a new turn.
+      await resendEditedUserMessage(
+        container,
+        messageId: messageId,
+        newText: newText,
+      );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'inline-edit-failed',
@@ -1133,7 +1057,6 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         stackTrace: stackTrace,
         data: {'messageId': widget.message.id?.toString()},
       );
-      recoverFailedChatSend(ref, error, pendingSend);
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),

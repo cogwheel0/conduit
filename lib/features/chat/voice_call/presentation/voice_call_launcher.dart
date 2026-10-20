@@ -1,11 +1,25 @@
 import 'dart:async';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart';
 
-import '../../../../../core/providers/app_providers.dart';
-import '../../../../../core/services/navigation_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
+import '../../../../shared/services/navigation_service.dart';
 import '../../voice_mode/chat_voice_mode_controller.dart';
-import '../voice_call_eligibility.dart';
+
+import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
+
+/// A voice call that did not start. [kind] says why, so a host can show it in
+/// the user's language (see `voiceModeErrorText`); [message] is the log text.
+class VoiceCallStartException implements Exception {
+  const VoiceCallStartException({required this.kind, required this.message});
+
+  final ChatVoiceModeError? kind;
+  final String message;
+
+  @override
+  String toString() => message;
+}
 
 /// Unified launcher for all voice-call entry points.
 class VoiceCallLauncher {
@@ -37,8 +51,9 @@ class VoiceCallLauncher {
         );
     final snapshot = _ref.read(chatVoiceModeControllerProvider);
     if (result == ChatVoiceModeStartResult.failed || !snapshot.isActive) {
-      throw StateError(
-        snapshot.errorMessage ?? 'Unable to start a voice call.',
+      throw VoiceCallStartException(
+        kind: snapshot.errorKind,
+        message: snapshot.errorMessage ?? 'Unable to start a voice call.',
       );
     }
   }

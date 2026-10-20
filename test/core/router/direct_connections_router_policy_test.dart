@@ -1,8 +1,10 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/router/app_router.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
+import 'package:conduit/core/utils/native_sheet_utils.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:flutter/widgets.dart' show Locale;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -53,10 +55,17 @@ void main() {
     });
 
     test('native-sheet entry dismisses without a second page transition', () {
-      final item = buildDirectConnectionsNativeSheetItem(
-        title: 'Direct Connections',
-        subtitle: 'Manage providers',
-      );
+      // Its card on the native Accounts page opens it.
+      final item = [
+        for (final section in buildNativeAccountsDetail(
+          lookupAppLocalizations(const Locale('en')),
+          accounts: const [],
+          hermesConnections: const [],
+          hermesInUseId: null,
+          directProfiles: const [],
+        ).sections)
+          ...section.items,
+      ].singleWhere((item) => item.id == NativeSheetRoutes.directConnections);
       final request = directConnectionsNativeSheetNavigationRequest;
 
       check(item.id).equals(NativeSheetRoutes.directConnections);

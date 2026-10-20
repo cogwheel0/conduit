@@ -7,14 +7,17 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/providers/app_providers.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
-import '../../../core/utils/debug_logger.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/services/user_friendly_error_handler.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import '../../../shared/services/navigation_service.dart';
+import '../../../shared/services/user_friendly_error_handler.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 
@@ -23,17 +26,22 @@ import 'package:conduit/l10n/app_localizations.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../../../core/models/conversation.dart';
-import '../../../core/models/folder.dart';
+
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/folder.dart';
+
 import 'conversation_tile.dart';
 import 'create_folder_dialog.dart';
 import 'folder_tree_guides.dart';
-import 'drawer_section_notifiers.dart';
+
+import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
+
 import 'folder_icon.dart';
 import '../providers/conversation_selection_provider.dart';
 import '../providers/sidebar_search_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
-import '../models/sidebar_navigation_model.dart';
+
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 
 /// Chevron / expand icon for section headers — matches folder row disclosure.
 IconData sidebarSectionDisclosureIcon(bool isExpanded) {
@@ -746,7 +754,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           final hasMoreRegularChats =
               conversationsNotifier.hasMoreRegularChats() ||
               _isLoadingMoreConversations;
-          final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
+          final foldersEnabled = ref.watch(foldersAvailableProvider);
           final foldersState = ref.watch(foldersProvider);
           final folders = foldersState.maybeWhen(
             data: (folders) => folders,
@@ -954,7 +962,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         final pinned = list.where((c) => c.pinned == true).toList();
 
         // For search results, apply the same folder safety logic
-        final foldersEnabled = ref.watch(foldersFeatureEnabledProvider);
+        final foldersEnabled = ref.watch(foldersAvailableProvider);
         final foldersState = ref.watch(foldersProvider);
         final folders = foldersState.maybeWhen(
           data: (folders) => folders,
@@ -1181,13 +1189,13 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: theme.buttonPrimary.withValues(alpha: 0.12),
+              color: theme.surfaceContainer,
               borderRadius: BorderRadius.circular(AppBorderRadius.pill),
             ),
             child: Text(
               '$count',
               style: AppTypography.labelMediumStyle.copyWith(
-                color: theme.buttonPrimary.withValues(alpha: 0.9),
+                color: theme.textSecondary,
                 fontWeight: FontWeight.w600,
                 decoration: TextDecoration.none,
               ),

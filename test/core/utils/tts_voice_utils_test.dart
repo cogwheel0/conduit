@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/services/settings_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/core/utils/tts_voice_utils.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 

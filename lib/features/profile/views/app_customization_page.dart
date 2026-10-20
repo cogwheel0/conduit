@@ -6,20 +6,29 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/models/model.dart';
+import 'package:conduit_core/models/model.dart';
+
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/services/native_sheet_bridge.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../core/utils/tts_voice_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/theme/tweakcn_themes.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
-import '../../tools/providers/tools_providers.dart';
-import '../../../core/models/tool.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/models/tool.dart';
+
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../core/providers/app_providers.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';
@@ -30,6 +39,7 @@ import '../widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/socket_health_card.dart';
 import '../widgets/stt_language_picker.dart';
+import '../../../shared/theme/theme_providers.dart';
 
 const _sectionGap = SizedBox(height: Spacing.lg);
 
@@ -100,6 +110,10 @@ class AppCustomizationPage extends ConsumerWidget {
           _sectionGap,
           _buildSystemPromptsSection(context, ref),
         ],
+        // Advanced stays last and on its own: it changes what the rest of
+        // the app shows, not how chats behave.
+        _sectionGap,
+        _buildAdvancedSection(context, ref, settings),
       ],
       AppCustomizationSection.dataConnection => <Widget>[
         _buildDataConnectionSection(context, ref, settings),
@@ -337,7 +351,7 @@ class AppCustomizationPage extends ConsumerWidget {
                           color: context.conduitTheme.textPrimary,
                         ),
                       ),
-                      trailing: Checkbox.adaptive(
+                      trailing: AdaptiveCheckbox(
                         value: selected.contains(options[i].id),
                         visualDensity: VisualDensity.compact,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -414,6 +428,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.sendOnEnter,
           subtitle: l10n.sendOnEnterDescription,
+          toggled: settings.sendOnEnter,
           trailing: AdaptiveSwitch(
             value: settings.sendOnEnter,
             onChanged: (value) =>
@@ -433,6 +448,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.temporaryChatByDefault,
           subtitle: l10n.temporaryChatByDefaultDescription,
+          toggled: settings.temporaryChatByDefault,
           trailing: AdaptiveSwitch(
             value: settings.temporaryChatByDefault,
             onChanged: (value) => ref
@@ -453,6 +469,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.citationShowTitles,
           subtitle: l10n.citationShowTitlesDescription,
+          toggled: settings.citationShowTitles,
           trailing: AdaptiveSwitch(
             value: settings.citationShowTitles,
             onChanged: (value) => ref
@@ -478,6 +495,41 @@ class AppCustomizationPage extends ConsumerWidget {
                 _showAndroidAssistantTriggerSheet(context, ref, settings),
           ),
         ],
+      ],
+    );
+  }
+
+  Widget _buildAdvancedSection(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    final enabled = settings.advancedFeaturesEnabled;
+    void setEnabled(bool value) => ref
+        .read(appSettingsProvider.notifier)
+        .setAdvancedFeaturesEnabled(value);
+    return InsetGroupedList(
+      key: const Key('chat-settings-advanced-section'),
+      footer: l10n.advancedFeaturesFooter,
+      children: [
+        UtilityRow(
+          key: const Key('chat-settings-advanced-toggle'),
+          leading: _buildIconBadge(
+            context,
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.gear_alt,
+              android: Icons.settings_suggest_outlined,
+            ),
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.advancedFeatures,
+          subtitle: l10n.advancedFeaturesDescription,
+          subtitleMaxLines: 2,
+          toggled: enabled,
+          trailing: AdaptiveSwitch(value: enabled, onChanged: setEnabled),
+          onTap: () => setEnabled(!enabled),
+        ),
       ],
     );
   }
@@ -545,6 +597,7 @@ class AppCustomizationPage extends ConsumerWidget {
           ),
           title: l10n.disableHapticsWhileStreaming,
           subtitle: l10n.disableHapticsWhileStreamingDescription,
+          toggled: settings.disableHapticsWhileStreaming,
           trailing: AdaptiveSwitch(
             value: settings.disableHapticsWhileStreaming,
             onChanged: (value) => ref
@@ -569,7 +622,7 @@ class AppCustomizationPage extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SettingsSectionHeader(title: l10n.advancedPromptOverrides),
+        SettingsSectionHeader(title: l10n.promptOverridesTitle),
         const SizedBox(height: Spacing.sm),
         ExpandableCard(
           title: l10n.modelSystemPrompts,
@@ -625,22 +678,11 @@ class AppCustomizationPage extends ConsumerWidget {
   }
 
   Widget _buildPromptLoadingTile(BuildContext context, String title) {
-    final theme = context.conduitTheme;
-    final color = theme.buttonPrimary;
     return CustomizationTile(
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          border: Border.all(
-            color: color.withValues(alpha: 0.2),
-            width: BorderWidth.thin,
-          ),
-        ),
-        alignment: Alignment.center,
-        child: const ConduitLoadingIndicator(isCompact: true),
+      leading: const SizedBox(
+        width: IconSize.xl,
+        height: IconSize.xl,
+        child: Center(child: ConduitLoadingIndicator(isCompact: true)),
       ),
       title: title,
       subtitle: '',
@@ -1156,7 +1198,12 @@ class AppCustomizationPage extends ConsumerWidget {
     final ttsService = ref.watch(textToSpeechServiceProvider);
     final bool deviceAvailable =
         ttsService.deviceEngineAvailable || !ttsService.isInitialized;
-    final bool serverAvailable = ttsService.serverEngineAvailable;
+    final serverSpeech = ref.watch(serverSpeechProviderProvider);
+    final bool serverAvailable = serverSpeech?.canSynthesize == true;
+    // Only Open WebUI lists voices; the others speak with their own.
+    final bool showsVoicePicker =
+        settings.ttsEngine == TtsEngine.device ||
+        serverSpeech?.offersVoiceChoice == true;
     final bool deviceSelectable = deviceAvailable;
     final bool serverSelectable = serverAvailable;
     final ttsDescription = _ttsPreferenceDescription(l10n, settings);
@@ -1264,19 +1311,20 @@ class AppCustomizationPage extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Voice Selection
-              CustomizationTile(
-                leading: _buildIconBadge(
-                  context,
-                  UiUtils.platformIcon(
-                    ios: CupertinoIcons.speaker_3,
-                    android: Icons.record_voice_over,
+              if (showsVoicePicker)
+                CustomizationTile(
+                  leading: _buildIconBadge(
+                    context,
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.speaker_3,
+                      android: Icons.record_voice_over,
+                    ),
+                    color: theme.buttonPrimary,
                   ),
-                  color: theme.buttonPrimary,
+                  title: l10n.ttsVoice,
+                  subtitle: _ttsVoiceSubtitle(l10n, settings),
+                  onTap: () => _showVoicePickerSheet(context, ref, settings),
                 ),
-                title: l10n.ttsVoice,
-                subtitle: _ttsVoiceSubtitle(l10n, settings),
-                onTap: () => _showVoicePickerSheet(context, ref, settings),
-              ),
               if (settings.ttsEngine == TtsEngine.device) ...[
                 const SizedBox(height: Spacing.md),
                 // Speech rate is device-only. Server TTS uses backend defaults.
@@ -1837,28 +1885,13 @@ class AppCustomizationPage extends ConsumerWidget {
     );
   }
 
+  /// Current value shown trailing a row in secondary ink, the way iOS
+  /// settings show values ("System", "English").
   Widget _buildValueBadge(BuildContext context, String label) {
     final theme = context.conduitTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.md,
-        vertical: Spacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: theme.buttonPrimary.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: theme.buttonPrimary.withValues(alpha: 0.25),
-          width: BorderWidth.thin,
-        ),
-      ),
-      child: Text(
-        label,
-        style: theme.bodySmall?.copyWith(
-          color: theme.buttonPrimary,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    return Text(
+      label,
+      style: AppTypography.bodyMediumStyle.copyWith(color: theme.textSecondary),
     );
   }
 
@@ -1867,20 +1900,7 @@ class AppCustomizationPage extends ConsumerWidget {
     IconData icon, {
     required Color color,
   }) {
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        border: Border.all(
-          color: color.withValues(alpha: 0.2),
-          width: BorderWidth.thin,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, color: color, size: IconSize.medium),
-    );
+    return SettingsIconBadge(icon: icon, color: color);
   }
 
   Future<void> _showPaletteSelectorSheet(

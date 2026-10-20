@@ -1,3 +1,7 @@
+// FLUTTER HOST ONLY. Works around the Flutter engine's frame-rate ramp, so it
+// is not a `ConduitBridge` and other hosts do not copy this file.
+// The Flutter app delegate attaches it directly.
+
 import Flutter
 import QuartzCore
 import UIKit

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/features/chat/services/ios_native_paste_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 

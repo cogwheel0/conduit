@@ -2,7 +2,7 @@ import 'package:pigeon/pigeon.dart';
 
 @ConfigurePigeon(
   PigeonOptions(
-    dartOut: 'lib/core/platform/conduit_platform_apis.g.dart',
+    dartOut: 'lib/platform/conduit_platform_apis.g.dart',
     dartOptions: DartOptions(),
     kotlinOut: 'android/app/src/main/kotlin/app/cogwheel/conduit/ConduitPlatformApis.g.kt',
     kotlinOptions: KotlinOptions(package: 'app.cogwheel.conduit'),
@@ -178,6 +178,10 @@ class PlatformNativePastePayload {
   String? deliveryId;
 }
 
+/// Whether a keyboard attachment row turns an option on and off, or runs a
+/// command (attaching a file, opening a sheet).
+enum PlatformKeyboardAttachmentActionKind { toggle, command }
+
 class PlatformKeyboardAttachmentActionConfig {
   PlatformKeyboardAttachmentActionConfig({
     required this.id,
@@ -185,6 +189,9 @@ class PlatformKeyboardAttachmentActionConfig {
     this.subtitle,
     required this.sfSymbol,
     required this.section,
+    this.sectionTitle,
+    required this.kind,
+    this.stateLabel,
     required this.enabled,
     required this.selected,
     required this.dismissesKeyboard,
@@ -195,6 +202,13 @@ class PlatformKeyboardAttachmentActionConfig {
   String? subtitle;
   String sfSymbol;
   String section;
+
+  /// Localized heading of [section], or null when it shows none.
+  String? sectionTitle;
+  PlatformKeyboardAttachmentActionKind kind;
+
+  /// Localized on/off state a toggle row reads to VoiceOver.
+  String? stateLabel;
   bool enabled;
   bool selected;
   bool dismissesKeyboard;
@@ -248,6 +262,27 @@ class PlatformDropdownOption {
   String? sfSymbol;
   bool enabled;
   bool destructive;
+}
+
+class PlatformImageViewerItem {
+  PlatformImageViewerItem({required this.path, this.title});
+
+  String path;
+  String? title;
+}
+
+class PlatformImageViewerRequest {
+  PlatformImageViewerRequest({
+    required this.items,
+    required this.initialIndex,
+    this.sourceRect,
+  });
+
+  List<PlatformImageViewerItem> items;
+  int initialIndex;
+
+  /// Global logical rect of the tapped thumbnail, used for the zoom transition.
+  PlatformRect? sourceRect;
 }
 
 class PlatformDropdownRequest {
@@ -349,6 +384,11 @@ class PlatformNativeSheetItem {
     this.min,
     this.max,
     this.divisions,
+    this.avatarName,
+    this.avatarBytes,
+    this.checked,
+    this.accent,
+    this.usesProfileAvatar,
   });
 
   String id;
@@ -378,6 +418,21 @@ class PlatformNativeSheetItem {
   double? min;
   double? max;
   int? divisions;
+
+  /// Shown as a round picture -- [avatarBytes], else this name's initials --
+  /// in place of the symbol.
+  String? avatarName;
+  Uint8List? avatarBytes;
+
+  /// Marks the row in use with a check.
+  bool? checked;
+
+  /// Draws the row in the accent color, as an action.
+  bool? accent;
+
+  /// Draws the row as the sheet's profile summary: its large avatar beside
+  /// the row's own title and subtitle.
+  bool? usesProfileAvatar;
 }
 
 class PlatformNativeSheetLink {
@@ -488,6 +543,8 @@ class PlatformNativeSheetDetail {
     this.confirmActionId,
     this.confirmActionLabel,
     this.maxHeightFraction,
+    this.trailingActionId,
+    this.trailingActionSfSymbol,
   });
 
   String id;
@@ -498,6 +555,10 @@ class PlatformNativeSheetDetail {
   String? confirmActionId;
   String? confirmActionLabel;
   double? maxHeightFraction;
+
+  /// A bar button that closes the sheet and then sends this action.
+  String? trailingActionId;
+  String? trailingActionSfSymbol;
 }
 
 class PlatformNativeProfileSheetConfig {
@@ -935,6 +996,23 @@ abstract class NativeKeyboardAttachmentFlutterApi {
 abstract class NativeDropdownHostApi {
   @async
   String? show(PlatformDropdownRequest request);
+}
+
+/// iOS only. Presents local image files in Quick Look.
+@HostApi()
+abstract class NativeImageViewerHostApi {
+  /// Completes when the viewer is dismissed. Fails when it cannot be shown.
+  @async
+  void present(PlatformImageViewerRequest request);
+}
+
+/// Android only. Writes images to the shared Pictures collection.
+@HostApi()
+abstract class ImageGalleryHostApi {
+  bool canSaveImages();
+
+  @async
+  void saveImage(String path, String mimeType, String displayName);
 }
 
 @HostApi()

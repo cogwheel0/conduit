@@ -156,6 +156,26 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
         } else {
             throw PccBridgeError.invalidSchema
         }
+        func numericBounds() throws -> (minimum: NSNumber?, maximum: NSNumber?) {
+            func number(_ key: String) throws -> NSNumber? {
+                guard let value = raw[key] else { return nil }
+                guard let number = value as? NSNumber,
+                      CFGetTypeID(number) != CFBooleanGetTypeID(),
+                      number.doubleValue.isFinite
+                else {
+                    throw PccBridgeError.invalidSchema
+                }
+                return number
+            }
+            let minimum = try number("minimum")
+            let maximum = try number("maximum")
+            if let minimum, let maximum,
+               minimum.compare(maximum) == .orderedDescending
+            {
+                throw PccBridgeError.invalidSchema
+            }
+            return (minimum, maximum)
+        }
         switch type {
         case "object":
             guard let rawProperties = raw["properties"] as? [String: Any],
@@ -239,15 +259,31 @@ func pccGenerationSchema(json: String, name: String) throws -> GenerationSchema 
             }
             return DynamicGenerationSchema(type: String.self)
         case "integer":
-            guard raw["minimum"] == nil, raw["maximum"] == nil else {
-                throw PccBridgeError.invalidSchema
+            let bounds = try numericBounds()
+            var guides: [GenerationGuide<Int>] = []
+            if let minimum = bounds.minimum {
+                guard let value = minimum as? Int else {
+                    throw PccBridgeError.invalidSchema
+                }
+                guides.append(.minimum(value))
             }
-            return DynamicGenerationSchema(type: Int.self)
+            if let maximum = bounds.maximum {
+                guard let value = maximum as? Int else {
+                    throw PccBridgeError.invalidSchema
+                }
+                guides.append(.maximum(value))
+            }
+            return DynamicGenerationSchema(type: Int.self, guides: guides)
         case "number":
-            guard raw["minimum"] == nil, raw["maximum"] == nil else {
-                throw PccBridgeError.invalidSchema
+            let bounds = try numericBounds()
+            var guides: [GenerationGuide<Double>] = []
+            if let minimum = bounds.minimum {
+                guides.append(.minimum(minimum.doubleValue))
             }
-            return DynamicGenerationSchema(type: Double.self)
+            if let maximum = bounds.maximum {
+                guides.append(.maximum(maximum.doubleValue))
+            }
+            return DynamicGenerationSchema(type: Double.self, guides: guides)
         case "boolean":
             return DynamicGenerationSchema(type: Bool.self)
         case "null":
@@ -302,7 +338,7 @@ private final class PccResponseState {
     var emittedContent = false
 }
 
-final class PccBridge: PccHostApi {
+final class PccBridge: ConduitBridge, PccHostApi {
     static let shared = PccBridge()
 
     private static let logger = Logger(
@@ -316,7 +352,8 @@ final class PccBridge: PccHostApi {
 
     private init() {}
 
-    func configure(messenger: FlutterBinaryMessenger) {
+    func attach(to host: ConduitBridgeHost) {
+        let messenger = host.messenger
         flutterApi = PccFlutterApi(binaryMessenger: messenger)
         PccHostApiSetup.setUp(binaryMessenger: messenger, api: self)
     }
@@ -338,6 +375,10 @@ final class PccBridge: PccHostApi {
             }
 #if CONDUIT_PCC_SDK
             if #available(iOS 27.0, *) {
+                guard Self.hasPccEntitlement else {
+                    completion(.success(Self.pccUnentitledStatus))
+                    return
+                }
                 completion(.success(await liveStatus()))
                 return
             }
@@ -351,7 +392,7 @@ final class PccBridge: PccHostApi {
     ) {
         Task {
 #if CONDUIT_PCC_SDK
-            if #available(iOS 27.0, *) {
+            if #available(iOS 27.0, *), Self.hasPccEntitlement {
                 guard let suggestion = PrivateCloudComputeLanguageModel()
                     .quotaUsage.limitIncreaseSuggestion
                 else {
@@ -426,6 +467,13 @@ final class PccBridge: PccHostApi {
         }
 #if CONDUIT_PCC_SDK
         if #available(iOS 27.0, *) {
+            guard Self.hasPccEntitlement else {
+                await emitError(
+                    runId: request.runId,
+                    message: Self.pccUnentitledMessage
+                )
+                return
+            }
             await performAvailableRequest(request)
             return
         }
@@ -494,6 +542,30 @@ final class PccBridge: PccHostApi {
         return result.content
     }
 #endif
+
+    /// FoundationModels does not surface a missing Private Cloud Compute
+    /// entitlement through `availability`; it traps on the first request
+    /// instead, which no `catch` can recover. The entitlement is a property of
+    /// the signed binary, so it gates the call site. See
+    /// `ios/Flutter/PccSdk.xcconfig` for how to switch the feature on.
+    private static var hasPccEntitlement: Bool {
+#if CONDUIT_PCC_ENTITLEMENT
+        true
+#else
+        false
+#endif
+    }
+
+    private static let pccUnentitledMessage =
+        "Apple Private Cloud Compute is not enabled in this build of Conduit."
+
+    private static let pccUnentitledStatus = PlatformPccStatus(
+        availability: .unsupported,
+        quotaStatus: .unknown,
+        quotaLimitReached: false,
+        canIncreaseQuota: false,
+        message: pccUnentitledMessage
+    )
 
     private static let pccUnsupportedStatus = PlatformPccStatus(
         availability: .unsupported,
@@ -603,7 +675,8 @@ private extension PccBridge {
             quotaLimitReached: false,
             canIncreaseQuota: false,
             message: message,
-            contextSize: Int64(model.contextSize),
+            // The simulator reports 0 when the model cannot say; treat that as unknown.
+            contextSize: model.contextSize > 0 ? Int64(model.contextSize) : nil,
             supportsCurrentLocale: model.supportsLocale(Locale.current)
         )
     }
@@ -639,16 +712,18 @@ private extension PccBridge {
             )
         } catch {
 #if CONDUIT_PCC_SDK
-            if let error = error as? LanguageModelError {
-                await emitError(runId: request.runId, message: onDeviceMessage(for: error))
-                return
-            }
-#else
-            if let error = error as? LanguageModelSession.GenerationError {
+            // iOS 27 folded the session's generation errors into
+            // LanguageModelError. An SDK 27 binary still runs on iOS 26, where
+            // only the older type exists, so both have to be mapped.
+            if #available(iOS 27.0, *), let error = error as? LanguageModelError {
                 await emitError(runId: request.runId, message: onDeviceMessage(for: error))
                 return
             }
 #endif
+            if let error = error as? LanguageModelSession.GenerationError {
+                await emitError(runId: request.runId, message: onDeviceMessage(for: error))
+                return
+            }
             if let error = error as? PccBridgeError {
                 await emitError(runId: request.runId, message: error.localizedDescription)
                 return
@@ -756,7 +831,8 @@ private extension PccBridge {
         )
     }
 
-#if !CONDUIT_PCC_SDK
+    /// Maps the errors iOS 26 throws. iOS 27 reports the same conditions
+    /// through `LanguageModelError`, so this stays for the older runtime only.
     func onDeviceMessage(
         for error: LanguageModelSession.GenerationError
     ) -> String {
@@ -779,7 +855,6 @@ private extension PccBridge {
             return "Apple On-Device request failed."
         }
     }
-#endif
 }
 #endif
 
@@ -808,7 +883,7 @@ private extension PccBridge {
         @unknown default:
             .unknown
         }
-        let contextSize = try? await model.contextSize
+        let contextSize = (try? await model.contextSize).flatMap { $0 > 0 ? $0 : nil }
         let supportsCurrentLocale = try? await model.supportsLocale(Locale.current)
         let canIncreaseQuota = model.quotaUsage.limitIncreaseSuggestion != nil
         switch model.availability {

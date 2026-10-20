@@ -2,11 +2,11 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
-import 'package:conduit/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_knowledge_files.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
@@ -184,39 +184,48 @@ class _WorkspaceKnowledgeFormState
           data: (value) => value,
           orElse: () => WorkspaceCapabilities.none,
         );
+    final summary = widget.summary;
+    final readOnly = _isExternal || !_writeAccess;
+    // An existing knowledge base saves from the sheet, which stays open with
+    // the error when the save fails. A new one keeps the grants for its first
+    // save.
     final grants = await WorkspaceAccessGrantSheet.show(
       context,
       initialGrants: _grants,
       capabilities: capabilities.knowledge,
       allowUserGrants: capabilities.allowUserGrants,
-      readOnly: _isExternal || !_writeAccess,
+      allowGroupGrants: capabilities.allowGroupGrants,
+      readOnly: readOnly,
+      resourceName: summary?.name,
+      onSave: summary != null && !readOnly
+          ? (grants, _) async {
+              final saved = await WorkspaceEditorOperationRunner.stay<void>(
+                session: _session,
+                scope: 'workspace/knowledge',
+                operationLabel: 'knowledge access update',
+                editorMounted: () => mounted,
+                operation: () => ref
+                    .read(workspaceKnowledgeProvider.notifier)
+                    .updateAccess(summary.id, grants),
+                onSuccess: (_) {
+                  setState(() => _grants = grants);
+                  ref.invalidate(workspaceKnowledgeDetailProvider(summary.id));
+                  _showSnack(l10n.workspaceKnowledgeSaved);
+                },
+              );
+              return saved
+                  ? const WorkspaceAccessSaveOutcome.saved()
+                  : WorkspaceAccessSaveOutcome.failed(
+                      l10n.workspaceKnowledgeSaveFailed,
+                    );
+            }
+          : null,
     );
-    if (grants == null || !mounted) return;
-    final summary = widget.summary;
-    if (summary == null || _isExternal || !_writeAccess) {
-      setState(() => _grants = grants);
-      // Create mode persists nothing server-side here, so record the grant
-      // change for the unsaved-changes guard. Read-only surfaces can't actually
-      // mutate grants, so only the create path needs this.
-      if (summary == null) _markDirty();
-      return;
-    }
-    await WorkspaceEditorOperationRunner.stay<void>(
-      session: _session,
-      scope: 'workspace/knowledge',
-      operationLabel: 'knowledge access update',
-      editorMounted: () => mounted,
-      operation: () => ref
-          .read(workspaceKnowledgeProvider.notifier)
-          .updateAccess(summary.id, grants),
-      onSuccess: (_) {
-        setState(() => _grants = grants);
-        ref.invalidate(workspaceKnowledgeDetailProvider(summary.id));
-        _showSnack(l10n.workspaceKnowledgeSaved);
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspaceKnowledgeSaveFailed, isError: true),
-    );
+    if (grants == null || !mounted || summary != null) return;
+    setState(() => _grants = grants);
+    // Create mode persists nothing server-side here, so record the grant
+    // change for the unsaved-changes guard.
+    _markDirty();
   }
 
   Future<void> _reset() async {
@@ -401,15 +410,11 @@ class _WorkspaceKnowledgeFormState
   }
 
   Widget _accessTile(AppLocalizations l10n) {
-    final principals = workspaceSharedPrincipals(_grants);
-    final isPublic = workspaceGrantsArePublic(_grants);
     return WorkspaceResourceTile(
       key: const Key('workspace-knowledge-access'),
-      icon: isPublic ? Icons.public : Icons.lock_outline,
+      icon: workspaceAccessSummaryIcon(_grants),
       title: l10n.workspaceKnowledgeManageAccess,
-      subtitle: isPublic
-          ? l10n.workspaceAccessVisibilityLabel
-          : l10n.workspaceModelSelectCount(principals.length),
+      subtitle: workspaceAccessSummary(l10n, _grants),
       onTap: _manageAccess,
     );
   }

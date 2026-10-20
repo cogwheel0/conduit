@@ -22,7 +22,7 @@ void main() {
     await _pumpBanner(tester, size: const Size(320, 568));
 
     expect(find.text('How can I help?'), findsOneWidget);
-    expect(find.text("What's new in 4.0"), findsOneWidget);
+    expect(find.text("What's new in 4.0.1"), findsOneWidget);
     expect(find.text('Tap to learn more'), findsOneWidget);
     expect(find.text("What's new"), findsNothing);
     final greetingBottom = tester
@@ -48,7 +48,7 @@ void main() {
   ) async {
     await _pumpBanner(tester, locale: const Locale('de'));
 
-    expect(find.text('Neu in 4.0'), findsOneWidget);
+    expect(find.text('Neu in 4.0.1'), findsOneWidget);
     expect(find.text('Mehr erfahren'), findsOneWidget);
   });
 }

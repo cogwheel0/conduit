@@ -3,17 +3,25 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/models/channel.dart';
-import '../../../core/providers/app_providers.dart';
+import 'package:conduit_core/models/channel.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../core/services/haptic_service.dart';
-import '../../../core/services/navigation_service.dart';
-import '../../../core/utils/debug_logger.dart';
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
-import '../../channels/providers/channel_providers.dart';
+
+import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+
 import '../../channels/utils/channel_request_owner.dart';
 import '../../channels/widgets/channel_form_dialog.dart';
-import '../../chat/providers/chat_providers.dart' as chat;
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    as chat;
+
 import '../../notes/providers/notes_providers.dart';
 
 typedef SidebarCreateActionHandler = Future<void> Function(

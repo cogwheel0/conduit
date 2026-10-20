@@ -1,10 +1,10 @@
+import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io' show File, Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
-import 'package:drift/drift.dart' show Value;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -17,17 +17,34 @@ import 'package:share_plus/share_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../core/auth/api_auth_interceptor.dart';
-import '../../../core/database/app_database.dart';
-import '../../../core/database/database_provider.dart';
-import '../../../core/database/mappers/note_mapper.dart';
-import '../../../core/models/note.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/connectivity_service.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+
+import 'package:conduit_core/database/app_database.dart';
+
+import 'package:conduit_core/database/database_provider.dart';
+
+import 'package:conduit_core/models/note.dart';
+
+import 'package:conduit_core/providers/app_providers.dart';
+
 import '../../../core/services/ios_native_dropdown_bridge.dart';
-import '../../../core/sync/sync_engine.dart';
-import '../../../core/sync/chat_locks.dart';
-import '../../../core/utils/debug_logger.dart';
+
+import 'package:conduit_core/sync/sync_engine.dart';
+
+import 'package:conduit_core/features/notes/services/deleted_note_draft_recovery.dart';
+import 'package:conduit_core/features/notes/services/note_ai_actions.dart';
+import 'package:conduit_core/features/notes/services/note_attachments_controller.dart';
+import 'package:conduit_core/features/notes/services/note_dictation.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/features/sharing/providers/principal_lookup.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart'
+    show WorkspacePrincipalType;
+import 'package:conduit_core/features/notes/utils/note_persistence.dart';
+
+import '../utils/note_context_actions.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
@@ -41,7 +58,9 @@ import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
-import '../../auth/providers/unified_auth_providers.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+
 import '../../chat/services/voice_input_service.dart';
 import '../providers/notes_providers.dart';
 import '../services/note_audio_upload_service.dart';
@@ -168,38 +187,57 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   final ScrollController _scrollController = ScrollController();
 
   Timer? _saveDebounce;
-  VoidCallback? _deletedNoteDraftRecoveryRetry;
-  bool _isRecoveringDeletedNoteDraft = false;
-  bool _deletedNoteDraftRecoveryQueued = false;
   bool _isLoading = true;
   bool _isSaving = false;
   bool _hasChanges = false;
   bool _isGeneratingTitle = false;
   bool _isEnhancing = false;
   bool _isRecording = false;
-  bool _isUploadingAudio = false;
   Note? _note;
 
-  final NoteAudioUploadStore _noteAudioUploadStore = NoteAudioUploadStore();
-  final List<PendingNoteAudioUpload> _pendingAudioUploads = [];
-  final Set<String> _audioUploadsInFlight = <String>{};
-  final Set<String> _queuedAudioUploadIds = <String>{};
-  final Set<String> _audioUploadFeedbackIds = <String>{};
-  final Set<String> _hiddenAudioUploadIds = <String>{};
-  int _pendingAudioMutationGeneration = 0;
-  bool _isDrainingAudioUploads = false;
-  ProviderSubscription<ConnectivityStatus>? _audioConnectivitySubscription;
-  ProviderSubscription<Object>? _audioAuthEpochSubscription;
-  CancelToken? _activeAudioCancelToken;
+  // The session the page opened under. A retained provider can rebuild for
+  // another account while this page is alive, so loads, saves and destructive
+  // actions are judged against these rather than against whatever is current
+  // when they run.
+  late final Object? _openApi;
+  late final AppDatabase? _openDb;
+  late final Object _openAuthEpoch;
+  late final String? _openUserId;
+
+  /// A save was refused because edit access is gone. The typed text stays in
+  /// the editor, which turns read-only, until the user saves it as their own
+  /// note or discards it.
+  bool _writeRefused = false;
+
+  /// The server refused to show the note (403), which is not a missing note.
+  bool _loadForbidden = false;
+
+  /// The owner of a note shared read-only with this account, looked up by id
+  /// when the note itself does not name them. [_ownerLookupFor] is the owner
+  /// id asked about, so each owner is looked up once.
+  String? _ownerLookupFor;
+  String? _resolvedOwnerName;
+
+  /// The account changed after the page opened, so nothing it loads or saves
+  /// belongs to the page any more.
+  bool _sessionChanged = false;
+
+  late final ProviderContainer _container;
+  late final NoteAttachmentsController _attachments;
+  late final DeletedNoteDraftRecovery _recovery;
 
   // Voice input
   VoiceInputService? _voiceService;
   StreamSubscription<String>? _voiceSub;
-  // Index in the document where the in-progress dictation run is inserted, and
-  // the length of that run, so each (cumulative) transcript update replaces the
-  // previous one without disturbing the rest of the document.
-  int? _dictationAnchor;
-  int _dictationLength = 0;
+  // The in-progress dictation run: each (cumulative) transcript update
+  // replaces the previous one without disturbing the rest of the document.
+  NoteDictationRun? _dictationRun;
+  // The listening run this editor started. The voice service is shared with
+  // the chat composer and holds one run at a time, so the editor stops it only
+  // while its own run is still the current one. Compared with `==`: reading a
+  // controller's `stream` twice gives two wrappers that are equal (same
+  // controller) but not identical, and each run has its own controller.
+  Stream<String>? _dictationStream;
 
   // Markdown snapshot of the last saved/loaded document, used to detect real
   // edits. Compared against the re-encoded current document so opening a note
@@ -235,34 +273,56 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   @override
   void initState() {
     super.initState();
+    _container = ProviderScope.containerOf(context, listen: false);
+    _openApi = ref.read(apiServiceProvider);
+    _openDb = ref.read(appDatabaseProvider);
+    _openAuthEpoch = ref.read(openWebUiAuthSessionEpochProvider);
+    _openUserId = ref.read(currentUserProvider2)?.id;
+    _attachments = NoteAttachmentsController(
+      container: _container,
+      store: createNoteAudioUploadStore(),
+      noteId: widget.noteId,
+      currentNote: () => _note,
+      resolvedTitle: _resolvedTitle,
+      onNoteUpdated: (note) {
+        if (mounted) setState(() => _note = note);
+      },
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+      onNotice: _onAudioNotice,
+    )..start();
+    _recovery = DeletedNoteDraftRecovery(
+      container: _container,
+      noteId: widget.noteId,
+      attachments: _attachments,
+      currentNote: () => _note,
+      readDraft: () =>
+          (title: _titleController.text, markdown: _contentMarkdown),
+      untitledTitle: () => AppLocalizations.of(context)!.untitled,
+      isOpen: () => mounted,
+      hasUnsavedChanges: () => _hasChanges,
+      cancelPendingSave: () => _saveDebounce?.cancel(),
+      scheduleSaveAfter: (delay, action) {
+        _saveDebounce?.cancel();
+        _saveDebounce = Timer(delay, action);
+      },
+      saveSoon: _debounceSave,
+      onRecovered:
+          ({
+            required note,
+            required savedMarkdown,
+            required changedDuringRecovery,
+          }) {
+            setState(() {
+              _note = note;
+              _savedMarkdown = savedMarkdown;
+              _hasChanges = changedDuringRecovery;
+            });
+          },
+      onFailure: () => _showError(AppLocalizations.of(context)!.errorMessage),
+    )..start();
     _loadNote();
-    _audioConnectivitySubscription = ref.listenManual<ConnectivityStatus>(
-      connectivityStatusProvider,
-      (previous, next) {
-        if (previous == ConnectivityStatus.offline &&
-            next == ConnectivityStatus.online) {
-          unawaited(_retryPendingAudioUploads());
-        }
-      },
-    );
-    _audioAuthEpochSubscription = ref.listenManual<Object>(
-      openWebUiAuthSessionEpochProvider,
-      (previous, next) {
-        _deletedNoteDraftRecoveryRetry = null;
-        _deletedNoteDraftRecoveryQueued = false;
-        _activeAudioCancelToken?.cancel('Authentication session changed.');
-        _activeAudioCancelToken = null;
-        _queuedAudioUploadIds.clear();
-        _audioUploadFeedbackIds.clear();
-        _audioUploadsInFlight.clear();
-        _hiddenAudioUploadIds.clear();
-        _pendingAudioMutationGeneration++;
-        if (mounted) {
-          setState(_pendingAudioUploads.clear);
-          if (_note != null) unawaited(_loadPendingAudioUploads());
-        }
-      },
-    );
     _titleController.addListener(_onContentChanged);
     // The content controller is created once the note is loaded; its listener
     // is wired up in [_installContentDocument].
@@ -317,10 +377,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   void dispose() {
     _saveDebounce?.cancel();
     _voiceSub?.cancel();
-    _audioConnectivitySubscription?.close();
-    _audioAuthEpochSubscription?.close();
-    _activeAudioCancelToken?.cancel('Note editor disposed.');
-    _voiceService?.stopListening();
+    _recovery.dispose();
+    _attachments.dispose();
+    // The service is the app-wide provider instance shared with the chat
+    // composer: never dispose it here, and only stop it when this editor's
+    // own dictation run is still the active listener.
+    if (_isRecording && _ownsDictationRun) _voiceService?.stopListening();
     _titleController.dispose();
     _contentChangesSubscription?.cancel();
     _contentController?.dispose();
@@ -336,15 +398,60 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required Object? api,
     required Object? db,
     Object? authEpoch,
-  }) {
-    if (!ref.read(isAuthenticatedProvider2)) return false;
-    if (!identical(ref.read(apiServiceProvider), api)) return false;
-    if (authEpoch != null &&
-        !identical(ref.read(openWebUiAuthSessionEpochProvider), authEpoch)) {
-      return false;
+  }) => isCurrentNoteEditorSession(
+    ref,
+    api: api,
+    db: db as AppDatabase?,
+    authEpoch: authEpoch,
+  );
+
+  /// Whether the page is still in the session it opened under. Unlike
+  /// [_isCurrentNoteSession] it takes nothing from the moment of the call, so
+  /// an account switched in between cannot pass for the one that opened it.
+  bool get _isOpenSessionCurrent => _isCurrentNoteSession(
+    api: _openApi,
+    db: _openDb,
+    authEpoch: _openAuthEpoch,
+  );
+
+  /// Editing is off unless the note is known to be writable by the account
+  /// that opened it, or a save was refused.
+  bool get _readOnly =>
+      _writeRefused ||
+      _note == null ||
+      noteWriteAccess(_note!, accountId: _openUserId) !=
+          NoteWriteAccess.allowed;
+
+  String _resolvedTitle() {
+    final title = _titleController.text.trim();
+    return title.isEmpty ? AppLocalizations.of(context)!.untitled : title;
+  }
+
+  void _onAudioNotice(NoteAudioNotice notice) {
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    switch (notice) {
+      case NoteAudioNotice.recordingSaved:
+        ConduitHaptics.mediumImpact();
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.audioRecordingSaved,
+          type: AdaptiveSnackBarType.success,
+          duration: const Duration(seconds: 2),
+        );
+      case NoteAudioNotice.uploadFailed:
+        _showError(l10n.failedToUploadAudio);
+      case NoteAudioNotice.removed:
+        ConduitHaptics.lightImpact();
+        AdaptiveSnackBar.show(
+          context,
+          message: l10n.fileRemoved,
+          type: AdaptiveSnackBarType.success,
+          duration: const Duration(seconds: 2),
+        );
+      case NoteAudioNotice.error:
+        _showError(l10n.errorMessage);
     }
-    final currentDb = ref.read(appDatabaseProvider);
-    return db == null ? currentDb == null : identical(currentDb, db);
   }
 
   Future<void> _loadNote() async {
@@ -354,6 +461,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final note = await _readNoteById(widget.noteId);
 
       if (mounted) {
+        // The provider may have rebuilt for another account while loading; its
+        // note is not this page's to show.
+        if (!_isOpenSessionCurrent) {
+          setState(() {
+            _isLoading = false;
+            _sessionChanged = true;
+          });
+          return;
+        }
         if (note == null) {
           setState(() => _isLoading = false);
           return;
@@ -367,10 +483,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           _isLoading = false;
           _hasChanges = false;
         });
-        unawaited(_loadPendingAudioUploads());
+        unawaited(_attachments.loadPending());
       }
     } catch (e) {
       if (mounted) {
+        // A refusal is not a deleted note: say so, and show nothing else.
+        if (e is DioException && e.response?.statusCode == 403) {
+          setState(() {
+            _isLoading = false;
+            _loadForbidden = true;
+          });
+          return;
+        }
         setState(() => _isLoading = false);
         _showError(e.toString());
       }
@@ -379,21 +503,26 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   Future<Note?> _readNoteById(String noteId) {
     final provider = noteByIdProvider(noteId);
+    // An invalidated provider keeps its previous value or error while it
+    // recomputes (e.g. right after this note was saved), so only a state that
+    // is no longer loading is the result for this opening.
     final current = ref.read(provider);
-    if (current.hasValue) {
-      return Future<Note?>.value(current.value);
-    }
-    if (current.hasError) {
-      return Future<Note?>.error(
-        current.error ?? StateError('Failed to load note'),
-      );
+    if (!current.isLoading) {
+      if (current.hasValue) {
+        return Future<Note?>.value(current.value);
+      }
+      if (current.hasError) {
+        return Future<Note?>.error(
+          current.error ?? StateError('Failed to load note'),
+        );
+      }
     }
 
     final completer = Completer<Note?>();
     ProviderSubscription<AsyncValue<Note?>>? subscription;
 
     void completeFromState(AsyncValue<Note?> state) {
-      if (completer.isCompleted) return;
+      if (completer.isCompleted || state.isLoading) return;
       if (state.hasValue) {
         completer.complete(state.value);
       } else if (state.hasError) {
@@ -413,7 +542,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   void _onContentChanged() {
-    if (!mounted || _isLoading || _note == null) return;
+    if (!mounted || _isLoading || _note == null || _readOnly) return;
 
     // Optimistically flag the note dirty so the unsaved indicator reacts
     // immediately. The authoritative comparison — which re-encodes the document
@@ -430,7 +559,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _saveDebounce?.cancel();
     _saveDebounce = Timer(
       const Duration(milliseconds: 800),
-      _deletedNoteDraftRecoveryRetry ?? _autoSave,
+      _recovery.pendingRetry ?? _autoSave,
     );
   }
 
@@ -446,7 +575,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // silently discarding the draft during navigation.
     if (mounted) {
       if (_hasChanges) {
-        _deletedNoteDraftRecoveryRetry?.call();
+        _recovery.pendingRetry?.call();
       } else if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop(result);
       }
@@ -484,14 +613,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }) {
     final data = <String, dynamic>{};
     if (includeContent) {
-      // Open WebUI prefers HTML when it is non-empty. Parchment's checklist
-      // HTML is not TipTap-compatible, so leave it empty and let Open WebUI
-      // derive its editor document from the canonical markdown.
-      data['content'] = <String, dynamic>{
-        'json': null,
-        'html': '',
-        'md': _contentMarkdown,
-      };
+      data.addAll(noteContentData(_contentMarkdown));
     }
     if (files != null) {
       data['files'] = files;
@@ -517,58 +639,39 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     ApiAuthSnapshot? authSnapshot,
     CancelToken? cancelToken,
   }) async {
-    if (!_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-      return null;
-    }
-    Note? note;
-    if (db != null) {
-      note = await durableUpdateNote(
-        ref,
-        db,
-        id: _note?.id ?? widget.noteId,
-        title: title,
-        data: data,
-      );
-    } else {
-      // Session confirmed current, so the live API equals the captured one.
-      final currentApi = ref.read(apiServiceProvider);
-      if (currentApi == null) return null;
-      note = Note.fromJson(
-        await currentApi.updateNoteForSession(
-          widget.noteId,
-          title: title,
-          data: data,
-          authSnapshot: authSnapshot,
-          cancelToken: cancelToken,
-        ),
-      );
-      if (mounted &&
-          _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        ref.read(notesListProvider.notifier).updateNote(note, sourceDb: db);
-      }
-    }
-    // `noteByIdProvider` is keepAlive, so without this it keeps serving the
-    // note as it was when first opened (e.g. empty for a freshly created note)
-    // and reopening the note in the same app session shows stale/empty content
-    // until a full restart. Invalidate so the next open re-reads what we just
-    // saved. Cover the remapped server id too, in case a `local:` id resolved.
-    if (note != null &&
-        _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-      ref.invalidate(noteByIdProvider(widget.noteId));
-      if (note.id != widget.noteId) {
-        ref.invalidate(noteByIdProvider(note.id));
-      }
-    }
-    return note;
+    return persistNoteUpdate(
+      ref,
+      noteId: widget.noteId,
+      writeId: _note?.id,
+      api: api,
+      db: db,
+      title: title,
+      data: data,
+      authEpoch: authEpoch,
+      // The account that opened the page, not whoever is active at Save.
+      accountId: _openUserId,
+      authSnapshot: authSnapshot,
+      cancelToken: cancelToken,
+      isStillOpen: () => mounted,
+    );
   }
 
   Future<void> _saveNote({bool showFeedback = true}) async {
-    if (_note == null) return;
+    if (_note == null || _readOnly) return;
+
+    // An account switched since the page opened must not receive this edit,
+    // and the text stays where it is rather than being retried under it.
+    if (!_isOpenSessionCurrent) {
+      _saveDebounce?.cancel();
+      setState(() => _sessionChanged = true);
+      _showError(AppLocalizations.of(context)!.noteSessionChangedNotice);
+      return;
+    }
 
     setState(() => _isSaving = true);
 
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
+    final api = _openApi;
+    final db = _openDb;
     if (api == null && db == null) {
       setState(() => _isSaving = false);
       return;
@@ -590,11 +693,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         db: db,
         title: resolvedTitle,
         data: data,
+        authEpoch: _openAuthEpoch,
       );
 
       if (mounted) {
-        if (!_isCurrentNoteSession(api: api, db: db)) {
-          setState(() => _isSaving = false);
+        if (!_isOpenSessionCurrent) {
+          setState(() {
+            _isSaving = false;
+            _sessionChanged = true;
+          });
           return;
         }
 
@@ -612,6 +719,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         } else {
           setState(() => _isSaving = false);
         }
+      }
+    } on NoteWriteDeniedException {
+      // Access went away since the note loaded. Keep the draft on screen,
+      // stop autosaving it, and leave the choice to the user.
+      _saveDebounce?.cancel();
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _writeRefused = true;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -645,7 +762,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       isDestructive: true,
     );
 
-    if (confirmed && mounted) {
+    // The dialog outlives the tap; an account switched while it was open must
+    // not delete the note under another identity.
+    if (confirmed && mounted && _isOpenSessionCurrent) {
       ConduitHaptics.mediumImpact();
       final success = await ref
           .read(noteDeleterProvider.notifier)
@@ -656,9 +775,31 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  /// Opens the note's access sheet. The editor's own opening session must
+  /// still be the active one; the sheet then captures the same session again
+  /// for the share operation itself.
+  Future<void> _shareNote() async {
+    final note = _note;
+    if (note == null || _readOnly) return;
+    if (!_isOpenSessionCurrent) {
+      _showError(AppLocalizations.of(context)!.noteSessionChangedNotice);
+      return;
+    }
+    final saved = await shareNote(context, ref, note);
+    if (saved == null || !mounted || !_isOpenSessionCurrent) return;
+    // The server's answer carries the account's write access, which a save can
+    // change; the editor follows it.
+    setState(() {
+      _note = _note?.copyWith(
+        writeAccess: saved.writeAccess ?? _note?.writeAccess,
+        accessGrants: saved.rawGrants,
+      );
+    });
+  }
+
   Future<void> _togglePin() async {
     final note = _note;
-    if (note == null) {
+    if (note == null || !_isOpenSessionCurrent) {
       return;
     }
 
@@ -673,48 +814,29 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     ConduitHaptics.selectionClick();
   }
 
-  // Get the selected model ID for AI operations
-  String? _getSelectedModelId() {
-    final selectedModel = ref.read(selectedModelProvider);
-    return selectedModel?.id;
-  }
-
   // AI title generation
   Future<void> _generateTitle() async {
-    if (_note == null || _isGeneratingTitle) return;
-    final content = _contentMarkdown.trim();
-    if (content.isEmpty) {
-      _showError(AppLocalizations.of(context)!.noContentToGenerateTitle);
-      return;
-    }
-
-    final modelId = _getSelectedModelId();
-    if (modelId == null) {
-      _showError(AppLocalizations.of(context)!.noModelSelected);
-      return;
-    }
+    if (_note == null || _isGeneratingTitle || _readOnly) return;
+    final l10n = AppLocalizations.of(context)!;
 
     setState(() => _isGeneratingTitle = true);
     ConduitHaptics.lightImpact();
-
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      setState(() => _isGeneratingTitle = false);
-      return;
-    }
-
     try {
-      final generatedTitle = await api.generateNoteTitle(
-        content,
-        modelId: modelId,
-      );
-      if (mounted && generatedTitle != null && generatedTitle.isNotEmpty) {
-        _titleController.text = generatedTitle;
-        ConduitHaptics.mediumImpact();
-      }
-    } catch (e) {
-      if (mounted) {
-        _showError(AppLocalizations.of(context)!.failedToGenerateTitle);
+      final result = await generateNoteTitle(_container, _contentMarkdown);
+      if (!mounted) return;
+      switch (result.outcome) {
+        case NoteAiOutcome.done:
+          _titleController.text = result.text!;
+          ConduitHaptics.mediumImpact();
+        case NoteAiOutcome.noContent:
+          _showError(l10n.noContentToGenerateTitle);
+        case NoteAiOutcome.noModel:
+          _showError(l10n.noModelSelected);
+        case NoteAiOutcome.failed:
+          _showError(l10n.failedToGenerateTitle);
+        case NoteAiOutcome.unavailable:
+        case NoteAiOutcome.empty:
+          break;
       }
     } finally {
       if (mounted) {
@@ -725,52 +847,40 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   // AI content enhancement
   Future<void> _enhanceContent() async {
-    if (_note == null || _isEnhancing) return;
-    final content = _contentMarkdown.trim();
-    if (content.isEmpty) {
-      _showError(AppLocalizations.of(context)!.noContentToEnhance);
-      return;
-    }
-
-    final modelId = _getSelectedModelId();
-    if (modelId == null) {
-      _showError(AppLocalizations.of(context)!.noModelSelected);
-      return;
-    }
+    if (_note == null || _isEnhancing || _readOnly) return;
+    final l10n = AppLocalizations.of(context)!;
 
     setState(() => _isEnhancing = true);
     ConduitHaptics.lightImpact();
-
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      setState(() => _isEnhancing = false);
-      return;
-    }
-
     try {
-      final enhancedContent = await api.enhanceNoteContent(
-        content,
-        modelId: modelId,
-      );
-      if (mounted && enhancedContent != null && enhancedContent.isNotEmpty) {
-        setState(() {
-          _installContentDocument(documentFromMarkdown(enhancedContent));
-        });
-        // _installContentDocument deliberately leaves _savedMarkdown untouched,
-        // so the enhanced content now differs from the saved baseline; re-run
-        // change detection to flag the enhancement for auto-save.
-        _onContentChanged();
-        ConduitHaptics.mediumImpact();
-        AdaptiveSnackBar.show(
-          context,
-          message: AppLocalizations.of(context)!.noteEnhanced,
-          type: AdaptiveSnackBarType.success,
-          duration: const Duration(seconds: 2),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        _showError(AppLocalizations.of(context)!.failedToEnhanceNote);
+      final result = await enhanceNote(_container, _contentMarkdown);
+      if (!mounted) return;
+      switch (result.outcome) {
+        case NoteAiOutcome.done:
+          setState(() {
+            _installContentDocument(documentFromMarkdown(result.text!));
+          });
+          // _installContentDocument deliberately leaves _savedMarkdown
+          // untouched, so the enhanced content now differs from the saved
+          // baseline; re-run change detection to flag the enhancement for
+          // auto-save.
+          _onContentChanged();
+          ConduitHaptics.mediumImpact();
+          AdaptiveSnackBar.show(
+            context,
+            message: l10n.noteEnhanced,
+            type: AdaptiveSnackBarType.success,
+            duration: const Duration(seconds: 2),
+          );
+        case NoteAiOutcome.noContent:
+          _showError(l10n.noContentToEnhance);
+        case NoteAiOutcome.noModel:
+          _showError(l10n.noModelSelected);
+        case NoteAiOutcome.failed:
+          _showError(l10n.failedToEnhanceNote);
+        case NoteAiOutcome.unavailable:
+        case NoteAiOutcome.empty:
+          break;
       }
     } finally {
       if (mounted) {
@@ -789,7 +899,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Future<void> _startDictation() async {
-    _voiceService ??= VoiceInputService(api: ref.read(apiServiceProvider));
+    if (_readOnly) return;
+    // Use the shared service, as the chat composer does, so dictation honours
+    // the user's speech-to-text preference (e.g. server-only) and locale.
+    _voiceService ??= ref.read(voiceInputServiceProvider);
 
     try {
       final ok = await _voiceService!.initialize();
@@ -800,26 +913,37 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       }
 
       final stream = await _voiceService!.beginListening();
-      if (!mounted) return;
+      if (!mounted) {
+        // The editor closed while listening was starting. Capture is already
+        // running and dispose() saw no dictation to stop, so stop it here,
+        // unless another consumer has taken the service over since.
+        if (_voiceService?.textStream == stream) {
+          unawaited(_voiceService?.stopListening());
+        }
+        return;
+      }
+      _dictationStream = stream;
 
-      // Anchor the dictation run at the current selection, or the end of the
-      // document when there is no selection. The trailing line-break of a
-      // Parchment document is not editable, so clamp before it.
+      // Anchor the dictation run at the current selection. The trailing
+      // line-break of a Parchment document is not editable, so clamp before
+      // it.
       final controller = _contentController;
-      final selection = controller?.selection;
-      final docEnd = controller == null
-          ? 0
-          : (controller.document.length - 1).clamp(
-              0,
-              controller.document.length,
-            );
-      _dictationAnchor =
-          (selection != null && selection.isValid && !selection.isCollapsed)
-          ? selection.start
-          : (selection != null && selection.isValid
-                ? selection.baseOffset.clamp(0, docEnd)
-                : docEnd);
-      _dictationLength = 0;
+      if (controller == null) {
+        _dictationRun = null;
+      } else {
+        final selection = controller.selection;
+        final docEnd = (controller.document.length - 1).clamp(
+          0,
+          controller.document.length,
+        );
+        _dictationRun = selection.isValid
+            ? NoteDictationRun.at(
+                selectionBase: selection.baseOffset,
+                selectionExtent: selection.extentOffset,
+                textLength: docEnd,
+              )
+            : NoteDictationRun(anchor: docEnd);
+      }
 
       setState(() {
         _isRecording = true;
@@ -835,10 +959,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         },
         onDone: () {
           if (!mounted) return;
+          _dictationStream = null;
           setState(() => _isRecording = false);
         },
         onError: (_) {
           if (!mounted) return;
+          _dictationStream = null;
           setState(() => _isRecording = false);
         },
       );
@@ -850,11 +976,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  /// Whether the voice service is still on the run this editor started.
+  bool get _ownsDictationRun =>
+      _dictationStream != null && _voiceService?.textStream == _dictationStream;
+
   Future<void> _stopDictation() async {
-    await _voiceService?.stopListening();
+    if (_ownsDictationRun) await _voiceService?.stopListening();
     _voiceSub?.cancel();
-    _dictationAnchor = null;
-    _dictationLength = 0;
+    _dictationStream = null;
+    _dictationRun = null;
     if (mounted) {
       setState(() => _isRecording = false);
       ConduitHaptics.selectionClick();
@@ -862,27 +992,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   /// Applies the latest (cumulative) dictation [transcript] by replacing the
-  /// previously inserted run at [_dictationAnchor] with the new text, leaving
-  /// the rest of the document — and its formatting — untouched.
+  /// previously inserted run with the new text, leaving the rest of the
+  /// document -- and its formatting -- untouched.
   void _applyDictationText(String transcript) {
     final controller = _contentController;
-    final anchor = _dictationAnchor;
-    if (controller == null || anchor == null) return;
+    final run = _dictationRun;
+    if (controller == null || run == null) return;
 
-    final plain = controller.document.toPlainText();
-    final needsLeadingSpace =
-        anchor > 0 &&
-        anchor <= plain.length &&
-        !_whitespacePattern.hasMatch(plain[anchor - 1]);
-    final insert = needsLeadingSpace ? ' $transcript' : transcript;
-
+    final edit = run.update(controller.document.toPlainText(), transcript);
     controller.replaceText(
-      anchor,
-      _dictationLength,
-      insert,
-      selection: TextSelection.collapsed(offset: anchor + insert.length),
+      edit.start,
+      edit.deleteLength,
+      edit.insert,
+      selection: TextSelection.collapsed(offset: edit.caret),
     );
-    _dictationLength = insert.length;
   }
 
   /// Shows a bottom sheet to choose between dictation and audio recording.
@@ -941,18 +1064,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         children: [
           // Dictation option
           AdaptiveListTile(
-            leading: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: conduitTheme.buttonPrimary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppBorderRadius.md),
-              ),
+            leading: SizedBox(
+              width: IconSize.xl,
+              height: IconSize.xl,
               child: Icon(
                 Platform.isIOS
                     ? CupertinoIcons.keyboard
                     : Icons.keyboard_voice_rounded,
-                color: conduitTheme.buttonPrimary,
+                color: conduitTheme.textPrimary,
                 size: IconSize.md,
               ),
             ),
@@ -977,16 +1096,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           const SizedBox(height: Spacing.xs),
           // Audio recording option
           AdaptiveListTile(
-            leading: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppBorderRadius.md),
-              ),
+            leading: SizedBox(
+              width: IconSize.xl,
+              height: IconSize.xl,
               child: Icon(
-                Platform.isIOS ? CupertinoIcons.mic_fill : Icons.mic_rounded,
-                color: Colors.red,
+                Platform.isIOS ? CupertinoIcons.mic : Icons.mic_none_rounded,
+                color: conduitTheme.textPrimary,
                 size: IconSize.md,
               ),
             ),
@@ -1025,7 +1140,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             child: AudioRecordingOverlay(
               onCancel: () => Navigator.pop(context),
               onConfirm: (file) async {
-                final staged = await _stageAudioFile(file);
+                final staged = await _attachments.stage(file);
                 if (staged && context.mounted) Navigator.pop(context);
                 return staged;
               },
@@ -1036,512 +1151,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         reverseTransitionDuration: const Duration(milliseconds: 150),
       ),
     );
-  }
-
-  ({String serverId, String accountId})? _noteAudioScope() {
-    if (!ref.read(isAuthenticatedProvider2)) return null;
-    final api = ref.read(apiServiceProvider);
-    if (api == null) return null;
-
-    final userId = ref.read(currentUserProvider2)?.id.trim();
-    if (userId == null || userId.isEmpty) return null;
-
-    return (serverId: api.serverConfig.id, accountId: 'user:$userId');
-  }
-
-  /// Moves a recorder cache file into account-scoped application support
-  /// before any network request. Once this returns, closing the page or losing
-  /// connectivity cannot discard the recording.
-  Future<bool> _stageAudioFile(File audioFile) async {
-    final note = _note;
-    final scope = _noteAudioScope();
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
-    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    if (note == null || scope == null) {
-      _showError(AppLocalizations.of(context)!.failedToUploadAudio);
-      return false;
-    }
-
-    final fileName = 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    try {
-      final item = await _noteAudioUploadStore.stage(
-        source: audioFile,
-        serverId: scope.serverId,
-        accountId: scope.accountId,
-        noteId: note.id,
-        fileName: fileName,
-      );
-      if (!mounted ||
-          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        return true;
-      }
-      setState(() {
-        _pendingAudioMutationGeneration++;
-        _hiddenAudioUploadIds.remove(item.id);
-        final index = _pendingAudioUploads.indexWhere(
-          (candidate) => candidate.id == item.id,
-        );
-        if (index < 0) {
-          _pendingAudioUploads.add(item);
-        } else {
-          _pendingAudioUploads[index] = item;
-        }
-        _pendingAudioUploads.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      });
-      unawaited(
-        _retryPendingAudioUploads(ids: <String>[item.id], showFeedback: true),
-      );
-      return true;
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'note-audio-stage-failed',
-        scope: 'notes/audio',
-        error: error,
-        stackTrace: stackTrace,
-      );
-      if (mounted) {
-        _showError(AppLocalizations.of(context)!.failedToUploadAudio);
-      }
-      return false;
-    }
-  }
-
-  Future<void> _loadPendingAudioUploads() async {
-    final note = _note;
-    final scope = _noteAudioScope();
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
-    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    if (note == null || scope == null) return;
-    final mutationGeneration = _pendingAudioMutationGeneration;
-
-    try {
-      final currentIds = <String>{widget.noteId, note.id};
-      if (db != null) {
-        currentIds.add(await db.notesDao.resolveNoteRemapTarget(widget.noteId));
-        currentIds.add(await db.notesDao.resolveNoteRemapTarget(note.id));
-      }
-      if (!mounted ||
-          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        return;
-      }
-
-      final accountItems = await _noteAudioUploadStore.loadForAccount(
-        serverId: scope.serverId,
-        accountId: scope.accountId,
-      );
-      final exactItems = await Future.wait(
-        currentIds.map(
-          (noteId) => _noteAudioUploadStore.loadForNote(
-            serverId: scope.serverId,
-            accountId: scope.accountId,
-            noteId: noteId,
-          ),
-        ),
-      );
-      if (!mounted ||
-          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        return;
-      }
-
-      final matchingById = <String, PendingNoteAudioUpload>{};
-      for (final batch in exactItems) {
-        for (final item in batch) {
-          matchingById[item.id] = item;
-        }
-      }
-      for (final item in accountItems) {
-        if (currentIds.contains(item.noteId)) {
-          matchingById[item.id] = item;
-          continue;
-        }
-        if (db != null) {
-          final resolvedId = await db.notesDao.resolveNoteRemapTarget(
-            item.noteId,
-          );
-          if (currentIds.contains(resolvedId)) matchingById[item.id] = item;
-        }
-      }
-      if (!mounted ||
-          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        return;
-      }
-
-      setState(() {
-        final changedWhileLoading =
-            mutationGeneration != _pendingAudioMutationGeneration;
-        if (changedWhileLoading) {
-          // A stage, completion, or removal won the race with this disk scan.
-          // Preserve the newer UI state while still merging other recovered
-          // recordings, always deduplicated by their durable id.
-          for (final existing in _pendingAudioUploads) {
-            matchingById[existing.id] = existing;
-          }
-        }
-        for (final hiddenId in _hiddenAudioUploadIds) {
-          matchingById.remove(hiddenId);
-        }
-        _pendingAudioUploads
-          ..clear()
-          ..addAll(matchingById.values)
-          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      });
-      if (ref.read(connectivityStatusProvider) == ConnectivityStatus.online) {
-        unawaited(_retryPendingAudioUploads());
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'note-audio-recovery-failed',
-        scope: 'notes/audio',
-        error: error,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
-  Future<void> _retryPendingAudioUploads({
-    Iterable<String>? ids,
-    bool showFeedback = false,
-  }) async {
-    if (!mounted || _noteAudioScope() == null) return;
-    final requestedIds = ids ?? _pendingAudioUploads.map((item) => item.id);
-    _queuedAudioUploadIds.addAll(requestedIds);
-    if (showFeedback) {
-      _audioUploadFeedbackIds.addAll(requestedIds);
-    }
-    if (_isDrainingAudioUploads) return;
-
-    _isDrainingAudioUploads = true;
-    setState(() => _isUploadingAudio = true);
-    try {
-      while (mounted && _queuedAudioUploadIds.isNotEmpty) {
-        final id = _queuedAudioUploadIds.first;
-        _queuedAudioUploadIds.remove(id);
-        final showItemFeedback = _audioUploadFeedbackIds.remove(id);
-        await _processPendingAudioUpload(id, showFeedback: showItemFeedback);
-      }
-    } finally {
-      _isDrainingAudioUploads = false;
-      if (mounted) setState(() => _isUploadingAudio = false);
-    }
-  }
-
-  Future<void> _processPendingAudioUpload(
-    String id, {
-    required bool showFeedback,
-  }) async {
-    final index = _pendingAudioUploads.indexWhere((item) => item.id == id);
-    if (index < 0) return;
-    final pendingItem = _pendingAudioUploads[index];
-    final removalCompletion = NoteAudioUploadCoordinator.removalCompletion(
-      pendingItem,
-    );
-    if (removalCompletion != null) {
-      await removalCompletion;
-      if (mounted) await _loadPendingAudioUploads();
-      return;
-    }
-
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
-    if (api == null || _noteAudioScope() == null) return;
-    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    final authSnapshot = api.captureAuthSnapshot();
-    final cancelToken = CancelToken();
-    _activeAudioCancelToken = cancelToken;
-
-    _audioUploadsInFlight.add(id);
-    if (mounted) setState(() {});
-    try {
-      final coordinator = NoteAudioUploadCoordinator(
-        store: _noteAudioUploadStore,
-        upload: (item, file) async {
-          if (!mounted ||
-              !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-            throw StateError('The active note session changed');
-          }
-
-          // A prior process may have committed the POST but lost its response.
-          // OpenWebUI stores this marker under `meta.data`; reconcile before a
-          // retry so that uncertain requests do not create duplicate files.
-          if (item.status != NoteAudioUploadStatus.pending &&
-              item.serverFileId == null) {
-            final targetedFiles = await api.searchFilesForSession(
-              query: item.fileName,
-              limit: 100,
-              authSnapshot: authSnapshot,
-              cancelToken: cancelToken,
-            );
-            final files =
-                targetedFiles ??
-                await api.getUserFilesForSession(
-                  authSnapshot: authSnapshot,
-                  cancelToken: cancelToken,
-                );
-            if (!mounted ||
-                !_isCurrentNoteSession(
-                  api: api,
-                  db: db,
-                  authEpoch: authEpoch,
-                )) {
-              throw StateError('The active note session changed');
-            }
-            final matches =
-                files
-                    .where((candidate) {
-                      final metadata = candidate.metadata;
-                      final nested = metadata?['data'];
-                      final marker = nested is Map
-                          ? nested['conduit_upload_id']
-                          : metadata?['conduit_upload_id'];
-                      return marker?.toString() == item.id &&
-                          candidate.displayName == item.fileName &&
-                          candidate.size == item.fileSize;
-                    })
-                    .toList(growable: false)
-                  ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-            if (matches.isNotEmpty) return matches.first.id;
-          }
-
-          return api.uploadFile(
-            file.path,
-            item.fileName,
-            contentType: 'audio/mp4',
-            metadata: <String, dynamic>{'conduit_upload_id': item.id},
-            cancelToken: cancelToken,
-            authSnapshot: authSnapshot,
-          );
-        },
-        attach: (item, fileId) => _attachUploadedAudio(
-          item,
-          fileId,
-          api: api,
-          db: db,
-          authEpoch: authEpoch,
-          authSnapshot: authSnapshot,
-          cancelToken: cancelToken,
-        ),
-        onChanged: (item) {
-          if (mounted &&
-              _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-            _onPendingAudioChanged(id, item);
-          }
-        },
-      );
-      final result = await coordinator.process(pendingItem);
-      if (!mounted ||
-          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        return;
-      }
-
-      // A shared in-flight operation may have been owned by a different
-      // editor instance, whose change callback does not target this page.
-      _onPendingAudioChanged(id, result);
-
-      if (result == null) {
-        ConduitHaptics.mediumImpact();
-        if (showFeedback) {
-          AdaptiveSnackBar.show(
-            context,
-            message: AppLocalizations.of(context)!.audioRecordingSaved,
-            type: AdaptiveSnackBarType.success,
-            duration: const Duration(seconds: 2),
-          );
-        }
-      } else if (showFeedback) {
-        _showError(AppLocalizations.of(context)!.failedToUploadAudio);
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'note-audio-coordinator-failed',
-        scope: 'notes/audio',
-        stackTrace: stackTrace,
-        data: {'id': id, 'errorType': error.runtimeType.toString()},
-      );
-      if (mounted &&
-          showFeedback &&
-          _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        _showError(AppLocalizations.of(context)!.failedToUploadAudio);
-      }
-    } finally {
-      if (identical(_activeAudioCancelToken, cancelToken)) {
-        _activeAudioCancelToken = null;
-      }
-      _audioUploadsInFlight.remove(id);
-      if (mounted) setState(() {});
-    }
-  }
-
-  /// Idempotently appends one attachment using the newest local note row.
-  ///
-  /// The read, duplicate check, and write share the same note lock as sync, so
-  /// an upload finishing from an older editor cannot replace files added by a
-  /// concurrent pull or recording.
-  Future<Note?> _durableAttachNoteAudioFile(
-    AppDatabase db, {
-    required String id,
-    required Map<String, dynamic> attachment,
-    required bool Function() canCommit,
-  }) async {
-    final resolvedId = await db.notesDao.resolveNoteRemapTarget(id);
-    if (!canCommit()) return null;
-
-    final noteLocks = ref.read(noteLocksProvider);
-    var noteAvailable = false;
-    await noteLocks.runExclusive(resolvedId, () async {
-      if (!canCommit()) return;
-      final existingRow = await db.notesDao.getNote(resolvedId);
-      if (existingRow == null || existingRow.deleted || !canCommit()) return;
-      noteAvailable = true;
-
-      final existingData = decodeNoteData(existingRow.data);
-      final rawFiles = existingData['files'];
-      final files = rawFiles is List
-          ? rawFiles
-                .whereType<Map>()
-                .map((file) => Map<String, dynamic>.from(file))
-                .toList(growable: true)
-          : <Map<String, dynamic>>[];
-      final fileId = attachment['id']?.toString();
-      final itemId = attachment['itemId']?.toString();
-      final alreadyAttached = files.any(
-        (file) =>
-            (fileId != null && file['id']?.toString() == fileId) ||
-            (itemId != null && file['itemId']?.toString() == itemId),
-      );
-      if (alreadyAttached || !canCommit()) return;
-
-      await db.notesDao.updateNoteWithOutbox(
-        resolvedId,
-        data: Value(
-          jsonEncode(<String, dynamic>{
-            ...existingData,
-            'files': <Map<String, dynamic>>[
-              ...files,
-              Map<String, dynamic>.from(attachment),
-            ],
-          }),
-        ),
-        localUpdatedAtNs: DateTime.now().microsecondsSinceEpoch * 1000,
-        enqueue: true,
-      );
-    });
-    if (!noteAvailable || !canCommit()) return null;
-
-    final row = await db.notesDao.getNote(resolvedId);
-    if (row == null || row.deleted || !canCommit()) return null;
-    unawaited(_drainPendingAudioAttachment());
-    return Note.fromJson(noteRowToServer(row));
-  }
-
-  Future<void> _drainPendingAudioAttachment() async {
-    try {
-      await ref.read(syncEngineProvider.notifier).drainNow();
-    } catch (error) {
-      DebugLogger.warning(
-        'note-audio-attachment-drain-failed',
-        scope: 'notes/audio',
-        data: {'errorType': error.runtimeType.toString()},
-      );
-    }
-  }
-
-  Future<void> _attachUploadedAudio(
-    PendingNoteAudioUpload item,
-    String fileId, {
-    required Object? api,
-    required AppDatabase? db,
-    required Object authEpoch,
-    required ApiAuthSnapshot authSnapshot,
-    required CancelToken cancelToken,
-  }) async {
-    if (!mounted ||
-        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-      throw StateError('The active note session changed');
-    }
-    final note = _note;
-    if (note == null) throw StateError('The note is no longer available');
-
-    // Device-local paths never enter NoteData. Only the server attachment
-    // descriptor is synced, keyed by the durable upload id for replay dedupe.
-    final attachment = <String, dynamic>{
-      'type': 'file',
-      'file': '',
-      'id': fileId,
-      'url': fileId,
-      'name': item.fileName,
-      'collection_name': '',
-      'status': 'uploaded',
-      'size': item.fileSize,
-      'error': '',
-      'itemId': item.id,
-    };
-
-    Note? updatedNote;
-    if (db != null) {
-      updatedNote = await _durableAttachNoteAudioFile(
-        db,
-        id: note.id,
-        attachment: attachment,
-        canCommit: () =>
-            mounted &&
-            _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch),
-      );
-    } else {
-      final currentFiles = note.data.files ?? <Map<String, dynamic>>[];
-      final alreadyAttached = currentFiles.any(
-        (file) =>
-            file['id']?.toString() == fileId ||
-            file['itemId']?.toString() == item.id,
-      );
-      if (alreadyAttached) return;
-      final data = _composeUpdatedNoteData(
-        files: <Map<String, dynamic>>[...currentFiles, attachment],
-        includeContent: false,
-      );
-      final title = _titleController.text.trim();
-      updatedNote = await _persistNoteUpdate(
-        api: api,
-        db: db,
-        title: title.isEmpty ? AppLocalizations.of(context)!.untitled : title,
-        data: data,
-        authEpoch: authEpoch,
-        authSnapshot: authSnapshot,
-        cancelToken: cancelToken,
-      );
-    }
-    if (updatedNote == null) {
-      throw StateError('The recording could not be attached to the note');
-    }
-    if (!mounted ||
-        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-      throw StateError('The active note session changed');
-    }
-    ref.invalidate(noteByIdProvider(widget.noteId));
-    if (updatedNote.id != widget.noteId) {
-      ref.invalidate(noteByIdProvider(updatedNote.id));
-    }
-    setState(() => _note = updatedNote);
-  }
-
-  void _onPendingAudioChanged(String id, PendingNoteAudioUpload? updated) {
-    if (!mounted) return;
-    setState(() {
-      _pendingAudioMutationGeneration++;
-      final index = _pendingAudioUploads.indexWhere((item) => item.id == id);
-      if (updated == null) {
-        _hiddenAudioUploadIds.add(id);
-        if (index >= 0) _pendingAudioUploads.removeAt(index);
-      } else if (index >= 0) {
-        _hiddenAudioUploadIds.remove(id);
-        _pendingAudioUploads[index] = updated;
-      } else {
-        _hiddenAudioUploadIds.remove(id);
-        _pendingAudioUploads.add(updated);
-      }
-      _pendingAudioUploads.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-    });
   }
 
   void _copyToClipboard() {
@@ -1559,6 +1168,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   @override
   Widget build(BuildContext context) {
+    // The Share action depends on this; watching rebuilds the menu when the
+    // account's permissions arrive or change.
+    ref.watch(workspaceCapabilitiesProvider);
+    // The read-only banner names the note's owner once the account's lookup
+    // exists; watching retries the lookup when it arrives.
+    ref.watch(workspacePrincipalLookupProvider);
     // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
@@ -1609,14 +1224,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   child: Center(child: _buildFloatingMetadataBar(context)),
                 ),
               ),
-            if (!_isLoading && _note != null && !_contentFocusNode.hasFocus)
+            if (!_isLoading &&
+                _note != null &&
+                !_readOnly &&
+                !_contentFocusNode.hasFocus)
               Positioned(
                 left: Spacing.md,
                 right: Spacing.md,
                 bottom: Spacing.md + MediaQuery.of(context).padding.bottom,
                 child: NoteFloatingActions(
                   isRecording: _isRecording,
-                  isUploadingAudio: _isUploadingAudio,
+                  isUploadingAudio: _attachments.isUploading,
                   isEnhancing: _isEnhancing,
                   onVoicePressed: _isRecording
                       ? _toggleDictation
@@ -1631,7 +1249,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             // laid out above the keyboard; anchoring at bottom: 0 sits the
             // toolbar directly on top of it (anchoring at viewInsets.bottom
             // would double-count the inset and push it up to the stats row).
-            if (!_isLoading && _note != null && _contentFocusNode.hasFocus)
+            if (!_isLoading &&
+                _note != null &&
+                !_readOnly &&
+                _contentFocusNode.hasFocus)
               Positioned(
                 left: 0,
                 right: 0,
@@ -1710,6 +1331,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       leading: ConduitAdaptiveAppBarIconButton(
         icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
         iosSymbol: 'line.3.horizontal',
+        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
         onPressed: () =>
             SidebarDrawerControllerScope.maybeOf(context)?.toggle(),
         iconColor: tintColor,
@@ -1727,14 +1349,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     AppLocalizations l10n,
   ) {
     return [
-      AdaptivePopupMenuItem<String>(
-        value: 'generate',
-        label: l10n.generateTitle,
-        icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'sparkles',
-          materialIcon: Icons.auto_awesome,
+      if (!_readOnly)
+        AdaptivePopupMenuItem<String>(
+          value: 'generate',
+          label: l10n.generateTitle,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'sparkles',
+            materialIcon: Icons.auto_awesome,
+          ),
         ),
-      ),
       AdaptivePopupMenuItem<String>(
         value: 'copy',
         label: l10n.copy,
@@ -1743,6 +1366,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           materialIcon: Icons.copy_outlined,
         ),
       ),
+      if (_note != null && !_readOnly && canShareNote(ref, _note!))
+        AdaptivePopupMenuItem<String>(
+          value: 'share',
+          label: l10n.noteShare,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'person.2',
+            materialIcon: Icons.group_outlined,
+          ),
+        ),
       AdaptivePopupMenuItem<String>(
         value: 'pin',
         label: _note?.isPinned == true ? l10n.unpin : l10n.pin,
@@ -1751,15 +1383,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           materialIcon: Icons.push_pin_outlined,
         ),
       ),
-      AdaptivePopupMenuItem<String>(
-        value: 'delete',
-        label: l10n.delete,
-        isDestructive: true,
-        icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'trash',
-          materialIcon: Icons.delete_outline,
+      // The delete endpoint takes the same people as an edit.
+      if (!_readOnly)
+        AdaptivePopupMenuItem<String>(
+          value: 'delete',
+          label: l10n.delete,
+          isDestructive: true,
+          icon: conduitAdaptivePopupMenuIcon(
+            iosSymbol: 'trash',
+            materialIcon: Icons.delete_outline,
+          ),
         ),
-      ),
     ];
   }
 
@@ -1788,6 +1422,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         return;
       case 'pin':
         _togglePin();
+        return;
+      case 'share':
+        ConduitHaptics.selectionClick();
+        unawaited(_shareNote());
         return;
       case 'delete':
         ConduitHaptics.mediumImpact();
@@ -1871,6 +1509,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                                 controller: _titleController,
                                 focusNode: _titleFocusNode,
                                 enabled: !_isGeneratingTitle,
+                                readOnly: _readOnly,
                                 style: titleTextStyle,
                                 placeholder: l10n.untitled,
                                 textAlign: TextAlign.center,
@@ -2108,8 +1747,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (_accessNotice(AppLocalizations.of(context)!)
+                  case final notice?)
+                _buildAccessNotice(context, notice),
               // File attachments section (including durable pending audio).
-              if (files.isNotEmpty || _pendingAudioUploads.isNotEmpty) ...[
+              if (files.isNotEmpty || _attachments.pending.isNotEmpty) ...[
                 _buildAttachmentsSection(context, files),
                 const SizedBox(height: Spacing.lg),
               ],
@@ -2128,7 +1770,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   ) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final total = files.length + _pendingAudioUploads.length;
+    final pendingUploads = _attachments.pending;
+    final total = files.length + pendingUploads.length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2173,7 +1816,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             ],
           ),
         ),
-        ..._pendingAudioUploads.map(
+        ...pendingUploads.map(
           (item) => _buildPendingAudioAttachment(context, item),
         ),
         ...files.map(
@@ -2196,7 +1839,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   ) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final inFlight = _audioUploadsInFlight.contains(item.id);
+    final inFlight = _attachments.isInFlight(item.id);
     final failed = item.status == NoteAudioUploadStatus.failed && !inFlight;
     final retryable = !inFlight;
     final localFile = <String, dynamic>{
@@ -2264,7 +1907,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                     iconColor: theme.buttonPrimary,
                     tooltip: l10n.retry,
                     onPressed: () => unawaited(
-                      _retryPendingAudioUploads(
+                      _attachments.retry(
                         ids: <String>[item.id],
                         showFeedback: true,
                       ),
@@ -2293,7 +1936,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       await SharePlus.instance.share(
         ShareParams(
           files: <XFile>[
-            XFile(item.localPath, mimeType: 'audio/mp4', name: item.fileName),
+            XFile(
+              item.localPath,
+              mimeType: noteAudioContentType(item.fileName),
+              name: item.fileName,
+            ),
           ],
           fileNameOverrides: <String>[item.fileName],
           sharePositionOrigin: shareOrigin,
@@ -2332,11 +1979,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     // Push local changes and pull remote ones so the local row reflects both
     // sides. Mirrors the notes-list pull-to-refresh.
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
-    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    final userId = ref.read(currentUserProvider2)?.id;
-    if (db == null) return;
+    final api = _openApi;
+    final db = _openDb;
+    final authEpoch = _openAuthEpoch;
+    final userId = _openUserId;
+    if (db == null || !_isOpenSessionCurrent) return;
     try {
       final syncEngine = ref.read(syncEngineProvider.notifier);
       await syncEngine.requestPull(reason: 'note-editor-refresh');
@@ -2371,11 +2018,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         // already removed the old row and an update could no longer persist.
         if (hadDraftChanges || _hasChanges) {
           if (!_hasChanges) setState(() => _hasChanges = true);
-          await _recoverDeletedNoteDraft(
-            db,
-            api: api,
-            authEpoch: authEpoch,
-            userId: userId,
+          await _recovery.recover(
+            NoteRecoverySession(
+              api: api,
+              db: db,
+              authEpoch: authEpoch,
+              userId: userId,
+            ),
           );
           return;
         }
@@ -2417,266 +2066,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
-  Future<void> _recoverDeletedNoteDraft(
-    AppDatabase db, {
-    required Object? api,
-    required Object authEpoch,
-    required String? userId,
-    bool showFailure = true,
-  }) async {
-    if (_isRecoveringDeletedNoteDraft) {
-      _deletedNoteDraftRecoveryQueued = true;
-      return;
-    }
-    _isRecoveringDeletedNoteDraft = true;
-    try {
-      await _recoverDeletedNoteDraftOnce(
-        db,
-        api: api,
-        authEpoch: authEpoch,
-        userId: userId,
-        showFailure: showFailure,
-      );
-    } finally {
-      _isRecoveringDeletedNoteDraft = false;
-      if (_deletedNoteDraftRecoveryQueued) {
-        _deletedNoteDraftRecoveryQueued = false;
-        if (mounted && _hasChanges && _deletedNoteDraftRecoveryRetry != null) {
-          _debounceSave();
-        }
-      }
-    }
-  }
-
-  Future<void> _recoverDeletedNoteDraftOnce(
-    AppDatabase db, {
-    required Object? api,
-    required Object authEpoch,
-    required String? userId,
-    required bool showFailure,
-  }) async {
-    final previous = _note;
-    if (previous == null ||
-        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-      return;
-    }
-
-    _deletedNoteDraftRecoveryRetry = () {
-      if (!mounted) return;
-      unawaited(
-        _recoverDeletedNoteDraft(
-          db,
-          api: api,
-          authEpoch: authEpoch,
-          userId: userId,
-          showFailure: false,
-        ),
-      );
-    };
-
-    _saveDebounce?.cancel();
-    final draftTitle = _titleController.text;
-    final draftMarkdown = _contentMarkdown;
-    final draftData = <String, dynamic>{
-      ...previous.data.toJson(),
-      ..._composeUpdatedNoteData(),
-    };
-    Note? recovered;
-    try {
-      recovered = await durableCreateNote(
-        ref,
-        db,
-        userId: userId,
-        title: draftTitle.trim().isEmpty
-            ? AppLocalizations.of(context)!.untitled
-            : draftTitle.trim(),
-        data: draftData,
-      );
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'deleted-note-draft-recovery-failed',
-        scope: 'notes/recovery',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'noteId': previous.id},
-      );
-      if (mounted &&
-          _isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        _scheduleDeletedNoteDraftRecovery(
-          db,
-          api: api,
-          authEpoch: authEpoch,
-          userId: userId,
-        );
-        if (showFailure) _showError(AppLocalizations.of(context)!.errorMessage);
-      }
-      return;
-    }
-    if (!mounted ||
-        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-      return;
-    }
-    if (recovered == null) {
-      _scheduleDeletedNoteDraftRecovery(
-        db,
-        api: api,
-        authEpoch: authEpoch,
-        userId: userId,
-      );
-      if (showFailure) _showError(AppLocalizations.of(context)!.errorMessage);
-      return;
-    }
-
-    // The draft is durable at this point. Publish the replacement before any
-    // recording migration I/O so a filesystem failure cannot retry creation
-    // and produce a duplicate recovered note.
-    final changedDuringRecovery =
-        _titleController.text != draftTitle ||
-        _contentMarkdown != draftMarkdown;
-    _deletedNoteDraftRecoveryRetry = null;
-    ref.invalidate(noteByIdProvider(widget.noteId));
-    if (previous.id != widget.noteId) {
-      ref.invalidate(noteByIdProvider(previous.id));
-    }
-    ref.invalidate(noteByIdProvider(recovered.id));
-    setState(() {
-      _note = recovered;
-      _savedMarkdown = draftMarkdown;
-      _hasChanges = changedDuringRecovery;
-    });
-    if (changedDuringRecovery) _debounceSave();
-
-    final recoveredId = recovered.id;
-    final reboundUploads = <String, PendingNoteAudioUpload>{};
-    final attemptedUploadIds = <String>{};
-    Future<PendingNoteAudioUpload?> rebindItem(
-      PendingNoteAudioUpload item,
-    ) async {
-      try {
-        return await NoteAudioUploadCoordinator.rebind(
-          item,
-          () => _noteAudioUploadStore.rebindToNote(item, noteId: recoveredId),
-        );
-      } catch (error, stackTrace) {
-        DebugLogger.error(
-          'deleted-note-audio-item-rebind-failed',
-          scope: 'notes/recovery',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'noteId': previous.id, 'uploadId': item.id},
-        );
-        // Keep the durable old-scope item visible and retryable in this editor.
-        // rebindToNote leaves its intent journal behind after rollback, so a
-        // later store scan will finish moving it to the recovered note.
-        return item;
-      }
-    }
-
-    final initialUploads = <String, PendingNoteAudioUpload>{
-      for (final item in _pendingAudioUploads) item.id: item,
-    };
-    attemptedUploadIds.addAll(initialUploads.keys);
-    final rebindWaits = initialUploads.entries
-        .map(
-          (entry) async => MapEntry(entry.key, await rebindItem(entry.value)),
-        )
-        .toList(growable: false);
-
-    // rebind() installs its reservation synchronously before awaiting existing
-    // work. Cancellation then lets that work settle against the old path before
-    // the operation callback can move the durable directory.
-    _activeAudioCancelToken?.cancel(
-      'The note was replaced after remote deletion.',
-    );
-    _activeAudioCancelToken = null;
-    _queuedAudioUploadIds.clear();
-    _audioUploadFeedbackIds.clear();
-
-    try {
-      final initialResults = await Future.wait(rebindWaits);
-      for (final entry in initialResults) {
-        final rebound = entry.value;
-        if (rebound != null) reboundUploads[entry.key] = rebound;
-      }
-      final audioItemsById = <String, PendingNoteAudioUpload>{
-        for (final item in _pendingAudioUploads) item.id: item,
-      };
-      final audioScope = _noteAudioScope();
-      if (audioScope != null) {
-        for (final noteId in <String>{widget.noteId, previous.id}) {
-          final durableItems = await _noteAudioUploadStore.loadForNote(
-            serverId: audioScope.serverId,
-            accountId: audioScope.accountId,
-            noteId: noteId,
-          );
-          for (final item in durableItems) {
-            audioItemsById[item.id] = item;
-          }
-        }
-      }
-
-      for (final item in audioItemsById.values) {
-        if (!attemptedUploadIds.add(item.id)) continue;
-        final rebound = await rebindItem(item);
-        if (rebound != null) reboundUploads[item.id] = rebound;
-      }
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'deleted-note-audio-rebind-failed',
-        scope: 'notes/recovery',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'noteId': previous.id},
-      );
-    }
-    if (!mounted ||
-        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-      return;
-    }
-
-    if (reboundUploads.isNotEmpty) {
-      setState(() {
-        _pendingAudioMutationGeneration++;
-        final visibleById = <String, PendingNoteAudioUpload>{
-          for (final item in _pendingAudioUploads) item.id: item,
-          ...reboundUploads,
-        };
-        for (final hiddenId in _hiddenAudioUploadIds) {
-          visibleById.remove(hiddenId);
-        }
-        _pendingAudioUploads
-          ..clear()
-          ..addAll(visibleById.values)
-          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      });
-      if (ref.read(connectivityStatusProvider) == ConnectivityStatus.online) {
-        unawaited(_retryPendingAudioUploads(ids: reboundUploads.keys));
-      }
-    }
-  }
-
-  void _scheduleDeletedNoteDraftRecovery(
-    AppDatabase db, {
-    required Object? api,
-    required Object authEpoch,
-    required String? userId,
-  }) {
-    if (!mounted ||
-        !_hasChanges ||
-        !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-      return;
-    }
-    _saveDebounce?.cancel();
-    _saveDebounce = Timer(const Duration(seconds: 2), () {
-      if (!mounted ||
-          !_hasChanges ||
-          !_isCurrentNoteSession(api: api, db: db, authEpoch: authEpoch)) {
-        return;
-      }
-      _deletedNoteDraftRecoveryRetry?.call();
-    });
-  }
-
   Widget _buildContentEditor(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
@@ -2689,6 +2078,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       child: FleatherEditor(
         controller: controller,
         focusNode: _contentFocusNode,
+        readOnly: _readOnly,
         // Lives inside the page's SingleChildScrollView; the editor must not
         // scroll independently so the whole note grows with the content. Give
         // Fleather the parent controller so context-menu actions can reveal the
@@ -2783,91 +2173,30 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       isDestructive: true,
     );
 
-    if (confirmed != true || _note == null) return;
+    if (confirmed != true || _note == null || _readOnly) return;
 
     final localUploadId = file['_localAudioUploadId']?.toString();
     if (localUploadId != null && localUploadId.isNotEmpty) {
-      if (_audioUploadsInFlight.contains(localUploadId)) return;
-      final index = _pendingAudioUploads.indexWhere(
-        (item) => item.id == localUploadId,
-      );
-      if (index < 0) return;
-      final item = _pendingAudioUploads[index];
-      // Once the server owns the bytes, deleting only this local retry record
-      // would misleadingly leave a private orphan on the server. Keep it
-      // available for the idempotent attach retry instead.
-      if (item.serverFileId != null) return;
-      if (!NoteAudioUploadCoordinator.tryReserveRemoval(item)) return;
-      _queuedAudioUploadIds.remove(localUploadId);
-      _audioUploadFeedbackIds.remove(localUploadId);
-      _audioUploadsInFlight.add(localUploadId);
-      _hiddenAudioUploadIds.add(localUploadId);
-      _pendingAudioMutationGeneration++;
-      if (mounted) setState(() {});
-      try {
-        await _noteAudioUploadStore.remove(item);
-        _onPendingAudioChanged(localUploadId, null);
-        if (mounted) {
-          ConduitHaptics.lightImpact();
-          AdaptiveSnackBar.show(
-            context,
-            message: l10n.fileRemoved,
-            type: AdaptiveSnackBarType.success,
-            duration: const Duration(seconds: 2),
-          );
-        }
-      } catch (error, stackTrace) {
-        DebugLogger.error(
-          'note-audio-remove-failed',
-          scope: 'notes/audio',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'id': localUploadId},
-        );
-        _hiddenAudioUploadIds.remove(localUploadId);
-        _showError(l10n.errorMessage);
-      } finally {
-        NoteAudioUploadCoordinator.releaseRemoval(item);
-        _audioUploadsInFlight.remove(localUploadId);
-        if (mounted) setState(() {});
-      }
+      await _attachments.removePending(localUploadId);
       return;
     }
 
-    final api = ref.read(apiServiceProvider);
-    final db = ref.read(appDatabaseProvider);
+    final api = _openApi;
+    final db = _openDb;
     if (api == null && db == null) return;
+    if (!_isOpenSessionCurrent) {
+      _showError(l10n.noteSessionChangedNotice);
+      return;
+    }
 
     setState(() => _isSaving = true);
 
     try {
-      final fileId = file['id']?.toString();
-      final currentFiles = _note!.data.files ?? [];
-      final updatedFiles = currentFiles
-          .where((f) => f['id']?.toString() != fileId)
-          .toList();
-
-      final data = _composeUpdatedNoteData(
-        files: updatedFiles,
-        includeContent: false,
-      );
-
-      final resolvedTitle = _titleController.text.isEmpty
-          ? l10n.untitled
-          : _titleController.text;
-      final updatedNote = await _persistNoteUpdate(
-        api: api,
-        db: db,
-        title: resolvedTitle,
-        data: data,
+      final updatedNote = await _attachments.removeAttachedFile(
+        file['id']?.toString(),
       );
 
       if (mounted) {
-        if (!_isCurrentNoteSession(api: api, db: db)) {
-          setState(() => _isSaving = false);
-          return;
-        }
-
         if (updatedNote != null) {
           setState(() {
             _note = updatedNote;
@@ -2893,11 +2222,170 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
   }
 
+  /// Why the note cannot be edited, or null when it can.
+  String? _accessNotice(AppLocalizations l10n) {
+    final note = _note;
+    if (note == null) return null;
+    if (_writeRefused) return l10n.noteAccessRevokedNotice;
+    return switch (noteWriteAccess(note, accountId: _openUserId)) {
+      NoteWriteAccess.allowed => null,
+      NoteWriteAccess.denied => switch (_sharedOwnerName(note)) {
+        final String owner => l10n.libraryNoteSharedBy(owner),
+        null => l10n.noteReadOnlyNotice,
+      },
+      NoteWriteAccess.unknown => l10n.noteAccessUnverifiedNotice,
+    };
+  }
+
+  /// The name of whoever shared [note] with this account, when known. A note
+  /// that does not carry its owner's name has it looked up once, through the
+  /// lookup of the account the page opened under.
+  String? _sharedOwnerName(Note note) {
+    final named = noteSharedOwner(note, accountId: _openUserId)?.name?.trim();
+    if (named != null && named.isNotEmpty) return named;
+    final ownerId = note.userId;
+    if (ownerId == null || ownerId.isEmpty || ownerId == _openUserId) {
+      return null;
+    }
+    if (_ownerLookupFor == ownerId) return _resolvedOwnerName;
+    // Until the account's lookup exists (a cold start or a deep link), try
+    // again on a later build rather than marking the owner as looked up.
+    final lookup = ref.read(workspacePrincipalLookupProvider);
+    if (lookup == null || !_isOpenSessionCurrent) return null;
+    _ownerLookupFor = ownerId;
+    _resolvedOwnerName = null;
+    unawaited(() async {
+      await lookup.resolve([(type: WorkspacePrincipalType.user, id: ownerId)]);
+      // A name read for another account is never shown here.
+      if (!mounted ||
+          _ownerLookupFor != ownerId ||
+          !identical(ref.read(workspacePrincipalLookupProvider), lookup) ||
+          !_isOpenSessionCurrent) {
+        return;
+      }
+      final name = lookup
+          .cached(WorkspacePrincipalType.user, ownerId)
+          ?.name
+          .trim();
+      if (name != null && name.isNotEmpty) {
+        setState(() => _resolvedOwnerName = name);
+      }
+    }());
+    return null;
+  }
+
+  /// Saves what is on screen as a new note the user owns, through the same
+  /// recovery used when a note is deleted under an open editor.
+  Future<void> _saveDraftAsOwnNote() async {
+    final session = NoteRecoverySession(
+      api: _openApi,
+      db: _openDb,
+      authEpoch: _openAuthEpoch,
+      userId: _openUserId,
+    );
+    await _recovery.recover(session);
+    // The recovery rebinds the editor to the new note, which the user owns.
+    if (mounted && !_hasChanges) setState(() => _writeRefused = false);
+  }
+
+  void _discardDraft() {
+    _saveDebounce?.cancel();
+    setState(() {
+      _hasChanges = false;
+      _titleController.text = _note?.title ?? '';
+      _installContentDocument(
+        documentFromMarkdown(_note?.markdownContent ?? ''),
+      );
+      _savedMarkdown = _contentMarkdown;
+      _updateWordCount();
+    });
+  }
+
+  Widget _buildAccessNotice(BuildContext context, String notice) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Spacing.md),
+      child: DecoratedBox(
+        key: const ValueKey<String>('note-access-notice'),
+        decoration: BoxDecoration(
+          color: theme.surfaceContainer,
+          borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          border: Border.all(color: theme.cardBorder, width: BorderWidth.thin),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
+                    size: IconSize.small,
+                    color: theme.iconSecondary,
+                  ),
+                  const SizedBox(width: Spacing.sm),
+                  Expanded(
+                    child: Text(
+                      notice,
+                      style: theme.bodySmall?.copyWith(
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_writeRefused && _hasChanges) ...[
+                const SizedBox(height: Spacing.sm),
+                Wrap(
+                  spacing: Spacing.sm,
+                  children: [
+                    ConduitButton(
+                      key: const ValueKey<String>('note-save-as-own'),
+                      text: l10n.noteSaveAsOwnNote,
+                      isCompact: true,
+                      onPressed: _saveDraftAsOwnNote,
+                    ),
+                    ConduitButton(
+                      key: const ValueKey<String>('note-discard-draft'),
+                      text: l10n.noteDiscardChanges,
+                      isCompact: true,
+                      isSecondary: true,
+                      onPressed: _discardDraft,
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Notes open with `go`, so the editor is often the only page in its
+  /// navigator; popping it would leave nothing on screen.
+  void _leaveMissingNote() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      context.go('/chat');
+    }
+  }
+
   Widget _buildNotFoundState(BuildContext context) {
     final theme = context.conduitTheme;
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
 
+    final headline = _loadForbidden
+        ? l10n.noteNoAccess
+        : _sessionChanged
+        ? l10n.noteSessionChangedNotice
+        : l10n.noteNotFound;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(Spacing.xxl),
@@ -2908,7 +2396,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: sidebarTheme.accent.withValues(alpha: 0.5),
+                color: sidebarTheme.tint.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(AppBorderRadius.xl),
               ),
               child: Icon(
@@ -2921,7 +2409,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             ),
             const SizedBox(height: Spacing.lg),
             Text(
-              l10n.noteNotFound,
+              headline,
               style: AppTypography.headlineSmallStyle.copyWith(
                 color: theme.textPrimary,
                 fontWeight: FontWeight.w600,
@@ -2930,7 +2418,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             ),
             const SizedBox(height: Spacing.lg),
             AdaptiveButton.child(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: _leaveMissingNote,
               color: sidebarTheme.primary,
               style: AdaptiveButtonStyle.bordered,
               borderRadius: BorderRadius.circular(AppBorderRadius.button),

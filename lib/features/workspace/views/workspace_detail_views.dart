@@ -84,22 +84,11 @@ class _WorkspaceDetailPanel extends ConsumerWidget {
           const _WorkspaceStatusContent(kind: _GateStateKind.error),
       data: (value) => _EditorPlaceholder(
         key: Key('workspace-${section.name}-${mode.name}-$id'),
-        title: _detailTitle(value) ?? id,
+        title: workspaceDetailTitle(value) ?? id,
         showEdit: mode == WorkspaceRouteMode.detail,
         onEdit: () => context.pushWorkspace(section.routes.editLocation(id)),
       ),
     );
-  }
-
-  String? _detailTitle(Object? detail) {
-    return switch (detail) {
-      WorkspaceModelSummary() => detail.name,
-      WorkspaceKnowledgeDetail() => detail.summary.name,
-      WorkspacePromptSummary() => detail.name,
-      WorkspaceToolSummary() => detail.name,
-      WorkspaceSkillSummary() => detail.name,
-      _ => null,
-    };
   }
 }
 
@@ -179,9 +168,7 @@ class _KnowledgeFilterBar extends ConsumerWidget {
           orElse: () =>
               const WorkspaceCollectionState<WorkspaceKnowledgeSummary>(),
         );
-    final view = (state.view == 'created' || state.view == 'shared')
-        ? state.view
-        : '';
+    final view = workspaceKnowledgeViewFilter(state.view);
     final notifier = ref.read(workspaceKnowledgeProvider.notifier);
     return Row(
       children: [

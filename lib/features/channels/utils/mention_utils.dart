@@ -1,6 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
-import '../../../core/models/channel_message.dart';
+import 'package:conduit_core/models/channel_message.dart';
 
 /// Regex matching OpenWebUI mention tags:
 /// `<@M:model_id|Label>` or `<@U:user_id|Name>`.

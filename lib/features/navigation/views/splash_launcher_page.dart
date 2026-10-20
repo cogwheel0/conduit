@@ -1,4 +1,6 @@
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
@@ -29,11 +31,9 @@ class _SplashLauncherPageState extends State<SplashLauncherPage> {
         child: SizedBox(
           width: 28,
           height: 28,
-          child: CircularProgressIndicator(
+          child: AdaptiveProgressIndicator(
             strokeWidth: 2.5,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              context.conduitTheme.loadingIndicator,
-            ),
+            color: context.conduitTheme.loadingIndicator,
           ),
         ),
       ),

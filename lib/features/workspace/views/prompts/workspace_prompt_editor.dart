@@ -3,11 +3,12 @@ import 'package:dio/dio.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:conduit/core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
-import 'package:conduit/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart';
+import 'package:conduit_core/features/workspace/models/workspace_transfer.dart';
 import 'package:conduit/features/workspace/models/workspace_prompt_command.dart';
-import 'package:conduit/features/workspace/models/workspace_resources.dart';
+import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit/features/workspace/views/prompts/workspace_prompt_history.dart';
@@ -366,37 +367,43 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
   Future<void> _manageAccess() async {
     final l10n = AppLocalizations.of(context)!;
     final capabilities = _capabilities;
+    final summary = widget.summary;
+    // An existing prompt saves from the sheet, which stays open with the error
+    // when the save fails. A new one keeps the grants for its first save.
     final grants = await WorkspaceAccessGrantSheet.show(
       context,
       initialGrants: _grants,
       capabilities: capabilities.prompts,
       allowUserGrants: capabilities.allowUserGrants,
+      allowGroupGrants: capabilities.allowGroupGrants,
       readOnly: !_writeAccess,
+      resourceName: summary?.name,
+      onSave: summary != null && _writeAccess
+          ? (grants, _) async {
+              final saved = await WorkspaceEditorOperationRunner.stay<void>(
+                session: _session,
+                scope: 'workspace/prompts',
+                operationLabel: 'prompt access update',
+                editorMounted: () => mounted,
+                operation: () => ref
+                    .read(workspacePromptsProvider.notifier)
+                    .updateAccess(summary.id, grants),
+                onSuccess: (_) {
+                  setState(() => _grants = grants);
+                  _showSnack(l10n.workspacePromptSaved);
+                },
+              );
+              return saved
+                  ? const WorkspaceAccessSaveOutcome.saved()
+                  : WorkspaceAccessSaveOutcome.failed(
+                      l10n.workspacePromptSaveFailed,
+                    );
+            }
+          : null,
     );
-    if (grants == null || !mounted) return;
-    final summary = widget.summary;
-    // In create mode (or without write access) the grants are held locally and
-    // persisted with the first save.
-    if (summary == null || !_writeAccess) {
-      setState(() => _grants = grants);
-      if (summary == null) _session.markDirty();
-      return;
-    }
-    await WorkspaceEditorOperationRunner.stay<void>(
-      session: _session,
-      scope: 'workspace/prompts',
-      operationLabel: 'prompt access update',
-      editorMounted: () => mounted,
-      operation: () => ref
-          .read(workspacePromptsProvider.notifier)
-          .updateAccess(summary.id, grants),
-      onSuccess: (_) {
-        setState(() => _grants = grants);
-        _showSnack(l10n.workspacePromptSaved);
-      },
-      onFailure: (_) =>
-          _showSnack(l10n.workspacePromptSaveFailed, isError: true),
-    );
+    if (grants == null || !mounted || summary != null) return;
+    setState(() => _grants = grants);
+    _session.markDirty();
   }
 
   Future<void> _import() async {
@@ -408,7 +415,7 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
         items,
         importItem: (item) => ref
             .read(workspacePromptsProvider.notifier)
-            .importPrompt(_formFromImport(item)),
+            .importPrompt(workspacePromptFormFromImport(item)),
         labelOf: (item) =>
             item['name']?.toString() ?? item['command']?.toString() ?? '',
       ),
@@ -428,7 +435,9 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
           .read(workspacePromptsProvider.notifier)
           .loadAllForExport();
       if (!mounted) return;
-      final payload = [for (final item in items) _exportMap(item)];
+      final payload = [
+        for (final item in items) workspacePromptExportMap(item),
+      ];
       await WorkspaceExportController().shareJson(
         filename: 'prompts',
         data: payload,
@@ -612,29 +621,6 @@ class _WorkspacePromptFormState extends ConsumerState<_WorkspacePromptForm> {
       context,
       message: message,
       type: isError ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
-    );
-  }
-
-  Map<String, dynamic> _exportMap(WorkspacePromptSummary item) => {
-    'command': WorkspacePromptCommand.strip(item.command),
-    'name': item.name,
-    'content': item.content,
-    'tags': item.tags,
-    if (item.meta != null) 'meta': item.meta,
-    if (item.data != null) 'data': item.data,
-  };
-
-  WorkspacePromptForm _formFromImport(Map<String, dynamic> json) {
-    final rawCommand = json['command']?.toString() ?? '';
-    final name = json['name']?.toString() ?? json['title']?.toString() ?? '';
-    final command = WorkspacePromptCommand.strip(rawCommand);
-    return WorkspacePromptForm(
-      command: command.isEmpty ? WorkspacePromptCommand.slugify(name) : command,
-      name: name,
-      content: json['content']?.toString() ?? '',
-      tags: workspaceStringList(json['tags']),
-      meta: json['meta'] is Map ? workspaceJsonMap(json['meta']) : null,
-      data: json['data'] is Map ? workspaceJsonMap(json['data']) : null,
     );
   }
 

@@ -52,10 +52,7 @@ final class WorkspaceModelPromptSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            l10n.workspaceModelSuggestionPrompts,
-            style: theme.label,
-          ),
+          Text(l10n.workspaceModelSuggestionPrompts, style: theme.label),
           const SizedBox(height: Spacing.xs),
           for (
             var index = 0;

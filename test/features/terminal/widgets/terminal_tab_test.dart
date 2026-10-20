@@ -1,12 +1,16 @@
 import 'dart:async';
+import 'dart:typed_data';
 
-import 'package:conduit/core/services/api_service.dart';
+import 'package:pdfrx/pdfrx.dart';
+
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit/features/terminal/services/terminal_service.dart';
+import 'package:conduit/features/terminal/widgets/terminal_console_surface.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
-import 'package:conduit/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:material_ui/material_ui.dart';
@@ -17,6 +21,185 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 void main() {
   group('TerminalTab', () {
+    testWidgets('PDF cache identity changes for each newly read file', (
+      tester,
+    ) async {
+      final service = _FakeTerminalService(
+        servers: [
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const [],
+        ports: const [],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          terminalServiceProvider.overrideWithValue(service),
+          terminalAutoConnectProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_buildHarnessWithContainer(container));
+      await tester.pumpAndSettle();
+      PdfDocumentRefKey? previous;
+      for (final path in [
+        '/first/report.pdf',
+        '/second/report.pdf',
+        '/second/report.pdf',
+      ]) {
+        // The cache contract is independent of PDF parsing: each network read
+        // has its own bytes, including rewrites of the same file.
+        service.readResult = TerminalFileReadResult(
+          fileName: 'report.pdf',
+          contentType: 'application/pdf',
+          bytes: Uint8List.fromList([1, 2, 3]),
+        );
+        container.read(terminalDisplayFileProvider.notifier).handleEvent(
+          'terminal:display_file',
+          {'path': path},
+        );
+        await tester.pumpAndSettle();
+        final viewer = tester.widget<PdfViewer>(find.byType(PdfViewer));
+        if (previous != null) expect(viewer.documentRef.key, isNot(previous));
+        previous = viewer.documentRef.key;
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+      }
+    });
+
+    testWidgets('preview survives removal of its terminal tab', (tester) async {
+      final service = _FakeTerminalService(
+        servers: [
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const [],
+        ports: const [],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          terminalServiceProvider.overrideWithValue(service),
+          terminalAutoConnectProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_buildHarnessWithContainer(container));
+      await tester.pumpAndSettle();
+      container.read(terminalDisplayFileProvider.notifier).handleEvent(
+        'terminal:display_file',
+        {'path': '/report.txt'},
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('print("hello from terminal")'), findsOneWidget);
+      await tester.pumpWidget(
+        _buildHarnessWithContainer(container, showTab: false),
+      );
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _buildHarnessWithContainer(
+          container,
+          showTab: false,
+          theme: ThemeData.dark(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('print("hello from terminal")'), findsOneWidget);
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('report.txt'), findsNothing);
+    });
+
+    testWidgets(
+      'tool file display waits for discovery and writes refresh the browser',
+      (tester) async {
+        final discovery = Completer<void>();
+        final service = _FakeTerminalService(
+          discovery: discovery.future,
+          servers: [
+            TerminalServerInfo(
+              kind: TerminalServerKind.direct,
+              selectionId: 'https://terminal.example',
+              baseUrl: Uri.parse('https://terminal.example'),
+              name: 'Workspace',
+            ),
+          ],
+          entries: const [],
+          ports: const [],
+        );
+        final container = ProviderContainer(
+          overrides: [
+            terminalServiceProvider.overrideWithValue(service),
+            terminalAutoConnectProvider.overrideWithValue(false),
+          ],
+        );
+        addTearDown(container.dispose);
+        final events = container.read(terminalDisplayFileProvider.notifier);
+        events.handleEvent('terminal:display_file', {
+          'path': '/reports/result.txt',
+          'page': 3,
+        });
+        expect(container.read(terminalDisplayFileProvider)!.page, 3);
+        await tester.pumpWidget(
+          _buildHarnessWithContainer(container, isActive: false),
+        );
+        await tester.pump();
+        expect(service.readPaths, isEmpty);
+        await tester.pumpWidget(_buildHarnessWithContainer(container));
+        await tester.pump();
+        expect(service.readPaths, isEmpty);
+        expect(container.read(terminalDisplayFileProvider), isNotNull);
+        discovery.complete();
+        await tester.pumpAndSettle();
+        expect(container.read(terminalDisplayFileProvider), isNotNull);
+        expect(service.readPaths, ['/reports/result.txt']);
+        expect(find.text('print("hello from terminal")'), findsOneWidget);
+        events.handleEvent('terminal:display_file', {
+          'path': '/reports/new.txt',
+        });
+        await tester.pumpAndSettle();
+        expect(find.text('result.txt', skipOffstage: false), findsNothing);
+        expect(find.text('new.txt'), findsOneWidget);
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+        expect(container.read(terminalDisplayFileProvider), isNull);
+        expect(
+          find.text('print("hello from terminal")', skipOffstage: false),
+          findsNothing,
+        );
+        service.readError = StateError('File unavailable');
+        events.handleEvent('terminal:display_file', {
+          'path': '/reports/missing.txt',
+        });
+        await tester.pumpAndSettle();
+        expect(container.read(terminalDisplayFileProvider), isNull);
+        final attemptedReads = service.readPaths.length;
+        for (final type in [
+          'terminal:write_file',
+          'terminal:replace_file_content',
+          'terminal:run_command',
+        ]) {
+          final count = service.listFilesRequestCount;
+          events.handleEvent(type, {'path': '/reports/result.txt'});
+          await tester.pumpAndSettle();
+          expect(service.listFilesRequestCount, greaterThan(count));
+          expect(service.readPaths.length, attemptedReads);
+          expect(
+            service.listedDirectories.last,
+            type == 'terminal:run_command' ? '/' : '/reports/',
+          );
+        }
+      },
+    );
+
     testWidgets('shows an empty state when no terminal servers exist', (
       tester,
     ) async {
@@ -315,6 +498,127 @@ void main() {
       expect(find.text('localhost:3000'), findsOneWidget);
     });
 
+    testWidgets('returning to the files panel lists files made meanwhile', (
+      tester,
+    ) async {
+      final entries = <TerminalFileEntry>[
+        const TerminalFileEntry(
+          name: 'alpha.txt',
+          path: '/workspace/alpha.txt',
+          isDirectory: false,
+        ),
+      ];
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: entries,
+        ports: const <TerminalListeningPort>[],
+      );
+
+      await tester.pumpWidget(_buildHarness(fakeService));
+      await tester.pumpAndSettle();
+      expect(find.text('alpha.txt'), findsOneWidget);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(TerminalTab)),
+      );
+      final panel = container.read(terminalSidebarPanelProvider.notifier);
+      panel.setPanel(TerminalSidebarPanel.console);
+      await tester.pumpAndSettle();
+
+      // The shell creates a file while the console is shown.
+      entries.add(
+        const TerminalFileEntry(
+          name: 'pty-made.txt',
+          path: '/workspace/pty-made.txt',
+          isDirectory: false,
+        ),
+      );
+      panel.setPanel(TerminalSidebarPanel.files);
+      await tester.pumpAndSettle();
+
+      expect(find.text('pty-made.txt'), findsOneWidget);
+    });
+
+    testWidgets('the inline console sits above the keyboard', (tester) async {
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+      );
+
+      // The sidebar does not resize for the keyboard (its tab bar stays put).
+      await tester.pumpWidget(
+        _buildHarness(fakeService, resizeToAvoidBottomInset: false),
+      );
+      await tester.pumpAndSettle();
+      ProviderScope.containerOf(tester.element(find.byType(TerminalTab)))
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.console);
+      await tester.pumpAndSettle();
+
+      const keyboardHeight = 300.0;
+      final dpr = tester.view.devicePixelRatio;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboardHeight * dpr);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+
+      final screenHeight = tester.view.physicalSize.height / dpr;
+      final console = tester.getRect(find.byType(TerminalConsoleSurface));
+      expect(console.bottom, lessThanOrEqualTo(screenHeight - keyboardHeight));
+    });
+
+    testWidgets('a resizing sidebar lifts the inline console only once', (
+      tester,
+    ) async {
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+      );
+
+      // The scaffold shrinks its body for the keyboard and removes the inset
+      // from the body's media query, so the console must not lift again.
+      await tester.pumpWidget(_buildHarness(fakeService));
+      await tester.pumpAndSettle();
+      ProviderScope.containerOf(tester.element(find.byType(TerminalTab)))
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.console);
+      await tester.pumpAndSettle();
+      final restingBottom = tester
+          .getRect(find.byType(TerminalConsoleSurface))
+          .bottom;
+
+      const keyboardHeight = 300.0;
+      final dpr = tester.view.devicePixelRatio;
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboardHeight * dpr);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+
+      final console = tester.getRect(find.byType(TerminalConsoleSurface));
+      expect(restingBottom - console.bottom, keyboardHeight);
+    });
+
     testWidgets('ignores stale file loads after switching terminal servers', (
       tester,
     ) async {
@@ -467,6 +771,7 @@ Widget _buildHarness(
   bool isActive = true,
   bool autoConnect = false,
   TerminalChannelConnector? channelConnector,
+  bool resizeToAvoidBottomInset = true,
 }) {
   return ProviderScope(
     overrides: [
@@ -478,7 +783,10 @@ Widget _buildHarness(
     child: MaterialApp(
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: Scaffold(body: TerminalTab(isActive: isActive)),
+      home: Scaffold(
+        resizeToAvoidBottomInset: resizeToAvoidBottomInset,
+        body: TerminalTab(isActive: isActive),
+      ),
     ),
   );
 }
@@ -509,13 +817,21 @@ Widget _buildHarnessWithActivity(
   );
 }
 
-Widget _buildHarnessWithContainer(ProviderContainer container) {
+Widget _buildHarnessWithContainer(
+  ProviderContainer container, {
+  bool isActive = true,
+  bool showTab = true,
+  ThemeData? theme,
+}) {
   return UncontrolledProviderScope(
     container: container,
     child: MaterialApp(
+      theme: theme,
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const Scaffold(body: TerminalTab()),
+      home: Scaffold(
+        body: showTab ? TerminalTab(isActive: isActive) : const SizedBox(),
+      ),
     ),
   );
 }
@@ -524,6 +840,7 @@ class _MockApiService extends Mock implements ApiService {}
 
 class _FakeTerminalService extends TerminalService {
   _FakeTerminalService({
+    this.discovery,
     required this.servers,
     required this.entries,
     required this.ports,
@@ -537,6 +854,7 @@ class _FakeTerminalService extends TerminalService {
        ),
        super(_MockApiService());
 
+  final Future<void>? discovery;
   final List<TerminalServerInfo> servers;
   final List<TerminalFileEntry> entries;
   final List<TerminalListeningPort> ports;
@@ -544,6 +862,9 @@ class _FakeTerminalService extends TerminalService {
   final Map<String, Completer<List<TerminalFileEntry>>> listFileCompleters;
   final Map<int, Completer<bool>> terminalEnabledCompletersByRequest;
   final List<String> readPaths = <String>[];
+  Object? readError;
+  TerminalFileReadResult? readResult;
+  final List<String> listedDirectories = [];
   int cwdRequestCount = 0;
   int listFilesRequestCount = 0;
   int listeningPortsRequestCount = 0;
@@ -551,7 +872,10 @@ class _FakeTerminalService extends TerminalService {
   int createSessionRequestCount = 0;
 
   @override
-  Future<List<TerminalServerInfo>> getAvailableServers() async => servers;
+  Future<List<TerminalServerInfo>> getAvailableServers() async {
+    await discovery;
+    return servers;
+  }
 
   @override
   Future<Map<String, dynamic>> updateDirectTerminalSelection(
@@ -606,11 +930,13 @@ class _FakeTerminalService extends TerminalService {
     required String sessionScopeId,
   }) async {
     listFilesRequestCount++;
+    listedDirectories.add(directory);
     final completer = listFileCompleters[server.selectionId];
     if (completer != null) {
       return completer.future;
     }
-    return entriesByServer[server.selectionId] ?? entries;
+    // A copy, like a decoded response: later edits must not leak in.
+    return List.of(entriesByServer[server.selectionId] ?? entries);
   }
 
   @override
@@ -623,17 +949,26 @@ class _FakeTerminalService extends TerminalService {
   }
 
   @override
+  Future<void> setCwd(
+    TerminalServerInfo server,
+    String path, {
+    required String sessionScopeId,
+  }) async {}
+
+  @override
   Future<TerminalFileReadResult> readFile(
     TerminalServerInfo server,
     String path, {
     required String sessionScopeId,
   }) async {
     readPaths.add(path);
-    return const TerminalFileReadResult(
-      fileName: 'alpha.txt',
-      contentType: 'text/plain',
-      text: 'print("hello from terminal")',
-    );
+    if (readError != null) throw readError!;
+    return readResult ??
+        const TerminalFileReadResult(
+          fileName: 'alpha.txt',
+          contentType: 'text/plain',
+          text: 'print("hello from terminal")',
+        );
   }
 }
 

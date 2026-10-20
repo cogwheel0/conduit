@@ -21,45 +21,67 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 
 import 'dart:async';
 
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/interaction_activity.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
+import 'package:conduit_core/services/interaction_activity.dart';
+
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
-import '../../../core/services/performance_profiler.dart';
-import '../../../core/services/api_service.dart';
-import '../../../core/services/connectivity_service.dart';
-import '../../../core/services/settings_service.dart';
-import '../../../core/database/database_provider.dart';
-import '../../../core/database/app_database.dart';
-import '../../../core/database/chat_database_repository.dart';
-import '../../../core/database/models/chat_transcript_window.dart';
-import '../../auth/providers/unified_auth_providers.dart';
-import '../../direct_connections/providers/direct_connection_providers.dart';
-import '../../direct_connections/services/direct_chat_bridge.dart';
-import '../../direct_connections/services/direct_model_registry.dart';
+
+import 'package:conduit_core/services/performance_profiler.dart';
+
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+
+
+import 'package:conduit_core/database/database_provider.dart';
+
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
+
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
-import '../providers/chat_providers.dart';
-import '../providers/openwebui_chat_prompt_provider.dart';
-import '../../hermes/models/hermes_model.dart';
-import '../../hermes/models/hermes_bot.dart';
-import '../../hermes/models/hermes_config.dart';
-import '../../hermes/providers/hermes_providers.dart';
-import '../../hermes/services/hermes_decision_projection.dart';
-import '../../hermes/services/hermes_desktop_api_service.dart';
-import '../../hermes/services/hermes_local_document_trust_store.dart';
-import '../../hermes/services/hermes_message_mapper.dart';
-import '../../hermes/services/hermes_pending_decision_store.dart';
-import '../../hermes/services/hermes_session_provenance.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/composer/openwebui_prompt_answers.dart';
+import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
+import 'package:conduit_core/features/chat/providers/openwebui_prompt_resolution.dart';
+import 'package:conduit_core/features/chat/providers/temporary_chat_save.dart';
+
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
+import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
-import '../../../core/utils/debug_logger.dart';
-import '../../../core/utils/message_tree_utils.dart' as message_tree;
-import '../../../core/utils/user_display_name.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/utils/user_display_name.dart';
+
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
-import '../../../core/utils/android_assistant_handler.dart';
+
+import 'package:conduit_markdown/conduit_markdown.dart';
+
+import '../../../platform/android_assistant_handler.dart';
+import '../widgets/chat_branch_actions.dart';
+import '../widgets/chat_export_sheet.dart';
+import '../widgets/chat_comparison_widgets.dart';
 import '../widgets/model_selector_sheet.dart';
+import '../widgets/openwebui_chat_settings_sheet.dart';
 import '../widgets/modern_chat_input.dart';
 import '../widgets/user_message_bubble.dart';
 import '../widgets/assistant_message_widget.dart' as assistant;
@@ -68,20 +90,28 @@ import '../widgets/context_attachment_widget.dart';
 import '../widgets/server_file_picker_sheet.dart';
 import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
-import '../services/chat_transport_dispatch.dart';
-import '../services/historical_message_regeneration.dart';
+
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
+import 'package:conduit_core/features/chat/services/historical_message_regeneration.dart';
+
 import '../voice_mode/chat_voice_mode_controller.dart';
 import '../voice_mode/chat_voice_mode_overlay.dart';
+import '../voice_mode/voice_mode_error_text.dart';
 import '../voice_call/presentation/voice_call_launcher.dart';
 import '../../../core/services/media_upload_controller.dart';
-import '../../tools/providers/tools_providers.dart';
+
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+
 import '../../release_notes/widgets/release_notes_banner.dart';
-import '../../../core/models/chat_message.dart';
-import '../../../core/models/conversation.dart';
-import '../../../core/models/folder.dart';
-import '../../../core/models/model.dart';
-import '../../../core/models/openwebui_chat_prompt.dart';
-import '../providers/context_attachments_provider.dart';
+
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+
+import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/themed_sheets.dart';
@@ -91,12 +121,16 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/markdown/markdown_loading_skeleton.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
-import 'chat_bottom_anchor_controller.dart';
-import 'chat_timeline_render_model.dart';
-import 'chat_turn_render_state.dart';
+
+import 'package:conduit_core/features/chat/views/chat_bottom_anchor_controller.dart';
+import 'package:conduit_core/features/chat/views/chat_timeline_render_model.dart';
+import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
+
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
+import '../widgets/openwebui_task_list.dart';
 import '../widgets/chat_timeline_viewport.dart';
+import '../../../platform/frame_profiler.dart';
 
 @visibleForTesting
 bool? chatResizeToAvoidBottomInset({
@@ -197,8 +231,11 @@ bool shouldShowChatModelDropdown({
 bool shouldShowTemporaryChatAction({
   required bool isHermes,
   required Conversation? activeConversation,
+  bool temporaryChatEnforced = false,
 }) =>
     !isHermes &&
+    // The server keeps the chat temporary, and would refuse to save it.
+    !temporaryChatEnforced &&
     (activeConversation == null || isTemporaryChat(activeConversation.id));
 
 @visibleForTesting
@@ -206,42 +243,12 @@ String? chatHermesBotTitle(Conversation? conversation) {
   return chatHermesBotPresentation(conversation)?.title;
 }
 
-typedef HermesBotChatPresentation = ({
-  String title,
-  String? avatar,
-  String shape,
-  String color,
-  String? imageKind,
-});
-
 @visibleForTesting
 Widget debugBuildHermesBotToolbarTitleForTesting({
   required HermesBotChatPresentation bot,
   required double maxWidth,
   bool active = false,
 }) => _HermesBotToolbarTitle(bot: bot, maxWidth: maxWidth, active: active);
-
-@visibleForTesting
-HermesBotChatPresentation? chatHermesBotPresentation(
-  Conversation? conversation,
-) {
-  if (!isNativeHermesConversation(conversation)) return null;
-  final title = conversation!.metadata[kHermesBotTitleMetadataKey];
-  if (title is! String || title.trim().isEmpty) return null;
-  final avatar = conversation.metadata[kHermesBotAvatarMetadataKey];
-  final shape = conversation.metadata[kHermesBotShapeMetadataKey];
-  final color = conversation.metadata[kHermesBotColorMetadataKey];
-  final imageKind = conversation.metadata[kHermesBotImageKindMetadataKey];
-  return (
-    title: title.trim(),
-    avatar: avatar is String && avatar.startsWith('data:image/')
-        ? avatar
-        : null,
-    shape: shape is String ? shape : 'squircle',
-    color: color is String ? color : '#8b5cf6',
-    imageKind: imageKind is String ? imageKind : null,
-  );
-}
 
 class _HermesBotToolbarTitle extends StatelessWidget {
   const _HermesBotToolbarTitle({
@@ -683,6 +690,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Clear any pending folder selection
     ref.read(pendingFolderIdProvider.notifier).clear();
 
+    // A new chat starts without settings picked for the previous draft.
+    ref.read(pendingOpenWebUiChatSettingsProvider.notifier).replace(const {});
+
     // Reset to default model for new conversations (fixes #296)
     restoreDefaultModel(ref);
 
@@ -696,112 +706,50 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _isAnchoredToBottom = true;
 
     // Reset temporary chat state based on user preference
-    final settings = ref.read(appSettingsProvider);
-    ref
-        .read(temporaryChatEnabledProvider.notifier)
-        .set(settings.temporaryChatByDefault);
+    ref.read(temporaryChatEnabledProvider.notifier).startNewChat();
   }
 
   bool _isSavingTemporary = false;
 
   /// Persists a temporary chat to the server, transitioning it
-  /// into a permanent conversation.
+  /// into a permanent conversation (conduit_core's saveTemporaryChat).
   Future<void> _saveTemporaryChat() async {
     if (_isSavingTemporary) return;
     if (_messageSendAdmission.isHeld || ref.read(isChatStreamingProvider)) {
       return;
     }
-    final sourceConversation = ref.read(activeConversationProvider);
-    final sourceApi = ref.read(apiServiceProvider);
-    if (sourceConversation == null || sourceApi == null) return;
-    final sourceConversationId = conversationScopedId(sourceConversation);
+    if (ref.read(activeConversationProvider) == null ||
+        ref.read(apiServiceProvider) == null) {
+      return;
+    }
     final sourceConversationGeneration = _conversationOwnerGeneration;
-    final sourceAuthSessionEpoch = ref.read(openWebUiAuthSessionEpochProvider);
     setState(() {
       _isSavingTemporary = true;
     });
     try {
-      final messages = (await readCompleteActiveChatHistory(ref)).messages;
-      if (messages.isEmpty) return;
-      if (!_ownsDeferredConversationMutation(
-        api: sourceApi,
-        authSessionEpoch: sourceAuthSessionEpoch,
-        conversationId: sourceConversationId,
-        conversationGeneration: sourceConversationGeneration,
-      )) {
-        return;
-      }
-
-      // Generate title from first user message
-      final firstUserMsg = messages.firstWhere(
-        (m) => m.role == 'user',
-        orElse: () => messages.first,
+      final outcome = await saveTemporaryChat(
+        ref,
+        isCurrentOwner: () =>
+            mounted &&
+            _conversationOwnerGeneration == sourceConversationGeneration,
       );
-      final title = firstUserMsg.content.length > 50
-          ? '${firstUserMsg.content.substring(0, 50)}...'
-          : firstUserMsg.content.isEmpty
-          ? 'New Chat'
-          : firstUserMsg.content;
-
-      final selectedModel = ref.read(selectedModelProvider);
-      final serverConversation = await sourceApi.createConversation(
-        title: title,
-        messages: messages,
-        model: selectedModel?.id ?? '',
-        systemPrompt: sourceConversation.systemPrompt,
-        folderId: sourceConversation.folderId,
-      );
-      if (!_ownsDeferredConversationMutation(
-        api: sourceApi,
-        authSessionEpoch: sourceAuthSessionEpoch,
-        conversationId: sourceConversationId,
-        conversationGeneration: sourceConversationGeneration,
-      )) {
-        return;
-      }
-
-      // Transition to permanent chat
-      final updatedConversation = serverConversation.copyWith(
-        messages: messages,
-      );
-      ref.read(activeConversationProvider.notifier).set(updatedConversation);
-      ref
-          .read(conversationsProvider.notifier)
-          .upsertConversation(
-            updatedConversation.copyWith(
-              messages: const [],
-              updatedAt: DateTime.now(),
-            ),
-            trustFolderConversation:
-                updatedConversation.folderId != null &&
-                updatedConversation.folderId!.isNotEmpty,
+      if (!mounted) return;
+      switch (outcome) {
+        case TemporaryChatSaveOutcome.saved:
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!.chatSaved,
+            type: AdaptiveSnackBarType.success,
           );
-      ref.read(temporaryChatEnabledProvider.notifier).set(false);
-      refreshConversationsCache(ref);
-
-      if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.chatSaved)),
-        );
+        case TemporaryChatSaveOutcome.failed:
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!.chatSaveFailed,
+            type: AdaptiveSnackBarType.error,
+          );
+        case TemporaryChatSaveOutcome.skipped:
+          break;
       }
-    } catch (e, stackTrace) {
-      if (mounted &&
-          _ownsDeferredConversationMutation(
-            api: sourceApi,
-            authSessionEpoch: sourceAuthSessionEpoch,
-            conversationId: sourceConversationId,
-            conversationGeneration: sourceConversationGeneration,
-          )) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.chatSaveFailed)),
-        );
-      }
-      DebugLogger.error(
-        'temporary-chat-save-failed',
-        scope: 'chat/page',
-        error: e,
-        stackTrace: stackTrace,
-      );
     } finally {
       if (mounted) {
         setState(() {
@@ -812,30 +760,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _isSavingTemporary = false;
       }
     }
-  }
-
-  bool _ownsDeferredConversationMutation({
-    required ApiService api,
-    required Object authSessionEpoch,
-    required String conversationId,
-    required int conversationGeneration,
-  }) {
-    if (!mounted) return false;
-    final activeConversation = ref.read(activeConversationProvider);
-    return debugShouldApplyDeferredConversationMutationForTesting(
-          isMounted: true,
-          scheduledConversationId: conversationId,
-          activeConversationId: activeConversation == null
-              ? null
-              : conversationScopedId(activeConversation),
-          scheduledGeneration: conversationGeneration,
-          activeGeneration: _conversationOwnerGeneration,
-        ) &&
-        identical(ref.read(apiServiceProvider), api) &&
-        identical(
-          ref.read(openWebUiAuthSessionEpochProvider),
-          authSessionEpoch,
-        );
   }
 
   Future<void> _checkAndAutoSelectModel() async {
@@ -1059,6 +983,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await _sendMessage(text, includeComposerContext: true);
   }
 
+  /// Sends the composer's message to the chosen models as one comparison turn.
+  /// The result names the committed turn, so the composer can tell whether it
+  /// still shows that chat. It is null when the turn was refused or not
+  /// written, so the composer keeps the draft.
+  Future<ChatSendPlaceholderHandle?> _handleCompareSend(
+    String text,
+    List<Model> models,
+  ) async {
+    ChatSendPlaceholderHandle? committed;
+    final result = await _sendMessage(
+      text,
+      includeComposerContext: true,
+      compareModels: models,
+      onComparisonCommitted: (handle) => committed = handle,
+    );
+    return result.dispatched ? committed : null;
+  }
+
   Future<void> _refreshDesktopHermesTranscript(String storedId) async {
     final active = ref.read(activeConversationProvider);
     if (active == null ||
@@ -1097,7 +1039,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final selected = ref.read(selectedModelProvider);
       final model = selected != null && isHermesModel(selected)
           ? selected
-          : hermesSyntheticModel();
+          : hermesSyntheticModel(name: service.config.name);
       final endpoint = HermesConfigController.connectionEndpoint(
         service.config.baseUrl,
       );
@@ -1301,6 +1243,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<({bool admitted, bool dispatched})> _sendMessage(
     String text, {
     required bool includeComposerContext,
+    List<Model>? compareModels,
+    void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
   }) async {
     if (!debugCanSubmitChatMessageForTesting(
       isLoadingConversation: ref.read(isLoadingConversationProvider),
@@ -1318,6 +1262,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         text,
         includeComposerContext: includeComposerContext,
         sendOwner: sendOwner,
+        compareModels: compareModels,
+        onComparisonCommitted: onComparisonCommitted,
       );
     } finally {
       _releaseMessageSendAdmission(sendOwner);
@@ -1329,6 +1275,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     String text, {
     required bool includeComposerContext,
     required Object sendOwner,
+    List<Model>? compareModels,
+    void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
   }) async {
     final settlePinImmediately = debugShouldSettlePinImmediatelyForTesting(
       transcriptWasEmpty: ref.read(chatMessagesProvider).isEmpty,
@@ -1358,6 +1306,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     ChatSendPlaceholderHandle? pendingSend;
+    var pendingSends = const <ChatSendPlaceholderHandle>[];
     var didDispatch = false;
     try {
       // Get attached files and collect uploaded file IDs (including data URLs for images)
@@ -1389,21 +1338,40 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
       // Durable send: persists rows + outbox op in one tx (survives a
       // force-quit) and drives streaming via the requestCompletion op.
-      await durableSend(
-        ref,
-        text,
-        uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
-        toolIds: toolIds.isNotEmpty ? toolIds : null,
-        onAssistantPlaceholderCreated: (handle) {
-          didDispatch = true;
-          _releaseMessageSendAdmission(sendOwner);
-          pendingSend = handle;
-          _activatePinToTopAnchor(
-            handle,
-            settleImmediately: settlePinImmediately,
-          );
-        },
-      );
+      if (compareModels != null) {
+        // One admission for every model: the answers are siblings of the same
+        // user message, so the first one anchors the turn's position.
+        final handles = await durableCompareSend(
+          ref,
+          text,
+          uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+          models: compareModels,
+          toolIds: toolIds.isNotEmpty ? toolIds : null,
+        );
+        pendingSends = handles;
+        onComparisonCommitted?.call(handles.first);
+        _releaseMessageSendAdmission(sendOwner);
+        _activatePinToTopAnchor(
+          handles.first,
+          settleImmediately: settlePinImmediately,
+        );
+      } else {
+        await durableSend(
+          ref,
+          text,
+          uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
+          toolIds: toolIds.isNotEmpty ? toolIds : null,
+          onAssistantPlaceholderCreated: (handle) {
+            didDispatch = true;
+            _releaseMessageSendAdmission(sendOwner);
+            pendingSend = handle;
+            _activatePinToTopAnchor(
+              handle,
+              settleImmediately: settlePinImmediately,
+            );
+          },
+        );
+      }
       didDispatch = true;
 
       // Clear only after durableSend has transferred every attachment needed
@@ -1433,6 +1401,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           duration: const Duration(seconds: 3),
         );
       }
+    } on ComparisonAdmissionException catch (error) {
+      // Refused before anything was written; the composer text is still there
+      // for the user to adjust and try again.
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: comparisonAdmissionMessage(
+            AppLocalizations.of(context)!,
+            error,
+            models: ref.read(modelsProvider).asData?.value,
+          ),
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return false;
     } catch (e, stackTrace) {
       // durableSend persists rows + drains synchronously; on failure (DB error,
       // lock failure, …) recover the UI by finishing the streaming placeholder
@@ -1444,6 +1427,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         stackTrace: stackTrace,
       );
       recoverFailedChatSend(ref, e, pendingSend);
+      for (final handle in pendingSends) {
+        recoverFailedChatSend(ref, e, handle);
+      }
     }
     return didDispatch;
   }
@@ -2042,11 +2028,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         stackTrace: stackTrace,
       );
       if (!mounted) return;
-      final message = error is StateError
+      final l10n = AppLocalizations.of(context)!;
+      final message = error is VoiceCallStartException
+          ? voiceModeErrorText(l10n, kind: error.kind, message: error.message)!
+          : error is StateError
           ? error.message.toString()
-          : AppLocalizations.of(context)!.errorMessage;
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(message)));
+          : l10n.errorMessage;
+      AdaptiveSnackBar.show(
+        context,
+        message: message,
+        type: AdaptiveSnackBarType.error,
+      );
     }
   }
 
@@ -2106,11 +2098,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   int _renderedTranscriptCount(
     List<ChatMessage> completeMessages,
     ChatTranscriptPagingState paging,
-  ) {
-    return paging.loadedCount == 0 && completeMessages.isNotEmpty
-        ? math.min(kChatTranscriptPageSize, completeMessages.length)
-        : math.min(paging.loadedCount, completeMessages.length);
-  }
+  ) => renderedTranscriptCount(
+    total: completeMessages.length,
+    loadedCount: paging.loadedCount,
+  );
 
   List<ChatMessage> _renderedTranscriptWindow(
     List<ChatMessage> completeMessages,
@@ -2307,7 +2298,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (_activeScrollProfileTaskKey != null) {
       return;
     }
-    PerformanceProfiler.instance.startFrameCadence();
+    FrameProfiler.instance.startFrameCadence();
     _activeScrollProfileTaskKey = PerformanceProfiler.instance.startTask(
       'chat_scroll',
       scope: 'chat',
@@ -2325,7 +2316,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
     _activeScrollProfileTaskKey = null;
-    PerformanceProfiler.instance.stopFrameCadence(reason: reason);
+    FrameProfiler.instance.stopFrameCadence(reason: reason);
     PerformanceProfiler.instance.finishTask(
       taskKey,
       data: {
@@ -2945,11 +2936,69 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       positionSettled: _pinToTopPositionSettled,
     );
 
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final extentMemory = ChatRowExtentMemory.instance;
+    ChatMessage? historyMessageAtRenderIndex(int renderIndex) {
+      final sourceIndex = timeline.sourceIndexAtRenderIndex(renderIndex);
+      if (sourceIndex == null ||
+          sourceIndex < 0 ||
+          sourceIndex >= timeline.historyMessages.length) {
+        return null;
+      }
+      return timeline.historyMessages[sourceIndex];
+    }
+
+    bool? layoutRowIsArchived(String messageId) {
+      final row = layoutMetadata.indexByMessageId[messageId];
+      return row == null ? null : layoutMetadata.rows[row].isArchivedVariant;
+    }
+
+    String extentKeyFor(ChatMessage message) => ChatRowExtentMemory.keyFor(
+      messageId: message.id,
+      layoutSignature: Object.hash(
+        message.content,
+        message.isStreaming,
+        message.statusHistory.length,
+        message.followUps.length,
+        message.attachmentIds?.length,
+        message.files?.length,
+        message.codeExecutions.length,
+        message.sources.length,
+        message.versions.length,
+        layoutRowIsArchived(message.id),
+      ),
+      viewportWidth: viewportWidth,
+      textScale: textScale,
+    );
+    double? estimateRowExtent(int renderIndex) {
+      final message = historyMessageAtRenderIndex(renderIndex);
+      if (message == null) return null;
+      return extentMemory.lookup(extentKeyFor(message)) ??
+          estimateChatRowExtent(
+            text: message.content,
+            viewportWidth: viewportWidth,
+            textScale: textScale,
+            isUser: message.role == 'user',
+            attachmentCount: message.attachmentIds?.length ?? 0,
+            imageCount: message.files?.length ?? 0,
+            followUpCount: message.followUps.length,
+          );
+    }
+
+    void rememberRowExtent(int renderIndex, double extent) {
+      final message = historyMessageAtRenderIndex(renderIndex);
+      if (message == null || message.isStreaming) return;
+      extentMemory.record(extentKeyFor(message), extent);
+    }
+
     return ChatTimelineViewport(
       controller: _timelineViewportController,
       ownerGeneration: _conversationOwnerGeneration,
       messageIds: messageIds,
       rowRebuildKeys: _rowRebuildKeysMemo,
+      estimateRowExtent: estimateRowExtent,
+      onRowExtentMeasured: rememberRowExtent,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
       liveFooter: timeline.runningFooterHost == null
@@ -3267,7 +3316,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             chatMessageByIdProvider(messageId),
           );
           if (latestMessage == null) return const SizedBox.shrink();
-          return UserMessageBubble(
+          final bubble = UserMessageBubble(
             message: latestMessage,
             isUser: true,
             readOnly: rowRef.watch(activeConversationReadOnlyProvider),
@@ -3286,6 +3335,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             },
             onDelete: () => _deleteMessageGroup(<String>[messageId]),
             onRegenerate: () => _regenerateMessage(messageId),
+          );
+          // An edited message keeps each version as a sibling in the stored
+          // graph. The branch controls offer a way to continue from another
+          // one; the row is left exactly as it was when there is nothing to
+          // choose between.
+          if (!userMessageMayHaveVersions(latestMessage) ||
+              !rowRef.watch(chatBranchControlsProvider)) {
+            return bubble;
+          }
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [bubble, ChatBranchSwitcher(messageId: messageId)],
           );
         },
       );
@@ -3489,100 +3551,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _deleteMessageGroup(List<String> messageIds) async {
     if (messageIds.isEmpty) return;
     final l10n = AppLocalizations.of(context)!;
-    final currentMessages = ref.read(chatMessagesProvider);
-    final initialRemovedIds = <String>{
-      for (final id in messageIds) ..._messageIdsToDelete(currentMessages, id),
-    };
-    if (initialRemovedIds.isEmpty) return;
+    final removedCount = chatMessageIdsRemovedByDelete(
+      ref.read(chatMessagesProvider),
+      messageIds,
+    ).length;
+    if (removedCount == 0) return;
     final confirmed = await ThemedDialogs.confirm(
       context,
       title: l10n.deleteMessagesTitle,
-      message: l10n.deleteMessagesMessage(initialRemovedIds.length),
+      message: l10n.deleteMessagesMessage(removedCount),
       confirmText: l10n.delete,
       cancelText: l10n.cancel,
       isDestructive: true,
     );
     if (!confirmed || !mounted) return;
 
-    final latestMessages = ref.read(chatMessagesProvider);
-    final orderedIds = messageIds.reversed.toList(growable: false);
-    final removedIds = <String>{};
-    var updatedMessages = latestMessages;
-    for (final id in orderedIds) {
-      removedIds.addAll(_messageIdsToDelete(updatedMessages, id));
-      updatedMessages = message_tree.deleteOpenWebUiMessageFromChatMessages(
-        updatedMessages,
-        id,
-      );
-    }
-
-    final removedStreamingMessage = latestMessages
-        .where((candidate) => removedIds.contains(candidate.id))
-        .where((candidate) => candidate.isStreaming)
-        .firstOrNull;
-    if (removedStreamingMessage != null) {
-      stopActiveTransport(
-        removedStreamingMessage,
-        ref.read(apiServiceProvider),
-      );
-      ref.read(chatMessagesProvider.notifier).cancelActiveMessageStream();
-    }
-    ref.read(chatMessagesProvider.notifier).setMessages(updatedMessages);
-
-    final activeConversation = ref.read(activeConversationProvider);
-    if (activeConversation != null) {
-      final updatedConversation = inheritNativeHermesConversationProvenance(
-        activeConversation,
-        activeConversation.copyWith(
-          messages: updatedMessages,
-          updatedAt: DateTime.now(),
-        ),
-      );
-      ref.read(activeConversationProvider.notifier).set(updatedConversation);
-      ref
-          .read(conversationsProvider.notifier)
-          .updateConversation(
-            updatedConversation.id,
-            (_) => updatedConversation,
-          );
-
-      final api = ref.read(apiServiceProvider);
-      if (api != null && !isTemporaryChat(updatedConversation.id)) {
-        try {
-          for (final id in orderedIds) {
-            await api.deleteConversationMessage(updatedConversation.id, id);
-          }
-          ref
-              .read(conversationsProvider.notifier)
-              .trustConversation(updatedConversation.id);
-        } catch (error, stackTrace) {
-          DebugLogger.error(
-            'delete-message-persist-failed',
-            scope: 'chat/page',
-            error: error,
-            stackTrace: stackTrace,
-          );
-          if (!mounted) return;
-          ref.read(chatMessagesProvider.notifier).setMessages(currentMessages);
-          ref.read(activeConversationProvider.notifier).set(activeConversation);
-          ref
-              .read(conversationsProvider.notifier)
-              .updateConversation(
-                activeConversation.id,
-                (_) => activeConversation,
-              );
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
-          );
-        }
-      }
-    }
+    final outcome = await deleteChatMessageGroup(
+      ref,
+      messageIds,
+      isStillCurrent: () => mounted,
+    );
+    if (outcome != ChatMessageDeleteOutcome.persistFailed || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+    );
   }
-
-  Set<String> _messageIdsToDelete(
-    List<ChatMessage> messages,
-    String messageId,
-  ) => message_tree.openWebUiDeletedMessageIds(messages, messageId);
 
   void _regenerateMessage(String assistantMessageId) async {
     try {
@@ -3771,7 +3764,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             (attachments) => attachments.isNotEmpty,
           ),
         );
-
     return RepaintBoundary(
       child: MeasureSize(
         onChange: (size) {
@@ -3790,6 +3782,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: Spacing.xl),
+              OpenWebUiTaskList(
+                keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
+              ),
               const FileAttachmentWidget(),
               const ContextAttachmentWidget(),
               if (hasAttachments) const SizedBox(height: Spacing.sm),
@@ -3868,12 +3863,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           _resolvePersistedOpenWebUiPrompt(
                             activeConversationId!,
                             persistedPrompt,
-                            persistedPrompt.prompt.kind ==
-                                    OpenWebUiComposerPromptKind.askUser
-                                ? OpenWebUiToolCallAction.reject
-                                : approved
-                                ? OpenWebUiToolCallAction.approve
-                                : OpenWebUiToolCallAction.reject,
+                            openWebUiDecisionAction(
+                              persistedPrompt.prompt,
+                              approved,
+                            ),
                           ),
                     );
                   } else if (matchingLivePrompt != null) {
@@ -3930,6 +3923,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
+                    onCompareSend: _handleCompareSend,
                     enabled: debugCanSubmitChatMessageForTesting(
                       isLoadingConversation: isLoadingConversation,
                       isSavingTemporary: _isSavingTemporary,
@@ -4003,45 +3997,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     OpenWebUiPendingToolPrompt pending,
     OpenWebUiToolCallAction action, {
     Map<String, dynamic>? answers,
-  }) async {
-    final api = ref.read(apiServiceProvider);
-    final conversation = ref.read(activeConversationProvider);
-    if (api == null ||
-        conversation == null ||
-        !debugCanUsePersistedOpenWebUiPromptForTesting(
-          isLoadingConversation: ref.read(isLoadingConversationProvider),
-          ownerConversationId: ownerConversationId,
-          activeConversationId: conversation.id,
-        ) ||
-        !conversationUsesOpenWebUiStorage(conversation) ||
-        isTemporaryChat(conversation.id)) {
-      throw StateError('Open WebUI chat is unavailable.');
-    }
-    final chatId = ownerConversationId;
-    final authEpoch = ref.read(openWebUiAuthSessionEpochProvider);
-    final taskIds = await api.resolveChatMessageToolCall(
-      chatId: chatId,
-      messageId: pending.messageId,
-      callId: pending.callId,
-      action: action,
-      answers: answers,
-    );
-    if (!mounted ||
-        !identical(api, ref.read(apiServiceProvider)) ||
-        !identical(authEpoch, ref.read(openWebUiAuthSessionEpochProvider)) ||
-        ref.read(activeConversationProvider)?.id != chatId) {
-      return;
-    }
-    await ref
-        .read(chatMessagesProvider.notifier)
-        .resumeAfterOpenWebUiToolCall(
-          messageId: pending.messageId,
-          callId: pending.callId,
-          action: action,
-          taskIds: taskIds,
-          answers: answers,
-        );
-  }
+  }) => resolvePersistedOpenWebUiPrompt(
+    ref,
+    ownerConversationId: ownerConversationId,
+    pending: pending,
+    action: action,
+    answers: answers,
+    isMounted: () => mounted,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -4347,6 +4310,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         key: const ValueKey('chat-sidebar-toggle'),
         icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
         iosSymbol: 'line.3.horizontal',
+        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
         onPressed: () => _toggleResponsiveDrawer(context),
         iconColor: tintColor,
       ),
@@ -4464,6 +4428,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final showTemporaryAction = shouldShowTemporaryChatAction(
       isHermes: isHermes,
       activeConversation: activeConversation,
+      temporaryChatEnforced: ref.watch(temporaryChatEnforcedProvider),
     );
     if (!showTemporaryAction) {
       return null;
@@ -4483,7 +4448,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
           : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
       accessibilityLabel: AppLocalizations.of(context)!.temporaryChat,
-      tintColor: isTemporary ? Colors.blue : tintColor,
+      tintColor: isTemporary ? context.conduitTheme.info : tintColor,
       onPressed: () {
         ConduitHaptics.selectionClick();
         final current = ref.read(temporaryChatEnabledProvider);
@@ -4543,7 +4508,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             conversation: activeConversation,
           )
         : const <ConduitContextMenuAction>[];
-    for (final action in conversationActions) {
+    void addConversationAction(ConduitContextMenuAction action) {
       addItem(
         label: action.label,
         icon: _chatToolbarConversationActionIcon(action),
@@ -4554,6 +4519,54 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           await action.onSelected();
         },
       );
+    }
+
+    // Everything else comes first; destructive actions (Delete) end the menu.
+    for (final action in conversationActions) {
+      if (!action.destructive) addConversationAction(action);
+    }
+
+    // Per-chat Open WebUI settings: the editor behind Advanced, or a read-only
+    // note when saved settings apply but cannot be edited from here.
+    final settingsEntry = ref.watch(openWebUiChatSettingsMenuEntryProvider);
+    if (settingsEntry != OpenWebUiChatSettingsMenuEntry.none) {
+      final l10n = AppLocalizations.of(context)!;
+      addItem(
+        label: settingsEntry == OpenWebUiChatSettingsMenuEntry.editor
+            ? l10n.chatSettingsTitle
+            : l10n.chatSettingsApplied,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'slider.horizontal.3',
+          materialIcon: Icons.tune,
+        ),
+        iosSymbol: 'slider.horizontal.3',
+        onSelected: () async {
+          if (!mounted) return;
+          await showOpenWebUiChatSettings(context, ref);
+        },
+      );
+    }
+
+    // Export is an everyday action on the chat being read, so it does not
+    // wait for Advanced; the account's own `chat.export` permission decides.
+    final exportConversation = activeConversation;
+    if (exportConversation != null && ref.watch(chatExportAvailableProvider)) {
+      addItem(
+        label: AppLocalizations.of(context)!.chatExportAction,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'arrow.down.doc',
+          materialIcon: Icons.file_download_outlined,
+        ),
+        iosSymbol: 'arrow.down.doc',
+        onSelected: () async {
+          if (!mounted) return;
+          await showChatExportSheet(context, ref, exportConversation);
+        },
+      );
+    }
+
+    for (final action in conversationActions) {
+      if (action.destructive) addConversationAction(action);
     }
 
     if (items.isEmpty) {
@@ -4804,7 +4817,8 @@ typedef ChatGroupingPlacement = ({
 /// A single Hermes turn lands as several assistant messages. Repeating the
 /// avatar + model name and the copy/listen/regenerate bar for each one reads as
 /// several answers rather than one, so the first member carries the header and
-/// the last carries the bar.
+/// the last carries the bar. Across turns the header is shown only when the
+/// responding model differs from the last announced one.
 ///
 /// [rows] is the transcript in display order. A row is `isSkipped` when it
 /// renders no response of its own — archived variants (zero-size placeholders)
@@ -4822,6 +4836,10 @@ List<ChatGroupingPlacement> debugResolveAssistantGroupingForTesting(
   // Display model of the response currently being grouped; null once a user
   // turn closes it. Drives header suppression only.
   String? openGroupModelName;
+  // Model most recently announced by a header. Unlike [openGroupModelName] it
+  // survives user turns, so consecutive answers from the same model stay
+  // unlabeled and a header appears only when the responding model changes.
+  String? lastAnnouncedModelName;
   // Members of the action group being accumulated. It tracks the header group
   // except that a versioned row is always alone in its own.
   var openActionGroup = <int>[];
@@ -4855,7 +4873,18 @@ List<ChatGroupingPlacement> debugResolveAssistantGroupingForTesting(
       openGroupModelName: openGroupModelName,
       displayModelName: row.displayModelName,
     );
-    showModelHeader[index] = !continuesGroup;
+    showModelHeader[index] =
+        !continuesGroup &&
+        !debugAssistantRowContinuesGroupForTesting(
+          openGroupModelName: lastAnnouncedModelName,
+          displayModelName: row.displayModelName,
+        );
+    if (showModelHeader[index]) {
+      lastAnnouncedModelName = row.displayModelName;
+    }
+    // A versioned row can display a historical version from another model,
+    // which this pass cannot see, so the next answer must announce itself.
+    if (row.hasVersions) lastAnnouncedModelName = null;
     openGroupModelName = row.displayModelName;
 
     if (!continuesGroup || row.hasVersions) {
@@ -5373,8 +5402,12 @@ bool debugShouldLoadOlderPageForTesting({
   required bool hasOlder,
   required bool isLoadingOlder,
   required bool anyOldestLoadedRowVisible,
-}) =>
-    hasUserScrolled && hasOlder && !isLoadingOlder && anyOldestLoadedRowVisible;
+}) => shouldLoadOlderTranscriptPage(
+  hasUserScrolled: hasUserScrolled,
+  hasOlder: hasOlder,
+  isLoadingOlder: isLoadingOlder,
+  oldestLoadedRowVisible: anyOldestLoadedRowVisible,
+);
 
 @visibleForTesting
 bool debugCanSubmitChatMessageForTesting({
@@ -5392,11 +5425,11 @@ bool debugCanUsePersistedOpenWebUiPromptForTesting({
   required bool isLoadingConversation,
   required String? ownerConversationId,
   required String? activeConversationId,
-}) {
-  return !isLoadingConversation &&
-      ownerConversationId != null &&
-      ownerConversationId == activeConversationId;
-}
+}) => canUsePersistedOpenWebUiPrompt(
+  isLoadingConversation: isLoadingConversation,
+  ownerConversationId: ownerConversationId,
+  activeConversationId: activeConversationId,
+);
 
 @visibleForTesting
 bool debugShouldConsumeScreenContextForTesting({
@@ -5679,19 +5712,6 @@ bool debugShouldKeepConversationBottomAnchoredOnInsetChangeForTesting({
   return _shouldKeepConversationBottomAnchoredOnInsetChange(
     previousBottomInset: previousBottomInset,
     nextBottomInset: nextBottomInset,
-    isAnchoredToBottom: isAnchoredToBottom,
-    isUserInteractingWithScroll: isUserInteractingWithScroll,
-    wantsPinToTop: wantsPinToTop,
-  );
-}
-
-@visibleForTesting
-bool debugShouldKeepConversationBottomAnchoredOnContentSizeChangeForTesting({
-  required bool isAnchoredToBottom,
-  required bool isUserInteractingWithScroll,
-  required bool wantsPinToTop,
-}) {
-  return shouldKeepConversationBottomAnchoredOnContentSizeChange(
     isAnchoredToBottom: isAnchoredToBottom,
     isUserInteractingWithScroll: isUserInteractingWithScroll,
     wantsPinToTop: wantsPinToTop,

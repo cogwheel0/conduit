@@ -52,8 +52,9 @@ void main() {
       find.byKey(const ValueKey<String>('conversation-unread-indicator')),
       findsNothing,
     );
+    // Selection is carried by the row fill; only unread chats are bold.
     final title = tester.widget<Text>(find.text('Read chat'));
-    expect(title.style?.fontWeight, FontWeight.w600);
+    expect(title.style?.fontWeight, FontWeight.w400);
   });
 
   testWidgets(

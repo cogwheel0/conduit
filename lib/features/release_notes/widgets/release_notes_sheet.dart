@@ -10,6 +10,25 @@ import '../models/release_note.dart';
 
 const double _releaseFooterHeight = Spacing.xl + TouchTarget.comfortable;
 
+/// The glyph for a release-note icon name, or null for a name with none
+/// (`hermes` draws [releaseNoteIconAsset] instead).
+IconData? releaseNoteIcon(String? name) {
+  switch (name) {
+    case 'local':
+      return Icons.storage_rounded;
+    case 'direct':
+      return Icons.bolt_rounded;
+    case 'polish':
+      return Icons.design_services_rounded;
+  }
+  return null;
+}
+
+/// The image asset for a release-note icon name, or null.
+String? releaseNoteIconAsset(String? name) {
+  return name == 'hermes' ? 'assets/icons/hermes_agent.png' : null;
+}
+
 /// Editorial release notes built for quick scanning.
 ///
 /// The feature list deliberately stays vertical. Every highlight is visible in
@@ -53,8 +72,8 @@ class ReleaseNotesSheet extends StatelessWidget {
         for (var i = 0; i < note.bullets.length; i++)
           _ReleaseHighlight(
             text: note.bullets[i],
-            icon: note.iconForBullet(i),
-            iconAsset: note.iconAssetForBullet(i),
+            icon: releaseNoteIcon(note.iconNameForBullet(i)),
+            iconAsset: releaseNoteIconAsset(note.iconNameForBullet(i)),
           ),
     ];
     final intro = notes.isEmpty ? null : notes.last.intro;

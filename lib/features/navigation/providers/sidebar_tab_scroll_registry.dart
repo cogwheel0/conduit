@@ -2,7 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 
 part 'sidebar_tab_scroll_registry.g.dart';
 

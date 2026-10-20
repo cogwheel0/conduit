@@ -90,6 +90,140 @@
           "icon": "hermes"
         }
       ]
+    },
+    {
+      "version": "4.1.6",
+      "title": "Novinky",
+      "intro": "Ahoj! Přemýšlení zůstane ve vlastním bloku, zatímco se streamuje. Think tagy se v odpovědi už neobjeví. PDF zase dorazí k modelu. Řeč se změní na text, když přestaneš mluvit, a tlačítko reproduktoru funguje. Posuvník chatu už neskáče.",
+      "bullets": [
+        {
+          "text": "Přemýšlení: zůstane ve vlastním bloku, zatímco model píše. Think tagy se v odpovědi už neobjeví. Bloky nástrojů zůstanou na správném místě.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hlas a soubory: když přestaneš mluvit, objeví se Přepisuji. Rozpoznávání řeči v Androidu použije jakýkoli nainstalovaný rozpoznávač. Tlačítko reproduktoru zastaví odpověď, která už hraje. PDF přílohy se zase pošlou modelu. Citace můžou ukázat název stránky. Když vyprší proxy relace, můžeš se znovu přihlásit bez odhlášení.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: při nastavení můžeš zkontrolovat Desktop Gateway, i když je přepínač ještě vypnutý.",
+          "icon": "hermes"
+        }
+      ]
+    },
+    {
+      "version": "4.1.7",
+      "title": "Novinky",
+      "intro": "Ahoj! Apple Private Cloud Compute je v seznamu modelů a odpovídá. Na iPhonu můžeš asistentovi skočit do řeči, když mluví. Open WebUI 0.11.4 funguje, a když smažeš systémový prompt nebo výchozí model, zmizí uložená hodnota. Systémové seznamy už aplikaci neshodí, černý blok vedle mikrofonu je pryč a hotová odpověď se po obnovení nevrací, jako by pořád streamovala.",
+      "bullets": [
+        {
+          "text": "Apple Private Cloud Compute: je v seznamu modelů a odpovídá. Apple On-Device a Private Cloud Compute používají symbol Applu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Skákat do řeči: hlasové nastavení na iPhonu ten přepínač má. Asistent dál poslouchá, když mluví, a můžeš ho přerušit. Výběr možnosti v systémovém seznamu už aplikaci neshodí. Černý blok vedle mikrofonu zmizí, když se řádek vejde. Hotová odpověď zůstane hotová i po obnovení a Zastavit generování zůstane pryč.",
+          "icon": "polish"
+        },
+        {
+          "text": "Open WebUI 0.11.4: bez varování o kompatibilitě. Když smažeš systémový prompt nebo výchozí model, zmizí uložená hodnota.",
+          "icon": "direct"
+        }
+      ]
+    },
+    {
+      "version": "4.1.8",
+      "title": "Novinky",
+      "intro": "Ahoj! Odpovědi z Open WebUI se zobrazují plynuleji, volání nástrojů jsou čitelná a seznamy úkolů si pamatují postup. Hlasové hovory drží zvolený výstup zvuku. Sdílení a zkratky znovu otevírají chaty i bez účtu Open WebUI. Vylepšil jsem také chat a nastavení.",
+      "bullets": [
+        {
+          "text": "Open WebUI: odpovědi se dál aktualizují i po kódu nebo uvažování. Volání nástrojů se zobrazují v blocích místo surových značek a seznamy úkolů si po opětovném otevření chatu pamatují postup.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hlasové hovory: zvuk zůstává ve zvoleném reproduktoru a po hovoru se ostatní zvuk vrátí do běžného výstupu. Tlačítko reproduktoru ukazuje výstup, který skutečně slyšíš.",
+          "icon": "polish"
+        },
+        {
+          "text": "Sdílení a zkratky: widgety, zkratky aplikace, Siri a Asistent Androidu otevřou chat Direct nebo Hermes i bez účtu Open WebUI. Sdíleným souborům zůstanou názvy; rozpoznávání řeči a rozložení klávesnice v Androidu se spolehlivěji obnovují.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat a nastavení: přehlednější pole pro psaní, boční panel a akce u zpráv. Ikony na liště a nastavení používají barvy zvoleného motivu, s lepším kontrastem a popisky pro čtečky obrazovky.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.1.9",
+      "title": "Novinky",
+      "intro": "Ahoj! Chaty Direct můžou prohledávat web z tvého zařízení a obrázky se otevírají v galerii, kterou můžeš procházet přejetím. Mezi znovu vygenerovanými odpověďmi můžeš přepínat přímo pod odpovědí. Opravil jsem také nastavení Hermes, rozpoznávání řeči v Androidu a několik chyb v chatu a nastavení.",
+      "bullets": [
+        {
+          "text": "Vyhledávání na webu: modely Direct bez vlastního vyhledávání můžou z tvého zařízení vyhledávat a číst stránky, včetně modelů Ollama a Apple s podporou nástrojů. V nastavení si vybereš vyhledávač, filtr bezpečného vyhledávání a oblast. Modely Direct také zobrazují logo svého tvůrce.",
+          "icon": "direct"
+        },
+        {
+          "text": "Obrázky: přílohy v chatu a kanálech můžeš procházet přejetím, přibližovat a sdílet. iOS používá pro podporované obrázky Quick Look; v Androidu je můžeš uložit do Pictures/Conduit.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat a kanály: šipkami pod odpovědí přepínáš mezi znovu vygenerovanými odpověďmi. Chaty Direct si po opětovném otevření pamatují dřívější verze a upravené zprávy se správně odešlou znovu. Zaškrtávací políčka v Markdownu se zobrazují. Vlákna kanálů ukazují nové odpovědi, úpravy, smazání i reakce průběžně.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hermes a hlas: přihlášení k Desktop Gateway a testy připojení fungují už při nastavování a odpovědi nekončí dřív, než přijde první text. Rozpoznávání řeči v Androidu zkusí podporovanou variantu zvoleného jazyka. Diktování poznámek se řídí tvým nastavením převodu řeči na text.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Nastavení a účty: nativní nastavení iOS používá tvůj jazyk, podrobnosti pracovního prostoru se po uložení obnoví a klepnutí na oznámení otevře správnou konverzaci. Odhlášení odstraní připojení Direct a Hermes; zachování údajů serveru funguje. Dialogy a seznamy úkolů v poznámkách na iOS zase fungují.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.0",
+      "title": "Novinky",
+      "intro": "Ahoj! Můžeš mít přihlášeno několik účtů Open WebUI a přepínat mezi nimi a uložit si několik připojení Hermes. Hovory mohou mluvit hlasem v reálném čase, který můžeš přerušit. Open WebUI 0.12 funguje včetně dvoufázového přihlášení a další funkce Open WebUI už nevyžadují volbu Pokročilé.",
+      "bullets": [
+        {
+          "text": "Účty: měj přihlášeno několik účtů Open WebUI na jednom nebo více serverech a přepínej mezi nimi z profilu nebo z nové stránky Účty v horní části Nastavení. Jakýkoli účet nebo připojení přidáš z jednoho panelu. Server může mít několik adres, například LAN, Tailscale a veřejnou proxy; aplikace použije první, která odpoví.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: ulož si několik pojmenovaných připojení, třeba Domov a Výzkum, a přepínej mezi nimi z postranního panelu, nastavení nebo stránky Účty. Chat, jehož relace patří jinému připojení, nabídne přepnutí na něj.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Hovory v reálném čase: v Open WebUI 0.12, Direct a Hermes Desktop Gateway mohou hovory mluvit hlasem OpenAI v reálném čase a když do něj promluvíš, ztichne. Pro chaty Direct a Apple vyber Poskytovatele hlasu v nastavení zvuku. Převod řeči na text a textu na řeč na serveru se řídí backendem každého chatu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12: aplikace funguje bez upozornění na kompatibilitu. Dvoufázové ověření při přihlášení funguje včetně nastavení a záložních kódů. Export dovedností, sdílení složek, vynucené dočasné chaty a schvalování nástrojů odpovídají verzi 0.12.",
+          "icon": "direct"
+        },
+        {
+          "text": "Funkce Open WebUI: fronta konceptů, interpret kódu, větve, publikum chatu, projektové složky, sdílení, členové kanálů a kalendář už nevyžadují volbu Pokročilé. Pokročilé přidává porovnání modelů, plánované úlohy, webhooky a správu dat. Velké chaty se už při každém otevření nestahují znovu a zvolená úroveň uvažování zůstane.",
+          "icon": "polish"
+        }
+      ]
+    },
+    {
+      "version": "4.2.1",
+      "title": "Novinky",
+      "intro": "Ahoj! Open WebUI 0.12.2 funguje a kanály ukazují aplikace, které v nich odpovídají, a mohou tě upozorňovat jen na zmínky. Hlasové hovory pokračují i přes hluk v pozadí a gesta avatara a tlačítko reproduktoru funguje od začátku hovorů v Androidu.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.2: aplikace funguje bez upozornění na kompatibilitu. Chaty, které zahájí hovor v reálném čase, dostanou vygenerovaný název a štítky podle tvého nastavení názvů a štítků.",
+          "icon": "direct"
+        },
+        {
+          "text": "Kanály: zprávy od aplikací ukazují název aplikace, karty, tlačítka a odkazy. Stisknutím tlačítka ho pošleš aplikaci a odpovědi, které vidíš jen ty, se objeví pod zprávou, dokud je nezavřeš. Nastav kanál nebo přímou zprávu na Jen zmínky a vyhneš se odznakům a oznámením, pokud tě někdo nezmíní.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hlasové hovory: hluk v pozadí už neutne hlas v reálném čase uprostřed věty; hlas se pozastaví a pokračuje, pokud nic nezaznělo. Gesta avatara už nezdržují odpovědi o tři sekundy. V Androidu funguje tlačítko reproduktoru od začátku hovoru a hovor už během prvních dvou minut neblokuje tvé vlastní telefonní hovory.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

@@ -10,10 +10,13 @@ import '../../../shared/widgets/utility_components.dart';
 import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../profile/widgets/adaptive_segmented_selector.dart';
-import '../controllers/direct_connection_editor_draft.dart';
+
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+
 import '../controllers/direct_connection_editor_form.dart';
 import '../controllers/direct_custom_headers_controller.dart';
-import '../models/direct_connection_profile.dart';
+
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 
 part 'direct_connection_advanced_settings.dart';
 
@@ -90,6 +93,7 @@ final class DirectConnectionGeneralSection extends StatelessWidget {
           trailing: AdaptiveSwitch(
             value: form.enabled,
             onChanged: form.setEnabled,
+            semanticLabel: l10n.enabledLabel,
           ),
           onTap: () => form.setEnabled(!form.enabled),
         ),
@@ -329,7 +333,7 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
           ? l10n.ollamaCloudDefaultName
           : isOpenRouter
           ? l10n.openRouterProviderName
-          : 'My provider',
+          : l10n.directDefaultConnectionName,
       controller: form.name,
       errorText: directDraftValidationMessage(l10n, form.errors.name),
       isRequired: true,
@@ -401,7 +405,9 @@ final class DirectConnectionDetailsSection extends StatelessWidget {
       errorText: directDraftValidationMessage(l10n, form.errors.apiKey),
       isRequired: form.apiKeyRequired,
       keyboardType: TextInputType.visiblePassword,
-      textInputAction: TextInputAction.next,
+      // Last field in the group; "next" had nowhere to go and left the
+      // keyboard up.
+      textInputAction: TextInputAction.done,
       autocorrect: false,
       iosSettingsRow: native,
       iosLabelFlex: 4,
@@ -613,7 +619,7 @@ final class DirectConnectionAdvancedSettingsSection extends StatelessWidget {
             titleFontWeight: FontWeight.w400,
             foregroundColor: headerError == null
                 ? null
-                : CupertinoColors.systemRed.resolveFrom(context),
+                : context.conduitTheme.error,
             showChevron: true,
             onTap: () => showDirectConnectionAdvancedSettings(context, form),
           ),

@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -193,6 +194,72 @@ void main() {
     check(received).isNotNull();
     check(received!.clearSubtitle).isTrue();
     check(received!.subtitle).isNull();
+  });
+
+  group('NativeSheetBridge.updateProfile', () {
+    const channel = MethodChannel(NativeSheetBridge.nativeSheetChannelName);
+    const profile = NativeProfileSheetUser(
+      displayName: 'Ada',
+      email: 'ada@example.com',
+      initials: 'A',
+      bio: 'Hello',
+      gender: 'female',
+      dateOfBirth: '1990-01-01',
+      profileImageUrl: '/avatar.png',
+    );
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    test('hands the open sheet the refreshed profile fields', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      MethodCall? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            received = call;
+            return true;
+          });
+
+      final updated = await NativeSheetBridge.instance.updateProfile(profile);
+
+      check(updated).isTrue();
+      check(received!.method).equals('updateProfile');
+      final arguments = received!.arguments as Map<Object?, Object?>;
+      check(arguments['displayName']).equals('Ada');
+      check(arguments['bio']).equals('Hello');
+      check(arguments['gender']).equals('female');
+      check(arguments['dateOfBirth']).equals('1990-01-01');
+      check(arguments['profileImageUrl']).equals('/avatar.png');
+    });
+
+    test('reports false when no sheet takes it or the call fails', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (_) async => false);
+      check(await NativeSheetBridge.instance.updateProfile(profile)).isFalse();
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (_) async => throw PlatformException(code: 'boom'),
+          );
+      check(await NativeSheetBridge.instance.updateProfile(profile)).isFalse();
+    });
+
+    test('does not send off iOS', () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = false;
+      var calls = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (_) async {
+            calls++;
+            return true;
+          });
+
+      check(await NativeSheetBridge.instance.updateProfile(profile)).isFalse();
+      check(calls).equals(0);
+    });
   });
 
   test('detail patch rejects mixed flat and sectioned content', () async {
@@ -742,6 +809,32 @@ void main() {
       check(failedChanges).isEmpty();
       presentation.complete(wrapResponse(result: null));
       await presented;
+    });
+  });
+
+  group('resolveGroupedSheetColors', () {
+    const white = Color(0xFFFFFFFF);
+
+    test('puts white cards on the tinted page when the card is tinted', () {
+      // Conduit light: white page, tinted card.
+      const tinted = Color(0xFFF4F4F4);
+      check(resolveGroupedSheetColors(page: white, card: tinted))
+          .equals((tinted, white));
+    });
+
+    test('keeps palettes that already tint the page', () {
+      // Catppuccin light: tinted page, white card.
+      const tinted = Color(0xFFEFF1F5);
+      check(resolveGroupedSheetColors(page: tinted, card: white))
+          .equals((tinted, white));
+    });
+
+    test('lifts cards onto the popover when page and card match', () {
+      // T3 Chat light: page and card share one tinted color.
+      const tinted = Color(0xFFFAF5FA);
+      check(
+        resolveGroupedSheetColors(page: tinted, card: tinted, popover: white),
+      ).equals((tinted, white));
     });
   });
 }

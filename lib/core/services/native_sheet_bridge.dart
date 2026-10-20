@@ -4,8 +4,9 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
-import '../platform/conduit_platform_apis.g.dart';
-import '../utils/debug_logger.dart';
+import '../../platform/conduit_platform_apis.g.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
 
 void _logNativeSheetBridgeError(
   String method,
@@ -113,15 +114,21 @@ class NativeSheetRoutes {
   static const appearance = 'appearance';
   static const chats = 'chats';
   static const voice = 'voice';
+  static const voiceProvider = 'voice-provider';
   static const aiMemory = 'ai-memory';
   static const dataConnection = 'data-connection';
   static const hermes = 'hermes';
   static const directConnections = 'open-direct-connections';
+  static const personalConnections = 'open-personal-connections';
+  static const scheduledTasks = 'open-scheduled-tasks';
+  static const calendar = 'open-calendar';
+  static const chatDataControls = 'open-chat-data-controls';
   static const helpAbout = 'help-about';
   static const about = 'about';
   static const notificationSettings = 'notification-settings';
   static const workspace = 'workspace-entry';
   static const releaseNotesManual = 'release-notes-manual';
+  static const openSourceLicenses = 'open-source-licenses';
 }
 
 class NativeSheetBridge implements NativeSheetFlutterApi {
@@ -132,6 +139,12 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   static final NativeSheetBridge instance = NativeSheetBridge._();
 
   final NativeSheetHostApi _api = NativeSheetHostApi();
+
+  /// Method channel for host calls the generated API does not carry.
+  static const nativeSheetChannelName = 'app.cogwheel.conduit/native_sheet';
+  final MethodChannel _profileChannel = const MethodChannel(
+    nativeSheetChannelName,
+  );
   final StreamController<NativeSheetEvent> _events =
       StreamController<NativeSheetEvent>.broadcast();
   Future<void> Function(String modelId)? _modelPinToggleHandler;
@@ -573,6 +586,9 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   }
 
   /// Replace items for an already-presented detail screen (lazy hydration).
+  ///
+  /// [NativeSheetRoutes.profileMenu] is reserved for the Settings root
+  /// itself: its [sections] (and [title]) replace the open root's rows.
   Future<bool> applyDetailPatch({
     required String detailId,
     required List<NativeSheetItemConfig> items,
@@ -617,6 +633,24 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
         stackTrace,
         data: {'detailId': detailId},
       );
+      return false;
+    }
+  }
+
+  /// Hands the open native Settings sheet a newer copy of the account profile,
+  /// so its header and profile editors start from what the server holds now
+  /// instead of the copy the sheet opened with. Returns false when no
+  /// Settings sheet is open to take it.
+  Future<bool> updateProfile(NativeProfileSheetUser profile) async {
+    if (!_isIOS) return false;
+    try {
+      return await _profileChannel.invokeMethod<bool>(
+            'updateProfile',
+            profile.toMap(),
+          ) ??
+          false;
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError('updateProfile', error, stackTrace);
       return false;
     }
   }
@@ -908,6 +942,8 @@ class NativeSheetDetailConfig {
     /// maximum sheet height (matches capped Material bottom sheets). Ignored
     /// on non-iOS.
     this.maxHeightFraction,
+    this.trailingActionId,
+    this.trailingActionSfSymbol,
   }) : assert(
          items.length == 0 || sections.length == 0,
          'A native detail must use either items or sections, not both.',
@@ -924,6 +960,11 @@ class NativeSheetDetailConfig {
   /// Portion of the largest allowable sheet height (typically ~full screen).
   final double? maxHeightFraction;
 
+  /// A bar button, drawn as [trailingActionSfSymbol], that closes the sheet
+  /// and then sends this action.
+  final String? trailingActionId;
+  final String? trailingActionSfSymbol;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -935,6 +976,9 @@ class NativeSheetDetailConfig {
       if (confirmActionId != null) 'confirmActionId': confirmActionId,
       if (confirmActionLabel != null) 'confirmActionLabel': confirmActionLabel,
       if (maxHeightFraction != null) 'maxHeightFraction': maxHeightFraction,
+      if (trailingActionId != null) 'trailingActionId': trailingActionId,
+      if (trailingActionSfSymbol != null)
+        'trailingActionSfSymbol': trailingActionSfSymbol,
     };
   }
 }
@@ -980,6 +1024,11 @@ class NativeSheetItemConfig {
     this.min,
     this.max,
     this.divisions,
+    this.avatarName,
+    this.avatarBytes,
+    this.checked = false,
+    this.accent = false,
+    this.usesProfileAvatar = false,
   });
 
   final String id;
@@ -1014,6 +1063,21 @@ class NativeSheetItemConfig {
   /// Optional discrete steps for `UISlider` (`0` = continuous).
   final int? divisions;
 
+  /// Shown as a round picture -- [avatarBytes], else this name's initials --
+  /// in place of [sfSymbol].
+  final String? avatarName;
+  final Uint8List? avatarBytes;
+
+  /// Marks the row in use with a check.
+  final bool checked;
+
+  /// Draws the row in the accent color, as an action.
+  final bool accent;
+
+  /// Draws the row as the sheet's profile summary: its large avatar beside
+  /// this row's own title and subtitle.
+  final bool usesProfileAvatar;
+
   Map<String, Object?> toMap() {
     return {
       'id': id,
@@ -1043,6 +1107,11 @@ class NativeSheetItemConfig {
       if (min != null) 'min': min,
       if (max != null) 'max': max,
       if (divisions != null) 'divisions': divisions,
+      if (avatarName != null) 'avatarName': avatarName,
+      if (avatarBytes != null) 'avatarBytes': avatarBytes,
+      if (checked) 'checked': checked,
+      if (accent) 'accent': accent,
+      if (usesProfileAvatar) 'usesProfileAvatar': usesProfileAvatar,
     };
   }
 }
@@ -1315,6 +1384,8 @@ extension on NativeSheetDetailConfig {
       confirmActionId: confirmActionId,
       confirmActionLabel: confirmActionLabel,
       maxHeightFraction: maxHeightFraction,
+      trailingActionId: trailingActionId,
+      trailingActionSfSymbol: trailingActionSfSymbol,
     );
   }
 }
@@ -1359,6 +1430,11 @@ extension on NativeSheetItemConfig {
       min: min,
       max: max,
       divisions: divisions,
+      avatarName: avatarName,
+      avatarBytes: avatarBytes,
+      checked: checked,
+      accent: accent,
+      usesProfileAvatar: usesProfileAvatar,
     );
   }
 }

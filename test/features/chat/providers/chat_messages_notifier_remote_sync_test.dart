@@ -1,24 +1,37 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/openwebui_chat_prompt.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/socket_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/chat/providers/chat_providers.dart';
-import 'package:conduit/features/direct_connections/direct_connections.dart';
-import 'package:conduit/features/hermes/services/hermes_run_transport.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleState;
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
+import 'package:conduit_core/ports/secure_key_value_store.dart';
+import 'package:conduit_core/providers/host_ports.dart';
+import 'package:conduit_core/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
-import '../../../support/openwebui_storage_test_overrides.dart';
+/// Discovery with nothing to report. Run for real, it would prune the
+/// registry to the current direct profiles, which these tests do not model.
+final class _IdleDirectDiscovery extends DirectModelDiscoveryController {
+  @override
+  Future<DirectModelDiscoveryState> build() async =>
+      DirectModelDiscoveryState();
+}
 
 class _TestActiveConversationNotifier extends ActiveConversationNotifier {
   @override
@@ -195,7 +208,7 @@ class _FakeApiService extends ApiService {
   int getTaskIdsCalls = 0;
 
   @override
-  Future<Conversation> getConversation(String id) async {
+  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) async {
     getConversationCalls++;
     return _conversation;
   }
@@ -290,6 +303,8 @@ ProviderContainer _modelRebindContainer({
   required List<Model> models,
 }) => ProviderContainer(
   overrides: [
+    // Its own store: the plugin's mock store is shared with earlier tests.
+    secureStorageProvider.overrideWithValue(InMemorySecureKeyValueStore()),
     ...openWebUiStorageOpenOverrides(),
     activeConversationProvider.overrideWith(
       _TestActiveConversationNotifier.new,
@@ -297,6 +312,7 @@ ProviderContainer _modelRebindContainer({
     apiServiceProvider.overrideWithValue(null),
     socketServiceProvider.overrideWithValue(null),
     directModelRegistryProvider.overrideWithValue(registry),
+    directModelDiscoveryProvider.overrideWith(_IdleDirectDiscovery.new),
     modelsProvider.overrideWith(() => _FixedModels(models)),
   ],
 );
@@ -366,6 +382,179 @@ void main() {
 
   group('ChatMessagesNotifier remote sync', () {
     test(
+      'outlet output applies after completion and persists for reopen',
+      () async {
+        final timestamp = DateTime(2026, 1, 1);
+        const output = <Map<String, dynamic>>[
+          {
+            'type': 'function_call',
+            'call_id': 'call-1',
+            'name': 'lookup',
+            'status': 'completed',
+          },
+          {
+            'type': 'function_call_output',
+            'call_id': 'call-1',
+            'output': [
+              {'type': 'output_text', 'text': 'Filtered result'},
+            ],
+          },
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'Filtered answer'},
+            ],
+          },
+        ];
+        for (final chatId in ['chat-1', 'local:local-session']) {
+          final initialMessages = [
+            _userMessage('user-1', 'Hello', timestamp),
+            _assistantMessage(
+              'assistant-1',
+              'Original answer',
+              timestamp,
+            ).copyWith(isStreaming: true),
+          ];
+          final socket = _FakeSocketService();
+          final api = _FakeApiService(
+            _conversation(chatId, initialMessages, timestamp),
+          );
+          final container = ProviderContainer(
+            overrides: [
+              secureStorageProvider.overrideWithValue(
+                FlutterSecureKeyValueStore(),
+              ),
+              ...openWebUiStorageOpenOverrides(),
+              activeConversationProvider.overrideWith(
+                _TestActiveConversationNotifier.new,
+              ),
+              socketServiceProvider.overrideWithValue(socket),
+              apiServiceProvider.overrideWithValue(api),
+            ],
+          );
+          final db = container.read(appDatabaseProvider)!;
+          if (chatId == 'chat-1') {
+            await db.chatsDao.upsertEnvelopeStub(
+              id: chatId,
+              title: 'Test chat',
+              createdAt: 1767225600,
+              updatedAt: 1767225600,
+            );
+          }
+          container
+              .read(activeConversationProvider.notifier)
+              .set(_conversation(chatId, initialMessages, timestamp));
+          final notifier = container.read(chatMessagesProvider.notifier);
+          notifier.finishStreaming();
+          check(container.read(chatMessagesProvider).last.isStreaming)
+              .isFalse();
+
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': 'other-chat',
+              'messages': [
+                {'id': 'assistant-1', 'content': 'Wrong chat'},
+              ],
+            },
+          );
+          check(container.read(chatMessagesProvider).last.content)
+              .equals('Original answer');
+
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': chatId,
+              'session_id': socket.sessionId,
+              'messages': [
+                {
+                  'id': 'assistant-1',
+                  'content': 'Legacy content must not replace the tool tile',
+                  'output': output,
+                },
+              ],
+            },
+          );
+          final filtered = container.read(chatMessagesProvider).last;
+          check(filtered.content).contains('type="tool_calls"');
+          check(filtered.content).contains('Filtered answer');
+          check(filtered.output!).deepEquals(output);
+          check(filtered.metadata?['originalContent'])
+              .equals('Original answer');
+          check(filtered.isStreaming).isFalse();
+
+          // A content-only filter leaves the structured output authoritative.
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': chatId,
+              'messages': [
+                {'id': 'assistant-1', 'content': 'Legacy only'},
+              ],
+            },
+          );
+          check(container.read(chatMessagesProvider).last.content)
+              .equals(filtered.content);
+
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': chatId,
+              'messages': [
+                {'id': 'assistant-1', 'output': <Map<String, dynamic>>[]},
+              ],
+            },
+          );
+          check(container.read(chatMessagesProvider).last.content)
+              .equals('Filtered answer');
+
+          // An explicit empty output is an authoritative removal, not a stale
+          // snapshot to merge with the just-completed tool tile.
+          socket.emitChatEvent(
+            type: 'chat:outlet',
+            payload: {
+              'chat_id': chatId,
+              'messages': [
+                {
+                  'id': 'assistant-1',
+                  'content': 'Redacted',
+                  'output': <Map<String, dynamic>>[],
+                },
+              ],
+            },
+          );
+          check(container.read(chatMessagesProvider).last.content)
+              .equals('Redacted');
+          check(container.read(chatMessagesProvider).last.output)
+              .isNotNull()
+              .isEmpty();
+          if (chatId == 'chat-1') {
+            for (var attempt = 0; attempt < 100; attempt++) {
+              final rows = await db.messagesDao.getForChat(chatId);
+              if (rows.any(
+                (row) => row.id == 'assistant-1' && row.content == 'Redacted',
+              )) {
+                break;
+              }
+              await Future<void>.delayed(const Duration(milliseconds: 10));
+            }
+            final saved = (await db.messagesDao.getForChat(chatId))
+                .singleWhere((row) => row.id == 'assistant-1');
+            check(saved.content).equals('Redacted');
+            check((jsonDecode(saved.payload) as Map)['output'] as List? ?? [])
+                .isEmpty();
+            check(container.read(chatMessagesProvider).last.content)
+                .equals('Redacted');
+          } else {
+            check(await db.messagesDao.getForChat(chatId)).isEmpty();
+          }
+          container.dispose();
+          await pumpMicrotasks();
+        }
+      },
+    );
+
+    test(
       'tool-call resume resolves but does not stream a non-tail task',
       () async {
         final timestamp = DateTime.now();
@@ -404,6 +593,9 @@ void main() {
         )..taskIds = const ['task-1'];
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               _TestActiveConversationNotifier.new,
@@ -471,6 +663,7 @@ void main() {
             ]);
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             _TestActiveConversationNotifier.new,
@@ -550,6 +743,7 @@ void main() {
       )..deferTaskIdRequests = true;
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             _TestActiveConversationNotifier.new,
@@ -599,6 +793,9 @@ void main() {
         const modelB = Model(id: 'model-b', name: 'Model B');
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               _TestActiveConversationNotifier.new,
@@ -724,6 +921,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -768,6 +966,9 @@ void main() {
 
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -820,6 +1021,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -871,6 +1073,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -950,6 +1153,9 @@ void main() {
 
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -991,6 +1197,9 @@ void main() {
 
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1028,6 +1237,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1071,6 +1281,9 @@ void main() {
 
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1120,6 +1333,9 @@ void main() {
 
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1167,6 +1383,9 @@ void main() {
 
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1224,6 +1443,7 @@ void main() {
         ..taskIds = const <String>['task-1'];
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1259,14 +1479,18 @@ void main() {
       ];
       final api = _FakeApiService(_conversation('chat-1', messages, timestamp))
         ..taskIds = const <String>['task-1'];
+      final lifecycle = FakeAppLifecycle();
+      addTearDown(lifecycle.dispose);
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
           ),
           socketServiceProvider.overrideWithValue(null),
           apiServiceProvider.overrideWithValue(api),
+          appLifecycleProvider.overrideWithValue(lifecycle),
         ],
       );
       addTearDown(container.dispose);
@@ -1281,10 +1505,10 @@ void main() {
       await _drainRemoteTaskStatusCheck(notifier);
       check(notifier.debugHasRemoteTaskMonitor).isTrue();
 
-      notifier.didChangeAppLifecycleState(AppLifecycleState.paused);
+      lifecycle.emit(AppLifecyclePhase.paused);
       check(notifier.debugHasRemoteTaskPollScheduled).isFalse();
 
-      notifier.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      lifecycle.emit(AppLifecyclePhase.inactive);
       check(notifier.debugHasRemoteTaskPollScheduled).isTrue();
       notifier.debugCancelRemoteTaskMonitorTimer();
     });
@@ -1303,6 +1527,9 @@ void main() {
 
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1366,6 +1593,9 @@ void main() {
 
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1420,6 +1650,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1470,6 +1701,9 @@ void main() {
         )..taskIds = ['task-1'];
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1519,6 +1753,9 @@ void main() {
         )..taskIds = const <String>[];
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1556,6 +1793,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1587,6 +1825,7 @@ void main() {
       );
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1687,6 +1926,9 @@ void main() {
         )..taskIds = const <String>['task-1'];
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1750,6 +1992,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1841,6 +2084,7 @@ void main() {
         ..taskIdFailuresRemaining = 1;
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -1889,6 +2133,9 @@ void main() {
           ..taskIds = const <String>['task-1'];
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1956,6 +2203,9 @@ void main() {
         )..taskIds = const <String>['task-1'];
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -1998,6 +2248,9 @@ void main() {
         )..taskIds = const <String>['task-1'];
         final container = ProviderContainer(
           overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
             ...openWebUiStorageOpenOverrides(),
             activeConversationProvider.overrideWith(
               () => _TestActiveConversationNotifier(),
@@ -2052,6 +2305,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),
@@ -2086,6 +2340,7 @@ void main() {
 
       final container = ProviderContainer(
         overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           ...openWebUiStorageOpenOverrides(),
           activeConversationProvider.overrideWith(
             () => _TestActiveConversationNotifier(),

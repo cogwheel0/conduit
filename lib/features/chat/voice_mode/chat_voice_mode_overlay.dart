@@ -8,7 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
+import '../../../shared/utils/ui_utils.dart';
 import 'chat_voice_mode_controller.dart';
+import 'voice_mode_error_text.dart';
 
 class ChatVoiceModeOverlay extends ConsumerWidget {
   const ChatVoiceModeOverlay({super.key, required this.bottomOffset});
@@ -17,6 +19,16 @@ class ChatVoiceModeOverlay extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(
+      chatVoiceModeControllerProvider.select((call) => call.noticeCount),
+      (previous, next) {
+        final notice = ref.read(chatVoiceModeControllerProvider).notice;
+        if (next > (previous ?? 0) && notice != null) {
+          final l10n = AppLocalizations.of(context)!;
+          UiUtils.showMessage(context, voiceModeNoticeText(l10n, notice));
+        }
+      },
+    );
     final snapshot = ref.watch(chatVoiceModeControllerProvider);
     if (!snapshot.isActive && snapshot.phase != ChatVoiceModePhase.error) {
       return const Positioned.fill(
@@ -132,7 +144,7 @@ class _ExpandedVoicePanel extends ConsumerWidget {
                   ),
                 ),
                 _AdaptiveVoiceAction(
-                  tooltip: 'Minimize',
+                  tooltip: l10n.voiceCallMinimize,
                   onPressed: controller.collapse,
                   icon: Platform.isIOS
                       ? CupertinoIcons.chevron_down
@@ -146,7 +158,12 @@ class _ExpandedVoicePanel extends ConsumerWidget {
             if (snapshot.errorMessage != null) ...[
               const SizedBox(height: Spacing.xs),
               Text(
-                snapshot.errorMessage!,
+                voiceModeErrorText(
+                      l10n,
+                      kind: snapshot.errorKind,
+                      message: snapshot.errorMessage,
+                    ) ??
+                    snapshot.errorMessage!,
                 style: AppTypography.small.copyWith(
                   color: Theme.of(context).colorScheme.error,
                 ),
@@ -260,7 +277,7 @@ class _CollapsedVoicePill extends ConsumerWidget {
                 ),
                 const SizedBox(width: Spacing.sm),
                 _AdaptiveVoiceAction(
-                  tooltip: 'Expand',
+                  tooltip: l10n.voiceCallExpand,
                   onPressed: controller.expand,
                   icon: Platform.isIOS
                       ? CupertinoIcons.chevron_up
@@ -295,9 +312,10 @@ class _StatusDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = switch (snapshot.phase) {
-      ChatVoiceModePhase.listening => Colors.green,
+      ChatVoiceModePhase.listening => context.conduitTheme.success,
       ChatVoiceModePhase.speaking => context.conduitTheme.buttonPrimary,
-      ChatVoiceModePhase.paused || ChatVoiceModePhase.muted => Colors.orange,
+      ChatVoiceModePhase.paused ||
+      ChatVoiceModePhase.muted => context.conduitTheme.warning,
       ChatVoiceModePhase.error => Theme.of(context).colorScheme.error,
       _ => context.conduitTheme.textSecondary,
     };

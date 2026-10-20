@@ -1,15 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
-import 'package:conduit/core/services/navigation_service.dart';
-import 'package:conduit/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/release_notes/data/release_notes_repository.dart';
 import 'package:conduit/features/release_notes/models/release_note.dart';
-import 'package:conduit/features/release_notes/release_notes_bootstrap.dart';
+import 'package:conduit_core/features/release_notes/release_notes_bootstrap.dart';
 import 'package:conduit/features/release_notes/release_notes_coordinator.dart';
 import 'package:conduit/features/release_notes/widgets/release_notes_banner.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -21,6 +20,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
+import 'package:conduit/shared/services/app_package_info.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +29,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     PreferencesStore.debugReset();
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   });
 
   tearDown(() {
@@ -88,7 +89,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.activeServerId: 'existing-server',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     await captureReleaseNotesInstallProvenance();
     expect(
       PreferencesStore.getBool(
@@ -107,7 +108,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new in 4.0"), findsOneWidget);
+    expect(find.text("What's new in 4.0.1"), findsOneWidget);
     expect(find.text("What's new"), findsNothing);
     expect(find.text('Welcome to Conduit 4.0.'), findsNothing);
   });
@@ -119,7 +120,7 @@ void main() {
       PreferenceKeys.lastSeenReleaseVersion: '4.0.0',
       PreferenceKeys.activeServerId: 'existing-server',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(
@@ -131,7 +132,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new in 4.0"), findsOneWidget);
+    expect(find.text("What's new in 4.0.1"), findsOneWidget);
     expect(
       PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
       '4.0.1',
@@ -150,7 +151,7 @@ void main() {
         if (backend == PreferredBackend.hermes)
           PreferenceKeys.hermesEnabled: true,
       });
-      PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
       await tester.pumpWidget(
         _app(authState: AuthNavigationState.needsLogin, showBanner: true),
@@ -158,7 +159,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text("What's new in 3.3"), findsOneWidget);
+      expect(find.text("What's new in 3.3.2"), findsOneWidget);
       expect(find.text("What's new"), findsNothing);
     });
   }
@@ -167,7 +168,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(_app(authState: AuthNavigationState.needsLogin));
     await tester.pump();
@@ -186,7 +187,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(authState: AuthNavigationState.authenticated, showBanner: true),
@@ -194,7 +195,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new in 3.3"), findsOneWidget);
+    expect(find.text("What's new in 3.3.2"), findsOneWidget);
     expect(find.text("What's new"), findsNothing);
     expect(find.text('Hi, this update is bundled with the app.'), findsNothing);
     expect(find.text('Done'), findsNothing);
@@ -211,7 +212,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(authState: AuthNavigationState.authenticated, showBanner: true),
@@ -221,7 +222,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(releaseNotesBannerKey), findsOneWidget);
-    expect(find.text("What's new in 3.3"), findsOneWidget);
+    expect(find.text("What's new in 3.3.2"), findsOneWidget);
     expect(find.text("What's new"), findsNothing);
     expect(find.text('Done'), findsNothing);
     expect(
@@ -258,7 +259,7 @@ void main() {
       PreferenceKeys.lastSeenReleaseVersion: '3.3.2',
       PreferenceKeys.releaseNotesBannerPreviousVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(authState: AuthNavigationState.authenticated, showBanner: true),
@@ -268,7 +269,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(releaseNotesBannerKey), findsOneWidget);
-    expect(find.text("What's new in 3.3"), findsOneWidget);
+    expect(find.text("What's new in 3.3.2"), findsOneWidget);
     expect(find.text('Hi, this update is bundled with the app.'), findsNothing);
   });
 
@@ -279,7 +280,7 @@ void main() {
       PreferenceKeys.lastSeenReleaseVersion: '3.3.2',
       PreferenceKeys.releaseNotesBannerPreviousVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(authState: AuthNavigationState.authenticated, showBanner: true),
@@ -310,7 +311,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
     final repository = _DeferredReleaseNotesRepository();
     final locale = ValueNotifier(const Locale('en'));
     addTearDown(locale.dispose);
@@ -349,7 +350,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       PreferenceKeys.lastSeenReleaseVersion: '3.3.1',
     });
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
 
     await tester.pumpWidget(
       _app(
@@ -361,14 +362,14 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new in 3.3"), findsOneWidget);
+    expect(find.text("What's new in 3.3.2"), findsOneWidget);
     expect(find.text("What's new"), findsNothing);
     expect(find.text('Buy Me a Coffee'), findsNothing);
 
     await tester.tap(find.byKey(releaseNotesBannerKey));
     await tester.pumpAndSettle();
 
-    expect(find.text("What's new in 3.3"), findsOneWidget);
+    expect(find.text("What's new in 3.3.2"), findsOneWidget);
     expect(find.text("What's new"), findsOneWidget);
     expect(find.text('Buy Me a Coffee'), findsOneWidget);
     expect(find.text('GitHub Sponsors'), findsNothing);

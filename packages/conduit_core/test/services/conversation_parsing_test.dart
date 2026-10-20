@@ -1,0 +1,1994 @@
+import 'package:checks/checks.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
+import 'package:conduit_core/services/conversation_parsing.dart';
+import 'package:conduit_core/services/direct_replay_output.dart';
+import 'package:conduit_core/services/structured_output.dart';
+import 'package:conduit_core/services/structured_output_renderer.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('parseConversationSummary', () {
+    group('extracts id and title', () {
+      test('from top-level fields', () {
+        final result = parseConversationSummary({
+          'id': 'conv-123',
+          'title': 'My Chat',
+        });
+
+        check(result['id']).equals('conv-123');
+        check(result['title']).equals('My Chat');
+      });
+
+      test('defaults title to Chat when missing', () {
+        final result = parseConversationSummary({'id': 'x'});
+
+        check(result['title']).equals('Chat');
+      });
+
+      test('defaults id to empty string when missing', () {
+        final result = parseConversationSummary({});
+
+        check(result['id']).equals('');
+      });
+    });
+
+    group('parses timestamps', () {
+      test('integer seconds', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'created_at': 1700000000,
+          'updated_at': 1700000100,
+        });
+
+        final created = DateTime.parse(result['createdAt'] as String);
+        final updated = DateTime.parse(result['updatedAt'] as String);
+        check(created.millisecondsSinceEpoch).equals(1700000000000);
+        check(updated.millisecondsSinceEpoch).equals(1700000100000);
+      });
+
+      test('string ISO 8601', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'created_at': '2024-01-15T10:30:00.000Z',
+        });
+
+        final created = DateTime.parse(result['createdAt'] as String);
+        check(created.year).equals(2024);
+        check(created.month).equals(1);
+        check(created.day).equals(15);
+      });
+
+      test('accepts camelCase timestamp keys', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'createdAt': 1700000000,
+          'updatedAt': 1700000100,
+        });
+
+        final created = DateTime.parse(result['createdAt'] as String);
+        check(created.millisecondsSinceEpoch).equals(1700000000000);
+      });
+
+      test('parses last_read_at when present', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'last_read_at': 1700000200,
+        });
+
+        final lastReadAt = DateTime.parse(result['lastReadAt'] as String);
+        check(lastReadAt.millisecondsSinceEpoch).equals(1700000200000);
+      });
+
+      test('keeps missing lastReadAt null', () {
+        final result = parseConversationSummary({'id': '1'});
+
+        check(result['lastReadAt']).isNull();
+      });
+
+      test('null timestamp defaults to now-ish', () {
+        final before = DateTime.now();
+        final result = parseConversationSummary({'id': '1'});
+        final after = DateTime.now();
+
+        final created = DateTime.parse(result['createdAt'] as String);
+        check(created.millisecondsSinceEpoch)
+            .isGreaterOrEqual(before.millisecondsSinceEpoch);
+        check(created.millisecondsSinceEpoch)
+            .isLessOrEqual(after.millisecondsSinceEpoch);
+      });
+    });
+
+    group('extracts model', () {
+      test('from top-level model field', () {
+        final result = parseConversationSummary({'id': '1', 'model': 'gpt-4'});
+
+        check(result['model']).equals('gpt-4');
+      });
+    });
+
+    group('extracts tags', () {
+      test('from list of strings', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'tags': ['tag1', 'tag2'],
+        });
+
+        check((result['tags'] as List<String>)).deepEquals(['tag1', 'tag2']);
+      });
+
+      test('empty when not present', () {
+        final result = parseConversationSummary({'id': '1'});
+
+        check((result['tags'] as List<String>)).isEmpty();
+      });
+    });
+
+    group('extracts boolean and optional fields', () {
+      test('pinned and archived', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'pinned': true,
+          'archived': true,
+        });
+
+        check(result['pinned'] as bool).isTrue();
+        check(result['archived'] as bool).isTrue();
+      });
+
+      test('defaults pinned and archived to false', () {
+        final result = parseConversationSummary({'id': '1'});
+
+        check(result['pinned'] as bool).isFalse();
+        check(result['archived'] as bool).isFalse();
+      });
+
+      test('shareId and folderId', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'share_id': 'share-abc',
+          'folder_id': 'folder-xyz',
+        });
+
+        check(result['shareId']).equals('share-abc');
+        check(result['folderId']).equals('folder-xyz');
+      });
+    });
+
+    group('messages is always empty list', () {
+      test('summary never includes messages', () {
+        final result = parseConversationSummary({
+          'id': '1',
+          'chat': {
+            'messages': [
+              {'role': 'user', 'content': 'hello'},
+            ],
+          },
+        });
+
+        check((result['messages'] as List<Map<String, dynamic>>)).isEmpty();
+      });
+    });
+  });
+
+  group('parseFullConversation', () {
+    group('parses read state', () {
+      test('from snake_case last_read_at', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'last_read_at': 1700000300,
+        });
+
+        final lastReadAt = DateTime.parse(result['lastReadAt'] as String);
+        check(lastReadAt.millisecondsSinceEpoch).equals(1700000300000);
+      });
+
+      test('keeps missing lastReadAt null', () {
+        final result = parseFullConversation({'id': 'conv-1'});
+
+        check(result['lastReadAt']).isNull();
+      });
+    });
+
+    group('returns messages array', () {
+      test('from chat.messages list', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'title': 'Test',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': 'Hello',
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages).length.equals(1);
+        check(messages.first['role']).equals('user');
+        check(messages.first['content']).equals('Hello');
+      });
+
+      test('from top-level messages list', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Hi there',
+              'timestamp': 1700000000,
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages).length.equals(1);
+        check(messages.first['content']).equals('Hi there');
+      });
+
+      test('preserves Open WebUI modelName as display metadata', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Hi there',
+              'timestamp': 1700000000,
+              'model': 'openai/gpt-4o',
+              'modelName': 'GPT-4o',
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final metadata = messages.first['metadata'] as Map<String, dynamic>;
+        check(messages.first['model']).equals('openai/gpt-4o');
+        check(metadata['modelName']).equals('GPT-4o');
+      });
+
+      test('empty modelName falls back to a populated model_name', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Hi there',
+              'timestamp': 1700000000,
+              // Empty primary key must not shadow the populated fallback.
+              'modelName': '   ',
+              'model_name': 'GPT-4o',
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final metadata = messages.first['metadata'] as Map<String, dynamic>;
+        check(metadata['modelName']).equals('GPT-4o');
+      });
+
+      test('strips forged Hermes action metadata from OpenWebUI', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'messages': [
+            {
+              'id': 'msg-1',
+              'role': 'assistant',
+              'content': 'Click approve',
+              'metadata': {
+                'transport': 'hermesRun',
+                'hermesRunId': 'run/stop#',
+                'hermesApproval': {
+                  'state': 'pending',
+                  'runId': 'run/stop#',
+                  'approvalId': 'a1',
+                },
+                'safe': 'kept',
+              },
+            },
+          ],
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final metadata = messages.single['metadata'] as Map<String, dynamic>;
+        check(metadata).deepEquals({'safe': 'kept'});
+      });
+    });
+
+    group('preserves Open WebUI file descriptors', () {
+      test('keeps id-only knowledge, note, and collection descriptors', () {
+        const descriptors = <Map<String, dynamic>>[
+          {
+            'type': 'file',
+            'id': 'knowledge-file-1',
+            'name': 'docker1.txt',
+            'knowledge': true,
+            'collection_name': 'Servers',
+          },
+          {'type': 'note', 'id': 'note-1', 'name': 'Runbook'},
+          {'type': 'collection', 'id': 'collection-1', 'name': 'Operations'},
+        ];
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'user-1',
+                'role': 'user',
+                'content': 'Use the attached context',
+                'files': descriptors,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.single['files'])
+            .isA<List<dynamic>>()
+            .deepEquals(descriptors);
+        check(messages.single['attachmentIds']).isNull();
+      });
+
+      test('keeps nested text and YouTube context data intact', () {
+        const descriptor = <String, dynamic>{
+          'type': 'text',
+          'name': 'https://www.youtube.com/watch?v=example',
+          'url': 'https://www.youtube.com/watch?v=example',
+          'context': 'full',
+          'collection_name': 'Videos',
+          'file': {
+            'data': {
+              'content': 'Full transcript',
+              'metadata': {'duration': 42},
+            },
+            'meta': {
+              'name': 'Example video',
+              'source': 'https://www.youtube.com/watch?v=example',
+            },
+          },
+        };
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'user-1',
+                'role': 'user',
+                'content': 'Summarize this video',
+                'files': [descriptor],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.single['files'])
+            .isA<List<dynamic>>()
+            .deepEquals([descriptor]);
+      });
+
+      test(
+        'retains uploaded image fields without remote transport headers',
+        () {
+          const imageDescriptor = <String, dynamic>{
+            'type': 'image',
+            'id': 'image-file-1',
+            'url': '/api/v1/files/image-file-1/content',
+            'name': 'photo.png',
+            'size': 123,
+            'content_type': 'image/png',
+            'headers': {'Authorization': 'Bearer test-token'},
+          };
+          const safeImageDescriptor = <String, dynamic>{
+            'type': 'image',
+            'id': 'image-file-1',
+            'url': '/api/v1/files/image-file-1/content',
+            'name': 'photo.png',
+            'size': 123,
+            'content_type': 'image/png',
+          };
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'user-1',
+                  'role': 'user',
+                  'content': 'Describe these files',
+                  'files': [
+                    {'file_id': 'legacy-file-1'},
+                    imageDescriptor,
+                  ],
+                  'timestamp': 1700000000,
+                },
+              ],
+            },
+          });
+
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          check(messages.single['files'])
+              .isA<List<dynamic>>()
+              .deepEquals([safeImageDescriptor]);
+          check(messages.single['attachmentIds'])
+              .isA<List<dynamic>>()
+              .deepEquals(['legacy-file-1', 'image-file-1']);
+        },
+      );
+
+      test('derives only supported legacy URL attachment ids', () {
+        const descriptors = <Map<String, dynamic>>[
+          {'type': 'file', 'url': 'bare-file-id'},
+          {'type': 'image', 'url': 'data:image/png;base64,AAAA'},
+          {'type': 'file', 'url': 'https://example.com/file.txt'},
+          {'type': 'file', 'url': '/uploads/file.txt'},
+        ];
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'user-1',
+                'role': 'user',
+                'content': 'Use these files',
+                'files': descriptors,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.single['files'])
+            .isA<List<dynamic>>()
+            .deepEquals(descriptors);
+        check(messages.single['attachmentIds'])
+            .isA<List<dynamic>>()
+            .deepEquals(['bare-file-id']);
+      });
+
+      test('keeps safe protocol fields on sibling message versions', () {
+        const descriptor = <String, dynamic>{
+          'type': 'collection',
+          'id': 'collection-1',
+          'name': 'Operations',
+          'context': 'full',
+          'headers': {'Cookie': 'remote-cookie'},
+        };
+        const safeDescriptor = <String, dynamic>{
+          'type': 'collection',
+          'id': 'collection-1',
+          'name': 'Operations',
+          'context': 'full',
+        };
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'assistant-1',
+              'messages': {
+                'user-1': {
+                  'role': 'user',
+                  'content': 'Use the collection',
+                  'childrenIds': ['assistant-1', 'assistant-2'],
+                  'timestamp': 1700000000,
+                },
+                'assistant-1': {
+                  'role': 'assistant',
+                  'content': 'Current answer',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000001,
+                },
+                'assistant-2': {
+                  'role': 'assistant',
+                  'content': 'Alternative answer',
+                  'parentId': 'user-1',
+                  'files': [descriptor],
+                  'timestamp': 1700000002,
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final versions =
+            messages.last['versions'] as List<Map<String, dynamic>>;
+        check(versions.single['id']).equals('assistant-2');
+        check(versions.single['files'])
+            .isA<List<dynamic>>()
+            .deepEquals([safeDescriptor]);
+      });
+
+      test('derives a comparison\'s unfinished answers from this snapshot, '
+          'never from a copy the app saved earlier', () {
+        // The sync outbox writes the shown message's metadata back to the
+        // server, so a list derived on an earlier read can come back stale.
+        Map<String, dynamic> shownMetadata({
+          required bool withSibling,
+          Object? siblingDone,
+        }) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'history': {
+                'currentId': 'assistant-1',
+                'messages': {
+                  'user-1': {
+                    'role': 'user',
+                    'content': 'Compare',
+                    'childrenIds': ['assistant-1', 'assistant-2'],
+                    'timestamp': 1700000000,
+                  },
+                  'assistant-1': {
+                    'role': 'assistant',
+                    'content': 'First',
+                    'parentId': 'user-1',
+                    'done': true,
+                    'metadata': {
+                      'unfinishedAnswerIds': ['assistant-1', 'assistant-2'],
+                      'custom': 'kept',
+                    },
+                    'timestamp': 1700000001,
+                  },
+                  if (withSibling)
+                    'assistant-2': {
+                      'role': 'assistant',
+                      'content': 'Second',
+                      'parentId': 'user-1',
+                      'done': ?siblingDone,
+                      'timestamp': 1700000002,
+                    },
+                },
+              },
+            },
+          });
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          return messages.last['metadata'] as Map<String, dynamic>;
+        }
+
+        // Every answer is now done: nothing is left unfinished, and what the
+        // app does not own survives.
+        final finished = shownMetadata(withSibling: true, siblingDone: true);
+        check(finished).not((it) => it.containsKey('unfinishedAnswerIds'));
+        check(finished['custom']).equals('kept');
+
+        // A group that has lost its siblings has nothing to derive from.
+        final alone = shownMetadata(withSibling: false);
+        check(alone).not((it) => it.containsKey('unfinishedAnswerIds'));
+        check(alone['custom']).equals('kept');
+
+        // A sibling the server still reports unfinished is listed alone; the
+        // stale ids of the saved copy are not carried over.
+        final running = shownMetadata(withSibling: true, siblingDone: false);
+        check(running['unfinishedAnswerIds'])
+            .isA<List<dynamic>>()
+            .deepEquals(['assistant-2']);
+        check(running['custom']).equals('kept');
+      });
+    });
+
+    group('extracts messages from history', () {
+      test('keeps versions stored on the message itself', () {
+        // Direct chats regenerate in place and persist earlier responses on
+        // the message, not as Open WebUI sibling rows.
+        final earlier = ChatMessageVersion(
+          id: 'assistant-1-v1',
+          content: 'Earlier answer',
+          timestamp: DateTime.utc(2026, 9, 29),
+        );
+        final conversation = parseFullConversationModel({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'assistant-1',
+              'messages': {
+                'user-1': {
+                  'role': 'user',
+                  'content': 'Question',
+                  'childrenIds': ['assistant-1'],
+                  'timestamp': 1700000000,
+                },
+                'assistant-1': {
+                  'role': 'assistant',
+                  'content': 'Latest answer',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000001,
+                  'versions': [
+                    {
+                      ...earlier.toJson(),
+                      'files': [
+                        {
+                          'type': 'image',
+                          'url': 'https://images.example.com/a.png',
+                          'headers': {'Authorization': 'Bearer remote'},
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        });
+
+        final versions = conversation.messages.last.versions;
+        check(versions).length.equals(1);
+        check(versions.single.content).equals('Earlier answer');
+        // Stored files are sanitized like every other message's.
+        final file = versions.single.files!.single;
+        check(file['url']).equals('https://images.example.com/a.png');
+        check(file.containsKey('headers')).isFalse();
+      });
+
+      test('follows parent chain from currentId', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'title': 'Test',
+          'chat': {
+            'history': {
+              'currentId': 'msg-2',
+              'messages': {
+                'msg-1': {
+                  'role': 'user',
+                  'content': 'Hello',
+                  'timestamp': 1700000000,
+                  'models': ['llama-3'],
+                  'childrenIds': ['msg-2'],
+                },
+                'msg-2': {
+                  'role': 'assistant',
+                  'content': 'Hi!',
+                  'parentId': 'msg-1',
+                  'timestamp': 1700000001,
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages).length.equals(2);
+        check(messages[0]['role']).equals('user');
+        check(messages[0]['content']).equals('Hello');
+        check(messages[1]['role']).equals('assistant');
+        check(messages[1]['content']).equals('Hi!');
+        check(messages[0]['metadata']).isA<Map<String, dynamic>>().deepEquals({
+          'childrenIds': ['msg-2'],
+          'models': ['llama-3'],
+        });
+        check(messages[1]['metadata'])
+            .isA<Map<String, dynamic>>()
+            .deepEquals({'parentId': 'msg-1'});
+      });
+    });
+
+    group('handles content formats', () {
+      test('content as string', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': 'plain text content',
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('plain text content');
+      });
+
+      test('content as list of text parts', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': [
+                  {'type': 'text', 'text': 'Hello '},
+                  {'type': 'text', 'text': 'world'},
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Hello world');
+      });
+
+      test('falls back to structured output for empty persisted content', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Structured answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Structured answer');
+        check(messages.first['output'])
+            .isA<List>()
+            .has((it) => it.length, 'length')
+            .equals(1);
+      });
+
+      test('preserves structured details with persisted content', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'Final answer',
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'status': 'completed',
+                    'summary': [
+                      {'type': 'summary_text', 'text': 'checked docs'},
+                    ],
+                  },
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final content = messages.first['content'] as String;
+        check(content).contains('<details type="reasoning"');
+        check(content).contains('Final answer');
+        check('Final answer'.allMatches(content).length).equals(1);
+      });
+
+      group('pipe semantic details in message text (#677)', () {
+        const pipeText =
+            'Let me <b>search</b>.\n'
+            '<details type="tool_calls" done="true" id="toolu_1" '
+            'name="search_web" '
+            'arguments="{&quot;query&quot;: &quot;cats&quot;}" '
+            'result="&quot;ok&quot;">\n'
+            '<summary>Tool Executed</summary>\n'
+            '</details>\n'
+            'Final answer.';
+        final pipeOutput = [
+          {
+            'type': 'message',
+            'id': 'msg_1',
+            'status': 'completed',
+            'role': 'assistant',
+            'content': [
+              {'type': 'output_text', 'text': pipeText},
+            ],
+          },
+        ];
+
+        String reloadedContent(
+          String persistedContent, {
+          Map<String, Object?>? metadata,
+        }) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'msg-1',
+                  'role': 'assistant',
+                  'content': persistedContent,
+                  'done': true,
+                  'metadata': ?metadata,
+                  'output': pipeOutput,
+                  'timestamp': 1700000000,
+                },
+              ],
+            },
+          });
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          return messages.single['content'] as String;
+        }
+
+        void checkSingleToolTile(String content) {
+          check('<details type="tool_calls"'.allMatches(content).length)
+              .equals(1);
+          check(content).not((it) => it.contains('&lt;details'));
+          check(content).contains('Let me &lt;b&gt;search&lt;/b&gt;.');
+          check('Final answer.'.allMatches(content).length).equals(1);
+        }
+
+        test('renders the tool tile once from the raw server content', () {
+          checkSingleToolTile(reloadedContent(pipeText));
+        });
+
+        test('renders the tool tile once from Conduit-persisted content', () {
+          // What the live stream rendered and /api/chat/completed persisted.
+          final persisted = renderStructuredOutputBlocks(
+            parseOpenWebUIStructuredOutput(pipeOutput),
+          );
+          checkSingleToolTile(persisted);
+
+          checkSingleToolTile(reloadedContent(persisted));
+        });
+
+        test('keeps the tags escaped for a Direct transport message', () {
+          final content = reloadedContent(
+            pipeText,
+            metadata: {'transport': kConduitDirectTransport},
+          );
+
+          check(content).not((it) => it.contains('<details'));
+          check(content).contains('&lt;details type="tool_calls"');
+        });
+      });
+
+      test(
+        'direct replay mirror preserves escaped presentation and reasoning',
+        () {
+          const raw = '<tag data="a&b"> & literal';
+          const presentation =
+              '<details type="reasoning" done="true">\n'
+              '<summary>Thought for 1 second</summary>\n'
+              '&gt; checked\n'
+              '</details>\n'
+              '&lt;tag data=&quot;a&amp;b&quot;&gt; &amp; literal';
+          final output = buildConduitDirectReplayOutput(
+            assistantMessageId: 'assistant-direct',
+            rawContent: raw,
+          )!;
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'assistant-direct',
+                  'role': 'assistant',
+                  'content': presentation,
+                  'done': true,
+                  'isStreaming': false,
+                  'metadata': {
+                    'transport': kConduitDirectTransport,
+                    kConduitDirectRawAssistantContentMetadataKey: raw,
+                  },
+                  'output': output,
+                  'timestamp': 1700000000,
+                },
+              ],
+            },
+          });
+
+          final message =
+              (result['messages'] as List<Map<String, dynamic>>).single;
+          check(message['content']).equals(presentation);
+          check(message['output'] as List<Object?>).deepEquals(output);
+          check(
+            (message['metadata']
+                as Map<
+                  String,
+                  dynamic
+                >)[kConduitDirectRawAssistantContentMetadataKey],
+          ).equals(raw);
+        },
+      );
+
+      test('direct replay mirror adopts an OpenWebUI-edited answer safely', () {
+        const priorRaw = '<old answer>';
+        const editedRaw = '<new & answer>';
+        const reasoning =
+            '<details type="reasoning" done="true">\n'
+            '<summary>Thought for 1 second</summary>\n'
+            '&gt; checked\n'
+            '</details>';
+        final output = buildConduitDirectReplayOutput(
+          assistantMessageId: 'assistant-edited',
+          rawContent: editedRaw,
+        )!;
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-edited',
+                'role': 'assistant',
+                'content': '$reasoning\n&lt;old answer&gt;',
+                'done': true,
+                'isStreaming': false,
+                'metadata': {
+                  'transport': kConduitDirectTransport,
+                  kConduitDirectRawAssistantContentMetadataKey: priorRaw,
+                },
+                'output': output,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message =
+            (result['messages'] as List<Map<String, dynamic>>).single;
+        check(message['content'])
+            .equals('$reasoning\n&lt;new &amp; answer&gt;');
+        check(
+          (message['metadata']
+              as Map<
+                String,
+                dynamic
+              >)[kConduitDirectRawAssistantContentMetadataKey],
+        ).equals(editedRaw);
+      });
+
+      test('Continue Response replacement invalidates stale raw replay', () {
+        const continuedAnswer = 'continued answer';
+        final conversation = parseFullConversationModel({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-continued',
+                'role': 'assistant',
+                'content': continuedAnswer,
+                'done': true,
+                'isStreaming': false,
+                'metadata': {
+                  'transport': kConduitDirectTransport,
+                  kConduitDirectRawAssistantContentMetadataKey: 'old answer',
+                },
+                // Open WebUI replaces the prior Conduit mirror with the
+                // continued Responses item on the same assistant message.
+                'output': [
+                  {
+                    'type': 'message',
+                    'id': 'msg_openwebui_continue',
+                    'role': 'assistant',
+                    'status': 'completed',
+                    'content': [
+                      {'type': 'output_text', 'text': continuedAnswer},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message = conversation.messages.single;
+        check(message.content).equals(continuedAnswer);
+        check(
+          (message.metadata ?? const <String, dynamic>{}).containsKey(
+            kConduitDirectRawAssistantContentMetadataKey,
+          ),
+        ).isFalse();
+        check(outboundProviderReplayText(message)).equals(continuedAnswer);
+      });
+
+      test('no-final mirror keeps reasoning local and raw replay empty', () {
+        const presentation =
+            '<details type="reasoning" done="true">\n'
+            '<summary>Thought for 1 second</summary>\n'
+            '&gt; private reasoning\n'
+            '</details>';
+        final output = buildConduitDirectReplayOutput(
+          assistantMessageId: 'assistant-no-final',
+          rawContent: '',
+          useIncompleteAnswerSentinel: true,
+        )!;
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-no-final',
+                'role': 'assistant',
+                'content': presentation,
+                'done': true,
+                'isStreaming': false,
+                'metadata': {
+                  'transport': kConduitDirectTransport,
+                  kConduitDirectRawAssistantContentMetadataKey: '',
+                },
+                'output': output,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message =
+            (result['messages'] as List<Map<String, dynamic>>).single;
+        check(message['content']).equals(presentation);
+        check(
+          (message['metadata']
+              as Map<
+                String,
+                dynamic
+              >)[kConduitDirectRawAssistantContentMetadataKey],
+        ).equals('');
+        check(
+          parseConduitDirectReplayOutput(
+            (message['output'] as List).cast<Map<String, dynamic>>(),
+          )?.isIncompleteAnswerSentinel,
+        ).equals(true);
+      });
+
+      test('an edited no-final mirror becomes the canonical answer', () {
+        final output = buildConduitDirectReplayOutput(
+          assistantMessageId: 'assistant-no-final-edit',
+          rawContent: '',
+          useIncompleteAnswerSentinel: true,
+        )!;
+        final item = output.single;
+        ((item['content'] as List).single as Map<String, dynamic>)['text'] =
+            '<edited answer>';
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'assistant-no-final-edit',
+                'role': 'assistant',
+                'content':
+                    '<details type="reasoning" done="true">stale</details>',
+                'done': true,
+                'metadata': {
+                  'transport': kConduitDirectTransport,
+                  kConduitDirectRawAssistantContentMetadataKey: '',
+                },
+                'output': output,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message =
+            (result['messages'] as List<Map<String, dynamic>>).single;
+        check(message['content']).equals('&lt;edited answer&gt;');
+        check(
+          (message['metadata']
+              as Map<
+                String,
+                dynamic
+              >)[kConduitDirectRawAssistantContentMetadataKey],
+        ).equals('<edited answer>');
+      });
+
+      test('reserved replay shape requires direct terminal provenance', () {
+        final output = buildConduitDirectReplayOutput(
+          assistantMessageId: 'not-trusted',
+          rawContent: 'Structured answer',
+        )!;
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'not-trusted',
+                'role': 'assistant',
+                'content': '',
+                'done': false,
+                'metadata': {'transport': kConduitDirectTransport},
+                'output': output,
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final message =
+            (result['messages'] as List<Map<String, dynamic>>).single;
+        check(message['content']).equals('Structured answer');
+        check(
+          (message['metadata'] as Map<String, dynamic>).containsKey(
+            kConduitDirectRawAssistantContentMetadataKey,
+          ),
+        ).isFalse();
+      });
+
+      test('unknown and malformed replay markers remain structured output', () {
+        final malformedCases = <Map<String, dynamic>>[
+          {
+            'type': 'message',
+            'id': 'msg_conduit_direct_replay_v2_future',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': 'Future answer'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': '${kConduitDirectReplayOutputIdPrefix}malformed',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {
+                'type': 'output_text',
+                'text': 'Malformed answer',
+                'unexpected': true,
+              },
+            ],
+          },
+        ];
+
+        for (final item in malformedCases) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'direct-malformed',
+                  'role': 'assistant',
+                  'content': '',
+                  'done': true,
+                  'metadata': {'transport': kConduitDirectTransport},
+                  'output': [item],
+                  'timestamp': 1700000000,
+                },
+              ],
+            },
+          });
+          final message =
+              (result['messages'] as List<Map<String, dynamic>>).single;
+          check(message['content'])
+              .equals(((item['content'] as List).single as Map)['text']);
+          check(
+            (message['metadata'] as Map<String, dynamic>).containsKey(
+              kConduitDirectRawAssistantContentMetadataKey,
+            ),
+          ).isFalse();
+        }
+      });
+
+      test('uses structured output even when stale content is longer', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'An earlier answer that is much longer than the actual output',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Final answer');
+      });
+
+      test('does not reuse rendered details as replacement text', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content':
+                    '<details type="reasoning" done="true">\n'
+                    '<summary>Thought for 0 seconds</summary>\n'
+                    '&gt; stale\n'
+                    '</details>\n'
+                    '<details><summary>User details</summary>Keep me</details>\n'
+                    'Final answer',
+                'output': [
+                  {
+                    'type': 'reasoning',
+                    'status': 'completed',
+                    'summary': [
+                      {'type': 'summary_text', 'text': 'fresh'},
+                    ],
+                  },
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final content = messages.first['content'] as String;
+        check('<details'.allMatches(content).length).equals(1);
+        check(content).not((it) => it.contains('&gt; stale'));
+        check(content).not((it) => it.contains('User details'));
+        check(content).not((it) => it.contains('Keep me'));
+        check('Final answer'.allMatches(content).length).equals(1);
+      });
+
+      test('plain structured output clears stale rendered details', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content':
+                    '<details type="tool_calls" done="false">\n'
+                    '<summary>Executing...</summary>\n'
+                    '</details>\n'
+                    '<details><summary>User details</summary>Keep me</details>\n'
+                    'Final answer',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final content = messages.first['content'] as String;
+        check(content).not((it) => it.contains('User details'));
+        check(content).not((it) => it.contains('Keep me'));
+        check('Final answer'.allMatches(content).length).equals(1);
+        check(content).not((it) => it.contains('Executing...'));
+      });
+
+      test('plain structured output replaces stale stripped text', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content':
+                    '<details type="tool_calls" done="false">\n'
+                    '<summary>Executing...</summary>\n'
+                    '</details>\n'
+                    'Partial',
+                'output': [
+                  {
+                    'type': 'message',
+                    'content': [
+                      {'type': 'output_text', 'text': 'Final answer'},
+                    ],
+                  },
+                ],
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['content']).equals('Final answer');
+      });
+
+      test('falls back to history output when reloading message chain', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'msg-2',
+              'messages': {
+                'msg-1': {
+                  'role': 'user',
+                  'content': 'Hello',
+                  'timestamp': 1700000000,
+                  'childrenIds': ['msg-2'],
+                },
+                'msg-2': {
+                  'role': 'assistant',
+                  'content': '',
+                  'parentId': 'msg-1',
+                  'timestamp': 1700000001,
+                  'output': [
+                    {
+                      'type': 'message',
+                      'content': [
+                        {'type': 'output_text', 'text': 'Reloaded answer'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages).length.equals(2);
+        check(messages[1]['content']).equals('Reloaded answer');
+        check(messages[1]['output'])
+            .isA<List>()
+            .has((it) => it.length, 'length')
+            .equals(1);
+      });
+
+      test('uses history output when message output list is empty', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': 'Hello',
+                'timestamp': 1700000000,
+              },
+              {
+                'id': 'msg-2',
+                'role': 'assistant',
+                'content': '',
+                'output': const <dynamic>[],
+                'timestamp': 1700000001,
+              },
+            ],
+            'history': {
+              'currentId': 'msg-2',
+              'messages': {
+                'msg-2': {
+                  'role': 'assistant',
+                  'content': '',
+                  'timestamp': 1700000001,
+                  'output': [
+                    {
+                      'type': 'message',
+                      'content': [
+                        {'type': 'output_text', 'text': 'History answer'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages).length.equals(1);
+        check(messages.first['content']).equals('History answer');
+        check(messages.first['output'])
+            .isA<List>()
+            .has((it) => it.length, 'length')
+            .equals(1);
+      });
+
+      test('renders structured output for assistant sibling versions', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'current-asst',
+              'messages': {
+                'user-1': {
+                  'role': 'user',
+                  'content': 'Hello',
+                  'timestamp': 1700000000,
+                  'childrenIds': ['alt-asst', 'current-asst'],
+                },
+                'alt-asst': {
+                  'role': 'assistant',
+                  'content': '',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000001,
+                  'output': [
+                    {
+                      'type': 'reasoning',
+                      'status': 'completed',
+                      'summary': [
+                        {'type': 'summary_text', 'text': 'checked docs'},
+                      ],
+                    },
+                    {
+                      'type': 'message',
+                      'content': [
+                        {'type': 'output_text', 'text': 'Alt answer'},
+                      ],
+                    },
+                  ],
+                },
+                'current-asst': {
+                  'role': 'assistant',
+                  'content': 'Current answer',
+                  'parentId': 'user-1',
+                  'timestamp': 1700000002,
+                },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final versions = messages[1]['versions'] as List<dynamic>;
+        final version = versions.single as Map<String, dynamic>;
+        final content = version['content'] as String;
+        check(content).contains('<details type="reasoning"');
+        check(content).contains('Alt answer');
+        check(version['output'])
+            .isA<List>()
+            .has((it) => it.length, 'length')
+            .equals(2);
+      });
+
+      test('normalizes assistant embeds from message payloads', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 1700000000,
+                'embeds': [
+                  '<div>embed</div>',
+                  {'html': '<section>card</section>'},
+                ],
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['embeds'] as List<Object?>).deepEquals([
+          {'src': '<div>embed</div>'},
+          {'html': '<section>card</section>', 'src': '<section>card</section>'},
+        ]);
+      });
+    });
+
+    group('extracts role, model, timestamp', () {
+      test('role from message data', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'system',
+                'content': 'You are helpful',
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['role']).equals('system');
+      });
+
+      test('model from message data', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'response',
+                'model': 'gpt-4',
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['model']).equals('gpt-4');
+      });
+
+      test('timestamp is parsed to ISO string', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': 'hi',
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final ts = DateTime.parse(messages.first['timestamp'] as String);
+        check(ts.millisecondsSinceEpoch).equals(1700000000000);
+      });
+    });
+
+    group('resolves the streaming flag against the completion marker', () {
+      Map<String, dynamic> parseAssistant(Map<String, dynamic> message) =>
+          (parseFullConversation({
+                    'id': 'conv-1',
+                    'chat': {
+                      'messages': [
+                        {
+                          'id': 'answer',
+                          'role': 'assistant',
+                          'content': 'The sample result is ready.',
+                          'timestamp': 1700000000,
+                          ...message,
+                        },
+                      ],
+                    },
+                  })['messages']
+                  as List<Map<String, dynamic>>)
+              .single;
+
+      test('a completed reply stays idle (issue #744)', () {
+        final message = parseAssistant({'done': true, 'isStreaming': true});
+
+        check(message['isStreaming']).equals(false);
+      });
+
+      test('the completion marker is honored from history', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'answer',
+              'messages': {
+                'answer': {
+                  'id': 'answer',
+                  'role': 'assistant',
+                  'content': 'The sample result is ready.',
+                  'timestamp': 1700000000,
+                  'done': true,
+                  'isStreaming': true,
+                },
+              },
+            },
+            'messages': [
+              {
+                'id': 'answer',
+                'role': 'assistant',
+                'content': 'The sample result is ready.',
+                'timestamp': 1700000000,
+                'isStreaming': true,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.single['isStreaming']).equals(false);
+      });
+
+      test('a history marker outranks a stale flat marker', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            // Without a currentId the history chain is empty, so the flat list
+            // supplies the message while history still supplies its fields.
+            'history': {
+              'messages': {
+                'answer': {
+                  'id': 'answer',
+                  'role': 'assistant',
+                  'content': 'The sample result is ready.',
+                  'timestamp': 1700000000,
+                  'done': true,
+                  'isStreaming': true,
+                },
+              },
+            },
+            'messages': [
+              {
+                'id': 'answer',
+                'role': 'assistant',
+                'content': 'The sample result is ready.',
+                'timestamp': 1700000000,
+                // The projection can lag the history entry it mirrors.
+                'done': false,
+                'isStreaming': true,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.single['isStreaming']).equals(false);
+      });
+
+      test('an unfinished reply keeps streaming', () {
+        final message = parseAssistant({'done': false, 'isStreaming': true});
+
+        check(message['isStreaming']).equals(true);
+      });
+
+      test('a reply without a completion marker keeps streaming', () {
+        final message = parseAssistant({'isStreaming': true});
+
+        check(message['isStreaming']).equals(true);
+      });
+    });
+
+    group('extracts model from chat object', () {
+      test('from chat.models list', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'models': ['llama-3'],
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': 'hi',
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        check(result['model']).equals('llama-3');
+      });
+    });
+
+    group('handles error field', () {
+      test('error as map with content', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 1700000000,
+                'error': {'content': 'Something went wrong'},
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final error = messages.first['error'] as Map<String, dynamic>;
+        check(error['content']).equals('Something went wrong');
+      });
+
+      test('error as bool true', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'error msg',
+                'timestamp': 1700000000,
+                'error': true,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final error = messages.first['error'] as Map<String, dynamic>;
+        check(error['content']).isNull();
+      });
+
+      test('no error field means null error', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'fine',
+                'timestamp': 1700000000,
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        check(messages.first['error']).isNull();
+      });
+
+      test('error as string', () {
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 1700000000,
+                'error': 'Network error',
+              },
+            ],
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final error = messages.first['error'] as Map<String, dynamic>;
+        check(error['content']).equals('Network error');
+      });
+    });
+
+    group('empty or missing data', () {
+      test('empty chatData returns minimal structure', () {
+        final result = parseFullConversation({});
+
+        check(result['id']).equals('');
+        check(result['title']).equals('Chat');
+        check((result['messages'] as List<Map<String, dynamic>>)).isEmpty();
+      });
+    });
+  });
+
+  group('stored once-rendered content (issue #728)', () {
+    test('is not escaped twice and keeps tool blocks at their offsets', () {
+      final output = [
+        {
+          'type': 'message',
+          'id': 'm1',
+          'content': [
+            {'type': 'output_text', 'text': 'Klar! a < b'},
+          ],
+        },
+        {
+          'type': 'function_call',
+          'id': 'fc1',
+          'call_id': 'c1',
+          'name': 'get_weather',
+          'arguments': '{}',
+          'status': 'completed',
+        },
+        {
+          'type': 'function_call_output',
+          'id': 'fco1',
+          'call_id': 'c1',
+          'output': [
+            {'type': 'input_text', 'text': '24'},
+          ],
+        },
+        {
+          'type': 'message',
+          'id': 'm2',
+          'content': [
+            {'type': 'output_text', 'text': 'Morgen 24°.'},
+          ],
+        },
+      ];
+      final rendered = renderStructuredOutputBlocks(
+        parseOpenWebUIStructuredOutput(output),
+      );
+      final conversation = parseFullConversationModel({
+        'id': 'conv-1',
+        'chat': {
+          'messages': [
+            {
+              'id': 'a1',
+              'role': 'assistant',
+              'content': rendered,
+              'output': output,
+              'done': true,
+              'timestamp': 1700000000,
+            },
+          ],
+        },
+      });
+      // Separator blank lines around the tool block may repeat; entities and
+      // block order must not change.
+      check(
+        conversation.messages.single.content.replaceAll(
+          RegExp(r'\n{3,}'),
+          '\n\n',
+        ),
+      ).equals(rendered);
+    });
+  });
+
+  test('a rating and its evaluation id survive into metadata', () {
+    // A thumb given in Open WebUI's web client shows here, and one
+    // given here updates the same evaluation instead of filing another.
+    final conversation = parseFullConversationModel({
+      'id': 'conv-1',
+      'chat': {
+        'messages': [
+          {
+            'id': 'a1',
+            'role': 'assistant',
+            'content': 'Answer',
+            'done': true,
+            'annotation': {'rating': -1, 'reason': 'wrong'},
+            'feedbackId': 'fb-7',
+            'timestamp': 1700000000,
+          },
+        ],
+      },
+    });
+    final metadata = conversation.messages.single.metadata!;
+    check(metadata[kMessageRatingMetadataKey]).equals(-1);
+    check(metadata[kMessageFeedbackIdMetadataKey]).equals('fb-7');
+  });
+
+  test("a call's voice record is read from meta only", () {
+    // Open WebUI keeps what a realtime call spoke in `meta.voice`. A copy in
+    // metadata is an older echo of it and never wins over the server's.
+    const voice = {
+      'call_id': 'call-1',
+      'model': 'gpt-realtime',
+      'speech': [
+        {'item_id': 'item-1', 'transcript': 'Sure.'},
+      ],
+    };
+    final conversation = parseFullConversationModel({
+      'id': 'conv-1',
+      'chat': {
+        'messages': [
+          {
+            'id': 'a1',
+            'role': 'assistant',
+            'content': 'Sure.',
+            'model': 'gpt-realtime',
+            'done': true,
+            'meta': {'voice': voice, 'other': true},
+            'timestamp': 1700000000,
+          },
+          {
+            'id': 'a2',
+            'role': 'assistant',
+            'content': 'Answer',
+            'done': true,
+            'metadata': {
+              kMessageVoiceMetadataKey: {'call_id': 'stale'},
+            },
+            'timestamp': 1700000001,
+          },
+        ],
+      },
+    });
+    final [spoken, stale] = conversation.messages;
+    check(spoken.metadata![kMessageVoiceMetadataKey]).isA<Map>().deepEquals(
+      voice,
+    );
+    check(stale.metadata!.containsKey(kMessageVoiceMetadataKey)).isFalse();
+  });
+
+  group('chat params projection', () {
+    Map<String, dynamic> chatWith(Map<String, dynamic> extra) =>
+        <String, dynamic>{
+          'id': 'conv-p',
+          'chat': <String, dynamic>{'messages': <Object>[], ...extra},
+        };
+
+    test('saved params are projected verbatim, unknown keys included', () {
+      final conversation = parseFullConversationModel(
+        chatWith({
+          'params': {
+            'system': '',
+            'temperature': 0.3,
+            'custom_params': {
+              'nested': [1, 2],
+            },
+            'a_future_param': true,
+          },
+        }),
+      );
+
+      check(conversation.chatParams).deepEquals({
+        'system': '',
+        'temperature': 0.3,
+        'custom_params': {
+          'nested': [1, 2],
+        },
+        'a_future_param': true,
+      });
+    });
+
+    test('absent, null and malformed params read as no overrides', () {
+      for (final extra in <Map<String, dynamic>>[
+        {},
+        {'params': null},
+        {'params': 'oops'},
+        {
+          'params': [1],
+        },
+      ]) {
+        check(parseFullConversationModel(chatWith(extra)).chatParams).isEmpty();
+      }
+    });
+
+    test('the legacy chat.system field is unaffected by params', () {
+      final conversation = parseFullConversationModel(
+        chatWith({
+          'system': 'legacy prompt',
+          'params': {'system': ''},
+        }),
+      );
+
+      check(conversation.systemPrompt).equals('legacy prompt');
+      check(conversation.chatParams['system']).equals('');
+    });
+
+    test('a list summary without a chat object has no params', () {
+      final summary = parseConversationSummary({'id': 's1', 'title': 'T'});
+
+      check(summary['chatParams']).isA<Map<String, dynamic>>().isEmpty();
+    });
+
+    test('a summary that does carry the chat object projects its params', () {
+      final summary = parseConversationSummary({
+        'id': 's1',
+        'chat': {
+          'params': {'seed': 9},
+        },
+      });
+
+      check(summary['chatParams'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({'seed': 9});
+    });
+  });
+
+  test('tags come from meta, where Open WebUI keeps them', () {
+    final conversation = parseFullConversationModel({
+      'id': 'conv-1',
+      'meta': {
+        'tags': ['work_notes', 'q3'],
+      },
+      'chat': {'messages': <Object>[]},
+    });
+    check(conversation.tags).deepEquals(['work_notes', 'q3']);
+  });
+}

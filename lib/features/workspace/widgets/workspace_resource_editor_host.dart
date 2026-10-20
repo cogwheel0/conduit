@@ -132,9 +132,24 @@ class WorkspaceResourceEditorHost<T> extends StatelessWidget {
             _scaffold(errorMessage: errorMessage, onRetry: onRetry),
         data: (value) => value == null
             ? _scaffold(errorMessage: errorMessage, onRetry: onRetry)
-            : builder(value),
+            : _record(value),
       ),
     );
+  }
+
+  /// The form built from [value].
+  ///
+  /// A form takes its draft from the record once, in `initState`. A mutation
+  /// invalidates the detail provider, which `AsyncValue.when` answers with the
+  /// old data until the new record arrives and then hands the new record to the
+  /// same form, so the detail page under an editor kept the values from before
+  /// a save until it was reopened. A read-only detail page holds no unsaved
+  /// edits, so a new record gets a new form. An editor keeps its form: a
+  /// refresh while someone is typing must not discard the draft.
+  Widget _record(T value) {
+    final form = builder(value);
+    if (mode != WorkspaceRouteMode.detail) return form;
+    return KeyedSubtree(key: ObjectKey(value), child: form);
   }
 
   Widget _scaffold({

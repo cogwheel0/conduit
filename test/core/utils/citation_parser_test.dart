@@ -1,5 +1,5 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/utils/citation_parser.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -147,18 +147,6 @@ void main() {
 
     test('single citation returns its ID', () {
       check(CitationParser.extractSourceIds('text[5]')).deepEquals([5]);
-    });
-  });
-
-  group('Citation', () {
-    test('zeroBasedIndices converts 1-based to 0-based', () {
-      const citation = Citation(sourceIds: [1, 2, 3], raw: '[1,2,3]');
-      check(citation.zeroBasedIndices).deepEquals([0, 1, 2]);
-    });
-
-    test('zeroBasedIndices with single ID', () {
-      const citation = Citation(sourceIds: [5], raw: '[5]');
-      check(citation.zeroBasedIndices).deepEquals([4]);
     });
   });
 

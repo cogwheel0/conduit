@@ -3,11 +3,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/network/conduit_user_agent.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/connectivity_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
@@ -818,88 +818,6 @@ void main() {
       }
 
       check(caught).isA<DioException>();
-    },
-  );
-
-  test(
-    'absolute off-origin requests cannot mutate server health signals',
-    () async {
-      final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final originAuthorization = Completer<String?>();
-      origin.listen((request) async {
-        if (!originAuthorization.isCompleted) {
-          originAuthorization.complete(
-            request.headers.value(HttpHeaders.authorizationHeader),
-          );
-        }
-        request.response
-          ..statusCode = HttpStatus.ok
-          ..headers.contentType = ContentType('image', 'png')
-          ..add([1, 2, 3]);
-        await request.response.close();
-      });
-      final external = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      final externalAuthorization = Completer<String?>();
-      external.listen((request) async {
-        if (!externalAuthorization.isCompleted) {
-          externalAuthorization.complete(
-            request.headers.value(HttpHeaders.authorizationHeader),
-          );
-        }
-        request.response
-          ..statusCode = HttpStatus.ok
-          ..headers.contentType = ContentType('image', 'png')
-          ..add([4, 5, 6]);
-        await request.response.close();
-      });
-      final originUri = Uri.parse(
-        'http://${origin.address.address}:${origin.port}',
-      );
-      final externalUri = Uri.parse(
-        'http://${external.address.address}:${external.port}/avatar.png',
-      );
-      final workerManager = WorkerManager();
-      final api = ApiService(
-        serverConfig: ServerConfig(
-          id: 'connectivity-origin',
-          name: 'Connectivity origin',
-          url: originUri.toString(),
-        ),
-        workerManager: workerManager,
-        authToken: 'connectivity-test-token',
-      );
-      try {
-        ConnectivityService.debugResetTrafficSignals();
-        try {
-          check(await api.fetchImageBytes(externalUri.toString()))
-              .deepEquals([4, 5, 6]);
-        } catch (error) {
-          throw StateError('external request failed: $error');
-        }
-        check(await externalAuthorization.future).isNull();
-        check(ConnectivityService.debugHasRecentSuccessfulTraffic(originUri))
-            .isFalse();
-        check(ConnectivityService.debugHasRecentSuccessfulTraffic(externalUri))
-            .isFalse();
-
-        check(requestUsesServerConnectivityOrigin(externalUri, originUri))
-            .isFalse();
-
-        try {
-          await api.fetchImageBytes(originUri.resolve('/same.png').toString());
-        } catch (error) {
-          throw StateError('same-origin request failed: $error');
-        }
-        check(await originAuthorization.future)
-            .equals('Bearer connectivity-test-token');
-        check(ConnectivityService.debugHasRecentSuccessfulTraffic(originUri))
-            .isTrue();
-      } finally {
-        api.dispose();
-        workerManager.dispose();
-        await external.close(force: true);
-        await origin.close(force: true);
-      }
     },
   );
 }

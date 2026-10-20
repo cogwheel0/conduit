@@ -1,5 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:flutter/widgets.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Shared adaptive page shell for routes that only need common scaffold
 /// configuration.
@@ -70,11 +70,24 @@ class AdaptiveRouteShell extends StatelessWidget {
       content = ColoredBox(color: color, child: content);
     }
 
-    return AdaptiveScaffold(
+    final scaffold = AdaptiveScaffold(
       appBar: appBar,
       body: content,
       extendBodyBehindAppBar: extendBodyBehindAppBar,
       floatingActionButton: floatingActionButton,
+    );
+    final color = backgroundColor;
+    if (color == null) return scaffold;
+    // Material app bars and the scaffold default to the plain page color;
+    // match them to the route background (e.g. the grouped settings page) so
+    // the bar does not sit as a separate band above the content.
+    final theme = Theme.of(context);
+    return Theme(
+      data: theme.copyWith(
+        scaffoldBackgroundColor: color,
+        appBarTheme: theme.appBarTheme.copyWith(backgroundColor: color),
+      ),
+      child: scaffold,
     );
   }
 }

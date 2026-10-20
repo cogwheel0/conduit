@@ -1,26 +1,28 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/auth/auth_state_manager.dart';
-import 'package:conduit/core/database/chat_database_repository.dart';
-import 'package:conduit/core/database/database_provider.dart';
-import 'package:conduit/core/database/mappers/conversation_assembler.dart';
-import 'package:conduit/core/models/conversation.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/providers/backend_mode_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/optimized_storage_service.dart';
-import 'package:conduit/core/services/settings_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
-import 'package:conduit/features/hermes/models/hermes_config.dart';
-import 'package:conduit/features/hermes/models/hermes_model.dart';
-import 'package:conduit/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -289,9 +291,10 @@ class _RetainedOpenWebUiApi extends ApiService {
       _CachedOpenWebUiStorage.staleModel.id;
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async => const [
-    _CachedOpenWebUiStorage.staleModel,
-  ];
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async => const [_CachedOpenWebUiStorage.staleModel];
 }
 
 class _CountingOpenWebUiApi extends _RetainedOpenWebUiApi {
@@ -300,9 +303,15 @@ class _CountingOpenWebUiApi extends _RetainedOpenWebUiApi {
   var modelFetches = 0;
 
   @override
-  Future<List<Model>> getModels({bool includeHidden = false}) async {
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     modelFetches += 1;
-    return super.getModels(includeHidden: includeHidden);
+    return super.getModels(
+      includeHidden: includeHidden,
+      authSnapshot: authSnapshot,
+    );
   }
 }
 
@@ -312,7 +321,7 @@ class _ConversationFallbackApi extends _RetainedOpenWebUiApi {
   var conversationFetches = 0;
 
   @override
-  Future<Conversation> getConversation(String id) async {
+  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) async {
     conversationFetches += 1;
     return Conversation(
       id: id,

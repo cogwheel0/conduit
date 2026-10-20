@@ -61,7 +61,7 @@ void main() {
         tester.widget<Text>(find.text("What's new")).style?.fontSize,
         AppTypography.headlineMedium,
       );
-      expect(find.text("What's new in 3.3"), findsNothing);
+      expect(find.text("What's new in 3.3.2"), findsNothing);
       expect(find.text('Enjoying Conduit?'), findsOneWidget);
       expect(
         find.text(

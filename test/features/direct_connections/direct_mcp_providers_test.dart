@@ -1,20 +1,22 @@
 import 'dart:async';
 
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/features/direct_connections/models/direct_mcp_server.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:conduit/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
 
   test('secure provider loads and serializes server mutations', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -42,7 +44,7 @@ void main() {
   });
 
   test('disabled servers never enter volatile composer inventory', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -58,7 +60,7 @@ void main() {
   test(
     'disabled and deleted servers are removed from composer selection',
     () async {
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = ProviderContainer(
         overrides: [secureStorageProvider.overrideWithValue(storage)],
       );
@@ -82,7 +84,7 @@ void main() {
   );
 
   test('server configuration changes deny pending approvals', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -121,7 +123,7 @@ void main() {
   });
 
   test('clear removes the secure document and in-memory state', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -208,7 +210,7 @@ void main() {
   );
 
   test('unchanged approval pruning does not republish servers', () async {
-    const storage = FlutterSecureStorage();
+    final storage = FlutterSecureKeyValueStore();
     final container = ProviderContainer(
       overrides: [secureStorageProvider.overrideWithValue(storage)],
     );
@@ -230,7 +232,7 @@ void main() {
   test(
     'secure reload clears session approval after configuration drift',
     () async {
-      const storage = FlutterSecureStorage();
+      final storage = FlutterSecureKeyValueStore();
       final container = ProviderContainer(
         overrides: [secureStorageProvider.overrideWithValue(storage)],
       );
@@ -292,7 +294,7 @@ DirectMcpServer _server(String id, {bool enabled = true}) => DirectMcpServer(
   enabled: enabled,
 );
 
-final class _BlockingMcpSecureStorage implements FlutterSecureStorage {
+final class _BlockingMcpSecureStorage implements SecureKeyValueStore {
   String? _source;
   bool _block = false;
   final writeStarted = Completer<void>();

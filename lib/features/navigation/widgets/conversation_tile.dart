@@ -30,7 +30,7 @@ BoxDecoration conduitConversationTileDecoration(
 
   return BoxDecoration(
     color: background,
-    borderRadius: BorderRadius.circular(AppBorderRadius.card),
+    borderRadius: BorderRadius.circular(AppBorderRadius.md),
   );
 }
 
@@ -400,10 +400,11 @@ class ConversationTileContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
 
-    // Enhanced typography with better visual hierarchy
+    // Every title uses primary ink at regular weight;
+    // the row fill marks selection and only unread chats are emphasized.
     final textStyle = AppTypography.sidebarTitleStyle.copyWith(
-      color: (selected || unread) ? theme.textPrimary : theme.textSecondary,
-      fontWeight: (selected || unread) ? FontWeight.w600 : FontWeight.w400,
+      color: theme.textPrimary,
+      fontWeight: unread ? FontWeight.w600 : FontWeight.w400,
       height: 1.4,
     );
 
@@ -439,17 +440,10 @@ class ConversationTileContent extends StatelessWidget {
     if (pinned) {
       trailingWidgets.addAll([
         const SizedBox(width: Spacing.sm),
-        Container(
-          padding: const EdgeInsets.all(Spacing.xxs),
-          decoration: BoxDecoration(
-            color: theme.buttonPrimary.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(AppBorderRadius.xs),
-          ),
-          child: Icon(
-            Platform.isIOS ? CupertinoIcons.pin_fill : Icons.push_pin_rounded,
-            color: theme.buttonPrimary.withValues(alpha: 0.7),
-            size: IconSize.xs,
-          ),
+        Icon(
+          Platform.isIOS ? CupertinoIcons.pin_fill : Icons.push_pin_rounded,
+          color: theme.textTertiary,
+          size: IconSize.sm - 2,
         ),
       ]);
     }

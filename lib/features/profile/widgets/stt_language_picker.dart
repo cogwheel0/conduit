@@ -1,7 +1,8 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/services/settings_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
+
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';

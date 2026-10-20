@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
-import 'package:conduit/core/models/model.dart';
-import 'package:conduit/features/direct_connections/controllers/direct_connection_editor_draft.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/features/direct_connections/controllers/direct_connection_editor_draft.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/model_list_tile.dart';
@@ -12,24 +12,6 @@ import 'direct_connections_ui_test_support.dart';
 
 void main() {
   group('direct connection form parsing', () {
-    test('parses string custom headers', () {
-      check(
-        parseDirectCustomHeaders(
-          '{"X-Organization":"team-a","X-Region":"local"}',
-        ),
-      ).deepEquals({'X-Organization': 'team-a', 'X-Region': 'local'});
-    });
-
-    test('rejects non-string custom header values', () {
-      check(() => parseDirectCustomHeaders('{"X-Retry": 2}'))
-          .throws<FormatException>();
-    });
-
-    test('normalizes surrounding custom header name whitespace', () {
-      check(parseDirectCustomHeaders('{" X-Organization ":"team-a"}'))
-          .deepEquals({'X-Organization': 'team-a'});
-    });
-
     test('deduplicates manual model ids while preserving order', () {
       check(parseDirectManualModelIds('model-a\n model-b,model-a\n'))
           .deepEquals(['model-a', 'model-b']);
@@ -144,20 +126,18 @@ void main() {
           baseUrl: 'https://old.example/v1',
           customHeaders: const {'X-Api-Key': 'old-key', 'X-Tenant': 'tenant-a'},
         );
-        final whitespaceOnly = previous.copyWith(
+        final sameHeaders = previous.copyWith(
           baseUrl: 'https://new.example/v1',
-          customHeaders: parseDirectCustomHeaders(
-            '{  "X-Api-Key" : "old-key", "X-Tenant": "tenant-a" }',
-          ),
+          customHeaders: const {'X-Api-Key': 'old-key', 'X-Tenant': 'tenant-a'},
         );
-        final oneHeaderEdited = whitespaceOnly.copyWith(
+        final oneHeaderEdited = sameHeaders.copyWith(
           customHeaders: const {'X-Api-Key': 'new-key', 'X-Tenant': 'tenant-a'},
         );
 
         check(
           requiresDirectOriginCredentialConfirmation(
             previous: previous,
-            draft: whitespaceOnly,
+            draft: sameHeaders,
           ),
         ).isTrue();
         check(

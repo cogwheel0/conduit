@@ -2,15 +2,21 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'dart:typed_data';
+
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
-import '../models/server_config.dart';
-import '../utils/debug_logger.dart';
-import 'api_service.dart';
+import 'package:conduit_core/models/server_config.dart';
+
+import 'package:conduit_core/utils/debug_logger.dart';
+
+import 'package:conduit_core/services/api_service.dart';
+
 import 'native_sheet_bridge.dart';
-import 'server_tls_http_client_factory.dart';
+
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 
 final Expando<Object> _avatarSessionTokens = Expando<Object>(
   'native-sheet-avatar-session',

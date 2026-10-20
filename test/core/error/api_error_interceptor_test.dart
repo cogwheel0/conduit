@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/error/api_error.dart';
-import 'package:conduit/core/error/api_error_interceptor.dart';
+import 'package:conduit_core/error/api_error.dart';
+import 'package:conduit_core/error/api_error_interceptor.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';

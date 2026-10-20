@@ -27,6 +27,146 @@ void main() {
     check(iosSelection).equals(androidSelection);
   });
 
+  test('Material container roles come from the palette, not the seed', () {
+    // fromSeed hue-shifts these roles (pink containers on the monochrome
+    // Conduit palette), and Material controls read them directly.
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final variant = definition.variantFor(brightness);
+        final theme = brightness == Brightness.dark
+            ? AppTheme.dark(definition)
+            : AppTheme.light(definition);
+        final scheme = theme.colorScheme;
+        final surfaces = theme.extension<SurfaceThemeExtension>()!;
+        final label = '${definition.id} $brightness';
+        check(
+          because: label,
+          scheme.secondaryContainer,
+        ).equals(variant.secondary);
+        check(
+          because: label,
+          scheme.onSecondaryContainer,
+        ).equals(variant.secondaryForeground);
+        check(because: label, scheme.tertiaryContainer).equals(variant.muted);
+        check(
+          because: label,
+          scheme.surfaceContainer,
+        ).equals(surfaces.container);
+        check(because: label, scheme.inverseSurface).equals(variant.foreground);
+      }
+    }
+  });
+
+  test('error color stays a legible red on every palette', () {
+    // Palettes keep tweakcn's destructive verbatim (a button fill), but the
+    // app also draws the error color as body-size text and icons on the page.
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final variant = definition.variantFor(brightness);
+        final error = _tokens(definition, brightness).statusError60;
+        final label = '${definition.id} $brightness';
+        check(
+          because: label,
+          contrastRatio(error, variant.background),
+        ).isGreaterOrEqual(4.5);
+        check(because: label, error.r > error.g && error.r > error.b).isTrue();
+      }
+    }
+    // Legible presets pass through untouched.
+    final catppuccin = TweakcnThemes.catppuccin.variantFor(Brightness.light);
+    check(AppColorTokens.light(theme: TweakcnThemes.catppuccin).statusError60)
+        .equals(catppuccin.destructive);
+  });
+
+  test('a failing red keeps its hue when lightened for contrast', () {
+    // T3 Chat dark's destructive (#301015) nearly matches its page.
+    final t3Dark = TweakcnThemes.t3Chat.variantFor(Brightness.dark);
+    final error = _tokens(TweakcnThemes.t3Chat, Brightness.dark).statusError60;
+    final sourceHue = HSLColor.fromColor(t3Dark.destructive).hue;
+    check(HSLColor.fromColor(error).hue).isCloseTo(sourceHue, 1);
+  });
+
+  test('status text stays readable on every status fill', () {
+    // Snackbars and badges draw on* text over the status fills.
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final tokens = _tokens(definition, brightness);
+        final label = '${definition.id} $brightness';
+        for (final (name, fill, text) in [
+          ('success', tokens.statusSuccess60, tokens.statusOnSuccess60),
+          ('warning', tokens.statusWarning60, tokens.statusOnWarning60),
+          ('info', tokens.statusInfo60, tokens.statusOnInfo60),
+          ('error', tokens.statusError60, tokens.statusOnError60),
+        ]) {
+          check(
+            because: '$label $name',
+            contrastRatio(text, fill),
+          ).isGreaterOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  test('error container text uses the page text color', () {
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final theme = brightness == Brightness.dark
+            ? AppTheme.dark(definition)
+            : AppTheme.light(definition);
+        final scheme = theme.colorScheme;
+        check(
+          because: '${definition.id} $brightness',
+          contrastRatio(scheme.onErrorContainer, scheme.errorContainer),
+        ).isGreaterOrEqual(4.5);
+      }
+    }
+  });
+
+  test('inverse primary stays legible on the inverse surface', () {
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final scheme =
+            (brightness == Brightness.dark
+                    ? AppTheme.dark(definition)
+                    : AppTheme.light(definition))
+                .colorScheme;
+        check(
+          because: '${definition.id} $brightness',
+          contrastRatio(scheme.inversePrimary, scheme.inverseSurface),
+        ).isGreaterOrEqual(4.5);
+      }
+    }
+  });
+
+  test('selected secondary containers keep their paired text legible', () {
+    // Selected segments and active Mermaid controls draw
+    // onSecondaryContainer on secondaryContainer.
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final scheme =
+            (brightness == Brightness.dark
+                    ? AppTheme.dark(definition)
+                    : AppTheme.light(definition))
+                .colorScheme;
+        check(
+          because: '${definition.id} $brightness',
+          contrastRatio(scheme.onSecondaryContainer, scheme.secondaryContainer),
+        ).isGreaterOrEqual(3);
+      }
+    }
+  });
+
+  test('withMinContrast only moves colors that fall short', () {
+    const surface = Color(0xFFFFFFFF);
+    const passing = Color(0xFF1D4ED8);
+    check(withMinContrast(passing, surface, 3)).equals(passing);
+    const failing = Color(0xFFE8C468);
+    final adjusted = withMinContrast(failing, surface, 3);
+    check(contrastRatio(adjusted, surface)).isGreaterOrEqual(3);
+    check(HSLColor.fromColor(adjusted).hue)
+        .isCloseTo(HSLColor.fromColor(failing).hue, 1);
+  });
+
   test('product typography uses one ramp on Android and iOS', () {
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
@@ -128,3 +268,10 @@ void main() {
     check(iosBadgeSize).equals(22);
   });
 }
+
+AppColorTokens _tokens(
+  TweakcnThemeDefinition definition,
+  Brightness brightness,
+) => brightness == Brightness.dark
+    ? AppColorTokens.dark(theme: definition)
+    : AppColorTokens.light(theme: definition);

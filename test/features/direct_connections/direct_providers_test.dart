@@ -3,28 +3,31 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:conduit/core/persistence/persistence_keys.dart';
-import 'package:conduit/core/persistence/preferences_store.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/secure_credential_storage.dart';
-import 'package:conduit/features/direct_connections/models/direct_completion.dart';
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/secure_credential_storage.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit/features/direct_connections/services/apple_pcc_adapter.dart';
-import 'package:conduit/features/direct_connections/services/direct_adapter_helpers.dart';
-import 'package:conduit/features/direct_connections/models/direct_connection_profile.dart';
-import 'package:conduit/features/direct_connections/models/direct_remote_model.dart';
-import 'package:conduit/features/direct_connections/providers/direct_connection_providers.dart';
-import 'package:conduit/features/direct_connections/services/direct_connection_profile_store.dart';
-import 'package:conduit/features/direct_connections/services/direct_model_cache_store.dart';
-import 'package:conduit/features/direct_connections/services/direct_model_registry.dart';
-import 'package:conduit/features/direct_connections/services/direct_provider_adapter.dart';
-import 'package:conduit/features/direct_connections/services/direct_run_registry.dart';
-import 'package:conduit/features/direct_connections/services/ollama_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_connection_profile_store.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_cache_store.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/ollama_adapter.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit/platform/flutter_secure_key_value_store.dart';
+import 'package:conduit/platform/flutter_key_value_store.dart';
+import 'package:conduit/features/direct_connections/providers/apple_pcc_providers.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +35,7 @@ void main() {
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
     SharedPreferences.setMockInitialValues({});
-    PreferencesStore.debugOverride(await SharedPreferences.getInstance());
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   });
 
   tearDown(PreferencesStore.debugReset);
@@ -43,7 +46,7 @@ void main() {
         overrides: [
           applePccPlatformSupportedProvider.overrideWithValue(false),
           applePccAdapterProvider.overrideWithValue(
-            ApplePccAdapter(hostApi: _UnreachablePccHost()),
+            ApplePccAdapter(host: _UnreachablePccHost()),
           ),
         ],
       );
@@ -1687,7 +1690,7 @@ void main() {
     'a failed incomplete-clear marker write propagates instead of hiding',
     () async {
       PreferencesStore.debugOverride(
-        await SharedPreferences.getInstance(),
+        await FlutterKeyValueStore.load(),
         writeInterceptor: (prefs, key, value) async =>
             key == PreferenceKeys.incompleteAppDataClear ? false : null,
       );
@@ -1842,7 +1845,7 @@ ProviderContainer _container(
   DirectModelCacheStore? cacheStore,
 }) => ProviderContainer(
   overrides: [
-    secureStorageProvider.overrideWithValue(const FlutterSecureStorage()),
+    secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
     if (cacheStore != null)
       directModelCacheStoreProvider.overrideWithValue(cacheStore),
     directProviderAdapterRegistryProvider.overrideWithValue(
@@ -1896,7 +1899,7 @@ DirectConnectionProfile _profile({
 
 Future<List<DirectConnectionProfile>> _loadDurableProfiles() =>
     DirectConnectionProfileStore(
-      SecureCredentialStorage(instance: const FlutterSecureStorage()),
+      SecureCredentialStorage(instance: FlutterSecureKeyValueStore()),
     ).load();
 
 final class _QueuedAdapter implements DirectProviderAdapter {
@@ -2297,7 +2300,7 @@ Dio _dio(HttpClientAdapter adapter) {
   return dio;
 }
 
-final class _ReloadGateSecureStorage implements FlutterSecureStorage {
+final class _ReloadGateSecureStorage implements SecureKeyValueStore {
   _ReloadGateSecureStorage(String initialDocument)
     : _profileDocument = initialDocument;
 
@@ -2309,15 +2312,7 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
   int profileReadCalls = 0;
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key != _profilesKey) return null;
     profileReadCalls++;
     final captured = _profileDocument;
@@ -2329,29 +2324,12 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (key == _profilesKey) _profileDocument = value;
   }
 
   @override
-  Future<void> delete({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> delete({required String key}) async {
     if (key == _profilesKey) _profileDocument = null;
   }
 
@@ -2359,7 +2337,7 @@ final class _ReloadGateSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _WriteGateSecureStorage implements FlutterSecureStorage {
+final class _WriteGateSecureStorage implements SecureKeyValueStore {
   _WriteGateSecureStorage(this._profileDocument);
 
   static const _profilesKey = 'direct_connection_profiles_v1';
@@ -2369,30 +2347,13 @@ final class _WriteGateSecureStorage implements FlutterSecureStorage {
   String? _profileDocument;
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key == _profilesKey) return _profileDocument;
     return null;
   }
 
   @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<void> write({required String key, required String? value}) async {
     if (key != _profilesKey) return;
     writeStarted.complete();
     await allowWrite.future;
@@ -2403,7 +2364,7 @@ final class _WriteGateSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _InitialReadGateSecureStorage implements FlutterSecureStorage {
+final class _InitialReadGateSecureStorage implements SecureKeyValueStore {
   _InitialReadGateSecureStorage(this._profileDocument);
 
   static const _profilesKey = 'direct_connection_profiles_v1';
@@ -2413,15 +2374,7 @@ final class _InitialReadGateSecureStorage implements FlutterSecureStorage {
   final String _profileDocument;
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key != _profilesKey) return null;
     if (!readStarted.isCompleted) readStarted.complete();
     await allowRead.future;
@@ -2432,7 +2385,7 @@ final class _InitialReadGateSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _DisposeConflictSecureStorage implements FlutterSecureStorage {
+final class _DisposeConflictSecureStorage implements SecureKeyValueStore {
   _DisposeConflictSecureStorage({
     required this.initialDocument,
     required this.conflictDocument,
@@ -2447,15 +2400,7 @@ final class _DisposeConflictSecureStorage implements FlutterSecureStorage {
   int _profileReadCalls = 0;
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key != _profilesKey) return null;
     _profileReadCalls++;
     if (_profileReadCalls == 1) return initialDocument;
@@ -2468,7 +2413,7 @@ final class _DisposeConflictSecureStorage implements FlutterSecureStorage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-final class _FailingReloadSecureStorage implements FlutterSecureStorage {
+final class _FailingReloadSecureStorage implements SecureKeyValueStore {
   _FailingReloadSecureStorage(this._profileDocument);
 
   static const _profilesKey = 'direct_connection_profiles_v1';
@@ -2477,15 +2422,7 @@ final class _FailingReloadSecureStorage implements FlutterSecureStorage {
   int _profileReadCalls = 0;
 
   @override
-  Future<String?> read({
-    required String key,
-    AppleOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    AppleOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
+  Future<String?> read({required String key}) async {
     if (key != _profilesKey) return null;
     _profileReadCalls++;
     if (_profileReadCalls > 1) {
@@ -2500,7 +2437,7 @@ final class _FailingReloadSecureStorage implements FlutterSecureStorage {
 
 /// Fails loudly if a status probe reaches the platform channel where Apple
 /// models cannot exist.
-final class _UnreachablePccHost extends PccHostApi {
+final class _UnreachablePccHost extends UnavailableApplePccHost {
   @override
   Future<PlatformPccStatus> getStatus(PlatformAppleModel model) =>
       throw StateError('Apple status probed on an unsupported platform');

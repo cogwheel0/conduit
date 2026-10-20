@@ -7,13 +7,13 @@ import 'package:cached_network_image_ce/cached_network_image.dart'
 import 'package:cached_network_image_ce/src/cache/default_cache_manager.dart'
     as cached_network_image_ce;
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
 import 'package:http/io_client.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
-import '../models/server_config.dart';
-import '../services/server_tls_http_client_factory.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 
 typedef SelfSignedImageCacheBaseDirectoryProvider =
     Future<Directory> Function();

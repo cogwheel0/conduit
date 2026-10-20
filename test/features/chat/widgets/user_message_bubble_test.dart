@@ -1,17 +1,17 @@
 import 'dart:async';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit/core/auth/api_auth_interceptor.dart';
-import 'package:conduit/core/providers/app_providers.dart';
-import 'package:conduit/core/services/api_service.dart';
-import 'package:conduit/core/services/worker_manager.dart';
-import 'package:conduit/core/models/server_config.dart';
-import 'package:conduit/core/models/chat_message.dart';
-import 'package:conduit/core/models/conversation.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit/features/chat/widgets/enhanced_attachment.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/features/chat/widgets/user_message_bubble.dart';
-import 'package:conduit/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -130,7 +130,7 @@ void main() {
     },
   );
 
-  testWidgets('uses the redesigned rounded user bubble surface', (
+  testWidgets('uses a tail-less borderless user bubble surface', (
     WidgetTester tester,
   ) async {
     final message = ChatMessage(
@@ -148,17 +148,18 @@ void main() {
     );
     final decoration = bubble.decoration! as BoxDecoration;
 
-    expect(bubble.padding, const EdgeInsets.all(Spacing.sm + Spacing.xs));
     expect(
-      decoration.borderRadius,
-      const BorderRadius.only(
-        topLeft: Radius.circular(AppBorderRadius.chatBubble),
-        topRight: Radius.circular(AppBorderRadius.chatBubble),
-        bottomLeft: Radius.circular(AppBorderRadius.chatBubble),
-        bottomRight: Radius.circular(AppBorderRadius.md),
+      bubble.padding,
+      const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.sm + Spacing.xxs,
       ),
     );
-    expect(decoration.border, isNotNull);
+    expect(
+      decoration.borderRadius,
+      const BorderRadius.all(Radius.circular(AppBorderRadius.chatBubble)),
+    );
+    expect(decoration.border, isNull);
   });
 
   testWidgets('wrapped user text uses longest-line width basis', (

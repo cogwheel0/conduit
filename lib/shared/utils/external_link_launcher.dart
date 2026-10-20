@@ -1,23 +1,11 @@
+import 'package:conduit_core/network/external_link.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
-/// Schemes that may be handed to the OS from user-tapped links inside
-/// LLM/remote-authored content (chat messages, sources, channels).
-const Set<String> kAllowedExternalLinkSchemes = {'http', 'https', 'mailto'};
-
-/// Returns the parsed [Uri] when [url] is non-empty, parseable, and uses an
-/// allowlisted scheme; otherwise null.
-Uri? parseAllowedExternalLink(String url) {
-  final trimmed = url.trim();
-  if (trimmed.isEmpty) return null;
-  final uri = Uri.tryParse(trimmed);
-  if (uri == null) return null;
-  if (!kAllowedExternalLinkSchemes.contains(uri.scheme.toLowerCase())) {
-    return null;
-  }
-  return uri;
-}
+/// Re-exported: the allowlist moved into the core so every front-end
+/// applies the same rule, and this file keeps the launching.
+export 'package:conduit_core/network/external_link.dart';
 
 LaunchMode defaultLaunchModeForAllowedExternalLink(Uri uri) {
   return switch (uri.scheme.toLowerCase()) {

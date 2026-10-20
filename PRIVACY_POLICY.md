@@ -1,6 +1,6 @@
 # Conduit Privacy Policy
 
-Effective date: 2026-08-21
+Effective date: 2026-09-29
 
 Conduit is an open‑source mobile client for Open‑WebUI and directly connected AI providers. This app acts as a client to services you choose and configure. This policy describes how the app itself handles data on your device. Open WebUI servers and AI providers may collect, process, and store data under their own policies; please review their privacy terms separately.
 
@@ -21,6 +21,7 @@ Conduit is an open‑source mobile client for Open‑WebUI and directly connecte
 - Direct chat history: by default, a direct chat is also synchronized to your active Open WebUI server when you are signed in. You can instead keep direct chat history only on this device. Changing this setting applies to new chats and does not automatically upload existing on-device chats.
 - Apple On-Device: when you select Apple On-Device, model inference runs locally through Apple's Foundation Models framework. Prompt and response content is not sent to an AI provider by Conduit, though optional Open WebUI history synchronization remains a separate setting.
 - Apple Private Cloud Compute: when you select the Apple PCC provider, Conduit sends the conversation content and selected images needed for that request to Apple's Private Cloud Compute service. Conduit does not operate an intermediary server. If you enable on-device fallback, a PCC network failure may instead be retried with Apple's on-device model. Apple's processing and retention terms apply separately from Conduit's optional Open WebUI history synchronization.
+- On-device web search: when you turn on web search for a direct model that has no web search of its own, Conduit searches from your device. The search queries the model writes are sent directly to a public search engine: by default DuckDuckGo, then Brave, Bing, Mojeek or Wikipedia if it does not answer, or only the engine you pick in settings. When the model opens a result, or a link you wrote in your message, that page is downloaded directly from your device. These requests carry your device's IP address and your chosen region and safe-search setting, and are not sent through Open WebUI or any developer-controlled server. Search results and page text are then sent to the AI provider as part of the conversation.
 
 ## Permissions
 Depending on how you use Conduit, the app may request:
@@ -35,7 +36,7 @@ Depending on how you use Conduit, the app may request:
   features; your speech is converted to text on your device when available.
 
 ## Third‑Party Services
-The app does not include third‑party analytics or advertising SDKs. Open WebUI servers, AI providers, or extensions you use may rely on third‑party services subject to their own terms.
+The app does not include third‑party analytics or advertising SDKs. Open WebUI servers, AI providers, or extensions you use may rely on third‑party services subject to their own terms. When you use on-device web search, the search engines and websites your device contacts process those requests under their own privacy policies.
 
 ## Security
 We use platform‑provided secure storage for sensitive credentials where supported. No security can be guaranteed; protect access to your device and server credentials.
@@ -46,6 +47,7 @@ We use platform‑provided secure storage for sensitive credentials where suppor
 
 ## Your Choices
 - You can change servers, remove direct connection profiles, log out, choose on-device-only history for new direct chats, or clear app data in your device settings.
+- You can turn web search off for a chat, and choose which search engine on-device web search uses, in the Direct Connections settings.
 - You can choose not to grant optional permissions; some features may not work without them.
 
 ## Children’s Privacy

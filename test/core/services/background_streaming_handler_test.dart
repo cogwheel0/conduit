@@ -1,7 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:conduit/core/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/core/services/background_streaming_handler.dart';
 
 void main() {
@@ -18,12 +18,11 @@ void main() {
     );
 
     expect(leases, hasLength(1));
-    expect(leases.single.toPlatformMap(), {
-      'id': 'voice-call',
-      'kind': 'voice',
-      'requiresMicrophone': true,
-      'startedAt': 123456,
-    });
+    final lease = leases.single.toPlatform();
+    expect(lease.id, 'voice-call');
+    expect(lease.kind, PlatformBackgroundStreamKind.voice);
+    expect(lease.requiresMicrophone, isTrue);
+    expect(lease.startedAtMillis, 123456);
   });
 
   test('filters socket keepalive before native lease creation', () {
@@ -46,6 +45,41 @@ void main() {
     );
 
     expect(leases, isEmpty);
+  });
+
+  test('only a reply being written counts as a reply in progress', () {
+    final handler = BackgroundStreamingHandler.instance;
+    addTearDown(() => handler.debugSetActiveLeases(const []));
+    final startedAt = DateTime.fromMillisecondsSinceEpoch(1);
+    // How read-aloud and a note recording hold the app open.
+    final readAloud = buildBackgroundStreamLeasesForTesting(
+      const ['tts-server-1'],
+      requiresMicrophone: false,
+      kind: BackgroundStreamKind.chat,
+      startedAt: startedAt,
+    );
+    final recording = buildBackgroundStreamLeasesForTesting(
+      const ['note-recording'],
+      requiresMicrophone: true,
+      kind: BackgroundStreamKind.voice,
+      startedAt: startedAt,
+    );
+
+    handler.debugSetActiveLeases([...readAloud, ...recording]);
+    check(handler.hasActiveStreams).isTrue();
+    check(handler.hasActiveReplyStreams).isFalse();
+
+    handler.debugSetActiveLeases([
+      ...readAloud,
+      ...buildBackgroundStreamLeasesForTesting(
+        const ['chat-stream-assistant-1'],
+        requiresMicrophone: false,
+        kind: BackgroundStreamKind.chat,
+        startedAt: startedAt,
+        isReply: true,
+      ),
+    ]);
+    check(handler.hasActiveReplyStreams).isTrue();
   });
 
   test(

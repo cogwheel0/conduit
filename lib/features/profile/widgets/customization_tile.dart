@@ -16,6 +16,7 @@ class CustomizationTile extends StatelessWidget {
     this.onTap,
     this.showChevron = true,
     this.subtitleMaxLines = 2,
+    this.toggled,
   });
 
   final Widget? leading;
@@ -28,6 +29,9 @@ class CustomizationTile extends StatelessWidget {
   final VoidCallback? onTap;
   final bool showChevron;
   final int subtitleMaxLines;
+
+  /// The switch state to announce when the tile toggles a setting.
+  final bool? toggled;
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +46,7 @@ class CustomizationTile extends StatelessWidget {
         trailing: trailing,
         onTap: onTap,
         showChevron: showChevron,
+        toggled: toggled,
       ),
     );
   }

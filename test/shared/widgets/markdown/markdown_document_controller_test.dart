@@ -1,9 +1,9 @@
-import 'package:conduit/core/services/worker_manager.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/shared/widgets/markdown/compiled_markdown_document.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_document_controller.dart';
-import 'package:conduit/shared/widgets/markdown/streaming_markdown_preparation.dart';
+import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _RecordingIncrementalMarkdownCompileService

@@ -1,5 +1,6 @@
 import '../../l10n/app_localizations.dart';
-import '../services/settings_service.dart';
+
+import 'package:conduit_core/services/settings_service.dart';
 
 const ttsSystemDefaultVoiceId = '__system_default__';
 

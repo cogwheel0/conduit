@@ -2,6 +2,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import 'settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 
 /// Expandable card widget for collapsible settings sections.
@@ -40,20 +41,7 @@ class ExpandableCardState extends State<ExpandableCard> {
     return UtilityDisclosureSection(
       title: widget.title,
       subtitle: widget.subtitle,
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: theme.buttonPrimary.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppBorderRadius.small),
-        ),
-        alignment: Alignment.center,
-        child: Icon(
-          widget.icon,
-          color: theme.buttonPrimary,
-          size: IconSize.medium,
-        ),
-      ),
+      leading: SettingsIconBadge(icon: widget.icon, color: theme.buttonPrimary),
       expanded: _isExpanded,
       onChanged: (_) => _toggle(),
       child: Column(

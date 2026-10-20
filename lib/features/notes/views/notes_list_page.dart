@@ -1,3 +1,5 @@
+import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
+
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -11,13 +13,18 @@ import 'package:intl/intl.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
-import '../../../core/models/note.dart';
-import '../../../core/providers/app_providers.dart';
-import '../../../core/services/navigation_service.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+
+import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
 import '../../../shared/utils/locale_display_formatters.dart';
-import '../../../shared/widgets/markdown/markdown_preprocessor.dart';
+
+import 'package:conduit_markdown/conduit_markdown.dart';
+
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/conduit_loading.dart';
@@ -97,6 +104,9 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
   @override
   Widget build(BuildContext context) {
+    // The Share action depends on this; watching rebuilds the menu when the
+    // account's permissions arrive or change.
+    ref.watch(workspaceCapabilitiesProvider);
     // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
@@ -323,13 +333,13 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: theme.buttonPrimary.withValues(alpha: 0.12),
+              color: theme.surfaceContainer,
               borderRadius: BorderRadius.circular(AppBorderRadius.pill),
             ),
             child: Text(
               LocaleDisplayFormatters.integer(context, count),
               style: AppTypography.labelMediumStyle.copyWith(
-                color: theme.buttonPrimary.withValues(alpha: 0.9),
+                color: theme.textSecondary,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -399,13 +409,13 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: theme.buttonPrimary.withValues(alpha: 0.12),
+                color: theme.surfaceContainer,
                 borderRadius: BorderRadius.circular(AppBorderRadius.pill),
               ),
               child: Text(
                 LocaleDisplayFormatters.integer(context, count),
                 style: AppTypography.labelMediumStyle.copyWith(
-                  color: theme.buttonPrimary.withValues(alpha: 0.9),
+                  color: theme.textSecondary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -421,7 +431,15 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
     final sidebarTheme = context.sidebarTheme;
     final l10n = AppLocalizations.of(context)!;
 
-    final timeFormat = DateFormat.jm();
+    final timeFormat = MediaQuery.alwaysUse24HourFormatOf(context)
+        ? DateFormat.Hm()
+        : DateFormat.jm();
+    final accountId = ref.watch(
+      currentUserProvider2.select((user) => user?.id),
+    );
+    final ownerName = noteSharedOwner(note, accountId: accountId)?.name?.trim();
+    final readOnly =
+        noteWriteAccess(note, accountId: accountId) == NoteWriteAccess.denied;
     final dateFormat = DateFormat.MMMd();
     final isToday = _isToday(note.updatedDateTime);
     final timeText = isToday
@@ -436,7 +454,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
 
     // Compute opaque background for proper context menu snapshot rendering
     final cardBackground = Color.alphaBlend(
-      sidebarTheme.accent.withValues(alpha: 0.5),
+      sidebarTheme.tint.withValues(alpha: 0.5),
       sidebarTheme.background,
     );
 
@@ -485,7 +503,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: sidebarTheme.accent,
+                      color: sidebarTheme.tint,
                       borderRadius: BorderRadius.circular(AppBorderRadius.sm),
                       border: Border.all(
                         color: sidebarTheme.border.withValues(alpha: 0.2),
@@ -522,6 +540,22 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                                 semanticsLabel: title,
                               ),
                             ),
+                            if (readOnly) ...[
+                              const SizedBox(width: Spacing.xs),
+                              Icon(
+                                Platform.isIOS
+                                    ? CupertinoIcons.lock
+                                    : Icons.lock_outline,
+                                key: ValueKey<String>(
+                                  'note-card-read-only-${note.id}',
+                                ),
+                                color: sidebarTheme.foreground.withValues(
+                                  alpha: 0.5,
+                                ),
+                                size: 14,
+                                semanticLabel: l10n.readOnly,
+                              ),
+                            ],
                             if (note.isPinned) ...[
                               const SizedBox(width: Spacing.xs),
                               Icon(
@@ -569,8 +603,8 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            if (note.user != null &&
-                                note.user!.name != null) ...[
+                            // The owner is named only on someone else's note.
+                            if (ownerName != null) ...[
                               const SizedBox(width: Spacing.sm),
                               Text(
                                 '·',
@@ -583,7 +617,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
                               const SizedBox(width: Spacing.sm),
                               Flexible(
                                 child: Text(
-                                  note.user!.name!,
+                                  l10n.sharedFolderOwner(ownerName),
                                   style: AppTypography.labelMediumStyle
                                       .copyWith(
                                         color: sidebarTheme.foreground
@@ -657,7 +691,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: sidebarTheme.accent.withValues(alpha: 0.6),
+                color: sidebarTheme.tint.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(AppBorderRadius.lg),
               ),
               child: Icon(
@@ -752,7 +786,7 @@ class _NotesListPageState extends ConsumerState<NotesListPage> {
               width: 64,
               height: 64,
               decoration: BoxDecoration(
-                color: sidebarTheme.accent.withValues(alpha: 0.6),
+                color: sidebarTheme.tint.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(AppBorderRadius.lg),
               ),
               child: Icon(
