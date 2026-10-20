@@ -52,6 +52,15 @@ class VoiceInputService implements VoiceModeInput {
   static const Duration _localeFetchTimeout = Duration(seconds: 2);
   static const Duration _vadDisposeCooldown = Duration(milliseconds: 140);
   static const Duration _localRecognitionMaxDuration = Duration(minutes: 5);
+
+  /// How long server-STT listening may run without a single speech-positive
+  /// VAD frame before the listen is abandoned and restarted. It is reset on
+  /// every speech-positive VAD frame, so it can only fire while the stream
+  /// has been completely idle in terms of speech — meaning nothing was
+  /// captured and there is nothing to discard. Must stay above the largest
+  /// configurable voice silence duration (5 s) so it can never overtake the
+  /// natural speech-end event during a pause.
+  static const Duration _vadIdleStopTimeout = Duration(seconds: 10);
   static const Duration _nativeDictationFinalSettleDelay = Duration(
     milliseconds: 900,
   );
@@ -101,7 +110,16 @@ class VoiceInputService implements VoiceModeInput {
       _intensityController?.stream ?? const Stream<int>.empty();
   int _lastIntensity = 0;
   Timer? _intensityDecayTimer;
-  List<double>? _vadPendingSamples;
+
+  /// Finished VAD speech segments collected during the current server-STT
+  /// listen. Every segment is appended as the VAD emits it; the whole
+  /// collection is concatenated and transcribed once when the turn ends.
+  final List<List<double>> _vadPendingSegments = <List<double>>[];
+
+  /// Set while a server-STT stop is in progress so the speech-end event the
+  /// VAD flushes on stop (`submitUserSpeechOnPause`) is accepted and appended
+  /// even though listening has already been marked stopped.
+  bool _stoppingServerCapture = false;
 
   Stream<String> get textStream =>
       _textStreamController?.stream ?? const Stream<String>.empty();
@@ -109,6 +127,7 @@ class VoiceInputService implements VoiceModeInput {
       _transcriptEventController?.stream ??
       const Stream<VoiceTranscriptEvent>.empty();
   Timer? _autoStopTimer;
+  Timer? _vadIdleTimer;
   StreamSubscription<List<double>>? _vadSpeechEndSub;
   StreamSubscription<({double isSpeech, double notSpeech, List<double> frame})>?
   _vadFrameSub;
@@ -721,12 +740,12 @@ class VoiceInputService implements VoiceModeInput {
     } else if (shouldUseServer) {
       _usingServerStt = true;
       _listeningSpeech = _serverSpeech();
+      // No unconditional wall-clock auto-stop for server STT: the idle
+      // watchdog (see _vadIdleStopTimeout) resets on every speech-positive
+      // VAD frame, so an uninterrupted take is never truncated or silently
+      // restarted mid-speech.
       _autoStopTimer?.cancel();
-      _autoStopTimer = Timer(const Duration(seconds: 90), () {
-        if (_isListening) {
-          unawaited(_stopListening());
-        }
-      });
+      _autoStopTimer = null;
       Future(() async {
         try {
           final resumed =
@@ -869,11 +888,16 @@ class VoiceInputService implements VoiceModeInput {
 
     if (_usingServerStt) {
       _isListening = false;
-      await _stopVadRecording(
-        holdRecorderForResponse: holdServerRecorderForResponseWait,
-      );
-      final samples = _vadPendingSamples;
-      _vadPendingSamples = null;
+      _stoppingServerCapture = true;
+      List<double>? samples;
+      try {
+        await _stopVadRecording(
+          holdRecorderForResponse: holdServerRecorderForResponseWait,
+        );
+        samples = _takePendingVadSegments();
+      } finally {
+        _stoppingServerCapture = false;
+      }
       final shouldProcessSamples = _shouldProcessServerSamples(
         hasTextConsumer: _textStreamController?.hasListener ?? false,
         hasTranscriptEventConsumer:
@@ -955,7 +979,7 @@ class VoiceInputService implements VoiceModeInput {
       return false;
     }
 
-    _vadPendingSamples = null;
+    _vadPendingSegments.clear();
     await _setupVadStreams(vad);
     if (lostOwnership()) return false;
     return recorderSession.resumeForwarding(
@@ -980,7 +1004,7 @@ class VoiceInputService implements VoiceModeInput {
     if (lostOwnership()) return;
     await _disposeVadHandler();
     if (lostOwnership()) return;
-    _vadPendingSamples = null;
+    _vadPendingSegments.clear();
 
     // Create fresh native resources for every session so audio-focus failures
     // cannot poison the next recording attempt.
@@ -1088,12 +1112,54 @@ class VoiceInputService implements VoiceModeInput {
     );
   }
 
+  /// Rearms the no-speech watchdog. Called when VAD streams are set up and on
+  /// every speech-positive VAD frame, so it can only fire when no speech has
+  /// been detected for [_vadIdleStopTimeout] — i.e. the user never started
+  /// talking and the buffer is empty.
+  void _restartVadIdleTimer() {
+    _vadIdleTimer?.cancel();
+    final generation = _listenGeneration;
+    _vadIdleTimer = Timer(_vadIdleStopTimeout, () {
+      if (_isListening &&
+          _usingServerStt &&
+          generation == _listenGeneration) {
+        unawaited(
+          _stopListening(
+            holdServerRecorderForResponseWait:
+                _holdServerRecorderForResponseWait,
+          ),
+        );
+      }
+    });
+  }
+
+  void _cancelVadIdleTimer() {
+    _vadIdleTimer?.cancel();
+    _vadIdleTimer = null;
+  }
+
+  /// Takes the VAD segments collected during this listen and returns them
+  /// concatenated in chronological order (or null when nothing was spoken).
+  List<double>? _takePendingVadSegments() {
+    if (_vadPendingSegments.isEmpty) return null;
+    final combined = <double>[
+      for (final segment in _vadPendingSegments) ...segment,
+    ];
+    _vadPendingSegments.clear();
+    return combined;
+  }
+
   Future<void> _setupVadStreams(VadHandler vad) async {
     await _vadSpeechEndSub?.cancel();
     _vadSpeechEndSub = vad.onSpeechEnd.listen((samples) {
-      if (!_isListening || !_usingServerStt) return;
+      final stopping = _stoppingServerCapture;
+      if ((!_isListening && !stopping) || !_usingServerStt) return;
       if (samples.isEmpty) return;
-      _vadPendingSamples = samples;
+      // Speech-end closes the turn (silence exceeded the configured voice
+      // silence duration): keep the samples for transcription and stop. A
+      // flush emitted while a stop is already running only joins the
+      // collection, so the in-flight partial is never dropped.
+      _vadPendingSegments.add(samples);
       if (_isListening) {
         unawaited(
           _stopListening(
@@ -1107,6 +1173,9 @@ class VoiceInputService implements VoiceModeInput {
     await _vadFrameSub?.cancel();
     _vadFrameSub = vad.onFrameProcessed.listen((frameData) {
       if (!_isListening) return;
+      if (frameData.isSpeech >= _vadPositiveSpeechThreshold) {
+        _restartVadIdleTimer();
+      }
       final intensity = _intensityFromVadFrame(frameData.frame);
       _lastIntensity = intensity;
       try {
@@ -1121,9 +1190,12 @@ class VoiceInputService implements VoiceModeInput {
         unawaited(_stopListening());
       }
     });
+
+    _restartVadIdleTimer();
   }
 
   Future<void> _stopVadRecording({bool holdRecorderForResponse = false}) async {
+    _cancelVadIdleTimer();
     final vad = _vadHandler;
     final recorderSession = _serverVadRecorderSession;
     var recorderHeld = false;
@@ -1380,6 +1452,7 @@ class VoiceInputService implements VoiceModeInput {
   Future<void> dispose() async {
     await stopListening();
     _cancelNativeDictationSettle();
+    _cancelVadIdleTimer();
     await _disposeVadHandler();
     await _nativeSttSub?.cancel();
     _nativeSttSub = null;
