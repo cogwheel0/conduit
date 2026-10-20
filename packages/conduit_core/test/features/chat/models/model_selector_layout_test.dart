@@ -17,6 +17,12 @@ void main() {
     );
     expect(ordinary.featured.map((model) => model.id), ['flash']);
     expect(ordinary.more, isEmpty);
+    final pinnedCurrent = buildModelSelectorLayout(
+      models: [legacy, current],
+      pinnedModelIds: const ['flash'],
+      defaultModelId: 'legacy',
+    );
+    expect(pinnedCurrent.more.map((model) => model.id), ['legacy']);
     for (final layout in [
       buildModelSelectorLayout(
         models: [legacy, current],

@@ -52,7 +52,8 @@ ModelSelectorLayout buildModelSelectorLayout({
     more: List.unmodifiable(
       all.where(
         (model) =>
-            isOrdinaryModelChoice(model) && !featuredIds.contains(model.id),
+            (isOrdinaryModelChoice(model) || model.id == defaultModelId) &&
+            !featuredIds.contains(model.id),
       ),
     ),
   );
