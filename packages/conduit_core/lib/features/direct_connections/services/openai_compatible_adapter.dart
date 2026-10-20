@@ -178,17 +178,16 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         final outputModalities = architecture is Map
             ? architecture['output_modalities']
             : null;
-        // Keep media routes and explicit manual IDs; only ordinary MiniMax
-        // text discovery is limited to the current, gateway-verified routes.
-        if (profile.isOpenRouter &&
+        // Retain legacy routes in the registry so saved selections resolve.
+        // The picker hides them only from ordinary new choices.
+        final legacyMiniMaxText =
+            profile.isOpenRouter &&
             id.startsWith('minimax/') &&
             (outputModalities == null ||
                 (outputModalities is List &&
                     outputModalities.length == 1 &&
                     outputModalities.single == 'text')) &&
-            !kOpenRouterMiniMaxModelIds.contains(id)) {
-          continue;
-        }
+            !kOpenRouterMiniMaxModelIds.contains(id);
         final hasAdvertisedModalities =
             map?['is_multimodal'] != null || inputModalities != null;
         final advertisedMultimodal =
@@ -215,6 +214,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             // catalog omits modalities (as LM Studio catalogs often do).
             isMultimodal: hasAdvertisedModalities ? advertisedMultimodal : true,
             capabilities: {
+              if (legacyMiniMaxText) 'ordinary_model_choice': false,
               if (hasAdvertisedModalities)
                 'advertised_multimodal': advertisedMultimodal,
               if (profile.isOpenRouter)

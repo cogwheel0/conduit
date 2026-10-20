@@ -4,6 +4,38 @@ import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('legacy discovery bindings stay available only for saved choices', () {
+    final legacy = Model(
+      id: 'legacy',
+      name: 'Legacy',
+      capabilities: {'ordinary_model_choice': false},
+    );
+    final current = Model(id: 'flash', name: 'Flash');
+    final ordinary = buildModelSelectorLayout(
+      models: [legacy, current],
+      pinnedModelIds: const [],
+    );
+    expect(ordinary.featured.map((model) => model.id), ['flash']);
+    expect(ordinary.more, isEmpty);
+    for (final layout in [
+      buildModelSelectorLayout(
+        models: [legacy, current],
+        pinnedModelIds: const ['legacy'],
+      ),
+      buildModelSelectorLayout(
+        models: [legacy, current],
+        pinnedModelIds: const [],
+        defaultModelId: 'legacy',
+      ),
+      buildModelSelectorLayout(
+        models: [legacy, current],
+        pinnedModelIds: const [],
+        selectedModelId: 'legacy',
+      ),
+    ]) {
+      expect(layout.featured.map((model) => model.id), contains('legacy'));
+    }
+  });
   final models = List<Model>.generate(
     7,
     (index) => Model(id: 'model-$index', name: 'Model $index'),

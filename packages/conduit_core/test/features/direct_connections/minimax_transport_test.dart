@@ -317,11 +317,17 @@ void main() {
       expect(models.map((model) => model.id), [
         'other/provider',
         'minimax/minimax-m3.1-flash:free',
+        'minimax/minimax-m2.7',
         'minimax/image-model',
         'minimax/minimax-m3',
       ]);
       expect(models[1].capabilities['context_length'], 262144);
-      expect(models[3].capabilities['context_length'], 524288);
+      expect(models[2].capabilities['ordinary_model_choice'], false);
+      expect(
+        models[3].capabilities.containsKey('ordinary_model_choice'),
+        false,
+      );
+      expect(models[4].capabilities['context_length'], 524288);
     },
   );
 
