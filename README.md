@@ -297,6 +297,22 @@ dart run build_runner build
 flutter run -d ios   # or: flutter run -d android
 ```
 
+For MiniMax direct connections, choose **MiniMax** or **MiniMax (China)** in
+Settings → Direct Connections and enter the API key for that region. New
+connections offer `MiniMax-M3.1-Flash` first, followed by `MiniMax-M3`; saved and
+manual model IDs are preserved. The presets use Chat Completions. MiniMax's
+international API also documents Responses; regional Responses availability is
+not implied by the China preset.
+
+Flash requires adaptive thinking, with `low`, `medium`, `high`, `xhigh`, or `max`
+effort (the provider defaults to `max`). Unsupported Flash controls are rejected
+before sending a request. Responses requests replay client-side history rather
+than relying on server-side storage. OpenRouter discovery uses its advertised
+`minimax/minimax-m3.1-flash:free` and `minimax/minimax-m3` routes and metadata.
+See the [MiniMax OpenAI contract](https://platform.minimax.io/docs/api-reference/text-openai-api.md),
+[Responses contract](https://platform.minimax.io/docs/api-reference/responses-create.md),
+and [OpenRouter catalog](https://openrouter.ai/api/v1/models).
+
 Clone recursively and run `build_runner`. The Mermaid renderer is a submodule,
 and generated Dart files are git-ignored.
 

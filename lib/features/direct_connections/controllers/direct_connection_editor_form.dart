@@ -116,12 +116,10 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       _adapterKey = profile.adapterKey;
       _providerPreset = profile.isOpenRouter
           ? kOpenRouterProviderPreset
-          : profile.adapterKey == kOpenAiCompatibleAdapterKey &&
-                profile.baseUrl == kMiniMaxApiBaseUrl
-          ? kMiniMaxProviderPreset
-          : profile.adapterKey == kOpenAiCompatibleAdapterKey &&
-                profile.baseUrl == kMiniMaxCnApiBaseUrl
-          ? kMiniMaxCnProviderPreset
+          : profile.isMiniMax
+          ? (Uri.parse(profile.baseUrl.trim()).host == 'api.minimaxi.com'
+                ? kMiniMaxCnProviderPreset
+                : kMiniMaxProviderPreset)
           : profile.adapterKey;
       _openAiApiMode = profile.openAiApiMode;
       _authentication =
@@ -175,8 +173,12 @@ final class DirectConnectionEditorForm extends ChangeNotifier {
       };
       if (value == kMiniMaxProviderPreset ||
           value == kMiniMaxCnProviderPreset) {
-        models.text = kMiniMaxModelIds.join('\n');
-      } else if (wasMiniMax && models.text == kMiniMaxModelIds.join('\n')) {
+        if (mode.isNew && models.text.trim().isEmpty) {
+          models.text = kMiniMaxModelIds.join('\n');
+        }
+      } else if (mode.isNew &&
+          wasMiniMax &&
+          models.text == kMiniMaxModelIds.join('\n')) {
         models.clear();
       }
       if (mode.isNew &&

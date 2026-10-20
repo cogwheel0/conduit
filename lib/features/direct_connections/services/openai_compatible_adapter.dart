@@ -123,6 +123,12 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
   ) async {
     final manualModels = directManualModels(profile);
     if (manualModels != null) return manualModels;
+    if (profile.isMiniMax) {
+      return [
+        for (final id in kMiniMaxModelIds)
+          DirectRemoteModel(id: id, isMultimodal: true),
+      ];
+    }
 
     final client = _client(profile);
     final dio = client.dio;
@@ -170,6 +176,17 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         final outputModalities = architecture is Map
             ? architecture['output_modalities']
             : null;
+        // Keep media routes and explicit manual IDs; only ordinary MiniMax
+        // text discovery is limited to the current, gateway-verified routes.
+        if (profile.isOpenRouter &&
+            id.startsWith('minimax/') &&
+            (outputModalities == null ||
+                (outputModalities is List &&
+                    outputModalities.length == 1 &&
+                    outputModalities.single == 'text')) &&
+            !kOpenRouterMiniMaxModelIds.contains(id)) {
+          continue;
+        }
         final hasAdvertisedModalities =
             map?['is_multimodal'] != null || inputModalities != null;
         final advertisedMultimodal =
@@ -212,6 +229,21 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           ),
         );
       }
+      if (profile.isOpenRouter) {
+        final indices = [
+          for (var i = 0; i < models.length; i++)
+            if (kOpenRouterMiniMaxModelIds.contains(models[i].id)) i,
+        ];
+        final current = [for (final i in indices) models[i]]
+          ..sort(
+            (a, b) => kOpenRouterMiniMaxModelIds
+                .indexOf(a.id)
+                .compareTo(kOpenRouterMiniMaxModelIds.indexOf(b.id)),
+          );
+        for (var i = 0; i < indices.length; i++) {
+          models[indices[i]] = current[i];
+        }
+      }
       return models;
     } catch (error) {
       final normalized = normalizeDirectProviderError(error);
@@ -236,7 +268,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       if (profile.isOpenRouter) {
         await _validateOpenRouterKey(profile);
       }
-      if (profile.manualModelIds.isNotEmpty) {
+      if (profile.manualModelIds.isNotEmpty || profile.isMiniMax) {
         return await _probeManualConnection(profile);
       }
       final models = await listModels(profile);
@@ -294,7 +326,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           ((status >= 200 && status < 300) || status == 405)) {
         return DirectConnectionProbe(
           reachable: true,
-          modelCount: profile.manualModelIds.length,
+          modelCount: profile.manualModelIds.isEmpty && profile.isMiniMax
+              ? kMiniMaxModelIds.length
+              : profile.manualModelIds.length,
         );
       }
       return DirectConnectionProbe(
@@ -1509,8 +1543,20 @@ Map<String, dynamic> _chatRequestBody(
     ...core,
     'stream': true,
   };
+  if (profile.isMiniMax ||
+      (profile.isOpenRouter && request.remoteModelId.startsWith('minimax/'))) {
+    final serializedMessages = body['messages'] as List;
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].role == 'assistant' && messages[i].reasoning != null) {
+        (serializedMessages[i] as Map)['reasoning_content'] =
+            messages[i].reasoning;
+      }
+    }
+  }
+  if (profile.isMiniMax) _validateMiniMaxRequest(body, profile);
   if (profile.isOpenRouter) {
     _normalizeOpenRouterReasoning(body);
+    _validateOpenRouterMiniMaxRequest(body);
     _applyOpenRouterRequestFeatures(body, request, messages);
   } else if (request.enableWebSearch || request.enableImageGeneration) {
     throw const DirectProviderException(
@@ -1722,6 +1768,21 @@ Map<String, dynamic> _responsesRequestBody(
         item['role'] = messages[index].role;
       }
     }
+    if (profile.isMiniMax) {
+      core['input'] = <dynamic>[
+        for (var index = 0; index < messages.length; index++) ...[
+          if (messages[index].role == 'assistant' &&
+              messages[index].reasoning != null)
+            <String, dynamic>{
+              'type': 'reasoning',
+              'summary': [
+                {'type': 'summary_text', 'text': messages[index].reasoning},
+              ],
+            },
+          input[index],
+        ],
+      ];
+    }
   }
   final body = <String, dynamic>{
     ...request.parameters,
@@ -1744,8 +1805,10 @@ Map<String, dynamic> _responsesRequestBody(
       ]
       ..['parallel_tool_calls'] = false;
   }
+  if (profile.isMiniMax) _validateMiniMaxRequest(body, profile);
   if (profile.isOpenRouter) {
     _normalizeOpenRouterReasoning(body);
+    _validateOpenRouterMiniMaxRequest(body);
   }
   if (!profile.isOpenRouter &&
       (request.enableWebSearch || request.enableImageGeneration)) {
@@ -1754,6 +1817,63 @@ Map<String, dynamic> _responsesRequestBody(
     );
   }
   return body;
+}
+
+const _miniMaxFlashEfforts = {'low', 'medium', 'high', 'xhigh', 'max'};
+
+void _validateMiniMaxRequest(
+  Map<String, dynamic> body,
+  DirectConnectionProfile profile,
+) {
+  if (!kMiniMaxModelIds.contains(body['model'])) return;
+  final responses = profile.openAiApiMode == DirectOpenAiApiMode.responses;
+  if (responses) {
+    // MiniMax does not store conversations; every round replays full input.
+    body.remove('previous_response_id');
+    body.remove('conversation');
+    body['store'] = false;
+    final effort = body.remove('reasoning_effort');
+    if (effort != null) {
+      final reasoning = body['reasoning'];
+      body['reasoning'] = <String, dynamic>{
+        if (reasoning is Map) ...Map<String, dynamic>.from(reasoning),
+        'effort': effort,
+      };
+    }
+  }
+  if (body['model'] != 'MiniMax-M3.1-Flash') return;
+  final thinking = body['thinking'];
+  final reasoning = body['reasoning'];
+  final effort = responses && reasoning is Map
+      ? reasoning['effort']
+      : body['reasoning_effort'];
+  if ((thinking != null &&
+          (thinking is! Map || thinking['type'] != 'adaptive')) ||
+      (effort != null && !_miniMaxFlashEfforts.contains(effort)) ||
+      (reasoning is Map &&
+          (reasoning['effort'] == 'none' || reasoning['enabled'] == false)) ||
+      body['reasoning_split'] == false ||
+      body.containsKey('service_tier')) {
+    throw const DirectProviderException(
+      'MiniMax-M3.1-Flash requires adaptive thinking with low, medium, high, '
+      'xhigh, or max effort, and does not support service_tier or '
+      'reasoning_split=false.',
+    );
+  }
+}
+
+void _validateOpenRouterMiniMaxRequest(Map<String, dynamic> body) {
+  if (body['model'] != kOpenRouterMiniMaxModelIds.first) return;
+  final reasoning = body['reasoning'];
+  if (reasoning is Map &&
+      (reasoning['enabled'] == false ||
+          (reasoning['effort'] != null &&
+              !_miniMaxFlashEfforts.contains(reasoning['effort'])))) {
+    throw const DirectProviderException(
+      'MiniMax-M3.1-Flash requires reasoning with low, medium, high, xhigh, '
+      'or max effort.',
+    );
+  }
 }
 
 void _normalizeOpenRouterReasoning(Map<String, dynamic> body) {
