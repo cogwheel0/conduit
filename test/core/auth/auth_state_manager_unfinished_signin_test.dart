@@ -223,6 +223,7 @@ final class _CommittingStorage extends _Storage {
     required FutureOr<void> Function() publish,
     Map<String, String>? rememberedCredentials,
     Map<String, String>? expectedSavedCredentials,
+    BrowserSessionCommit? browserSession,
     void Function()? onRollbackUncertain,
   }) async {
     if (!canCommit()) return false;

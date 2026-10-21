@@ -51,6 +51,7 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/server_about_info.dart';

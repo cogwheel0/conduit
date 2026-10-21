@@ -13,6 +13,7 @@ import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
+import 'browser_sign_in_config.dart';
 import 'server_config.dart';
 
 const _stringMapEquality = MapEquality<String, String>();
@@ -193,6 +194,7 @@ final class OpenWebUiServer {
     required this.id,
     required this.name,
     required List<OpenWebUiEndpoint> endpoints,
+    this.browserSignIn,
   }) : endpoints = List.unmodifiable(endpoints);
 
   final String id;
@@ -200,6 +202,20 @@ final class OpenWebUiServer {
 
   /// The routes to this server in the user's order of preference. Never empty.
   final List<OpenWebUiEndpoint> endpoints;
+
+  /// How its accounts sign in through the system browser, when set up. Shared
+  /// by every account and route of the server, and never projected onto a
+  /// [ServerConfig].
+  final BrowserSignInConfig? browserSignIn;
+
+  /// This server with [endpoints] in place of its routes, keeping the rest.
+  OpenWebUiServer withEndpoints(List<OpenWebUiEndpoint> endpoints) =>
+      OpenWebUiServer(
+        id: id,
+        name: name,
+        endpoints: endpoints,
+        browserSignIn: browserSignIn,
+      );
 
   OpenWebUiEndpoint? endpoint(String id) =>
       endpoints.where((endpoint) => endpoint.id == id).firstOrNull;
@@ -248,6 +264,7 @@ final class OpenWebUiServer {
     'id': id,
     'name': name,
     'endpoints': [for (final endpoint in endpoints) endpoint.toJson()],
+    if (browserSignIn != null) 'browserSignIn': browserSignIn!.toJson(),
   };
 
   factory OpenWebUiServer.fromJson(Map<String, Object?> json) {
@@ -268,6 +285,9 @@ final class OpenWebUiServer {
       id: _requiredString(json, 'id', 'server'),
       name: _optionalString(json['name']) ?? '',
       endpoints: endpoints,
+      // Optional, and never a reason to refuse the registry: one this build
+      // cannot read is dropped, and the server is set up again.
+      browserSignIn: BrowserSignInConfig.tryFromJson(json['browserSignIn']),
     );
   }
 
@@ -276,13 +296,15 @@ final class OpenWebUiServer {
       other is OpenWebUiServer &&
       other.id == id &&
       other.name == name &&
+      other.browserSignIn == browserSignIn &&
       const ListEquality<OpenWebUiEndpoint>().equals(
         other.endpoints,
         endpoints,
       );
 
   @override
-  int get hashCode => Object.hash(id, name, Object.hashAll(endpoints));
+  int get hashCode =>
+      Object.hash(id, name, Object.hashAll(endpoints), browserSignIn);
 }
 
 /// One signed-in (or signing-in) account on a saved server.
@@ -791,6 +813,7 @@ final class _ServerDraft {
     id: original.id,
     name: _name,
     endpoints: currentEndpoints.toList(growable: false),
+    browserSignIn: original.browserSignIn,
   );
 }
 
