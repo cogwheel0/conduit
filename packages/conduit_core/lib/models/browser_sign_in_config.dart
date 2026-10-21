@@ -6,7 +6,9 @@ final RegExp browserSignInProviderPattern = RegExp(r'^[a-z0-9_-]+$');
 
 /// The comparable form of an issuer typed as an issuer or as its discovery
 /// document's URL: trimmed, without the well-known suffix or a trailing
-/// slash.
+/// slash, and with the scheme and host in lower case and a default port
+/// left out, as discovery compares them. A value that is not an absolute
+/// URL is only trimmed and stripped.
 String normalizeBrowserSignInIssuer(String value) {
   const suffix = '/.well-known/openid-configuration';
   var issuer = value.trim();
@@ -16,7 +18,17 @@ String normalizeBrowserSignInIssuer(String value) {
   while (issuer.endsWith('/')) {
     issuer = issuer.substring(0, issuer.length - 1);
   }
-  return issuer;
+  final uri = Uri.tryParse(issuer);
+  if (uri == null || !uri.hasScheme || uri.host.isEmpty) return issuer;
+  final scheme = uri.scheme.toLowerCase();
+  final defaultPort = switch (scheme) {
+    'https' => 443,
+    'http' => 80,
+    _ => null,
+  };
+  final port = uri.hasPort && uri.port != defaultPort ? ':${uri.port}' : '';
+  final query = uri.hasQuery ? '?${uri.query}' : '';
+  return '$scheme://${uri.host.toLowerCase()}$port${uri.path}$query';
 }
 
 /// How a server's accounts sign in through the system browser: the Open WebUI
