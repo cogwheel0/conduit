@@ -1383,9 +1383,27 @@ class AuthStateManager extends _$AuthStateManager {
 
   /// Checks [config] against the active account's server, for the Test
   /// button of the browser sign-in settings. Signs nobody in.
+  ///
+  /// [server], when given and not the active account, is checked through a
+  /// client of its own instead: a server being added is not saved, nor made
+  /// the active account, until its first sign-in.
   Future<BrowserSignInDiagnosis> diagnoseBrowserSignIn(
-    BrowserSignInConfig config,
-  ) async {
+    BrowserSignInConfig config, {
+    ServerConfig? server,
+  }) async {
+    final service = ref.read(browserSignInServiceProvider);
+    if (server != null &&
+        ref.read(apiServiceProvider)?.serverConfig.id != server.id) {
+      final api = ref.read(savedCredentialAuthApiFactoryProvider)(
+        serverConfig: server,
+        workerManager: ref.read(workerManagerProvider),
+      );
+      try {
+        return await service.diagnose(api: api, config: config);
+      } finally {
+        api.dispose();
+      }
+    }
     await _ensureApiServiceAvailable();
     final api = ref.read(apiServiceProvider);
     if (api == null) {
@@ -1394,9 +1412,7 @@ class AuthStateManager extends _$AuthStateManager {
         exchangeFailure: BrowserSignInFailure.network,
       );
     }
-    return ref
-        .read(browserSignInServiceProvider)
-        .diagnose(api: api, config: config);
+    return service.diagnose(api: api, config: config);
   }
 
   /// Saves [config] as the browser sign-in settings of [accountId]'s server,

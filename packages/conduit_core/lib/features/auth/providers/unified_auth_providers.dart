@@ -136,10 +136,12 @@ class AuthActions {
     );
   }
 
-  /// Checks [config] against the active account's server: the Test button.
+  /// Checks [config] against the active account's server, or [server] when
+  /// it is one being added: the Test button.
   Future<BrowserSignInDiagnosis> diagnoseBrowserSignIn(
-    BrowserSignInConfig config,
-  ) => _auth.diagnoseBrowserSignIn(config);
+    BrowserSignInConfig config, {
+    ServerConfig? server,
+  }) => _auth.diagnoseBrowserSignIn(config, server: server);
 
   /// Saves, or with a null [config] removes, the browser sign-in settings of
   /// [accountId]'s server.

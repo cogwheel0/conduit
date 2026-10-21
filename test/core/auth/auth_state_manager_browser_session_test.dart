@@ -431,6 +431,26 @@ void main() {
           .has((c) => c.session, 'session')
           .equals(_session);
     });
+
+    test('Test checks a server being added through a client of its own, '
+        'and the active account through its own', () async {
+      final rig = await _Rig.start();
+      const added = ServerConfig(
+        id: 'account-new',
+        name: 'New',
+        url: 'https://new.example',
+      );
+
+      await rig.auth.diagnoseBrowserSignIn(_config, server: added);
+      await rig.auth.diagnoseBrowserSignIn(_config, server: _server);
+      await rig.auth.diagnoseBrowserSignIn(_config);
+
+      check(rig.service.diagnosed).deepEquals([
+        rig.savedCredentialApi,
+        rig.api,
+        rig.api,
+      ]);
+    });
   });
 
   group('renewing', () {
@@ -1064,6 +1084,16 @@ final class _Service extends BrowserSignInService {
   BrowserSignInException? exchangeError;
   Future<BrowserSignInRenewal> Function()? onRenew;
   int renewals = 0;
+  final diagnosed = <ApiService>[];
+
+  @override
+  Future<BrowserSignInDiagnosis> diagnose({
+    required ApiService api,
+    required BrowserSignInConfig config,
+  }) async {
+    diagnosed.add(api);
+    return const BrowserSignInDiagnosis(issuer: 'https://id.example');
+  }
 
   /// Holds [renewalSettled] until completed, as a renewal in flight would.
   Completer<void>? renewalInFlight;
