@@ -21,6 +21,8 @@ import 'package:conduit_core/services/openwebui_stream_parser.dart';
 import 'package:conduit_core/network/io/public_health_probe.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart'
+    show browserSignInProviderPattern;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
@@ -29,6 +31,7 @@ import 'package:conduit_core/models/knowledge_base_file.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/model_controls.dart';
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/models/oauth_login_probe.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/prompt.dart';

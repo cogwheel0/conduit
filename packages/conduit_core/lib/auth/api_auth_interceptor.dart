@@ -17,6 +17,21 @@ final class ApiAuthSnapshot {
   final int _revision;
 }
 
+/// Why the session endpoint turned a request away, as reported to
+/// [ApiAuthInterceptor.onAuthTokenInvalid].
+enum AuthFailureKind {
+  /// Open WebUI refused the session: a 401 or 403 that is not a web page.
+  sessionRejected,
+
+  /// A web page refused it with a 401 or 403: a reverse proxy in front of
+  /// the server, wanting a sign-in of its own.
+  proxyPage,
+
+  /// A redirect on a server reached with a proxy cookie: the proxy sending
+  /// the request to its sign-in, its session having expired.
+  proxySessionExpired,
+}
+
 /// Consistent authentication interceptor for all API requests
 /// Implements security requirements from OpenAPI specification
 class ApiAuthInterceptor extends Interceptor {
@@ -38,7 +53,7 @@ class ApiAuthInterceptor extends Interceptor {
   final bool Function()? _shouldSuppressCookieCustomHeader;
 
   // Callbacks for auth events
-  void Function()? onAuthTokenInvalid;
+  void Function(AuthFailureKind kind)? onAuthTokenInvalid;
   Future<void> Function()? onTokenInvalidated;
 
   // Public endpoints that don't require authentication. The two-step sign-in
@@ -53,6 +68,14 @@ class ApiAuthInterceptor extends Interceptor {
     '/api/v1/auths/mfa/enroll/confirm',
     '/api/v1/auths/mfa/recover',
   };
+
+  // Public endpoints named by an OAuth provider. A browser sign-in asks the
+  // login route where the provider signs in, and trades the provider's
+  // access token at the exchange route, both before any session exists.
+  static final List<RegExp> _publicEndpointPatterns = [
+    RegExp(r'^/oauth/[a-z0-9_-]+/login$'),
+    RegExp(r'^/api/v1/auths/oauth/[a-z0-9_-]+/token/exchange$'),
+  ];
 
   // Endpoints that have optional authentication (work without but better with)
   static const Set<String> _optionalAuthEndpoints = {
@@ -129,7 +152,8 @@ class ApiAuthInterceptor extends Interceptor {
   }
 
   _EndpointAuthMode _authModeFor(String path) {
-    if (_publicEndpoints.contains(path)) {
+    if (_publicEndpoints.contains(path) ||
+        _publicEndpointPatterns.any((pattern) => pattern.hasMatch(path))) {
       return _EndpointAuthMode.public;
     }
     if (_optionalAuthEndpoints.contains(path)) {
@@ -306,7 +330,13 @@ class ApiAuthInterceptor extends Interceptor {
         when !suppressAuthFailureNotification &&
             responseOwnsCurrentSession &&
             (code == 401 || code == 403)) {
-      _handleAuthorizationError(path: path, statusCode: code);
+      _handleAuthorizationError(
+        path: path,
+        statusCode: code,
+        kind: _answeredWithWebPage(err.response)
+            ? AuthFailureKind.proxyPage
+            : AuthFailureKind.sessionRejected,
+      );
     } else if (statusCode case final code?
         when !suppressAuthFailureNotification &&
             responseOwnsCurrentSession &&
@@ -319,6 +349,7 @@ class ApiAuthInterceptor extends Interceptor {
       // its login page: the proxy session expired (issues #690, #698).
       _notifyAuthFailure(
         '$code redirect on session endpoint - proxy session likely expired',
+        AuthFailureKind.proxySessionExpired,
       );
     }
 
@@ -329,9 +360,17 @@ class ApiAuthInterceptor extends Interceptor {
   bool get hasProxyCookieHeader =>
       customHeaders.keys.any((key) => key.toLowerCase() == 'cookie');
 
+  /// Whether [response] is a web page. Open WebUI answers its API with JSON,
+  /// its refusals included.
+  static bool _answeredWithWebPage(Response<dynamic>? response) =>
+      (response?.headers[Headers.contentTypeHeader] ?? const <String>[]).any(
+        (type) => type.toLowerCase().contains('text/html'),
+      );
+
   void _handleAuthorizationError({
     required String path,
     required int statusCode,
+    required AuthFailureKind kind,
   }) {
     final statusLabel = statusCode == 401 ? 'Unauthorized' : 'Forbidden';
     final authMode = _authModeFor(path);
@@ -341,6 +380,7 @@ class ApiAuthInterceptor extends Interceptor {
       _notifyAuthFailure(
         '$statusCode $statusLabel on required endpoint - '
         'notifying app without clearing token',
+        kind,
       );
       return;
     }
@@ -360,9 +400,9 @@ class ApiAuthInterceptor extends Interceptor {
     }
   }
 
-  void _notifyAuthFailure(String message) {
+  void _notifyAuthFailure(String message, AuthFailureKind kind) {
     DebugLogger.auth(message);
-    onAuthTokenInvalid?.call();
+    onAuthTokenInvalid?.call(kind);
   }
 
   /// Explicitly clear auth token for logout scenarios

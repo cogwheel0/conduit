@@ -128,7 +128,7 @@ abstract class _ApiServiceBase {
   // Public getter for base URL
   String get baseUrl => serverConfig.url;
   // Callback to notify when auth token becomes invalid
-  void Function()? onAuthTokenInvalid;
+  void Function(AuthFailureKind kind)? onAuthTokenInvalid;
   // New callback for the unified auth state manager
   Future<void> Function()? onTokenInvalidated;
   _ApiServiceBase({
