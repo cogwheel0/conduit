@@ -11,6 +11,7 @@ import '../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/ports/browser_auth_port.dart';
 
 import '../../features/auth/views/authentication_page.dart';
 import '../../features/auth/views/backend_chooser_page.dart';
@@ -101,6 +102,9 @@ class RouterNotifier extends ChangeNotifier {
   }
 
   String? redirect(BuildContext context, GoRouterState state) {
+    // A browser sign-in's redirect that launched the app is not a page:
+    // start the app as usual, without it.
+    if (isStrayBrowserAuthCallback(state.uri)) return Routes.splash;
     final location = state.uri.path.isEmpty ? Routes.splash : state.uri.path;
     return resolveRouteRedirect(location, ref.read);
   }

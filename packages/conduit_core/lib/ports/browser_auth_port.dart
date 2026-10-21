@@ -2,6 +2,17 @@
 /// Android's callback activity is registered for exactly this.
 const String browserAuthDefaultRedirect = 'conduit://oauth/callback';
 
+/// Whether [uri] is a browser sign-in redirect that reached the app outside
+/// its browser session: on scheme, host and path, the default redirect.
+///
+/// A sign-in's redirect only counts inside the session that started it, so
+/// one that opens the app (as a cold launch's URL does on iOS, where the
+/// scene's connection options can't be filtered) is stale or forged.
+bool isStrayBrowserAuthCallback(Uri uri) =>
+    uri.scheme.toLowerCase() == 'conduit' &&
+    uri.host.toLowerCase() == 'oauth' &&
+    uri.path == '/callback';
+
 /// Runs a sign-in page in the system browser and returns the redirect it
 /// ends on.
 ///

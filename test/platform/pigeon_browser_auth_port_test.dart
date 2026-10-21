@@ -213,4 +213,22 @@ void main() {
 
     check(result.toString()).not((it) => it.contains('secret-code'));
   });
+
+  test('a sign-in redirect outside its session is told apart', () {
+    check(
+      isStrayBrowserAuthCallback(
+        Uri.parse('conduit://oauth/callback?code=c&state=s'),
+      ),
+    ).isTrue();
+    check(
+      isStrayBrowserAuthCallback(Uri.parse('CONDUIT://OAuth/callback')),
+    ).isTrue();
+    check(
+      isStrayBrowserAuthCallback(Uri.parse('conduit://oauth/other')),
+    ).isFalse();
+    check(
+      isStrayBrowserAuthCallback(Uri.parse('conduit://widget/callback')),
+    ).isFalse();
+    check(isStrayBrowserAuthCallback(Uri.parse('/callback'))).isFalse();
+  });
 }

@@ -48,6 +48,8 @@ import UIKit
     self.window = window
     window.makeKeyAndVisible()
 
+    // The connection options can't be filtered, so a stray sign-in redirect
+    // that launched the app reaches the router, which drops it.
     super.scene(scene, willConnectTo: session, options: connectionOptions)
     handleInitialShareUrlContexts(connectionOptions.urlContexts)
   }
