@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:test/test.dart';
@@ -353,6 +356,153 @@ void main() {
 
       check(registry.accounts).length.equals(2);
       check(registry.servers).length.equals(1);
+    });
+  });
+
+  group('browser sign-in settings', () {
+    const settings = BrowserSignInConfig(
+      provider: 'oidc',
+      clientId: 'conduit-app',
+    );
+
+    OpenWebUiRegistry withSettings(OpenWebUiRegistry registry) {
+      final server = registry.servers.single;
+      return OpenWebUiRegistry(
+        servers: [
+          OpenWebUiServer(
+            id: server.id,
+            name: server.name,
+            endpoints: server.endpoints,
+            browserSignIn: settings,
+          ),
+        ],
+        accounts: registry.accounts,
+      );
+    }
+
+    test('survive a write and a read', () {
+      final registry = withSettings(
+        OpenWebUiRegistry.empty.mergeServerConfigs([config('a')]),
+      );
+
+      final decoded = OpenWebUiRegistry.decode(registry.encode());
+
+      check(decoded.servers.single.browserSignIn).equals(settings);
+      check(decoded).equals(registry);
+    });
+
+    test('a value this build cannot read is dropped, not the registry', () {
+      final registry = withSettings(
+        OpenWebUiRegistry.empty.mergeServerConfigs([config('a')]),
+      );
+      final json = jsonDecode(registry.encode()) as Map<String, dynamic>;
+      final servers = json['servers'] as List<dynamic>;
+      for (final broken in <Object?>[
+        'oidc',
+        42,
+        <String, Object?>{'provider': 'oidc'},
+        <String, Object?>{'provider': 'Not A Provider', 'clientId': 'x'},
+        <String, Object?>{'provider': 'oidc', 'clientId': 'x', 'issuer': 7},
+      ]) {
+        (servers.single as Map<String, dynamic>)['browserSignIn'] = broken;
+
+        final decoded = OpenWebUiRegistry.decode(jsonEncode(json));
+
+        check(
+          because: '$broken',
+          decoded.servers.single.browserSignIn,
+        ).isNull();
+        check(decoded.accounts.single.id).equals('a');
+      }
+    });
+
+    test('are never projected onto a config', () {
+      final registry = withSettings(
+        OpenWebUiRegistry.empty.mergeServerConfigs([config('a')]),
+      );
+
+      check(registry.projectAll()).deepEquals([config('a')]);
+    });
+
+    test('stay with the server through an edit of its configs', () {
+      final registry = withSettings(
+        OpenWebUiRegistry.empty.mergeServerConfigs([config('a')]),
+      );
+
+      final edited = registry.mergeServerConfigs([
+        config(
+          'a',
+          headers: const {'X-Tenant': 'one'},
+        ).copyWith(name: 'Renamed'),
+      ]);
+
+      check(edited.servers.single.browserSignIn).equals(settings);
+      check(edited.servers.single.name).equals('Renamed');
+    });
+
+    test('are shared with an account that joins the server', () {
+      final registry = withSettings(
+        OpenWebUiRegistry.empty.mergeServerConfigs([
+          config('a', url: 'https://chat.example.com'),
+        ]),
+      );
+
+      final joined = registry.mergeServerConfigs([
+        config('a', url: 'https://chat.example.com'),
+        config('b', url: 'https://chat.example.com'),
+      ]);
+
+      check(joined.servers).length.equals(1);
+      check(joined.accounts.map((account) => account.serverId).toSet())
+          .deepEquals({joined.servers.single.id});
+      check(joined.servers.single.browserSignIn).equals(settings);
+    });
+
+    test('are not given to a server of its own', () {
+      final registry = withSettings(
+        OpenWebUiRegistry.empty.mergeServerConfigs([
+          config('a', url: 'https://chat.example.com'),
+        ]),
+      );
+
+      final added = registry.mergeServerConfigs([
+        config('a', url: 'https://chat.example.com'),
+        config('b', url: 'https://other.example.com'),
+      ]);
+
+      final other = added.server(added.account('b')!.serverId)!;
+      check(other.browserSignIn).isNull();
+    });
+
+    test('stay with the server when its routes change', () {
+      final server = withSettings(
+        OpenWebUiRegistry.empty.mergeServerConfigs([config('a')]),
+      ).servers.single;
+
+      final moved = server.withEndpoints([
+        ...server.endpoints,
+        OpenWebUiEndpoint(id: 'lan', url: 'http://10.0.0.2:3000'),
+      ]);
+
+      check(moved.browserSignIn).equals(settings);
+      check(moved.endpoints).length.equals(2);
+      check(moved).not((it) => it.equals(server));
+    });
+
+    test('tell two servers apart', () {
+      final server = OpenWebUiRegistry.empty
+          .mergeServerConfigs([config('a')])
+          .servers
+          .single;
+      final configured = OpenWebUiServer(
+        id: server.id,
+        name: server.name,
+        endpoints: server.endpoints,
+        browserSignIn: settings,
+      );
+
+      check(configured).not((it) => it.equals(server));
+      check(OpenWebUiServer.fromJson(configured.toJson())).equals(configured);
     });
   });
 

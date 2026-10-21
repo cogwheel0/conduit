@@ -381,6 +381,76 @@ void main() {
     });
   });
 
+  group('browser sign-in sessions', () {
+    const account = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const key = 'browser_sign_in_session_v1:$account';
+
+    test('are saved, read and deleted per account', () async {
+      await storage.saveBrowserSignInSession(account, 'session-a');
+      await storage.saveBrowserSignInSession('other', 'session-b');
+
+      expect(fake.store[key], 'session-a');
+      expect(await storage.getBrowserSignInSession(account), 'session-a');
+
+      await storage.deleteBrowserSignInSession(account);
+      expect(await storage.getBrowserSignInSession(account), isNull);
+      expect(await storage.getBrowserSignInSession('other'), 'session-b');
+    });
+
+    test('are never saved under an id that could address another key', () {
+      for (final id in ['', 'x:auth_token_v2', 'a/b', 'a b']) {
+        expect(
+          () => storage.saveBrowserSignInSession(id, 'session'),
+          throwsArgumentError,
+          reason: id,
+        );
+      }
+    });
+
+    test('read as none, and delete nothing, under such an id', () async {
+      fake.store['browser_sign_in_session_v1:x:y'] = 'planted';
+
+      expect(await storage.getBrowserSignInSession('x:y'), isNull);
+      await storage.deleteBrowserSignInSession('x:y');
+      expect(fake.store['browser_sign_in_session_v1:x:y'], 'planted');
+    });
+
+    test('do not mask a keychain read failure as none', () async {
+      fake.failReadsFor.add(key);
+
+      await expectLater(
+        storage.getBrowserSignInSession(account),
+        throwsStateError,
+      );
+    });
+
+    test('are listed and deleted together, and nothing else', () async {
+      await storage.saveBrowserSignInSession(account, 'session-a');
+      await storage.saveBrowserSignInSession('other', 'session-b');
+      await storage.saveServerCredentialsPayload(account, 'credentials');
+      await storage.saveServerToken(account, 'token');
+
+      expect(await storage.browserSignInSessions(), {
+        account: 'session-a',
+        'other': 'session-b',
+      });
+
+      await storage.deleteAllBrowserSignInSessions();
+      expect(await storage.browserSignInSessions(), isEmpty);
+      expect(await storage.getServerCredentialsPayload(account), 'credentials');
+      expect(await storage.getServerToken(account), 'token');
+      expect(await storage.vaultedServerIds(), {account});
+    });
+
+    test('go with clearAll', () async {
+      await storage.saveBrowserSignInSession(account, 'session-a');
+
+      await storage.clearAll();
+
+      expect(await storage.browserSignInSessions(), isEmpty);
+    });
+  });
+
   group('clearAll', () {
     test(
       'clearAll removes stored data and propagates deleteAll errors',
@@ -465,6 +535,12 @@ class _FakeSecureStorage implements SecureKeyValueStore {
       throw StateError('delete failed for $key');
     }
     store.remove(key);
+  }
+
+  @override
+  Future<Map<String, String>> readAll() async {
+    operations.add('readAll');
+    return Map.of(store);
   }
 
   @override

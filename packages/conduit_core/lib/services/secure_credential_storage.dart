@@ -49,6 +49,8 @@ class SecureCredentialStorage {
   /// - 'ldap': LDAP directory authentication
   /// - 'token': Manual JWT token entry
   /// - 'sso': JWT token obtained via SSO/OAuth flow
+  /// - 'sso_browser': JWT token from a sign-in in the system browser,
+  ///   renewed with the account's browser sign-in session
   Future<void> saveCredentials({
     required String serverId,
     required String username,
@@ -406,6 +408,76 @@ class SecureCredentialStorage {
     final all = await _secureStorage.readAll();
     for (final key in all.keys) {
       if (key.startsWith(_serverCredentialsPrefix)) {
+        await _secureStorage.delete(key: key);
+      }
+    }
+  }
+
+  // The identity provider session of an account signed in through the
+  // system browser: its refresh token, and where and for whom it was issued.
+  // Kept per account whether it is active or not, so a switch never moves
+  // it; it goes once the account's saved sign-in is no longer a browser
+  // sign-in.
+  static const String _browserSignInSessionPrefix =
+      'browser_sign_in_session_v1:';
+
+  static final RegExp _accountIdPattern = RegExp(r'^[A-Za-z0-9._-]{1,128}$');
+
+  /// The key of [accountId]'s browser sign-in session, or null for an id no
+  /// session can be saved under.
+  static String? _browserSignInSessionKey(String accountId) =>
+      _accountIdPattern.hasMatch(accountId)
+      ? '$_browserSignInSessionPrefix$accountId'
+      : null;
+
+  Future<void> saveBrowserSignInSession(
+    String accountId,
+    String payload,
+  ) async {
+    final key = _browserSignInSessionKey(accountId);
+    if (key == null) {
+      throw ArgumentError.value(accountId, 'accountId', 'Invalid id');
+    }
+    try {
+      await _secureStorage.write(key: key, value: payload);
+    } catch (e) {
+      DebugLogger.error(
+        'save-browser-session-failed',
+        scope: 'credentials/browser-sign-in',
+        error: e,
+      );
+      rethrow;
+    }
+  }
+
+  /// Strict: a platform failure is not "this account has no browser
+  /// sign-in session".
+  Future<String?> getBrowserSignInSession(String accountId) async {
+    final key = _browserSignInSessionKey(accountId);
+    if (key == null) return null;
+    return _secureStorage.read(key: key);
+  }
+
+  Future<void> deleteBrowserSignInSession(String accountId) async {
+    final key = _browserSignInSessionKey(accountId);
+    if (key == null) return;
+    await _secureStorage.delete(key: key);
+  }
+
+  /// Every stored browser sign-in session, by account id.
+  Future<Map<String, String>> browserSignInSessions() async {
+    final all = await _secureStorage.readAll();
+    return <String, String>{
+      for (final entry in all.entries)
+        if (entry.key.startsWith(_browserSignInSessionPrefix))
+          entry.key.substring(_browserSignInSessionPrefix.length): entry.value,
+    };
+  }
+
+  Future<void> deleteAllBrowserSignInSessions() async {
+    final all = await _secureStorage.readAll();
+    for (final key in all.keys) {
+      if (key.startsWith(_browserSignInSessionPrefix)) {
         await _secureStorage.delete(key: key);
       }
     }
