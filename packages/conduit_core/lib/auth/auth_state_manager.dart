@@ -393,6 +393,10 @@ class AuthStateManager extends _$AuthStateManager {
   /// The session token a refusal is being answered for by renewing its
   /// browser sign-in, so a burst of refused requests renews once.
   String? _renewingRejectedToken;
+
+  /// Set when the server refuses the token an early renewal is renewing:
+  /// should that renewal not replace it, the refusal is answered after.
+  bool _renewingTokenRefused = false;
   int _authAttemptRevision = 0;
   int _authAttemptSafetyEpoch = 0;
   int _sessionSafetyEpoch = 0;
@@ -742,10 +746,33 @@ class AuthStateManager extends _$AuthStateManager {
 
   @override
   Future<AuthState> build() async {
+    _revokeDroppedBrowserSessions();
     final attemptRevision = _beginAuthAttempt();
     await _initialize(attemptRevision: attemptRevision);
     _sweepOrphanBrowserSessionsOnce();
     return _current;
+  }
+
+  /// Revokes, for as long as this manager lives, the browser sign-in
+  /// sessions storage drops on its own: a commit replacing an account's
+  /// saved sign-in, a renewal that failed for good deleting it, a merge
+  /// taking an account over. Sign-outs revoke their own.
+  void _revokeDroppedBrowserSessions() {
+    try {
+      final storage = ref.read(optimizedStorageServiceProvider);
+      final subscription = storage.droppedBrowserSessions.listen((dropped) {
+        unawaited(() async {
+          final routes = await _accountRoutes(storage);
+          await _revokeBrowserSessions([
+            for (final entry in dropped)
+              (session: entry.session, route: routes[entry.accountId]),
+          ]);
+        }());
+      });
+      ref.onDispose(subscription.cancel);
+    } catch (error) {
+      _logAuthenticationFailure('browser-session-drop-watch-failed', error);
+    }
   }
 
   /// Initialize auth state from storage
@@ -1285,6 +1312,11 @@ class AuthStateManager extends _$AuthStateManager {
       final storage = ref.read(optimizedStorageServiceProvider);
       final target = await _browserSignInTarget(storage, accountId, config);
       if (target == null || stopped()) return false;
+      // Settings the server doesn't have would issue a refresh token its
+      // renewal refuses: the sign-in would hold, but never renew.
+      if (!browserSignInConfigsMatch(config, target.config)) {
+        throw const BrowserSignInException(BrowserSignInFailure.configMismatch);
+      }
 
       final grant = await ref
           .read(browserSignInServiceProvider)
@@ -1404,7 +1436,8 @@ class AuthStateManager extends _$AuthStateManager {
   ///
   /// Runs in the background and publishes nothing until it has a new
   /// session. A failure changes nothing: the session is good for now, and a
-  /// request it fails on renews it then.
+  /// request it fails on renews it then. A session that already expired is
+  /// not good for now, so it is renewed as one the server refused.
   Future<void> renewBrowserSessionIfExpiring() async {
     final current = _current;
     final token = current.token;
@@ -1414,15 +1447,19 @@ class AuthStateManager extends _$AuthStateManager {
       return;
     }
     try {
-      await _renewBrowserSessionInBackground(token, rejected: false);
+      await _renewBrowserSessionInBackground(
+        token,
+        rejected: browserSessionExpired(token),
+      );
     } catch (error) {
       _logAuthenticationFailure('browser-session-early-renewal-failed', error);
     }
   }
 
   /// Who a browser sign-in for [accountId] signs in as: the registry server
-  /// it is on, and what to ask the identity provider so the right identity
-  /// comes back. Null when [accountId] is no longer the active account.
+  /// it is on and that server's browser sign-in settings, and what to ask the
+  /// identity provider so the right identity comes back. Null when
+  /// [accountId] is no longer the active account.
   ///
   /// A server with other accounts on it forces the choice of account
   /// (`select_account` for Google and Microsoft, `login` for others), so
@@ -1430,7 +1467,14 @@ class AuthStateManager extends _$AuthStateManager {
   /// them. An account already proved to be a user is hinted with its email.
   /// Google is asked for consent each time, the only way it issues a refresh
   /// token again.
-  Future<({String serverId, String? prompt, String? loginHint})?>
+  Future<
+    ({
+      String serverId,
+      BrowserSignInConfig? config,
+      String? prompt,
+      String? loginHint,
+    })?
+  >
   _browserSignInTarget(
     OptimizedStorageService storage,
     String accountId,
@@ -1451,13 +1495,22 @@ class AuthStateManager extends _$AuthStateManager {
     final loginHint = account.userId == null
         ? null
         : ref.read(openWebUiAccountSummariesProvider)[accountId]?.email;
-    return (serverId: account.serverId, prompt: prompt, loginHint: loginHint);
+    return (
+      serverId: account.serverId,
+      config: registry.server(account.serverId)?.browserSignIn,
+      prompt: prompt,
+      loginHint: loginHint,
+    );
   }
 
   /// Steps 6 to 8 of a browser sign-in. The browser coming back is an app
   /// resume, which can move the account to another address, so [grant] is
   /// traded at the account's client on the address in use now, and only
   /// while [accountId] is still the active account.
+  ///
+  /// A move or a client rebuilt meanwhile is waited for, not taken for
+  /// another account. A commit that loses only to the account moving to
+  /// another address is tried once more there, with the same grant.
   Future<bool> _commitBrowserGrant({
     required String accountId,
     required BrowserSignInGrant grant,
@@ -1468,14 +1521,52 @@ class AuthStateManager extends _$AuthStateManager {
     bool stopped() =>
         _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
     final storage = ref.read(optimizedStorageServiceProvider);
-    final api = ref.read(apiServiceProvider);
-    if (api == null ||
-        api.serverConfig.id != accountId ||
-        await storage.getEffectiveActiveServerId() != accountId) {
-      DebugLogger.auth('Browser sign-in stopped: the account changed');
-      return false;
+    for (var attempt = 1; ; attempt++) {
+      await _ensureApiServiceAvailable();
+      if (stopped()) return false;
+      final api = ref.read(apiServiceProvider);
+      if (api == null ||
+          api.serverConfig.id != accountId ||
+          await storage.getEffectiveActiveServerId() != accountId) {
+        DebugLogger.auth('Browser sign-in stopped: the account changed');
+        return false;
+      }
+      if (stopped()) return false;
+      if (await _exchangeBrowserGrant(
+        api: api,
+        storage: storage,
+        accountId: accountId,
+        grant: grant,
+        grantedAt: grantedAt,
+        attemptRevision: attemptRevision,
+        canCommit: canCommit,
+      )) {
+        return true;
+      }
+      if (stopped()) return false;
+      if (attempt >= 2) {
+        // The account's server changed under the sign-in again: it can be
+        // tried once more on the server as it is now.
+        throw const BrowserSignInException(BrowserSignInFailure.failed);
+      }
+      DebugLogger.auth('Browser sign-in moved with its account; trying again');
     }
-    if (stopped()) return false;
+  }
+
+  /// Trades [grant] at [api] and commits the session it gets, as of the
+  /// ownership taken now. Returns false when the commit lost to a change of
+  /// the account's server or address, or the sign-in [stopped] meanwhile.
+  Future<bool> _exchangeBrowserGrant({
+    required ApiService api,
+    required OptimizedStorageService storage,
+    required String accountId,
+    required BrowserSignInGrant grant,
+    required DateTime grantedAt,
+    required int attemptRevision,
+    bool Function()? canCommit,
+  }) async {
+    bool stopped() =>
+        _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
     final ownership = await _captureLoginServerOwnership(
       storage,
       api,
@@ -1540,12 +1631,7 @@ class AuthStateManager extends _$AuthStateManager {
           ? BrowserSessionCommit.delete
           : BrowserSessionCommit.replace(session),
     );
-    if (!committed) {
-      if (stopped()) return false;
-      // The account's server changed under the sign-in: it can be tried
-      // again on the server as it is now.
-      throw const BrowserSignInException(BrowserSignInFailure.failed);
-    }
+    if (!committed) return false;
     DebugLogger.auth(
       session == null
           ? 'Browser sign-in successful without a refresh token'
@@ -1895,8 +1981,15 @@ class AuthStateManager extends _$AuthStateManager {
     String? expectedToken,
   }) async {
     final storage = ref.read(optimizedStorageServiceProvider);
-    // Taken before anything is awaited: a sign-in started meanwhile owns
-    // what comes next, and the boundary below would cancel it.
+    // A renewal of the source has spent its refresh token by the time it
+    // saves the rotated one: the session moves only once that is saved, or
+    // the target would get the spent one.
+    await ref
+        .read(browserSignInServiceProvider)
+        .renewalSettled(expectedSourceAccountId);
+    if (!ref.mounted) return false;
+    // Taken before anything else is awaited: a sign-in started meanwhile
+    // owns what comes next, and the boundary below would cancel it.
     final revision = _authAttemptRevision;
     final sourceAccountId = await storage.getActiveServerId();
     if (sourceAccountId == null ||
@@ -4063,8 +4156,14 @@ class AuthStateManager extends _$AuthStateManager {
     String token, {
     required bool rejected,
   }) async {
-    if (_renewingRejectedToken == token) return false;
+    if (_renewingRejectedToken == token) {
+      // Already being renewed. A refusal meanwhile is answered once that
+      // renewal ends, unless it replaced the token.
+      if (rejected) _renewingTokenRefused = true;
+      return false;
+    }
     _renewingRejectedToken = token;
+    _renewingTokenRefused = rejected;
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
       final saved = await _savedBrowserSignIn(storage);
@@ -4093,8 +4192,9 @@ class AuthStateManager extends _$AuthStateManager {
       }
 
       if (!rejected) {
+        var committed = false;
         try {
-          return await _performSilentLoginAttempt(
+          committed = await _performSilentLoginAttempt(
             savedCredentials: saved,
             canCommit: canCommit,
             claimCommit: claimCommit,
@@ -4105,13 +4205,13 @@ class AuthStateManager extends _$AuthStateManager {
             'browser-session-early-renewal-failed',
             error,
           );
-          return false;
         } finally {
           final claimed = claimRevision;
           if (claimed != null && _current.token == token) {
             _resolveAbortedAuthAttempt(claimed);
           }
         }
+        return committed;
       }
 
       final committed = await _performSilentLoginInternal(
@@ -4137,7 +4237,17 @@ class AuthStateManager extends _$AuthStateManager {
       }
       return false;
     } finally {
-      if (_renewingRejectedToken == token) _renewingRejectedToken = null;
+      var refusedMeanwhile = false;
+      if (_renewingRejectedToken == token) {
+        refusedMeanwhile = !rejected && _renewingTokenRefused;
+        _renewingRejectedToken = null;
+        _renewingTokenRefused = false;
+      }
+      // The server refused the token while it was renewed ahead of expiry,
+      // and it is still the one in use: answer the refusal as one.
+      if (refusedMeanwhile && ref.mounted && _current.token == token) {
+        unawaited(_renewBrowserSessionInBackground(token, rejected: true));
+      }
     }
   }
 

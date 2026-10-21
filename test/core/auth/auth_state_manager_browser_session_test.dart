@@ -86,22 +86,24 @@ Map<String, String> _savedBrowserSignIn(String token) => {
   'authType': 'sso_browser',
 };
 
-OpenWebUiRegistry _registry({bool secondAccount = false, String? userId}) =>
-    OpenWebUiRegistry(
-      servers: [
-        OpenWebUiServer(
-          id: 'server-1',
-          name: 'Chat',
-          endpoints: [OpenWebUiEndpoint(id: 'e1', url: 'https://a.example')],
-          browserSignIn: _config,
-        ),
-      ],
-      accounts: [
-        OpenWebUiAccount(id: 'account-a', serverId: 'server-1', userId: userId),
-        if (secondAccount)
-          OpenWebUiAccount(id: 'account-b', serverId: 'server-1'),
-      ],
-    );
+OpenWebUiRegistry _registry({
+  bool secondAccount = false,
+  String? userId,
+  BrowserSignInConfig config = _config,
+}) => OpenWebUiRegistry(
+  servers: [
+    OpenWebUiServer(
+      id: 'server-1',
+      name: 'Chat',
+      endpoints: [OpenWebUiEndpoint(id: 'e1', url: 'https://a.example')],
+      browserSignIn: config,
+    ),
+  ],
+  accounts: [
+    OpenWebUiAccount(id: 'account-a', serverId: 'server-1', userId: userId),
+    if (secondAccount) OpenWebUiAccount(id: 'account-b', serverId: 'server-1'),
+  ],
+);
 
 /// Signing in through the system browser, renewing that sign-in with the
 /// identity provider's refresh token whenever its Open WebUI session lapses,
@@ -170,13 +172,15 @@ void main() {
     ]) {
       test('$provider with${secondAccount ? '' : 'out'} another account on '
           'the server asks for prompt=$prompt', () async {
+        final config = BrowserSignInConfig(
+          provider: provider,
+          clientId: 'conduit',
+        );
         final rig = await _Rig.start(
-          registry: _registry(secondAccount: secondAccount),
+          registry: _registry(secondAccount: secondAccount, config: config),
         );
 
-        await rig.auth.loginWithBrowser(
-          config: BrowserSignInConfig(provider: provider, clientId: 'conduit'),
-        );
+        await rig.auth.loginWithBrowser(config: config);
 
         check(rig.service.authorizeCalls.single.prompt).equals(prompt);
       });
@@ -257,6 +261,99 @@ void main() {
       check(rig.service.exchanges.single.api).identicalTo(public);
       check(rig.storage.ownershipConfigs.last.url)
           .equals('https://public.example');
+    });
+
+    test('a client still being rebuilt when the browser returns is waited '
+        'for, not taken for another account', () async {
+      final rig = await _Rig.start();
+      rig.service.duringBrowser = () {
+        rig.apiGone = true;
+        rig.container.invalidate(apiServiceProvider);
+        Timer(const Duration(milliseconds: 120), () {
+          rig.apiGone = false;
+          rig.container.invalidate(apiServiceProvider);
+        });
+      };
+
+      check(await rig.auth.loginWithBrowser(config: _config)).isTrue();
+
+      check(rig.storage.committedToken).equals(_issued);
+    });
+
+    test('a commit lost to the account moving to another address is tried '
+        'once more there, with the same grant', () async {
+      final rig = await _Rig.start();
+      rig.storage.refusedCommits = 1;
+
+      check(await rig.auth.loginWithBrowser(config: _config)).isTrue();
+
+      check(rig.service.authorizeCalls).length.equals(1);
+      check(rig.service.exchanges).length.equals(2);
+      check(rig.storage.committedToken).equals(_issued);
+    });
+
+    test('a commit lost twice is a failure to try again', () async {
+      final rig = await _Rig.start();
+      rig.storage.refusedCommits = 2;
+
+      await check(rig.auth.loginWithBrowser(config: _config))
+          .throws<BrowserSignInException>(
+            (it) => it
+                .has((e) => e.failure, 'failure')
+                .equals(BrowserSignInFailure.failed),
+          );
+      check(rig.storage.committedToken).isNull();
+    });
+
+    test('settings other than the server\'s are refused before the browser '
+        'opens', () async {
+      final rig = await _Rig.start();
+
+      await check(
+        rig.auth.loginWithBrowser(
+          config: const BrowserSignInConfig(
+            provider: 'oidc',
+            clientId: 'other',
+          ),
+        ),
+      ).throws<BrowserSignInException>(
+        (it) => it
+            .has((e) => e.failure, 'failure')
+            .equals(BrowserSignInFailure.configMismatch),
+      );
+      check(rig.service.authorizeCalls).isEmpty();
+    });
+
+    test('settings that are the server\'s put another way sign in', () async {
+      final rig = await _Rig.start(
+        registry: OpenWebUiRegistry(
+          servers: [
+            OpenWebUiServer(
+              id: 'server-1',
+              name: 'Chat',
+              endpoints: [
+                OpenWebUiEndpoint(id: 'e1', url: 'https://a.example'),
+              ],
+              browserSignIn: const BrowserSignInConfig(
+                provider: 'oidc',
+                clientId: 'conduit',
+                issuer: 'https://id.example/',
+              ),
+            ),
+          ],
+          accounts: [OpenWebUiAccount(id: 'account-a', serverId: 'server-1')],
+        ),
+      );
+
+      check(
+        await rig.auth.loginWithBrowser(
+          config: const BrowserSignInConfig(
+            provider: 'oidc',
+            clientId: 'conduit',
+            issuer: 'https://ID.example:443',
+          ),
+        ),
+      ).isTrue();
     });
 
     test(
@@ -590,6 +687,56 @@ void main() {
       check(rig.state.token).equals(token);
     });
 
+    test('a refusal during a renewal ahead of expiry is answered once that '
+        'renewal fails', () async {
+      final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final release = Completer<void>();
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: _savedBrowserSignIn(token),
+        renew: () async {
+          await release.future;
+          throw const BrowserSignInException(BrowserSignInFailure.timeout);
+        },
+      );
+
+      final early = rig.auth.renewBrowserSessionIfExpiring();
+      await pumpEventQueue();
+      rig.auth.onAuthIssue(AuthFailureKind.sessionRejected);
+      release.complete();
+      await early;
+      final state = await rig.settledOn((s) => s.status == AuthStatus.error);
+
+      check(state.status).equals(AuthStatus.error);
+      check(state.token).equals(token);
+      check(rig.service.renewals).equals(2);
+    });
+
+    test('a refusal during a renewal ahead of expiry that succeeds is '
+        'answered by it', () async {
+      final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final release = Completer<void>();
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: _savedBrowserSignIn(token),
+        renew: () async {
+          await release.future;
+          return (token: _renewed, session: _session);
+        },
+      );
+
+      final early = rig.auth.renewBrowserSessionIfExpiring();
+      await pumpEventQueue();
+      rig.auth.onAuthIssue(AuthFailureKind.sessionRejected);
+      release.complete();
+      await early;
+      await pumpEventQueue();
+
+      check(rig.state.status).equals(AuthStatus.authenticated);
+      check(rig.state.token).equals(_renewed);
+      check(rig.service.renewals).equals(1);
+    });
+
     test('a failed renewal ahead of expiry changes nothing', () async {
       final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
       final rig = await _Rig.start(
@@ -646,6 +793,53 @@ void main() {
       check(rig.service.revoked).isEmpty();
     });
 
+    test('sessions storage drops on its own are revoked', () async {
+      final rig = await _Rig.start();
+
+      rig.storage.dropped.add(const [
+        (accountId: 'account-a', session: _session),
+      ]);
+      await pumpEventQueue();
+
+      check(rig.service.revoked).deepEquals([_session]);
+    });
+
+    test('a merge waits for a renewal of the account it folds away', () async {
+      final rig = await _Rig.start();
+      rig.service.renewalInFlight = Completer<void>();
+      when(
+        () => rig.storage.mergeActiveAccountInto(
+          'account-b',
+          expectedSourceAccountId: 'account-a',
+          expectedToken: any(named: 'expectedToken'),
+        ),
+      ).thenAnswer((_) async => false);
+
+      final merge = rig.auth.mergeActiveAccountInto(
+        'account-b',
+        expectedSourceAccountId: 'account-a',
+      );
+      await pumpEventQueue();
+      check(rig.service.settling).deepEquals(['account-a']);
+      verifyNever(
+        () => rig.storage.mergeActiveAccountInto(
+          any(),
+          expectedSourceAccountId: any(named: 'expectedSourceAccountId'),
+          expectedToken: any(named: 'expectedToken'),
+        ),
+      );
+
+      rig.service.renewalInFlight!.complete();
+      await merge;
+      verify(
+        () => rig.storage.mergeActiveAccountInto(
+          'account-b',
+          expectedSourceAccountId: 'account-a',
+          expectedToken: any(named: 'expectedToken'),
+        ),
+      ).called(1);
+    });
+
     test('sessions left behind by an interrupted operation are swept and '
         'revoked once, at startup', () async {
       final rig = await _Rig.start(
@@ -671,6 +865,9 @@ final class _Rig {
   final service = _Service();
   final statuses = <AuthStatus>[];
   late _Api api;
+
+  /// The client is rebuilding: none is there to read.
+  bool apiGone = false;
   late _Api savedCredentialApi;
   late ProviderContainer container;
   String activeId = 'account-a';
@@ -749,7 +946,7 @@ final class _Rig {
     rig.container = ProviderContainer(
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(storage),
-        apiServiceProvider.overrideWith((ref) => rig.api),
+        apiServiceProvider.overrideWith((ref) => rig.apiGone ? null : rig.api),
         activeServerProvider.overrideWith((ref) async => _server),
         browserSignInServiceProvider.overrideWithValue(rig.service),
         savedCredentialAuthApiFactoryProvider.overrideWithValue(
@@ -793,6 +990,12 @@ final class _Rig {
 
 final class _Storage extends Mock implements OptimizedStorageService {
   late OpenWebUiRegistry registry;
+  final dropped =
+      StreamController<List<StoredBrowserSignInSession>>.broadcast();
+
+  /// Commits refused, as a move of the account to another address refuses
+  /// one taken before it.
+  int refusedCommits = 0;
   String? committedToken;
   Map<String, String>? remembered;
   Map<String, String>? expected;
@@ -801,6 +1004,10 @@ final class _Storage extends Mock implements OptimizedStorageService {
 
   @override
   Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() async => registry;
+
+  @override
+  Stream<List<StoredBrowserSignInSession>> get droppedBrowserSessions =>
+      dropped.stream;
 
   @override
   Future<ServerSessionOwnershipSnapshot?> captureServerSessionOwnership({
@@ -827,6 +1034,10 @@ final class _Storage extends Mock implements OptimizedStorageService {
     void Function()? onRollbackUncertain,
   }) async {
     if (!canCommit()) return false;
+    if (refusedCommits > 0) {
+      refusedCommits--;
+      return false;
+    }
     committedToken = token;
     remembered = rememberedCredentials;
     expected = expectedSavedCredentials;
@@ -854,6 +1065,16 @@ final class _Service extends BrowserSignInService {
   Future<BrowserSignInRenewal> Function()? onRenew;
   int renewals = 0;
 
+  /// Holds [renewalSettled] until completed, as a renewal in flight would.
+  Completer<void>? renewalInFlight;
+  final settling = <String>[];
+
+  @override
+  Future<void> renewalSettled(String accountId) async {
+    settling.add(accountId);
+    await renewalInFlight?.future;
+  }
+
   @override
   Future<BrowserSignInGrant?> authorize({
     required ApiService api,
@@ -877,6 +1098,7 @@ final class _Service extends BrowserSignInService {
     required ApiService api,
     required String provider,
     required String accessToken,
+    bool renewal = false,
   }) async {
     exchanges.add((api: api, accessToken: accessToken));
     final error = exchangeError;

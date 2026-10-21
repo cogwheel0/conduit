@@ -181,8 +181,26 @@ final class BrowserSignInException implements Exception {
 }
 
 /// The failure for an identity provider step that threw [error].
-BrowserSignInFailure browserSignInFailureForOidc(OidcException error) =>
-    switch (error.kind) {
+///
+/// For a [renewal], an answer that is not an OAuth error -- a redirect, a
+/// page, an unexpected status, as a firewall or an upgrade in progress
+/// gives -- is transient: only the provider refusing the refresh token or
+/// the client ends a saved sign-in.
+BrowserSignInFailure browserSignInFailureForOidc(
+  OidcException error, {
+  bool renewal = false,
+}) => switch (error.kind) {
+  OidcFailureKind.redirected ||
+  OidcFailureKind.invalidResponse ||
+  OidcFailureKind.responseTooLarge when renewal =>
+    BrowserSignInFailure.serverError,
+  OidcFailureKind.unexpectedStatus when renewal && error.errorCode == null =>
+    BrowserSignInFailure.serverError,
+  _ => _failureForOidcKind(error.kind),
+};
+
+BrowserSignInFailure _failureForOidcKind(OidcFailureKind kind) =>
+    switch (kind) {
       OidcFailureKind.insecureEndpoint => BrowserSignInFailure.insecureIdp,
       OidcFailureKind.discoveryNotFound ||
       OidcFailureKind.invalidMetadata => BrowserSignInFailure.discoveryNotFound,
@@ -248,7 +266,15 @@ BrowserSignInFailure browserSignInFailureForProbe(Object error) {
 
 /// The failure for a refusal from Open WebUI's token exchange, told apart by
 /// its status and `detail` as Open WebUI 0.8 to 0.12 word them.
-BrowserSignInFailure browserSignInFailureForExchange(Object error) {
+///
+/// For a [renewal] -- an account that has exchanged before -- a 404 without
+/// Open WebUI's word that the provider is not configured is something in
+/// front of the server, such as a proxy while it restarts: transient, where
+/// a sign-in or a check calls it a server too old to exchange.
+BrowserSignInFailure browserSignInFailureForExchange(
+  Object error, {
+  bool renewal = false,
+}) {
   if (error is! DioException) return BrowserSignInFailure.failed;
   final transport = _transportFailure(error);
   if (transport != null) return transport;
@@ -261,7 +287,11 @@ BrowserSignInFailure browserSignInFailureForExchange(Object error) {
     if (status == 401 || status == 403) {
       return BrowserSignInFailure.proxySignInRequired;
     }
-    if (status == 404) return BrowserSignInFailure.serverTooOld;
+    if (status == 404) {
+      return renewal
+          ? BrowserSignInFailure.serverError
+          : BrowserSignInFailure.serverTooOld;
+    }
     return _statusFailure(status);
   }
   final rawDetail = data['detail'];
@@ -282,6 +312,7 @@ BrowserSignInFailure browserSignInFailureForExchange(Object error) {
     // no exchange route at all.
     404 when detail.contains('not configured') =>
       BrowserSignInFailure.providerNotConfigured,
+    404 when renewal => BrowserSignInFailure.serverError,
     404 => BrowserSignInFailure.serverTooOld,
     409 => BrowserSignInFailure.authenticationChanged,
     _ => _statusFailure(status),
