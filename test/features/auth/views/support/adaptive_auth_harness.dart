@@ -1,9 +1,13 @@
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/browser_auth_port.dart';
+import 'package:conduit_core/ports/external_url_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -48,6 +52,8 @@ class AdaptiveAuthHarness {
     this.accountsController,
     this.savedServersError,
     this.replyBeingWritten = false,
+    this.browserSupported = false,
+    this.browserSignInConfig,
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer(
       (_) async => savedUsername == null ? null : {'username': savedUsername!},
@@ -121,6 +127,15 @@ class AdaptiveAuthHarness {
 
   /// How many times the replies being written were stopped.
   int repliesStopped = 0;
+
+  /// Whether the device has a system browser that can sign in.
+  final bool browserSupported;
+
+  /// The browser sign-in settings saved for the server's accounts, if any.
+  final BrowserSignInConfig? browserSignInConfig;
+
+  /// The URLs opened in the browser outside the app.
+  final openedUrls = <Uri>[];
 
   /// The device storage, for a test to see what was saved.
   OptimizedStorageService get storage => _storage;
@@ -222,6 +237,17 @@ class AdaptiveAuthHarness {
             accountsController!,
           ),
         activeServerProvider.overrideWith((_) async => server),
+        if (browserSupported) ...[
+          browserAuthPortProvider.overrideWithValue(
+            const _SupportedBrowserAuthPort(),
+          ),
+          browserSignInConfigProvider.overrideWith(
+            (ref, accountId) async => browserSignInConfig,
+          ),
+          openExternalUrlProvider.overrideWithValue(
+            _RecordingUrlPort(openedUrls),
+          ),
+        ],
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => appleOnDeviceStatus ?? _unavailableAppleStatus(),
         ),
@@ -265,6 +291,40 @@ class AdaptiveAuthHarness {
     routeExtraLost.dispose();
     ErrorWidget.builder = _previousErrorWidgetBuilder;
     FlutterError.onError = _previousFlutterOnError;
+  }
+}
+
+/// A system browser that is there, and never asked: the sign-in actions are
+/// replaced in the tests that sign in.
+final class _SupportedBrowserAuthPort implements BrowserAuthPort {
+  const _SupportedBrowserAuthPort();
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  Uri get defaultRedirectUri => Uri.parse(browserAuthDefaultRedirect);
+
+  @override
+  Future<BrowserAuthResult> authorize(
+    Uri url, {
+    required Uri redirectUri,
+    bool preferEphemeral = false,
+  }) async => const BrowserAuthResult.cancelled();
+
+  @override
+  Future<void> cancel() async {}
+}
+
+final class _RecordingUrlPort implements OpenExternalUrlPort {
+  _RecordingUrlPort(this.opened);
+
+  final List<Uri> opened;
+
+  @override
+  Future<bool> open(Uri url) async {
+    opened.add(url);
+    return true;
   }
 }
 

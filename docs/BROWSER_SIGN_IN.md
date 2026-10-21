@@ -195,11 +195,13 @@ renewal stops working, sign in through the browser again.
    sign-in (passkeys)**. It appears for `oidc`, `microsoft` and `google`
    servers that are new enough.
 2. Pick the provider if the server has more than one. Enter the client ID, and
-   the issuer only if Conduit asks for it.
+   the issuer only if Conduit asks for it (it is also under **Advanced**). The
+   sheet shows the redirect URI to register; tap it to copy it.
 3. **Test** checks discovery and whether the server accepts token exchange.
    Then choose **Save**.
 4. **Continue in browser** signs in. **Use in-app sign-in** is still there as a
-   fallback.
+   fallback, and **Browser sign-in settings…** changes or removes the
+   settings later.
 
 The settings belong to the **server**, so every account on it uses them, on
 any of its addresses. Changing the provider, client ID or issuer, or removing

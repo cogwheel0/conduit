@@ -7,6 +7,10 @@
 /// phrases the manager uses, keeps an app from looking for words the manager
 /// never says.
 enum SignInFailure {
+  /// A browser sign-in's renewal failed for good: continue in the browser to
+  /// sign in again.
+  browserSignInSessionExpired,
+
   /// Saved credentials met an account that now asks for a second step:
   /// sign in again by hand to answer it.
   twoStepRequired,
@@ -52,6 +56,9 @@ const String signInTimedOutMessage = 'Sign-in request timed out';
 /// the exception a sign-in threw (a raw `SocketException` or timeout reads
 /// as the manager's own phrase for it would).
 SignInFailure classifySignInFailure(String error) {
+  if (error.contains('browserSignInSessionExpired')) {
+    return SignInFailure.browserSignInSessionExpired;
+  }
   if (error.contains('twoStepVerificationRequired')) {
     return SignInFailure.twoStepRequired;
   }
