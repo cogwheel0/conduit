@@ -167,6 +167,11 @@ final class SignOutCoordinator {
     final inactiveSessions = await _ref
         .read(authStateManagerProvider.notifier)
         .inactiveAccountSessions();
+    // And their browser sign-ins' refresh tokens, active account's included,
+    // revoked at the identity provider once the wipe has committed.
+    final browserSessions = await _ref
+        .read(authStateManagerProvider.notifier)
+        .browserSignInSessionsForRevocation();
     // LibreChat's sessions live in the storage the clear empties; read them
     // first so their servers can be told too.
     final libreChatAccounts = await _ref
@@ -220,6 +225,11 @@ final class SignOutCoordinator {
             _ref
                 .read(authStateManagerProvider.notifier)
                 .revokeSessions(inactiveSessions),
+          );
+          unawaited(
+            _ref
+                .read(authStateManagerProvider.notifier)
+                .revokeBrowserSignInSessions(browserSessions),
           );
           await disarmIncompleteAppDataClearMarker();
           directProfiles.finishAppDataClear();
