@@ -71,7 +71,10 @@ import UIKit
     openURLContexts URLContexts: Set<UIOpenURLContext>
   ) {
     let unhandledContexts = Set(URLContexts.filter { context in
-      !handleShareUrl(context.url)
+      // A sign-in redirect only counts inside its browser session; one that
+      // arrives here is stale or forged, and must not reach Flutter's router.
+      !BrowserAuthBridge.isStrayCallback(context.url)
+        && !handleShareUrl(context.url)
     })
 
     if !unhandledContexts.isEmpty {

@@ -341,6 +341,20 @@ enum class PlatformKeyboardAttachmentActionKind(val raw: Int) {
   }
 }
 
+/** How a system-browser sign-in ended. */
+enum class PlatformBrowserAuthOutcome(val raw: Int) {
+  SUCCESS(0),
+  CANCELLED(1),
+  UNAVAILABLE(2),
+  FAILED(3);
+
+  companion object {
+    fun ofRaw(raw: Int): PlatformBrowserAuthOutcome? {
+      return values().firstOrNull { it.raw == raw }
+    }
+  }
+}
+
 /** Generated class from Pigeon that represents data sent in messages. */
 data class PlatformBackgroundStreamLease (
   val id: String,
@@ -4172,6 +4186,126 @@ data class PlatformPushTap (
     return "PlatformPushTap(scope=$scope, payloadJson=$payloadJson)"
   }
 }
+
+/**
+ * A sign-in page to open in the system browser, and the redirect that ends
+ * it. The redirect is matched exactly: scheme, host (empty when the redirect
+ * has none, as `com.googleusercontent.apps.<id>:/oauth2redirect` does) and
+ * path.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class PlatformBrowserAuthRequest (
+  val authorizationUrl: String,
+  val callbackScheme: String,
+  val callbackHost: String,
+  val callbackPath: String,
+  /** Asks the browser not to share cookies with its other sessions. */
+  val preferEphemeralSession: Boolean
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformBrowserAuthRequest {
+      val authorizationUrl = pigeonVar_list[0] as String
+      val callbackScheme = pigeonVar_list[1] as String
+      val callbackHost = pigeonVar_list[2] as String
+      val callbackPath = pigeonVar_list[3] as String
+      val preferEphemeralSession = pigeonVar_list[4] as Boolean
+      return PlatformBrowserAuthRequest(authorizationUrl, callbackScheme, callbackHost, callbackPath, preferEphemeralSession)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      authorizationUrl,
+      callbackScheme,
+      callbackHost,
+      callbackPath,
+      preferEphemeralSession,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformBrowserAuthRequest
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.authorizationUrl, other.authorizationUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.callbackScheme, other.callbackScheme) && ConduitPlatformApisPigeonUtils.deepEquals(this.callbackHost, other.callbackHost) && ConduitPlatformApisPigeonUtils.deepEquals(this.callbackPath, other.callbackPath) && ConduitPlatformApisPigeonUtils.deepEquals(this.preferEphemeralSession, other.preferEphemeralSession)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.authorizationUrl)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.callbackScheme)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.callbackHost)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.callbackPath)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.preferEphemeralSession)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformBrowserAuthRequest(authorizationUrl=$authorizationUrl, callbackScheme=$callbackScheme, callbackHost=$callbackHost, callbackPath=$callbackPath, preferEphemeralSession=$preferEphemeralSession)"
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class PlatformBrowserAuthResult (
+  val outcome: PlatformBrowserAuthOutcome,
+  /** The redirect the browser ended on, for [PlatformBrowserAuthOutcome.success]. */
+  val callbackUrl: String? = null,
+  /**
+   * Why the sign-in did not finish: `presentation_failed`, `no_browser`,
+   * `start_failed`, `unexpected_callback`, `auth_tab_required`,
+   * `superseded` or `invalid_request`.
+   */
+  val errorCode: String? = null,
+  /**
+   * The browser surface used: `web_authentication_session` (iOS),
+   * `auth_tab`, `custom_tabs` or `external_browser` (Android).
+   */
+  val channel: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformBrowserAuthResult {
+      val outcome = pigeonVar_list[0] as PlatformBrowserAuthOutcome
+      val callbackUrl = pigeonVar_list[1] as String?
+      val errorCode = pigeonVar_list[2] as String?
+      val channel = pigeonVar_list[3] as String?
+      return PlatformBrowserAuthResult(outcome, callbackUrl, errorCode, channel)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      outcome,
+      callbackUrl,
+      errorCode,
+      channel,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformBrowserAuthResult
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.outcome, other.outcome) && ConduitPlatformApisPigeonUtils.deepEquals(this.callbackUrl, other.callbackUrl) && ConduitPlatformApisPigeonUtils.deepEquals(this.errorCode, other.errorCode) && ConduitPlatformApisPigeonUtils.deepEquals(this.channel, other.channel)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.outcome)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.callbackUrl)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.errorCode)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.channel)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformBrowserAuthResult(outcome=$outcome, callbackUrl=$callbackUrl, errorCode=$errorCode, channel=$channel)"
+  }
+}
 private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -4221,333 +4355,348 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
         }
       }
       138.toByte() -> {
-        return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformBackgroundStreamLease.fromList(it)
+        return (readValue(buffer) as Long?)?.let {
+          PlatformBrowserAuthOutcome.ofRaw(it.toInt())
         }
       }
       139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformBackgroundStartRequest.fromList(it)
+          PlatformBackgroundStreamLease.fromList(it)
         }
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformBackgroundStopRequest.fromList(it)
+          PlatformBackgroundStartRequest.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformBackgroundKeepAliveRequest.fromList(it)
+          PlatformBackgroundStopRequest.fromList(it)
         }
       }
       142.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformBackgroundAudioSessionOwnerRequest.fromList(it)
+          PlatformBackgroundKeepAliveRequest.fromList(it)
         }
       }
       143.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformServiceFailureEvent.fromList(it)
+          PlatformBackgroundAudioSessionOwnerRequest.fromList(it)
         }
       }
       144.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformTimeLimitWarningEvent.fromList(it)
+          PlatformServiceFailureEvent.fromList(it)
         }
       }
       145.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformStreamsSuspendingEvent.fromList(it)
+          PlatformTimeLimitWarningEvent.fromList(it)
         }
       }
       146.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformBackgroundTaskExtendedEvent.fromList(it)
+          PlatformStreamsSuspendingEvent.fromList(it)
         }
       }
       147.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformAppIntentImagePayload.fromList(it)
+          PlatformBackgroundTaskExtendedEvent.fromList(it)
         }
       }
       148.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformAppIntentResponse.fromList(it)
+          PlatformAppIntentImagePayload.fromList(it)
         }
       }
       149.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativePasteImageItem.fromList(it)
+          PlatformAppIntentResponse.fromList(it)
         }
       }
       150.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativePastePayload.fromList(it)
+          PlatformNativePasteImageItem.fromList(it)
         }
       }
       151.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformKeyboardAttachmentActionConfig.fromList(it)
+          PlatformNativePastePayload.fromList(it)
         }
       }
       152.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformKeyboardAttachmentConfig.fromList(it)
+          PlatformKeyboardAttachmentActionConfig.fromList(it)
         }
       }
       153.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformKeyboardAttachmentActionEvent.fromList(it)
+          PlatformKeyboardAttachmentConfig.fromList(it)
         }
       }
       154.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformKeyboardAttachmentVisibilityEvent.fromList(it)
+          PlatformKeyboardAttachmentActionEvent.fromList(it)
         }
       }
       155.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformRect.fromList(it)
+          PlatformKeyboardAttachmentVisibilityEvent.fromList(it)
         }
       }
       156.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformDropdownOption.fromList(it)
+          PlatformRect.fromList(it)
         }
       }
       157.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformImageViewerItem.fromList(it)
+          PlatformDropdownOption.fromList(it)
         }
       }
       158.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformImageViewerRequest.fromList(it)
+          PlatformImageViewerItem.fromList(it)
         }
       }
       159.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformDropdownRequest.fromList(it)
+          PlatformImageViewerRequest.fromList(it)
         }
       }
       160.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetOption.fromList(it)
+          PlatformDropdownRequest.fromList(it)
         }
       }
       161.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetTheme.fromList(it)
+          PlatformNativeSheetOption.fromList(it)
         }
       }
       162.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetItem.fromList(it)
+          PlatformNativeSheetTheme.fromList(it)
         }
       }
       163.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetRowAction.fromList(it)
+          PlatformNativeSheetItem.fromList(it)
         }
       }
       164.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetLink.fromList(it)
+          PlatformNativeSheetRowAction.fromList(it)
         }
       }
       165.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetSection.fromList(it)
+          PlatformNativeSheetLink.fromList(it)
         }
       }
       166.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeEditProfileSheetConfig.fromList(it)
+          PlatformNativeSheetSection.fromList(it)
         }
       }
       167.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeProfileSheetUser.fromList(it)
+          PlatformNativeEditProfileSheetConfig.fromList(it)
         }
       }
       168.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDetail.fromList(it)
+          PlatformNativeProfileSheetUser.fromList(it)
         }
       }
       169.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetMonthCalendar.fromList(it)
+          PlatformNativeSheetDetail.fromList(it)
         }
       }
       170.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetCalendarMark.fromList(it)
+          PlatformNativeSheetMonthCalendar.fromList(it)
         }
       }
       171.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetSearch.fromList(it)
+          PlatformNativeSheetCalendarMark.fromList(it)
         }
       }
       172.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeProfileSheetConfig.fromList(it)
+          PlatformNativeSheetSearch.fromList(it)
         }
       }
       173.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelOption.fromList(it)
+          PlatformNativeProfileSheetConfig.fromList(it)
         }
       }
       174.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelSelectorRequest.fromList(it)
+          PlatformNativeSheetModelOption.fromList(it)
         }
       }
       175.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelControl.fromList(it)
+          PlatformNativeSheetModelSelectorRequest.fromList(it)
         }
       }
       176.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetOptionsSelectorRequest.fromList(it)
+          PlatformNativeSheetModelControl.fromList(it)
         }
       }
       177.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetAlertAction.fromList(it)
+          PlatformNativeSheetOptionsSelectorRequest.fromList(it)
         }
       }
       178.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetAlertRequest.fromList(it)
+          PlatformNativeSheetAlertAction.fromList(it)
         }
       }
       179.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformWebSignInRequest.fromList(it)
+          PlatformNativeSheetAlertRequest.fromList(it)
         }
       }
       180.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDatePickerRequest.fromList(it)
+          PlatformWebSignInRequest.fromList(it)
         }
       }
       181.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetTextEditorRequest.fromList(it)
+          PlatformNativeSheetDatePickerRequest.fromList(it)
         }
       }
       182.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetResultRequest.fromList(it)
+          PlatformNativeSheetTextEditorRequest.fromList(it)
         }
       }
       183.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetApplyDetailPatchRequest.fromList(it)
+          PlatformNativeSheetResultRequest.fromList(it)
         }
       }
       184.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetControlChangedEvent.fromList(it)
+          PlatformNativeSheetApplyDetailPatchRequest.fromList(it)
         }
       }
       185.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDetailAppearedEvent.fromList(it)
+          PlatformNativeSheetControlChangedEvent.fromList(it)
         }
       }
       186.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelPinToggledEvent.fromList(it)
+          PlatformNativeSheetDetailAppearedEvent.fromList(it)
         }
       }
       187.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetReasoningEffortChangedEvent.fromList(it)
+          PlatformNativeSheetModelPinToggledEvent.fromList(it)
         }
       }
       188.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelControlChangedEvent.fromList(it)
+          PlatformNativeSheetReasoningEffortChangedEvent.fromList(it)
         }
       }
       189.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeEditProfileCommittedEvent.fromList(it)
+          PlatformNativeSheetModelControlChangedEvent.fromList(it)
         }
       }
       190.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetActionResult.fromList(it)
+          PlatformNativeEditProfileCommittedEvent.fromList(it)
         }
       }
       191.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccStatus.fromList(it)
+          PlatformNativeSheetActionResult.fromList(it)
         }
       }
       192.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccImage.fromList(it)
+          PlatformPccStatus.fromList(it)
         }
       }
       193.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccMessage.fromList(it)
+          PlatformPccImage.fromList(it)
         }
       }
       194.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolDefinition.fromList(it)
+          PlatformPccMessage.fromList(it)
         }
       }
       195.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolCall.fromList(it)
+          PlatformPccToolDefinition.fromList(it)
         }
       }
       196.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolResult.fromList(it)
+          PlatformPccToolCall.fromList(it)
         }
       }
       197.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccCompletionRequest.fromList(it)
+          PlatformPccToolResult.fromList(it)
         }
       }
       198.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccStreamEvent.fromList(it)
+          PlatformPccCompletionRequest.fromList(it)
         }
       }
       199.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPushSubscription.fromList(it)
+          PlatformPccStreamEvent.fromList(it)
         }
       }
       200.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPushToken.fromList(it)
+          PlatformPushSubscription.fromList(it)
         }
       }
       201.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPushConfig.fromList(it)
+          PlatformPushToken.fromList(it)
         }
       }
       202.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPushMessage.fromList(it)
+          PlatformPushConfig.fromList(it)
         }
       }
       203.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformPushMessage.fromList(it)
+        }
+      }
+      204.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
           PlatformPushTap.fromList(it)
+        }
+      }
+      205.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformBrowserAuthRequest.fromList(it)
+        }
+      }
+      206.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformBrowserAuthResult.fromList(it)
         }
       }
       else -> super.readValueOfType(type, buffer)
@@ -4591,268 +4740,280 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
         stream.write(137)
         writeValue(stream, value.raw.toLong())
       }
-      is PlatformBackgroundStreamLease -> {
+      is PlatformBrowserAuthOutcome -> {
         stream.write(138)
-        writeValue(stream, value.toList())
+        writeValue(stream, value.raw.toLong())
       }
-      is PlatformBackgroundStartRequest -> {
+      is PlatformBackgroundStreamLease -> {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is PlatformBackgroundStopRequest -> {
+      is PlatformBackgroundStartRequest -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is PlatformBackgroundKeepAliveRequest -> {
+      is PlatformBackgroundStopRequest -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is PlatformBackgroundAudioSessionOwnerRequest -> {
+      is PlatformBackgroundKeepAliveRequest -> {
         stream.write(142)
         writeValue(stream, value.toList())
       }
-      is PlatformServiceFailureEvent -> {
+      is PlatformBackgroundAudioSessionOwnerRequest -> {
         stream.write(143)
         writeValue(stream, value.toList())
       }
-      is PlatformTimeLimitWarningEvent -> {
+      is PlatformServiceFailureEvent -> {
         stream.write(144)
         writeValue(stream, value.toList())
       }
-      is PlatformStreamsSuspendingEvent -> {
+      is PlatformTimeLimitWarningEvent -> {
         stream.write(145)
         writeValue(stream, value.toList())
       }
-      is PlatformBackgroundTaskExtendedEvent -> {
+      is PlatformStreamsSuspendingEvent -> {
         stream.write(146)
         writeValue(stream, value.toList())
       }
-      is PlatformAppIntentImagePayload -> {
+      is PlatformBackgroundTaskExtendedEvent -> {
         stream.write(147)
         writeValue(stream, value.toList())
       }
-      is PlatformAppIntentResponse -> {
+      is PlatformAppIntentImagePayload -> {
         stream.write(148)
         writeValue(stream, value.toList())
       }
-      is PlatformNativePasteImageItem -> {
+      is PlatformAppIntentResponse -> {
         stream.write(149)
         writeValue(stream, value.toList())
       }
-      is PlatformNativePastePayload -> {
+      is PlatformNativePasteImageItem -> {
         stream.write(150)
         writeValue(stream, value.toList())
       }
-      is PlatformKeyboardAttachmentActionConfig -> {
+      is PlatformNativePastePayload -> {
         stream.write(151)
         writeValue(stream, value.toList())
       }
-      is PlatformKeyboardAttachmentConfig -> {
+      is PlatformKeyboardAttachmentActionConfig -> {
         stream.write(152)
         writeValue(stream, value.toList())
       }
-      is PlatformKeyboardAttachmentActionEvent -> {
+      is PlatformKeyboardAttachmentConfig -> {
         stream.write(153)
         writeValue(stream, value.toList())
       }
-      is PlatformKeyboardAttachmentVisibilityEvent -> {
+      is PlatformKeyboardAttachmentActionEvent -> {
         stream.write(154)
         writeValue(stream, value.toList())
       }
-      is PlatformRect -> {
+      is PlatformKeyboardAttachmentVisibilityEvent -> {
         stream.write(155)
         writeValue(stream, value.toList())
       }
-      is PlatformDropdownOption -> {
+      is PlatformRect -> {
         stream.write(156)
         writeValue(stream, value.toList())
       }
-      is PlatformImageViewerItem -> {
+      is PlatformDropdownOption -> {
         stream.write(157)
         writeValue(stream, value.toList())
       }
-      is PlatformImageViewerRequest -> {
+      is PlatformImageViewerItem -> {
         stream.write(158)
         writeValue(stream, value.toList())
       }
-      is PlatformDropdownRequest -> {
+      is PlatformImageViewerRequest -> {
         stream.write(159)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetOption -> {
+      is PlatformDropdownRequest -> {
         stream.write(160)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetTheme -> {
+      is PlatformNativeSheetOption -> {
         stream.write(161)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetItem -> {
+      is PlatformNativeSheetTheme -> {
         stream.write(162)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetRowAction -> {
+      is PlatformNativeSheetItem -> {
         stream.write(163)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetLink -> {
+      is PlatformNativeSheetRowAction -> {
         stream.write(164)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetSection -> {
+      is PlatformNativeSheetLink -> {
         stream.write(165)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeEditProfileSheetConfig -> {
+      is PlatformNativeSheetSection -> {
         stream.write(166)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeProfileSheetUser -> {
+      is PlatformNativeEditProfileSheetConfig -> {
         stream.write(167)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDetail -> {
+      is PlatformNativeProfileSheetUser -> {
         stream.write(168)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetMonthCalendar -> {
+      is PlatformNativeSheetDetail -> {
         stream.write(169)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetCalendarMark -> {
+      is PlatformNativeSheetMonthCalendar -> {
         stream.write(170)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetSearch -> {
+      is PlatformNativeSheetCalendarMark -> {
         stream.write(171)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeProfileSheetConfig -> {
+      is PlatformNativeSheetSearch -> {
         stream.write(172)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelOption -> {
+      is PlatformNativeProfileSheetConfig -> {
         stream.write(173)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelSelectorRequest -> {
+      is PlatformNativeSheetModelOption -> {
         stream.write(174)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelControl -> {
+      is PlatformNativeSheetModelSelectorRequest -> {
         stream.write(175)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetOptionsSelectorRequest -> {
+      is PlatformNativeSheetModelControl -> {
         stream.write(176)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetAlertAction -> {
+      is PlatformNativeSheetOptionsSelectorRequest -> {
         stream.write(177)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetAlertRequest -> {
+      is PlatformNativeSheetAlertAction -> {
         stream.write(178)
         writeValue(stream, value.toList())
       }
-      is PlatformWebSignInRequest -> {
+      is PlatformNativeSheetAlertRequest -> {
         stream.write(179)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDatePickerRequest -> {
+      is PlatformWebSignInRequest -> {
         stream.write(180)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetTextEditorRequest -> {
+      is PlatformNativeSheetDatePickerRequest -> {
         stream.write(181)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetResultRequest -> {
+      is PlatformNativeSheetTextEditorRequest -> {
         stream.write(182)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetApplyDetailPatchRequest -> {
+      is PlatformNativeSheetResultRequest -> {
         stream.write(183)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetControlChangedEvent -> {
+      is PlatformNativeSheetApplyDetailPatchRequest -> {
         stream.write(184)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDetailAppearedEvent -> {
+      is PlatformNativeSheetControlChangedEvent -> {
         stream.write(185)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelPinToggledEvent -> {
+      is PlatformNativeSheetDetailAppearedEvent -> {
         stream.write(186)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetReasoningEffortChangedEvent -> {
+      is PlatformNativeSheetModelPinToggledEvent -> {
         stream.write(187)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelControlChangedEvent -> {
+      is PlatformNativeSheetReasoningEffortChangedEvent -> {
         stream.write(188)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeEditProfileCommittedEvent -> {
+      is PlatformNativeSheetModelControlChangedEvent -> {
         stream.write(189)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetActionResult -> {
+      is PlatformNativeEditProfileCommittedEvent -> {
         stream.write(190)
         writeValue(stream, value.toList())
       }
-      is PlatformPccStatus -> {
+      is PlatformNativeSheetActionResult -> {
         stream.write(191)
         writeValue(stream, value.toList())
       }
-      is PlatformPccImage -> {
+      is PlatformPccStatus -> {
         stream.write(192)
         writeValue(stream, value.toList())
       }
-      is PlatformPccMessage -> {
+      is PlatformPccImage -> {
         stream.write(193)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolDefinition -> {
+      is PlatformPccMessage -> {
         stream.write(194)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolCall -> {
+      is PlatformPccToolDefinition -> {
         stream.write(195)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolResult -> {
+      is PlatformPccToolCall -> {
         stream.write(196)
         writeValue(stream, value.toList())
       }
-      is PlatformPccCompletionRequest -> {
+      is PlatformPccToolResult -> {
         stream.write(197)
         writeValue(stream, value.toList())
       }
-      is PlatformPccStreamEvent -> {
+      is PlatformPccCompletionRequest -> {
         stream.write(198)
         writeValue(stream, value.toList())
       }
-      is PlatformPushSubscription -> {
+      is PlatformPccStreamEvent -> {
         stream.write(199)
         writeValue(stream, value.toList())
       }
-      is PlatformPushToken -> {
+      is PlatformPushSubscription -> {
         stream.write(200)
         writeValue(stream, value.toList())
       }
-      is PlatformPushConfig -> {
+      is PlatformPushToken -> {
         stream.write(201)
         writeValue(stream, value.toList())
       }
-      is PlatformPushMessage -> {
+      is PlatformPushConfig -> {
         stream.write(202)
         writeValue(stream, value.toList())
       }
-      is PlatformPushTap -> {
+      is PlatformPushMessage -> {
         stream.write(203)
+        writeValue(stream, value.toList())
+      }
+      is PlatformPushTap -> {
+        stream.write(204)
+        writeValue(stream, value.toList())
+      }
+      is PlatformBrowserAuthRequest -> {
+        stream.write(205)
+        writeValue(stream, value.toList())
+      }
+      is PlatformBrowserAuthResult -> {
+        stream.write(206)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -6840,6 +7001,70 @@ class PushFlutterApi(private val binaryMessenger: BinaryMessenger, private val m
         }
       } else {
         callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
+      }
+    }
+  }
+}
+/**
+ * iOS and Android. Runs a sign-in page in the system browser, where
+ * passkeys and security keys work, and returns the redirect it ends on.
+ * Never throws: every ending is a [PlatformBrowserAuthResult].
+ *
+ * Generated interface from Pigeon that represents a handler of messages from Flutter.
+ */
+interface BrowserAuthHostApi {
+  /**
+   * Completes when the browser reaches the redirect, is dismissed, or
+   * fails. Starting another sign-in ends this one as `superseded`.
+   */
+  fun authenticate(request: PlatformBrowserAuthRequest, callback: (Result<PlatformBrowserAuthResult>) -> Unit)
+  /** Ends the sign-in in progress as cancelled, if any. */
+  fun cancel()
+
+  companion object {
+    /** The codec used by BrowserAuthHostApi. */
+    val codec: MessageCodec<Any?> by lazy {
+      ConduitPlatformApisPigeonCodec()
+    }
+    /** Sets up an instance of `BrowserAuthHostApi` to handle messages through the `binaryMessenger`. */
+    @JvmOverloads
+    fun setUp(binaryMessenger: BinaryMessenger, api: BrowserAuthHostApi?, messageChannelSuffix: String = "") {
+      val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.BrowserAuthHostApi.authenticate$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val requestArg = args[0] as PlatformBrowserAuthRequest
+            api.authenticate(requestArg) { result: Result<PlatformBrowserAuthResult> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.BrowserAuthHostApi.cancel$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              api.cancel()
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
       }
     }
   }

@@ -14,6 +14,7 @@ library;
 
 export 'background_execution_port.dart';
 export 'app_lifecycle.dart';
+export 'browser_auth_port.dart';
 export 'clipboard_port.dart';
 export 'connectivity_port.dart';
 export 'cookie_jar_port.dart';

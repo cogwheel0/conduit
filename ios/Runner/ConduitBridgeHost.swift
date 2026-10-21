@@ -123,5 +123,6 @@ enum ConduitBridgeRegistry {
     ShareImportBridge.shared.attach(to: host)
     CookieBridge.shared.attach(to: host)
     PushBridge.shared.attach(to: host)
+    BrowserAuthBridge.shared.attach(to: host)
   }
 }

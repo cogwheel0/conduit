@@ -270,6 +270,14 @@ enum PlatformKeyboardAttachmentActionKind: Int, CaseIterable {
   case command = 1
 }
 
+/// How a system-browser sign-in ended.
+enum PlatformBrowserAuthOutcome: Int, CaseIterable {
+  case success = 0
+  case cancelled = 1
+  case unavailable = 2
+  case failed = 3
+}
+
 /// Generated class from Pigeon that represents data sent in messages.
 struct PlatformBackgroundStreamLease: Hashable, CustomStringConvertible {
   var id: String
@@ -4219,6 +4227,123 @@ struct PlatformPushTap: Hashable, CustomStringConvertible {
   }
 }
 
+/// A sign-in page to open in the system browser, and the redirect that ends
+/// it. The redirect is matched exactly: scheme, host (empty when the redirect
+/// has none, as `com.googleusercontent.apps.<id>:/oauth2redirect` does) and
+/// path.
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformBrowserAuthRequest: Hashable, CustomStringConvertible {
+  var authorizationUrl: String
+  var callbackScheme: String
+  var callbackHost: String
+  var callbackPath: String
+  /// Asks the browser not to share cookies with its other sessions.
+  var preferEphemeralSession: Bool
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformBrowserAuthRequest? {
+    let authorizationUrl = pigeonVar_list[0] as! String
+    let callbackScheme = pigeonVar_list[1] as! String
+    let callbackHost = pigeonVar_list[2] as! String
+    let callbackPath = pigeonVar_list[3] as! String
+    let preferEphemeralSession = pigeonVar_list[4] as! Bool
+
+    return PlatformBrowserAuthRequest(
+      authorizationUrl: authorizationUrl,
+      callbackScheme: callbackScheme,
+      callbackHost: callbackHost,
+      callbackPath: callbackPath,
+      preferEphemeralSession: preferEphemeralSession
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      authorizationUrl,
+      callbackScheme,
+      callbackHost,
+      callbackPath,
+      preferEphemeralSession,
+    ]
+  }
+  static func == (lhs: PlatformBrowserAuthRequest, rhs: PlatformBrowserAuthRequest) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.authorizationUrl, rhs.authorizationUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.callbackScheme, rhs.callbackScheme) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.callbackHost, rhs.callbackHost) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.callbackPath, rhs.callbackPath) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.preferEphemeralSession, rhs.preferEphemeralSession)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformBrowserAuthRequest")
+    ConduitPlatformApisPigeonInternal.deepHash(value: authorizationUrl, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: callbackScheme, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: callbackHost, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: callbackPath, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: preferEphemeralSession, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformBrowserAuthRequest(authorizationUrl: \(String(describing: authorizationUrl)), callbackScheme: \(String(describing: callbackScheme)), callbackHost: \(String(describing: callbackHost)), callbackPath: \(String(describing: callbackPath)), preferEphemeralSession: \(String(describing: preferEphemeralSession)))"
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PlatformBrowserAuthResult: Hashable, CustomStringConvertible {
+  var outcome: PlatformBrowserAuthOutcome
+  /// The redirect the browser ended on, for [PlatformBrowserAuthOutcome.success].
+  var callbackUrl: String? = nil
+  /// Why the sign-in did not finish: `presentation_failed`, `no_browser`,
+  /// `start_failed`, `unexpected_callback`, `auth_tab_required`,
+  /// `superseded` or `invalid_request`.
+  var errorCode: String? = nil
+  /// The browser surface used: `web_authentication_session` (iOS),
+  /// `auth_tab`, `custom_tabs` or `external_browser` (Android).
+  var channel: String? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PlatformBrowserAuthResult? {
+    let outcome = pigeonVar_list[0] as! PlatformBrowserAuthOutcome
+    let callbackUrl: String? = nilOrValue(pigeonVar_list[1])
+    let errorCode: String? = nilOrValue(pigeonVar_list[2])
+    let channel: String? = nilOrValue(pigeonVar_list[3])
+
+    return PlatformBrowserAuthResult(
+      outcome: outcome,
+      callbackUrl: callbackUrl,
+      errorCode: errorCode,
+      channel: channel
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      outcome,
+      callbackUrl,
+      errorCode,
+      channel,
+    ]
+  }
+  static func == (lhs: PlatformBrowserAuthResult, rhs: PlatformBrowserAuthResult) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.outcome, rhs.outcome) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.callbackUrl, rhs.callbackUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.errorCode, rhs.errorCode) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.channel, rhs.channel)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PlatformBrowserAuthResult")
+    ConduitPlatformApisPigeonInternal.deepHash(value: outcome, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: callbackUrl, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: errorCode, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: channel, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "PlatformBrowserAuthResult(outcome: \(String(describing: outcome)), callbackUrl: \(String(describing: callbackUrl)), errorCode: \(String(describing: errorCode)), channel: \(String(describing: channel)))"
+  }
+}
+
 private class ConduitPlatformApisPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -4277,137 +4402,147 @@ private class ConduitPlatformApisPigeonCodecReader: FlutterStandardReader {
       }
       return nil
     case 138:
-      return PlatformBackgroundStreamLease.fromList(self.readValue() as! [Any?])
+      let enumResultAsInt: Int? = nilOrValue(self.readValue() as! Int?)
+      if let enumResultAsInt = enumResultAsInt {
+        return PlatformBrowserAuthOutcome(rawValue: enumResultAsInt)
+      }
+      return nil
     case 139:
-      return PlatformBackgroundStartRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStreamLease.fromList(self.readValue() as! [Any?])
     case 140:
-      return PlatformBackgroundStopRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStartRequest.fromList(self.readValue() as! [Any?])
     case 141:
-      return PlatformBackgroundKeepAliveRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundStopRequest.fromList(self.readValue() as! [Any?])
     case 142:
-      return PlatformBackgroundAudioSessionOwnerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundKeepAliveRequest.fromList(self.readValue() as! [Any?])
     case 143:
-      return PlatformServiceFailureEvent.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundAudioSessionOwnerRequest.fromList(self.readValue() as! [Any?])
     case 144:
-      return PlatformTimeLimitWarningEvent.fromList(self.readValue() as! [Any?])
+      return PlatformServiceFailureEvent.fromList(self.readValue() as! [Any?])
     case 145:
-      return PlatformStreamsSuspendingEvent.fromList(self.readValue() as! [Any?])
+      return PlatformTimeLimitWarningEvent.fromList(self.readValue() as! [Any?])
     case 146:
-      return PlatformBackgroundTaskExtendedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformStreamsSuspendingEvent.fromList(self.readValue() as! [Any?])
     case 147:
-      return PlatformAppIntentImagePayload.fromList(self.readValue() as! [Any?])
+      return PlatformBackgroundTaskExtendedEvent.fromList(self.readValue() as! [Any?])
     case 148:
-      return PlatformAppIntentResponse.fromList(self.readValue() as! [Any?])
+      return PlatformAppIntentImagePayload.fromList(self.readValue() as! [Any?])
     case 149:
-      return PlatformNativePasteImageItem.fromList(self.readValue() as! [Any?])
+      return PlatformAppIntentResponse.fromList(self.readValue() as! [Any?])
     case 150:
-      return PlatformNativePastePayload.fromList(self.readValue() as! [Any?])
+      return PlatformNativePasteImageItem.fromList(self.readValue() as! [Any?])
     case 151:
-      return PlatformKeyboardAttachmentActionConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativePastePayload.fromList(self.readValue() as! [Any?])
     case 152:
-      return PlatformKeyboardAttachmentConfig.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentActionConfig.fromList(self.readValue() as! [Any?])
     case 153:
-      return PlatformKeyboardAttachmentActionEvent.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentConfig.fromList(self.readValue() as! [Any?])
     case 154:
-      return PlatformKeyboardAttachmentVisibilityEvent.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentActionEvent.fromList(self.readValue() as! [Any?])
     case 155:
-      return PlatformRect.fromList(self.readValue() as! [Any?])
+      return PlatformKeyboardAttachmentVisibilityEvent.fromList(self.readValue() as! [Any?])
     case 156:
-      return PlatformDropdownOption.fromList(self.readValue() as! [Any?])
+      return PlatformRect.fromList(self.readValue() as! [Any?])
     case 157:
-      return PlatformImageViewerItem.fromList(self.readValue() as! [Any?])
+      return PlatformDropdownOption.fromList(self.readValue() as! [Any?])
     case 158:
-      return PlatformImageViewerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformImageViewerItem.fromList(self.readValue() as! [Any?])
     case 159:
-      return PlatformDropdownRequest.fromList(self.readValue() as! [Any?])
+      return PlatformImageViewerRequest.fromList(self.readValue() as! [Any?])
     case 160:
-      return PlatformNativeSheetOption.fromList(self.readValue() as! [Any?])
+      return PlatformDropdownRequest.fromList(self.readValue() as! [Any?])
     case 161:
-      return PlatformNativeSheetTheme.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetOption.fromList(self.readValue() as! [Any?])
     case 162:
-      return PlatformNativeSheetItem.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTheme.fromList(self.readValue() as! [Any?])
     case 163:
-      return PlatformNativeSheetRowAction.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetItem.fromList(self.readValue() as! [Any?])
     case 164:
-      return PlatformNativeSheetLink.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetRowAction.fromList(self.readValue() as! [Any?])
     case 165:
-      return PlatformNativeSheetSection.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetLink.fromList(self.readValue() as! [Any?])
     case 166:
-      return PlatformNativeEditProfileSheetConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetSection.fromList(self.readValue() as! [Any?])
     case 167:
-      return PlatformNativeProfileSheetUser.fromList(self.readValue() as! [Any?])
+      return PlatformNativeEditProfileSheetConfig.fromList(self.readValue() as! [Any?])
     case 168:
-      return PlatformNativeSheetDetail.fromList(self.readValue() as! [Any?])
+      return PlatformNativeProfileSheetUser.fromList(self.readValue() as! [Any?])
     case 169:
-      return PlatformNativeSheetMonthCalendar.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDetail.fromList(self.readValue() as! [Any?])
     case 170:
-      return PlatformNativeSheetCalendarMark.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetMonthCalendar.fromList(self.readValue() as! [Any?])
     case 171:
-      return PlatformNativeSheetSearch.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetCalendarMark.fromList(self.readValue() as! [Any?])
     case 172:
-      return PlatformNativeProfileSheetConfig.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetSearch.fromList(self.readValue() as! [Any?])
     case 173:
-      return PlatformNativeSheetModelOption.fromList(self.readValue() as! [Any?])
+      return PlatformNativeProfileSheetConfig.fromList(self.readValue() as! [Any?])
     case 174:
-      return PlatformNativeSheetModelSelectorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelOption.fromList(self.readValue() as! [Any?])
     case 175:
-      return PlatformNativeSheetModelControl.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelSelectorRequest.fromList(self.readValue() as! [Any?])
     case 176:
-      return PlatformNativeSheetOptionsSelectorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelControl.fromList(self.readValue() as! [Any?])
     case 177:
-      return PlatformNativeSheetAlertAction.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetOptionsSelectorRequest.fromList(self.readValue() as! [Any?])
     case 178:
-      return PlatformNativeSheetAlertRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetAlertAction.fromList(self.readValue() as! [Any?])
     case 179:
-      return PlatformWebSignInRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetAlertRequest.fromList(self.readValue() as! [Any?])
     case 180:
-      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
+      return PlatformWebSignInRequest.fromList(self.readValue() as! [Any?])
     case 181:
-      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDatePickerRequest.fromList(self.readValue() as! [Any?])
     case 182:
-      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetTextEditorRequest.fromList(self.readValue() as! [Any?])
     case 183:
-      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetResultRequest.fromList(self.readValue() as! [Any?])
     case 184:
-      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetApplyDetailPatchRequest.fromList(self.readValue() as! [Any?])
     case 185:
-      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetControlChangedEvent.fromList(self.readValue() as! [Any?])
     case 186:
-      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetDetailAppearedEvent.fromList(self.readValue() as! [Any?])
     case 187:
-      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelPinToggledEvent.fromList(self.readValue() as! [Any?])
     case 188:
-      return PlatformNativeSheetModelControlChangedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetReasoningEffortChangedEvent.fromList(self.readValue() as! [Any?])
     case 189:
-      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetModelControlChangedEvent.fromList(self.readValue() as! [Any?])
     case 190:
-      return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
+      return PlatformNativeEditProfileCommittedEvent.fromList(self.readValue() as! [Any?])
     case 191:
-      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
+      return PlatformNativeSheetActionResult.fromList(self.readValue() as! [Any?])
     case 192:
-      return PlatformPccImage.fromList(self.readValue() as! [Any?])
+      return PlatformPccStatus.fromList(self.readValue() as! [Any?])
     case 193:
-      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
+      return PlatformPccImage.fromList(self.readValue() as! [Any?])
     case 194:
-      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
+      return PlatformPccMessage.fromList(self.readValue() as! [Any?])
     case 195:
-      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolDefinition.fromList(self.readValue() as! [Any?])
     case 196:
-      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolCall.fromList(self.readValue() as! [Any?])
     case 197:
-      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
+      return PlatformPccToolResult.fromList(self.readValue() as! [Any?])
     case 198:
-      return PlatformPccStreamEvent.fromList(self.readValue() as! [Any?])
+      return PlatformPccCompletionRequest.fromList(self.readValue() as! [Any?])
     case 199:
-      return PlatformPushSubscription.fromList(self.readValue() as! [Any?])
+      return PlatformPccStreamEvent.fromList(self.readValue() as! [Any?])
     case 200:
-      return PlatformPushToken.fromList(self.readValue() as! [Any?])
+      return PlatformPushSubscription.fromList(self.readValue() as! [Any?])
     case 201:
-      return PlatformPushConfig.fromList(self.readValue() as! [Any?])
+      return PlatformPushToken.fromList(self.readValue() as! [Any?])
     case 202:
-      return PlatformPushMessage.fromList(self.readValue() as! [Any?])
+      return PlatformPushConfig.fromList(self.readValue() as! [Any?])
     case 203:
+      return PlatformPushMessage.fromList(self.readValue() as! [Any?])
+    case 204:
       return PlatformPushTap.fromList(self.readValue() as! [Any?])
+    case 205:
+      return PlatformBrowserAuthRequest.fromList(self.readValue() as! [Any?])
+    case 206:
+      return PlatformBrowserAuthResult.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -4443,203 +4578,212 @@ private class ConduitPlatformApisPigeonCodecWriter: FlutterStandardWriter {
     } else if let value = value as? PlatformKeyboardAttachmentActionKind {
       super.writeByte(137)
       super.writeValue(value.rawValue)
-    } else if let value = value as? PlatformBackgroundStreamLease {
+    } else if let value = value as? PlatformBrowserAuthOutcome {
       super.writeByte(138)
-      super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundStartRequest {
+      super.writeValue(value.rawValue)
+    } else if let value = value as? PlatformBackgroundStreamLease {
       super.writeByte(139)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundStopRequest {
+    } else if let value = value as? PlatformBackgroundStartRequest {
       super.writeByte(140)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundKeepAliveRequest {
+    } else if let value = value as? PlatformBackgroundStopRequest {
       super.writeByte(141)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundAudioSessionOwnerRequest {
+    } else if let value = value as? PlatformBackgroundKeepAliveRequest {
       super.writeByte(142)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformServiceFailureEvent {
+    } else if let value = value as? PlatformBackgroundAudioSessionOwnerRequest {
       super.writeByte(143)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformTimeLimitWarningEvent {
+    } else if let value = value as? PlatformServiceFailureEvent {
       super.writeByte(144)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformStreamsSuspendingEvent {
+    } else if let value = value as? PlatformTimeLimitWarningEvent {
       super.writeByte(145)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformBackgroundTaskExtendedEvent {
+    } else if let value = value as? PlatformStreamsSuspendingEvent {
       super.writeByte(146)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformAppIntentImagePayload {
+    } else if let value = value as? PlatformBackgroundTaskExtendedEvent {
       super.writeByte(147)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformAppIntentResponse {
+    } else if let value = value as? PlatformAppIntentImagePayload {
       super.writeByte(148)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativePasteImageItem {
+    } else if let value = value as? PlatformAppIntentResponse {
       super.writeByte(149)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativePastePayload {
+    } else if let value = value as? PlatformNativePasteImageItem {
       super.writeByte(150)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentActionConfig {
+    } else if let value = value as? PlatformNativePastePayload {
       super.writeByte(151)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentConfig {
+    } else if let value = value as? PlatformKeyboardAttachmentActionConfig {
       super.writeByte(152)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentActionEvent {
+    } else if let value = value as? PlatformKeyboardAttachmentConfig {
       super.writeByte(153)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformKeyboardAttachmentVisibilityEvent {
+    } else if let value = value as? PlatformKeyboardAttachmentActionEvent {
       super.writeByte(154)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformRect {
+    } else if let value = value as? PlatformKeyboardAttachmentVisibilityEvent {
       super.writeByte(155)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformDropdownOption {
+    } else if let value = value as? PlatformRect {
       super.writeByte(156)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformImageViewerItem {
+    } else if let value = value as? PlatformDropdownOption {
       super.writeByte(157)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformImageViewerRequest {
+    } else if let value = value as? PlatformImageViewerItem {
       super.writeByte(158)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformDropdownRequest {
+    } else if let value = value as? PlatformImageViewerRequest {
       super.writeByte(159)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetOption {
+    } else if let value = value as? PlatformDropdownRequest {
       super.writeByte(160)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTheme {
+    } else if let value = value as? PlatformNativeSheetOption {
       super.writeByte(161)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetItem {
+    } else if let value = value as? PlatformNativeSheetTheme {
       super.writeByte(162)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetRowAction {
+    } else if let value = value as? PlatformNativeSheetItem {
       super.writeByte(163)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetLink {
+    } else if let value = value as? PlatformNativeSheetRowAction {
       super.writeByte(164)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetSection {
+    } else if let value = value as? PlatformNativeSheetLink {
       super.writeByte(165)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileSheetConfig {
+    } else if let value = value as? PlatformNativeSheetSection {
       super.writeByte(166)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeProfileSheetUser {
+    } else if let value = value as? PlatformNativeEditProfileSheetConfig {
       super.writeByte(167)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetail {
+    } else if let value = value as? PlatformNativeProfileSheetUser {
       super.writeByte(168)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetMonthCalendar {
+    } else if let value = value as? PlatformNativeSheetDetail {
       super.writeByte(169)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetCalendarMark {
+    } else if let value = value as? PlatformNativeSheetMonthCalendar {
       super.writeByte(170)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetSearch {
+    } else if let value = value as? PlatformNativeSheetCalendarMark {
       super.writeByte(171)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeProfileSheetConfig {
+    } else if let value = value as? PlatformNativeSheetSearch {
       super.writeByte(172)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelOption {
+    } else if let value = value as? PlatformNativeProfileSheetConfig {
       super.writeByte(173)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelSelectorRequest {
+    } else if let value = value as? PlatformNativeSheetModelOption {
       super.writeByte(174)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelControl {
+    } else if let value = value as? PlatformNativeSheetModelSelectorRequest {
       super.writeByte(175)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetOptionsSelectorRequest {
+    } else if let value = value as? PlatformNativeSheetModelControl {
       super.writeByte(176)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetAlertAction {
+    } else if let value = value as? PlatformNativeSheetOptionsSelectorRequest {
       super.writeByte(177)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetAlertRequest {
+    } else if let value = value as? PlatformNativeSheetAlertAction {
       super.writeByte(178)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformWebSignInRequest {
+    } else if let value = value as? PlatformNativeSheetAlertRequest {
       super.writeByte(179)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
+    } else if let value = value as? PlatformWebSignInRequest {
       super.writeByte(180)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
+    } else if let value = value as? PlatformNativeSheetDatePickerRequest {
       super.writeByte(181)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetResultRequest {
+    } else if let value = value as? PlatformNativeSheetTextEditorRequest {
       super.writeByte(182)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
+    } else if let value = value as? PlatformNativeSheetResultRequest {
       super.writeByte(183)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
+    } else if let value = value as? PlatformNativeSheetApplyDetailPatchRequest {
       super.writeByte(184)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
+    } else if let value = value as? PlatformNativeSheetControlChangedEvent {
       super.writeByte(185)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
+    } else if let value = value as? PlatformNativeSheetDetailAppearedEvent {
       super.writeByte(186)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
+    } else if let value = value as? PlatformNativeSheetModelPinToggledEvent {
       super.writeByte(187)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetModelControlChangedEvent {
+    } else if let value = value as? PlatformNativeSheetReasoningEffortChangedEvent {
       super.writeByte(188)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
+    } else if let value = value as? PlatformNativeSheetModelControlChangedEvent {
       super.writeByte(189)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformNativeSheetActionResult {
+    } else if let value = value as? PlatformNativeEditProfileCommittedEvent {
       super.writeByte(190)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStatus {
+    } else if let value = value as? PlatformNativeSheetActionResult {
       super.writeByte(191)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccImage {
+    } else if let value = value as? PlatformPccStatus {
       super.writeByte(192)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccMessage {
+    } else if let value = value as? PlatformPccImage {
       super.writeByte(193)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolDefinition {
+    } else if let value = value as? PlatformPccMessage {
       super.writeByte(194)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolCall {
+    } else if let value = value as? PlatformPccToolDefinition {
       super.writeByte(195)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccToolResult {
+    } else if let value = value as? PlatformPccToolCall {
       super.writeByte(196)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccCompletionRequest {
+    } else if let value = value as? PlatformPccToolResult {
       super.writeByte(197)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPccStreamEvent {
+    } else if let value = value as? PlatformPccCompletionRequest {
       super.writeByte(198)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushSubscription {
+    } else if let value = value as? PlatformPccStreamEvent {
       super.writeByte(199)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushToken {
+    } else if let value = value as? PlatformPushSubscription {
       super.writeByte(200)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushConfig {
+    } else if let value = value as? PlatformPushToken {
       super.writeByte(201)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushMessage {
+    } else if let value = value as? PlatformPushConfig {
       super.writeByte(202)
       super.writeValue(value.toList())
-    } else if let value = value as? PlatformPushTap {
+    } else if let value = value as? PlatformPushMessage {
       super.writeByte(203)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformPushTap {
+      super.writeByte(204)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformBrowserAuthRequest {
+      super.writeByte(205)
+      super.writeValue(value.toList())
+    } else if let value = value as? PlatformBrowserAuthResult {
+      super.writeByte(206)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -6584,6 +6728,60 @@ class PushFlutterApi: PushFlutterApiProtocol {
       } else {
         completion(.success(()))
       }
+    }
+  }
+}
+/// iOS and Android. Runs a sign-in page in the system browser, where
+/// passkeys and security keys work, and returns the redirect it ends on.
+/// Never throws: every ending is a [PlatformBrowserAuthResult].
+///
+/// Generated protocol from Pigeon that represents a handler of messages from Flutter.
+protocol BrowserAuthHostApi {
+  /// Completes when the browser reaches the redirect, is dismissed, or
+  /// fails. Starting another sign-in ends this one as `superseded`.
+  func authenticate(request: PlatformBrowserAuthRequest, completion: @escaping (Result<PlatformBrowserAuthResult, Error>) -> Void)
+  /// Ends the sign-in in progress as cancelled, if any.
+  func cancel() throws
+}
+
+/// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
+class BrowserAuthHostApiSetup {
+  static var codec: FlutterStandardMessageCodec { ConduitPlatformApisPigeonCodec.shared }
+  /// Sets up an instance of `BrowserAuthHostApi` to handle messages through the `binaryMessenger`.
+  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: BrowserAuthHostApi?, messageChannelSuffix: String = "") {
+    let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    /// Completes when the browser reaches the redirect, is dismissed, or
+    /// fails. Starting another sign-in ends this one as `superseded`.
+    let authenticateChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.BrowserAuthHostApi.authenticate\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      authenticateChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let requestArg = args[0] as! PlatformBrowserAuthRequest
+        api.authenticate(request: requestArg) { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      authenticateChannel.setMessageHandler(nil)
+    }
+    /// Ends the sign-in in progress as cancelled, if any.
+    let cancelChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.BrowserAuthHostApi.cancel\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      cancelChannel.setMessageHandler { _, reply in
+        do {
+          try api.cancel()
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      cancelChannel.setMessageHandler(nil)
     }
   }
 }

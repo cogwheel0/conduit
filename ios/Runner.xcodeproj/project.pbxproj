@@ -34,6 +34,7 @@
 		A66B6643C89B7BB44E2B9471 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 42FA90454A654BE3B4EA8A89 /* Pods_RunnerTests.framework */; };
 		A83A7FB9515B064865DFE057 /* PushBase64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD151D748CDB1AB6792944AE /* PushBase64URL.swift */; };
 		AC9D621E2A391BA319F8469A /* PushLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D57D5B0E1798A4A8E62B0CF /* PushLedger.swift */; };
+		B8A11C0E5D2F4A6B9C3E7F01 /* BrowserAuthBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A11C0E5D2F4A6B9C3E7F02 /* BrowserAuthBridge.swift */; };
 		C073CCD19D2508BCAD536200 /* NativeIosTtsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */; };
 		C073D293D6D3C0AE42208200 /* AppIntentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */; };
 		C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */; };
@@ -172,6 +173,7 @@
 		A617F3027B9E43159B000002 /* NativeTextMagnifierBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTextMagnifierBridge.swift; sourceTree = "<group>"; };
 		A617F3027B9E43159B000022 /* NativeTextSelectionMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTextSelectionMenuBridge.swift; sourceTree = "<group>"; };
 		AC7D2CBF69CF34CF044B10F1 /* PushPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushPayload.swift; sourceTree = "<group>"; };
+		B8A11C0E5D2F4A6B9C3E7F02 /* BrowserAuthBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAuthBridge.swift; sourceTree = "<group>"; };
 		C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentInvocationStore.swift; sourceTree = "<group>"; };
 		C071A11CC4D0ABEE7C4B9101 /* NotificationService.profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = NotificationService/NotificationService.profile.xcconfig; sourceTree = "<group>"; };
 		C07202B2AF712D67C45FE1BC /* ConduitBridgeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitBridgeHost.swift; sourceTree = "<group>"; };
@@ -487,6 +489,7 @@
 				A617F3027B9E43159B000002 /* NativeTextMagnifierBridge.swift */,
 				C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */,
 				39A7D52A9D5DD70C376EABF2 /* RealtimeAudioBridge.swift */,
+				B8A11C0E5D2F4A6B9C3E7F02 /* BrowserAuthBridge.swift */,
 				C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */,
 				C076D53F677D9AB9577FCB47 /* ShareImportBridge.swift */,
 				D2A0B2132F5E4D6C7B8A9012 /* ConduitPlatformApis.g.swift */,
@@ -873,6 +876,7 @@
 				A617F3027B9E43159B000021 /* NativeTextSelectionMenuBridge.swift in Sources */,
 				C079094EC8D3F2DCA002F300 /* VoiceAudioRouteBridge.swift in Sources */,
 				F5C6B3C410DE632B01B4234F /* RealtimeAudioBridge.swift in Sources */,
+				B8A11C0E5D2F4A6B9C3E7F01 /* BrowserAuthBridge.swift in Sources */,
 				C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */,
 				C07E03850D838F4CC4E73700 /* ShareImportBridge.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
