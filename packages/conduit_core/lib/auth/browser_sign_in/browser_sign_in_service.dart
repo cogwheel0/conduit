@@ -76,6 +76,27 @@ bool browserSessionNeedsRenewal(String token, {DateTime? now}) {
   return false;
 }
 
+/// Whether an Open WebUI session [token] has expired. One that does not say
+/// when it expires has not.
+bool browserSessionExpired(String token, {DateTime? now}) {
+  final exp = _jwtClaims(token)?['exp'];
+  if (exp is! num) return false;
+  return exp <= (now ?? DateTime.now()).millisecondsSinceEpoch / 1000;
+}
+
+/// Whether [a] and [b] are the same browser sign-in settings, the issuer
+/// compared as [normalizeBrowserSignInIssuer] puts it.
+bool browserSignInConfigsMatch(BrowserSignInConfig a, BrowserSignInConfig? b) {
+  if (b == null || a.provider != b.provider || a.clientId != b.clientId) {
+    return false;
+  }
+  final issuerA = a.issuer;
+  final issuerB = b.issuer;
+  if (issuerA == null || issuerB == null) return issuerA == issuerB;
+  return normalizeBrowserSignInIssuer(issuerA) ==
+      normalizeBrowserSignInIssuer(issuerB);
+}
+
 Map<String, dynamic>? _jwtClaims(String token) {
   final parts = token.split('.');
   if (parts.length != 3) return null;
@@ -328,12 +349,13 @@ class BrowserSignInService {
     required ApiService api,
     required String provider,
     required String accessToken,
+    bool renewal = false,
   }) async {
     final Map<String, dynamic> answer;
     try {
       answer = await api.exchangeOAuthToken(provider, accessToken);
     } on DioException catch (error) {
-      final failure = browserSignInFailureForExchange(error);
+      final failure = browserSignInFailureForExchange(error, renewal: renewal);
       DebugLogger.warning(
         'browser-sign-in-exchange-refused',
         scope: 'auth/browser-sign-in',
@@ -388,6 +410,18 @@ class BrowserSignInService {
     });
   }
 
+  /// Completes once no renewal of [accountId] is running: one that is has
+  /// spent its refresh token, and saves the rotated one before it ends.
+  Future<void> renewalSettled(String accountId) async {
+    final running = _renewals[accountId];
+    if (running == null) return;
+    try {
+      await running;
+    } catch (_) {
+      // Its caller handles how it ended.
+    }
+  }
+
   Future<BrowserSignInRenewal> _renew({
     required String accountId,
     required ApiService api,
@@ -421,7 +455,7 @@ class BrowserSignInService {
         scope: session.scope,
       );
     } on OidcException catch (error) {
-      throw _oidcFailure(error, step: 'refresh');
+      throw _oidcFailure(error, step: 'refresh', renewal: true);
     } finally {
       http.close();
     }
@@ -448,6 +482,7 @@ class BrowserSignInService {
       api: api,
       provider: session.provider,
       accessToken: tokens.accessToken,
+      renewal: true,
     );
     return switch (answer) {
       BrowserSignInSessionToken(:final token) => (
@@ -586,8 +621,9 @@ class BrowserSignInService {
   BrowserSignInException _oidcFailure(
     OidcException error, {
     required String step,
+    bool renewal = false,
   }) {
-    final failure = browserSignInFailureForOidc(error);
+    final failure = browserSignInFailureForOidc(error, renewal: renewal);
     DebugLogger.warning(
       'browser-sign-in-idp-failed',
       scope: 'auth/browser-sign-in',

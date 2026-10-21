@@ -92,6 +92,10 @@ final class _Idp {
   final requests = <http.Request>[];
   String refreshTokenIssued = 'idp-refresh';
   Map<String, Object?>? tokenError;
+
+  /// Answers the token endpoint in place of the provider, as something in
+  /// front of it would.
+  http.Response Function()? tokenAnswer;
   bool unreachable = false;
 
   /// Runs before the token endpoint answers a refresh.
@@ -114,6 +118,8 @@ final class _Idp {
       if (request.bodyFields['grant_type'] == 'refresh_token') {
         await onRefresh?.call();
       }
+      final answer = tokenAnswer;
+      if (answer != null) return answer();
       final error = tokenError;
       if (error != null) return _jsonResponse(400, error);
       return _jsonResponse(200, {
@@ -662,6 +668,94 @@ void main() {
       check(failure.isTransient).isTrue();
     });
 
+    for (final (name, answer) in [
+      (
+        'a firewall page',
+        () => http.Response(
+          '<html>Checking your browser</html>',
+          403,
+          headers: {'content-type': 'text/html'},
+        ),
+      ),
+      (
+        'a redirect to a maintenance page',
+        () => http.Response(
+          '',
+          302,
+          headers: {'location': 'https://status.example.com'},
+        ),
+      ),
+      ('a request timeout', () => http.Response('', 408)),
+      (
+        'a page not found while it upgrades',
+        () => http.Response(
+          'Not Found',
+          404,
+          headers: {'content-type': 'text/plain'},
+        ),
+      ),
+    ]) {
+      test('$name from the provider keeps the session', () async {
+        idp.tokenAnswer = answer;
+        final failure = await failureOf(renew());
+        check(failure.isTransient).isTrue();
+        check(openWebUi.requests).isEmpty();
+      });
+    }
+
+    test('a client the provider refuses ends it', () async {
+      idp.tokenError = {'error': 'invalid_client'};
+      final failure = await failureOf(renew());
+      check(failure).equals(BrowserSignInFailure.clientRejected);
+      check(failure.isTerminal).isTrue();
+    });
+
+    for (final (name, answer) in [
+      (
+        'a proxy page not found',
+        () => ResponseBody.fromString(
+          '404 page not found',
+          404,
+          headers: {
+            Headers.contentTypeHeader: ['text/plain'],
+          },
+        ),
+      ),
+      ('a bare not found', () => _json(404, {'detail': 'Not Found'})),
+    ]) {
+      test('$name from Open WebUI keeps the session', () async {
+        exchangeAnswer = answer;
+        final failure = await failureOf(renew());
+        check(failure.isTransient).isTrue();
+      });
+    }
+
+    test('a provider Open WebUI no longer has ends it', () async {
+      exchangeAnswer = () =>
+          _json(404, {'detail': "Provider 'oidc' is not configured"});
+      final failure = await failureOf(renew());
+      check(failure).equals(BrowserSignInFailure.providerNotConfigured);
+      check(failure.isTerminal).isTrue();
+    });
+
+    test('settling waits for a renewal in flight', () async {
+      final release = Completer<void>();
+      idp.onRefresh = () => release.future;
+      final renewal = renew();
+      var settled = false;
+      final waiting = service
+          .renewalSettled('account-a')
+          .then((_) => settled = true);
+      await Future<void>.delayed(Duration.zero);
+      check(settled).isFalse();
+
+      release.complete();
+      await renewal;
+      await waiting;
+      check(settled).isTrue();
+      await service.renewalSettled('account-a');
+    });
+
     test('a second step cannot be taken without the user', () async {
       exchangeAnswer = () =>
           _json(200, {'next_step': 'verify', 'challenge_token': 'challenge'});
@@ -782,7 +876,43 @@ void main() {
       check(browserSessionNeedsRenewal(token({'id': 'user-a'}), now: now))
           .isFalse();
       check(browserSessionNeedsRenewal('not-a-jwt', now: now)).isFalse();
+      check(browserSessionExpired(token({'id': 'user-a'}), now: now)).isFalse();
     });
+
+    test('a session that already expired', () {
+      check(browserSessionExpired(token({'exp': seconds - 1}), now: now))
+          .isTrue();
+      check(browserSessionExpired(token({'exp': seconds + 60}), now: now))
+          .isFalse();
+    });
+  });
+
+  test('settings put another way are the same settings', () {
+    const found = BrowserSignInConfig(provider: 'oidc', clientId: 'conduit');
+    const typed = BrowserSignInConfig(
+      provider: 'oidc',
+      clientId: 'conduit',
+      issuer: 'https://id.example.com/realms/main',
+    );
+    check(browserSignInConfigsMatch(found, found)).isTrue();
+    check(
+      browserSignInConfigsMatch(
+        typed,
+        const BrowserSignInConfig(
+          provider: 'oidc',
+          clientId: 'conduit',
+          issuer: 'https://ID.example.com:443/realms/main/',
+        ),
+      ),
+    ).isTrue();
+    check(browserSignInConfigsMatch(found, typed)).isFalse();
+    check(browserSignInConfigsMatch(found, null)).isFalse();
+    check(
+      browserSignInConfigsMatch(
+        found,
+        const BrowserSignInConfig(provider: 'oidc', clientId: 'other'),
+      ),
+    ).isFalse();
   });
 
   test('only OIDC, Microsoft and Google sign in through the browser', () {
