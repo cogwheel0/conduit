@@ -14,7 +14,7 @@ mixin _AuthApi on _ApiServiceBase {
 
   /// Ensure interceptor callbacks stay in sync if they are set after construction
   void setAuthCallbacks({
-    void Function()? onAuthTokenInvalid,
+    void Function(AuthFailureKind kind)? onAuthTokenInvalid,
     Future<void> Function()? onTokenInvalidated,
   }) {
     if (onAuthTokenInvalid != null) {
@@ -98,6 +98,148 @@ mixin _AuthApi on _ApiServiceBase {
         }
       }
       rethrow;
+    }
+  }
+
+  // Browser sign-in. Both routes are public: they run before any session
+  // exists, and no answer from either says anything about the session in
+  // use, so none is reported as ending it.
+
+  /// Where [provider] signs in, as Open WebUI's login route redirects a
+  /// browser there for a sign-in of its own.
+  ///
+  /// The redirect is the answer: it is not followed, even on the same host,
+  /// nor taken for a proxy turning the request away. Telling a proxy apart is
+  /// left to this method: a page, a 401 or 403, or a redirect that is not to
+  /// an authorization endpoint for Open WebUI's callback throws
+  /// [OAuthLoginProbeException] with
+  /// [OAuthLoginProbeFailure.proxySignInRequired], and a 404 one with
+  /// [OAuthLoginProbeFailure.notFound]. Anything else propagates as the
+  /// [DioException] it is.
+  Future<OAuthLoginProbe> probeOAuthLogin(String provider) async {
+    _checkOAuthProvider(provider);
+    final Response<dynamic> response;
+    try {
+      response = await _dio.get<dynamic>(
+        '/oauth/$provider/login',
+        options: Options(
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 400,
+          responseType: ResponseType.plain,
+          extra: const {
+            _redirectIsAnswerKey: true,
+            'suppressAuthFailureNotification': true,
+          },
+        ),
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 404) {
+        throw const OAuthLoginProbeException(
+          OAuthLoginProbeFailure.notFound,
+          statusCode: 404,
+        );
+      }
+      if (status == 401 || status == 403) {
+        throw OAuthLoginProbeException(
+          OAuthLoginProbeFailure.proxySignInRequired,
+          statusCode: status,
+        );
+      }
+      rethrow;
+    }
+    final probe = _oauthLoginProbe(response, provider);
+    if (probe == null) {
+      DebugLogger.warning(
+        'oauth-login-not-a-provider-redirect',
+        scope: 'auth/browser-sign-in',
+        data: {'status': response.statusCode},
+      );
+      throw OAuthLoginProbeException(
+        OAuthLoginProbeFailure.proxySignInRequired,
+        statusCode: response.statusCode,
+      );
+    }
+    return probe;
+  }
+
+  /// The provider [response] redirects to, when it is Open WebUI sending a
+  /// browser to [provider] for its callback: an absolute http(s) location
+  /// with a client id and a `redirect_uri` under `/oauth/{provider}/`. The
+  /// callback's host is not checked: `WEBUI_URL` can name another address
+  /// than the one in use.
+  OAuthLoginProbe? _oauthLoginProbe(
+    Response<dynamic> response,
+    String provider,
+  ) {
+    final status = response.statusCode ?? 0;
+    final locations = response.headers['location'];
+    if (status < 300 || status >= 400 || locations?.length != 1) return null;
+    try {
+      final location = response.requestOptions.uri.resolve(
+        locations!.single.trim(),
+      );
+      if ((location.scheme != 'https' && location.scheme != 'http') ||
+          location.host.isEmpty) {
+        return null;
+      }
+      final query = location.queryParameters;
+      final clientId = query['client_id'];
+      final redirectUri = Uri.parse(query['redirect_uri'] ?? '');
+      if (clientId == null ||
+          clientId.isEmpty ||
+          (redirectUri.scheme != 'https' && redirectUri.scheme != 'http') ||
+          !redirectUri.path.contains('/oauth/$provider/')) {
+        return null;
+      }
+      final audience = query['audience'];
+      return OAuthLoginProbe(
+        authorizationEndpoint: Uri(
+          scheme: location.scheme,
+          host: location.host,
+          port: location.hasPort ? location.port : null,
+          path: location.path,
+        ),
+        redirectUri: redirectUri,
+        audience: audience == null || audience.isEmpty ? null : audience,
+      );
+    } on FormatException {
+      return null;
+    } on ArgumentError {
+      // A malformed escape in the query.
+      return null;
+    }
+  }
+
+  /// Trades [accessToken], issued by [provider]'s identity provider to
+  /// Conduit's own client, for an Open WebUI sign-in at
+  /// `/api/v1/auths/oauth/{provider}/token/exchange` (Open WebUI 0.8 and
+  /// later, with `ENABLE_OAUTH_TOKEN_EXCHANGE` on).
+  ///
+  /// Returns the answer as it came, as [login] does: a session, a second
+  /// step (`next_step` with a `challenge_token`), or `{"next_step":
+  /// "pending"}` for an account waiting for approval; the caller tells them
+  /// apart. A refusal propagates as the [DioException] it is, with the status
+  /// and `detail` it came with. An answer that is not an object throws a
+  /// [FormatException].
+  Future<Map<String, dynamic>> exchangeOAuthToken(
+    String provider,
+    String accessToken,
+  ) async {
+    _checkOAuthProvider(provider);
+    final response = await _dio.post<dynamic>(
+      '/api/v1/auths/oauth/$provider/token/exchange',
+      data: {'token': accessToken},
+      options: Options(extra: const {'suppressAuthFailureNotification': true}),
+    );
+    final data = response.data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    throw const FormatException('The token exchange answered with no sign-in');
+  }
+
+  void _checkOAuthProvider(String provider) {
+    if (!browserSignInProviderPattern.hasMatch(provider)) {
+      throw ArgumentError.value(provider, 'provider', 'Not a provider name');
     }
   }
 
