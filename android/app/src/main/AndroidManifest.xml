@@ -45,6 +45,10 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
+        <!-- Browsers with Custom Tabs and Auth Tabs, for sign-in in the system browser. -->
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
     </queries>
 
     <!-- Custom Application class creates notification channels at startup to prevent
@@ -182,6 +186,26 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+
+        <!-- Receives the sign-in redirect from a Custom Tab or the default
+             browser and returns to MainActivity without it. An Auth Tab
+             returns its redirect directly and never comes here. -->
+        <activity
+            android:name=".BrowserAuthCallbackActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="conduit"
+                    android:host="oauth"
+                    android:path="/callback" />
+            </intent-filter>
+        </activity>
 
         <!-- Background streaming service -->
         <service

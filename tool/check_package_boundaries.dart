@@ -119,6 +119,7 @@ const List<String> _iosHostAgnosticSwift = <String>[
   'ios/Runner/AppIntentBridge.swift',
   'ios/Runner/AppIntentInvocationStore.swift',
   'ios/Runner/BackgroundStreamingHandler.swift',
+  'ios/Runner/BrowserAuthBridge.swift',
   'ios/Runner/ConduitAppIntents.swift',
   'ios/Runner/ConduitBridgeHost.swift',
   'ios/Runner/ConduitCarPlayBridge.swift',

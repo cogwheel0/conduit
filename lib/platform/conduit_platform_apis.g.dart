@@ -171,6 +171,9 @@ enum PlatformNativeSheetItemKind {
 /// command (attaching a file, opening a sheet).
 enum PlatformKeyboardAttachmentActionKind { toggle, command }
 
+/// How a system-browser sign-in ended.
+enum PlatformBrowserAuthOutcome { success, cancelled, unavailable, failed }
+
 class PlatformBackgroundStreamLease {
   PlatformBackgroundStreamLease({
     required this.id,
@@ -5008,6 +5011,148 @@ class PlatformPushTap {
   }
 }
 
+/// A sign-in page to open in the system browser, and the redirect that ends
+/// it. The redirect is matched exactly: scheme, host (empty when the redirect
+/// has none, as `com.googleusercontent.apps.<id>:/oauth2redirect` does) and
+/// path.
+class PlatformBrowserAuthRequest {
+  PlatformBrowserAuthRequest({
+    required this.authorizationUrl,
+    required this.callbackScheme,
+    required this.callbackHost,
+    required this.callbackPath,
+    required this.preferEphemeralSession,
+  });
+
+  String authorizationUrl;
+
+  String callbackScheme;
+
+  String callbackHost;
+
+  String callbackPath;
+
+  /// Asks the browser not to share cookies with its other sessions.
+  bool preferEphemeralSession;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      authorizationUrl,
+      callbackScheme,
+      callbackHost,
+      callbackPath,
+      preferEphemeralSession,
+    ];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformBrowserAuthRequest decode(Object result) {
+    result as List<Object?>;
+    return PlatformBrowserAuthRequest(
+      authorizationUrl: result[0]! as String,
+      callbackScheme: result[1]! as String,
+      callbackHost: result[2]! as String,
+      callbackPath: result[3]! as String,
+      preferEphemeralSession: result[4]! as bool,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformBrowserAuthRequest ||
+        other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(authorizationUrl, other.authorizationUrl) &&
+        _deepEquals(callbackScheme, other.callbackScheme) &&
+        _deepEquals(callbackHost, other.callbackHost) &&
+        _deepEquals(callbackPath, other.callbackPath) &&
+        _deepEquals(preferEphemeralSession, other.preferEphemeralSession);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformBrowserAuthRequest(authorizationUrl: $authorizationUrl, callbackScheme: $callbackScheme, callbackHost: $callbackHost, callbackPath: $callbackPath, preferEphemeralSession: $preferEphemeralSession)';
+  }
+}
+
+class PlatformBrowserAuthResult {
+  PlatformBrowserAuthResult({
+    required this.outcome,
+    this.callbackUrl,
+    this.errorCode,
+    this.channel,
+  });
+
+  PlatformBrowserAuthOutcome outcome;
+
+  /// The redirect the browser ended on, for [PlatformBrowserAuthOutcome.success].
+  String? callbackUrl;
+
+  /// Why the sign-in did not finish: `presentation_failed`, `no_browser`,
+  /// `start_failed`, `unexpected_callback`, `auth_tab_required`,
+  /// `superseded` or `invalid_request`.
+  String? errorCode;
+
+  /// The browser surface used: `web_authentication_session` (iOS),
+  /// `auth_tab`, `custom_tabs` or `external_browser` (Android).
+  String? channel;
+
+  List<Object?> _toList() {
+    return <Object?>[outcome, callbackUrl, errorCode, channel];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformBrowserAuthResult decode(Object result) {
+    result as List<Object?>;
+    return PlatformBrowserAuthResult(
+      outcome: result[0]! as PlatformBrowserAuthOutcome,
+      callbackUrl: result[1] as String?,
+      errorCode: result[2] as String?,
+      channel: result[3] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformBrowserAuthResult ||
+        other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(outcome, other.outcome) &&
+        _deepEquals(callbackUrl, other.callbackUrl) &&
+        _deepEquals(errorCode, other.errorCode) &&
+        _deepEquals(channel, other.channel);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformBrowserAuthResult(outcome: $outcome, callbackUrl: $callbackUrl, errorCode: $errorCode, channel: $channel)';
+  }
+}
+
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
   @override
@@ -5042,203 +5187,212 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is PlatformKeyboardAttachmentActionKind) {
       buffer.putUint8(137);
       writeValue(buffer, value.index);
-    } else if (value is PlatformBackgroundStreamLease) {
+    } else if (value is PlatformBrowserAuthOutcome) {
       buffer.putUint8(138);
-      writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundStartRequest) {
+      writeValue(buffer, value.index);
+    } else if (value is PlatformBackgroundStreamLease) {
       buffer.putUint8(139);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundStopRequest) {
+    } else if (value is PlatformBackgroundStartRequest) {
       buffer.putUint8(140);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundKeepAliveRequest) {
+    } else if (value is PlatformBackgroundStopRequest) {
       buffer.putUint8(141);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundAudioSessionOwnerRequest) {
+    } else if (value is PlatformBackgroundKeepAliveRequest) {
       buffer.putUint8(142);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformServiceFailureEvent) {
+    } else if (value is PlatformBackgroundAudioSessionOwnerRequest) {
       buffer.putUint8(143);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformTimeLimitWarningEvent) {
+    } else if (value is PlatformServiceFailureEvent) {
       buffer.putUint8(144);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformStreamsSuspendingEvent) {
+    } else if (value is PlatformTimeLimitWarningEvent) {
       buffer.putUint8(145);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformBackgroundTaskExtendedEvent) {
+    } else if (value is PlatformStreamsSuspendingEvent) {
       buffer.putUint8(146);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformAppIntentImagePayload) {
+    } else if (value is PlatformBackgroundTaskExtendedEvent) {
       buffer.putUint8(147);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformAppIntentResponse) {
+    } else if (value is PlatformAppIntentImagePayload) {
       buffer.putUint8(148);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativePasteImageItem) {
+    } else if (value is PlatformAppIntentResponse) {
       buffer.putUint8(149);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativePastePayload) {
+    } else if (value is PlatformNativePasteImageItem) {
       buffer.putUint8(150);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentActionConfig) {
+    } else if (value is PlatformNativePastePayload) {
       buffer.putUint8(151);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentConfig) {
+    } else if (value is PlatformKeyboardAttachmentActionConfig) {
       buffer.putUint8(152);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentActionEvent) {
+    } else if (value is PlatformKeyboardAttachmentConfig) {
       buffer.putUint8(153);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformKeyboardAttachmentVisibilityEvent) {
+    } else if (value is PlatformKeyboardAttachmentActionEvent) {
       buffer.putUint8(154);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformRect) {
+    } else if (value is PlatformKeyboardAttachmentVisibilityEvent) {
       buffer.putUint8(155);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformDropdownOption) {
+    } else if (value is PlatformRect) {
       buffer.putUint8(156);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformImageViewerItem) {
+    } else if (value is PlatformDropdownOption) {
       buffer.putUint8(157);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformImageViewerRequest) {
+    } else if (value is PlatformImageViewerItem) {
       buffer.putUint8(158);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformDropdownRequest) {
+    } else if (value is PlatformImageViewerRequest) {
       buffer.putUint8(159);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOption) {
+    } else if (value is PlatformDropdownRequest) {
       buffer.putUint8(160);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTheme) {
+    } else if (value is PlatformNativeSheetOption) {
       buffer.putUint8(161);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetItem) {
+    } else if (value is PlatformNativeSheetTheme) {
       buffer.putUint8(162);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetRowAction) {
+    } else if (value is PlatformNativeSheetItem) {
       buffer.putUint8(163);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetLink) {
+    } else if (value is PlatformNativeSheetRowAction) {
       buffer.putUint8(164);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetSection) {
+    } else if (value is PlatformNativeSheetLink) {
       buffer.putUint8(165);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileSheetConfig) {
+    } else if (value is PlatformNativeSheetSection) {
       buffer.putUint8(166);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeProfileSheetUser) {
+    } else if (value is PlatformNativeEditProfileSheetConfig) {
       buffer.putUint8(167);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetail) {
+    } else if (value is PlatformNativeProfileSheetUser) {
       buffer.putUint8(168);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetMonthCalendar) {
+    } else if (value is PlatformNativeSheetDetail) {
       buffer.putUint8(169);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetCalendarMark) {
+    } else if (value is PlatformNativeSheetMonthCalendar) {
       buffer.putUint8(170);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetSearch) {
+    } else if (value is PlatformNativeSheetCalendarMark) {
       buffer.putUint8(171);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeProfileSheetConfig) {
+    } else if (value is PlatformNativeSheetSearch) {
       buffer.putUint8(172);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelOption) {
+    } else if (value is PlatformNativeProfileSheetConfig) {
       buffer.putUint8(173);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelSelectorRequest) {
+    } else if (value is PlatformNativeSheetModelOption) {
       buffer.putUint8(174);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelControl) {
+    } else if (value is PlatformNativeSheetModelSelectorRequest) {
       buffer.putUint8(175);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
+    } else if (value is PlatformNativeSheetModelControl) {
       buffer.putUint8(176);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetAlertAction) {
+    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
       buffer.putUint8(177);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetAlertRequest) {
+    } else if (value is PlatformNativeSheetAlertAction) {
       buffer.putUint8(178);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformWebSignInRequest) {
+    } else if (value is PlatformNativeSheetAlertRequest) {
       buffer.putUint8(179);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDatePickerRequest) {
+    } else if (value is PlatformWebSignInRequest) {
       buffer.putUint8(180);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTextEditorRequest) {
+    } else if (value is PlatformNativeSheetDatePickerRequest) {
       buffer.putUint8(181);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetResultRequest) {
+    } else if (value is PlatformNativeSheetTextEditorRequest) {
       buffer.putUint8(182);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
+    } else if (value is PlatformNativeSheetResultRequest) {
       buffer.putUint8(183);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetControlChangedEvent) {
+    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
       buffer.putUint8(184);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
+    } else if (value is PlatformNativeSheetControlChangedEvent) {
       buffer.putUint8(185);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
+    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
       buffer.putUint8(186);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
+    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
       buffer.putUint8(187);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelControlChangedEvent) {
+    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
       buffer.putUint8(188);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileCommittedEvent) {
+    } else if (value is PlatformNativeSheetModelControlChangedEvent) {
       buffer.putUint8(189);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetActionResult) {
+    } else if (value is PlatformNativeEditProfileCommittedEvent) {
       buffer.putUint8(190);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStatus) {
+    } else if (value is PlatformNativeSheetActionResult) {
       buffer.putUint8(191);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccImage) {
+    } else if (value is PlatformPccStatus) {
       buffer.putUint8(192);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccMessage) {
+    } else if (value is PlatformPccImage) {
       buffer.putUint8(193);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolDefinition) {
+    } else if (value is PlatformPccMessage) {
       buffer.putUint8(194);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolCall) {
+    } else if (value is PlatformPccToolDefinition) {
       buffer.putUint8(195);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolResult) {
+    } else if (value is PlatformPccToolCall) {
       buffer.putUint8(196);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccCompletionRequest) {
+    } else if (value is PlatformPccToolResult) {
       buffer.putUint8(197);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStreamEvent) {
+    } else if (value is PlatformPccCompletionRequest) {
       buffer.putUint8(198);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushSubscription) {
+    } else if (value is PlatformPccStreamEvent) {
       buffer.putUint8(199);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushToken) {
+    } else if (value is PlatformPushSubscription) {
       buffer.putUint8(200);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushConfig) {
+    } else if (value is PlatformPushToken) {
       buffer.putUint8(201);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushMessage) {
+    } else if (value is PlatformPushConfig) {
       buffer.putUint8(202);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPushTap) {
+    } else if (value is PlatformPushMessage) {
       buffer.putUint8(203);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPushTap) {
+      buffer.putUint8(204);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformBrowserAuthRequest) {
+      buffer.putUint8(205);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformBrowserAuthResult) {
+      buffer.putUint8(206);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -5280,161 +5434,168 @@ class _PigeonCodec extends StandardMessageCodec {
             ? null
             : PlatformKeyboardAttachmentActionKind.values[value];
       case 138:
-        return PlatformBackgroundStreamLease.decode(readValue(buffer)!);
+        final value = readValue(buffer) as int?;
+        return value == null ? null : PlatformBrowserAuthOutcome.values[value];
       case 139:
-        return PlatformBackgroundStartRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStreamLease.decode(readValue(buffer)!);
       case 140:
-        return PlatformBackgroundStopRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStartRequest.decode(readValue(buffer)!);
       case 141:
-        return PlatformBackgroundKeepAliveRequest.decode(readValue(buffer)!);
+        return PlatformBackgroundStopRequest.decode(readValue(buffer)!);
       case 142:
+        return PlatformBackgroundKeepAliveRequest.decode(readValue(buffer)!);
+      case 143:
         return PlatformBackgroundAudioSessionOwnerRequest.decode(
           readValue(buffer)!,
         );
-      case 143:
-        return PlatformServiceFailureEvent.decode(readValue(buffer)!);
       case 144:
-        return PlatformTimeLimitWarningEvent.decode(readValue(buffer)!);
+        return PlatformServiceFailureEvent.decode(readValue(buffer)!);
       case 145:
-        return PlatformStreamsSuspendingEvent.decode(readValue(buffer)!);
+        return PlatformTimeLimitWarningEvent.decode(readValue(buffer)!);
       case 146:
-        return PlatformBackgroundTaskExtendedEvent.decode(readValue(buffer)!);
+        return PlatformStreamsSuspendingEvent.decode(readValue(buffer)!);
       case 147:
-        return PlatformAppIntentImagePayload.decode(readValue(buffer)!);
+        return PlatformBackgroundTaskExtendedEvent.decode(readValue(buffer)!);
       case 148:
-        return PlatformAppIntentResponse.decode(readValue(buffer)!);
+        return PlatformAppIntentImagePayload.decode(readValue(buffer)!);
       case 149:
-        return PlatformNativePasteImageItem.decode(readValue(buffer)!);
+        return PlatformAppIntentResponse.decode(readValue(buffer)!);
       case 150:
-        return PlatformNativePastePayload.decode(readValue(buffer)!);
+        return PlatformNativePasteImageItem.decode(readValue(buffer)!);
       case 151:
+        return PlatformNativePastePayload.decode(readValue(buffer)!);
+      case 152:
         return PlatformKeyboardAttachmentActionConfig.decode(
           readValue(buffer)!,
         );
-      case 152:
-        return PlatformKeyboardAttachmentConfig.decode(readValue(buffer)!);
       case 153:
-        return PlatformKeyboardAttachmentActionEvent.decode(readValue(buffer)!);
+        return PlatformKeyboardAttachmentConfig.decode(readValue(buffer)!);
       case 154:
+        return PlatformKeyboardAttachmentActionEvent.decode(readValue(buffer)!);
+      case 155:
         return PlatformKeyboardAttachmentVisibilityEvent.decode(
           readValue(buffer)!,
         );
-      case 155:
-        return PlatformRect.decode(readValue(buffer)!);
       case 156:
-        return PlatformDropdownOption.decode(readValue(buffer)!);
+        return PlatformRect.decode(readValue(buffer)!);
       case 157:
-        return PlatformImageViewerItem.decode(readValue(buffer)!);
+        return PlatformDropdownOption.decode(readValue(buffer)!);
       case 158:
-        return PlatformImageViewerRequest.decode(readValue(buffer)!);
+        return PlatformImageViewerItem.decode(readValue(buffer)!);
       case 159:
-        return PlatformDropdownRequest.decode(readValue(buffer)!);
+        return PlatformImageViewerRequest.decode(readValue(buffer)!);
       case 160:
-        return PlatformNativeSheetOption.decode(readValue(buffer)!);
+        return PlatformDropdownRequest.decode(readValue(buffer)!);
       case 161:
-        return PlatformNativeSheetTheme.decode(readValue(buffer)!);
+        return PlatformNativeSheetOption.decode(readValue(buffer)!);
       case 162:
-        return PlatformNativeSheetItem.decode(readValue(buffer)!);
+        return PlatformNativeSheetTheme.decode(readValue(buffer)!);
       case 163:
-        return PlatformNativeSheetRowAction.decode(readValue(buffer)!);
+        return PlatformNativeSheetItem.decode(readValue(buffer)!);
       case 164:
-        return PlatformNativeSheetLink.decode(readValue(buffer)!);
+        return PlatformNativeSheetRowAction.decode(readValue(buffer)!);
       case 165:
-        return PlatformNativeSheetSection.decode(readValue(buffer)!);
+        return PlatformNativeSheetLink.decode(readValue(buffer)!);
       case 166:
-        return PlatformNativeEditProfileSheetConfig.decode(readValue(buffer)!);
+        return PlatformNativeSheetSection.decode(readValue(buffer)!);
       case 167:
-        return PlatformNativeProfileSheetUser.decode(readValue(buffer)!);
+        return PlatformNativeEditProfileSheetConfig.decode(readValue(buffer)!);
       case 168:
-        return PlatformNativeSheetDetail.decode(readValue(buffer)!);
+        return PlatformNativeProfileSheetUser.decode(readValue(buffer)!);
       case 169:
-        return PlatformNativeSheetMonthCalendar.decode(readValue(buffer)!);
+        return PlatformNativeSheetDetail.decode(readValue(buffer)!);
       case 170:
-        return PlatformNativeSheetCalendarMark.decode(readValue(buffer)!);
+        return PlatformNativeSheetMonthCalendar.decode(readValue(buffer)!);
       case 171:
-        return PlatformNativeSheetSearch.decode(readValue(buffer)!);
+        return PlatformNativeSheetCalendarMark.decode(readValue(buffer)!);
       case 172:
-        return PlatformNativeProfileSheetConfig.decode(readValue(buffer)!);
+        return PlatformNativeSheetSearch.decode(readValue(buffer)!);
       case 173:
-        return PlatformNativeSheetModelOption.decode(readValue(buffer)!);
+        return PlatformNativeProfileSheetConfig.decode(readValue(buffer)!);
       case 174:
+        return PlatformNativeSheetModelOption.decode(readValue(buffer)!);
+      case 175:
         return PlatformNativeSheetModelSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 175:
-        return PlatformNativeSheetModelControl.decode(readValue(buffer)!);
       case 176:
+        return PlatformNativeSheetModelControl.decode(readValue(buffer)!);
+      case 177:
         return PlatformNativeSheetOptionsSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 177:
-        return PlatformNativeSheetAlertAction.decode(readValue(buffer)!);
       case 178:
-        return PlatformNativeSheetAlertRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetAlertAction.decode(readValue(buffer)!);
       case 179:
-        return PlatformWebSignInRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetAlertRequest.decode(readValue(buffer)!);
       case 180:
-        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
+        return PlatformWebSignInRequest.decode(readValue(buffer)!);
       case 181:
-        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 182:
-        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
       case 183:
+        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+      case 184:
         return PlatformNativeSheetApplyDetailPatchRequest.decode(
           readValue(buffer)!,
         );
-      case 184:
+      case 185:
         return PlatformNativeSheetControlChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 185:
+      case 186:
         return PlatformNativeSheetDetailAppearedEvent.decode(
           readValue(buffer)!,
         );
-      case 186:
+      case 187:
         return PlatformNativeSheetModelPinToggledEvent.decode(
           readValue(buffer)!,
         );
-      case 187:
+      case 188:
         return PlatformNativeSheetReasoningEffortChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 188:
+      case 189:
         return PlatformNativeSheetModelControlChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 189:
+      case 190:
         return PlatformNativeEditProfileCommittedEvent.decode(
           readValue(buffer)!,
         );
-      case 190:
-        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 191:
-        return PlatformPccStatus.decode(readValue(buffer)!);
+        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 192:
-        return PlatformPccImage.decode(readValue(buffer)!);
+        return PlatformPccStatus.decode(readValue(buffer)!);
       case 193:
-        return PlatformPccMessage.decode(readValue(buffer)!);
+        return PlatformPccImage.decode(readValue(buffer)!);
       case 194:
-        return PlatformPccToolDefinition.decode(readValue(buffer)!);
+        return PlatformPccMessage.decode(readValue(buffer)!);
       case 195:
-        return PlatformPccToolCall.decode(readValue(buffer)!);
+        return PlatformPccToolDefinition.decode(readValue(buffer)!);
       case 196:
-        return PlatformPccToolResult.decode(readValue(buffer)!);
+        return PlatformPccToolCall.decode(readValue(buffer)!);
       case 197:
-        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+        return PlatformPccToolResult.decode(readValue(buffer)!);
       case 198:
-        return PlatformPccStreamEvent.decode(readValue(buffer)!);
+        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
       case 199:
-        return PlatformPushSubscription.decode(readValue(buffer)!);
+        return PlatformPccStreamEvent.decode(readValue(buffer)!);
       case 200:
-        return PlatformPushToken.decode(readValue(buffer)!);
+        return PlatformPushSubscription.decode(readValue(buffer)!);
       case 201:
-        return PlatformPushConfig.decode(readValue(buffer)!);
+        return PlatformPushToken.decode(readValue(buffer)!);
       case 202:
-        return PlatformPushMessage.decode(readValue(buffer)!);
+        return PlatformPushConfig.decode(readValue(buffer)!);
       case 203:
+        return PlatformPushMessage.decode(readValue(buffer)!);
+      case 204:
         return PlatformPushTap.decode(readValue(buffer)!);
+      case 205:
+        return PlatformBrowserAuthRequest.decode(readValue(buffer)!);
+      case 206:
+        return PlatformBrowserAuthResult.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -7932,5 +8093,70 @@ abstract class PushFlutterApi {
         });
       }
     }
+  }
+}
+
+/// iOS and Android. Runs a sign-in page in the system browser, where
+/// passkeys and security keys work, and returns the redirect it ends on.
+/// Never throws: every ending is a [PlatformBrowserAuthResult].
+class BrowserAuthHostApi {
+  /// Constructor for [BrowserAuthHostApi]. The [binaryMessenger] named argument is
+  /// available for dependency injection. If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  BrowserAuthHostApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  /// Completes when the browser reaches the redirect, is dismissed, or
+  /// fails. Starting another sign-in ends this one as `superseded`.
+  Future<PlatformBrowserAuthResult> authenticate(
+    PlatformBrowserAuthRequest request,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.BrowserAuthHostApi.authenticate$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[request],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as PlatformBrowserAuthResult;
+  }
+
+  /// Ends the sign-in in progress as cancelled, if any.
+  Future<void> cancel() async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.BrowserAuthHostApi.cancel$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
   }
 }

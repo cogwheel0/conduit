@@ -26,6 +26,7 @@ import 'platform/flutter_connectivity_port.dart';
 import 'platform/realtime_pcm_audio.dart';
 import 'platform/webrtc_realtime_media.dart';
 import 'platform/url_launcher_open_external_url_port.dart';
+import 'platform/pigeon_browser_auth_port.dart';
 import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
 import 'platform/flutter_post_frame_scheduler.dart';
@@ -181,6 +182,13 @@ void _registerBundledLicenses() {
 /// Whether this device runs realtime voice calls' audio: the native engine
 /// and WebRTC exist on iOS and Android.
 bool get _hasRealtimeAudio =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android);
+
+/// Whether this device signs in through the system browser: the
+/// `BrowserAuthBridge` exists on iOS and Android.
+bool get _hasBrowserAuth =>
     !kIsWeb &&
     (defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.android);
@@ -518,6 +526,8 @@ void main() {
           openExternalUrlProvider.overrideWithValue(
             const UrlLauncherOpenExternalUrlPort(),
           ),
+          if (_hasBrowserAuth)
+            browserAuthPortProvider.overrideWithValue(PigeonBrowserAuthPort()),
           secureStorageProvider.overrideWithValue(
             ReadinessGatedSecureStorage(
               delegate: secureStorage,
