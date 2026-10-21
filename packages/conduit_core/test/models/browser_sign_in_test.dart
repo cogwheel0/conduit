@@ -52,12 +52,23 @@ void main() {
       'https://id.example.com/realms/main',
       'https://id.example.com/realms/main/',
       ' https://id.example.com/realms/main/.well-known/openid-configuration ',
+      'https://ID.Example.com/realms/main',
+      'HTTPS://id.example.com:443/realms/main/',
     ]) {
       check(
         because: typed,
         normalizeBrowserSignInIssuer(typed),
       ).equals('https://id.example.com/realms/main');
     }
+  });
+
+  test('an issuer on another port or path is another issuer', () {
+    check(
+      normalizeBrowserSignInIssuer('https://id.example.com:8443/realms/main'),
+    ).equals('https://id.example.com:8443/realms/main');
+    check(
+      normalizeBrowserSignInIssuer('https://id.example.com/realms/Main'),
+    ).equals('https://id.example.com/realms/Main');
   });
 
   group('BrowserSignInSession', () {
@@ -136,6 +147,7 @@ void main() {
         for (final issuer in [
           'https://id.example.com/realms/main/',
           'https://id.example.com/realms/main/.well-known/openid-configuration',
+          'https://ID.EXAMPLE.COM:443/realms/main',
         ]) {
           check(
             because: issuer,

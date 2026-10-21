@@ -91,6 +91,21 @@ void main() {
         await secure.read(key: 'browser_sign_in_session_v1:$accountId'),
       );
 
+  /// What [action] told of as dropped, once its notice was delivered.
+  Future<List<StoredBrowserSignInSession>> droppedBy(
+    Future<void> Function() action,
+  ) async {
+    final dropped = <StoredBrowserSignInSession>[];
+    final subscription = storage.droppedBrowserSessions.listen(dropped.addAll);
+    try {
+      await action();
+      await Future<void>.delayed(Duration.zero);
+    } finally {
+      await subscription.cancel();
+    }
+    return dropped;
+  }
+
   Future<Map<String, dynamic>?> vaultedCredentials(String id) async {
     final raw = await secure.read(key: 'user_credentials_server_v1:$id');
     return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
@@ -187,6 +202,23 @@ void main() {
       check(await storage.setServerBrowserSignIn(await serverOf('a'), settings))
           .isEmpty();
       check(await storedSession('a')).equals(session);
+    });
+
+    test('saved again as the issuer the sessions came from, end nothing', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+      const typed = BrowserSignInConfig(
+        provider: 'oidc',
+        clientId: 'conduit',
+        issuer: 'https://ID.example.com:443/.well-known/openid-configuration',
+      );
+
+      check(
+        await storage.setServerBrowserSignIn(await serverOf('a'), typed),
+      ).isEmpty();
+
+      check(await storedSession('a')).equals(session);
+      check(await storage.browserSignInConfigForAccount('a')).equals(typed);
     });
 
     test('do not change who is signed in', () async {
@@ -411,6 +443,9 @@ void main() {
 
       check(await storedSession('a')).isNull();
       check(await storage.getAuthTokenStrict()).equals('token-a');
+      // Without its session the sign-in cannot renew, and must not say so.
+      check((await storage.getSavedCredentialsStrict())?['authType'])
+          .equals(AuthTypes.sso);
     });
 
     test('that fails puts the session back as it was', () async {
@@ -464,6 +499,170 @@ void main() {
       check(await storedSession('b')).equals(sessionB);
       check((await vaultedCredentials('a'))?['authType'])
           .equals(AuthTypes.ssoBrowser);
+    });
+  });
+
+  group('a session dropped outside a sign-out is told of', () {
+    test('when another sign-in replaces it', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+      final ownership = await storage.captureSavedServerSessionOwnership('a');
+
+      final dropped = await droppedBy(
+        () => storage.commitExistingServerSession(
+          ownership: ownership!,
+          token: 'password-token',
+          canCommit: () => true,
+          publish: () {},
+          rememberedCredentials: {
+            'serverId': 'a',
+            'username': 'me@example.com',
+            'password': 'pw',
+          },
+        ),
+      );
+
+      check(dropped).deepEquals([(accountId: 'a', session: session)]);
+    });
+
+    test('when a new browser sign-in replaces it, but not when renewed in '
+        'place', () async {
+      await saveAccounts(['a']);
+      final first = await signInWithBrowser('a');
+
+      final replaced = await droppedBy(() async {
+        final ownership = await storage.captureSavedServerSessionOwnership(
+          'a',
+        );
+        await storage.commitExistingServerSession(
+          ownership: ownership!,
+          token: 'token-newer',
+          canCommit: () => true,
+          publish: () {},
+          rememberedCredentials: browserSignIn('a'),
+          browserSession: BrowserSessionCommit.replace(
+            await sessionFor('a', refreshToken: 'newer'),
+          ),
+        );
+      });
+      final again = await droppedBy(() async {
+        final ownership = await storage.captureSavedServerSessionOwnership(
+          'a',
+        );
+        await storage.commitExistingServerSession(
+          ownership: ownership!,
+          token: 'token-again',
+          canCommit: () => true,
+          publish: () {},
+          rememberedCredentials: browserSignIn('a'),
+          browserSession: BrowserSessionCommit.replace(
+            await sessionFor('a', refreshToken: 'newer'),
+          ),
+        );
+      });
+
+      check(replaced).deepEquals([(accountId: 'a', session: first)]);
+      check(again).isEmpty();
+    });
+
+    test('never for a commit that is rolled back', () async {
+      await saveAccounts(['a']);
+      await signInWithBrowser('a');
+      final ownership = await storage.captureSavedServerSessionOwnership('a');
+
+      final dropped = await droppedBy(
+        () => storage
+            .commitExistingServerSession(
+              ownership: ownership!,
+              token: 'password-token',
+              canCommit: () => true,
+              publish: () => throw StateError('publication failed'),
+            )
+            .then((_) {}, onError: (Object _) {}),
+      );
+
+      check(dropped).isEmpty();
+    });
+
+    test('when the saved sign-in it renews is deleted', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+
+      final dropped = await droppedBy(
+        () => storage.deleteSavedCredentialsIfMatches(browserSignIn('a')),
+      );
+
+      check(dropped).deepEquals([(accountId: 'a', session: session)]);
+    });
+
+    test('when the saved sign-in is deleted whoever it names', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+
+      final dropped = await droppedBy(storage.deleteSavedCredentials);
+
+      check(dropped).deepEquals([(accountId: 'a', session: session)]);
+      check(await storedSession('a')).isNull();
+    });
+
+    test('when choosing the account to sign in to afresh', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+
+      final dropped = await droppedBy(
+        () => storage.selectUnauthenticatedServerConfig(
+          account('a'),
+          publish: () {},
+        ),
+      );
+
+      check(dropped).deepEquals([(accountId: 'a', session: session)]);
+    });
+
+    test('when a proxy sign-in commits for the account', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+      final staged = await storage.stageServerConfigCandidate(account('a'));
+
+      final dropped = await droppedBy(
+        () => storage.commitServerConfigCandidateSession(
+          candidate: account('a'),
+          transactionId: staged.transactionId,
+          token: 'proxy-token',
+          canCommit: () => true,
+          publish: () {},
+        ),
+      );
+
+      check(dropped).deepEquals([(accountId: 'a', session: session)]);
+    });
+
+    test('when a merge replaces the existing account\'s own', () async {
+      await saveAccounts(['existing', 'new']);
+      final existing = await signInWithBrowser('existing');
+      await signInWithBrowser('new');
+
+      final dropped = await droppedBy(
+        () => storage.mergeActiveAccountInto(
+          'existing',
+          expectedSourceAccountId: 'new',
+        ),
+      );
+
+      check(dropped).deepEquals([(accountId: 'existing', session: existing)]);
+    });
+
+    test('never for a sign-out, which revokes its own', () async {
+      await saveAccounts(['a', 'b']);
+      await signInWithBrowser('a');
+      await signInWithBrowser('b');
+
+      final dropped = await droppedBy(() async {
+        await storage.removeInactiveAccount('a');
+        await storage.removeAccount('b');
+      });
+
+      check(dropped).isEmpty();
     });
   });
 
@@ -773,6 +972,29 @@ void main() {
       check(await storedSession('new')).equals(session);
       check(await storedSession('existing')).equals(existing);
     });
+
+    test('that cannot be undone ends the live session with its own', () async {
+      await signedInAsNewOverExisting();
+      final existing = await storedSession('existing');
+      // The registry write fails, and so does putting back the saved
+      // sign-in it renamed: the live session's owner can't be told.
+      secure.refuseWhen = (key, value) =>
+          key == 'openwebui_registry_v1' ||
+          (key == 'user_credentials_v2' &&
+              (value?.contains('"serverId":"new"') ?? false));
+
+      await check(
+        storage.mergeActiveAccountInto(
+          'existing',
+          expectedSourceAccountId: 'new',
+        ),
+      ).throws<ServerConfigSessionRollbackException>();
+
+      secure.refuseWhen = null;
+      check(await storage.getSavedCredentialsStrict()).isNull();
+      check(await storedSession('new')).isNull();
+      check(await storedSession('existing')).equals(existing);
+    });
   });
 
   group('the sweep', () {
@@ -860,10 +1082,14 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedKey;
   String? refusedOnceKey;
   String? unreadableKey;
+  bool Function(String key, String? value)? refuseWhen;
 
   @override
   Future<void> write({required String key, required String? value}) {
     if (key == refusedKey) throw StateError('keychain refused $key');
+    if (refuseWhen?.call(key, value) ?? false) {
+      throw StateError('keychain refused $key');
+    }
     if (key == refusedOnceKey) {
       refusedOnceKey = null;
       throw StateError('keychain refused $key');
