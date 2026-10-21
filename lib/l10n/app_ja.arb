@@ -2260,6 +2260,288 @@
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
+  "browserSignInContinue": "ブラウザーで続行",
+  "@browserSignInContinue": {
+    "description": "Button that signs in through the device's system browser, where passkeys and security keys work."
+  },
+  "browserSignInContinueSubtitle": "パスキーとセキュリティキーに対応",
+  "@browserSignInContinueSubtitle": {
+    "description": "Subtitle under the button that signs in through the system browser."
+  },
+  "browserSignInWaiting": "ブラウザーを待っています…",
+  "@browserSignInWaiting": {
+    "description": "Shown on the sign-in button while the system browser is open for a sign-in."
+  },
+  "browserSignInUseInApp": "アプリ内サインインを使用",
+  "@browserSignInUseInApp": {
+    "description": "Button that signs in with the server's SSO page inside the app instead of the system browser."
+  },
+  "browserSignInSettings": "ブラウザーサインインの設定…",
+  "@browserSignInSettings": {
+    "description": "Link that opens the settings for signing in through the system browser."
+  },
+  "browserSignInSetUp": "ブラウザーサインインを設定（パスキー）",
+  "@browserSignInSetUp": {
+    "description": "Link that opens the setup for signing in through the system browser, where passkeys work."
+  },
+  "browserSignInHttpWarning": "このサーバーのアドレスは http を使用しているため、サインイン情報は暗号化されずにネットワークを通過します。可能であれば https のアドレスを使用してください。",
+  "@browserSignInHttpWarning": {
+    "description": "Warning on the sign-in page when browser sign-in is used with a server reached over plain http."
+  },
+  "browserSignInOpenWebSignIn": "ブラウザーでサインインページを開く",
+  "@browserSignInOpenWebSignIn": {
+    "description": "Button that opens the server's own sign-in page in the browser, so a first web sign-in creates the user."
+  },
+  "browserSignInSessionExpired": "ブラウザーサインインが終了しました。ブラウザーで続行して、もう一度サインインしてください。",
+  "@browserSignInSessionExpired": {
+    "description": "Sign-in error when a session signed in through the system browser could not be renewed."
+  },
+  "browserSignInSettingsTitle": "ブラウザーサインイン",
+  "@browserSignInSettingsTitle": {
+    "description": "Title of the sheet with the settings for signing in through the system browser."
+  },
+  "browserSignInSettingsDescription": "このデバイスのブラウザーでサインインします。ブラウザーではパスキーとセキュリティキーを使用できます。ID プロバイダーに Conduit 用のクライアントを登録する必要があります。",
+  "@browserSignInSettingsDescription": {
+    "description": "Explanation at the top of the browser sign-in settings."
+  },
+  "browserSignInSharedNote": "これらの設定は、このサーバー上のすべてのアカウントに適用されます。",
+  "@browserSignInSharedNote": {
+    "description": "Note in the browser sign-in settings that they are shared by all accounts on the server."
+  },
+  "browserSignInProvider": "プロバイダー",
+  "@browserSignInProvider": {
+    "description": "Label of the choice of the server's sign-in provider to use in the browser."
+  },
+  "browserSignInClientId": "クライアント ID",
+  "@browserSignInClientId": {
+    "description": "Label of the field for the ID of the identity provider client registered for Conduit."
+  },
+  "browserSignInClientIdHint": "Conduit 用に登録したクライアントの ID",
+  "@browserSignInClientIdHint": {
+    "description": "Hint in the client ID field of the browser sign-in settings."
+  },
+  "browserSignInAdvanced": "詳細設定",
+  "@browserSignInAdvanced": {
+    "description": "Title of the expandable advanced section of the browser sign-in settings."
+  },
+  "browserSignInIssuer": "発行者",
+  "@browserSignInIssuer": {
+    "description": "Label of the field for the identity provider's issuer URL."
+  },
+  "browserSignInIssuerDescription": "Conduit が ID プロバイダーを見つけられない場合にのみ必要です。発行者、またはディスカバリードキュメントの URL を入力してください。",
+  "@browserSignInIssuerDescription": {
+    "description": "Explanation under the issuer field of the browser sign-in settings."
+  },
+  "browserSignInRedirectUri": "リダイレクト URI",
+  "@browserSignInRedirectUri": {
+    "description": "Label of the redirect URI to register on the identity provider's client."
+  },
+  "browserSignInRedirectUriDescription": "このリダイレクト URI をクライアントに登録してください。タップするとコピーできます。",
+  "@browserSignInRedirectUriDescription": {
+    "description": "Explanation of the copyable redirect URI in the browser sign-in settings."
+  },
+  "browserSignInGoogleClientIdHint": "iOS タイプの Google クライアントのクライアント ID を入力すると、リダイレクト URI が表示されます。",
+  "@browserSignInGoogleClientIdHint": {
+    "description": "Shown instead of the redirect URI while the Google client ID entered is not a valid one."
+  },
+  "browserSignInTest": "テスト",
+  "@browserSignInTest": {
+    "description": "Button that checks the browser sign-in settings against the server and identity provider."
+  },
+  "browserSignInTestIdentityProvider": "ID プロバイダー",
+  "@browserSignInTestIdentityProvider": {
+    "description": "Label of the test result row about finding the identity provider."
+  },
+  "browserSignInTestFound": "{issuer} が見つかりました",
+  "@browserSignInTestFound": {
+    "description": "Test result when the identity provider was found.",
+    "placeholders": {
+      "issuer": {
+        "type": "String",
+        "example": "https://id.example.com"
+      }
+    }
+  },
+  "browserSignInTestExchange": "トークン交換",
+  "@browserSignInTestExchange": {
+    "description": "Label of the test result row about Open WebUI's token exchange."
+  },
+  "browserSignInTestExchangeOn": "有効",
+  "@browserSignInTestExchangeOn": {
+    "description": "Test result when Open WebUI's token exchange is on."
+  },
+  "browserSignInRemove": "削除",
+  "@browserSignInRemove": {
+    "description": "Button that removes the browser sign-in settings of the server."
+  },
+  "browserSignInRemoveTitle": "ブラウザーサインインを削除しますか？",
+  "@browserSignInRemoveTitle": {
+    "description": "Title of the confirmation before removing the browser sign-in settings."
+  },
+  "browserSignInRemoveMessage": "このサーバーでブラウザーからサインインしたアカウントは、もう一度サインインする必要があります。",
+  "@browserSignInRemoveMessage": {
+    "description": "Message of the confirmation before removing the browser sign-in settings."
+  },
+  "browserSignInChecklistTitle": "サーバーと ID プロバイダーでの設定",
+  "@browserSignInChecklistTitle": {
+    "description": "Heading of the setup checklist in the browser sign-in settings."
+  },
+  "browserSignInChecklistExchange": "Open WebUI 0.8 以降（ENABLE_OAUTH_TOKEN_EXCHANGE=true を設定）。",
+  "@browserSignInChecklistExchange": {
+    "description": "Checklist item: the server must allow token exchange. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistClient": "シークレットなしで PKCE を使用するパブリッククライアント（上記のリダイレクト URI と、openid、email、profile、offline_access のスコープを設定）。",
+  "@browserSignInChecklistClient": {
+    "description": "Checklist item: the client to register on the identity provider. Keep the scope names untranslated."
+  },
+  "browserSignInChecklistUsers": "各ユーザーは先に Web で 1 回サインインしてください。トークン交換ではアカウントは作成されません。",
+  "@browserSignInChecklistUsers": {
+    "description": "Checklist item: users must already exist in Open WebUI."
+  },
+  "browserSignInChecklistMicrosoft": "Microsoft: OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true を設定してください。",
+  "@browserSignInChecklistMicrosoft": {
+    "description": "Checklist item for Microsoft sign-in. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistGoogle": "Google: iOS タイプのクライアントを使用してください。リダイレクト URI はクライアント ID から決まります。",
+  "@browserSignInChecklistGoogle": {
+    "description": "Checklist item for Google sign-in."
+  },
+  "browserSignInChecklistClaims": "Open WebUI がロールやグループをクレームから取得している場合は、このクライアントにも同じクレームを含めてください。",
+  "@browserSignInChecklistClaims": {
+    "description": "Checklist item: role and group claims must match Open WebUI's own client."
+  },
+  "browserSignInErrorBrowserUnavailable": "このデバイスにはサインインを実行できるブラウザーがありません。代わりにアプリ内サインインを使用してください。",
+  "@browserSignInErrorBrowserUnavailable": {
+    "description": "Browser sign-in error: no system browser is available."
+  },
+  "browserSignInErrorAuthTabRequired": "Google でのサインインには、Chrome など Auth Tab に対応したブラウザーが必要です。そのようなブラウザーを既定のブラウザーに設定するか、アプリ内サインインを使用してください。",
+  "@browserSignInErrorAuthTabRequired": {
+    "description": "Browser sign-in error on Android when the default browser can't return a Google sign-in."
+  },
+  "browserSignInErrorPresentationFailed": "アプリの上にブラウザーを開けませんでした。もう一度お試しください。",
+  "@browserSignInErrorPresentationFailed": {
+    "description": "Browser sign-in error when the system browser could not be shown."
+  },
+  "browserSignInErrorInvalidClientId": "これは Google のクライアント ID ではありません。Google のクライアント ID は .apps.googleusercontent.com で終わります。",
+  "@browserSignInErrorInvalidClientId": {
+    "description": "Browser sign-in error when the Google client ID entered is not valid."
+  },
+  "browserSignInErrorProxySignInRequired": "このサーバーの前段にあるプロキシなどが、独自のサインインを要求しました。代わりにアプリ内サインインを使用してください。",
+  "@browserSignInErrorProxySignInRequired": {
+    "description": "Browser sign-in error when a reverse proxy answered instead of Open WebUI."
+  },
+  "browserSignInErrorProbeNotFound": "このサーバーでは、このプロバイダーでのサインインは提供されていません。",
+  "@browserSignInErrorProbeNotFound": {
+    "description": "Browser sign-in error when Open WebUI has no sign-in for the provider."
+  },
+  "browserSignInErrorProviderNotConfigured": "Open WebUI で、このプロバイダーがトークン交換用に設定されていません。",
+  "@browserSignInErrorProviderNotConfigured": {
+    "description": "Browser sign-in error when Open WebUI's token exchange doesn't know the provider."
+  },
+  "browserSignInErrorDiscoveryNotFound": "ID プロバイダーが見つかりませんでした。ブラウザーサインインの設定で発行者を入力してください。",
+  "@browserSignInErrorDiscoveryNotFound": {
+    "description": "Browser sign-in error when the identity provider could not be discovered."
+  },
+  "browserSignInErrorInvalidIssuer": "発行者が有効な https URL ではありません。",
+  "@browserSignInErrorInvalidIssuer": {
+    "description": "Browser sign-in error when the issuer entered is not a URL."
+  },
+  "browserSignInErrorEndpointMismatch": "その発行者は、このサーバーがサインインに使用する ID プロバイダーではありません。",
+  "@browserSignInErrorEndpointMismatch": {
+    "description": "Browser sign-in error when the issuer entered belongs to another identity provider."
+  },
+  "browserSignInErrorInsecureIdp": "ID プロバイダーは https を使用する必要があります。",
+  "@browserSignInErrorInsecureIdp": {
+    "description": "Browser sign-in error when the identity provider is not served over https."
+  },
+  "browserSignInErrorCallbackMismatch": "ブラウザーから予期しない応答が返されました。もう一度お試しください。",
+  "@browserSignInErrorCallbackMismatch": {
+    "description": "Browser sign-in error when the browser returned to an unexpected address."
+  },
+  "browserSignInErrorStateMismatch": "返されたサインインは Conduit が開始したものではありません。もう一度お試しください。",
+  "@browserSignInErrorStateMismatch": {
+    "description": "Browser sign-in error when the returned sign-in does not match the one started."
+  },
+  "browserSignInErrorIssuerMismatch": "サインインが別の ID プロバイダーから返されました。もう一度お試しください。",
+  "@browserSignInErrorIssuerMismatch": {
+    "description": "Browser sign-in error when the returned sign-in names another issuer."
+  },
+  "browserSignInErrorNonceMismatch": "ID プロバイダーの応答がこのサインインと一致しませんでした。もう一度お試しください。",
+  "@browserSignInErrorNonceMismatch": {
+    "description": "Browser sign-in error when the ID token was not for this sign-in."
+  },
+  "browserSignInErrorAccessDenied": "サインインが拒否されました。",
+  "@browserSignInErrorAccessDenied": {
+    "description": "Browser sign-in error when the user or identity provider declined."
+  },
+  "browserSignInErrorClientRejected": "ID プロバイダーがこのクライアントを受け付けません。クライアント ID、クライアントがパブリックであること、リダイレクト URI を確認してください。",
+  "@browserSignInErrorClientRejected": {
+    "description": "Browser sign-in error when the identity provider rejects Conduit's client."
+  },
+  "browserSignInErrorIdpError": "ID プロバイダーでサインインを完了できませんでした。もう一度お試しください。",
+  "@browserSignInErrorIdpError": {
+    "description": "Browser sign-in error for any other failure at the identity provider."
+  },
+  "browserSignInErrorRefreshExpired": "ID プロバイダーでのサインインが終了しました。ブラウザーで続行して、もう一度サインインしてください。",
+  "@browserSignInErrorRefreshExpired": {
+    "description": "Browser sign-in error when the saved refresh token is no longer accepted."
+  },
+  "browserSignInErrorConfigMismatch": "このサーバーのブラウザーサインインの設定が変更されました。ブラウザーで続行して、もう一度サインインしてください。",
+  "@browserSignInErrorConfigMismatch": {
+    "description": "Browser sign-in error when the settings changed since the account signed in."
+  },
+  "browserSignInErrorExchangeDisabled": "このサーバーではトークン交換が無効になっています。管理者は ENABLE_OAUTH_TOKEN_EXCHANGE=true で有効にできます。",
+  "@browserSignInErrorExchangeDisabled": {
+    "description": "Browser sign-in error when Open WebUI's token exchange is off. Keep the variable name untranslated."
+  },
+  "browserSignInErrorServerTooOld": "このサーバーはバージョンが古いため、ブラウザーサインインを使用できません。Open WebUI 0.8 以降が必要です。",
+  "@browserSignInErrorServerTooOld": {
+    "description": "Browser sign-in error when the server has no token exchange."
+  },
+  "browserSignInErrorCannotDetermineClient": "Open WebUI は許可リストにあるクライアントのトークンのみを受け付けますが、このトークンを発行したクライアントを判別できません。管理者は OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS の設定を解除できます。",
+  "@browserSignInErrorCannotDetermineClient": {
+    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client. Keep the variable name untranslated."
+  },
+  "browserSignInErrorAccessProhibited": "Open WebUI がこのアカウントを拒否しました。メールドメイン、ロール、またはこのクライアントが許可されていない可能性があります。",
+  "@browserSignInErrorAccessProhibited": {
+    "description": "Browser sign-in error when Open WebUI prohibits the account."
+  },
+  "browserSignInErrorMissingClaims": "ID プロバイダーからアカウントのメールアドレスまたは ID が提供されませんでした。このクライアントで email と profile のスコープを許可してください。",
+  "@browserSignInErrorMissingClaims": {
+    "description": "Browser sign-in error when the identity provider's user info lacks required claims."
+  },
+  "browserSignInErrorUserNotFound": "このサインインに対応する Open WebUI アカウントはまだありません。Web で 1 回サインインしてから、もう一度お試しください。",
+  "@browserSignInErrorUserNotFound": {
+    "description": "Browser sign-in error when Open WebUI has no user for this identity yet."
+  },
+  "browserSignInErrorUserMismatch": "そのサインインは、このアカウントとは別の Open WebUI ユーザーのものです。",
+  "@browserSignInErrorUserMismatch": {
+    "description": "Browser sign-in error when the sign-in was for another user than the account."
+  },
+  "browserSignInErrorTokenRejected": "Open WebUI が ID プロバイダーでサインインを確認できませんでした。もう一度お試しください。",
+  "@browserSignInErrorTokenRejected": {
+    "description": "Browser sign-in error when Open WebUI could not validate the token with the identity provider."
+  },
+  "browserSignInErrorAuthenticationChanged": "その間にサーバー上でサインイン情報が変更されました。もう一度お試しください。",
+  "@browserSignInErrorAuthenticationChanged": {
+    "description": "Browser sign-in error when the account's sign-in changed on the server during the attempt."
+  },
+  "browserSignInErrorRateLimited": "サインインの試行回数が多すぎます。しばらく待ってから、もう一度お試しください。",
+  "@browserSignInErrorRateLimited": {
+    "description": "Browser sign-in error when requests are rate limited."
+  },
+  "browserSignInErrorNetwork": "サーバーまたは ID プロバイダーに接続できませんでした。接続を確認してください。",
+  "@browserSignInErrorNetwork": {
+    "description": "Browser sign-in error when the server or identity provider could not be reached."
+  },
+  "browserSignInErrorTls": "サーバーまたは ID プロバイダーの証明書が信頼されていません。",
+  "@browserSignInErrorTls": {
+    "description": "Browser sign-in error when a TLS certificate was not trusted."
+  },
+  "browserSignInErrorServerError": "サーバーまたは ID プロバイダーでエラーが発生しました。しばらくしてからもう一度お試しください。",
+  "@browserSignInErrorServerError": {
+    "description": "Browser sign-in error when the server or identity provider answered with a server error."
+  },
   "ldap": "LDAP",
   "@ldap": {
     "description": "Label for LDAP authentication option."

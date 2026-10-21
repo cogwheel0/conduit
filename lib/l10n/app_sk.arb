@@ -2260,6 +2260,288 @@
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
+  "browserSignInContinue": "Pokračovať v prehliadači",
+  "@browserSignInContinue": {
+    "description": "Button that signs in through the device's system browser, where passkeys and security keys work."
+  },
+  "browserSignInContinueSubtitle": "Funguje s prístupovými a bezpečnostnými kľúčmi",
+  "@browserSignInContinueSubtitle": {
+    "description": "Subtitle under the button that signs in through the system browser."
+  },
+  "browserSignInWaiting": "Čaká sa na prehliadač…",
+  "@browserSignInWaiting": {
+    "description": "Shown on the sign-in button while the system browser is open for a sign-in."
+  },
+  "browserSignInUseInApp": "Prihlásiť sa v aplikácii",
+  "@browserSignInUseInApp": {
+    "description": "Button that signs in with the server's SSO page inside the app instead of the system browser."
+  },
+  "browserSignInSettings": "Nastavenia prihlásenia cez prehliadač…",
+  "@browserSignInSettings": {
+    "description": "Link that opens the settings for signing in through the system browser."
+  },
+  "browserSignInSetUp": "Nastaviť prihlásenie cez prehliadač (prístupové kľúče)",
+  "@browserSignInSetUp": {
+    "description": "Link that opens the setup for signing in through the system browser, where passkeys work."
+  },
+  "browserSignInHttpWarning": "Adresa tohto servera používa http, takže vaše prihlásenie prechádza sieťou nešifrované. Ak je to možné, použite adresu https.",
+  "@browserSignInHttpWarning": {
+    "description": "Warning on the sign-in page when browser sign-in is used with a server reached over plain http."
+  },
+  "browserSignInOpenWebSignIn": "Otvoriť prihlasovaciu stránku v prehliadači",
+  "@browserSignInOpenWebSignIn": {
+    "description": "Button that opens the server's own sign-in page in the browser, so a first web sign-in creates the user."
+  },
+  "browserSignInSessionExpired": "Vaše prihlásenie cez prehliadač skončilo. Ak sa chcete znova prihlásiť, pokračujte v prehliadači.",
+  "@browserSignInSessionExpired": {
+    "description": "Sign-in error when a session signed in through the system browser could not be renewed."
+  },
+  "browserSignInSettingsTitle": "Prihlásenie cez prehliadač",
+  "@browserSignInSettingsTitle": {
+    "description": "Title of the sheet with the settings for signing in through the system browser."
+  },
+  "browserSignInSettingsDescription": "Prihlasujte sa cez prehliadač tohto zariadenia, v ktorom fungujú prístupové a bezpečnostné kľúče. Váš poskytovateľ identity potrebuje klienta zaregistrovaného pre Conduit.",
+  "@browserSignInSettingsDescription": {
+    "description": "Explanation at the top of the browser sign-in settings."
+  },
+  "browserSignInSharedNote": "Tieto nastavenia platia pre všetky účty na tomto serveri.",
+  "@browserSignInSharedNote": {
+    "description": "Note in the browser sign-in settings that they are shared by all accounts on the server."
+  },
+  "browserSignInProvider": "Poskytovateľ",
+  "@browserSignInProvider": {
+    "description": "Label of the choice of the server's sign-in provider to use in the browser."
+  },
+  "browserSignInClientId": "ID klienta",
+  "@browserSignInClientId": {
+    "description": "Label of the field for the ID of the identity provider client registered for Conduit."
+  },
+  "browserSignInClientIdHint": "ID klienta zaregistrovaného pre Conduit",
+  "@browserSignInClientIdHint": {
+    "description": "Hint in the client ID field of the browser sign-in settings."
+  },
+  "browserSignInAdvanced": "Pokročilé",
+  "@browserSignInAdvanced": {
+    "description": "Title of the expandable advanced section of the browser sign-in settings."
+  },
+  "browserSignInIssuer": "Vydavateľ (issuer)",
+  "@browserSignInIssuer": {
+    "description": "Label of the field for the identity provider's issuer URL."
+  },
+  "browserSignInIssuerDescription": "Potrebné, len ak Conduit nedokáže nájsť vášho poskytovateľa identity. Zadajte jeho vydavateľa (issuer) alebo URL jeho dokumentu discovery.",
+  "@browserSignInIssuerDescription": {
+    "description": "Explanation under the issuer field of the browser sign-in settings."
+  },
+  "browserSignInRedirectUri": "URI presmerovania",
+  "@browserSignInRedirectUri": {
+    "description": "Label of the redirect URI to register on the identity provider's client."
+  },
+  "browserSignInRedirectUriDescription": "Zaregistrujte tento URI presmerovania v klientovi. Klepnutím ho skopírujete.",
+  "@browserSignInRedirectUriDescription": {
+    "description": "Explanation of the copyable redirect URI in the browser sign-in settings."
+  },
+  "browserSignInGoogleClientIdHint": "Zadajte ID klienta Google typu iOS, aby sa zobrazil jeho URI presmerovania.",
+  "@browserSignInGoogleClientIdHint": {
+    "description": "Shown instead of the redirect URI while the Google client ID entered is not a valid one."
+  },
+  "browserSignInTest": "Otestovať",
+  "@browserSignInTest": {
+    "description": "Button that checks the browser sign-in settings against the server and identity provider."
+  },
+  "browserSignInTestIdentityProvider": "Poskytovateľ identity",
+  "@browserSignInTestIdentityProvider": {
+    "description": "Label of the test result row about finding the identity provider."
+  },
+  "browserSignInTestFound": "Nájdený: {issuer}",
+  "@browserSignInTestFound": {
+    "description": "Test result when the identity provider was found.",
+    "placeholders": {
+      "issuer": {
+        "type": "String",
+        "example": "https://id.example.com"
+      }
+    }
+  },
+  "browserSignInTestExchange": "Výmena tokenov",
+  "@browserSignInTestExchange": {
+    "description": "Label of the test result row about Open WebUI's token exchange."
+  },
+  "browserSignInTestExchangeOn": "Zapnutá",
+  "@browserSignInTestExchangeOn": {
+    "description": "Test result when Open WebUI's token exchange is on."
+  },
+  "browserSignInRemove": "Odstrániť",
+  "@browserSignInRemove": {
+    "description": "Button that removes the browser sign-in settings of the server."
+  },
+  "browserSignInRemoveTitle": "Odstrániť prihlásenie cez prehliadač?",
+  "@browserSignInRemoveTitle": {
+    "description": "Title of the confirmation before removing the browser sign-in settings."
+  },
+  "browserSignInRemoveMessage": "Účty na tomto serveri, ktoré sa prihlásili cez prehliadač, sa budú musieť prihlásiť znova.",
+  "@browserSignInRemoveMessage": {
+    "description": "Message of the confirmation before removing the browser sign-in settings."
+  },
+  "browserSignInChecklistTitle": "Na serveri a u poskytovateľa identity",
+  "@browserSignInChecklistTitle": {
+    "description": "Heading of the setup checklist in the browser sign-in settings."
+  },
+  "browserSignInChecklistExchange": "Open WebUI vo verzii 0.8 alebo novšej s ENABLE_OAUTH_TOKEN_EXCHANGE=true.",
+  "@browserSignInChecklistExchange": {
+    "description": "Checklist item: the server must allow token exchange. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistClient": "Verejný klient s PKCE a bez tajného kľúča, s vyššie uvedeným URI presmerovania a rozsahmi openid, email, profile a offline_access.",
+  "@browserSignInChecklistClient": {
+    "description": "Checklist item: the client to register on the identity provider. Keep the scope names untranslated."
+  },
+  "browserSignInChecklistUsers": "Každý používateľ sa najprv raz prihlási vo webovom rozhraní: výmena tokenov nevytvára účty.",
+  "@browserSignInChecklistUsers": {
+    "description": "Checklist item: users must already exist in Open WebUI."
+  },
+  "browserSignInChecklistMicrosoft": "Microsoft: nastavte OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true.",
+  "@browserSignInChecklistMicrosoft": {
+    "description": "Checklist item for Microsoft sign-in. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistGoogle": "Google: použite klienta typu iOS. Jeho URI presmerovania vyplýva z jeho ID klienta.",
+  "@browserSignInChecklistGoogle": {
+    "description": "Checklist item for Google sign-in."
+  },
+  "browserSignInChecklistClaims": "Ak Open WebUI preberá roly alebo skupiny z deklarácií (claims), nastavte pre tohto klienta rovnaké deklarácie.",
+  "@browserSignInChecklistClaims": {
+    "description": "Checklist item: role and group claims must match Open WebUI's own client."
+  },
+  "browserSignInErrorBrowserUnavailable": "Žiadny prehliadač v tomto zariadení nedokáže prihlásenie vykonať. Namiesto toho sa prihláste v aplikácii.",
+  "@browserSignInErrorBrowserUnavailable": {
+    "description": "Browser sign-in error: no system browser is available."
+  },
+  "browserSignInErrorAuthTabRequired": "Prihlásenie cez Google vyžaduje prehliadač s podporou Auth Tab, napríklad Chrome. Nastavte taký prehliadač ako predvolený alebo sa prihláste v aplikácii.",
+  "@browserSignInErrorAuthTabRequired": {
+    "description": "Browser sign-in error on Android when the default browser can't return a Google sign-in."
+  },
+  "browserSignInErrorPresentationFailed": "Prehliadač sa nepodarilo otvoriť nad aplikáciou. Skúste to znova.",
+  "@browserSignInErrorPresentationFailed": {
+    "description": "Browser sign-in error when the system browser could not be shown."
+  },
+  "browserSignInErrorInvalidClientId": "Toto nie je ID klienta Google. Také ID sa končí na .apps.googleusercontent.com.",
+  "@browserSignInErrorInvalidClientId": {
+    "description": "Browser sign-in error when the Google client ID entered is not valid."
+  },
+  "browserSignInErrorProxySignInRequired": "Niečo pred týmto serverom vyžiadalo vlastné prihlásenie. Namiesto toho sa prihláste v aplikácii.",
+  "@browserSignInErrorProxySignInRequired": {
+    "description": "Browser sign-in error when a reverse proxy answered instead of Open WebUI."
+  },
+  "browserSignInErrorProbeNotFound": "Tento server neponúka prihlásenie cez tohto poskytovateľa.",
+  "@browserSignInErrorProbeNotFound": {
+    "description": "Browser sign-in error when Open WebUI has no sign-in for the provider."
+  },
+  "browserSignInErrorProviderNotConfigured": "Open WebUI nemá tohto poskytovateľa nastaveného na výmenu tokenov.",
+  "@browserSignInErrorProviderNotConfigured": {
+    "description": "Browser sign-in error when Open WebUI's token exchange doesn't know the provider."
+  },
+  "browserSignInErrorDiscoveryNotFound": "Vášho poskytovateľa identity sa nepodarilo nájsť. Zadajte jeho vydavateľa v nastaveniach prihlásenia cez prehliadač.",
+  "@browserSignInErrorDiscoveryNotFound": {
+    "description": "Browser sign-in error when the identity provider could not be discovered."
+  },
+  "browserSignInErrorInvalidIssuer": "Vydavateľ nie je platná adresa URL https.",
+  "@browserSignInErrorInvalidIssuer": {
+    "description": "Browser sign-in error when the issuer entered is not a URL."
+  },
+  "browserSignInErrorEndpointMismatch": "Tento vydavateľ nie je poskytovateľ identity, cez ktorého sa prihlasuje na tento server.",
+  "@browserSignInErrorEndpointMismatch": {
+    "description": "Browser sign-in error when the issuer entered belongs to another identity provider."
+  },
+  "browserSignInErrorInsecureIdp": "Poskytovateľ identity musí používať https.",
+  "@browserSignInErrorInsecureIdp": {
+    "description": "Browser sign-in error when the identity provider is not served over https."
+  },
+  "browserSignInErrorCallbackMismatch": "Prehliadač sa vrátil s neočakávanou odpoveďou. Skúste to znova.",
+  "@browserSignInErrorCallbackMismatch": {
+    "description": "Browser sign-in error when the browser returned to an unexpected address."
+  },
+  "browserSignInErrorStateMismatch": "Vrátené prihlásenie nie je to, ktoré spustil Conduit. Skúste to znova.",
+  "@browserSignInErrorStateMismatch": {
+    "description": "Browser sign-in error when the returned sign-in does not match the one started."
+  },
+  "browserSignInErrorIssuerMismatch": "Prihlásenie sa vrátilo od iného poskytovateľa identity. Skúste to znova.",
+  "@browserSignInErrorIssuerMismatch": {
+    "description": "Browser sign-in error when the returned sign-in names another issuer."
+  },
+  "browserSignInErrorNonceMismatch": "Odpoveď poskytovateľa identity nezodpovedá tomuto prihláseniu. Skúste to znova.",
+  "@browserSignInErrorNonceMismatch": {
+    "description": "Browser sign-in error when the ID token was not for this sign-in."
+  },
+  "browserSignInErrorAccessDenied": "Prihlásenie bolo odmietnuté.",
+  "@browserSignInErrorAccessDenied": {
+    "description": "Browser sign-in error when the user or identity provider declined."
+  },
+  "browserSignInErrorClientRejected": "Poskytovateľ identity tohto klienta neprijíma. Skontrolujte ID klienta, či je klient verejný, a jeho URI presmerovania.",
+  "@browserSignInErrorClientRejected": {
+    "description": "Browser sign-in error when the identity provider rejects Conduit's client."
+  },
+  "browserSignInErrorIdpError": "Poskytovateľ identity nedokázal dokončiť prihlásenie. Skúste to znova.",
+  "@browserSignInErrorIdpError": {
+    "description": "Browser sign-in error for any other failure at the identity provider."
+  },
+  "browserSignInErrorRefreshExpired": "Vaše prihlásenie u poskytovateľa identity skončilo. Ak sa chcete znova prihlásiť, pokračujte v prehliadači.",
+  "@browserSignInErrorRefreshExpired": {
+    "description": "Browser sign-in error when the saved refresh token is no longer accepted."
+  },
+  "browserSignInErrorConfigMismatch": "Nastavenia prihlásenia cez prehliadač na tomto serveri sa zmenili. Ak sa chcete znova prihlásiť, pokračujte v prehliadači.",
+  "@browserSignInErrorConfigMismatch": {
+    "description": "Browser sign-in error when the settings changed since the account signed in."
+  },
+  "browserSignInErrorExchangeDisabled": "Výmena tokenov je na tomto serveri vypnutá. Správca ju môže zapnúť pomocou ENABLE_OAUTH_TOKEN_EXCHANGE=true.",
+  "@browserSignInErrorExchangeDisabled": {
+    "description": "Browser sign-in error when Open WebUI's token exchange is off. Keep the variable name untranslated."
+  },
+  "browserSignInErrorServerTooOld": "Tento server je na prihlásenie cez prehliadač príliš starý. Vyžaduje Open WebUI vo verzii 0.8 alebo novšej.",
+  "@browserSignInErrorServerTooOld": {
+    "description": "Browser sign-in error when the server has no token exchange."
+  },
+  "browserSignInErrorCannotDetermineClient": "Open WebUI prijíma tokeny len od uvedených klientov a nevie určiť, ktorý klient vydal tento token. Správca môže zrušiť nastavenie OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS.",
+  "@browserSignInErrorCannotDetermineClient": {
+    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client. Keep the variable name untranslated."
+  },
+  "browserSignInErrorAccessProhibited": "Open WebUI tento účet odmietol. Jeho e-mailová doména, rola alebo tento klient nemusia byť povolené.",
+  "@browserSignInErrorAccessProhibited": {
+    "description": "Browser sign-in error when Open WebUI prohibits the account."
+  },
+  "browserSignInErrorMissingClaims": "Poskytovateľ identity nezdieľal e-mail ani ID účtu. Povoľte pre tohto klienta rozsahy email a profile.",
+  "@browserSignInErrorMissingClaims": {
+    "description": "Browser sign-in error when the identity provider's user info lacks required claims."
+  },
+  "browserSignInErrorUserNotFound": "K tomuto prihláseniu zatiaľ nepatrí žiadny účet Open WebUI. Raz sa prihláste vo webovom rozhraní a potom to skúste znova.",
+  "@browserSignInErrorUserNotFound": {
+    "description": "Browser sign-in error when Open WebUI has no user for this identity yet."
+  },
+  "browserSignInErrorUserMismatch": "Toto prihlásenie patrí inému používateľovi Open WebUI než tento účet.",
+  "@browserSignInErrorUserMismatch": {
+    "description": "Browser sign-in error when the sign-in was for another user than the account."
+  },
+  "browserSignInErrorTokenRejected": "Open WebUI nedokázal overiť prihlásenie u poskytovateľa identity. Skúste to znova.",
+  "@browserSignInErrorTokenRejected": {
+    "description": "Browser sign-in error when Open WebUI could not validate the token with the identity provider."
+  },
+  "browserSignInErrorAuthenticationChanged": "Vaše prihlásenie sa medzitým na serveri zmenilo. Skúste to znova.",
+  "@browserSignInErrorAuthenticationChanged": {
+    "description": "Browser sign-in error when the account's sign-in changed on the server during the attempt."
+  },
+  "browserSignInErrorRateLimited": "Príliš veľa pokusov o prihlásenie. Chvíľu počkajte a potom to skúste znova.",
+  "@browserSignInErrorRateLimited": {
+    "description": "Browser sign-in error when requests are rate limited."
+  },
+  "browserSignInErrorNetwork": "Nepodarilo sa spojiť so serverom ani s poskytovateľom identity. Skontrolujte pripojenie.",
+  "@browserSignInErrorNetwork": {
+    "description": "Browser sign-in error when the server or identity provider could not be reached."
+  },
+  "browserSignInErrorTls": "Certifikát servera alebo poskytovateľa identity nie je dôveryhodný.",
+  "@browserSignInErrorTls": {
+    "description": "Browser sign-in error when a TLS certificate was not trusted."
+  },
+  "browserSignInErrorServerError": "Na serveri alebo u poskytovateľa identity nastala chyba. Skúste to neskôr znova.",
+  "@browserSignInErrorServerError": {
+    "description": "Browser sign-in error when the server or identity provider answered with a server error."
+  },
   "ldap": "LDAP",
   "@ldap": {
     "description": "Label for LDAP authentication option."
