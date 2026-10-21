@@ -1484,6 +1484,15 @@ class _ForegroundRefreshObserver extends WidgetsBindingObserver {
       // Schedule to avoid side-effects during build frames
       Future.microtask(() {
         try {
+          // A session from a browser sign-in close to expiry is renewed now,
+          // in the background, before a request finds it expired.
+          unawaited(
+            _ref
+                .read(authStateManagerProvider.notifier)
+                .renewBrowserSessionIfExpiring(),
+          );
+        } catch (_) {}
+        try {
           refreshConversationsCache(_ref);
           _ref.invalidate(channelMessagesProvider);
           _ref.invalidate(threadMessagesProvider);

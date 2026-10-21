@@ -17,9 +17,16 @@ import 'package:conduit_core/services/connectivity_service.dart'
 
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show AuthFailureKind;
+import 'package:conduit_core/auth/auth_types.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_failure.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
 import 'package:conduit_core/auth/token_validator.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/auth/sign_in_failure.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
+import 'package:conduit_core/models/browser_sign_in_session.dart';
 
 import 'package:conduit_core/auth/auth_cache_manager.dart';
 
@@ -43,7 +50,19 @@ typedef SavedCredentialAuthApiFactory = ApiService Function({
   required WorkerManager workerManager,
 });
 
+/// A browser sign-in session to revoke, and the address its account was
+/// reached through, whose TLS settings an identity provider on exactly that
+/// origin shares.
+typedef BrowserSessionRevocation = ({
+  BrowserSignInSession session,
+  ServerConfig? route,
+});
+
 const _newerAuthAttemptSettleGrace = Duration(milliseconds: 500);
+
+/// How long the access token of a browser sign-in Open WebUI had no user
+/// for is kept for a retry: identity providers issue them for minutes.
+const _browserGrantRetryWindow = Duration(minutes: 5);
 
 final class _AuthPublicationRolledBack implements Exception {
   const _AuthPublicationRolledBack(this.cause);
@@ -54,8 +73,9 @@ final class _AuthPublicationRolledBack implements Exception {
   String toString() => 'Authentication publication was rolled back';
 }
 
-/// A password or LDAP sign-in that stopped at a second step: the server it
-/// began on, and what to remember once the second step signs it in.
+/// A password, LDAP or browser sign-in that stopped at a second step: the
+/// server it began on, and what to remember once the second step signs it
+/// in.
 final class _PendingTwoStepSignIn {
   const _PendingTwoStepSignIn({
     required this.serverId,
@@ -63,24 +83,48 @@ final class _PendingTwoStepSignIn {
     required this.username,
     required this.password,
     required this.rememberCredentials,
-  });
+  }) : browserGrant = null;
+
+  /// A browser sign-in, whose [browserGrant] is saved for renewal once the
+  /// second step signs it in.
+  _PendingTwoStepSignIn.browser({
+    required this.serverId,
+    required BrowserSignInGrant grant,
+  }) : authType = grant.refreshToken == null
+           ? AuthTypes.sso
+           : AuthTypes.ssoBrowser,
+       username = '',
+       password = '',
+       rememberCredentials = true,
+       browserGrant = grant;
 
   final String serverId;
 
-  /// `credentials` or `ldap`, as the sign-in it finishes saves them.
+  /// `credentials`, `ldap`, `sso_browser`, or `sso` for a browser sign-in
+  /// that came without a refresh token, as the sign-in it finishes saves
+  /// them.
   final String authType;
   final String username;
   final String password;
   final bool rememberCredentials;
+  final BrowserSignInGrant? browserGrant;
 
-  /// What the sign-in would have remembered with [token]. An LDAP sign-in
-  /// keeps the session token rather than the password, as it does without a
-  /// second step.
+  /// What the sign-in would have remembered with [token]. An LDAP or browser
+  /// sign-in keeps the session token rather than a password, as it does
+  /// without a second step.
   Map<String, String>? rememberedCredentials({
     required String serverId,
     required String token,
   }) {
     if (!rememberCredentials) return null;
+    if (browserGrant != null) {
+      return {
+        'serverId': serverId,
+        'username': 'jwt_user',
+        'password': token,
+        'authType': authType,
+      };
+    }
     return authType == 'ldap'
         ? {
             'serverId': serverId,
@@ -94,6 +138,18 @@ final class _PendingTwoStepSignIn {
             'password': password,
             'authType': 'credentials',
           };
+  }
+
+  /// What becomes of the account's browser sign-in session once the second
+  /// step signs in as [owuiUserId]: the default for a password or LDAP
+  /// sign-in.
+  BrowserSessionCommit? browserSession({required String owuiUserId}) {
+    final grant = browserGrant;
+    if (grant == null) return null;
+    final session = grant.session(owuiUserId: owuiUserId);
+    return session == null
+        ? BrowserSessionCommit.delete
+        : BrowserSessionCommit.replace(session);
   }
 
   @override
@@ -320,8 +376,23 @@ class AuthStateManager extends _$AuthStateManager {
   final AuthCacheManager _cacheManager = AuthCacheManager();
   Future<bool>? _silentLoginFuture;
 
-  /// A password or LDAP sign-in waiting for its second step, if any.
+  /// A password, LDAP or browser sign-in waiting for its second step, if
+  /// any.
   _PendingTwoStepSignIn? _pendingTwoStep;
+
+  /// The identity provider's grant of a browser sign-in Open WebUI refused
+  /// because it had no user for it yet, for one sign-in on the web and a
+  /// retry. Its access token lives only here, in memory.
+  ({String accountId, BrowserSignInGrant grant, DateTime at})?
+  _retryableBrowserGrant;
+
+  /// Whether this process has looked for browser sign-in sessions left
+  /// behind by an operation interrupted part-way.
+  bool _browserSessionSweepStarted = false;
+
+  /// The session token a refusal is being answered for by renewing its
+  /// browser sign-in, so a burst of refused requests renews once.
+  String? _renewingRejectedToken;
   int _authAttemptRevision = 0;
   int _authAttemptSafetyEpoch = 0;
   int _sessionSafetyEpoch = 0;
@@ -438,6 +509,8 @@ class AuthStateManager extends _$AuthStateManager {
     required User user,
     required int attemptRevision,
     Map<String, String>? rememberedCredentials,
+    BrowserSessionCommit? browserSession,
+    bool Function()? canCommit,
     bool invalidateServerProviders = false,
   }) async {
     final previousState =
@@ -451,7 +524,10 @@ class AuthStateManager extends _$AuthStateManager {
         ownership: ownership,
         token: token,
         rememberedCredentials: rememberedCredentials,
-        canCommit: () => !_authAttemptSuperseded(attemptRevision),
+        browserSession: browserSession,
+        canCommit: () =>
+            !_authAttemptSuperseded(attemptRevision) &&
+            _canCommitAuth(canCommit),
         onRollbackUncertain: () {
           if (!ref.mounted) return;
           _poisonUncertainServerSession(failedAttemptRevision: attemptRevision);
@@ -668,6 +744,7 @@ class AuthStateManager extends _$AuthStateManager {
   Future<AuthState> build() async {
     final attemptRevision = _beginAuthAttempt();
     await _initialize(attemptRevision: attemptRevision);
+    _sweepOrphanBrowserSessionsOnce();
     return _current;
   }
 
@@ -830,6 +907,24 @@ class AuthStateManager extends _$AuthStateManager {
           // Token format invalid; clear and require login
           DebugLogger.auth('Token format invalid, deleting token');
           clearInheritedTransactionalOwnership();
+          // An expired session from a browser sign-in renews with the
+          // identity provider's refresh token instead, without a browser:
+          // on a cold start, and on a switch to the account.
+          final browserSignIn = await _savedBrowserSignIn(storage);
+          if (_authAttemptSuperseded(attemptRevision)) return;
+          if (browserSignIn != null) {
+            DebugLogger.auth(
+              'Expired browser sign-in session - renewing in background',
+            );
+            _publishTokenlessAuthRejection(
+              status: AuthStatus.loading,
+              isLoading: true,
+            );
+            await storage.deleteAuthTokenIfMatches(token);
+            if (_authAttemptSuperseded(attemptRevision)) return;
+            unawaited(_bootstrapSilentLogin(browserSignIn));
+            return;
+          }
           _publishTokenlessAuthRejection(
             status: AuthStatus.unauthenticated,
             isLoading: false,
@@ -1157,6 +1252,344 @@ class AuthStateManager extends _$AuthStateManager {
     );
   }
 
+  /// Signs the active account in through the system browser, with [config],
+  /// its server's browser sign-in settings: Conduit's own sign-in at the
+  /// identity provider Open WebUI uses, whose access token Open WebUI's token
+  /// exchange trades for a session. The identity provider's refresh token is
+  /// kept for the account, to renew the session later without the browser.
+  ///
+  /// Nothing is published as loading while the browser is open. [canCommit]
+  /// lets the caller withdraw meanwhile, as an account addition cancelled
+  /// while the browser is open does.
+  ///
+  /// Returns true once signed in, and false when it stopped with nothing to
+  /// say: the browser was closed, another account became the active one, or
+  /// [canCommit] said no. Throws [OpenWebUiTwoStepRequired] when Open WebUI
+  /// asks for a second step, which [finishTwoStepSignIn] completes, and
+  /// [BrowserSignInException] for any other failure.
+  Future<bool> loginWithBrowser({
+    required BrowserSignInConfig config,
+    bool Function()? canCommit,
+  }) async {
+    final attemptRevision = _beginAuthAttempt();
+    _retryableBrowserGrant = null;
+    bool stopped() =>
+        _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
+    try {
+      await _ensureApiServiceAvailable();
+      final api = ref.read(apiServiceProvider);
+      if (api == null) {
+        throw const BrowserSignInException(BrowserSignInFailure.network);
+      }
+      final accountId = api.serverConfig.id;
+      final storage = ref.read(optimizedStorageServiceProvider);
+      final target = await _browserSignInTarget(storage, accountId, config);
+      if (target == null || stopped()) return false;
+
+      final grant = await ref
+          .read(browserSignInServiceProvider)
+          .authorize(
+            api: api,
+            config: config,
+            serverId: target.serverId,
+            prompt: target.prompt,
+            loginHint: target.loginHint,
+          );
+      if (grant == null || stopped()) return false;
+      return await _commitBrowserGrant(
+        accountId: accountId,
+        grant: grant,
+        grantedAt: DateTime.now(),
+        attemptRevision: attemptRevision,
+        canCommit: canCommit,
+      );
+    } catch (error, stackTrace) {
+      return _failBrowserSignIn(
+        error,
+        stackTrace,
+        attemptRevision: attemptRevision,
+        stopped: stopped(),
+      );
+    }
+  }
+
+  /// Trades the access token of the browser sign-in that Open WebUI just
+  /// refused for want of a user ([BrowserSignInFailure.userNotFound]) again,
+  /// once the user has signed in on the web, without the browser.
+  ///
+  /// Returns false, with nothing done, when there is nothing to retry: the
+  /// refusal was not the active account's last sign-in, or its access token
+  /// is too old by now. A sign-in through the browser again does it then.
+  /// Otherwise as [loginWithBrowser].
+  Future<bool> retryBrowserExchange({bool Function()? canCommit}) async {
+    final retry = _retryableBrowserGrant;
+    _retryableBrowserGrant = null;
+    if (retry == null ||
+        DateTime.now().difference(retry.at) > _browserGrantRetryWindow) {
+      return false;
+    }
+    final attemptRevision = _beginAuthAttempt();
+    bool stopped() =>
+        _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
+    try {
+      return await _commitBrowserGrant(
+        accountId: retry.accountId,
+        grant: retry.grant,
+        grantedAt: retry.at,
+        attemptRevision: attemptRevision,
+        canCommit: canCommit,
+      );
+    } catch (error, stackTrace) {
+      return _failBrowserSignIn(
+        error,
+        stackTrace,
+        attemptRevision: attemptRevision,
+        stopped: stopped(),
+      );
+    }
+  }
+
+  /// Checks [config] against the active account's server, for the Test
+  /// button of the browser sign-in settings. Signs nobody in.
+  Future<BrowserSignInDiagnosis> diagnoseBrowserSignIn(
+    BrowserSignInConfig config,
+  ) async {
+    await _ensureApiServiceAvailable();
+    final api = ref.read(apiServiceProvider);
+    if (api == null) {
+      return const BrowserSignInDiagnosis(
+        discoveryFailure: BrowserSignInFailure.network,
+        exchangeFailure: BrowserSignInFailure.network,
+      );
+    }
+    return ref
+        .read(browserSignInServiceProvider)
+        .diagnose(api: api, config: config);
+  }
+
+  /// Saves [config] as the browser sign-in settings of [accountId]'s server,
+  /// shared by every account on it, or removes them when [config] is null.
+  /// A change ends the browser sign-in sessions of the server's accounts,
+  /// and their refresh tokens are revoked.
+  Future<void> saveBrowserSignInConfig({
+    required String accountId,
+    BrowserSignInConfig? config,
+  }) async {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    final account = registry.account(accountId);
+    if (account == null) {
+      throw StateError('That account is no longer saved.');
+    }
+    final routes = await _accountRoutes(storage);
+    final ended = await storage.setServerBrowserSignIn(
+      account.serverId,
+      config,
+    );
+    if (!ref.mounted) return;
+    ref.invalidate(serverConfigsProvider);
+    if (ended.isNotEmpty) {
+      unawaited(
+        _revokeBrowserSessions([
+          for (final entry in ended)
+            (session: entry.session, route: routes[entry.accountId]),
+        ]),
+      );
+    }
+  }
+
+  /// Renews the active account's session ahead of its expiry, on app resume,
+  /// when it came from a browser sign-in and expires within ten minutes or
+  /// its last tenth ([browserSessionNeedsRenewal]).
+  ///
+  /// Runs in the background and publishes nothing until it has a new
+  /// session. A failure changes nothing: the session is good for now, and a
+  /// request it fails on renews it then.
+  Future<void> renewBrowserSessionIfExpiring() async {
+    final current = _current;
+    final token = current.token;
+    if (!current.isAuthenticated ||
+        token == null ||
+        !browserSessionNeedsRenewal(token)) {
+      return;
+    }
+    try {
+      await _renewBrowserSessionInBackground(token, rejected: false);
+    } catch (error) {
+      _logAuthenticationFailure('browser-session-early-renewal-failed', error);
+    }
+  }
+
+  /// Who a browser sign-in for [accountId] signs in as: the registry server
+  /// it is on, and what to ask the identity provider so the right identity
+  /// comes back. Null when [accountId] is no longer the active account.
+  ///
+  /// A server with other accounts on it forces the choice of account
+  /// (`select_account` for Google and Microsoft, `login` for others), so
+  /// the browser's own session does not sign the new account in as one of
+  /// them. An account already proved to be a user is hinted with its email.
+  /// Google is asked for consent each time, the only way it issues a refresh
+  /// token again.
+  Future<({String serverId, String? prompt, String? loginHint})?>
+  _browserSignInTarget(
+    OptimizedStorageService storage,
+    String accountId,
+    BrowserSignInConfig config,
+  ) async {
+    if (await storage.getEffectiveActiveServerId() != accountId) return null;
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    final account = registry.account(accountId);
+    if (account == null) return null;
+    final forceChoice = registry
+        .accountsOn(account.serverId)
+        .any((other) => other.id != accountId);
+    final prompt = switch (config.provider.toLowerCase()) {
+      'google' => forceChoice ? 'select_account consent' : 'consent',
+      'microsoft' => forceChoice ? 'select_account' : null,
+      _ => forceChoice ? 'login' : null,
+    };
+    final loginHint = account.userId == null
+        ? null
+        : ref.read(openWebUiAccountSummariesProvider)[accountId]?.email;
+    return (serverId: account.serverId, prompt: prompt, loginHint: loginHint);
+  }
+
+  /// Steps 6 to 8 of a browser sign-in. The browser coming back is an app
+  /// resume, which can move the account to another address, so [grant] is
+  /// traded at the account's client on the address in use now, and only
+  /// while [accountId] is still the active account.
+  Future<bool> _commitBrowserGrant({
+    required String accountId,
+    required BrowserSignInGrant grant,
+    required DateTime grantedAt,
+    required int attemptRevision,
+    bool Function()? canCommit,
+  }) async {
+    bool stopped() =>
+        _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final api = ref.read(apiServiceProvider);
+    if (api == null ||
+        api.serverConfig.id != accountId ||
+        await storage.getEffectiveActiveServerId() != accountId) {
+      DebugLogger.auth('Browser sign-in stopped: the account changed');
+      return false;
+    }
+    if (stopped()) return false;
+    final ownership = await _captureLoginServerOwnership(
+      storage,
+      api,
+      requireActive: true,
+    );
+    if (stopped()) return false;
+
+    final BrowserSignInAnswer answer;
+    try {
+      answer = await ref
+          .read(browserSignInServiceProvider)
+          .exchange(
+            api: api,
+            provider: grant.provider,
+            accessToken: grant.accessToken,
+          );
+    } on BrowserSignInException catch (error) {
+      if (error.failure == BrowserSignInFailure.userNotFound && !stopped()) {
+        _retryableBrowserGrant = (
+          accountId: accountId,
+          grant: grant,
+          at: grantedAt,
+        );
+      }
+      rethrow;
+    }
+    if (stopped()) return false;
+
+    final String token;
+    switch (answer) {
+      case BrowserSignInSecondStep(:final challenge):
+        _pendingTwoStep = _PendingTwoStepSignIn.browser(
+          serverId: ownership.serverConfig.id,
+          grant: grant,
+        );
+        throw OpenWebUiTwoStepRequired(challenge);
+      case BrowserSignInSessionToken(token: final issued):
+        token = issued;
+    }
+    if (!_isValidTokenFormat(token)) {
+      throw const BrowserSignInException(BrowserSignInFailure.failed);
+    }
+    _acceptFreshlyIssuedServerToken(token, source: 'browser');
+    final user = await _validateIssuedToken(api, token);
+    if (stopped()) return false;
+
+    final session = grant.session(owuiUserId: user.id);
+    final committed = await _commitValidatedExistingServerSession(
+      storage: storage,
+      ownership: ownership,
+      token: token,
+      user: user,
+      attemptRevision: attemptRevision,
+      canCommit: canCommit,
+      rememberedCredentials: {
+        'serverId': ownership.serverConfig.id,
+        'username': 'jwt_user',
+        'password': token,
+        'authType': session == null ? AuthTypes.sso : AuthTypes.ssoBrowser,
+      },
+      browserSession: session == null
+          ? BrowserSessionCommit.delete
+          : BrowserSessionCommit.replace(session),
+    );
+    if (!committed) {
+      if (stopped()) return false;
+      // The account's server changed under the sign-in: it can be tried
+      // again on the server as it is now.
+      throw const BrowserSignInException(BrowserSignInFailure.failed);
+    }
+    DebugLogger.auth(
+      session == null
+          ? 'Browser sign-in successful without a refresh token'
+          : 'Browser sign-in successful',
+    );
+    return true;
+  }
+
+  /// Settles a browser sign-in that threw [error]: a second step is shown as
+  /// a password sign-in's is, one withdrawn meanwhile ends quietly, and
+  /// anything else is rethrown as a [BrowserSignInException].
+  Future<bool> _failBrowserSignIn(
+    Object error,
+    StackTrace stackTrace, {
+    required int attemptRevision,
+    required bool stopped,
+  }) async {
+    if (error is OpenWebUiTwoStepRequired) {
+      if (!stopped) {
+        _settleAtTwoStep();
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      if (!_authAttemptSuperseded(attemptRevision)) _pendingTwoStep = null;
+      return false;
+    }
+    final failure = switch (error) {
+      BrowserSignInException(:final failure) => failure,
+      DioException() => browserSignInFailureForExchange(error),
+      _ => BrowserSignInFailure.failed,
+    };
+    _logAuthenticationFailure(
+      'browser-sign-in-failed',
+      error,
+      stackTrace: stackTrace,
+    );
+    if (_authAttemptSuperseded(attemptRevision)) {
+      _resolveAbortedAuthAttempt(attemptRevision);
+    } else {
+      _restoreApiServiceTokenToCurrent();
+    }
+    if (stopped || failure.isSilent) return false;
+    Error.throwWithStackTrace(BrowserSignInException(failure), stackTrace);
+  }
+
   /// Makes [accountId] the active Open WebUI account.
   ///
   /// The account being left keeps its session in the vault and [accountId]
@@ -1308,6 +1741,16 @@ class AuthStateManager extends _$AuthStateManager {
                 ref.read(activeServerProvider).asData?.value?.id == accountId);
       }
 
+      if (_retryableBrowserGrant?.accountId == accountId) {
+        _retryableBrowserGrant = null;
+      }
+      // Read before storage deletes it with the account, and revoked once
+      // the account is gone.
+      final browserSession = await _browserSessionForRevocation(
+        storage,
+        accountId,
+      );
+
       final bool signedIn;
       var revoked = false;
       if (await isActive()) {
@@ -1372,6 +1815,9 @@ class AuthStateManager extends _$AuthStateManager {
               );
       }
 
+      if (browserSession != null) {
+        unawaited(_revokeBrowserSessions([browserSession]));
+      }
       await _purgeRemovedAccount(accountId);
       return signedIn;
     } finally {
@@ -1591,6 +2037,81 @@ class AuthStateManager extends _$AuthStateManager {
     for (final session in sessions)
       _revokeSession(config: session.config, token: session.token),
   ]);
+
+  /// Every account's browser sign-in session, with the address its account
+  /// is reached through, so signing out of all accounts can revoke their
+  /// refresh tokens once the local wipe has committed (after it, they are
+  /// gone). Empty when they cannot be read.
+  Future<List<BrowserSessionRevocation>>
+  browserSignInSessionsForRevocation() async {
+    try {
+      final storage = ref.read(optimizedStorageServiceProvider);
+      final stored = await storage.browserSignInSessionsForRevocation();
+      if (stored.isEmpty) return const <BrowserSessionRevocation>[];
+      final routes = await _accountRoutes(storage);
+      return [
+        for (final entry in stored)
+          (session: entry.session, route: routes[entry.accountId]),
+      ];
+    } catch (error) {
+      _logAuthenticationFailure('browser-sessions-read-failed', error);
+      return const <BrowserSessionRevocation>[];
+    }
+  }
+
+  /// Asks each session's identity provider to revoke its refresh token.
+  /// Best effort; never throws.
+  Future<void> revokeBrowserSignInSessions(
+    List<BrowserSessionRevocation> sessions,
+  ) => _revokeBrowserSessions(sessions);
+
+  Future<void> _revokeBrowserSessions(
+    List<BrowserSessionRevocation> sessions,
+  ) async {
+    if (sessions.isEmpty || !ref.mounted) return;
+    final BrowserSignInService service;
+    try {
+      service = ref.read(browserSignInServiceProvider);
+    } catch (error) {
+      _logAuthenticationFailure('browser-session-revoke-failed', error);
+      return;
+    }
+    await Future.wait([
+      for (final entry in sessions)
+        service.revokeBestEffort(entry.session, route: entry.route),
+    ]);
+  }
+
+  /// [accountId]'s browser sign-in session, for a sign-out to revoke; null
+  /// when it has none or it cannot be read.
+  Future<BrowserSessionRevocation?> _browserSessionForRevocation(
+    OptimizedStorageService storage,
+    String accountId,
+  ) async {
+    try {
+      final session = await storage.browserSignInSessionFor(accountId);
+      if (session == null) return null;
+      final routes = await _accountRoutes(storage);
+      return (session: session, route: routes[accountId]);
+    } catch (error) {
+      _logAuthenticationFailure('browser-session-read-failed', error);
+      return null;
+    }
+  }
+
+  /// The address each saved account is reached through now, by account id.
+  Future<Map<String, ServerConfig>> _accountRoutes(
+    OptimizedStorageService storage,
+  ) async {
+    try {
+      return {
+        for (final config in await storage.getServerConfigs())
+          config.id: config,
+      };
+    } catch (_) {
+      return const <String, ServerConfig>{};
+    }
+  }
 
   /// Asks the server to end [accountId]'s vaulted session, through a client
   /// that lives only for that request. Best effort.
@@ -2747,6 +3268,7 @@ class AuthStateManager extends _$AuthStateManager {
     bool Function()? canCommit,
     bool Function()? claimCommit,
     Map<String, String>? savedCredentialsSnapshot,
+    bool renewBrowserSignIn = false,
   }) async {
     if (showLoading) {
       _update(
@@ -2776,6 +3298,7 @@ class AuthStateManager extends _$AuthStateManager {
         savedCredentials: attemptedCredentials,
         canCommit: canCommit,
         claimCommit: claimCommit,
+        renewBrowserSignIn: renewBrowserSignIn,
       );
     } catch (e) {
       _logAuthenticationFailure('silent-login-failed', e);
@@ -2791,10 +3314,14 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
+  /// [renewBrowserSignIn] renews a browser sign-in without first checking
+  /// its saved session token, which the server just refused or which is
+  /// about to expire.
   Future<bool> _performSilentLoginAttempt({
     required Map<String, String>? savedCredentials,
     bool Function()? canCommit,
     bool Function()? claimCommit,
+    bool renewBrowserSignIn = false,
   }) async {
     final storage = ref.read(optimizedStorageServiceProvider);
 
@@ -2877,6 +3404,42 @@ class AuthStateManager extends _$AuthStateManager {
       workerManager: ref.read(workerManagerProvider),
     );
 
+    // A browser sign-in also saves a JWT under `jwt_user`, but renews it with
+    // the identity provider's refresh token once the server refuses it.
+    if (authType == AuthTypes.ssoBrowser) {
+      final ({String token, User user}) renewed;
+      try {
+        renewed = await _authenticateSavedBrowserSignIn(
+          api: tempApi,
+          accountId: ownership.serverConfig.id,
+          savedToken: password,
+          renew: renewBrowserSignIn,
+        );
+      } finally {
+        tempApi.dispose();
+      }
+      final kept = renewed.token == password;
+      return _commitSilentLoginResult(
+        storage: storage,
+        ownership: ownership,
+        token: renewed.token,
+        user: renewed.user,
+        expectedSavedCredentials: savedCredentials,
+        rememberedCredentials: kept
+            ? null
+            : {
+                'serverId': ownership.serverConfig.id,
+                'username': 'jwt_user',
+                'password': renewed.token,
+                'authType': AuthTypes.ssoBrowser,
+              },
+        // A rotated refresh token was saved before the exchange.
+        browserSession: BrowserSessionCommit.keep,
+        canCommit: canCommit,
+        claimCommit: claimCommit,
+      );
+    }
+
     // Handle JWT token-based authentication (includes legacy prefixes)
     // LDAP now also stores JWT tokens for re-auth (not raw passwords)
     final usesSavedJwt =
@@ -2924,6 +3487,46 @@ class AuthStateManager extends _$AuthStateManager {
 
     final user = await _validateIssuedToken(api, tokenStr);
     return (token: tokenStr, user: user);
+  }
+
+  /// Signs a saved browser sign-in in again: with its saved session token
+  /// while the server still accepts it (unless [renew]), and otherwise with
+  /// a session renewed through the identity provider's refresh token, which
+  /// must sign in as the user the account signed in as.
+  Future<({String token, User user})> _authenticateSavedBrowserSignIn({
+    required ApiService api,
+    required String accountId,
+    required String savedToken,
+    required bool renew,
+  }) async {
+    final saved = savedToken.trim();
+    if (!renew && saved.isNotEmpty && _isValidTokenFormat(saved)) {
+      try {
+        final user = await _validateIssuedToken(api, saved);
+        return (token: saved, user: user);
+      } catch (error) {
+        if (!_isConfirmedAuthFailure(error)) rethrow;
+        DebugLogger.auth('Saved browser sign-in session refused - renewing');
+      }
+    }
+
+    final renewal = await ref
+        .read(browserSignInServiceProvider)
+        .renew(
+          accountId: accountId,
+          api: api,
+          storage: ref.read(optimizedStorageServiceProvider),
+        );
+    if (!_isValidTokenFormat(renewal.token)) {
+      throw const BrowserSignInException(BrowserSignInFailure.failed);
+    }
+    _acceptFreshlyIssuedServerToken(renewal.token, source: 'browser-renewal');
+    final user = await _validateIssuedToken(api, renewal.token);
+    if (user.id != renewal.session.owuiUserId) {
+      throw const BrowserSignInException(BrowserSignInFailure.userMismatch);
+    }
+    DebugLogger.auth('Browser sign-in session renewed');
+    return (token: renewal.token, user: user);
   }
 
   Future<({String token, User user})> _authenticateSavedCredentials(
@@ -3092,6 +3695,7 @@ class AuthStateManager extends _$AuthStateManager {
           serverId: ownership.serverConfig.id,
           token: token,
         ),
+        browserSession: pending.browserSession(owuiUserId: user.id),
       );
       if (!committed) {
         _resolveAbortedAuthAttempt(attemptRevision);
@@ -3131,6 +3735,8 @@ class AuthStateManager extends _$AuthStateManager {
     required User user,
     ServerSessionOwnershipSnapshot? ownership,
     Map<String, String>? expectedSavedCredentials,
+    Map<String, String>? rememberedCredentials,
+    BrowserSessionCommit? browserSession,
     bool Function()? canCommit,
     bool Function()? claimCommit,
     Future<bool> Function({required FutureOr<void> Function() publish})?
@@ -3204,6 +3810,8 @@ class AuthStateManager extends _$AuthStateManager {
         ownership: ownership,
         token: token,
         expectedSavedCredentials: expectedSavedCredentials,
+        rememberedCredentials: rememberedCredentials,
+        browserSession: browserSession,
         canCommit: () => _canCommitAuth(canCommit),
         publish: publishSession,
         onRollbackUncertain: () {
@@ -3242,9 +3850,25 @@ class AuthStateManager extends _$AuthStateManager {
         ? error.response?.statusCode
         : null;
 
+    // A browser sign-in's renewal says itself whether it failed for good.
+    final browserFailure = error is BrowserSignInException
+        ? error.failure
+        : null;
+    if (browserFailure != null && browserFailure.isSilent) {
+      DebugLogger.auth(
+        'Browser sign-in renewal stopped: ${browserFailure.name}',
+      );
+      return false;
+    }
+    final isBrowserSignInEnded = browserFailure?.isTerminal ?? false;
+    if (isBrowserSignInEnded) {
+      errorMessage = browserFailure!.renewalErrorMessage;
+    }
+
     // Don't clear credentials on connection errors - only clear on actual auth failures
     // Check if this is a genuine auth failure vs network issue
     final isNetworkError =
+        (browserFailure?.isTransient ?? false) ||
         error is SocketException ||
         error is TimeoutException ||
         (error is DioException &&
@@ -3280,7 +3904,8 @@ class AuthStateManager extends _$AuthStateManager {
                 errorText.contains('401 unauthorized') ||
                 errorText.contains('authentication failed'))) ||
         isInvalidSavedToken ||
-        isUnfinishedSignIn) {
+        isUnfinishedSignIn ||
+        isBrowserSignInEnded) {
       // A confirmed auth failure means the saved secret is bad: clear it so it
       // isn't retried on every cold start (the background bootstrap path turns a
       // bare `false` into a generic unauthenticated state otherwise). Only bail
@@ -3394,7 +4019,25 @@ class AuthStateManager extends _$AuthStateManager {
 
   /// Handle auth issues (called by API service)
   /// This shows connection issue page instead of logging out
-  void onAuthIssue() {
+  ///
+  /// [kind] says why the request was turned away, when the interceptor said.
+  /// A session Open WebUI itself refused ([AuthFailureKind.sessionRejected])
+  /// that came from a browser sign-in is renewed in the background first:
+  /// nothing shows unless that fails. A proxy's refusal never renews it.
+  void onAuthIssue([AuthFailureKind? kind]) {
+    final current = _current;
+    final token = current.token;
+    if (kind == AuthFailureKind.sessionRejected &&
+        current.isAuthenticated &&
+        token != null &&
+        token.isNotEmpty) {
+      unawaited(_renewBrowserSessionInBackground(token, rejected: true));
+      return;
+    }
+    _publishAuthIssue();
+  }
+
+  void _publishAuthIssue() {
     DebugLogger.auth('Auth issue detected - showing connection issue page');
     // Don't clear token or user data - just set error state
     // The router will show connection issue page
@@ -3405,6 +4048,134 @@ class AuthStateManager extends _$AuthStateManager {
         clearError: false,
       ),
     );
+  }
+
+  /// Renews the active account's session [token] in the background, through
+  /// the identity provider's refresh token, when its saved sign-in is a
+  /// browser sign-in. Publishes nothing until a new session commits.
+  ///
+  /// [rejected] means the server refused [token]: a session not from a
+  /// browser sign-in then shows the connection issue, and a failed renewal is
+  /// handled as a silent sign-in's failure (the issue shows for a transient
+  /// one, and the saved sign-in ends for good otherwise). Ahead of expiry, a
+  /// failure changes nothing. Returns whether a new session committed.
+  Future<bool> _renewBrowserSessionInBackground(
+    String token, {
+    required bool rejected,
+  }) async {
+    if (_renewingRejectedToken == token) return false;
+    _renewingRejectedToken = token;
+    try {
+      final storage = ref.read(optimizedStorageServiceProvider);
+      final saved = await _savedBrowserSignIn(storage);
+      if (!ref.mounted || _current.token != token) return false;
+      if (saved == null) {
+        if (rejected) _publishAuthIssue();
+        return false;
+      }
+
+      final startRevision = _authAttemptRevision;
+      final startSafetyEpoch = _sessionSafetyEpoch;
+      int? claimRevision;
+      bool canCommit() {
+        if (!ref.mounted) return false;
+        final claimed = claimRevision;
+        if (claimed != null) return !_authAttemptSuperseded(claimed);
+        return _authAttemptRevision == startRevision &&
+            _sessionSafetyEpoch == startSafetyEpoch &&
+            _current.token == token;
+      }
+
+      bool claimCommit() {
+        if (!canCommit()) return false;
+        claimRevision = _beginAuthAttempt();
+        return true;
+      }
+
+      if (!rejected) {
+        try {
+          return await _performSilentLoginAttempt(
+            savedCredentials: saved,
+            canCommit: canCommit,
+            claimCommit: claimCommit,
+            renewBrowserSignIn: true,
+          );
+        } catch (error) {
+          _logAuthenticationFailure(
+            'browser-session-early-renewal-failed',
+            error,
+          );
+          return false;
+        } finally {
+          final claimed = claimRevision;
+          if (claimed != null && _current.token == token) {
+            _resolveAbortedAuthAttempt(claimed);
+          }
+        }
+      }
+
+      final committed = await _performSilentLoginInternal(
+        showLoading: false,
+        publishNetworkErrors: true,
+        canCommit: canCommit,
+        claimCommit: claimCommit,
+        savedCredentialsSnapshot: saved,
+        renewBrowserSignIn: true,
+      );
+      if (committed || !ref.mounted) return committed;
+      final claimed = claimRevision;
+      if (claimed != null) _resolveAbortedAuthAttempt(claimed);
+      if (_current.status == AuthStatus.credentialError &&
+          !_current.hasValidToken) {
+        // The saved sign-in ended for good: the refused token goes with it.
+        _updateApiServiceToken(null);
+        try {
+          await storage.deleteAuthTokenIfMatches(token);
+        } catch (error) {
+          _logAuthenticationFailure('refused-token-delete-failed', error);
+        }
+      }
+      return false;
+    } finally {
+      if (_renewingRejectedToken == token) _renewingRejectedToken = null;
+    }
+  }
+
+  /// The active account's saved sign-in when it is a browser sign-in, or
+  /// null, also when it cannot be read.
+  Future<Map<String, String>?> _savedBrowserSignIn(
+    OptimizedStorageService storage,
+  ) async {
+    try {
+      final saved = await storage.getSavedCredentialsStrict();
+      return saved?['authType'] == AuthTypes.ssoBrowser ? saved : null;
+    } catch (error) {
+      _logAuthenticationFailure('saved-sign-in-read-failed', error);
+      return null;
+    }
+  }
+
+  /// Deletes, and revokes, browser sign-in sessions an operation interrupted
+  /// part-way left behind. Once per process, after the first restore.
+  void _sweepOrphanBrowserSessionsOnce() {
+    if (_browserSessionSweepStarted) return;
+    _browserSessionSweepStarted = true;
+    unawaited(_sweepOrphanBrowserSessions());
+  }
+
+  Future<void> _sweepOrphanBrowserSessions() async {
+    try {
+      final storage = ref.read(optimizedStorageServiceProvider);
+      final swept = await storage.sweepOrphanBrowserSignInSessions();
+      if (swept.isEmpty || !ref.mounted) return;
+      final routes = await _accountRoutes(storage);
+      await _revokeBrowserSessions([
+        for (final entry in swept)
+          (session: entry.session, route: routes[entry.accountId]),
+      ]);
+    } catch (error) {
+      _logAuthenticationFailure('browser-session-sweep-failed', error);
+    }
   }
 
   /// Checks the session a connection issue kept, on the address its server
@@ -3821,6 +4592,26 @@ class AuthStateManager extends _$AuthStateManager {
     final loggedOutAccountId = clearAllAppData
         ? null
         : _accountLeftByPlainLogout();
+    // A plain logout ends the account's browser sign-in session too: read it
+    // before anything clears it, and revoke it once the logout has. Signing
+    // out of every account revokes them all itself.
+    _retryableBrowserGrant = null;
+    final browserSessionRead = clearAllAppData || loggedOutAccountId == null
+        ? null
+        : _browserSessionForRevocation(
+            ref.read(optimizedStorageServiceProvider),
+            loggedOutAccountId,
+          );
+    void revokeBrowserSession() {
+      final read = browserSessionRead;
+      if (read == null) return;
+      unawaited(
+        read.then((session) async {
+          if (session != null) await _revokeBrowserSessions([session]);
+        }),
+      );
+    }
+
     final attemptRevision = _beginAuthAttempt();
     _update(
       (current) =>
@@ -4016,6 +4807,7 @@ class AuthStateManager extends _$AuthStateManager {
         DebugLogger.auth('Logout cleanup yielded to a committed newer session');
         return FullAppDataClearOutcome.ownershipYielded;
       }
+      revokeBrowserSession();
       await purgeLoggedOutAccountData();
 
       DebugLogger.auth(
@@ -4042,6 +4834,7 @@ class AuthStateManager extends _$AuthStateManager {
             );
             return FullAppDataClearOutcome.ownershipYielded;
           }
+          revokeBrowserSession();
           await purgeLoggedOutAccountData();
         } catch (clearError) {
           _logAuthenticationFailure('logout-clear-failed', clearError);

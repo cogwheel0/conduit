@@ -1,10 +1,15 @@
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_failure.dart';
+import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
 
+import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -108,6 +113,49 @@ class AuthActions {
       ),
     );
   }
+
+  /// Signs the active account in through the system browser with [config].
+  /// See [AuthStateManager.loginWithBrowser]: false means it stopped with
+  /// nothing to say; it throws [OpenWebUiTwoStepRequired] for a second step,
+  /// and [BrowserSignInException] for a failure.
+  Future<bool> loginWithBrowser({
+    required BrowserSignInConfig config,
+    bool Function()? canCommit,
+  }) {
+    return _completeOpenWebUiAuth(
+      () => _auth.loginWithBrowser(config: config, canCommit: canCommit),
+    );
+  }
+
+  /// Trades the access token of a browser sign-in refused with
+  /// [BrowserSignInFailure.userNotFound] again. False when there is nothing
+  /// to retry: sign in with [loginWithBrowser] again then.
+  Future<bool> retryBrowserExchange({bool Function()? canCommit}) {
+    return _completeOpenWebUiAuth(
+      () => _auth.retryBrowserExchange(canCommit: canCommit),
+    );
+  }
+
+  /// Checks [config] against the active account's server: the Test button.
+  Future<BrowserSignInDiagnosis> diagnoseBrowserSignIn(
+    BrowserSignInConfig config,
+  ) => _auth.diagnoseBrowserSignIn(config);
+
+  /// Saves, or with a null [config] removes, the browser sign-in settings of
+  /// [accountId]'s server.
+  Future<void> saveBrowserSignInConfig({
+    required String accountId,
+    BrowserSignInConfig? config,
+  }) => _auth.saveBrowserSignInConfig(accountId: accountId, config: config);
+
+  /// Whether a browser sign-in can be set up for a server reporting
+  /// [backendConfig], and with which of its providers.
+  BrowserSignInAvailability browserSignInAvailability(
+    BackendConfig? backendConfig,
+  ) => browserSignInAvailabilityFor(
+    port: _ref.read(browserAuthPortProvider),
+    backendConfig: backendConfig,
+  );
 
   Future<bool> ldapLogin(
     String username,

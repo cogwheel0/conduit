@@ -6,6 +6,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/models/browser_sign_in_session.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/database_opener.dart';
@@ -107,6 +108,38 @@ final _libreChatAccount = LibreChatAccount.forUser(
   const LibreChatServer(baseUrl: 'https://chat.example.com'),
   const LibreChatUser(id: 'lc-user'),
 );
+
+const _browserSession = BrowserSignInSession(
+  serverId: 'server-1',
+  provider: 'oidc',
+  clientId: 'conduit',
+  issuer: 'https://id.example',
+  tokenEndpoint: 'https://id.example/token',
+  revocationEndpoint: 'https://id.example/revoke',
+  refreshToken: 'refresh-token',
+  owuiUserId: 'user-a',
+);
+
+/// Holds browser sign-in sessions, and records which it was asked to
+/// revoke.
+final class _BrowserSignedInAuthStateManager extends _ClearedAuthStateManager {
+  _BrowserSignedInAuthStateManager(super.outcome);
+
+  final revoked = <BrowserSignInSession>[];
+
+  @override
+  Future<List<BrowserSessionRevocation>>
+  browserSignInSessionsForRevocation() async => const [
+    (session: _browserSession, route: null),
+  ];
+
+  @override
+  Future<void> revokeBrowserSignInSessions(
+    List<BrowserSessionRevocation> sessions,
+  ) async {
+    revoked.addAll(sessions.map((entry) => entry.session));
+  }
+}
 
 final class _EmptyDirectProfiles extends DirectConnectionProfilesController {
   @override
@@ -372,6 +405,41 @@ void main() {
     // Null: every account and connection, so every notification goes.
     check(signedOut).deepEquals([null]);
   });
+
+  for (final (outcome, revokes) in [
+    (FullAppDataClearOutcome.cleared, true),
+    (FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete, true),
+    (FullAppDataClearOutcome.incomplete, false),
+    (FullAppDataClearOutcome.ownershipYielded, false),
+  ]) {
+    test('a sign-out that ends ${outcome.name} '
+        '${revokes ? 'revokes' : 'keeps'} the browser sign-in refresh '
+        'tokens', () async {
+      final auth = _BrowserSignedInAuthStateManager(outcome);
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(() => auth),
+          directConnectionProfilesProvider.overrideWith(
+            _EmptyDirectProfiles.new,
+          ),
+          hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+          directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+          openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      container.read(hermesConfigProvider);
+
+      await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: true);
+      await pumpEventQueue();
+
+      check(auth.revoked).deepEquals(revokes ? [_browserSession] : []);
+    });
+  }
 
   test('an incomplete clear leaves the restart marker armed', () async {
     final container = ProviderContainer(
