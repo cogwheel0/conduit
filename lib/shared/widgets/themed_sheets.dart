@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'dart:io' show Platform;
 import 'dart:math' as math;
 
@@ -128,6 +129,7 @@ class ThemedSheets {
   static Future<T?> showAdaptive<T>({
     required BuildContext context,
     required WidgetBuilder builder,
+    ValueListenable<bool>? canDismiss,
   }) {
     FocusManager.instance.primaryFocus?.unfocus();
     final theme = context.conduitTheme;
@@ -152,26 +154,40 @@ class ThemedSheets {
       return _showTracked<T>(
         context: context,
         useRootNavigator: true,
-        present: (coverage) => showModalBottomSheet<T>(
-          context: context,
-          useRootNavigator: true,
-          isScrollControlled: true,
-          backgroundColor: backgroundColor,
-          barrierColor: Colors.black54,
-          barrierLabel: barrierLabel,
-          shape: platform == TargetPlatform.iOS ? glassShape : plainShape,
-          clipBehavior: Clip.antiAlias,
-          sheetAnimationStyle: AnimationStyle.noAnimation,
-          builder: (sheetContext) {
-            final child = _SheetCoverageBoundary(
-              coverage: coverage,
-              child: Builder(builder: builder),
-            );
-            return PlatformUiCapabilities.usesNativeIOS26
-                ? CNSheetGeometryProbe(child: child)
-                : child;
-          },
-        ),
+        present: (coverage) =>
+            canDismiss != null && platform != TargetPlatform.iOS
+            ? Navigator.of(context, rootNavigator: true).push<T>(
+                _GuardedStaticSheetRoute<T>(
+                  guard: canDismiss,
+                  backgroundColor: backgroundColor,
+                  barrierLabel: barrierLabel,
+                  shape: plainShape,
+                  builder: (sheetContext) => _SheetCoverageBoundary(
+                    coverage: coverage,
+                    child: Builder(builder: builder),
+                  ),
+                ),
+              )
+            : showModalBottomSheet<T>(
+                context: context,
+                useRootNavigator: true,
+                isScrollControlled: true,
+                backgroundColor: backgroundColor,
+                barrierColor: Colors.black54,
+                barrierLabel: barrierLabel,
+                shape: platform == TargetPlatform.iOS ? glassShape : plainShape,
+                clipBehavior: Clip.antiAlias,
+                sheetAnimationStyle: AnimationStyle.noAnimation,
+                builder: (sheetContext) {
+                  final child = _SheetCoverageBoundary(
+                    coverage: coverage,
+                    child: Builder(builder: builder),
+                  );
+                  return PlatformUiCapabilities.usesNativeIOS26
+                      ? CNSheetGeometryProbe(child: child)
+                      : child;
+                },
+              ),
       );
     }
 
@@ -201,11 +217,18 @@ class ThemedSheets {
             shape: plainShape,
             child: Material(type: MaterialType.transparency, child: child),
           );
-          route = StupidSimpleSheetRoute<T>(
-            child: child,
-            barrierColor: Colors.black54,
-            barrierLabel: barrierLabel,
-          );
+          route = canDismiss == null
+              ? StupidSimpleSheetRoute<T>(
+                  child: child,
+                  barrierColor: Colors.black54,
+                  barrierLabel: barrierLabel,
+                )
+              : _GuardedAdaptiveSheetRoute<T>(
+                  guard: canDismiss,
+                  child: child,
+                  barrierColor: Colors.black54,
+                  barrierLabel: barrierLabel,
+                );
         }
 
         return Navigator.of(context, rootNavigator: true).push<T>(route);
@@ -709,4 +732,48 @@ class ConduitAdaptiveSheetSurface extends StatelessWidget {
       child: child,
     );
   }
+}
+
+/// Keeps the common sheet motion while an in-flight save owns dismissal.
+class _GuardedAdaptiveSheetRoute<T> extends StupidSimpleSheetRoute<T> {
+  _GuardedAdaptiveSheetRoute({
+    required this.guard,
+    required super.child,
+    super.barrierColor,
+    super.barrierLabel,
+  });
+  final ValueListenable<bool> guard;
+  @override
+  bool get draggable => guard.value;
+  @override
+  bool get barrierDismissible => guard.value;
+  @override
+  RoutePopDisposition get popDisposition =>
+      guard.value ? super.popDisposition : RoutePopDisposition.doNotPop;
+  @override
+  bool didPop(T? result) => guard.value && super.didPop(result);
+}
+
+class _GuardedStaticSheetRoute<T> extends ModalBottomSheetRoute<T> {
+  _GuardedStaticSheetRoute({
+    required this.guard,
+    required super.builder,
+    super.backgroundColor,
+    super.barrierLabel,
+    super.shape,
+  }) : super(
+         isScrollControlled: true,
+         sheetAnimationStyle: AnimationStyle.noAnimation,
+         clipBehavior: Clip.antiAlias,
+       );
+  final ValueListenable<bool> guard;
+  @override
+  bool get enableDrag => guard.value;
+  @override
+  bool get barrierDismissible => guard.value;
+  @override
+  RoutePopDisposition get popDisposition =>
+      guard.value ? super.popDisposition : RoutePopDisposition.doNotPop;
+  @override
+  bool didPop(T? result) => guard.value && super.didPop(result);
 }

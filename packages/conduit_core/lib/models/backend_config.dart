@@ -132,6 +132,9 @@ class BackendConfig {
     this.audioSampleRate,
     this.audioFrameSize,
     this.vadEnabled,
+    this.enableRealtimeCall,
+    this.realtimeCallModel,
+    this.realtimeCallVoice,
     this.oauthProviders = const OAuthProviders(),
     this.enableLdap = false,
     this.enableLoginForm = true,
@@ -205,6 +208,17 @@ class BackendConfig {
   final int? audioFrameSize;
   final bool? vadEnabled;
 
+  /// Mirrors `audio.realtime.enabled`: whether calls go through the server's
+  /// realtime voice (Open WebUI 0.12). Reported only to a signed-in account;
+  /// servers without realtime calls never send it, so only `true` enables it.
+  final bool? enableRealtimeCall;
+
+  /// Mirrors `audio.realtime.model`: the voice model realtime calls use.
+  final String? realtimeCallModel;
+
+  /// Mirrors `audio.realtime.voice`: the server's default realtime voice.
+  final String? realtimeCallVoice;
+
   /// OAuth providers configured on the server.
   final OAuthProviders oauthProviders;
 
@@ -247,6 +261,9 @@ class BackendConfig {
     int? audioSampleRate,
     int? audioFrameSize,
     bool? vadEnabled,
+    bool? enableRealtimeCall,
+    String? realtimeCallModel,
+    String? realtimeCallVoice,
     OAuthProviders? oauthProviders,
     bool? enableLdap,
     bool? enableLoginForm,
@@ -279,6 +296,9 @@ class BackendConfig {
       audioSampleRate: audioSampleRate ?? this.audioSampleRate,
       audioFrameSize: audioFrameSize ?? this.audioFrameSize,
       vadEnabled: vadEnabled ?? this.vadEnabled,
+      enableRealtimeCall: enableRealtimeCall ?? this.enableRealtimeCall,
+      realtimeCallModel: realtimeCallModel ?? this.realtimeCallModel,
+      realtimeCallVoice: realtimeCallVoice ?? this.realtimeCallVoice,
       oauthProviders: oauthProviders ?? this.oauthProviders,
       enableLdap: enableLdap ?? this.enableLdap,
       enableLoginForm: enableLoginForm ?? this.enableLoginForm,
@@ -329,6 +349,9 @@ class BackendConfig {
       'audio_sample_rate': audioSampleRate,
       'audio_frame_size': audioFrameSize,
       'vad_enabled': vadEnabled,
+      'enable_realtime_call': enableRealtimeCall,
+      'realtime_call_model': realtimeCallModel,
+      'realtime_call_voice': realtimeCallVoice,
       'oauth': {'providers': oauthProviders.toJson()},
       'enable_ldap': enableLdap,
       'enable_login_form': enableLoginForm,
@@ -359,6 +382,9 @@ class BackendConfig {
     int? audioSampleRate;
     int? audioFrameSize;
     bool? vadEnabled;
+    bool? enableRealtimeCall;
+    String? realtimeCallModel;
+    String? realtimeCallVoice;
     OAuthProviders oauthProviders = const OAuthProviders();
     bool enableLdap = false;
     bool enableLoginForm = true;
@@ -447,6 +473,11 @@ class BackendConfig {
     final vad = json['vad_enabled'];
     if (vad is bool) vadEnabled = vad;
 
+    final realtimeCall = json['enable_realtime_call'];
+    if (realtimeCall is bool) enableRealtimeCall = realtimeCall;
+    realtimeCallModel = _normalizeString(json['realtime_call_model']);
+    realtimeCallVoice = _normalizeString(json['realtime_call_voice']);
+
     final audio = _coerceJsonMap(json['audio']);
     final audioTts = _coerceJsonMap(audio?['tts']);
     final audioStt = _coerceJsonMap(audio?['stt']);
@@ -458,6 +489,13 @@ class BackendConfig {
     ttsVoice ??= nestedTtsVoice;
     ttsSplitOn ??= nestedTtsSplitOn;
     sttProvider ??= nestedSttEngine;
+    final audioRealtime = _coerceJsonMap(audio?['realtime']);
+    final nestedRealtimeEnabled = audioRealtime?['enabled'];
+    if (nestedRealtimeEnabled is bool) {
+      enableRealtimeCall ??= nestedRealtimeEnabled;
+    }
+    realtimeCallModel ??= _normalizeString(audioRealtime?['model']);
+    realtimeCallVoice ??= _normalizeString(audioRealtime?['voice']);
 
     // Parse OAuth providers from top-level oauth.providers
     final oauth = _coerceJsonMap(json['oauth']);
@@ -608,6 +646,9 @@ class BackendConfig {
       audioSampleRate: audioSampleRate,
       audioFrameSize: audioFrameSize,
       vadEnabled: vadEnabled,
+      enableRealtimeCall: enableRealtimeCall,
+      realtimeCallModel: realtimeCallModel,
+      realtimeCallVoice: realtimeCallVoice,
       oauthProviders: oauthProviders,
       enableLdap: enableLdap,
       enableLoginForm: enableLoginForm,

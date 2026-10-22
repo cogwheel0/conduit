@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../conduit_loading.dart';
 import '../../horizontal_gesture_ownership.dart';
 import '../../../theme/theme_extensions.dart';
+import '../../../theme/color_tokens.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
 import '../markdown_config.dart';
@@ -15,6 +16,7 @@ import 'details_group_widget.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
+import 'markdown_table.dart';
 import 'pdf_inline_view.dart';
 
 /// Signature for a builder that creates image widgets.
@@ -58,6 +60,7 @@ class BlockRenderer {
     this.nodePathPrefix,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.streamingFade,
+    this.bodyOverride,
   ]);
 
   /// The active build context.
@@ -93,6 +96,9 @@ class BlockRenderer {
   /// the span tree or its recognizers.
   final MarkdownStreamingFade? streamingFade;
 
+  /// Reading style inherited by quote paragraphs and nested lists.
+  final TextStyle? bodyOverride;
+
   /// Builds a rich-text widget for an inline [nodes] run.
   ///
   /// When a [streamingFade] source is present the run is rendered through
@@ -102,6 +108,7 @@ class BlockRenderer {
     List<CompiledMarkdownNode> nodes, {
     TextStyle? parentStyle,
   }) {
+    parentStyle ??= bodyOverride;
     final fade = streamingFade;
     if (fade == null) {
       return Text.rich(inlineRenderer.render(nodes, parentStyle: parentStyle));
@@ -705,6 +712,7 @@ class BlockRenderer {
         code: code,
         language: language,
         theme: conduitTheme,
+        deferHighlight: heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer,
         onPreview: previewable
             ? () => ConduitMarkdown.showCodePreviewSheet(
                 context,
@@ -815,17 +823,18 @@ class BlockRenderer {
       nodePath,
       heavyBlockPolicy,
       streamingFade,
+      style.blockquoteText,
     );
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: style.blockquoteSpacing),
       child: Container(
         decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(color: style.blockquoteBorderColor, width: 2),
+          border: BorderDirectional(
+            start: BorderSide(color: style.blockquoteBorderColor, width: 2),
           ),
         ),
-        padding: const EdgeInsets.only(left: 12),
+        padding: const EdgeInsetsDirectional.only(start: 12),
         child: DefaultTextStyle.merge(
           style: style.blockquoteText,
           child: inner.renderBlocks(children),
@@ -931,6 +940,7 @@ class BlockRenderer {
         nodePath,
         heavyBlockPolicy,
         streamingFade,
+        bodyOverride,
       );
       final blockContent = inner.renderBlocks(blockNodes);
 
@@ -1251,7 +1261,7 @@ class BlockRenderer {
   // -- Horizontal rule --
 
   Widget _renderHorizontalRule() {
-    return Divider(color: style.dividerColor);
+    return const SizedBox(height: 12);
   }
 
   // -- Div (GitHub alerts) --
@@ -1285,6 +1295,12 @@ class BlockRenderer {
       if (child is CompiledMarkdownElement &&
           child.tag == 'p' &&
           titleText == null) {
+        if ((child.attributes['class'] ?? '').contains(
+          'markdown-alert-title',
+        )) {
+          titleText = config.label;
+          continue;
+        }
         titleText = _extractAlertTitle(child, alertType);
         // Remaining paragraph content after the title
         // marker is part of the body.
@@ -1306,15 +1322,18 @@ class BlockRenderer {
       nodePath,
       heavyBlockPolicy,
       streamingFade,
+      bodyOverride,
     );
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: style.blockquoteSpacing),
       child: Container(
         decoration: BoxDecoration(
-          border: Border(left: BorderSide(color: config.color, width: 3)),
+          color: context.conduitTheme.codeBackground.withValues(alpha: .45),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: style.codeBlockBorder),
         ),
-        padding: const EdgeInsets.only(left: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1322,16 +1341,22 @@ class BlockRenderer {
               children: [
                 Icon(config.icon, color: config.color, size: 18),
                 const SizedBox(width: 6),
-                Text(
-                  titleText ?? config.label,
-                  style: style.body.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: config.color,
+                Expanded(
+                  child: Text(
+                    titleText ?? config.label,
+                    style: style.body.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: config.color,
+                      fontSize: style.body.fontSize! * .9,
+                    ),
                   ),
                 ),
               ],
             ),
-            if (contentNodes.isNotEmpty) inner.renderBlocks(contentNodes),
+            if (contentNodes.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              inner.renderBlocks(contentNodes),
+            ],
           ],
         ),
       ),
@@ -1350,29 +1375,35 @@ class BlockRenderer {
 
   _AlertConfig _alertConfig(String type) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final background = Color.alphaBlend(
+      theme.codeBackground.withValues(alpha: .45),
+      theme.chatBubbleAssistant,
+    );
+    Color accent(Color color) => withMinContrast(color, background, 4.5);
     return switch (type) {
       'tip' => _AlertConfig(
-        color: Colors.green,
+        color: accent(theme.success),
         icon: Icons.lightbulb_outline,
         label: l10n.alertTip,
       ),
       'important' => _AlertConfig(
-        color: Colors.purple,
+        color: accent(theme.buttonPrimary),
         icon: Icons.priority_high,
         label: l10n.alertImportant,
       ),
       'warning' => _AlertConfig(
-        color: Colors.amber,
+        color: accent(theme.warning),
         icon: Icons.warning_amber,
         label: l10n.alertWarning,
       ),
       'caution' => _AlertConfig(
-        color: Colors.red,
+        color: accent(theme.error),
         icon: Icons.error_outline,
         label: l10n.alertCaution,
       ),
       _ => _AlertConfig(
-        color: Colors.blue,
+        color: accent(theme.info),
         icon: Icons.info_outline,
         label: l10n.alertNote,
       ),
@@ -1458,6 +1489,7 @@ class BlockRenderer {
       nodePath,
       heavyBlockPolicy,
       streamingFade,
+      bodyOverride,
     );
     return inner.renderBlocks(children);
   }
@@ -1689,19 +1721,10 @@ class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         HorizontalScrollGestureBoundary(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStatePropertyAll(
-                widget.style.tableHeaderBackground,
-              ),
-              border: TableBorder.all(
-                color: widget.style.tableBorderColor,
-                borderRadius: BorderRadius.circular(widget.style.tableRadius),
-              ),
-              columns: widget.columns,
-              rows: visibleRows,
-            ),
+          child: MarkdownTableView(
+            columns: widget.columns,
+            rows: visibleRows,
+            style: widget.style,
           ),
         ),
         if (collapsible)

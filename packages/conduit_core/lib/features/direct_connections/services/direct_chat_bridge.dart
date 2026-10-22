@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/services/semantic_message_builder.dart';
@@ -625,6 +626,18 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
     final role = message.role.trim().toLowerCase();
     if (role != 'system' && role != 'user' && role != 'assistant') continue;
 
+    // What a realtime call said is replayed as labeled history, the way Open
+    // WebUI replays it, so a later turn sees it without taking it as status.
+    final voice = voiceReplayFor(message);
+    final spokenMessages = [
+      for (final text in voice.speech)
+        DirectChatMessage.text(role: 'assistant', text: text),
+    ];
+    if (voice.spokenOnly) {
+      result.addAll(spokenMessages);
+      continue;
+    }
+
     final parts = <DirectContentPart>[];
     final annotations = role == 'assistant'
         ? trustedAnnotationEnvelopesByMessageIndex[messageIndex]?.annotations ??
@@ -736,6 +749,7 @@ Future<List<DirectChatMessage>> buildDirectChatMessages({
         ),
       );
     }
+    result.addAll(spokenMessages);
   }
   return List.unmodifiable(result);
 }

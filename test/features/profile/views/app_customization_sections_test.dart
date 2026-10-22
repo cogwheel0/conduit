@@ -17,6 +17,7 @@ import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 
 void main() {
   testWidgets('Appearance contains only display and language settings', (
@@ -25,14 +26,25 @@ void main() {
     await tester.pumpWidget(
       _sectionHarness(AppCustomizationSection.appearance),
     );
-    await tester.pumpAndSettle();
+    // Appearance includes continuously animated response previews.
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Display'), findsNothing);
     expect(find.text('App Language'), findsWidgets);
+    final languageRow = find.widgetWithText(UtilityRow, 'App Language');
+    expect(tester.widget<UtilityRow>(languageRow).showChevron, isTrue);
+    expect(
+      find.descendant(
+        of: languageRow,
+        matching: find.byIcon(Icons.chevron_right),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Quick actions in chat'), findsNothing);
     expect(find.text('Send with Enter'), findsNothing);
     expect(find.text('Transport mode'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('direct-only Chat hides server-backed prompt settings', (
@@ -211,8 +223,7 @@ Widget _sectionHarness(
 }) {
   return ProviderScope(
     overrides: [
-      if (!persistSettings)
-        appSettingsProvider.overrideWithValue(const AppSettings()),
+      if (!persistSettings) appSettingsProvider.overrideWith(_TestSettings.new),
       openWebUiAccountAvailableProvider.overrideWithValue(hasOpenWebUiAccount),
       apiServiceProvider.overrideWithValue(null),
       modelsProvider.overrideWith(_TestModels.new),
@@ -229,6 +240,11 @@ Widget _sectionHarness(
       home: AppCustomizationPage(section: section),
     ),
   );
+}
+
+class _TestSettings extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings();
 }
 
 class _TestModels extends Models {

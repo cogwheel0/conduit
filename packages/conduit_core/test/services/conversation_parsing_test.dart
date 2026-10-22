@@ -1,5 +1,6 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/direct_replay_output.dart';
 import 'package:conduit_core/services/structured_output.dart';
@@ -1859,6 +1860,49 @@ void main() {
     final metadata = conversation.messages.single.metadata!;
     check(metadata[kMessageRatingMetadataKey]).equals(-1);
     check(metadata[kMessageFeedbackIdMetadataKey]).equals('fb-7');
+  });
+
+  test("a call's voice record is read from meta only", () {
+    // Open WebUI keeps what a realtime call spoke in `meta.voice`. A copy in
+    // metadata is an older echo of it and never wins over the server's.
+    const voice = {
+      'call_id': 'call-1',
+      'model': 'gpt-realtime',
+      'speech': [
+        {'item_id': 'item-1', 'transcript': 'Sure.'},
+      ],
+    };
+    final conversation = parseFullConversationModel({
+      'id': 'conv-1',
+      'chat': {
+        'messages': [
+          {
+            'id': 'a1',
+            'role': 'assistant',
+            'content': 'Sure.',
+            'model': 'gpt-realtime',
+            'done': true,
+            'meta': {'voice': voice, 'other': true},
+            'timestamp': 1700000000,
+          },
+          {
+            'id': 'a2',
+            'role': 'assistant',
+            'content': 'Answer',
+            'done': true,
+            'metadata': {
+              kMessageVoiceMetadataKey: {'call_id': 'stale'},
+            },
+            'timestamp': 1700000001,
+          },
+        ],
+      },
+    });
+    final [spoken, stale] = conversation.messages;
+    check(spoken.metadata![kMessageVoiceMetadataKey]).isA<Map>().deepEquals(
+      voice,
+    );
+    check(stale.metadata!.containsKey(kMessageVoiceMetadataKey)).isFalse();
   });
 
   group('chat params projection', () {

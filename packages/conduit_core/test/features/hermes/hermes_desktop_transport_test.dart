@@ -47,6 +47,220 @@ final class _SocketHarness {
 }
 
 void main() {
+  group('server approvals', () {
+    late _SocketHarness socket;
+    late HermesDesktopRpcClient client;
+    late List<HermesDesktopEvent> events;
+
+    setUp(() async {
+      socket = _SocketHarness();
+      client = HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => socket.channel,
+      );
+      events = [];
+      final subscription = client.events.listen(events.add);
+      addTearDown(() async {
+        await subscription.cancel();
+        await client.close();
+        await socket.dispose();
+      });
+      final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+      socket.ready();
+      await connecting;
+    });
+
+    Map<String, dynamic> approval({
+      List<String> choices = const ['once', 'deny'],
+    }) => {
+      'id': 'srq-abcdef123456',
+      'method': 'approval',
+      'params': {
+        'session_id': 'runtime-1',
+        'request_id': 'queue-1',
+        'command': 'hermes plugins install example --enable',
+        'choices': choices,
+      },
+    };
+
+    test(
+      'advertises support and waits for a user choice before answering',
+      () async {
+        expect(socket.sentFrame(0)['method'], 'client.capabilities');
+        expect(socket.sentFrame(0)['params'], {'server_requests': true});
+        socket.incoming.add(jsonEncode(approval()));
+        await Future<void>.delayed(Duration.zero);
+        expect(socket.sent, hasLength(1));
+        final request = events.singleWhere(
+          (event) => event.type == 'approval.request',
+        );
+        expect(request.sessionId, 'runtime-1');
+        expect(request.payload['request_id'], 'queue-1');
+        expect(
+          client.respondToServerApproval(
+            runtimeId: 'runtime-1',
+            approvalId: 'queue-1',
+            choice: 'once',
+          ),
+          isTrue,
+        );
+        expect(socket.sentFrame(1), {
+          'jsonrpc': '2.0',
+          'id': 'srq-abcdef123456',
+          'result': {'choice': 'once'},
+        });
+        expect(
+          client.respondToServerApproval(
+            runtimeId: 'runtime-1',
+            approvalId: 'queue-1',
+            choice: 'once',
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'rejects a wrong runtime and an unadvertised permission scope',
+      () async {
+        socket.incoming.add(jsonEncode(approval()));
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          client.respondToServerApproval(
+            runtimeId: 'other-runtime',
+            approvalId: 'queue-1',
+            choice: 'once',
+          ),
+          isFalse,
+        );
+        expect(
+          () => client.respondToServerApproval(
+            runtimeId: 'runtime-1',
+            approvalId: 'queue-1',
+            choice: 'always',
+          ),
+          throwsStateError,
+        );
+        expect(socket.sent, hasLength(1));
+        expect(
+          client.respondToServerApproval(
+            runtimeId: 'runtime-1',
+            approvalId: 'queue-1',
+            choice: 'deny',
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('cancellation closes only the owning runtime approval', () async {
+      socket.incoming.add(jsonEncode(approval()));
+      await Future<void>.delayed(Duration.zero);
+      void cancel(String runtime) => socket.incoming.add(
+        jsonEncode({
+          'method': 'event',
+          'params': {
+            'type': 'request.cancel',
+            'session_id': runtime,
+            'payload': {
+              'id': 'srq-abcdef123456',
+              'method': 'approval',
+              'reason': 'timeout',
+            },
+          },
+        }),
+      );
+      cancel('wrong-runtime');
+      await Future<void>.delayed(Duration.zero);
+      expect(events.where((event) => event.type == 'approval.expire'), isEmpty);
+      cancel('runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        events.singleWhere((event) => event.type == 'approval.expire').payload,
+        {'request_id': 'queue-1'},
+      );
+      expect(
+        client.respondToServerApproval(
+          runtimeId: 'runtime-1',
+          approvalId: 'queue-1',
+          choice: 'once',
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+      'resume restores an open request once and keeps its wire response id',
+      () async {
+        final snapshot = approval();
+        expect(
+          client.restoreServerApprovals([snapshot], runtimeId: 'wrong-runtime'),
+          isEmpty,
+        );
+        expect(
+          client.restoreServerApprovals([snapshot], runtimeId: 'runtime-1'),
+          hasLength(1),
+        );
+        expect(
+          client.restoreServerApprovals([snapshot], runtimeId: 'runtime-1'),
+          isEmpty,
+        );
+        expect(
+          client.respondToServerApproval(
+            runtimeId: 'runtime-1',
+            approvalId: 'queue-1',
+            choice: 'once',
+          ),
+          isTrue,
+        );
+        expect(socket.sentFrame(1)['id'], snapshot['id']);
+      },
+    );
+
+    test('disconnect discards old socket response bindings', () async {
+      socket.incoming.add(jsonEncode(approval()));
+      await Future<void>.delayed(Duration.zero);
+      await client.disconnect();
+      await socket.dispose();
+      socket = _SocketHarness();
+      final reconnecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+      socket.ready();
+      await reconnecting;
+      expect(
+        client.respondToServerApproval(
+          runtimeId: 'runtime-1',
+          approvalId: 'queue-1',
+          choice: 'once',
+        ),
+        isFalse,
+      );
+      client.restoreServerApprovals([approval()], runtimeId: 'runtime-1');
+      expect(
+        client.respondToServerApproval(
+          runtimeId: 'runtime-1',
+          approvalId: 'queue-1',
+          choice: 'once',
+        ),
+        isTrue,
+      );
+      expect(socket.sentFrame(1)['id'], 'srq-abcdef123456');
+    });
+
+    test(
+      'invalid requests are rejected without exposing an approval card',
+      () async {
+        final frame = approval();
+        (frame['params'] as Map)['request_id'] = {'invalid': true};
+        socket.incoming.add(jsonEncode(frame));
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          events.where((event) => event.type == 'approval.request'),
+          isEmpty,
+        );
+        expect((socket.sentFrame(1)['error'] as Map)['code'], -32602);
+      },
+    );
+  });
+
   test('preserves MCP state and discovered inventory', () {
     final server = HermesMcpServer.fromJson({
       'name': 'docs',
@@ -426,12 +640,12 @@ void main() {
     );
     final second = client.request<String>('second');
     await Future<void>.delayed(Duration.zero);
-    check(socket.sentFrame(0)['params'] as Map<String, dynamic>)
-        .deepEquals({'session_id': 'session-1', 'profile': 'researcher'});
     check(socket.sentFrame(1)['params'] as Map<String, dynamic>)
+        .deepEquals({'session_id': 'session-1', 'profile': 'researcher'});
+    check(socket.sentFrame(2)['params'] as Map<String, dynamic>)
         .deepEquals({'profile': 'work'});
-    final firstId = socket.sentFrame(0)['id'];
-    final secondId = socket.sentFrame(1)['id'];
+    final firstId = socket.sentFrame(1)['id'];
+    final secondId = socket.sentFrame(2)['id'];
     socket.incoming.add(
       jsonEncode({'jsonrpc': '2.0', 'id': secondId, 'result': 'two'}),
     );
@@ -529,7 +743,7 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      final response = socket.sentFrame(0);
+      final response = socket.sentFrame(1);
       check(response['id']).equals('host-1');
       check((response['error'] as Map)['code']).equals(-32601);
     },

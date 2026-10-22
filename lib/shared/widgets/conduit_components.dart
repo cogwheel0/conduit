@@ -375,7 +375,7 @@ class ConduitGlassSearchField extends StatelessWidget {
           placeholder: hintText,
           style: AppTypography.standard.copyWith(color: textColor),
           placeholderStyle: AppTypography.standard.copyWith(
-            color: hintColor.withValues(alpha: 0.5),
+            color: context.conduitTheme.inputPlaceholder,
           ),
           prefixIcon: Icon(CupertinoIcons.search, color: hintColor, size: 16),
           // Equal left/right insets so icon and clear button are balanced.
@@ -482,13 +482,18 @@ class ConduitButton extends StatelessWidget {
     final displayedTextColor = isEnabled
         ? textColor
         : context.conduitTheme.buttonDisabledText;
-    final height = isCompact ? TouchTarget.minimum : TouchTarget.comfortable;
+    final height = isCompact && PlatformUiCapabilities.isIOS
+        ? TouchTarget.minimum
+        : TouchTarget.comfortable;
     final horizontalPadding = isCompact ? Spacing.md : Spacing.buttonPadding;
     final textStyle = AppTypography.standard.copyWith(
       fontWeight: FontWeight.w600,
-      color: textColor,
+      color: displayedTextColor,
     );
-    final minWidth = width ?? _contentMinWidth(context, textStyle);
+    final requestedWidth = width ?? _contentMinWidth(context, textStyle);
+    final minWidth = PlatformUiCapabilities.isIOS
+        ? requestedWidth
+        : math.max(TouchTarget.comfortable, requestedWidth);
 
     // Build semantic label
     String semanticLabel = text;
@@ -499,110 +504,118 @@ class ConduitButton extends StatelessWidget {
       semanticLabel = 'Warning: $text';
     }
 
-    return Semantics(
-      label: semanticLabel,
-      button: true,
-      enabled: isEnabled,
-      child: GestureDetector(
-        // Trigger haptic feedback on tap down for immediate tactile response
-        onTapDown: (onPressed != null && !isLoading)
-            ? (_) {
-                ConduitHaptics.trigger(
-                  isDestructive ? HapticType.warning : HapticType.light,
-                );
-              }
-            : null,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final effectiveMinWidth =
-                isFullWidth && constraints.maxWidth.isFinite
-                ? constraints.maxWidth
-                : minWidth;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final effectiveMinWidth = isFullWidth && constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : minWidth;
 
-            final button = SizedBox(
-              width: isFullWidth ? double.infinity : width,
-              height: height,
-              child: icon == null
-                  ? AdaptiveButton(
-                      onPressed: isEnabled ? onPressed : null,
-                      label: isLoading ? '$text…' : text,
-                      enabled: isEnabled,
-                      color: displayedBackgroundColor,
-                      textColor: displayedTextColor,
-                      labelStyle: textStyle.copyWith(color: displayedTextColor),
-                      style: variant.adaptiveStyle,
-                      size: isCompact
-                          ? AdaptiveButtonSize.small
-                          : AdaptiveButtonSize.medium,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: horizontalPadding,
-                        vertical: Spacing.sm,
-                      ),
-                      borderRadius: BorderRadius.circular(height / 2),
-                      minSize: Size(effectiveMinWidth, height),
-                      useNative: useNative,
-                    )
-                  : AdaptiveButton.child(
-                      onPressed: onPressed,
-                      enabled: !isLoading && onPressed != null,
-                      color: backgroundColor,
-                      style: variant.adaptiveStyle,
-                      size: isCompact
-                          ? AdaptiveButtonSize.small
-                          : AdaptiveButtonSize.medium,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: horizontalPadding,
-                        vertical: Spacing.sm,
-                      ),
-                      borderRadius: BorderRadius.circular(height / 2),
-                      minSize: Size(effectiveMinWidth, height),
-                      useNative: useNative,
-                      child: isLoading
-                          ? Semantics(
-                              label:
-                                  AppLocalizations.of(context)
-                                      ?.loadingContent ??
-                                  'Loading',
-                              excludeSemantics: true,
-                              child: SizedBox(
-                                width: IconSize.small,
-                                height: IconSize.small,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    textColor,
-                                  ),
-                                ),
+        final button = SizedBox(
+          width: isFullWidth
+              ? double.infinity
+              : width == null
+              ? null
+              : minWidth,
+          height: height,
+          child: icon == null && (!isLoading || PlatformUiCapabilities.isIOS)
+              ? AdaptiveButton(
+                  onPressed: isEnabled ? onPressed : null,
+                  label: isLoading ? '$text…' : text,
+                  enabled: isEnabled,
+                  color: displayedBackgroundColor,
+                  textColor: displayedTextColor,
+                  labelStyle: textStyle.copyWith(color: displayedTextColor),
+                  style: variant.adaptiveStyle,
+                  size: isCompact
+                      ? AdaptiveButtonSize.small
+                      : AdaptiveButtonSize.medium,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: horizontalPadding,
+                    vertical: Spacing.sm,
+                  ),
+                  borderRadius: BorderRadius.circular(height / 2),
+                  minSize: Size(effectiveMinWidth, height),
+                  useNative: useNative,
+                )
+              : AdaptiveButton.child(
+                  onPressed: isEnabled ? onPressed : null,
+                  enabled: !isLoading && onPressed != null,
+                  color: displayedBackgroundColor,
+                  style: variant.adaptiveStyle,
+                  size: isCompact
+                      ? AdaptiveButtonSize.small
+                      : AdaptiveButtonSize.medium,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: horizontalPadding,
+                    vertical: Spacing.sm,
+                  ),
+                  borderRadius: BorderRadius.circular(height / 2),
+                  minSize: Size(effectiveMinWidth, height),
+                  useNative: useNative,
+                  child: isLoading
+                      ? Semantics(
+                          label:
+                              AppLocalizations.of(context)?.loadingContent ??
+                              'Loading',
+                          excludeSemantics: true,
+                          child: SizedBox(
+                            width: IconSize.small,
+                            height: IconSize.small,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                displayedTextColor,
                               ),
-                            )
-                          : Row(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                if (icon != null) ...[
-                                  Icon(
-                                    icon,
-                                    size: IconSize.small,
-                                    color: textColor,
-                                  ),
-                                  SizedBox(width: Spacing.iconSpacing),
-                                ],
-                                Flexible(
-                                  child:
-                                      EnhancedAccessibilityService.createAccessibleText(
-                                        text,
-                                        style: textStyle,
-                                        maxLines: 1,
-                                      ),
-                                ),
-                              ],
                             ),
-                    ),
-            );
-            return ExcludeSemantics(child: button);
-          },
-        ),
-      ),
+                          ),
+                        )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (icon != null) ...[
+                              Icon(
+                                icon,
+                                size: IconSize.small,
+                                color: displayedTextColor,
+                              ),
+                              SizedBox(width: Spacing.iconSpacing),
+                            ],
+                            Flexible(
+                              child:
+                                  EnhancedAccessibilityService.createAccessibleText(
+                                    text,
+                                    style: textStyle.copyWith(
+                                      color: displayedTextColor,
+                                    ),
+                                    maxLines: 1,
+                                  ),
+                            ),
+                          ],
+                        ),
+                ),
+        );
+        // Bound the semantic action to the button, not the surrounding form.
+        // The excluded adaptive control retains pointer handling; this one
+        // semantic action invokes the same callback for assistive technology.
+        return Semantics(
+          container: true,
+          label: semanticLabel,
+          button: true,
+          enabled: isEnabled,
+          onTap: isEnabled ? onPressed : null,
+          excludeSemantics: true,
+          child: GestureDetector(
+            excludeFromSemantics: true,
+            onTapDown: isEnabled
+                ? (_) => ConduitHaptics.trigger(
+                    isDestructive ? HapticType.warning : HapticType.light,
+                  )
+                : null,
+            child: button,
+          ),
+        );
+      },
     );
   }
 
@@ -821,67 +834,60 @@ class ConduitInput extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final inputStyles = context.conduitInputStyles;
-    final decoration = _resolveDecoration(inputStyles);
-    final textStyle =
-        style ??
-        AppTypography.standard.copyWith(
-          color: context.conduitTheme.textPrimary,
-        );
-
+    final material = !PlatformUiCapabilities.isIOS;
+    final fieldLabel = label == null ? null : '$label${isRequired ? ' *' : ''}';
+    final decoration = _resolveDecoration(context.conduitInputStyles)
+        .copyWith(labelText: material ? fieldLabel : null);
+    final field = AdaptiveTextField(
+      controller: controller,
+      onChanged: onChanged,
+      onTap: onTap,
+      onSubmitted: onSubmitted,
+      obscureText: obscureText,
+      enabled: enabled,
+      readOnly: readOnly,
+      maxLines: maxLines,
+      minLines: minLines,
+      keyboardType: keyboardType,
+      textInputAction: textInputAction,
+      autofocus: autofocus,
+      style:
+          style ??
+          AppTypography.standard.copyWith(
+            color: context.conduitTheme.textPrimary,
+          ),
+      placeholder: hint,
+      suffixIcon: suffixIcon,
+      prefixIcon: prefixIcon,
+      decoration: decoration,
+    );
+    // A native TextField already exposes editing actions, value and state.
+    // Add only an otherwise-missing name, without a second text-field node.
+    final namedField = material && fieldLabel != null
+        ? field
+        : Semantics(
+            label:
+                semanticLabel ??
+                label ??
+                hint ??
+                (AppLocalizations.of(context)?.inputField ?? 'Input field'),
+            child: field,
+          );
+    if (material || label == null) return namedField;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (label != null) ...[
-          Row(
-            children: [
-              Text(
-                label!,
-                style: AppTypography.standard.copyWith(
-                  fontWeight: FontWeight.w500,
-                  color: context.conduitTheme.textPrimary,
-                ),
-              ),
-              if (isRequired) ...[
-                SizedBox(width: Spacing.textSpacing),
-                Text(
-                  '*',
-                  style: AppTypography.standard.copyWith(
-                    color: context.conduitTheme.error,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ],
-          ),
-          SizedBox(height: Spacing.sm),
-        ],
-        Semantics(
-          label:
-              semanticLabel ??
-              label ??
-              (AppLocalizations.of(context)?.inputField ?? 'Input field'),
-          textField: true,
-          child: AdaptiveTextField(
-            controller: controller,
-            onChanged: onChanged,
-            onTap: onTap,
-            onSubmitted: onSubmitted,
-            obscureText: obscureText,
-            enabled: enabled,
-            readOnly: readOnly,
-            maxLines: maxLines,
-            minLines: minLines,
-            keyboardType: keyboardType,
-            textInputAction: textInputAction,
-            autofocus: autofocus,
-            style: textStyle,
-            placeholder: hint,
-            suffixIcon: suffixIcon,
-            prefixIcon: prefixIcon,
-            decoration: decoration,
+        ExcludeSemantics(
+          child: Text(
+            fieldLabel!,
+            style: AppTypography.standard.copyWith(
+              fontWeight: FontWeight.w500,
+              color: context.conduitTheme.textPrimary,
+            ),
           ),
         ),
+        const SizedBox(height: Spacing.sm),
+        namedField,
       ],
     );
   }
@@ -980,7 +986,7 @@ class ConduitIconButton extends StatelessWidget {
       semanticLabel = '$semanticLabel, active';
     }
 
-    final double size = isCompact
+    final double size = isCompact && PlatformUiCapabilities.isIOS
         ? TouchTarget.minimum
         : TouchTarget.comfortable;
     final borderRadius = BorderRadius.circular(

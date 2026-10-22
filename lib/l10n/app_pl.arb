@@ -581,6 +581,122 @@
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
   },
+  "signInAccountPendingApproval": "Twoje konto czeka na zatwierdzenie przez administratora. Spróbuj ponownie po jego zatwierdzeniu.",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
+  "signInTwoStepVerificationRequired": "To konto używa weryfikacji dwuetapowej. Zaloguj się ponownie, a następnie wpisz kod z aplikacji uwierzytelniającej.",
+  "@signInTwoStepVerificationRequired": {
+    "description": "Sign-in error when saved credentials met Open WebUI's two-step verification, which needs a code typed in."
+  },
+  "twoStepVerifyTitle": "Potwierdź logowanie",
+  "@twoStepVerifyTitle": {
+    "description": "Title of the sign-in step that asks for a two-step verification code."
+  },
+  "twoStepEnrollTitle": "Skonfiguruj aplikację uwierzytelniającą",
+  "@twoStepEnrollTitle": {
+    "description": "Title of the sign-in step that adds an authenticator app for two-step verification."
+  },
+  "twoStepRecoverTitle": "Odzyskaj aplikację uwierzytelniającą",
+  "@twoStepRecoverTitle": {
+    "description": "Title of the sign-in step that redeems an administrator's two-step verification recovery token."
+  },
+  "twoStepVerifyDescription": "Wpisz sześciocyfrowy kod z aplikacji uwierzytelniającej.",
+  "@twoStepVerifyDescription": {
+    "description": "Instruction for entering a two-step verification code."
+  },
+  "twoStepRecoveryCodeDescription": "Wpisz jeden z zapisanych kodów odzyskiwania.",
+  "@twoStepRecoveryCodeDescription": {
+    "description": "Instruction for signing in with a saved two-step verification recovery code."
+  },
+  "twoStepEnrollDescription": "Dodaj to konto do aplikacji uwierzytelniającej, a następnie wpisz wyświetlony sześciocyfrowy kod.",
+  "@twoStepEnrollDescription": {
+    "description": "Instruction for adding the account to an authenticator app during sign-in."
+  },
+  "twoStepRecoverDescription": "Administrator zresetował weryfikację dwuetapową dla tego konta. Wpisz otrzymany od niego token odzyskiwania.",
+  "@twoStepRecoverDescription": {
+    "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
+  },
+  "twoStepCodeLabel": "Kod uwierzytelniający",
+  "@twoStepCodeLabel": {
+    "description": "Label of the field for an authenticator app code."
+  },
+  "twoStepRecoveryCodeLabel": "Kod odzyskiwania",
+  "@twoStepRecoveryCodeLabel": {
+    "description": "Label of the field for a two-step verification recovery code."
+  },
+  "twoStepResetTokenLabel": "Token odzyskiwania",
+  "@twoStepResetTokenLabel": {
+    "description": "Label of the field for an administrator's two-step verification recovery token."
+  },
+  "twoStepUseRecoveryCode": "Użyj kodu odzyskiwania",
+  "@twoStepUseRecoveryCode": {
+    "description": "Switches the two-step verification field to a recovery code."
+  },
+  "twoStepUseAuthenticatorCode": "Użyj kodu uwierzytelniającego",
+  "@twoStepUseAuthenticatorCode": {
+    "description": "Switches the two-step verification field back to an authenticator app code."
+  },
+  "twoStepBackToSignIn": "Wróć do logowania",
+  "@twoStepBackToSignIn": {
+    "description": "Leaves the two-step verification step for the sign-in form."
+  },
+  "twoStepOpenAuthenticator": "Dodaj do aplikacji uwierzytelniającej",
+  "@twoStepOpenAuthenticator": {
+    "description": "Opens an authenticator app on this device to add the account."
+  },
+  "twoStepSetupKeyLabel": "Klucz konfiguracji",
+  "@twoStepSetupKeyLabel": {
+    "description": "Label above the secret key to type into an authenticator app."
+  },
+  "twoStepCopySetupKey": "Kopiuj klucz konfiguracji",
+  "@twoStepCopySetupKey": {
+    "description": "Copies the authenticator setup key."
+  },
+  "twoStepQrCodeLabel": "Kod QR dla aplikacji uwierzytelniającej",
+  "@twoStepQrCodeLabel": {
+    "description": "Accessibility label of the QR code for an authenticator app."
+  },
+  "twoStepSetupLoading": "Przygotowywanie aplikacji uwierzytelniającej…",
+  "@twoStepSetupLoading": {
+    "description": "Shown while the authenticator setup key loads."
+  },
+  "twoStepSetupFailed": "Nie udało się wczytać klucza konfiguracji.",
+  "@twoStepSetupFailed": {
+    "description": "Shown when the authenticator setup key could not be loaded."
+  },
+  "twoStepNoAuthenticatorApp": "Żadna aplikacja nie mogła go dodać. Skopiuj klucz konfiguracji do aplikacji uwierzytelniającej.",
+  "@twoStepNoAuthenticatorApp": {
+    "description": "Shown when no app on the device could open the authenticator link."
+  },
+  "twoStepRecoveryCodesTitle": "Zapisz kody odzyskiwania",
+  "@twoStepRecoveryCodesTitle": {
+    "description": "Title of the screen that shows new two-step verification recovery codes once."
+  },
+  "twoStepRecoveryCodesDescription": "Każdy kod pozwala zalogować się raz, jeśli zgubisz aplikację uwierzytelniającą. Przechowuj je w bezpiecznym miejscu: nie zostaną pokazane ponownie.",
+  "@twoStepRecoveryCodesDescription": {
+    "description": "Explains new two-step verification recovery codes before continuing."
+  },
+  "twoStepCopyRecoveryCodes": "Kopiuj kody odzyskiwania",
+  "@twoStepCopyRecoveryCodes": {
+    "description": "Copies the new two-step verification recovery codes."
+  },
+  "twoStepInvalidCode": "Ten kod nie zadziałał. Sprawdź go i spróbuj ponownie.",
+  "@twoStepInvalidCode": {
+    "description": "Shown when a two-step verification code or recovery token was not accepted."
+  },
+  "twoStepExpired": "Ten krok wygasł. Wróć do logowania i zacznij od nowa.",
+  "@twoStepExpired": {
+    "description": "Shown when the two-step verification step expired or no longer applies."
+  },
+  "twoStepTooManyAttempts": "Zbyt wiele prób. Odczekaj kilka minut, a następnie zaloguj się ponownie.",
+  "@twoStepTooManyAttempts": {
+    "description": "Shown when the server refuses more two-step verification codes for now."
+  },
+  "twoStepFailed": "Nie udało się sprawdzić kodu. Spróbuj ponownie.",
+  "@twoStepFailed": {
+    "description": "Shown when a two-step verification code could not be checked, for example offline."
+  },
   "serverRedirectingHttps": "Serwer przekierowuje żądania. Sprawdź konfigurację HTTPS swojego serwera.",
   "@serverRedirectingHttps": {
     "description": "Warning about HTTP→HTTPS redirect issues."
@@ -1481,6 +1597,7 @@
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
+  "themePaletteMaterialYouLabel": "Material You",
   "themePaletteConduitLabel": "Conduit",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
@@ -2504,9 +2621,24 @@
   "chatSettingErrorNotANumber": "Wpisz liczbę.",
   "chatSettingErrorNotAWholeNumber": "Wpisz liczbę całkowitą.",
   "chatSettingErrorRange": "Wpisz wartość od {min} do {max}.",
-  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "@chatSettingErrorRange": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
   "chatSettingErrorMinimum": "Wpisz {min} lub więcej.",
-  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "@chatSettingErrorMinimum": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      }
+    }
+  },
   "chatSettingErrorNotJson": "Wpisz słowo, np. json, lub prawidłowy schemat JSON.",
   "chatSettingErrorNotAChoice": "Wybierz obsługiwaną wartość.",
   "personalConnectionsTitle": "Połączenia osobiste",
@@ -4274,7 +4406,13 @@
   "notificationTargetTestFailed": "Nie udało się dostarczyć powiadomienia testowego.",
   "notificationTargetDelete": "Usuń miejsce docelowe",
   "notificationTargetDeleteConfirm": "Usunąć {name}? Serwer przestanie wysyłać tam powiadomienia.",
-  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
+  "@notificationTargetDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "@notificationSystemSettingsOpenFailed": {
     "description": "Shown when the OS notification settings screen could not be launched."
   },
@@ -4523,7 +4661,9 @@
   },
   "workspaceModelBaseModelNone": "Brak (własny)",
   "workspaceModelBaseModelRequired": "Wybierz model bazowy.",
-  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
+  "@workspaceModelBaseModelRequired": {
+    "description": "Validation shown when a non-admin model create or protected edit has no base model."
+  },
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
@@ -6187,7 +6327,9 @@
   "@applePccQuotaResetsAt": {
     "description": "Apple PCC quota reset time.",
     "placeholders": {
-      "time": {"type": "String"}
+      "time": {
+        "type": "String"
+      }
     }
   },
   "applePccShowQuotaOptions": "Pokaż opcje użycia",
@@ -6210,14 +6352,18 @@
   "@applePccContextSize": {
     "description": "Apple PCC context size label.",
     "placeholders": {
-      "tokens": {"type": "String"}
+      "tokens": {
+        "type": "String"
+      }
     }
   },
   "directContextLimit": "Limit kontekstu: {tokens}",
   "@directContextLimit": {
     "description": "Provider-neutral model context limit label.",
     "placeholders": {
-      "tokens": {"type": "String"}
+      "tokens": {
+        "type": "String"
+      }
     }
   },
   "directContextCompactionTitle": "Kompaktowanie kontekstu",
@@ -6309,11 +6455,17 @@
     "description": "Fallback description for a Hermes approval request."
   },
   "openWebUiPromptOther": "Inne",
-  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "@openWebUiPromptOther": {
+    "description": "Label for a free-form answer to an Open WebUI ask-user question."
+  },
   "openWebUiPromptAnswerHint": "Wpisz odpowiedź",
-  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "@openWebUiPromptAnswerHint": {
+    "description": "Placeholder for a free-form Open WebUI ask-user answer."
+  },
   "openWebUiPromptSubmit": "Prześlij",
-  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
+  "@openWebUiPromptSubmit": {
+    "description": "Action that submits all answers to an Open WebUI ask-user prompt."
+  },
   "hermesApprovalApproved": "Zatwierdzono ✓",
   "@hermesApprovalApproved": {
     "description": "Resolved status for an approved Hermes request."
@@ -6710,46 +6862,151 @@
   "@voiceCallSpeakerOff": {
     "description": "Tooltip for disabling the loudspeaker during a voice call."
   },
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "@directMcpTestSucceeded": {"placeholders":{"count":{"type":"int"}}}, "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "@directMcpDeleteMessage": {"placeholders":{"name":{"type":"String"}}}, "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "@directMcpOAuthConnectionDetails": {"placeholders":{"issuerHost":{"type":"String"},"scopes":{"type":"String"}}}, "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Deny", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
-  ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
-  ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
-  ,"hermesSessionTooLarge": "Ta rozmowa jest zbyt duża, aby wczytać ją na tym urządzeniu."
-  ,"hermesSessionNotFound": "Ta rozmowa nie jest już dostępna na serwerze Hermes."
-  ,"hermesSessionLoadFailedDetail": "Nie można wczytać tej rozmowy: {detail}"
-  ,"@hermesSessionLoadFailedDetail": {
+  "directMcpServersTitle": "MCP servers",
+  "directMcpEmptyTitle": "No MCP servers yet",
+  "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.",
+  "directMcpEditorTitle": "Edit MCP server",
+  "directMcpAddTitle": "Add MCP server",
+  "directMcpName": "Server name",
+  "directMcpEndpoint": "Streamable HTTP endpoint",
+  "directMcpBearerToken": "Bearer token (optional)",
+  "directMcpCustomHeaders": "Custom headers (optional)",
+  "directMcpCustomHeadersHint": "One per line: Name: Value",
+  "directMcpTestConnection": "Test connection",
+  "directMcpTesting": "Testing connection…",
+  "directMcpTestSucceeded": "Connected — {count} tools found.",
+  "@directMcpTestSucceeded": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "directMcpTestFailed": "Could not list tools from this MCP server.",
+  "directMcpSaveFailed": "Could not save this MCP server.",
+  "directMcpLoadFailed": "Could not load MCP servers from secure storage.",
+  "directMcpMissing": "This MCP server no longer exists.",
+  "directMcpCredentialTransferTitle": "Use credentials with new server?",
+  "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.",
+  "directMcpCredentialTransferConfirm": "Use credentials",
+  "directMcpDeleteTitle": "Delete MCP server?",
+  "directMcpDeleteMessage": "This removes {name} and its credentials from this device.",
+  "@directMcpDeleteMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpDeleteFailed": "Could not delete this MCP server.",
+  "directMcpAuthMode": "Authentication",
+  "directMcpAuthNone": "None",
+  "directMcpAuthBearer": "Bearer token",
+  "directMcpAuthOAuth": "OAuth",
+  "directMcpOAuthConnect": "Connect in browser",
+  "directMcpOAuthReconnect": "Reconnect in browser",
+  "directMcpOAuthDisconnect": "Disconnect OAuth",
+  "directMcpOAuthPending": "Waiting for authorization in the browser…",
+  "directMcpOAuthConnected": "OAuth connected.",
+  "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}",
+  "@directMcpOAuthConnectionDetails": {
+    "placeholders": {
+      "issuerHost": {
+        "type": "String"
+      },
+      "scopes": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpOAuthNoScopes": "No scopes reported",
+  "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.",
+  "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.",
+  "directMcpApprovalTitle": "Tool approval",
+  "directMcpApprovalAllowOnce": "Allow once",
+  "directMcpApprovalAllowSession": "Allow for session",
+  "directMcpApprovalAllowAlways": "Always allow",
+  "directMcpApprovalAlwaysTitle": "Always allow this tool?",
+  "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.",
+  "@directMcpApprovalAlwaysMessage": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "toolName": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.",
+  "directMcpApprovalDeny": "Deny",
+  "directMcpApprovalAllowed": "Allowed once",
+  "directMcpApprovalAllowedSession": "Allowed for session",
+  "directMcpApprovalAllowedAlways": "Always allowed",
+  "directMcpApprovalDenied": "Denied",
+  "directMcpApprovalExpired": "Approval expired",
+  "directMcpRememberedApprovalsTitle": "Always allowed tools",
+  "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.",
+  "directMcpRememberedApprovalRevoke": "Revoke",
+  "directMcpRememberedApprovalsRevokeAll": "Revoke all",
+  "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval.",
+  "directMcpContentAction": "MCP content",
+  "directMcpContentTitle": "MCP content",
+  "directMcpContentServer": "MCP server",
+  "directMcpContentSearch": "Search prompts and resources",
+  "directMcpContentPrompts": "Prompts",
+  "directMcpContentResources": "Resources",
+  "directMcpContentEmpty": "This server has no prompts or resources.",
+  "directMcpContentNoMatches": "No matching prompts or resources.",
+  "directMcpContentLoadFailed": "Could not load content from this MCP server.",
+  "directMcpContentRefresh": "Refresh MCP content",
+  "directMcpContentPreviewTitle": "Preview",
+  "directMcpContentInsert": "Insert",
+  "directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}",
+  "@directMcpContentPromptHeading": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "promptName": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}",
+  "@directMcpContentResourceHeading": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "resourceUri": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpContentRoleUser": "User",
+  "directMcpContentRoleAssistant": "Assistant",
+  "directMcpContentRequestFailed": "Could not load this MCP content. Try again.",
+  "directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource.",
+  "directMcpContentChanged": "This item changed on the server. Refresh and choose it again.",
+  "directMcpContentTooLarge": "This content is too large to insert.",
+  "directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again.",
+  "directMcpContentLoading": "Loading MCP content…",
+  "directMcpInsecureCredentialsTitle": "Send credentials without encryption?",
+  "directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network.",
+  "directMcpInsecureCredentialsConfirm": "Send without encryption",
+  "hermesSessionTooLarge": "Ta rozmowa jest zbyt duża, aby wczytać ją na tym urządzeniu.",
+  "hermesSessionNotFound": "Ta rozmowa nie jest już dostępna na serwerze Hermes.",
+  "hermesSessionLoadFailedDetail": "Nie można wczytać tej rozmowy: {detail}",
+  "@hermesSessionLoadFailedDetail": {
     "placeholders": {
       "detail": {
         "type": "String"
       }
     }
-  }
-  ,"directBearerDescription": "Wysyła dane logowania w nagłówku Authorization: Bearer. Większość serwerów zgodnych z OpenAI (llama.cpp, vLLM, LM Studio, Ollama) tego oczekuje."
-  ,"directApiKeyHeaderAzureOnlyDescription": "Wysyła dane logowania w nagłówku api-key. Używaj tego tylko dla Azure OpenAI; inne serwery zgodne z OpenAI oczekują tokenu Bearer.",
+  },
+  "directBearerDescription": "Wysyła dane logowania w nagłówku Authorization: Bearer. Większość serwerów zgodnych z OpenAI (llama.cpp, vLLM, LM Studio, Ollama) tego oczekuje.",
+  "directApiKeyHeaderAzureOnlyDescription": "Wysyła dane logowania w nagłówku api-key. Używaj tego tylko dla Azure OpenAI; inne serwery zgodne z OpenAI oczekują tokenu Bearer.",
   "chatTaskProgress": "Zadania: ukończono {completed} z {total}",
   "@chatTaskProgress": {
     "description": "Summary of the Open WebUI task checklist above the chat composer.",
@@ -6768,7 +7025,15 @@
   "chatTaskCancelled": "Anulowane",
   "webSearchSettingsFooterAuto": "Używane przez modele Direct bez własnego wyszukiwania w sieci. Wyszukiwanie odbywa się z tego urządzenia: zapytania trafiają do DuckDuckGo, a jeśli nie odpowie — do Brave, Bing, Mojeek lub Wikipedii. Strony czytane przez model również są pobierane z tego urządzenia.",
   "webSearchSettingsFooterEngine": "Używane przez modele Direct bez własnego wyszukiwania w sieci. Wyszukiwanie odbywa się z tego urządzenia, a zapytania trafiają tylko do {engine}. Strony czytane przez model również są pobierane z tego urządzenia.",
-  "@webSearchSettingsFooterEngine": {"description": "Footer under the on-device web search settings when one engine is chosen; {engine} is a brand name such as DuckDuckGo.", "placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "@webSearchSettingsFooterEngine": {
+    "description": "Footer under the on-device web search settings when one engine is chosen; {engine} is a brand name such as DuckDuckGo.",
+    "placeholders": {
+      "engine": {
+        "type": "String",
+        "example": "DuckDuckGo"
+      }
+    }
+  },
   "webSearchEngineLabel": "Wyszukiwarka",
   "webSearchEngineAuto": "Automatycznie",
   "webSearchSafeSearchLabel": "Bezpieczne wyszukiwanie",
@@ -6780,9 +7045,28 @@
   "webSearchRegionWorldwide": "Cały świat",
   "directModelToolsUnsupported": "Ten model nie może używać narzędzi, więc nie może przeszukiwać sieci. Wyłącz wyszukiwanie w sieci i wszystkie narzędzia, a następnie spróbuj ponownie.",
   "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modele} many{{count} modeli} other{{count} modelu}}",
-  "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}},
+  "@directContextCompactionModelCount": {
+    "description": "Row value on Direct Connections that opens the list of models needing a context limit.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "42"
+      }
+    }
+  },
   "imageViewerPosition": "{current} z {total}",
-  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "@imageViewerPosition": {
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
   "saveImage": "Zapisz obraz",
   "imageSaved": "Obraz zapisany",
   "imageSaveFailed": "Nie udało się zapisać obrazu.",
@@ -6802,11 +7086,17 @@
     "description": "Long-press menu action that puts the selected answer text into the chat composer to ask about it."
   },
   "voiceCallStartTimeout": "Rozpoczęcie połączenia głosowego trwało zbyt długo. Spróbuj ponownie.",
-  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "@voiceCallStartTimeout": {
+    "description": "Error shown when starting a voice call takes too long."
+  },
   "voiceCallNoSpeech": "Nie wykryto mowy.",
-  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "@voiceCallNoSpeech": {
+    "description": "Message shown when the voice call heard no speech for several tries."
+  },
   "voiceCallFailed": "Nie można kontynuować połączenia głosowego.",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "@voiceCallFailed": {
+    "description": "Generic error shown when a voice call fails for a reason with no specific message."
+  },
   "personalToolSettings": "Ustawienia narzędzi",
   "personalToolSettingsDescription": "Twoje osobiste opcje dla wybranych narzędzi i modelu.",
   "personalToolSettingsYours": "Twoje ustawienia",
@@ -6841,7 +7131,15 @@
   "channelMembersAdd": "Dodaj członków",
   "channelMembersAddConfirm": "Dodaj",
   "channelMembersRemoveMember": "Usuń: {name}",
-  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "@channelMembersRemoveMember": {
+    "description": "Accessibility label for the button that removes one person from the channel.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
   "channelMembersChangeFailed": "Nie udało się zaktualizować członków. Spróbuj ponownie.",
   "channelMembersChangeDenied": "Serwer nie zezwolił na tę zmianę.",
   "channelMembersChangeNotPermitted": "Nie możesz zarządzać członkami tego kanału.",
@@ -6912,8 +7210,20 @@
   "folderProjectReadOnly": "Ten udostępniony folder jest tylko do odczytu, więc jego ustawień projektu nie można zmienić.",
   "folderProjectGone": "Ten folder nie jest już dostępny.",
   "folderProjectModelFallbackNotice": "Model domyślny tego folderu jest niedostępny, więc używany jest Twój model domyślny.",
-  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
-  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectMoveUp": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@folderProjectRemove": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTasksTitle": "Zadania zaplanowane",
   "scheduledTasksDescription": "Twój serwer Open WebUI wykonuje te zadania według własnego harmonogramu, nawet gdy ten telefon jest offline.",
   "scheduledTasksUnavailable": "Zadania zaplanowane nie są dostępne dla tego konta na tym serwerze.",
@@ -6932,20 +7242,53 @@
   "scheduledTaskStatusActive": "Aktywne",
   "scheduledTaskStatusPaused": "Wstrzymane",
   "scheduledTaskNextRun": "Następne uruchomienie: {time}",
-  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskNextRun": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskNoNextRun": "Brak nadchodzących uruchomień",
   "scheduledTaskLastRun": "Ostatnie uruchomienie: {time}",
-  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskLastRun": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskNeverRun": "Nigdy nie uruchomiono",
   "scheduledTaskScheduleOnce": "Jednorazowo",
   "scheduledTaskScheduleDaily": "Codziennie",
   "scheduledTaskScheduleWeekly": "Co tydzień",
   "scheduledTaskScheduleOnceSummary": "Jednorazowo, {date}",
-  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "@scheduledTaskScheduleOnceSummary": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleDailySummary": "Codziennie o {time}",
-  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskScheduleDailySummary": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleWeeklySummary": "{days} o {time}",
-  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "@scheduledTaskScheduleWeeklySummary": {
+    "placeholders": {
+      "days": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleCustom": "Harmonogram niestandardowy",
   "scheduledTaskNewTitle": "Nowe zadanie zaplanowane",
   "scheduledTaskEditTitle": "Edytuj zadanie zaplanowane",
@@ -6955,7 +7298,13 @@
   "scheduledTaskModelLabel": "Model",
   "scheduledTaskModelChoose": "Wybierz model",
   "scheduledTaskModelUnavailable": "{id} (już niedostępny)",
-  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "@scheduledTaskModelUnavailable": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleLabel": "Harmonogram",
   "scheduledTaskTimeLabel": "Godzina",
   "scheduledTaskDateLabel": "Data",
@@ -6997,7 +7346,13 @@
   "scheduledTaskOpenResultFailed": "Nie udało się otworzyć tego wyniku.",
   "scheduledTaskDelete": "Usuń zadanie",
   "scheduledTaskDeleteConfirm": "Zadanie {name} przestanie być uruchamiane na serwerze, a jego historia uruchomień zostanie usunięta.",
-  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "@scheduledTaskDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskChangeFailed": "Nie udało się zmienić tego zadania.",
   "scheduledTaskTerminalKept": "Do tego zadania jest dołączony terminal. Zostaje zachowany podczas edycji.",
   "scheduledTaskPromptSection": "Instrukcje",
@@ -7010,12 +7365,27 @@
   "queuedDraftFileFailed": "Nie udało się przesłać pliku. Spróbuj ponownie lub usuń go.",
   "queuedDraftsSendFailed": "Nie udało się wysłać wiadomości z kolejki. Nadal czekają w kolejce.",
   "queuedDraftsSending": "Wysyłanie wiadomości z kolejki…",
-  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "@queuedDraftsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "calendarTitle": "Kalendarz",
   "calendarUnavailable": "Kalendarz nie jest dostępny dla tego konta na tym serwerze.",
   "calendarTimezoneNote": "Godziny są wyświetlane w strefie czasowej tego urządzenia.",
   "calendarRangeLabel": "{start} – {end}",
-  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "@calendarRangeLabel": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
   "calendarToday": "Dziś",
   "calendarEmpty": "Brak wydarzeń w tym okresie.",
   "calendarLoadFailed": "Nie udało się wczytać kalendarza.",
@@ -7042,9 +7412,21 @@
   "calendarEventDelete": "Usuń",
   "calendarEventDeleteSeries": "Usuń serię",
   "calendarEventDeleteConfirm": "Usunąć {title}? Tej operacji nie można cofnąć.",
-  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "@calendarEventDeleteConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "calendarEventDeleteSeriesConfirm": "Usunąć {title} i wszystkie jego powtórzenia? Tej operacji nie można cofnąć.",
-  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "@calendarEventDeleteSeriesConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "calendarEventDeleteFailed": "Nie udało się usunąć tego wydarzenia.",
   "calendarEventLoadFailed": "Nie udało się otworzyć tego wydarzenia do edycji.",
   "calendarEventReadOnly": "Nie możesz zmienić tego wydarzenia. Nadal możesz odpowiedzieć na zaproszenie.",
@@ -7077,7 +7459,13 @@
   "calendarAddPeople": "Dodaj osoby",
   "calendarInvitedPerson": "Zaproszona osoba",
   "calendarRemovePerson": "Usuń: {name}",
-  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "@calendarRemovePerson": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "calendarAttendeesNote": "Zaproszone osoby odpowiadają same za siebie. Ich odpowiedzi zostają zachowane po zmianie listy.",
   "calendarNoWritableCalendar": "Nie masz kalendarza, do którego możesz dodawać wydarzenia. Aby kontynuować, utwórz kalendarz.",
   "calendarTitleRequired": "Wpisz tytuł.",
@@ -7722,5 +8110,576 @@
       }
     }
   },
-  "accountsAddressConfirmAction": "Sprawdź adres"
+  "accountsAddressConfirmAction": "Sprawdź adres",
+  "voiceProviderTitle": "Dostawca głosu",
+  "voiceProviderDescription": "Czaty Direct i Apple używają tego połączenia, gdy zamiana mowy na tekst lub tekstu na mowę jest ustawiona na Serwer.",
+  "voiceProviderConnection": "Połączenie",
+  "voiceProviderNone": "Brak",
+  "voiceProviderNoConnections": "Dodaj połączenie Direct zgodne z OpenAI, aby móc je tu wybrać.",
+  "voiceProviderTranscriptionModel": "Model transkrypcji",
+  "voiceProviderSpeechModel": "Model mowy",
+  "voiceProviderModelsHint": "Użyj nazw modeli podanych przez dostawcę. Kierunek pozostawiony pusty korzysta z tego urządzenia.",
+  "voiceProviderRealtimeModel": "Model na żywo",
+  "voiceProviderRealtimeInstructions": "Instrukcje",
+  "voiceProviderRealtimeInstructionsHint": "Pozostaw puste, aby użyć instrukcji Conduit.",
+  "voiceProviderRealtimeFooter": "Rozmowy w czatach Direct i Apple prowadzi ten głos, a powyższy model transkrypcji pozwala mu śledzić Twoją wypowiedź.",
+  "voiceCallModeTitle": "Rozmowy",
+  "voiceCallModeRealtime": "Na żywo",
+  "voiceCallModeStandard": "Standardowe",
+  "voiceCallModeRealtimeDescription": "Rozmawiaj z głosem na żywo, gdy serwer czatu lub dostawca głosu go oferuje; możesz mu przerwać w pół zdania. Pozostałe rozmowy są standardowe.",
+  "voiceCallModeStandardDescription": "Rozmowa słucha Twojej wypowiedzi, wysyła ją, a potem czyta odpowiedź na głos.",
+  "voiceCallNoticeTranscriptionFailed": "Nie udało się tego zrozumieć. Powtórz, proszę.",
+  "voiceCallNoticeReplyIncomplete": "Odpowiedź głosu została przerwana.",
+  "voiceCallNoticeTranscriptNotSaved": "Części rozmowy nie udało się zapisać w czacie.",
+  "voiceReplySpokenLabel": "{model} · powiedziane",
+  "@voiceReplySpokenLabel": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
+  },
+  "hermesReplyReadyNotification": "Hermes zakończył odpowiedź. Dotknij, aby otworzyć rozmowę.",
+  "mobileChat": "Rozmowy",
+  "mobileTasks": "Zadania",
+  "mobileFiles": "Pliki",
+  "mobileExplore": "Odkrywaj",
+  "mobileRecentConversations": "Ostatnie rozmowy",
+  "mobileSearchConversations": "Szukaj rozmów",
+  "mobileNewConversation": "Nowa rozmowa",
+  "mobileBackToConversations": "Wróć do rozmów",
+  "mobileSwitchConversation": "Zmień rozmowę",
+  "mobileNoConversations": "Twoje rozmowy pojawią się tutaj.",
+  "mobileNoSearchResults": "Brak wyników. Spróbuj innego wyszukiwania.",
+  "mobileCreateTask": "Utwórz zadanie",
+  "mobileTaskPrompt": "Opisz, co ma się wydarzyć",
+  "mobileTaskHelp": "Powiedz Hermesowi, co zrobić i kiedy. Możecie wspólnie sprawdzić harmonogram w tej rozmowie.",
+  "mobileTaskExampleOne": "W każdy dzień roboczy o 8:00 pomóż mi zaplanować dzień.",
+  "mobileTaskExampleTwo": "Przypominaj mi w każdy piątek o przeglądzie moich tygodniowych celów.",
+  "mobileTaskExampleThree": "W każdy poniedziałek podsumuj najnowsze wiadomości na wybrany przeze mnie temat.",
+  "mobileRunning": "W toku",
+  "mobileNeedsYou": "Wymaga Twojej odpowiedzi",
+  "mobileOpenTask": "Otwórz zadanie",
+  "mobileNoActiveTasks": "Brak aktywnych zadań.",
+  "mobileSchedules": "Harmonogramy",
+  "mobileManageSchedules": "Zarządzaj harmonogramami",
+  "mobileSearchFiles": "Szukaj plików",
+  "mobileAllFiles": "Wszystkie pliki",
+  "mobileArtifacts": "Artefakty",
+  "mobileOutputs": "Wyniki",
+  "mobileUploads": "Przesłane pliki",
+  "mobileFilterFiles": "Filtruj pliki",
+  "mobileNoFiles": "Pliki udostępnione lub utworzone w Twoich rozmowach pojawią się tutaj.",
+  "mobileFilesPartial": "Nie udało się wczytać niektórych rozmów. Pociągnij, aby odświeżyć i spróbować ponownie.",
+  "mobileExploreDescription": "Przeglądaj umiejętności, narzędzia i integracje oraz zarządzaj nimi. Wybierz umiejętność, aby rozpocząć rozmowę z tą funkcją gotową do użycia.",
+  "mobileSkills": "Umiejętności",
+  "mobileUseSkill": "Użyj",
+  "mobileNoSkills": "W tym połączeniu nie ma dostępnych umiejętności.",
+  "mobileTools": "Tools",
+  "mobileIntegrations": "Integracje",
+  "mobileSettings": "Ustawienia",
+  "mobileHermesSettings": "Ustawienia Hermesa",
+  "mobileAppSettings": "Ustawienia aplikacji",
+  "mobileLoadFailed": "Nie udało się wczytać tej zawartości. Spróbuj ponownie.",
+  "mobileRetry": "Spróbuj ponownie",
+  "mobilePhotos": "Zdjęcia",
+  "mobileVideos": "Filmy",
+  "mobileCamera": "Aparat",
+  "mobileAttachFiles": "Pliki",
+  "mobileAttachments": "Dodaj załącznik",
+  "mobileVideosUnavailable": "To połączenie nie obsługuje załączników wideo.",
+  "mobileContinueConversation": "Kontynuuj rozmowę",
+  "mobileFilesScope": "Pliki z ostatnich rozmów",
+  "mobileResumeChat": "Wróć do otwartej rozmowy",
+  "mobileSkillManage": "Zarządzaj umiejętnościami",
+  "mobileCompleted": "Ukończone",
+  "mobileNoCompletedTasks": "Ukończone zadania cykliczne znajdziesz w historii ich harmonogramu.",
+  "mobileAskHermes": "Zapytaj Hermesa",
+  "mobileManageSkillsPrompt": "Pomóż mi przeglądać umiejętności Hermesa i zarządzać nimi. Pokaż zainstalowane umiejętności i pomóż mi wybrać, zainstalować, zaktualizować lub usunąć umiejętność.",
+  "mobilePreviewUnavailable": "Podgląd tego pliku jest niedostępny. Otwórz jego rozmowę lub zapisz i udostępnij go, jeśli to możliwe.",
+  "mobileSaveShare": "Zapisz lub udostępnij",
+  "mobileExtractedPreview": "Podgląd wyodrębnionego tekstu; oryginalny plik pozostaje w jego rozmowie.",
+  "mobileOpenConversation": "Otwórz rozmowę",
+  "mobileRecentTaskRuns": "Recent task runs",
+  "mobileSearchSkills": "Search skills",
+  "mobileMoreSkills": "Show more skills",
+  "mobileManageIntegrations": "Manage integrations",
+  "mobileScheduleError": "View schedule error",
+  "mobileScheduleDetails": "Schedule details",
+  "mobileAskHermesFix": "Ask Hermes to fix",
+  "mobileScheduleFailed": "Last run failed",
+  "mobileDeliveryFailed": "Delivery failed",
+  "mobileScheduleSucceeded": "Last run completed",
+  "mobileChooseProvider": "Choose a provider",
+  "mobileChooseModel": "Choose a model",
+  "mobileChooseReasoning": "Choose reasoning effort",
+  "mobileChangeModel": "Change model",
+  "mobileChangeReasoning": "Change reasoning",
+  "mobileConfigurationSaved": "Updated for this conversation",
+  "mobileConfigurationFailed": "Could not update the conversation. Try again.",
+  "mobileNoModels": "No configured models were returned by Hermes.",
+  "mobileCurrentReasoning": "Current reasoning",
+  "mobileReasoningDisplay": "Show reasoning",
+  "mobileReasoningProfileDisplay": "Display applies across this Hermes profile.",
+  "mobileReasoningLevelsHint": "Hermes adapts these levels to the selected model.",
+  "mobileNoReasoningSupport": "This model does not support reasoning controls.",
+  "mobileConfigurationUnavailable": "Unavailable",
+  "mobileFilterSkillCategories": "Filter skill categories",
+  "mobileAllSkillCategories": "All categories",
+  "mobileGeneralSkillCategory": "General",
+  "mobileAgentModelContextLength": "Context window override",
+  "mobileAgentAgentReasoningEffort": "Default reasoning effort",
+  "mobileAgentAgentServiceTier": "Speed mode",
+  "mobileAgentDisplayPersonality": "Personality",
+  "mobileAgentTimezone": "Time zone",
+  "mobileAgentDisplayShowReasoning": "Show reasoning",
+  "mobileAgentAgentImageInputMode": "Image attachments",
+  "mobileAgentMemoryMemoryEnabled": "Persistent memory",
+  "mobileAgentMemoryUserProfileEnabled": "User profile",
+  "mobileAgentMemoryMemoryCharLimit": "Memory budget",
+  "mobileAgentMemoryUserCharLimit": "Profile budget",
+  "mobileAgentMemoryProvider": "Memory provider",
+  "mobileAgentContextEngine": "Context engine",
+  "mobileAgentCompressionEnabled": "Compress long conversations",
+  "mobileAgentCompressionThreshold": "Compression threshold",
+  "mobileAgentCompressionCodexGpt55Autoraise": "Adapt compression to model",
+  "mobileAgentCompressionTargetRatio": "Budżet ostatnich wiadomości",
+  "mobileAgentCompressionProtectLastN": "Keep recent messages",
+  "mobileAgentAuxiliaryCompressionTimeout": "Compression timeout",
+  "mobileAgentApprovalsMode": "Approval mode",
+  "mobileAgentApprovalsTimeout": "Approval timeout",
+  "mobileAgentApprovalsMcpReloadConfirm": "Confirm integration reloads",
+  "mobileAgentCommandAllowlist": "Command allowlist",
+  "mobileAgentSecurityRedactSecrets": "Hide secrets",
+  "mobileAgentSecurityAllowPrivateUrls": "Allow private network URLs",
+  "mobileAgentPrivacyRedactPii": "Hide personal information",
+  "mobileAgentCheckpointsEnabled": "File checkpoints",
+  "mobileAgentCheckpointsMaxSnapshots": "Checkpoint limit",
+  "mobileAgentBrowserUseRealProfile": "Use server browser profile",
+  "mobileAgentBrowserAllowPrivateUrls": "Allow private network URLs",
+  "mobileAgentBrowserAutoLocalForPrivateUrls": "Use server browser for private URLs",
+  "mobileAgentTerminalCwd": "Working folder",
+  "mobileAgentCodeExecutionMode": "Code execution mode",
+  "mobileAgentTerminalPersistentShell": "Persistent shell",
+  "mobileAgentTerminalEnvPassthrough": "Environment passthrough",
+  "mobileAgentFileReadMaxChars": "File read limit",
+  "mobileAgentTerminalBackend": "Execution backend",
+  "mobileAgentTerminalTimeout": "Command timeout",
+  "mobileAgentTerminalDockerImage": "Docker image",
+  "mobileAgentTerminalSingularityImage": "Singularity image",
+  "mobileAgentTerminalModalImage": "Modal image",
+  "mobileAgentTerminalDaytonaImage": "Daytona image",
+  "mobileAgentToolOutputMaxBytes": "Limit wyników narzędzi",
+  "mobileAgentToolOutputMaxLines": "Max lines",
+  "mobileAgentToolOutputMaxLineLength": "Max line length",
+  "mobileAgentAgentMaxTurns": "Agent turn limit",
+  "mobileAgentAgentApiMaxRetries": "Limit prób API",
+  "mobileAgentAgentToolUseEnforcement": "Tool use enforcement",
+  "mobileAgentDelegationModel": "Subagent model",
+  "mobileAgentDelegationProvider": "Subagent provider",
+  "mobileAgentDelegationMaxIterations": "Subagent turn limit",
+  "mobileAgentDelegationMaxConcurrentChildren": "Parallel subagents",
+  "mobileAgentDelegationChildTimeoutSeconds": "Subagent timeout",
+  "mobileAgentDelegationReasoningEffort": "Subagent reasoning effort",
+  "mobileAgentTtsProvider": "Speech provider",
+  "mobileAgentTtsEdgeVoice": "Voice",
+  "mobileAgentTtsOpenaiModel": "Model",
+  "mobileAgentTtsOpenaiVoice": "Głos",
+  "mobileAgentTtsElevenlabsVoiceId": "Voice id",
+  "mobileAgentTtsElevenlabsModelId": "Model id",
+  "mobileAgentTtsXaiVoiceId": "Głos",
+  "mobileAgentTtsXaiLanguage": "Language",
+  "mobileAgentTtsXaiSpeed": "Speed",
+  "mobileAgentTtsXaiAutoSpeechTags": "Ekspresyjna mowa",
+  "mobileAgentTtsXaiOptimizeStreamingLatency": "Rozpoczęcie mowy",
+  "mobileAgentTtsXaiSampleRate": "Sample rate",
+  "mobileAgentTtsXaiBitRate": "Bit rate",
+  "mobileAgentTtsMinimaxModel": "Model",
+  "mobileAgentTtsMinimaxVoiceId": "Voice id",
+  "mobileAgentTtsMistralModel": "Model",
+  "mobileAgentTtsMistralVoiceId": "Voice id",
+  "mobileAgentTtsGeminiModel": "Model",
+  "mobileAgentTtsGeminiVoice": "Głos",
+  "mobileAgentTtsNeuttsModel": "Model",
+  "mobileAgentTtsNeuttsDevice": "Device",
+  "mobileAgentTtsKittenttsModel": "Model",
+  "mobileAgentTtsKittenttsVoice": "Voice",
+  "mobileAgentTtsPiperVoice": "Voice",
+  "mobileAgentTtsDeepinfraModel": "Model",
+  "mobileAgentTtsDeepinfraVoice": "Voice",
+  "mobileAgentSttEnabled": "Transcription",
+  "mobileAgentSttEchoTranscripts": "Show transcripts",
+  "mobileAgentSttProvider": "Transcription provider",
+  "mobileAgentSttStreaming": "Stream transcription",
+  "mobileAgentSttLanguage": "Language",
+  "mobileAgentSttLocalModel": "Model",
+  "mobileAgentSttLocalLanguage": "Language",
+  "mobileAgentSttOpenaiModel": "Model",
+  "mobileAgentSttOpenaiStreamingModel": "Streaming model",
+  "mobileAgentSttGroqModel": "Model",
+  "mobileAgentSttMistralModel": "Model",
+  "mobileAgentSttXaiModel": "Model",
+  "mobileAgentSttDeepinfraModel": "Model",
+  "mobileAgentSttElevenlabsModelId": "Model id",
+  "mobileAgentSttElevenlabsLanguageCode": "Language code",
+  "mobileAgentSttElevenlabsTagAudioEvents": "Tag audio events",
+  "mobileAgentSttElevenlabsDiarize": "Diarize",
+  "mobileAgentGroupModels": "Models",
+  "mobileAgentDescriptionModels": "Set your global model and personalize how Hermes handles specific tasks.",
+  "mobileAgentGroupChat": "Chat",
+  "mobileAgentDescriptionChat": "Assistant style, time zone, and attachments.",
+  "mobileAgentGroupMemory": "Memory",
+  "mobileAgentDescriptionMemory": "What Hermes keeps between conversations.",
+  "mobileAgentGroupContext": "Context",
+  "mobileAgentDescriptionContext": "How long conversations are compressed.",
+  "mobileAgentGroupSafety": "Safety",
+  "mobileAgentDescriptionSafety": "Approvals, privacy, and checkpoints.",
+  "mobileAgentGroupBrowser": "Browser",
+  "mobileAgentDescriptionBrowser": "The browser Hermes uses on its server.",
+  "mobileAgentGroupWorkspace": "Workspace",
+  "mobileAgentDescriptionWorkspace": "Files and shell access on the Hermes server.",
+  "mobileAgentGroupExecution": "Execution",
+  "mobileAgentDescriptionExecution": "Tool limits and the server execution environment.",
+  "mobileAgentGroupDelegation": "Delegation",
+  "mobileAgentDescriptionDelegation": "Defaults for work Hermes delegates to subagents.",
+  "mobileAgentGroupSpeechOutput": "Speech output",
+  "mobileAgentDescriptionSpeechOutput": "Voice providers configured on Hermes. Phone playback is in App settings.",
+  "mobileAgentGroupSpeechInput": "Speech input",
+  "mobileAgentDescriptionSpeechInput": "Transcription providers configured on Hermes. Phone dictation is in App settings.",
+  "mobileAgentConnection": "Connection",
+  "mobileAgentProfileNote": "Settings for the connected Hermes profile. Model defaults apply to new conversations.",
+  "mobileAgentLoadFailed": "Could not load Hermes settings. Check your connection and try again.",
+  "mobileAgentSaveFailed": "Could not save. Refresh settings and try again.",
+  "mobileAgentSaved": "Saved",
+  "mobileAgentInvalidValue": "Enter a valid value.",
+  "mobileAgentDefault": "Default",
+  "mobileAgentEmptyList": "None",
+  "mobileAgentListHint": "One item per line",
+  "mobileAgentMainModel": "Global model",
+  "mobileAgentFallbackModels": "Fallback models",
+  "mobileAgentFallbackHint": "Tried in this order when the global model is unavailable.",
+  "mobileAgentAddFallback": "Add fallback model",
+  "mobileAgentRemoveFallback": "Remove fallback",
+  "mobileAgentMoveEarlier": "Move earlier",
+  "mobileAgentAuxiliaryModels": "Auxiliary models",
+  "mobileAgentUseMain": "Use main model",
+  "mobileAgentTools": "Tools and integrations",
+  "mobileAgentNoSettings": "This gateway does not expose these settings.",
+  "mobileAgentRefresh": "Refresh settings",
+  "mobileAgentChangeModel": "Change model",
+  "mobileAgentAuxiliaryReasoning": "Reasoning effort",
+  "mobileAgentSpeechNote": "These are server voice settings. Phone dictation and playback are configured in App settings.",
+  "mobileAgentEnsembles": "Combine models",
+  "mobileAgentEnsemblesHint": "Ask several models, then use a final model to combine their answers.",
+  "mobileAgentPreset": "Preset",
+  "mobileAgentDefaultPreset": "Default preset",
+  "mobileAgentReferenceModels": "Answer models",
+  "mobileAgentAggregator": "Final model",
+  "mobileAgentAddReference": "Add answer model",
+  "mobileAgentRemoveReference": "Remove answer model",
+  "mobileAgentAddPreset": "Copy to new preset",
+  "mobileAgentDeletePreset": "Delete preset",
+  "mobileAgentPresetName": "Preset name",
+  "mobileAgentPresetNameHint": "Give this preset a name",
+  "mobileAgentDeletePresetHint": "Delete this model preset?",
+  "mobileAgentEnabledPreset": "Use this ensemble",
+  "mobileAgentUnavailable": "Not available for this model",
+  "mobileAgentPinnedEndpointHint": "This task uses a custom endpoint. Choose another model to change its route.",
+  "mobileAgentCustomEndpoint": "Custom endpoint",
+  "mobileAgentModelLabel": "Model",
+  "mobileAgentAutomatic": "Automatic",
+  "mobileAgentAutomaticHint": "Hermes chooses the model for this task. You can choose a specific model instead.",
+  "mobileAgentChooseSpecificModel": "Choose another model",
+  "mobileAgentTaskModel": "Model for this task",
+  "mobileAgentTaskModels": "Customize Hermes",
+  "mobileAgentTaskModelsHint": "Choose a custom model and provider for a specific task. Your global model stays unchanged.",
+  "mobileAgentCurrentValue": "Current value",
+  "mobileAgentNewValue": "New value",
+  "mobileAgentTaskVisionHint": "Reads images and screenshots.",
+  "mobileAgentTaskCompressionHint": "Summarizes older messages in long conversations.",
+  "mobileAgentTaskSkillsHint": "Finds relevant skills for your request.",
+  "mobileAgentTaskApprovalHint": "Evaluates actions that need approval.",
+  "mobileAgentTaskMcpHint": "Chooses which integration tools to use.",
+  "mobileAgentTaskTitlesHint": "Creates conversation titles.",
+  "mobileAgentTaskReviewHint": "Reviews completed work.",
+  "mobileAgentTaskVoiceHint": "Handles voice conversations.",
+  "mobileAgentTaskPlanningHint": "Plans how to carry out a task.",
+  "mobileAgentTaskBreakdownHint": "Breaks work into smaller tasks.",
+  "mobileAgentTaskProfilesHint": "Describes agent profiles.",
+  "mobileAgentTaskCuratorHint": "Reviews and organizes skills.",
+  "mobileAgentTaskOtherHint": "Choose the model and reasoning used for this task.",
+  "mobileAgentGlobalSettings": "Global settings",
+  "mobileAgentCustomizeHermes": "Customize Hermes",
+  "mobileAgentCustomizeHint": "Personalize your Hermes experience. Choose a task below to use your global model, let Hermes choose automatically, or set a custom model and provider.",
+  "mobileAgentUseGlobalModel": "Use global model",
+  "mobileAgentUseGlobalHint": "Follow your global provider, model, and reasoning. Future global changes apply to this task too.",
+  "mobileAgentCustomModel": "Custom model",
+  "mobileAgentCustomModelHint": "Choose a provider, model, and reasoning specifically for this task.",
+  "mobileAgentAutomaticModeHint": "Let Hermes choose a model suited to this task. It may use a different model from your global choice.",
+  "mobileAgentGlobalUnavailable": "This Hermes server does not yet support following global settings.",
+  "mobileAgentGlobalReasoningHint": "Follows your global reasoning setting. Choose Custom model to set reasoning for this task.",
+  "markdownResizeColumn": "Zmień szerokość kolumny {number}",
+  "@markdownResizeColumn": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "mobileLastWeek": "Ostatni tydzień",
+  "mobileOlderConversations": "Starsze rozmowy",
+  "mobileAutoRename": "Automatyczna nazwa",
+  "mobileAgentStartingPoints": "Punkty wyjścia",
+  "mobileAgentStartingPointsHint": "To ustawienia Conduit o różnych kompromisach, a nie ranking najczęściej używanych wartości.",
+  "mobileAgentHermesDefault": "Domyślne Hermes",
+  "mobileAgentCustomValue": "Własna wartość…",
+  "mobileAgentAvailableChoices": "Opcje dostawcy",
+  "mobileAgentCurrentCustom": "Obecna własna wartość",
+  "mobileAgentAllowedValues": "Dozwolone wartości: {values}",
+  "@mobileAgentAllowedValues": {
+    "placeholders": {
+      "values": {
+        "type": "String"
+      }
+    }
+  },
+  "mobileAgentRange": "Zakres: {minimum}–{maximum}",
+  "@mobileAgentRange": {
+    "placeholders": {
+      "minimum": {
+        "type": "String"
+      },
+      "maximum": {
+        "type": "String"
+      }
+    }
+  },
+  "mobileAgentMinimum": "Minimum: {minimum}",
+  "@mobileAgentMinimum": {
+    "placeholders": {
+      "minimum": {
+        "type": "String"
+      }
+    }
+  },
+  "mobileAgentWholeNumbers": "Podaj liczbę całkowitą.",
+  "mobileAgentPercentInput": "Nowa wartość (%)",
+  "mobileAgentUnitsCharacters": "znaków",
+  "mobileAgentUnitsSeconds": "sekund",
+  "mobileAgentUnitsMessages": "wiadomości",
+  "mobileAgentUnitsLines": "wierszy",
+  "mobileAgentUnitsTurns": "tur",
+  "mobileAgentUnitsRetries": "prób",
+  "mobileAgentUnitsSubagents": "podagentów",
+  "mobileAgentUnitsSnapshots": "migawek",
+  "mobileAgentUnitsTokens": "tokenów",
+  "mobileAgentLatencyQuality": "Najlepsza jakość · 0",
+  "mobileAgentLatencyFaster": "Szybszy start · 1",
+  "mobileAgentLatencyAggressive": "Agresywna · 2",
+  "mobileAgentNoIdleTimeout": "Bez limitu bezczynności",
+  "mobileAgentUnlimited": "Bez limitu",
+  "mobileAgentMemoryBudgetHint": "Budżet znaków zapisanych faktów — nie tokenów ani historii rozmów. Hermes dodaje zapisane fakty do kontekstu modelu, więc większa pamięć zużywa więcej kontekstu. 0 nie daje miejsca na nowe wpisy; zmniejszenie budżetu nie usuwa istniejącej pamięci.",
+  "mobileAgentProfileBudgetHint": "Budżet znaków zapisanych osobistych preferencji. Hermes dodaje profil do kontekstu modelu, więc więcej szczegółów zużywa więcej kontekstu. 0 nie daje miejsca na nowe wpisy; zmniejszenie budżetu nie usuwa istniejącego profilu.",
+  "mobileAgentThresholdHint": "Ustawiony procent okna kontekstu wyzwalający kompresję. 50% oznacza 0,5; 200% jest nieprawidłowe. Niższa wartość kompresuje wcześniej. Hermes może zwiększyć skuteczny próg dla niektórych modeli.",
+  "mobileAgentCompressionTargetHint": "Budżet ostatnich wiadomości zachowanych bez zmian przy kompresji, jako część budżetu progu kompresji. Niższe wartości zachowują krótszy fragment pełnego tekstu. To nie długość podsumowania; nowsze zasady Hermes mogą stosować oddzielny budżet tokenów.",
+  "mobileAgentRecentMessagesHint": "Żądana liczba ostatnich wiadomości zachowanych bez zmian przy kompresji. Więcej zachowuje szczegóły, ale zużywa kontekst; budżet tokenów Hermes może ograniczyć rzeczywistą liczbę.",
+  "mobileAgentCompressionTimeoutHint": "Sekundy na żądanie modelu kompresji. Zwiększ limit dla wolnego modelu; krótszy limit szybciej zgłasza błąd.",
+  "mobileAgentApprovalTimeoutHint": "Całkowite sekundy oczekiwania Hermes na zgodę. 0 natychmiast kończy oczekiwanie odmową; nie oznacza braku limitu i nie przyznaje zgody.",
+  "mobileAgentCheckpointLimitHint": "Liczba zachowanych punktów kontrolnych plików. Więcej pozwala cofnąć więcej zmian i zajmuje więcej miejsca na serwerze.",
+  "mobileAgentFileReadLimitHint": "Znaki odczytywane z pliku w jednym wywołaniu. Większy limit ujawnia więcej treści, ale zużywa więcej kontekstu modelu.",
+  "mobileAgentToolOutputLimitHint": "Limit znaków wyników narzędzi wysyłanych do modelu. Pomimo klucza „max_bytes” Hermes obecnie liczy znaki. Większy wynik zużywa więcej kontekstu.",
+  "mobileAgentOutputLinesHint": "Maksymalna liczba wierszy żądanych przy odczycie strony pliku. Działa razem z limitem znaków odczytu.",
+  "mobileAgentLineLengthHint": "Maksymalna liczba znaków w każdym wierszu odczytanego pliku. Dłuższe wiersze ujawniają więcej treści, ale zużywają kontekst.",
+  "mobileAgentCommandTimeoutHint": "Sekundy działania polecenia na serwerze przed upływem limitu. Większy limit pozwala na wolne zadania, ale wydłuża oczekiwanie na zablokowane polecenie.",
+  "mobileAgentRetriesHint": "Maksymalna liczba prób w pętli Hermes po nieudanym żądaniu modelu. 1 oznacza jedną próbę; większy limit może pomóc przy chwilowych błędach, ale wydłuża oczekiwanie. SDK dostawcy może ponawiać niezależnie.",
+  "mobileAgentTurnsHint": "Maksymalna liczba iteracji agenta w jednym zadaniu, obejmująca pracę modelu i narzędzi — nie liczba rozmów. Więcej pozwala na dłuższe zadania i potencjalnie wyższy koszt.",
+  "mobileAgentParallelHint": "Maksymalna liczba podagentów pracujących jednocześnie. Większa równoległość zużywa więcej zasobów serwera i może zwiększyć koszty API.",
+  "mobileAgentChildTimeoutHint": "Sekundy bez postępu przed zatrzymaniem podagenta. 0 wyłącza limit bezczynności; Hermes zwiększa dodatnie wartości poniżej 30 sekund.",
+  "mobileAgentContextOverrideHint": "Pozostaw Automatycznie, aby używać pojemności tokenów zgłoszonej przez model. Własna wartość musi odpowiadać modelowi lub serwerowi; większa liczba nie zwiększa rzeczywistej pojemności modelu.",
+  "mobileAgentSpeechSpeedHint": "Mnożnik szybkości mowy. 1× jest normalnie; poniżej 1 wolniej, powyżej 1 szybciej. xAI obsługuje 0,7×–1,5×.",
+  "mobileAgentSpeechLatencyHint": "Tryb jakości i opóźnienia, nie przełącznik. 0 priorytetyzuje jakość; 1 rozpoczyna od mniejszego fragmentu dźwięku. Tryb 2 opisano w przewodniku, ale nie we wszystkich API; sprawdź obsługę przed wpisaniem własnej wartości.",
+  "mobileAgentSampleRateHint": "Próbki dźwięku na sekundę (Hz). 24 kHz jest domyślną wartością xAI w Hermes. Wyższe częstotliwości mogą zachować więcej szczegółów i zwiększyć rozmiar danych; nie zmieniają głosu.",
+  "mobileAgentBitRateHint": "Bity na sekundę kodowania MP3. 128 kbps jest domyślną wartością Hermes. Niższe wartości zużywają mniej danych; wyższe zmniejszają kompresję. Ustawienie dotyczy tylko MP3.",
+  "mobileAgentSpeechTagsHint": "Dodaje emocje przez dodatkowe wywołanie modelu (czas i koszt).",
+  "mobileAgentSpeechProviderHint": "Wybierz dostawcę mowy obsługiwanego przez połączony serwer Hermes. Sam adres GitHub nie instaluje ani nie rejestruje dostawcy; własne zaplecze wymaga konfiguracji na serwerze.",
+  "mobileAgentVoiceCatalogHint": "Wybierz wbudowany głos lub Własna wartość dla identyfikatora obsługiwanego przez dostawcę. Dostępne głosy mogą zależeć od modelu mowy i konta.",
+  "mobileAgentAccountVoiceHint": "Użyj dokładnego identyfikatora z biblioteki głosów dostawcy lub konta. Obecna brama nie udostępnia katalogu głosów Twojego konta.",
+  "mobileAgentLocalVoiceHint": "Identyfikatory głosów i modeli zależą od instalacji na serwerze Hermes. Użyj zainstalowanego identyfikatora; adres repozytorium nie jest identyfikatorem głosu.",
+  "mobileAgentThresholdRange": "Więcej niż 0% i mniej niż 100%.",
+  "mobileAgentTurnLimitRange": "0 = Bez limitu; w innym przypadku podaj co najmniej 1 turę.",
+  "mobileAgentIdleTimeoutRange": "0 = Bez limitu bezczynności; w innym przypadku podaj co najmniej 30 sekund.",
+  "mobileFilesHome": "Katalog Hermesa",
+  "mobileFilesBrowse": "Przeglądaj",
+  "mobileFilesGoToFolder": "Przejdź do folderu",
+  "mobileFilesPathHint": "Ścieżka folderu na serwerze",
+  "mobileFilesNewFile": "Nowy plik",
+  "mobileFilesFileName": "Nazwa pliku",
+  "mobileFilesContent": "Treść (opcjonalna)",
+  "mobileFilesEmptyFolder": "Ten folder jest pusty. Utwórz plik lub folder, aby rozpocząć.",
+  "mobileFilesUnavailable": "To połączenie z Hermesem nie obsługuje przeglądania plików.",
+  "mobileFilesLoadError": "Nie można otworzyć folderu. Sprawdź ścieżkę i uprawnienia, a następnie spróbuj ponownie.",
+  "mobileFilesCreateError": "Nie można utworzyć elementu. Sprawdź nazwę, uprawnienia do folderu i czy element już istnieje.",
+  "mobileFilesInvalidName": "Wpisz nazwę bez ukośników. Użyj opcji Przejdź do folderu, aby wybrać inne miejsce.",
+  "mobileFilesAskHermes": "Zapytaj Hermesa",
+  "mobileFilesAskFile": "Mam pytanie o ten plik na serwerze Hermesa:\n{path}\n\nMoje pytanie: ",
+  "mobileFilesAskFolder": "Mam pytanie o ten folder na serwerze Hermesa:\n{path}\n\nMoje pytanie: ",
+  "mobileFilesActions": "Działania na pliku",
+  "mobileFilesCopyPath": "Kopiuj ścieżkę",
+  "mobileFilesPinError": "Nie można zapisać przypiętych elementów. Spróbuj ponownie.",
+  "mobileFilesPinnedEmpty": "Przypnij pliki i foldery z ich menu działań, aby mieć do nich szybki dostęp.",
+  "mobileFilesFolder": "Folder",
+  "mobileFilesFile": "Plik",
+  "mobileFilesParent": "Folder nadrzędny",
+  "mobileFilesCreateHere": "Utwórz w tym folderze",
+  "mobileFilesCreated": "Utworzono na serwerze Hermesa.",
+  "mobileFilesPreviewUnavailable": "Nie można wyświetlić podglądu tego pliku. Użyj opcji Zapytaj Hermesa w menu działań, aby o niego zapytać.",
+  "messagesHomeTitle": "Wiadomości",
+  "messagesChats": "Czaty",
+  "messagesSearch": "Szukaj",
+  "messagesSearchClose": "Zamknij wyszukiwanie",
+  "messagesCategories": "Kategorie wyszukiwania",
+  "messagesAll": "Wszystkie",
+  "messagesGroupChats": "Czaty grupowe",
+  "messagesRoutines": "Rutyny",
+  "messagesNewBot": "Nowy bot",
+  "messagesNewGroup": "Nowy czat grupowy",
+  "messagesCreateMenu": "Utwórz bota lub czat grupowy",
+  "messagesNoBots": "Nie ma jeszcze rozmów z botami.",
+  "messagesBotSetup": "Konfiguracja bota",
+  "messagesNewBotIdentity": "Poznaj nowego bota",
+  "messagesName": "Nazwa",
+  "messagesProfile": "Nazwa profilu",
+  "messagesRole": "W czym ma pomagać?",
+  "messagesStartFrom": "Zacznij od",
+  "messagesFresh": "Nowy profil",
+  "messagesCloneHermes": "Klonuj Hermes",
+  "messagesInstructions": "Stałe instrukcje",
+  "messagesDefaultModel": "Domyślny model Hermes",
+  "messagesCapabilities": "Umiejętności i narzędzia",
+  "messagesProfileSignIn": "Profil i logowanie",
+  "messagesCopyKeys": "Kopiuj istniejące klucze API",
+  "messagesSeparateAuth": "Logowanie do Codex jest przypisane do tego profilu. Zaloguj się osobno w Hermes.",
+  "messagesCloneHelp": "Klonowanie kopiuje konfigurację i zapisaną pamięć profilu źródłowego.",
+  "messagesCreateBot": "Utwórz bota",
+  "messagesGroupName": "Nazwa grupy",
+  "messagesParticipants": "Uczestnicy",
+  "messagesChooseMembers": "Wybierz od 2 do 6 botów.",
+  "messagesCoordinator": "Koordynator (opcjonalnie)",
+  "messagesNoCoordinator": "Bez koordynatora",
+  "messagesGroupPurpose": "Nad czym ma pracować grupa?",
+  "messagesCoordinatorHelp": "Koordynator prowadzi rozmowę i łączy odpowiedzi pozostałych botów.",
+  "messagesStartGroup": "Rozpocznij czat grupowy",
+  "messagesGroupSettings": "Ustawienia grupy",
+  "messagesGroupCreated": "Grupa utworzona.",
+  "messagesMissingMember": "Niektórzy uczestnicy grupy są niedostępni dla tego połączenia. Sprawdź uczestników przed wysłaniem wiadomości.",
+  "messagesPartialSearch": "Niektórych rozmów nie udało się przeszukać. Spróbuj ponownie.",
+  "messagesSearching": "Wyszukiwanie rozmów…",
+  "messagesThinking": "Myślę…",
+  "messagesStopped": "Odpowiedź zatrzymana.",
+  "messagesSend": "Wyślij wiadomość",
+  "messagesStop": "Zatrzymaj odpowiedź",
+  "messagesLoadFailed": "Nie udało się wczytać rozmowy. Spróbuj ponownie.",
+  "messagesGroupHistoryLimited": "Starsze wiadomości grupowe z innych urządzeń mogą być tutaj niedostępne.",
+  "messagesSaveFailed": "Nie udało się zapisać. Odśwież i spróbuj ponownie.",
+  "messagesCreateFailed": "Nie udało się ukończyć konfiguracji bota. Sprawdź profil w Hermes przed ponowną próbą.",
+  "messagesSkillsUnavailable": "Nie udało się wczytać umiejętności. Spróbuj ponownie przed utworzeniem bota.",
+  "messagesModel": "Model",
+  "messagesContinue": "Dalej",
+  "messagesCloneBot": "Klonuj {name}",
+  "@messagesCloneBot": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "messagesSetUpBot": "Konfiguracja: {name}",
+  "@messagesSetUpBot": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "messagesResultCount": "Liczba wyników: {count}",
+  "@messagesResultCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "messagesMessageTo": "Wiadomość do {name}",
+  "@messagesMessageTo": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "messagesChooseTools": "Wybierz co najmniej jeden zestaw narzędzi.",
+  "messagesUpdateHermes": "Zaktualizuj Hermes, aby włączyć konfigurację botów i grup dla tego połączenia.",
+  "scheduleNew": "New schedule",
+  "scheduleEdit": "Edit schedule",
+  "scheduleNameHint": "Name your schedule",
+  "scheduleWhen": "When to run",
+  "scheduleDaily": "Every day",
+  "scheduleWeekdays": "Weekdays",
+  "scheduleWeekly": "Weekly",
+  "scheduleOnce": "Once",
+  "scheduleCustom": "Custom expression",
+  "scheduleExpression": "Schedule expression",
+  "scheduleDay": "Day",
+  "scheduleDate": "Date",
+  "scheduleTime": "Time",
+  "scheduleTimezone": "Uses Hermes’s configured time zone.",
+  "scheduleWhat": "What to run",
+  "scheduleWhatHint": "Choose skills, write instructions, or use both.",
+  "scheduleChooseSkills": "Choose skills",
+  "scheduleInstructions": "Instructions",
+  "scheduleNoSkills": "No skills available. You can write instructions instead.",
+  "scheduleAboutSkill": "About skill",
+  "scheduleNoSkillDescription": "No description is available for this skill.",
+  "scheduleCreate": "Create schedule",
+  "scheduleActions": "Schedule actions",
+  "scheduleNextLocal": "Next (your time)",
+  "scheduleNoRuns": "No runs yet.",
+  "scheduleRunLoadFailed": "Could not load run history. Try again.",
+  "scheduleAsk": "Ask Hermes",
+  "scheduleAskPrompt": "I would like to set up a new schedule. Help me choose what Hermes should run, when it should run, and which skills to use. Ask me for any missing details before creating it.",
+  "scheduleOptional": "Optional",
+  "schedulePause": "Pause",
+  "scheduleResume": "Resume",
+  "scheduleDone": "Done",
+  "scheduleScript": "Script",
+  "scheduleNoWork": "No instructions, skills, or script are configured.",
+  "chatSwitcherReady": "Dotknij lub przytrzymaj",
+  "@chatSwitcherReady": {
+    "description": "Idle hint above the floating new-chat and recent-chat switcher button."
+  },
+  "chatSwitcherPress": "Przytrzymaj…",
+  "@chatSwitcherPress": {
+    "description": "Hint while pressing the chat switcher before a long press is recognized."
+  },
+  "chatSwitcherHold": "Przesuń do czatu",
+  "@chatSwitcherHold": {
+    "description": "Hint after holding the chat switcher; sliding selects a recent chat."
+  },
+  "chatSwitcherRelease": "Puść, aby otworzyć",
+  "@chatSwitcherRelease": {
+    "description": "Hint when releasing the held chat switcher will open the highlighted chat."
+  },
+  "chatSwitcherCancel": "Puść, aby anulować",
+  "@chatSwitcherCancel": {
+    "description": "Hint when releasing the held chat switcher will cancel without changing chats."
+  },
+  "chatSwitcherCancelled": "Anulowano",
+  "@chatSwitcherCancelled": {
+    "description": "Brief confirmation after cancelling the chat-switcher gesture."
+  },
+  "chatSwitcherHint": "Dotknij, aby rozpocząć nowy czat. Przytrzymaj i przesuń, aby zmienić czat.",
+  "@chatSwitcherHint": {
+    "description": "Accessibility hint for the floating button: tap creates a chat, hold and slide switches chats."
+  }
 }

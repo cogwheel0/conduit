@@ -893,6 +893,22 @@ bool isReadOnlySharedConversation(
 bool isReadOnlySharedOwner(String? owner, String? currentUserId) =>
     owner != null && owner != currentUserId;
 
+/// Whether the server makes every new chat temporary for this account.
+///
+/// Open WebUI 0.12 refuses to create chats for a non-admin whose
+/// `chat.temporary` and `chat.temporary_enforced` permissions are both on, and
+/// its web client then keeps temporary chat on with no toggle. Chats that
+/// already exist go on as before.
+final temporaryChatEnforcedProvider = Provider<bool>((ref) {
+  if (ref.watch(apiServiceProvider) == null) return false;
+  final user = ref.watch(currentUserProvider2);
+  if (user == null || user.role == 'admin') return false;
+  final chat = ref.watch(userPermissionsProvider).value?['chat'];
+  return chat is Map &&
+      chat['temporary'] != false &&
+      chat['temporary_enforced'] == true;
+});
+
 /// Whether the current chat session is temporary (not persisted to server).
 ///
 /// When true, conversations use `local:{socketId}` IDs and skip all

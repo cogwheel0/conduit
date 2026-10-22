@@ -1,6 +1,44 @@
 part of 'hermes_desktop_api_service.dart';
 
 extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
+  bool _canRetryBackgroundDisconnect(Object error) =>
+      _lifecycle?.current?.isBackground == true &&
+      (error is SocketException ||
+          error is TimeoutException ||
+          (error is HermesDesktopRpcException && error.disconnected) ||
+          (error is DioException &&
+              const {
+                DioExceptionType.connectionTimeout,
+                DioExceptionType.receiveTimeout,
+                DioExceptionType.sendTimeout,
+                DioExceptionType.connectionError,
+              }.contains(error.type)));
+
+  /// Wake on return or Stop as well as the backoff timer. Never resubmit the
+  /// prompt: an acknowledged turn belongs to the server across socket loss.
+  Future<void> _waitForBackgroundReconnect(
+    Duration delay,
+    CancelToken? cancelToken,
+  ) async {
+    final wake = Completer<void>();
+    final subscription = _lifecycle?.changes.listen((phase) {
+      if (phase.isForeground && !wake.isCompleted) wake.complete();
+    });
+    final timer = Timer(delay, () {
+      if (!wake.isCompleted) wake.complete();
+    });
+    try {
+      await Future.any<void>([
+        wake.future,
+        _closing.future,
+        if (cancelToken != null) cancelToken.whenCancel.then<void>((_) {}),
+      ]);
+    } finally {
+      timer.cancel();
+      await subscription?.cancel();
+    }
+  }
+
   Future<void> _ensureConnected() async {
     if (_closed) throw StateError('Hermes service is closed.');
     if (_rpc.isReady) return;
@@ -269,6 +307,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     Map<String, dynamic> result,
     HermesSessionBinding binding,
   ) async {
+    for (final event in _rpc.restoreServerApprovals(
+      result['open_requests'],
+      runtimeId: binding.runtimeId,
+    )) {
+      await _persistPendingDecisionEvent(event);
+    }
     final approval = _object(result['pending_approval']);
     final approvalId = validateHermesOpaqueIdentifier(
       approval['request_id'],

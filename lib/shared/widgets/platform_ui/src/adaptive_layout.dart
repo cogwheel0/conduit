@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'adaptive_controls.dart';
 import 'platform_ui_capabilities.dart';
+import '../../../theme/theme_extensions.dart';
 
 enum ToolbarSpacerType { none, fixed, flexible }
 
@@ -755,6 +756,7 @@ Future<void> showAdaptiveContextMenu({
   required BuildContext context,
   required List<AdaptiveContextMenuAction> actions,
   required Rect globalAnchor,
+  bool emphasized = false,
 }) async {
   final overlayObject = Overlay.of(context).context.findRenderObject();
   if (overlayObject is! RenderBox || !overlayObject.attached) return;
@@ -765,17 +767,37 @@ Future<void> showAdaptiveContextMenu({
   );
   final selected = await showMenu<int>(
     context: context,
+    color: emphasized ? context.conduitTheme.surfaceChrome : null,
+    elevation: emphasized ? 12 : 8,
+    shadowColor: emphasized ? Colors.black.withValues(alpha: .35) : null,
+    shape: emphasized
+        ? RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: context.conduitTheme.borderChrome),
+          )
+        : null,
     position: RelativeRect.fromRect(anchor, Offset.zero & overlayObject.size),
     items: [
       for (var index = 0; index < actions.length; index++)
         PopupMenuItem<int>(
           value: index,
           enabled: !actions[index].isDisabled,
-          child: Text(
-            actions[index].title,
-            style: actions[index].isDestructive
-                ? const TextStyle(color: Colors.red)
-                : null,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (actions[index].icon is IconData) ...[
+                Icon(actions[index].icon as IconData, size: 20),
+                const SizedBox(width: 12),
+              ],
+              Flexible(
+                child: Text(
+                  actions[index].title,
+                  style: actions[index].isDestructive
+                      ? const TextStyle(color: Colors.red)
+                      : null,
+                ),
+              ),
+            ],
           ),
         ),
     ],
@@ -789,11 +811,13 @@ class AdaptiveContextMenu extends StatelessWidget {
     required this.child,
     required this.actions,
     this.previewBuilder,
+    this.emphasized = false,
   });
 
   final Widget child;
   final List<AdaptiveContextMenuAction> actions;
   final Widget Function(BuildContext)? previewBuilder;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
@@ -819,9 +843,11 @@ class AdaptiveContextMenu extends StatelessWidget {
       );
     }
     return GestureDetector(
+      behavior: HitTestBehavior.translucent,
       onSecondaryTapDown: (details) => showAdaptiveContextMenu(
         context: context,
         actions: actions,
+        emphasized: emphasized,
         globalAnchor: Rect.fromLTWH(
           details.globalPosition.dx,
           details.globalPosition.dy,
@@ -841,6 +867,7 @@ class AdaptiveContextMenu extends StatelessWidget {
         showAdaptiveContextMenu(
           context: context,
           actions: actions,
+          emphasized: emphasized,
           globalAnchor: Rect.fromPoints(topLeft, bottomRight),
         );
       },
@@ -1000,6 +1027,178 @@ class _AdaptiveExpansionTileState extends State<AdaptiveExpansionTile> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// An anchored action menu without a modal gesture barrier. A pointer outside
+/// reaches the transcript immediately, and a scroll closes the menu.
+class ScrollAwayContextMenu extends StatefulWidget {
+  const ScrollAwayContextMenu({
+    super.key,
+    required this.child,
+    required this.actions,
+    this.onDismissChanged,
+    this.enabled = true,
+  });
+  final Widget child;
+  final List<AdaptiveContextMenuAction> actions;
+  final ValueChanged<VoidCallback?>? onDismissChanged;
+  final bool enabled;
+  @override
+  State<ScrollAwayContextMenu> createState() => _ScrollAwayContextMenuState();
+}
+
+class _ScrollAwayContextMenuState extends State<ScrollAwayContextMenu> {
+  final _portal = OverlayPortalController();
+  ScrollPosition? _position;
+  Offset _anchor = Offset.zero;
+  ValueChanged<VoidCallback?>? _registeredDismissNotifier;
+  void _close() {
+    _position?.removeListener(_close);
+    _position = null;
+    _portal.hide();
+    _registeredDismissNotifier?.call(null);
+    _registeredDismissNotifier = null;
+  }
+
+  @override
+  void dispose() {
+    _position?.removeListener(_close);
+    _registeredDismissNotifier?.call(null);
+    _registeredDismissNotifier = null;
+    super.dispose();
+  }
+
+  void _open(Offset point) {
+    if (!widget.enabled) return;
+    _anchor = point;
+    _position?.removeListener(_close);
+    _position = Scrollable.maybeOf(context)?.position;
+    _position?.addListener(_close);
+    _portal.show();
+    _registeredDismissNotifier = widget.onDismissChanged;
+    _registeredDismissNotifier?.call(_close);
+  }
+
+  @override
+  void didUpdateWidget(covariant ScrollAwayContextMenu oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled && !widget.enabled && _portal.isShowing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !widget.enabled && _portal.isShowing) _close();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final portal = OverlayPortal(
+      controller: _portal,
+      overlayChildBuilder: (overlayContext) {
+        if (!widget.enabled) return const SizedBox.shrink();
+        final size = MediaQuery.sizeOf(overlayContext);
+        final padding = MediaQuery.paddingOf(overlayContext);
+        final scale = MediaQuery.textScalerOf(overlayContext).scale(1);
+        final width = (180 * scale).clamp(180.0, size.width - 32);
+        final height = widget.actions.length * 48.0 * scale + 8;
+        final x = _anchor.dx.clamp(16.0, size.width - width - 16);
+        final y = (_anchor.dy - height - 8).clamp(
+          padding.top + 8,
+          (size.height - padding.bottom - height - 8).clamp(
+            padding.top + 8,
+            size.height,
+          ),
+        );
+        final theme = context.conduitTheme;
+        return Positioned(
+          left: x,
+          top: y,
+          width: width,
+          child: TapRegion(
+            onTapOutside: (_) => _close(),
+            child: Material(
+              color: theme.surfaceChrome,
+              elevation: 12,
+              shadowColor: Colors.black.withValues(alpha: .35),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: theme.borderChrome),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final action in widget.actions)
+                      InkWell(
+                        onTap: action.isDisabled
+                            ? null
+                            : () {
+                                _close();
+                                action.onPressed();
+                              },
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: 48 * scale),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              children: [
+                                if (action.icon is IconData) ...[
+                                  Icon(
+                                    action.icon as IconData,
+                                    size: 20,
+                                    color: action.isDisabled
+                                        ? theme.textSecondary
+                                        : theme.textPrimary,
+                                  ),
+                                  const SizedBox(width: 12),
+                                ],
+                                Expanded(
+                                  child: Text(
+                                    action.title,
+                                    style: TextStyle(
+                                      color: action.isDisabled
+                                          ? theme.textSecondary
+                                          : theme.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onLongPressStart: widget.enabled
+            ? (details) => _open(details.globalPosition)
+            : null,
+        onSecondaryTapDown: widget.enabled
+            ? (details) => _open(details.globalPosition)
+            : null,
+        child: widget.child,
+      ),
+    );
+    if (Router.maybeOf(context) == null) return portal;
+    return BackButtonListener(
+      onBackButtonPressed: () async {
+        if (!_portal.isShowing) return false;
+        _close();
+        return true;
+      },
+      child: portal,
     );
   }
 }

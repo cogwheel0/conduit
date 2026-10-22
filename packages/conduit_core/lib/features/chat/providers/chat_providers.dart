@@ -13,6 +13,8 @@
 /// privacy intact and keep every importer's path unchanged.
 library;
 
+import 'package:conduit_core/utils/continuity_probe.dart';
+
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
@@ -30,7 +32,6 @@ import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:conduit_core/auth/auth_state_manager.dart';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
@@ -38,6 +39,7 @@ import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
@@ -85,6 +87,7 @@ import 'package:conduit_core/sync/sync_api_client.dart'
     show SyncTerminalException;
 
 import 'package:conduit_core/services/chat_completion_transport.dart';
+import 'package:conduit_core/ports/background_execution_port.dart';
 
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/moa_completion.dart';
@@ -133,6 +136,7 @@ import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_contro
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_visual_model_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';

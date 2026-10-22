@@ -15,10 +15,15 @@ part 'local_notification_service.g.dart';
 
 /// A tap on a system notification, decoded back into the target it points at.
 class NotificationTap {
-  const NotificationTap({required this.kind, required this.sourceId});
+  const NotificationTap({
+    required this.kind,
+    required this.sourceId,
+    this.title,
+  });
 
   final NotificationKind kind;
   final String sourceId;
+  final String? title;
 
   static NotificationTap? tryDecode(String? payload) {
     if (payload == null || payload.isEmpty) return null;
@@ -34,7 +39,11 @@ class NotificationTap {
           .where((k) => k.name == kindName)
           .firstOrNull;
       if (kind == null) return null;
-      return NotificationTap(kind: kind, sourceId: sourceId);
+      return NotificationTap(
+        kind: kind,
+        sourceId: sourceId,
+        title: map['title'] is String ? map['title'] as String : null,
+      );
     } catch (_) {
       return null;
     }
@@ -43,6 +52,7 @@ class NotificationTap {
   static String encode(AppNotification notification) => jsonEncode({
     'kind': notification.kind.name,
     'sourceId': notification.sourceId,
+    'title': notification.title,
   });
 }
 

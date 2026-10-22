@@ -4,12 +4,14 @@ import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../services/text_to_speech_service.dart';
+import '../services/tts_manager.dart';
 
 enum TtsPlaybackStatus { idle, initializing, loading, speaking, paused, error }
 
@@ -412,21 +414,24 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
 }
 
 final textToSpeechServiceProvider = Provider<TextToSpeechService>((ref) {
-  final api = ref.watch(apiServiceProvider);
   BackendConfig? readBackendConfig() {
     return ref
         .read(backendConfigProvider)
         .maybeWhen(data: (value) => value, orElse: () => null);
   }
 
+  // Follows the selected model's backend without rebuilding the service.
   final service = TextToSpeechService(
-    api: api,
+    serverSpeech: ref.read(serverSpeechProviderProvider),
     backendConfig: readBackendConfig(),
     loadBackendConfig: () async {
       await ref.read(backendConfigProvider.notifier).refresh();
       return readBackendConfig();
     },
   );
+  ref.listen(serverSpeechProviderProvider, (_, next) {
+    TtsManager.instance.setServerSpeech(next);
+  });
   ref.listen(backendConfigProvider, (_, next) {
     service.setBackendConfig(
       next.maybeWhen(data: (value) => value, orElse: () => null),

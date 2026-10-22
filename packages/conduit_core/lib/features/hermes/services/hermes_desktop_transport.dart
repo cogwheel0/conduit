@@ -3,12 +3,15 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:web_socket_channel/io.dart';
+import 'package:conduit_core/utils/continuity_probe.dart';
+
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'package:conduit_core/network/no_redirect_web_socket.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
+import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 
 const int kMaxHermesDesktopFrameBytes = 4 * 1024 * 1024;
 const int kMaxHermesDesktopFrameCharacters = 2 * 1024 * 1024;
@@ -42,11 +45,13 @@ final class HermesDesktopEvent {
     required this.type,
     required this.payload,
     this.sessionId,
+    this.sequence,
   });
 
   final String type;
   final Map<String, dynamic> payload;
   final String? sessionId;
+  final int? sequence;
 }
 
 final class HermesDesktopEventBuffer {
@@ -127,13 +132,14 @@ final class HermesDesktopRpcClient {
   HermesDesktopRpcClient({
     HermesDesktopChannelFactory? channelFactory,
     this.requestTimeout = const Duration(seconds: 60),
-  }) : _channelFactory = channelFactory ?? _connectChannel;
+  }) : _channelFactory = channelFactory ?? connectNoRedirectWebSocket;
 
   final HermesDesktopChannelFactory _channelFactory;
   final Duration requestTimeout;
   final _events = StreamController<HermesDesktopEvent>.broadcast();
   final _disconnects = StreamController<void>.broadcast();
   final Map<String, _PendingRpc> _pending = {};
+  final Map<String, _PendingServerApproval> _serverApprovals = {};
   Map<String, dynamic> _defaultParams = const {};
 
   WebSocketChannel? _channel;
@@ -154,21 +160,109 @@ final class HermesDesktopRpcClient {
     _defaultParams = Map.unmodifiable(value);
   }
 
-  static WebSocketChannel _connectChannel(
-    Uri uri,
-    Map<String, String> headers, {
-    HttpClient? httpClient,
+  /// The queue's request id and the JSON-RPC response id are distinct. Match
+  /// both the owning runtime and queue id before answering on this socket.
+  bool respondToServerApproval({
+    required String runtimeId,
+    required String approvalId,
+    required String choice,
   }) {
-    final client = _NoRedirectHttpClient(httpClient ?? HttpClient());
-    final socket = WebSocket.connect(
-      uri.toString(),
-      headers: headers,
-      customClient: client,
-    ).whenComplete(client.close);
-    return IOWebSocketChannel(
-      socket
-          .timeout(const Duration(seconds: 15))
-          .then((value) => value..pingInterval = const Duration(seconds: 20)),
+    final channel = _channel;
+    if (!_ready || channel == null) return false;
+    final matches = _serverApprovals.entries
+        .where(
+          (entry) =>
+              entry.value.runtimeId == runtimeId &&
+              entry.value.approvalId == approvalId,
+        )
+        .toList(growable: false);
+    if (matches.isEmpty) return false;
+    if (matches.length != 1 || !matches.single.value.choices.contains(choice)) {
+      throw StateError(
+        'This choice is not available for the pending approval.',
+      );
+    }
+    final entry = matches.single;
+    channel.sink.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': entry.key,
+        'result': {'choice': choice},
+      }),
+    );
+    _serverApprovals.remove(entry.key);
+    return true;
+  }
+
+  /// Resume snapshots replay still-open requests after a socket reconnect.
+  /// Only approvals are supported here; desktop host operations stay rejected.
+  List<HermesDesktopEvent> restoreServerApprovals(
+    Object? snapshots, {
+    required String runtimeId,
+  }) {
+    if (snapshots is! List || !_ready) return const [];
+    final restored = <HermesDesktopEvent>[];
+    for (final snapshot in snapshots.take(64)) {
+      if (snapshot is! Map || snapshot['method'] != 'approval') continue;
+      final params = snapshot['params'];
+      if (params is! Map || params['session_id'] != runtimeId) continue;
+      final event = _acceptServerApproval(
+        snapshot['id'],
+        Map<String, dynamic>.from(params),
+      );
+      if (event != null) {
+        restored.add(event);
+        _events.add(event);
+      }
+    }
+    return restored;
+  }
+
+  HermesDesktopEvent? _acceptServerApproval(
+    Object? rawId,
+    Map<String, dynamic> params,
+  ) {
+    final id = validateHermesOpaqueIdentifier(rawId);
+    final runtimeId = validateHermesOpaqueIdentifier(params['session_id']);
+    final approvalId = validateHermesOpaqueIdentifier(params['request_id']);
+    if (id == null || runtimeId == null || approvalId == null) {
+      throw const FormatException(
+        'Invalid Hermes server approval identifiers.',
+      );
+    }
+    final existing = _serverApprovals[id];
+    if (existing != null) {
+      if (existing.runtimeId != runtimeId ||
+          existing.approvalId != approvalId) {
+        throw const FormatException('Hermes reused an approval response id.');
+      }
+      return null;
+    }
+    if (_serverApprovals.length >= 64) {
+      throw const FormatException('Too many pending Hermes approval requests.');
+    }
+    final rawChoices = params['choices'];
+    final choices = rawChoices is List
+        ? rawChoices
+              .whereType<String>()
+              .where(const {'once', 'session', 'always', 'deny'}.contains)
+              .take(4)
+              .toSet()
+        : <String>{'once', 'deny'};
+    if (choices.isEmpty) {
+      throw const FormatException(
+        'Hermes returned no supported approval choices.',
+      );
+    }
+    _serverApprovals[id] = _PendingServerApproval(
+      runtimeId,
+      approvalId,
+      choices,
+    );
+    return HermesDesktopEvent(
+      type: 'approval.request',
+      sessionId: runtimeId,
+      payload: {...params, 'choices': choices.toList(growable: false)},
     );
   }
 
@@ -250,7 +344,11 @@ final class HermesDesktopRpcClient {
       _pending.remove(id)?.timer.cancel();
       completer.completeError(error, stackTrace);
     }
-    return completer.future.then((value) => value as T);
+    return ContinuityProbe.measure(
+      'rpc',
+      () => completer.future.then((value) => value as T),
+      {'method': method, 'refresh': params['refresh'] == true},
+    );
   }
 
   void _handleFrame(
@@ -260,6 +358,13 @@ final class HermesDesktopRpcClient {
     Completer<void> ready,
   ) {
     if (!_owns(channel, generation)) return;
+    ContinuityProbe.mark('network-received', {
+      'size': raw is String
+          ? raw.length
+          : raw is List
+          ? raw.length
+          : 0,
+    });
     try {
       final String source;
       if (raw is String) {
@@ -309,21 +414,70 @@ final class HermesDesktopRpcClient {
         final params = Map<String, dynamic>.from(frame['params'] as Map);
         final type = params['type']?.toString();
         if (type == null || type.isEmpty) return;
+        ContinuityProbe.mark('network-decoded', {'event': type});
         final rawPayload = params['payload'];
         final payload = rawPayload is Map
             ? Map<String, dynamic>.from(rawPayload)
             : <String, dynamic>{};
         if (type == 'gateway.ready') {
           _ready = true;
+          // New gateways fail approval requests immediately unless the client
+          // advertises its server-request handler. Older gateways may reject
+          // this optional handshake; their event/RPC approval flow still works.
+          unawaited(
+            request<Object?>(
+              'client.capabilities',
+              params: {'server_requests': true},
+            ).then<void>((_) {}, onError: (Object _) {}),
+          );
           if (!ready.isCompleted) ready.complete();
+        }
+        if (type == 'request.cancel') {
+          final id = payload['id'];
+          final pending = _serverApprovals[id];
+          if (pending != null && params['session_id'] == pending.runtimeId) {
+            _serverApprovals.remove(id);
+            _events.add(
+              HermesDesktopEvent(
+                type: 'approval.expire',
+                sessionId: pending.runtimeId,
+                payload: {'request_id': pending.approvalId},
+              ),
+            );
+          }
         }
         _events.add(
           HermesDesktopEvent(
             type: type,
             payload: payload,
             sessionId: params['session_id']?.toString(),
+            sequence: params['seq'] is int ? params['seq'] as int : null,
           ),
         );
+        return;
+      }
+
+      if (frame['method'] == 'approval' && frame['id'] != null) {
+        try {
+          final params = frame['params'];
+          if (params is! Map) throw const FormatException('Invalid approval.');
+          final event = _acceptServerApproval(
+            frame['id'],
+            Map<String, dynamic>.from(params),
+          );
+          if (event != null) _events.add(event);
+        } on FormatException {
+          channel.sink.add(
+            jsonEncode({
+              'jsonrpc': '2.0',
+              'id': frame['id'],
+              'error': {
+                'code': -32602,
+                'message': 'Invalid mobile approval request',
+              },
+            }),
+          );
+        }
         return;
       }
 
@@ -356,6 +510,7 @@ final class HermesDesktopRpcClient {
     if (!_owns(channel, generation)) return;
     _ready = false;
     _channel = null;
+    _serverApprovals.clear();
     _rejectPending('Hermes gateway disconnected.');
     _disconnects.add(null);
   }
@@ -377,6 +532,7 @@ final class HermesDesktopRpcClient {
     final channel = _channel;
     _subscription = null;
     _channel = null;
+    _serverApprovals.clear();
     _rejectPending('Hermes gateway disconnected.');
     await subscription?.cancel();
     await channel?.sink.close();
@@ -389,28 +545,16 @@ final class HermesDesktopRpcClient {
   }
 }
 
+final class _PendingServerApproval {
+  const _PendingServerApproval(this.runtimeId, this.approvalId, this.choices);
+  final String runtimeId;
+  final String approvalId;
+  final Set<String> choices;
+}
+
 final class _PendingRpc {
   const _PendingRpc(this.completer, this.timer);
 
   final Completer<Object?> completer;
   final Timer timer;
-}
-
-final class _NoRedirectHttpClient implements HttpClient {
-  _NoRedirectHttpClient(this._delegate);
-
-  final HttpClient _delegate;
-
-  @override
-  Future<HttpClientRequest> openUrl(String method, Uri url) async {
-    final request = await _delegate.openUrl(method, url);
-    request.followRedirects = false;
-    return request;
-  }
-
-  @override
-  void close({bool force = false}) => _delegate.close(force: force);
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

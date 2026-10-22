@@ -16,6 +16,10 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 
 import '../widgets/hermes_job_editor.dart';
+import '../widgets/hermes_schedule_editor.dart';
+import '../widgets/hermes_schedule_details.dart';
+import '../widgets/hermes_mobile_shell.dart' show startHermesMobileConversation;
+import '../providers/hermes_mobile_navigation.dart';
 import '../widgets/hermes_session_tile.dart' show openHermesSession;
 
 AppLocalizations _l10n(BuildContext context) =>
@@ -63,15 +67,21 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
 
     return UtilityPageScaffold.settings(
-      title: l10n.hermesScheduledAgentsTitle,
+      title: l10n.mobileSchedules,
       children: [
-        ConduitButton(
-          text: l10n.hermesJobNew,
-          icon: Icons.add,
-          isFullWidth: true,
-          isLoading: _creating,
-          onPressed: writable && !_creating ? _createJob : null,
-        ),
+        if (ref.watch(hermesMobileLayoutProvider))
+          Align(
+            alignment: Alignment.centerRight,
+            child: HermesScheduleCreateAction(writable: writable),
+          )
+        else
+          ConduitButton(
+            text: l10n.hermesJobNew,
+            icon: Icons.add,
+            isFullWidth: true,
+            isLoading: _creating,
+            onPressed: writable && !_creating ? _createJob : null,
+          ),
         if (!writable) ...[
           const SizedBox(height: Spacing.sm),
           Text(
@@ -101,10 +111,11 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
             return Column(
               children: [
                 for (final job in jobs) ...[
-                  _JobCard(
+                  HermesScheduleCard(
                     key: ValueKey<String>(job.id),
                     job: job,
                     writable: writable,
+                    management: true,
                   ),
                   const SizedBox(height: Spacing.sm),
                 ],
@@ -134,6 +145,10 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
 
   Future<void> _createJob() async {
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
+    if (ref.read(hermesMobileLayoutProvider)) {
+      await showHermesScheduleEditor(context);
+      return;
+    }
     final result = await showHermesJobEditor(context);
     if (result == null || !mounted || _creating) return;
     if (ref.read(hermesApiServiceProvider) == null) {
@@ -157,19 +172,71 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
   }
 }
 
+enum _ScheduleCreate { direct, ask }
+
+class HermesScheduleCreateAction extends ConsumerWidget {
+  const HermesScheduleCreateAction({
+    super.key,
+    required this.writable,
+    this.onAsk,
+    this.askLabel,
+  });
+  final bool writable;
+  final VoidCallback? onAsk;
+  final String? askLabel;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = _l10n(context);
+    return CompactPopupMenu<_ScheduleCreate>(
+      tooltip: l10n.create,
+      icon: const Icon(Icons.add_rounded),
+      choices: [
+        CompactMenuChoice(
+          _ScheduleCreate.direct,
+          l10n.scheduleNew,
+          icon: Icons.calendar_today_outlined,
+          enabled: writable,
+        ),
+        CompactMenuChoice(
+          _ScheduleCreate.ask,
+          askLabel ?? l10n.scheduleAsk,
+          icon: Icons.chat_bubble_outline_rounded,
+        ),
+      ],
+      onSelected: (choice) {
+        if (choice == _ScheduleCreate.direct) {
+          showHermesScheduleEditor(context);
+        } else if (onAsk != null) {
+          onAsk!();
+        } else {
+          startHermesMobileConversation(ref, prefill: l10n.scheduleAskPrompt);
+        }
+      },
+    );
+  }
+}
+
 enum _JobMutation { toggle, run, edit, delete }
 
-class _JobCard extends ConsumerStatefulWidget {
-  const _JobCard({super.key, required this.job, this.writable = true});
+class HermesScheduleCard extends ConsumerStatefulWidget {
+  const HermesScheduleCard({
+    super.key,
+    required this.job,
+    this.writable = true,
+    this.management = false,
+    this.grouped = false,
+  });
 
   final HermesJob job;
   final bool writable;
+  final bool management;
+  final bool grouped;
 
   @override
-  ConsumerState<_JobCard> createState() => _JobCardState();
+  ConsumerState<HermesScheduleCard> createState() => HermesScheduleCardState();
 }
 
-class _JobCardState extends ConsumerState<_JobCard> {
+class HermesScheduleCardState extends ConsumerState<HermesScheduleCard> {
   _JobMutation? _mutation;
   bool _historyExpanded = false;
 
@@ -185,12 +252,16 @@ class _JobCardState extends ConsumerState<_JobCard> {
         ref.watch(hermesConfigProvider.select((config) => config.mode)) ==
         HermesBackendMode.desktopGateway;
 
+    if (ref.watch(hermesMobileLayoutProvider)) return _buildMobileCard();
+
     return Container(
       padding: const EdgeInsets.all(Spacing.md),
       decoration: BoxDecoration(
         color: theme.groupedSurface,
         borderRadius: BorderRadius.circular(
-          context.usesCupertinoChrome ? AppBorderRadius.md : AppBorderRadius.card,
+          context.usesCupertinoChrome
+              ? AppBorderRadius.md
+              : AppBorderRadius.card,
         ),
       ),
       child: Column(
@@ -222,6 +293,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
               else
                 AdaptiveSwitch(
                   value: job.enabled,
+                  semanticLabel: job.displayName,
                   onChanged: writable ? _setEnabled : null,
                 ),
             ],
@@ -375,6 +447,45 @@ class _JobCardState extends ConsumerState<_JobCard> {
     );
   }
 
+  Widget _buildMobileCard() {
+    final l10n = _l10n(context);
+    final failed = hermesScheduleHasError(job);
+    return CompactContentRow(
+      surface: !widget.grouped,
+      title: Text(
+        job.displayName,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: AppTypography.standard.copyWith(fontWeight: FontWeight.w600),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (failed)
+            Text(
+              l10n.mobileScheduleFailed,
+              style: TextStyle(color: context.conduitTheme.error),
+            ),
+          if (job.enabled && job.nextRun == null)
+            Text(hermesScheduleSummary(job.schedule)),
+          Text(
+            job.enabled
+                ? hermesJobTimingDetail(
+                    job,
+                    locale: Localizations.localeOf(context).toString(),
+                  )
+                : l10n.hermesJobPaused,
+          ),
+        ],
+      ),
+      trailing: Icon(
+        failed ? Icons.error_outline_rounded : Icons.chevron_right_rounded,
+        color: failed ? context.conduitTheme.error : null,
+      ),
+      onTap: () => showHermesScheduleDetail(context, job, writable: writable),
+    );
+  }
+
   Widget _buildRunHistory(ConduitThemeExtension theme) {
     final runs = ref.watch(hermesJobRunsProvider(job.id));
     return runs.when(
@@ -462,6 +573,10 @@ class _JobCardState extends ConsumerState<_JobCard> {
   );
 
   Future<void> _editJob() async {
+    if (ref.read(hermesMobileLayoutProvider)) {
+      await showHermesScheduleEditor(context, job: job);
+      return;
+    }
     final result = await showHermesJobEditor(
       context,
       initialName: job.name ?? job.displayName,
@@ -501,3 +616,105 @@ class _JobCardState extends ConsumerState<_JobCard> {
     );
   }
 }
+
+/// Owns its modal context/ref independently of a refreshing schedule list.
+class HermesScheduleDetails extends ConsumerWidget {
+  const HermesScheduleDetails({
+    super.key,
+    required this.job,
+    this.error = false,
+    this.onRepair,
+  });
+  final HermesJob job;
+  final bool error;
+  final VoidCallback? onRepair;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = _l10n(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            job.displayName,
+            style: AppTypography.standard.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            error ? l10n.mobileScheduleError : l10n.mobileScheduleDetails,
+            style: AppTypography.bodySmallStyle.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (job.lastError?.isNotEmpty == true) SelectableText(job.lastError!),
+          if (job.lastDeliveryError?.isNotEmpty == true) ...[
+            const SizedBox(height: 12),
+            Text(l10n.mobileDeliveryFailed),
+            SelectableText(job.lastDeliveryError!),
+          ],
+          if (error &&
+              job.lastError?.isNotEmpty != true &&
+              job.lastDeliveryError?.isNotEmpty != true)
+            Text('${l10n.hermesJobLastLabel}: ${job.lastStatus ?? 'error'}'),
+          if (!error) ...[
+            Text('${l10n.mobileSchedules}: ${job.schedule}'),
+            Text(
+              '${l10n.hermesJobStateLabel}: ${job.state ?? (job.enabled ? 'active' : 'paused')}',
+            ),
+            Text(
+              '${l10n.hermesJobDeliveryLabel}: ${job.deliveryTarget ?? 'local'}',
+            ),
+            if (job.lastRun != null)
+              Text(
+                '${l10n.hermesJobLastLabel}: ${_formatJobTime(context, job.lastRun!)}',
+              ),
+            if (job.nextRun != null)
+              Text(
+                '${l10n.hermesJobNextLabel}: ${_formatJobTime(context, job.nextRun!)}',
+              ),
+            const SizedBox(height: 12),
+            SelectableText(job.prompt),
+          ],
+          if (error) ...[
+            const SizedBox(height: 20),
+            ConduitButton(
+              key: ValueKey('hermes-job-fix-${job.id}'),
+              text: l10n.mobileAskHermesFix,
+              icon: Icons.chat_bubble_outline_rounded,
+              onPressed: () {
+                if (onRepair != null) {
+                  onRepair!();
+                  return;
+                }
+                Navigator.of(context).pop();
+                startHermesMobileConversation(
+                  ref,
+                  prefill: hermesScheduleRepairPrompt(job),
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatJobTime(BuildContext context, DateTime value) {
+    final local = value.toLocal();
+    final material = MaterialLocalizations.of(context);
+    return '${material.formatMediumDate(local)} '
+        '${material.formatTimeOfDay(TimeOfDay.fromDateTime(local))}';
+  }
+}
+
+/// A user-reviewable draft: opening the repair chat never dispatches it.
+String hermesScheduleRepairPrompt(HermesJob job, {String? profile}) =>
+    'Help me diagnose and fix this scheduled task. Explain the cause and propose a fix before changing its schedule or configuration.\n'
+    'Task: ${job.displayName}\nJob ID: ${job.id}\nSchedule: ${job.schedule}\n'
+    '${profile == null ? "" : "Bot profile: $profile\n"}'
+    'Last status: ${job.lastStatus ?? "unknown"}\n'
+    'Error reported by Hermes:\n${job.lastError ?? "No execution error details were provided."}\n'
+    '${job.lastDeliveryError == null ? "" : "Delivery error:\n${job.lastDeliveryError}\n"}';

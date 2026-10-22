@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -591,6 +592,13 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     final merged = _extractMergedResponse(msgData, historyMsg);
     if (merged != null) metadata[kMessageMergedMetadataKey] = merged;
   }
+
+  // What a realtime call spoke for this message. Open WebUI stores it in the
+  // message's `meta`, which is the only copy read back.
+  metadata.remove(kMessageVoiceMetadataKey);
+  final meta = historyMsg?['meta'] ?? msgData['meta'];
+  final voice = meta is Map ? meta['voice'] : null;
+  if (voice is Map) metadata[kMessageVoiceMetadataKey] = _coerceJsonMap(voice);
 
   // The user's thumbs up (1) or down (-1), and the evaluation record it was
   // filed under. Open WebUI keeps both on the message, so a rating made in

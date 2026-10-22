@@ -2,11 +2,32 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:conduit/features/hermes/widgets/hermes_configuration_actions.dart';
+import 'package:conduit/features/hermes/widgets/hermes_visual_model_selector.dart';
+import 'package:conduit/features/hermes/providers/hermes_mobile_navigation.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
+    show AdaptiveSwitch, CompactModelSelector;
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_visual_model_store.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
@@ -123,9 +144,14 @@ Dio _statusDio([_StubAdapter? adapter]) {
 /// Serves `/api/status` (auth not required) so `_connect` can reach the socket,
 /// and records every REST URI so tests can assert profile scoping.
 final class _StubAdapter implements HttpClientAdapter {
-  _StubAdapter({this.messages = const <Map<String, dynamic>>[]});
+  _StubAdapter({
+    this.messages = const <Map<String, dynamic>>[],
+    this.agentConfig,
+    this.modelSummary,
+  });
 
   final List<Map<String, dynamic>> messages;
+  final Map<String, dynamic>? agentConfig, modelSummary;
   final requested = <Uri>[];
 
   @override
@@ -138,6 +164,29 @@ final class _StubAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requested.add(options.uri);
+    final settings = switch (options.uri.path) {
+      '/api/config' => agentConfig == null ? null : {'config': agentConfig},
+      '/api/model/info' => modelSummary,
+      _ => null,
+    };
+    if (settings != null) {
+      return ResponseBody.fromString(
+        jsonEncode(settings),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
+    if (options.uri.path.endsWith('/read-data-url')) {
+      return ResponseBody.fromString(
+        jsonEncode({'dataUrl': 'data:text/plain;base64,SGVsbG8='}),
+        200,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+    }
     if (options.uri.path.endsWith('/messages')) {
       return ResponseBody.fromString(
         jsonEncode({'messages': messages}),
@@ -163,6 +212,31 @@ final class _StubAdapter implements HttpClientAdapter {
 }
 
 /// Serves `/api/status` like [_StubAdapter] but fails the transcript request.
+final class _PagedTitleAdapter extends _StubAdapter {
+  _PagedTitleAdapter(this.history);
+  final List<Map<String, dynamic>> history;
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (!options.uri.path.endsWith('/messages')) {
+      return super.fetch(options, requestStream, cancelFuture);
+    }
+    requested.add(options.uri);
+    final offset = int.parse(options.uri.queryParameters['offset'] ?? '0');
+    final limit = int.parse(options.uri.queryParameters['limit'] ?? '40');
+    return ResponseBody.fromString(
+      jsonEncode({'messages': history.skip(offset).take(limit).toList()}),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+}
+
 final class _FailingMessagesAdapter extends _StubAdapter {
   _FailingMessagesAdapter({required this.status});
 
@@ -189,8 +263,744 @@ final class _FailingMessagesAdapter extends _StubAdapter {
 }
 
 void main() {
+  test('Auto rename suggestion uses a bounded one-shot without opening or posting to a chat', () async {
+    final harness = _GatewayHarness();
+    harness.responder = (method) => method == 'llm.oneshot'
+        ? {'text': '"Website Navigation Redesign"'}
+        : {};
+    final adapter = _StubAdapter(
+      messages: const [
+        {'role': 'assistant', 'content': 'Use a compact navigation bar.'},
+        {'role': 'tool', 'content': 'Do not include private tool output'},
+        {'role': 'user', 'content': 'Help me redesign the website navigation.'},
+      ],
+    );
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(adapter),
+      rpc: HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      ),
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+    final title = await service.suggestSessionTitle('stored-review');
+    expect(title, 'Website Navigation Redesign');
+    final call = harness.sent.singleWhere((f) => f['method'] == 'llm.oneshot');
+    final params = call['params'] as Map;
+    expect(params['input'], contains('redesign the website navigation'));
+    expect(params['input'], isNot(contains('private tool output')));
+    expect(params['session_id'], isNull);
+    expect(
+      harness.sent.where(
+        (f) => {
+          'session.create',
+          'session.resume',
+          'prompt.submit',
+          'slash.exec',
+          'session.title',
+        }.contains(f['method']),
+      ),
+      isEmpty,
+    );
+    final transcript = adapter.requested.singleWhere(
+      (uri) => uri.path.endsWith('/messages'),
+    );
+    expect(transcript.queryParameters['limit'], '200');
+    expect(transcript.queryParameters['order'], 'oldest');
+  });
+
+  test('Auto rename includes opening and recent context across stored history pages', () async {
+    final harness = _GatewayHarness();
+    harness.responder = (method) => method == 'llm.oneshot'
+        ? {'text': 'Accessible Website Navigation'}
+        : {};
+    final history = <Map<String, dynamic>>[
+      {
+        'role': 'user',
+        'content': 'Opening topic: redesign the company website.',
+      },
+      for (var i = 1; i < 249; i++)
+        {
+          'role': i.isEven ? 'user' : 'assistant',
+          'content': 'Design discussion $i. ${'x' * 1700}',
+        },
+      {
+        'role': 'user',
+        'content':
+            'Latest decision: accessible navigation and keyboard controls.',
+      },
+    ];
+    final adapter = _PagedTitleAdapter(history);
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(adapter),
+      rpc: HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      ),
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+    await service.suggestSessionTitle('long-review');
+    final params =
+        harness.sent.singleWhere(
+              (frame) => frame['method'] == 'llm.oneshot',
+            )['params']
+            as Map;
+    expect(params['input'], contains('Opening topic'));
+    expect(params['input'], contains('Latest decision'));
+    expect((params['input'] as String).length, lessThanOrEqualTo(12000));
+    expect(
+      adapter.requested.where((uri) => uri.path.endsWith('/messages')).length,
+      2,
+    );
+    expect(
+      harness.sent.where(
+        (frame) => {
+          'session.resume',
+          'prompt.submit',
+          'slash.exec',
+          'session.title',
+        }.contains(frame['method']),
+      ),
+      isEmpty,
+    );
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   tearDown(PreferencesStore.debugReset);
+  testWidgets(
+    'Bare reasoning opens once, shows current settings and changes display separately',
+    (tester) async {
+      final fixture = await _pumpConfiguration(
+        tester,
+        'reasoning',
+        autoOpen: true,
+      );
+      for (var frame = 0; frame < 3; frame++) {
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+      expect(find.text('Choose reasoning effort'), findsOneWidget);
+      expect(find.text('Current reasoning: medium'), findsOneWidget);
+      expect(find.text('Show reasoning'), findsOneWidget);
+      expect(
+        fixture.harness.sent.where((frame) => frame['method'] == 'config.set'),
+        isEmpty,
+      );
+      await tester.tap(find.byType(AdaptiveSwitch));
+      for (var frame = 0; frame < 3; frame++) {
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+      final write = fixture.harness.sent.singleWhere(
+        (frame) => frame['method'] == 'config.set',
+      );
+      expect((write['params'] as Map)['key'], 'reasoning');
+      expect((write['params'] as Map)['value'], 'show');
+      expect((write['params'] as Map)['scope'], 'session');
+      expect(
+        fixture.container
+            .read(chatMessagesProvider)
+            .single
+            .metadata?['hermesReasoningDisplay'],
+        isTrue,
+      );
+      expect(find.text('Choose reasoning effort'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close'));
+      for (var frame = 0; frame < 3; frame++) {
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+      fixture.container
+          .read(hermesMobileNavigationProvider.notifier)
+          .showConversation();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Choose reasoning effort'), findsNothing);
+      expect(find.text('Change Reasoning'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Reasoning picker hides effort choices for models with no controls',
+    (tester) async {
+      final fixture = await _pumpConfiguration(
+        tester,
+        'reasoning',
+        reasoningAvailable: false,
+      );
+      await tester.tap(find.text('Change Reasoning'));
+      for (var frame = 0; frame < 3; frame++) {
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+      expect(
+        find.text('This model does not support reasoning controls.'),
+        findsOneWidget,
+      );
+      expect(find.text('High'), findsNothing);
+      expect(
+        fixture.harness.sent.where((frame) => frame['method'] == 'config.set'),
+        isEmpty,
+      );
+    },
+  );
+
+  test('Mandatory reasoning excludes the Off choice', () {
+    const settings = HermesSessionReasoningSettings(
+      reasoningAvailable: true,
+      canDisableReasoning: false,
+    );
+    expect(settings.levels, isNot(contains('none')));
+    expect(settings.levels, contains('high'));
+  });
+  testWidgets(
+    'Model control picks provider then model and confirms expensive choices',
+    (tester) async {
+      final fixture = await _pumpConfiguration(tester, 'model');
+      await tester.tap(find.text('Change Model'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Choose a provider'), findsOneWidget);
+      await tester.tap(find.text('configured'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Model A'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Confirm this model'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        fixture.harness.sent.where((f) => f['method'] == 'config.set'),
+        hasLength(1),
+      );
+      expect(
+        fixture.container
+            .read(selectedModelProvider)
+            ?.metadata?['hermesConfiguredDefault'],
+        isTrue,
+      );
+      await tester.tap(find.text('Change Model'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('configured'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Model A'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Confirm'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      final setters = fixture.harness.sent
+          .where((f) => f['method'] == 'config.set')
+          .toList();
+      expect(setters, hasLength(3));
+      expect(
+        (setters.last['params'] as Map)['confirm_expensive_model'],
+        isTrue,
+      );
+      expect(
+        fixture.container
+            .read(selectedModelProvider)
+            ?.metadata?['hermesModelId'],
+        'model-a',
+      );
+    },
+  );
+
+  testWidgets(
+    'Reasoning pick applies to the session and persists for the next turn',
+    (tester) async {
+      final fixture = await _pumpConfiguration(tester, 'reasoning');
+      await tester.tap(find.text('Change Reasoning'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Choose reasoning effort'), findsOneWidget);
+      await tester.tap(find.text('High'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      final params =
+          fixture.harness.sent.singleWhere(
+                (f) => f['method'] == 'config.set',
+              )['params']
+              as Map;
+      expect(params['session_id'], 'runtime-picker');
+      expect(params['key'], 'reasoning');
+      expect(params['value'], 'high');
+      expect(params['scope'], 'session');
+      expect(fixture.container.read(configuredReasoningEffortProvider), 'high');
+    },
+  );
+
+  testWidgets(
+    'Switching chats while picking a provider prevents the stale mutation',
+    (tester) async {
+      final fixture = await _pumpConfiguration(tester, 'model');
+      await tester.tap(find.text('Change Model'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      fixture.container.read(activeConversationProvider.notifier).clear();
+      await tester.tap(find.text('configured'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        fixture.harness.sent.where((f) => f['method'] == 'config.set'),
+        isEmpty,
+      );
+      expect(find.text('Choose a model'), findsNothing);
+    },
+  );
+
+  test('Bare configuration commands offer native controls without submitting an agent prompt', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    final harness = _GatewayHarness();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(),
+      rpc: HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      ),
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+    harness.responder = (method) => switch (method) {
+      'session.resume' => {
+        'session_id': 'runtime-1',
+        'stored_session_id': 'stored-1',
+        'running': false,
+        'info': {'running': false},
+      },
+      'slash.exec' => {'output': 'Current setting'},
+      _ => {},
+    };
+    for (final command in ['model', 'reasoning']) {
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('/$command'),
+        sessionId: 'stored-1',
+        options: const HermesDesktopSessionOptions(reasoningEffort: 'medium'),
+      );
+      final events = await response.events.toList();
+      expect(
+        events.whereType<HermesConfigurationRequested>().single.command,
+        command,
+      );
+      expect(
+        events.whereType<HermesFinalOutput>().single.text,
+        'Current setting',
+      );
+    }
+    expect(
+      harness.sent.where(
+        (frame) =>
+            const {'prompt.submit', 'config.set'}.contains(frame['method']),
+      ),
+      isEmpty,
+    );
+  });
+
+  testWidgets(
+    'chat selector loads without configuration writes and disappears for an untrusted owner',
+    (tester) async {
+      final fixture = await _pumpConfiguration(tester, 'model');
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: fixture.container,
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const Scaffold(
+              body: Align(
+                alignment: Alignment.bottomLeft,
+                child: HermesChatModelSelector(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Model A · Medium'), findsOneWidget);
+      await tester.tap(find.text('Model A · Medium'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CompactModelSelector), findsOneWidget);
+      expect(
+        fixture.harness.sent.where((f) => f['method'] == 'config.set'),
+        isEmpty,
+      );
+      final active = fixture.container.read(activeConversationProvider)!;
+      fixture.container
+          .read(activeConversationProvider.notifier)
+          .set(
+            inheritNativeHermesConversationProvenance(
+              active,
+              active.copyWith(
+                metadata: {
+                  ...active.metadata,
+                  kHermesConnectionIdentityMetadataKey: 'different-owner',
+                },
+              ),
+            ),
+          );
+      await tester.pumpAndSettle();
+      expect(find.byType(CompactModelSelector), findsNothing);
+      expect(
+        fixture.harness.sent.where((f) => f['method'] == 'config.set'),
+        isEmpty,
+      );
+    },
+  );
+
+  for (final raw in <Object>[
+    'model-a',
+    {'model': 'model-a'},
+    <String, dynamic>{},
+  ]) {
+    testWidgets(
+      'draft model selector resolves legacy config $raw and the provider summary',
+      (tester) async {
+        final fixture = await _pumpConfiguration(
+          tester,
+          'model',
+          adapter: _StubAdapter(
+            agentConfig: {
+              'model': raw,
+              'agent': {'reasoning_effort': 'medium'},
+            },
+            modelSummary: {'model': 'model-a', 'provider': 'configured'},
+          ),
+        );
+        fixture.container.read(activeConversationProvider.notifier).set(null);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: fixture.container,
+            child: const MaterialApp(
+              home: Scaffold(
+                body: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: HermesChatModelSelector(),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Model A · Medium'));
+        await tester.pumpAndSettle();
+        final control = tester.widget<CompactModelSelector>(
+          find.byType(CompactModelSelector),
+        );
+        expect(control.model, 'Model A');
+        expect(control.provider, 'Configured');
+        expect(control.effort, 'medium');
+        expect(
+          fixture.harness.sent.where((f) => f['method'] == 'config.set'),
+          isEmpty,
+        );
+      },
+    );
+  }
+
+  test('visual model mode survives reload and cannot cross connection or session boundaries', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    await HermesVisualModelStore.write(
+      'fixture-owner-a',
+      'fixture-session-a',
+      const HermesDesktopSessionOptions(followGlobal: true),
+    );
+    expect(
+      HermesVisualModelStore.read('fixture-owner-b', 'fixture-session-a'),
+      isNull,
+    );
+    expect(
+      HermesVisualModelStore.read('fixture-owner-a', 'fixture-session-b'),
+      isNull,
+    );
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    expect(
+      HermesVisualModelStore.read(
+        'fixture-owner-a',
+        'fixture-session-a',
+      )?.followGlobal,
+      isTrue,
+    );
+    await HermesVisualModelStore.write(
+      'fixture-owner-a',
+      'fixture-session-a',
+      const HermesDesktopSessionOptions(preserveSession: true),
+    );
+    final current = HermesVisualModelStore.read(
+      'fixture-owner-a',
+      'fixture-session-a',
+    );
+    expect(current?.followGlobal, isFalse);
+    expect(current?.preserveSession, isTrue);
+  });
+
+  test('visual selector reads supported effort levels and keeps global reset scoped to the owning bot', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    final harness = _GatewayHarness();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopProfile: 'default',
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'fixture-token',
+        ),
+      ),
+      dio: _statusDio(),
+      rpc: HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      ),
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+    var globalModel = 'model-a', globalEffort = 'high';
+    harness.responder = (method) {
+      final params = harness.sent.last['params'] as Map? ?? {};
+      return switch (method) {
+        'session.resume' => {
+          'session_id': 'runtime-bot',
+          'stored_session_id': 'stored-bot',
+          'running': false,
+          'info': {'running': false},
+        },
+        'model.options' => {
+          'model': globalModel,
+          'provider': 'configured',
+          'providers': [
+            {
+              'slug': 'configured',
+              'models': [globalModel],
+              'capabilities': {
+                globalModel: {
+                  'reasoning': true,
+                  'fast': true,
+                  'supported_efforts': ['low', 'medium', 'high'],
+                  'can_disable_reasoning': false,
+                },
+              },
+            },
+          ],
+        },
+        'config.get' =>
+          params['key'] == 'full'
+              ? {
+                  'config': {
+                    'agent': {'service_tier': 'auto'},
+                  },
+                }
+              : {
+                  'value': params['key'] == 'fast' ? 'fast' : globalEffort,
+                  'display': 'hide',
+                },
+        'config.set' => {'value': params['value']},
+        _ => {},
+      };
+    };
+    await service.openBotChat(
+      const HermesBot(
+        name: 'researcher',
+        title: 'Research',
+        chatSessionId: 'stored-bot',
+      ),
+    );
+    final settings = await service.sessionReasoningSettings('stored-bot');
+    expect(settings.levels, ['low', 'medium', 'high']);
+    expect(settings.supportsFast, isTrue);
+    expect(settings.fast, isTrue);
+    expect(settings.provider, 'configured');
+    await service.configureSession('stored-bot', fast: false);
+    final fastWrite = harness.sent.last['params'] as Map;
+    expect(fastWrite['key'], 'fast');
+    expect(fastWrite['value'], 'normal');
+    expect(fastWrite['scope'], 'session');
+    await service.applyGlobalSessionOptions('stored-bot');
+    globalModel = 'model-b';
+    globalEffort = 'low';
+    await service.applyGlobalSessionOptions('stored-bot');
+    final setters = harness.sent
+        .where((f) => f['method'] == 'config.set')
+        .map((f) => f['params'] as Map)
+        .toList();
+    expect(
+      setters.any(
+        (p) => p['value'] == 'model-b --provider configured --session',
+      ),
+      isTrue,
+    );
+    expect(
+      setters.any((p) => p['key'] == 'reasoning' && p['value'] == 'low'),
+      isTrue,
+    );
+    expect(
+      setters.any((p) => p['key'] == 'fast' && p['value'] == 'auto'),
+      isTrue,
+    );
+    for (final params in setters) {
+      expect(params['session_id'], 'runtime-bot');
+      expect(params['profile'], 'researcher');
+      expect(params['scope'], 'session');
+    }
+    final globalReads = harness.sent
+        .where(
+          (f) =>
+              f['method'] == 'config.get' &&
+              (f['params'] as Map)['key'] == 'full',
+        )
+        .map((f) => f['params'] as Map);
+    expect(globalReads, hasLength(2));
+    for (final params in globalReads) {
+      expect(params['session_id'], isNull);
+      expect(params['profile'], 'researcher');
+    }
+  });
+
+  test('Session picker reads and mutations keep runtime and bot profile scope, and expose confirmation', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    final harness = _GatewayHarness();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopProfile: 'default',
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(),
+      rpc: HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      ),
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+    harness.responder = (method) => switch (method) {
+      'session.resume' => {
+        'session_id': 'runtime-bot',
+        'stored_session_id': 'stored-bot',
+        'running': false,
+        'info': {'running': false},
+      },
+      'model.options' => {
+        'providers': [
+          {
+            'slug': 'configured',
+            'models': ['model-a'],
+          },
+          {
+            'slug': 'unavailable',
+            'authenticated': false,
+            'models': ['model-b'],
+          },
+        ],
+      },
+      'config.get' => {'key': 'reasoning', 'value': 'medium'},
+      'config.set' => {
+        'confirm_required': true,
+        'confirm_message': 'Confirm this model',
+      },
+      _ => {},
+    };
+    await service.openBotChat(
+      const HermesBot(
+        name: 'researcher',
+        title: 'Research',
+        chatSessionId: 'stored-bot',
+      ),
+    );
+    final models = await service.sessionModelOptions('stored-bot');
+    expect(models.map((option) => option.id), ['model-a']);
+    expect(await service.sessionReasoning('stored-bot'), 'medium');
+    final confirmation = await service.configureSession(
+      'stored-bot',
+      model: 'model-a',
+      provider: 'configured',
+    );
+    expect(confirmation['confirm_required'], isTrue);
+    var setters = harness.sent
+        .where((frame) => frame['method'] == 'config.set')
+        .toList();
+    expect(
+      (setters.single['params'] as Map)['confirm_expensive_model'],
+      isNull,
+    );
+    await service.configureSession(
+      'stored-bot',
+      model: 'model-a',
+      provider: 'configured',
+      confirmExpensiveModel: true,
+    );
+    await service.configureSession('stored-bot', reasoning: 'high');
+    setters = harness.sent
+        .where((frame) => frame['method'] == 'config.set')
+        .toList();
+    expect((setters[1]['params'] as Map)['confirm_expensive_model'], isTrue);
+    expect(
+      (setters[0]['params'] as Map)['value'],
+      'model-a --provider configured --session',
+    );
+    expect((setters[2]['params'] as Map)['value'], 'high');
+    for (final frame in harness.sent.where(
+      (frame) => const {
+        'model.options',
+        'config.get',
+        'config.set',
+      }.contains(frame['method']),
+    )) {
+      final params = frame['params'] as Map;
+      expect(params['profile'], 'researcher');
+      expect(params['session_id'], 'runtime-bot');
+      if (frame['method'] == 'config.set') expect(params['scope'], 'session');
+    }
+  });
 
   test(
     'session.info clears an unsupportedGateway state keyed by stored id',
@@ -393,6 +1203,154 @@ void main() {
       check(historyRequest.queryParameters['order']).equals('oldest');
       check(historyRequest.queryParameters['limit']).equals('200');
       check(turnStates.last).equals(HermesDesktopTurnState.idle);
+    },
+  );
+
+  test(
+    'Files reads stored history without resuming or consuming runtime events',
+    () async {
+      final harness = _GatewayHarness();
+      final adapter = _StubAdapter(
+        messages: const [
+          {'role': 'assistant', 'content': 'An output'},
+        ],
+      );
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'test-token',
+          ),
+        ),
+        dio: _statusDio(adapter),
+        rpc: HermesDesktopRpcClient(
+          channelFactory: (_, _, {httpClient}) => harness.channel,
+        ),
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+      final messages = await service.readStoredTranscript('session:one');
+      expect(messages.single['content'], 'An output');
+      expect(harness.sent, isEmpty);
+      expect(
+        adapter.requested
+            .singleWhere((uri) => uri.path.endsWith('/messages'))
+            .queryParameters['order'],
+        'oldest',
+      );
+    },
+  );
+
+  test(
+    'Tasks and installed skills use read-only profile-scoped RPCs',
+    () async {
+      final harness = _GatewayHarness();
+      harness.responder = (method) => switch (method) {
+        'session.active_list' => {
+          'sessions': [
+            {'id': 'runtime', 'session_key': 'stored', 'status': 'working'},
+          ],
+        },
+        'skills.manage' => {
+          'skills': {
+            'productivity': ['planning'],
+            'writing': ['drafting'],
+          },
+        },
+        'commands.catalog' => {
+          'pairs': [
+            ['planning', 'Plan a project'],
+            ['reset', 'Reset chat'],
+          ],
+        },
+        _ => const {},
+      };
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopProfile: 'work',
+          desktopCredentials: HermesDesktopCredentials(legacyToken: 'fixture'),
+        ),
+        dio: _statusDio(),
+        rpc: HermesDesktopRpcClient(
+          channelFactory: (_, _, {httpClient}) => harness.channel,
+        ),
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+      expect(
+        (await service.listActiveSessions()).single['session_key'],
+        'stored',
+      );
+      final skills = await service.listSkills();
+      expect(skills.map((row) => row['name']), ['planning', 'drafting']);
+      expect(skills.map((row) => row['category']), ['productivity', 'writing']);
+      expect(skills.first['description'], 'Plan a project');
+      expect(
+        harness.sent.map((frame) => frame['method']),
+        isNot(
+          contains(
+            anyOf('session.resume', 'session.activate', 'approval.received'),
+          ),
+        ),
+      );
+      for (final frame in harness.sent.where(
+        (frame) =>
+            frame['method'] == 'session.active_list' ||
+            frame['method'] == 'skills.manage',
+      )) {
+        expect((frame['params'] as Map)['profile'], 'work');
+      }
+    },
+  );
+
+  test(
+    'File reads keep path, session and profile in the authenticated endpoint',
+    () async {
+      final adapter = _StubAdapter();
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopProfile: 'work',
+          desktopCredentials: HermesDesktopCredentials(legacyToken: 'fixture'),
+        ),
+        dio: _statusDio(adapter),
+      );
+      addTearDown(service.close);
+      expect(
+        await service.readSessionFileDataUrl(
+          '/workspace/report.txt',
+          'session:one',
+        ),
+        'data:text/plain;base64,SGVsbG8=',
+      );
+      final uri = adapter.requested.singleWhere(
+        (uri) => uri.path.endsWith('/read-data-url'),
+      );
+      expect(uri.path, '/api/fs/read-data-url');
+      expect(uri.queryParameters, {
+        'path': '/workspace/report.txt',
+        'session_id': 'session:one',
+        'profile': 'work',
+      });
+      await expectLater(
+        service.readSessionFileDataUrl('bad\u0000path', 'session:one'),
+        throwsArgumentError,
+      );
+      expect(
+        adapter.requested.where((uri) => uri.path.endsWith('/read-data-url')),
+        hasLength(1),
+      );
     },
   );
 
@@ -802,4 +1760,157 @@ Future<String> _replyAfterPreTurnFrames(
 
   final deltas = (await events).whereType<HermesTokenDelta>();
   return deltas.map((event) => event.content).join();
+}
+
+class _PickerSelected extends SelectedModel {
+  @override
+  Model? build() => hermesSyntheticModel();
+}
+
+class _PickerConfig extends HermesConfigController {
+  _PickerConfig(this.config);
+  final HermesConfig config;
+  @override
+  HermesConfig build() => config;
+}
+
+class _PickerMessages extends ChatMessagesNotifier {
+  _PickerMessages(this.message);
+  final ChatMessage message;
+  @override
+  List<ChatMessage> build() => [message];
+}
+
+Future<({ProviderContainer container, _GatewayHarness harness})>
+_pumpConfiguration(
+  WidgetTester tester,
+  String command, {
+  bool autoOpen = false,
+  bool reasoningAvailable = true,
+  _StubAdapter? adapter,
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+  final harness = _GatewayHarness();
+  final config = HermesConfig(
+    enabled: true,
+    baseUrl: 'https://hermes.example',
+    mode: HermesBackendMode.desktopGateway,
+    desktopCredentials: HermesDesktopCredentials(legacyToken: 'session-token'),
+  );
+  final service = HermesDesktopApiService(
+    config: config,
+    dio: _statusDio(adapter),
+    rpc: HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => harness.channel,
+    ),
+  );
+  harness.responder = (method) => switch (method) {
+    'session.resume' => {
+      'session_id': 'runtime-picker',
+      'stored_session_id': 'stored-picker',
+      'running': false,
+      'info': {'running': false},
+    },
+    'model.options' => {
+      'model': 'model-a',
+      'provider': 'configured',
+      'providers': [
+        {
+          'slug': 'configured',
+          'capabilities': {
+            'model-a': {'reasoning': reasoningAvailable},
+          },
+          'models': [
+            {'id': 'model-a', 'name': 'Model A'},
+          ],
+        },
+      ],
+    },
+    'config.get' => {'key': 'reasoning', 'value': 'medium', 'display': 'hide'},
+    'config.set' =>
+      (harness.sent.last['params'] as Map)['key'] == 'model' &&
+              (harness.sent.last['params'] as Map)['confirm_expensive_model'] !=
+                  true
+          ? {'confirm_required': true, 'confirm_message': 'Confirm this model'}
+          : {
+              'key': (harness.sent.last['params'] as Map)['key'],
+              'value': (harness.sent.last['params'] as Map)['value'],
+            },
+    _ => {},
+  };
+  await tester.runAsync(() => service.sessionModelOptions('stored-picker'));
+  late final ChatMessage message;
+  final container = ProviderContainer(
+    overrides: [
+      hermesApiServiceProvider.overrideWithValue(service),
+      hermesConfigProvider.overrideWith(() => _PickerConfig(config)),
+      selectedModelProvider.overrideWith(_PickerSelected.new),
+      chatMessagesProvider.overrideWith(() => _PickerMessages(message)),
+      apiServiceProvider.overrideWithValue(null),
+    ],
+  );
+  addTearDown(() async {
+    container.dispose();
+    service.close();
+    await harness.dispose();
+  });
+  final identity = HermesLocalDocumentTrustStore.connectionIdentity(
+    endpointIdentity: HermesConfigController.connectionEndpoint(
+      config.baseUrl,
+    )!,
+    principalId: container
+        .read(hermesConfigProvider.notifier)
+        .documentTrustPrincipalId(),
+  );
+  message = ChatMessage(
+    id: 'configuration',
+    role: 'assistant',
+    content: 'Current setting',
+    timestamp: DateTime(2026),
+    metadata: {
+      'hermesConfigurationCommand': command,
+      'hermesConfigurationSessionId': 'stored-picker',
+      if (autoOpen) 'hermesConfigurationAutoOpen': true,
+      kHermesConnectionIdentityMetadataKey: identity,
+    },
+  );
+  container
+      .read(activeConversationProvider.notifier)
+      .set(
+        markNativeHermesConversation(
+          Conversation(
+            id: 'native-picker',
+            title: 'Settings test',
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+            messages: [message],
+            metadata: {
+              'hermesSessionId': 'stored-picker',
+              kHermesConnectionIdentityMetadataKey: identity,
+            },
+          ),
+        ),
+      );
+  if (autoOpen) {
+    container.read(hermesMobileNavigationProvider.notifier).showConversation();
+  }
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(body: HermesConfigurationActions(message: message)),
+      ),
+    ),
+  );
+  if (autoOpen) {
+    for (var frame = 0; frame < 3; frame++) {
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+  } else {
+    await tester.pumpAndSettle();
+  }
+  return (container: container, harness: harness);
 }

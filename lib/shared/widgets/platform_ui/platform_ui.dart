@@ -43,3 +43,10 @@ export 'src/adaptive_progress.dart';
 export 'src/adaptive_value_segmented_control.dart';
 
 export 'src/adaptive_floating_action_button.dart';
+
+export 'src/compact_mobile_chrome.dart';
+
+export 'src/compact_model_selector.dart';
+
+export 'src/adaptive_chat_quick_switcher.dart';
+export 'src/chat_switcher_gesture.dart';

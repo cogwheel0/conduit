@@ -7,6 +7,92 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('palette mixes interpolate rather than keeping the first color', () {
+    expect(
+      mix(const Color(0xFF000000), const Color(0xFFFFFFFF), .5).toARGB32(),
+      0xFF808080,
+    );
+    expect(
+      mix(const Color(0xFF000000), const Color(0xFFFFFFFF), 0),
+      const Color(0xFF000000),
+    );
+    expect(
+      mix(const Color(0xFF000000), const Color(0xFFFFFFFF), 1),
+      const Color(0xFFFFFFFF),
+    );
+  });
+
+  test('text and hints remain legible on every theme surface', () {
+    for (final definition in TweakcnThemes.all) {
+      for (final brightness in Brightness.values) {
+        final theme =
+            (brightness == Brightness.dark
+                    ? AppTheme.dark(definition)
+                    : AppTheme.light(definition))
+                .extension<ConduitThemeExtension>()!;
+        final surfaces = {
+          'page': theme.surfaceBackground,
+          'card': theme.cardBackground,
+          'container': theme.surfaceContainer,
+          'popover': theme.surfaces.popover,
+          'input': theme.inputBackground,
+          'chrome': theme.surfaceChrome,
+          'message': theme.surfaceMessage,
+          'user bubble': theme.chatBubbleUser,
+          'assistant bubble': theme.chatBubbleAssistant,
+        };
+        for (final surface in surfaces.entries) {
+          for (final text in {
+            'primary': theme.textPrimary,
+            'secondary': theme.textSecondary,
+            'caption': theme.textTertiary,
+          }.entries) {
+            expect(
+              contrastRatio(text.value, surface.value),
+              greaterThanOrEqualTo(4.5),
+              reason: '${definition.id} $brightness ${text.key}/${surface.key}',
+            );
+          }
+        }
+        for (final surface in [theme.inputBackground, theme.surfaceContainer]) {
+          expect(
+            contrastRatio(
+              Color.alphaBlend(theme.inputPlaceholder, surface),
+              surface,
+            ),
+            greaterThanOrEqualTo(4.5),
+            reason: '${definition.id} $brightness placeholder',
+          );
+        }
+      }
+    }
+  });
+
+  test('Conduit dark surfaces have visible elevation and legible states', () {
+    final theme = AppTheme.dark(TweakcnThemes.conduit)
+        .extension<ConduitThemeExtension>()!;
+    // A visual hierarchy threshold, not a WCAG requirement for card fills.
+    expect(
+      contrastRatio(theme.cardBackground, theme.surfaceBackground),
+      greaterThan(1.4),
+    );
+    expect(
+      theme.cardBackground.computeLuminance(),
+      greaterThan(theme.surfaceBackground.computeLuminance()),
+    );
+    for (final surface in [
+      theme.cardBackground,
+      theme.surfaces.popover,
+      theme.inputBackground,
+    ]) {
+      expect(contrastRatio(theme.error, surface), greaterThanOrEqualTo(4.5));
+      expect(
+        contrastRatio(theme.inputBorderFocused, surface),
+        greaterThanOrEqualTo(3),
+      );
+    }
+  });
+
   test('sidebar tint keeps legible accents and softens saturated ones', () {
     for (final definition in TweakcnThemes.all) {
       for (final brightness in Brightness.values) {

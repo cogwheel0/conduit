@@ -9,11 +9,12 @@ import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_r
 
 import 'hermes_dashboard_cookie_store.dart';
 import 'hermes_dashboard_webview_policy.dart';
+import '../../../platform/webview_cookie_helper.dart';
 
 /// The dashboard REST bridge over a headless `flutter_inappwebview` page.
 /// When the page opens, how requests queue and what counts as an answer is
 /// conduit_core's [HermesDashboardRestSession].
-final class HermesDashboardRestBridge implements HermesDashboardBridge {
+final class HermesDashboardRestBridge implements HermesDashboardBridge, HermesDashboardTransferBridge {
   factory HermesDashboardRestBridge({
     required Uri root,
     required Map<String, String> accessHeaders,
@@ -22,6 +23,7 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     final generation = HermesDashboardCookieStore.begin(origin);
     final baseline = HermesDashboardCookieStore.snapshot(origin);
     return HermesDashboardRestBridge._(
+      root,
       accessHeaders,
       HermesDashboardRestSession(
         root: root,
@@ -37,10 +39,31 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     );
   }
 
-  HermesDashboardRestBridge._(this._accessHeaders, this._session);
+  HermesDashboardRestBridge._(this._root, this._accessHeaders, this._session);
 
+  final Uri _root;
   final Map<String, String> _accessHeaders;
   final HermesDashboardRestSession _session;
+
+  @override
+  Future<Map<String, String>> transferHeaders(Uri url) async {
+    if (!hermesDashboardIsExactOrigin(url, _root)) {
+      throw StateError('File transfer must use the connected Hermes gateway.');
+    }
+    // Establish the authenticated page before reading native HttpOnly cookies.
+    final prefix = _root.path.replaceFirst(RegExp(r'/+$'), '');
+    await request('GET', _root.replace(path: '$prefix/api/status', query: null));
+    return WebViewCookieHelper.runSerializedDataOperation(() async {
+      if (WebViewCookieHelper.requiresSuccessfulFullClear) {
+        throw StateError('Sign in again before downloading files.');
+      }
+      final cookies = await CookieManager.instance().getCookies(url: WebUri(url.toString()));
+      return {
+        ..._accessHeaders,
+        if (cookies.isNotEmpty) 'Cookie': cookies.map((c) => '${c.name}=${c.value}').join('; '),
+      };
+    });
+  }
 
   @override
   Future<({int status, String body})> request(

@@ -10,7 +10,9 @@ String prepareMarkdownContentCanonical(
 }) {
   final normalized = ConduitMarkdownPreprocessor.normalize(content);
   return streaming
-      ? stripTrailingIncompleteToolCallDetailsCanonical(normalized)
+      ? repairStreamingInlineTail(
+          stripTrailingIncompleteToolCallDetailsCanonical(normalized),
+        )
       : normalized;
 }
 

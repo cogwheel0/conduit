@@ -14,6 +14,26 @@ void main() {
 
   tearDown(PreferencesStore.debugReset);
 
+  test('restored approval retains long command text and indentation', () async {
+    final command = List.generate(
+      100,
+      (i) => '  echo install and verify step $i',
+    ).join('\n');
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-1',
+      kind: HermesPendingDesktopDecisionKind.approval,
+      prompt: command,
+    );
+    final record = (await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    )).single;
+    expect(record.prompt, command);
+  });
+
   test('persists only bounded redacted prompt presentation', () async {
     await HermesPendingDecisionStore.upsert(
       origin: 'https://hermes.example:443',
@@ -243,9 +263,8 @@ void main() {
       connectionId: first,
     );
     // Records from before saved connections existed match by origin alone.
-    check(
-      forFirst.map((record) => record.requestId),
-    ).unorderedEquals(['request-first', 'request-legacy']);
+    check(forFirst.map((record) => record.requestId))
+        .unorderedEquals(['request-first', 'request-legacy']);
     check(
       forFirst.firstWhere((r) => r.requestId == 'request-first').connectionId,
     ).equals(first);
@@ -258,9 +277,8 @@ void main() {
       origin: origin,
       storedSessionId: 'stored-1',
     );
-    check(
-      remaining.map((record) => record.requestId),
-    ).deepEquals(['request-second']);
+    check(remaining.map((record) => record.requestId))
+        .deepEquals(['request-second']);
   });
 
   test('a connection adopts its request recorded before the upgrade', () async {

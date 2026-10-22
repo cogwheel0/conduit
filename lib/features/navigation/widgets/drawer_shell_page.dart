@@ -19,6 +19,8 @@ import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'sidebar_page.dart';
 import 'sidebar_tab_registry.dart';
+import '../../hermes/providers/hermes_mobile_navigation.dart';
+import '../../hermes/widgets/hermes_mobile_shell.dart';
 
 /// Shell widget that wraps child routes with a persistent
 /// [ResponsiveDrawerLayout] + [SidebarPage] drawer.
@@ -36,6 +38,9 @@ class DrawerShellPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(hermesMobileLayoutProvider)) {
+      return HermesMobileShell(child: child);
+    }
     final isTablet = usesPersistentTabletSidebar(context);
     final tabletWidth = ref.watch(sidebarTabletWidthProvider);
     final localizations = AppLocalizations.of(context)!;

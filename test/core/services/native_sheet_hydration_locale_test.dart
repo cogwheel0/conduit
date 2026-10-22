@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/services/native_sheet_hydration_service.dart';
+import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
+import 'package:conduit/features/chat/services/text_to_speech_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
@@ -21,6 +25,23 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockOptimizedStorageService extends Mock
     implements OptimizedStorageService {}
+
+/// Speech settings whose voices never finish loading.
+class _QuietTextToSpeechService extends Fake implements TextToSpeechService {
+  @override
+  Future<void> updateSettings({
+    Object? voice,
+    Object? serverVoice,
+    double? speechRate,
+    double? pitch,
+    double? volume,
+    TtsEngine? engine,
+  }) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> getAvailableVoices() =>
+      Completer<List<Map<String, dynamic>>>().future;
+}
 
 final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
   'dev.flutter.pigeon.conduit.NativeSheetHostApi.applyDetailPatch',
@@ -122,6 +143,56 @@ void main() {
     check(appearance.last.title).equals(spanish.settingsAppearance);
     check(appearance.last.title)
         .not((it) => it.equals(english.settingsAppearance));
+  });
+
+  testWidgets('the Voice provider page is patched alone, without the voices', (
+    tester,
+  ) async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    final patches = <PlatformNativeSheetApplyDetailPatchRequest>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          patches.add(
+            (message! as List<Object?>).single!
+                as PlatformNativeSheetApplyDetailPatchRequest,
+          );
+          return <Object?>[true];
+        });
+
+    final storage = _MockOptimizedStorageService();
+    when(storage.getThemeMode).thenReturn(null);
+    when(storage.getThemePaletteId).thenReturn(null);
+    when(storage.getLocaleCode).thenReturn(null);
+    when(storage.getReviewerMode).thenAnswer((_) async => false);
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        modelsProvider.overrideWith(_NoModels.new),
+        textToSpeechServiceProvider.overrideWithValue(
+          _QuietTextToSpeechService(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _LocalizedRoot(),
+      ),
+    );
+    await tester.pump();
+
+    final service = container.read(nativeSheetHydrationServiceProvider);
+    final refreshed = service.hydrateDetail(NativeSheetRoutes.voiceProvider);
+    await tester.pump();
+    await refreshed;
+
+    // iOS redraws only the page a patch is for, and the speech voices this
+    // page does not show are not waited for while the user types.
+    check(patches.last.detailId).equals(NativeSheetRoutes.voiceProvider);
+    check(patches.last.detailSheets ?? const []).isEmpty();
   });
 
   testWidgets('Appearance keeps its pickers when the models request fails', (

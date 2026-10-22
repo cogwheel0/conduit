@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/features/chat/server_speech/openwebui_server_speech.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
@@ -16,6 +17,157 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'continuous capture delivers separate utterances and resets for dictation',
+    () async {
+      final native = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: native);
+      await service.initialize(forceLocalStt: true);
+      service.setContinuousCallActive(true);
+      await service.startListening(nativeAccumulateResults: false);
+      expect(native.callPolicies, [true]);
+      final transcripts = <VoiceTranscriptEvent>[];
+      final subscription = service.transcriptEvents.listen(transcripts.add);
+      for (final text in ['First question', 'Second question']) {
+        native.emit(NativeSttEvent(type: 'result', text: text, isFinal: true));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(service.isListening, isTrue);
+      expect(transcripts.map((event) => event.text), [
+        'First question',
+        'Second question',
+      ]);
+      await subscription.cancel();
+      await service.stopListening();
+      service.setContinuousCallActive(false);
+      await service.startListening();
+      expect(native.callPolicies, [true, false]);
+      await service.dispose();
+      await native.dispose();
+    },
+  );
+
+  test(
+    'microphone levels arrive before text and ignore invalid or stopped events',
+    () async {
+      final native = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: native);
+      await service.initialize(forceLocalStt: true);
+      await service.startListening();
+      native.emit(NativeSttEvent.fromMap({'type': 'level', 'level': 0.6}));
+      await Future<void>.delayed(Duration.zero);
+      expect(service.recordingLevel.value, 0.6);
+      native.emit(const NativeSttEvent(type: 'result', text: 'hello'));
+      native.emit(const NativeSttEvent(type: 'level', level: double.nan));
+      await Future<void>.delayed(Duration.zero);
+      expect(service.recordingLevel.value, 0.6);
+      native.emit(const NativeSttEvent(type: 'level', level: 3));
+      await Future<void>.delayed(Duration.zero);
+      expect(service.recordingLevel.value, 1);
+      await service.stopListening();
+      native.emit(const NativeSttEvent(type: 'level', level: 0.8));
+      await Future<void>.delayed(Duration.zero);
+      expect(service.recordingLevel.value, 0);
+      await service.dispose();
+      await native.dispose();
+    },
+  );
+
+  test(
+    'call intensity follows microphone audio before any words arrive',
+    () async {
+      final native = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: native);
+      addTearDown(native.dispose);
+      addTearDown(service.dispose);
+      await service.initialize(forceLocalStt: true);
+      await service.startListening(
+        nativeAccumulateResults: false,
+        holdServerRecorderForResponseWait: true,
+      );
+      final intensities = <int>[];
+      final subscription = service.intensityStream.listen(intensities.add);
+      addTearDown(subscription.cancel);
+      native.emit(const NativeSttEvent(type: 'level', level: 0.8));
+      await Future<void>.delayed(Duration.zero);
+      expect(intensities, [8]);
+    },
+  );
+
+  test(
+    'call meter follows quieter audio and silence without transcript jumps',
+    () async {
+      final native = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: native);
+      addTearDown(native.dispose);
+      addTearDown(service.dispose);
+      await service.initialize(forceLocalStt: true);
+      await service.startListening(nativeAccumulateResults: false);
+      final intensities = <int>[];
+      final subscription = service.intensityStream.listen(intensities.add);
+      addTearDown(subscription.cancel);
+      for (final level in [0.8, 0.2, 0.0]) {
+        native.emit(NativeSttEvent(type: 'level', level: level));
+        native.emit(
+          const NativeSttEvent(
+            type: 'result',
+            text: 'A transcript can arrive late or be revised.',
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+      }
+      native.emit(const NativeSttEvent(type: 'level', level: double.nan));
+      await Future<void>.delayed(Duration.zero);
+      expect(intensities, [8, 2, 0]);
+      expect(service.recordingLevel.value, 0);
+    },
+  );
+
+  test(
+    'call meter clears a stale audio sample and resets for the next listen',
+    () async {
+      final native = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: native);
+      addTearDown(native.dispose);
+      addTearDown(service.dispose);
+      await service.initialize(forceLocalStt: true);
+      await service.startListening(nativeAccumulateResults: false);
+      final intensities = <int>[];
+      final subscription = service.intensityStream.listen(intensities.add);
+      native.emit(const NativeSttEvent(type: 'level', level: 0.8));
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      expect(intensities, [8, 0]);
+      expect(service.recordingLevel.value, 0);
+      await subscription.cancel();
+      await service.stopListening();
+      await service.startListening(nativeAccumulateResults: false);
+      final next = <int>[];
+      final nextSubscription = service.intensityStream.listen(next.add);
+      addTearDown(nextSubscription.cancel);
+      native.emit(const NativeSttEvent(type: 'level', level: 0.5));
+      await Future<void>.delayed(Duration.zero);
+      expect(next, [5]);
+    },
+  );
+
+  test('a call subscribing after capture starts receives a steady microphone level', () async {
+    final native = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(nativeStt: native);
+    addTearDown(native.dispose);
+    addTearDown(service.dispose);
+    await service.initialize(forceLocalStt: true);
+    await service.startListening(nativeAccumulateResults: false);
+    native.emit(const NativeSttEvent(type: 'level', level: 0.6));
+    await Future<void>.delayed(Duration.zero);
+    final intensities = <int>[];
+    final subscription = service.intensityStream.listen(intensities.add);
+    addTearDown(subscription.cancel);
+    native.emit(const NativeSttEvent(type: 'level', level: 0.6));
+    native.emit(const NativeSttEvent(type: 'level', level: 0.6));
+    await Future<void>.delayed(Duration.zero);
+    expect(intensities, [6]);
+  });
 
   // Regression guard for issue #557: on a fresh install iOS reports the mic
   // permission as "denied" (not-determined). checkPermissions() must actively
@@ -118,6 +270,24 @@ void main() {
   });
 
   group('VoiceInputService on-device recognition language', () {
+    test(
+      'Android capture initialization does not wait for the language catalogue',
+      () async {
+        final native = _FakeNativeSttService()
+          ..localeGate = Completer<NativeSttLocales>();
+        final service = _SupportedVoiceInputService(nativeStt: native);
+        try {
+          await service.initialize().timeout(const Duration(milliseconds: 250));
+          expect(service.hasLocalStt, isTrue);
+          expect(native.availabilityLocaleId, isNull);
+        } finally {
+          native.localeGate!.complete(const NativeSttLocales(locales: []));
+          await service.dispose();
+          await native.dispose();
+        }
+      },
+    );
+
     test('leaves the native locale unset for automatic recognition', () async {
       final nativeStt = _FakeNativeSttService();
       final service = _SupportedVoiceInputService(nativeStt: nativeStt);
@@ -253,7 +423,7 @@ void main() {
     final recorder = _FakeServerVadRecorder();
     final service = _SupportedVoiceInputService(
       nativeStt: nativeStt,
-      api: _MockApiService(),
+      serverSpeech: () => OpenWebUiServerSpeech(_MockApiService()),
       serverVadRecorderFactory: () => recorder,
       supportsNativeResponseWaitCapture: true,
     );
@@ -275,12 +445,35 @@ void main() {
     await nativeStt.dispose();
   });
 
+  test(
+    'server-only speech uses the device in a chat that cannot transcribe',
+    () async {
+      final nativeStt = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(
+        nativeStt: nativeStt,
+        serverSpeech: () => null,
+        supportsNativeResponseWaitCapture: true,
+      );
+      service.updatePreference(SttPreference.serverOnly);
+      check(service.prefersServerOnly).isFalse();
+      check(service.prefersDeviceOnly).isTrue();
+
+      await service.initialize();
+      await service.startListening();
+      check(service.isUsingNativeLocalStt).isTrue();
+
+      await service.stopListening();
+      await service.dispose();
+      await nativeStt.dispose();
+    },
+  );
+
   group('VoiceInputService server STT consumers', () {
     test('cancels a queued server recorder start after stop', () async {
       final recorder = _FakeServerVadRecorder();
       final service = _SupportedVoiceInputService(
         nativeStt: _FakeNativeSttService(),
-        api: _MockApiService(),
+        serverSpeech: () => OpenWebUiServerSpeech(_MockApiService()),
         serverVadRecorderFactory: () => recorder,
       );
       service.updatePreference(SttPreference.serverOnly);
@@ -780,7 +973,7 @@ class _FakeServerVadRecorder implements AudioCapturePort {
 class _SupportedVoiceInputService extends VoiceInputService {
   _SupportedVoiceInputService({
     required super.nativeStt,
-    super.api,
+    super.serverSpeech,
     super.serverVadRecorderFactory,
     this.deviceLocaleTag = 'en-US',
     this.usesAutomaticNativeLanguage = true,
@@ -804,11 +997,13 @@ class _FakeNativeSttService extends NativeSttService {
   _FakeNativeSttService({this.systemLocaleId = 'en-US'});
 
   final String systemLocaleId;
+  Completer<NativeSttLocales>? localeGate;
   final StreamController<NativeSttEvent> _events =
       StreamController<NativeSttEvent>.broadcast();
   String? availabilityLocaleId;
   final List<String?> availabilityLocaleIds = <String?>[];
   String? startLocaleId;
+  final callPolicies = <bool>[];
   int detachCalls = 0;
   int stopCalls = 0;
 
@@ -821,6 +1016,7 @@ class _FakeNativeSttService extends NativeSttService {
 
   @override
   Future<NativeSttLocales> getLocales({String? deviceLocaleId}) async {
+    if (localeGate != null) return localeGate!.future;
     return NativeSttLocales(
       systemLocaleId: systemLocaleId,
       locales: const [
@@ -850,8 +1046,10 @@ class _FakeNativeSttService extends NativeSttService {
     bool emitPartialResults = true,
     bool accumulateResults = true,
     bool allowOnlineFallback = true,
+    bool voiceCall = false,
   }) async {
     startLocaleId = localeId;
+    callPolicies.add(voiceCall);
     return _events.stream;
   }
 

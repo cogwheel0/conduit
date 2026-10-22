@@ -86,6 +86,12 @@ final class HermesApprovalRequested extends HermesRunEvent {
 
 enum HermesDecisionKind { clarification, sudo, secret, mcpSetup }
 
+/// An approval was withdrawn, timed out, or answered on another client.
+final class HermesApprovalDismissed extends HermesRunEvent {
+  const HermesApprovalDismissed(this.approvalId);
+  final String approvalId;
+}
+
 /// A Desktop Gateway request that needs a structured user response.
 final class HermesDecisionRequested extends HermesRunEvent {
   const HermesDecisionRequested({
@@ -122,6 +128,13 @@ final class HermesComposerPrefill extends HermesRunEvent {
   const HermesComposerPrefill(this.text);
 
   final String text;
+}
+
+/// A native picker offered after a locally submitted bare configuration command.
+/// This event is app-generated; wire frames cannot request configuration changes.
+final class HermesConfigurationRequested extends HermesRunEvent {
+  const HermesConfigurationRequested(this.command);
+  final String command;
 }
 
 /// A terminal error reported by the run.

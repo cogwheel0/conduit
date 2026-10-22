@@ -233,7 +233,57 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     CancelToken? cancelToken,
     int nativeRetry = 0,
     int dashboardRetry = 0,
+    int? maximumResponseBytes,
+  }) => ContinuityProbe.measure(
+    'rest',
+    () => _requestJsonMeasured(
+      method,
+      path,
+      authenticated: authenticated,
+      body: body,
+      query: query,
+      cancelToken: cancelToken,
+      nativeRetry: nativeRetry,
+      dashboardRetry: dashboardRetry,
+      maximumResponseBytes: maximumResponseBytes,
+    ),
+    {
+      'method': method,
+      // Only fixed metadata endpoints are named. Profile IDs, session IDs,
+      // credentials, query parameters, and payloads never enter the trace.
+      'route':
+          const {
+            '/api/config',
+            '/api/config/schema',
+            '/api/model/info',
+            '/api/model/auxiliary',
+            '/api/model/moa',
+            '/api/model/options',
+            '/api/model/recommended-default',
+            '/api/providers/oauth',
+            '/api/status',
+          }.contains(path)
+          ? path
+          : 'other',
+    },
+  );
+
+  Future<Object?> _requestJsonMeasured(
+    String method,
+    String path, {
+    bool authenticated = true,
+    Object? body,
+    Map<String, dynamic>? query,
+    CancelToken? cancelToken,
+    int nativeRetry = 0,
+    int dashboardRetry = 0,
+    int? maximumResponseBytes,
   }) async {
+    if (maximumResponseBytes != null &&
+        (maximumResponseBytes <= 0 ||
+            maximumResponseBytes > kMaxHermesDesktopFrameBytes)) {
+      throw ArgumentError('Invalid response limit');
+    }
     final requestQuery = <String, dynamic>{...?query};
     if (authenticated && _isProfileScopedRestPath(path)) {
       requestQuery.putIfAbsent('profile', () => config.desktopProfile);
@@ -249,11 +299,32 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         retry: dashboardRetry,
       );
     }
+    var oversized = false;
+    final boundedCancel = maximumResponseBytes == null
+        ? cancelToken
+        : CancelToken();
+    if (maximumResponseBytes != null && cancelToken != null) {
+      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+      unawaited(
+        cancelToken.whenCancel.then((error) => boundedCancel!.cancel(error)),
+      );
+    }
     try {
       final response = await _dio.request<List<int>>(
         _uri(path, requestQuery.isEmpty ? null : requestQuery).toString(),
         data: body,
-        cancelToken: cancelToken,
+        cancelToken: boundedCancel,
+        onReceiveProgress: maximumResponseBytes == null
+            ? null
+            : (received, total) {
+                if (received > maximumResponseBytes ||
+                    total > maximumResponseBytes) {
+                  oversized = true;
+                  boundedCancel!.cancel(
+                    const HermesResponseTooLargeException(),
+                  );
+                }
+              },
         options: Options(
           method: method,
           headers: await _headers(authenticated: authenticated),
@@ -261,7 +332,8 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         ),
       );
       final bytes = response.data ?? const <int>[];
-      if (bytes.length > kMaxHermesDesktopFrameBytes) {
+      if (bytes.length >
+          (maximumResponseBytes ?? kMaxHermesDesktopFrameBytes)) {
         throw const HermesResponseTooLargeException();
       }
       if (bytes.isEmpty) return null;
@@ -272,6 +344,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       validateHermesJsonSource(source);
       return jsonDecode(source);
     } on DioException catch (error, stackTrace) {
+      if (oversized) throw const HermesResponseTooLargeException();
       final status = error.response?.statusCode;
       if (authenticated && status == 401) {
         if (config.desktopAuthKind == HermesDesktopAuthKind.nativePkce) {
@@ -294,6 +367,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
               query: query,
               cancelToken: cancelToken,
               nativeRetry: 1,
+              maximumResponseBytes: maximumResponseBytes,
             );
           }
           if (nativeRetry == 0 && identical(previous, refreshed)) rethrow;
@@ -352,7 +426,15 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       throw StateError('Hermes dashboard sign-in expired.');
     }
     if (response.status < 200 || response.status >= 300) {
-      throw StateError('Hermes dashboard request failed (${response.status}).');
+      final request = RequestOptions(path: path, method: method);
+      throw DioException.badResponse(
+        statusCode: response.status,
+        requestOptions: request,
+        response: Response(
+          requestOptions: request,
+          statusCode: response.status,
+        ),
+      );
     }
     if (response.body.isEmpty) return null;
     validateHermesJsonSource(response.body);

@@ -1,5 +1,4 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 

@@ -158,6 +158,7 @@ void main() {
         Routes.appearanceSettings,
         Routes.chatSettings,
         Routes.dataConnectionSettings,
+        Routes.notificationSettings,
         Routes.personalization,
         Routes.directConnections,
         Routes.directConnectionEditorPath('new'),
@@ -172,7 +173,6 @@ void main() {
     test('does not expose OpenWebUI-only surfaces', () {
       for (final location in <String>[
         Routes.accountSettings,
-        Routes.notificationSettings,
         Routes.notes,
         Routes.channel,
         // Needs a usable Desktop Gateway; the redirect decides it.

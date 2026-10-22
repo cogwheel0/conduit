@@ -63,6 +63,8 @@ import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
 import '../../shared/services/navigation_service.dart';
 
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
 import '../../shared/theme/theme_providers.dart';
@@ -680,7 +682,8 @@ class NativeSheetHydrationService {
         await _hydrateNativeAiMemoryDetail(ctx, l10n);
         return;
       case NativeSheetRoutes.voice:
-        await _hydrateNativeVoiceDetail(l10n);
+      case NativeSheetRoutes.voiceProvider:
+        await _hydrateNativeVoiceDetail(l10n, detailId: detailId);
         return;
       case NativeSheetRoutes.helpAbout:
         await _hydrateNativeAboutDetail(
@@ -1184,33 +1187,74 @@ class NativeSheetHydrationService {
     }
   }
 
-  Future<void> _hydrateNativeVoiceDetail(AppLocalizations l10n) async {
+  /// The Voice pages, with [detailId] as the one patched: iOS redraws only
+  /// the page a patch is for, so the page on screen must be that one.
+  ///
+  /// The Voice provider page shows no speech voices, so it is patched alone
+  /// and at once: waiting for the voices would let the patch land over text
+  /// the user is typing. The Voice page redraws itself when it reappears.
+  Future<void> _hydrateNativeVoiceDetail(
+    AppLocalizations l10n, {
+    required String detailId,
+  }) async {
     final appSettings = _ref.read(appSettingsProvider);
+    final providerOnly = detailId == NativeSheetRoutes.voiceProvider;
     var ttsVoices = const <Map<String, dynamic>>[];
+    if (!providerOnly) {
+      ttsVoices = await _loadNativeTtsVoices(appSettings);
+    }
+    final nativeAudio = buildNativeAudioSheetParts(
+      l10n,
+      appSettings,
+      ttsVoices: ttsVoices,
+      voiceProviderCandidates:
+          (_ref.read(directConnectionProfilesProvider).value ?? const [])
+              .where(canBeVoiceProvider)
+              .toList(growable: false),
+      serverOffersVoiceChoice:
+          _ref.read(serverSpeechProviderProvider)?.offersVoiceChoice ?? false,
+    );
+    if (providerOnly) {
+      await _applyNativeDetail(nativeAudio.voiceProviderDetail);
+      return;
+    }
+    final pages = [
+      NativeSheetDetailConfig(
+        id: NativeSheetRoutes.voice,
+        title: l10n.voice,
+        sections: nativeAudio.mainSections,
+      ),
+      nativeAudio.voicePickerDetail,
+      nativeAudio.voiceProviderDetail,
+    ];
+    final patched = pages.firstWhere(
+      (page) => page.id == detailId,
+      orElse: () => pages.first,
+    );
+    await _applyNativeDetail(
+      patched,
+      detailSheets: [
+        for (final page in pages)
+          if (page.id != patched.id) page,
+      ],
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadNativeTtsVoices(
+    AppSettings appSettings,
+  ) async {
     try {
       final ttsService = _ref.read(textToSpeechServiceProvider);
       await ttsService.updateSettings(engine: appSettings.ttsEngine);
-      ttsVoices = await ttsService.getAvailableVoices();
+      return await ttsService.getAvailableVoices();
     } catch (error, stackTrace) {
       DebugLogger.warning(
         'native-tts-voices-load-failed',
         scope: 'native-sheet',
         data: {'error': error, 'stackTrace': stackTrace},
       );
+      return const <Map<String, dynamic>>[];
     }
-    final nativeAudio = buildNativeAudioSheetParts(
-      l10n,
-      appSettings,
-      ttsVoices: ttsVoices,
-    );
-    await _applyNativeDetail(
-      NativeSheetDetailConfig(
-        id: NativeSheetRoutes.voice,
-        title: l10n.voice,
-        sections: nativeAudio.mainSections,
-      ),
-      detailSheets: [nativeAudio.voicePickerDetail],
-    );
   }
 
   Future<void> _applyNativeAppearanceDetail(AppLocalizations l10n) async {

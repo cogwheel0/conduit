@@ -11,6 +11,7 @@ import 'package:conduit_core/models/model.dart';
 import '../../../core/services/ios_native_dropdown_bridge.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 
+import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -35,6 +36,7 @@ import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/expandable_card.dart';
 import '../widgets/settings_page_scaffold.dart';
+import '../widgets/response_animation_settings.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/socket_health_card.dart';
 import '../widgets/stt_language_picker.dart';
@@ -98,6 +100,8 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
         _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
+        _sectionGap,
+        const ResponseAnimationSettings(),
       ],
       AppCustomizationSection.chat => <Widget>[
         if (hasOpenWebUiAccount) ...[
@@ -193,6 +197,7 @@ class AppCustomizationPage extends ConsumerWidget {
               ),
               title: AppLocalizations.of(context)!.appLanguage,
               subtitle: languageLabel,
+              showChevron: true,
               onTap: () async {
                 final selected = await _showLanguageSelector(
                   context,
@@ -222,6 +227,13 @@ class AppCustomizationPage extends ConsumerWidget {
   ) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
+    final effectivePalette = Theme.of(context)
+        .extension<AppPaletteThemeExtension>()
+        ?.palette;
+    final previewPalette =
+        activeTheme.usesDynamicColors && effectivePalette?.id == activeTheme.id
+        ? effectivePalette!
+        : activeTheme;
 
     return UtilityRow(
       leading: _buildIconBadge(
@@ -237,7 +249,7 @@ class AppCustomizationPage extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final color in activeTheme.preview.take(3))
+          for (final color in previewPalette.preview.take(3))
             _PaletteColorDot(color: color),
         ],
       ),
@@ -1197,7 +1209,12 @@ class AppCustomizationPage extends ConsumerWidget {
     final ttsService = ref.watch(textToSpeechServiceProvider);
     final bool deviceAvailable =
         ttsService.deviceEngineAvailable || !ttsService.isInitialized;
-    final bool serverAvailable = ttsService.serverEngineAvailable;
+    final serverSpeech = ref.watch(serverSpeechProviderProvider);
+    final bool serverAvailable = serverSpeech?.canSynthesize == true;
+    // Only Open WebUI lists voices; the others speak with their own.
+    final bool showsVoicePicker =
+        settings.ttsEngine == TtsEngine.device ||
+        serverSpeech?.offersVoiceChoice == true;
     final bool deviceSelectable = deviceAvailable;
     final bool serverSelectable = serverAvailable;
     final ttsDescription = _ttsPreferenceDescription(l10n, settings);
@@ -1305,19 +1322,20 @@ class AppCustomizationPage extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Voice Selection
-              CustomizationTile(
-                leading: _buildIconBadge(
-                  context,
-                  UiUtils.platformIcon(
-                    ios: CupertinoIcons.speaker_3,
-                    android: Icons.record_voice_over,
+              if (showsVoicePicker)
+                CustomizationTile(
+                  leading: _buildIconBadge(
+                    context,
+                    UiUtils.platformIcon(
+                      ios: CupertinoIcons.speaker_3,
+                      android: Icons.record_voice_over,
+                    ),
+                    color: theme.buttonPrimary,
                   ),
-                  color: theme.buttonPrimary,
+                  title: l10n.ttsVoice,
+                  subtitle: _ttsVoiceSubtitle(l10n, settings),
+                  onTap: () => _showVoicePickerSheet(context, ref, settings),
                 ),
-                title: l10n.ttsVoice,
-                subtitle: _ttsVoiceSubtitle(l10n, settings),
-                onTap: () => _showVoicePickerSheet(context, ref, settings),
-              ),
               if (settings.ttsEngine == TtsEngine.device) ...[
                 const SizedBox(height: Spacing.md),
                 // Speech rate is device-only. Server TTS uses backend defaults.
@@ -1902,7 +1920,17 @@ class AppCustomizationPage extends ConsumerWidget {
     String activePaletteId,
   ) async {
     final l10n = AppLocalizations.of(context)!;
-    final palettes = TweakcnThemes.all;
+    final effectivePalette = Theme.of(context)
+        .extension<AppPaletteThemeExtension>()
+        ?.palette;
+    final palettes = [
+      for (final palette in TweakcnThemes.all)
+        if (palette.usesDynamicColors &&
+            effectivePalette?.usesDynamicColors == true)
+          effectivePalette!
+        else
+          palette,
+    ];
 
     if (Platform.isIOS) {
       try {
@@ -1915,7 +1943,9 @@ class AppCustomizationPage extends ConsumerWidget {
                   NativeSheetOptionConfig(
                     id: palette.id,
                     label: palette.label(l10n),
-                    subtitle: palette.description(l10n),
+                    subtitle: palette.description(l10n).isEmpty
+                        ? null
+                        : palette.description(l10n),
                   ),
               ],
               rethrowErrors: true,
@@ -1950,7 +1980,9 @@ class AppCustomizationPage extends ConsumerWidget {
             final palette = palettes[index];
             return AdaptiveSelectionTile(
               title: palette.label(l10n),
-              subtitle: palette.description(l10n),
+              subtitle: palette.description(l10n).isEmpty
+                  ? null
+                  : palette.description(l10n),
               selected: palette.id == activePaletteId,
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,

@@ -16,6 +16,9 @@ class HermesJob {
     required this.prompt,
     required this.schedule,
     this.name,
+    this.skills = const [],
+    this.script,
+    this.noAgent = false,
     this.enabled = true,
     this.lastStatus,
     this.state,
@@ -33,6 +36,11 @@ class HermesJob {
 
   /// The prompt the agent runs each time the job fires.
   final String prompt;
+
+  /// Installed skill names passed to the scheduler independently of instructions.
+  final List<String> skills;
+  final String? script;
+  final bool noAgent;
 
   /// Server-accepted schedule expression suitable for editing and resubmission.
   final String schedule;
@@ -91,6 +99,9 @@ class HermesJob {
         maxCharacters: kMaxHermesJobNameCharacters,
       ),
       prompt: prompt,
+      skills: parseHermesJobSkills(json['skills'], single: json['skill']),
+      script: validateHermesBoundedString(json['script'], maxCharacters: 4096),
+      noAgent: json['no_agent'] == true,
       schedule: _parseSchedule(json),
       enabled: enabled,
       lastStatus: validateHermesBoundedString(
@@ -191,4 +202,15 @@ class HermesJob {
     final normalized = bounded.trim();
     return normalized.isEmpty ? null : normalized;
   }
+}
+
+/// The current list is authoritative, including an explicit clear; old jobs
+/// without that list fall back to the singular skill.
+List<String> parseHermesJobSkills(Object? value, {Object? single}) {
+  final names = <String>{};
+  for (final candidate in [if (value is List) ...value.take(256) else single]) {
+    final name = validateHermesOpaqueIdentifier(candidate);
+    if (name != null) names.add(name);
+  }
+  return List.unmodifiable(names);
 }

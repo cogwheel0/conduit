@@ -78,11 +78,15 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
 
   Color get inputBackground =>
       Color.lerp(surfaces.background, surfaces.input, isDark ? 0.35 : 0.75)!;
-  Color get inputBorder =>
-      Color.lerp(surfaces.border, surfaces.ring, isDark ? 0.4 : 0.2)!;
-  Color get inputBorderFocused => surfaces.ring;
+  Color get inputBorder => withMinContrast(
+    Color.lerp(surfaces.border, surfaces.ring, isDark ? 0.4 : 0.2)!,
+    inputBackground,
+    3,
+  );
+  Color get inputBorderFocused =>
+      withMinContrast(surfaces.ring, inputBackground, 3);
   Color get inputText => tokens.neutralOnSurface;
-  Color get inputPlaceholder => textSecondary.withValues(alpha: 0.5);
+  Color get inputPlaceholder => _legibleText(variant.mutedForeground);
   Color get inputError => tokens.statusError60;
 
   /// Page and card colors for grouped settings screens (inset-grouped lists
@@ -114,13 +118,34 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   Color get surfaceBackground => surfaces.background;
   Color get surfaceContainer => surfaces.container;
   Color get surfaceContainerHighest => surfaces.containerHighest;
+  Color get surfaceMessage => Color.alphaBlend(
+    textPrimary.withValues(alpha: isDark ? .12 : .065),
+    surfaces.background,
+  );
+  Color get borderMessage =>
+      Color.alphaBlend(textPrimary.withValues(alpha: .18), surfaceMessage);
+
+  /// A solid, lifted surface for controls over the conversation transcript.
+  Color get surfaceChrome => Color.alphaBlend(
+    textPrimary.withValues(alpha: isDark ? 0.12 : 0.045),
+    surfaces.containerHighest,
+  );
+  Color get borderChrome => withMinContrast(surfaces.border, surfaceChrome, 3);
 
   Color get buttonPrimary => variant.primary;
-  Color get buttonPrimaryText => _onSurfaceColor(variant.primary);
+  Color get buttonPrimaryText => tokens.brandOn60;
   Color get buttonSecondary => tokens.neutralTone20;
   Color get buttonSecondaryText => tokens.neutralOnSurface;
   Color get buttonDisabled => tokens.neutralTone40;
   Color get buttonDisabledText => tokens.neutralTone60;
+
+  Color get selectionBackground => variant.secondary;
+  Color get selectionForeground => readableOn(
+    selectionBackground,
+    preferred: variant.secondaryForeground,
+    foreground: variant.foreground,
+    background: variant.background,
+  );
 
   StatusPalette get statusPalette => StatusPalette(
     success: StatusColors(
@@ -165,24 +190,23 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
     ),
   );
 
-  Color get success => statusPalette.success.base;
+  Color get success => _legibleText(statusPalette.success.base);
   Color get successBackground => statusPalette.success.background;
-  Color get error => statusPalette.destructive.base;
+  Color get error => _legibleText(statusPalette.destructive.base);
   Color get errorBackground => statusPalette.destructive.background;
-  Color get warning => statusPalette.warning.base;
+  Color get warning => _legibleText(statusPalette.warning.base);
   Color get warningBackground => statusPalette.warning.background;
-  Color get info => statusPalette.info.base;
+  Color get info => _legibleText(statusPalette.info.base);
   Color get infoBackground => statusPalette.info.background;
 
   Color get dividerColor =>
       isDark ? tokens.neutralTone40 : tokens.neutralTone20;
   Color get navigationBackground =>
       isDark ? tokens.neutralTone10 : tokens.neutralTone00;
-  Color get navigationSelected => variant.primary;
+  Color get navigationSelected => selectionForeground;
   Color get navigationUnselected =>
       isDark ? tokens.neutralTone80 : tokens.neutralTone60;
-  Color get navigationSelectedBackground =>
-      _overlay(tokens.overlayMedium, surface: navigationBackground);
+  Color get navigationSelectedBackground => selectionBackground;
 
   Color get shimmerBase =>
       _overlay(tokens.overlayWeak, surface: tokens.neutralTone10);
@@ -198,7 +222,23 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
 
   Color get textPrimary => tokens.neutralOnSurface;
   Color get textSecondary => tokens.neutralTone80;
-  Color get textTertiary => tokens.neutralTone60;
+  Color get textTertiary => _legibleText(tokens.neutralTone60);
+
+  // Captions and hints also appear on cards, menus, and filled inputs. Avoid
+  // opacity here: compositing faint text undoes its contrast adjustment.
+  Color _legibleText(Color color) {
+    for (final surface in [
+      surfaces.background,
+      surfaces.card,
+      surfaces.popover,
+      inputBackground,
+      surfaces.container,
+    ]) {
+      color = withMinContrast(color, surface, 4.5);
+    }
+    return color;
+  }
+
   Color get textInverse => tokens.neutralTone00;
   Color get textDisabled =>
       isDark ? tokens.neutralTone40 : tokens.neutralTone60;
@@ -288,22 +328,6 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
     final double alpha = isDark ? 0.24 : 0.12;
     final Color base = isDark ? tokens.neutralTone10 : tokens.neutralTone00;
     return Color.alphaBlend(tone.withValues(alpha: alpha), base);
-  }
-
-  Color _onSurfaceColor(Color background) {
-    final contrastOnLight = _contrastRatio(background, tokens.neutralTone00);
-    final contrastOnDark = _contrastRatio(background, tokens.neutralOnSurface);
-    return contrastOnLight >= contrastOnDark
-        ? tokens.neutralTone00
-        : tokens.neutralOnSurface;
-  }
-
-  static double _contrastRatio(Color a, Color b) {
-    final luminanceA = a.computeLuminance();
-    final luminanceB = b.computeLuminance();
-    final lighter = math.max(luminanceA, luminanceB);
-    final darker = math.min(luminanceA, luminanceB);
-    return (lighter + 0.05) / (darker + 0.05);
   }
 }
 
@@ -465,6 +489,22 @@ class SurfaceThemeExtension extends ThemeExtension<SurfaceThemeExtension> {
       input: variant.input,
     );
   }
+
+  factory SurfaceThemeExtension.fromColorScheme(ColorScheme scheme) =>
+      SurfaceThemeExtension(
+        background: scheme.surface,
+        container: scheme.surfaceContainer,
+        containerHighest: scheme.surfaceContainerHighest,
+        card: scheme.surfaceContainerLow,
+        cardForeground: scheme.onSurface,
+        popover: scheme.surfaceContainerHigh,
+        popoverForeground: scheme.onSurface,
+        muted: scheme.surfaceContainerHighest,
+        mutedForeground: scheme.onSurfaceVariant,
+        border: scheme.outlineVariant,
+        ring: scheme.primary,
+        input: scheme.surfaceContainerHighest,
+      );
 
   final Color background;
   final Color container;
@@ -1731,6 +1771,14 @@ class TouchTarget {
 
 /// Animation durations for consistent motion design - Enhanced for production with better hierarchy
 class AnimationDuration {
+  static const Duration assistantDisclosure = Duration(milliseconds: 150);
+  static const Duration assistantToolGroup = Duration(milliseconds: 220);
+  static const Duration assistantToolTicker = Duration(milliseconds: 240);
+  static const Duration streamingTextArrival = Duration(milliseconds: 120);
+  static const Duration conversationEnter = Duration(milliseconds: 320);
+  static const Duration conversationReturn = Duration(milliseconds: 260);
+  static const Duration searchMode = Duration(milliseconds: 260);
+  static const Duration searchModeReverse = Duration(milliseconds: 200);
   static const Duration instant = Duration(milliseconds: 100);
   static const Duration fast = Duration(milliseconds: 200);
   static const Duration medium = Duration(milliseconds: 300);
@@ -1764,6 +1812,8 @@ class AnimationDuration {
 
 /// Animation curves for consistent motion design - Enhanced for production with better hierarchy
 class AnimationCurves {
+  static const Curve assistantToolTicker = Cubic(.22, 1, .36, 1);
+  static const Curve searchMode = Curves.easeOutCubic;
   static const Curve easeIn = Curves.easeIn;
   static const Curve easeOut = Curves.easeOut;
   static const Curve easeInOut = Curves.easeInOut;

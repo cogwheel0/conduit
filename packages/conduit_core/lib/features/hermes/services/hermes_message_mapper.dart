@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../models/hermes_media.dart';
 
 import 'package:uuid/uuid.dart';
 
@@ -35,6 +36,9 @@ ChatStatusItem? hermesToolDetailItem(
 }) {
   if (value == null) return null;
   final raw = value is String ? value : jsonEncode(value);
+  // Optional tool fields must stay absent when empty, even if the sanitizer
+  // supplies a fallback intended for actual errors.
+  if (raw.trim().isEmpty) return null;
   final safe = sanitize?.call(raw) ?? _persistedHermesToolDetail(raw);
   if (safe == null || safe.trim().isEmpty) return null;
   return ChatStatusItem(
@@ -163,6 +167,7 @@ List<ChatMessage> hermesMessagesToChatMessages(
     final files = <Map<String, dynamic>>[
       ...extracted.images.map<Map<String, dynamic>>(_imageFileDescriptor),
       ...restoredDocuments.files,
+      if (acceptedRole == 'assistant') ..._assistantMediaFiles(item),
     ];
     final statusHistory = acceptedRole == 'assistant'
         ? _persistedHermesToolStarts(
@@ -229,6 +234,33 @@ List<ChatMessage> hermesMessagesToChatMessages(
   }
 
   return messages;
+}
+
+/// File references only; never persist inline audio/base64 payloads or infer a
+/// user upload from user-authored metadata. Reads still require an explicit tap.
+List<Map<String, dynamic>> _assistantMediaFiles(Map<String, dynamic> item) {
+  final candidates = <Map>[];
+  for (final field in ['files', 'attachments']) {
+    final value = item[field];
+    if (value is List) candidates.addAll(value.take(32).whereType<Map>());
+  }
+  final content = item['content'];
+  final parts = content is List ? content.take(256).whereType<Map>() : content is Map ? [content] : const <Map>[];
+  for (final part in parts) {
+    if (const {'file', 'output_file', 'document', 'audio', 'audio_file', 'video', 'video_file'}.contains(part['type'])) {
+      final nested = part['file'] ?? part['audio_url'] ?? part['video_url'];
+      candidates.add(nested is Map ? nested : part);
+    }
+  }
+  final refs = <String, HermesMediaReference>{};
+  for (final value in candidates.take(64)) {
+    final media = HermesMediaReference.fromDescriptor(value);
+    if (media != null && refs.length < 32) refs.putIfAbsent(media.path, () => media);
+  }
+  return [for (final media in refs.values) {
+    'type': 'file', 'name': media.name, 'hermes_server_path': media.path,
+    'content_type': media.mimeType, 'size': ?media.size,
+  }];
 }
 
 List<ChatStatusUpdate> _persistedHermesToolStarts(

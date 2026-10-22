@@ -1,11 +1,35 @@
 part of 'hermes_desktop_api_service.dart';
 
+/// The longest spoken context Hermes keeps with a voice-live turn.
+const int _kMaxHermesVoiceContext = 6000;
+
+/// `prompt.submit`'s parameters for [text] in session [runtimeId]. A turn a
+/// voice-live call handed over carries [voiceContext], the recent spoken
+/// conversation, which only the model reads; the session stores `text`.
+/// Context past the bound keeps its newest part.
+@visibleForTesting
+Map<String, Object?> hermesPromptSubmitParams({
+  required String runtimeId,
+  required String text,
+  String? voiceContext,
+}) => {
+  'session_id': runtimeId,
+  'text': text,
+  if (voiceContext != null) ...{
+    'surface': 'voice-live',
+    'voice_context': voiceContext.length > _kMaxHermesVoiceContext
+        ? voiceContext.substring(voiceContext.length - _kMaxHermesVoiceContext)
+        : voiceContext,
+  },
+};
+
 extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
   Future<HermesResponseStream> _runtimeStreamDesktopResponse(
     HermesChatInput input, {
     String? sessionId,
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
+    String? voiceContext,
   }) async {
     final storedId =
         sessionId ??
@@ -23,7 +47,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         'Upgrade Hermes and try again.',
       );
     }
-    if (!_sessionProfiles.containsKey(binding.storedId)) {
+    final configurationQuery =
+        input is HermesTextChatInput &&
+        const {
+          '/model',
+          '/reasoning',
+        }.contains(input.text.trim().toLowerCase());
+    // Reading a session's configuration must not first overwrite it with
+    // the composer's last selection.
+    if (!configurationQuery &&
+        !_sessionProfiles.containsKey(binding.storedId)) {
       await _applySessionOptions(binding, options);
     }
     final attached = await _attachInput(binding.runtimeId, input);
@@ -79,6 +112,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         return;
       }
       if (!promptAcknowledged) {
+        ContinuityProbe.mark('prompt-buffer', {'event': event.type});
         eventsBeforePromptAcknowledgement.addLast(event);
         if (eventsBeforePromptAcknowledgement.length > 4096) {
           eventsBeforePromptAcknowledgement.removeFirst();
@@ -105,6 +139,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           (event.type == 'session.info' && payload['running'] == true)) {
         turnStarted = true;
       }
+      ContinuityProbe.mark('event-project', {'event': event.type});
       if (_projectHermesTurnEvent(
         event,
         add: controller.add,
@@ -223,6 +258,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             payload['request_id'] ?? payload['id'],
           );
           if (requestId != null) {
+            if (event.type == 'approval.expire' ||
+                event.type == 'approval.responded') {
+              controller.add(HermesApprovalDismissed(requestId));
+            }
             unawaited(
               HermesPendingDecisionStore.resolve(
                 origin: _origin,
@@ -262,25 +301,47 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       }
       disconnectReconciliationRunning = true;
       unawaited(() async {
+        var retryDelay = const Duration(seconds: 2);
         try {
-          final reconciled = await _resumeSnapshot(storedId, refresh: true);
-          if (terminal) return;
-          binding = reconciled.binding;
-          if (reconciled.binding.runtimeId != activeRuntimeId) {
-            _eventBuffer.deactivate(activeRuntimeId);
-            activeRuntimeId = reconciled.binding.runtimeId;
-            for (final event in _eventBuffer.activate(activeRuntimeId)) {
-              if (!terminal) handleEvent(event);
+          while (!terminal && !_closed && cancelToken?.isCancelled != true) {
+            try {
+              final reconciled = await _resumeSnapshot(storedId, refresh: true);
+              if (terminal) return;
+              binding = reconciled.binding;
+              if (reconciled.binding.runtimeId != activeRuntimeId) {
+                _eventBuffer.deactivate(activeRuntimeId);
+                activeRuntimeId = reconciled.binding.runtimeId;
+                for (final event in _eventBuffer.activate(activeRuntimeId)) {
+                  if (!terminal) handleEvent(event);
+                }
+                _emitTranscriptChange(storedId);
+              }
+              if (reconciled.running == true) return;
+              finish(authoritativeIdle: true);
+              _emitTranscriptChange(storedId);
+              return;
+            } catch (error) {
+              if (terminal || _closed || cancelToken?.isCancelled == true) {
+                return;
+              }
+              if (!_canRetryBackgroundDisconnect(error)) rethrow;
+              _reconciliationStale = true;
+              _emitTurnState(HermesDesktopTurnState.reconnecting);
+              await _waitForBackgroundReconnect(retryDelay, cancelToken);
+              retryDelay = Duration(seconds: min(30, retryDelay.inSeconds * 2));
             }
-            _emitTranscriptChange(storedId);
           }
-          if (reconciled.running == true) return;
-          finish(authoritativeIdle: true);
-          _emitTranscriptChange(storedId);
         } catch (error) {
           if (!terminal) finish(error: error.toString());
         } finally {
           disconnectReconciliationRunning = false;
+          if (_closed && !terminal) {
+            finish(
+              error:
+                  'The Hermes connection closed before this reply could be '
+                  'recovered. Reopen the conversation to check its result.',
+            );
+          }
         }
       }());
     });
@@ -313,6 +374,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           controller.add(HermesComposerPrefill(slash.prefill!));
         }
         if (slash.submit == null) {
+          final command = text.trim().toLowerCase();
+          if (command == '/model' || command == '/reasoning') {
+            controller.add(HermesConfigurationRequested(command.substring(1)));
+          }
           await _detachStaged(binding.runtimeId, stagedPaths);
           finish();
           return HermesResponseStream(
@@ -338,8 +403,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       await _rpc.request<Object?>(
         'prompt.submit',
         params: {
-          'session_id': binding.runtimeId,
-          'text': text,
+          ...hermesPromptSubmitParams(
+            runtimeId: binding.runtimeId,
+            text: text,
+            voiceContext: voiceContext,
+          ),
           ..._sessionScope(binding.storedId),
         },
       );
@@ -361,6 +429,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         );
       }
       promptAcknowledged = true;
+      ContinuityProbe.mark('prompt-ack');
       if (hasAuthoritativeState()) {
         _applyAuthoritativeRunning(
           true,
@@ -547,6 +616,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     HermesSessionBinding binding,
     HermesDesktopSessionOptions options,
   ) async {
+    if (options.preserveSession) return;
+    if (options.followGlobal) options = await _globalOptions(binding);
     final selection = hermesDesktopSessionModelSelection(
       options.model,
       options.provider,
@@ -557,8 +628,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final modelSwitch = selection.model == null
         ? null
         : '${selection.model}${selection.provider == null ? '' : ' --provider ${selection.provider}'} --session';
-    // Session options resolve and PERSIST profile config. A bot chat lives in
-    // another profile, so these must never fall back to the connection's.
+    // Resolve defaults in the owning profile, then pin only this session.
+    // A bot chat must never fall back to the connection's profile.
     final scope = _sessionScope(binding.storedId);
     if (reasoning?.isEmpty != false) {
       final global = _object(
@@ -578,7 +649,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           'session_id': binding.runtimeId,
           'key': 'reasoning',
           'value': global,
-          'scope': 'global',
+          'scope': 'session',
           ...scope,
         },
       );
@@ -588,19 +659,28 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       ('reasoning', reasoning?.isEmpty == true ? null : reasoning),
       (
         'fast',
-        options.fast == null ? null : (options.fast! ? 'fast' : 'normal'),
+        options.serviceTier ??
+            (options.fast == null ? null : (options.fast! ? 'fast' : 'normal')),
       ),
     ]) {
       if (option.$2 == null) continue;
-      await _rpc.request<Object?>(
-        'config.set',
-        params: {
-          'session_id': binding.runtimeId,
-          'key': option.$1,
-          'value': option.$2,
-          ...scope,
-        },
+      final result = _object(
+        await _rpc.request<Object?>(
+          'config.set',
+          params: {
+            'session_id': binding.runtimeId,
+            'key': option.$1,
+            'value': option.$2,
+            'scope': 'session',
+            ...scope,
+          },
+        ),
       );
+      if (result['confirm_required'] == true) {
+        throw const FormatException(
+          'Confirm this model in the model selector before sending.',
+        );
+      }
     }
     _appliedSessionOptions[binding.storedId] = fingerprint;
   }
@@ -944,15 +1024,22 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       throw ArgumentError.value(choice, 'choice');
     }
     await _ensureConnected();
-    await _rpc.request<Object?>(
-      'approval.respond',
-      params: {
-        'session_id': runId,
-        'request_id': approvalId,
-        'choice': choice,
-        ..._runtimeScope(runId),
-      },
-    );
+    if (!_rpc.respondToServerApproval(
+      runtimeId: runId,
+      approvalId: approvalId,
+      choice: choice,
+    )) {
+      // Older gateways, or a queue request recovered without its wire frame.
+      await _rpc.request<Object?>(
+        'approval.respond',
+        params: {
+          'session_id': runId,
+          'request_id': approvalId,
+          'choice': choice,
+          ..._runtimeScope(runId),
+        },
+      );
+    }
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,

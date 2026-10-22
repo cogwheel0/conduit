@@ -8,6 +8,7 @@ class InsetGroupedSection extends StatelessWidget {
     super.key,
     required this.child,
     this.title,
+    this.titleStyle,
     this.description,
     this.footer,
     this.padding = const EdgeInsets.all(Spacing.md),
@@ -17,6 +18,7 @@ class InsetGroupedSection extends StatelessWidget {
   });
 
   final String? title;
+  final TextStyle? titleStyle;
   final String? description;
   final String? footer;
   final Widget child;
@@ -47,16 +49,17 @@ class InsetGroupedSection extends StatelessWidget {
               header: true,
               child: Text(
                 title!,
-              style:
-                  (nativeSurface
-                          ? AppTypography.bodySmallStyle
-                          : AppTypography.labelMediumStyle)
-                      .copyWith(
-                        color: theme.textSecondary,
-                        fontWeight: nativeSurface
-                            ? FontWeight.w400
-                            : FontWeight.w600,
-                      ),
+                style:
+                    titleStyle ??
+                    (nativeSurface
+                            ? AppTypography.bodySmallStyle
+                            : AppTypography.labelMediumStyle)
+                        .copyWith(
+                          color: theme.textSecondary,
+                          fontWeight: nativeSurface
+                              ? FontWeight.w400
+                              : FontWeight.w600,
+                        ),
               ),
             ),
           ),
@@ -116,6 +119,7 @@ class InsetGroupedList extends StatelessWidget {
     super.key,
     required this.children,
     this.title,
+    this.titleStyle,
     this.description,
     this.footer,
     this.dividerIndent = Spacing.md,
@@ -124,6 +128,7 @@ class InsetGroupedList extends StatelessWidget {
 
   final List<Widget> children;
   final String? title;
+  final TextStyle? titleStyle;
   final String? description;
   final String? footer;
   final double dividerIndent;
@@ -133,6 +138,7 @@ class InsetGroupedList extends StatelessWidget {
   Widget build(BuildContext context) {
     return InsetGroupedSection(
       title: title,
+      titleStyle: titleStyle,
       description: description,
       footer: footer,
       useNativeSurface: useNativeSurface,

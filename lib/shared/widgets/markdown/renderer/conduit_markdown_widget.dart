@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/models/chat_message.dart';
+
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
 import '../markdown_document_controller.dart';
@@ -57,6 +58,7 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
     this.onSourceTap,
     this.stateScopeId,
     this.enableStreamingTextFade = false,
+    this.streamingTextFadeDuration = const Duration(milliseconds: 320),
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.trimLastBlockBottomPadding = true,
     this.debugTreatAsWidgetTest,
@@ -96,6 +98,7 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
 
   /// Whether newly appended visible text should fade while streaming.
   final bool enableStreamingTextFade;
+  final Duration streamingTextFadeDuration;
 
   /// Controls how expensive preview-backed blocks should behave.
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
@@ -171,6 +174,7 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
       onSourceTap: widget.onSourceTap,
       stateScopeId: widget.stateScopeId,
       enableStreamingTextFade: widget.enableStreamingTextFade,
+      streamingTextFadeDuration: widget.streamingTextFadeDuration,
       heavyBlockPolicy: widget.heavyBlockPolicy,
       trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
       debugOnMounted: widget.debugOnCompiledViewMounted,
@@ -222,6 +226,7 @@ class _CompiledMarkdownView extends StatefulWidget {
     this.onSourceTap,
     this.stateScopeId,
     this.enableStreamingTextFade = false,
+    this.streamingTextFadeDuration = const Duration(milliseconds: 320),
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.trimLastBlockBottomPadding = true,
     this.debugOnMounted,
@@ -236,6 +241,7 @@ class _CompiledMarkdownView extends StatefulWidget {
   final void Function(int sourceIndex)? onSourceTap;
   final String? stateScopeId;
   final bool enableStreamingTextFade;
+  final Duration streamingTextFadeDuration;
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
   final bool trimLastBlockBottomPadding;
   final VoidCallback? debugOnMounted;
@@ -294,7 +300,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     super.initState();
     widget.debugOnMounted?.call();
     _streamingTextFadeController = AnimationController(
-      duration: const Duration(milliseconds: 320),
+      duration: widget.streamingTextFadeDuration,
       vsync: this,
       value: 1,
     )..addListener(_handleStreamingTextFadeTick);
@@ -308,6 +314,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
   @override
   void didUpdateWidget(covariant _CompiledMarkdownView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _streamingTextFadeController.duration = widget.streamingTextFadeDuration;
     if (oldWidget.document != widget.document) {
       _primeStreamingTextFade(oldWidget.document, widget.document);
       _hydrateDocument(widget.document);
@@ -496,7 +503,8 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     CompiledMarkdownDocument previous,
     CompiledMarkdownDocument next,
   ) {
-    if (!widget.enableStreamingTextFade) {
+    if (!widget.enableStreamingTextFade ||
+        widget.streamingTextFadeDuration == Duration.zero) {
       _clearStreamingTextFade();
       return;
     }

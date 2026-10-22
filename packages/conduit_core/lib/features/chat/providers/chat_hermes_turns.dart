@@ -669,9 +669,9 @@ Future<void> _promptHermesConnectionSwitch(
 ) async {
   final conversationId =
       (ref.read(activeConversationProvider) as Conversation?)?.id;
-  final prompt =
-      ref.read(hermesConnectionSwitchPromptProvider)
-          as HermesConnectionSwitchPrompt;
+  final prompt = ref.read(
+    hermesConnectionSwitchPromptProvider,
+  ) as HermesConnectionSwitchPrompt;
   bool accepted;
   try {
     accepted = await prompt(target.name);
@@ -1087,8 +1087,17 @@ Future<void> _dispatchHermesRunFromChat(
   DatabaseLifetimeLease? databaseLease,
   CancelToken? preRegisteredCancelToken,
   Duration lateSessionCleanupDeadline = _hermesLateSessionCleanupDeadline,
+  String? voiceContext,
 }) async {
   final releaseGeneration = holdLocalChatGeneration(ref);
+  final background = BackgroundExecutionPort.hostDefault;
+  final streamIds = ['hermes-reply-$assistantMessageId'];
+  // Start while the user is sending, before leaving the visible activity.
+  // Native admission is best-effort; its failure must not fail the reply.
+  final backgroundStart = Future<void>.sync(() => background.begin(streamIds))
+      .catchError((Object _) {
+        DebugLogger.error('background-start-failed', scope: 'hermes/transport');
+      });
   try {
     // Capture both ownership and session continuity before the first await. A
     // keychain write can rebuild providers while the user navigates; the turn
@@ -1138,11 +1147,21 @@ Future<void> _dispatchHermesRunFromChat(
         preRegisteredCancelToken: preRegisteredCancelToken,
         allowCapturedDatabasePersistence: allowCapturedDatabasePersistence,
         lateSessionCleanupDeadline: lateSessionCleanupDeadline,
+        voiceContext: voiceContext,
       );
     } finally {
       await ownedDatabaseLease?.release();
     }
   } finally {
+    // A late native start must settle before its matching stop, without
+    // holding the chat dispatcher behind a platform channel.
+    unawaited(
+      backgroundStart.then((_) => background.end(streamIds)).catchError((
+        Object _,
+      ) {
+        DebugLogger.error('background-stop-failed', scope: 'hermes/transport');
+      }),
+    );
     releaseGeneration();
   }
 }
@@ -1166,6 +1185,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
   required CancelToken? preRegisteredCancelToken,
   required bool allowCapturedDatabasePersistence,
   required Duration lateSessionCleanupDeadline,
+  required String? voiceContext,
 }) async {
   final ChatMessagesNotifier notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -1225,6 +1245,30 @@ Future<void> _dispatchOwnedHermesRunFromChat(
   final latePersistence = <Future<void>>[];
   late final CancelToken cancelToken;
   late final _HermesRunProjection projection;
+  var outcomeReported = false;
+  HermesBackendService? outcomeService = ref.read(hermesApiServiceProvider);
+  void reportOutcome(HermesChatOutcome outcome) {
+    if (outcomeReported ||
+        !owner.backendContextIsCurrent(ref) ||
+        !identical(ref.read(hermesApiServiceProvider), outcomeService)) {
+      return;
+    }
+    final conversation = owner._conversationSnapshot;
+    if (conversation == null) return;
+    outcomeReported = true;
+    try {
+      projectionStore._materializeContent(projection);
+      ref.read(hermesChatOutcomeCallbackProvider)(
+        conversation,
+        projection.message.copyWith(isStreaming: false),
+        outcome,
+      );
+    } catch (_) {
+      // Work receipts are auxiliary and must never fail the original request.
+      DebugLogger.error('outcome-callback-failed', scope: 'hermes/transport');
+    }
+  }
+
   if (assistantSeed.id != assistantMessageId ||
       assistantSeed.role != 'assistant' ||
       assistantSeed.metadata?['transport'] != kHermesTransport) {
@@ -1241,6 +1285,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
         return;
       }
       if (!projectionStore.finalize(projection)) return;
+      reportOutcome(HermesChatOutcome.stopped);
       if (!owner.isActive(ref)) return;
       notifier.finishStreamingMessage(
         assistantMessageId,
@@ -1391,7 +1436,10 @@ Future<void> _dispatchOwnedHermesRunFromChat(
       sendHandle: sendHandle,
       allowCapturedDatabasePersistence: allowCapturedDatabasePersistence,
       trackLatePersistence: latePersistence.add,
+      reportOutcome: reportOutcome,
+      captureOutcomeService: (service) => outcomeService = service,
       lateSessionCleanupDeadline: lateSessionCleanupDeadline,
+      voiceContext: voiceContext,
     );
   } finally {
     var primaryProjectionPersisted = !owner.usesOpenWebUiBackend;
@@ -1569,7 +1617,10 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required ChatSendPlaceholderHandle? sendHandle,
   required bool allowCapturedDatabasePersistence,
   required void Function(Future<void> persistence) trackLatePersistence,
+  required void Function(HermesChatOutcome) reportOutcome,
+  required void Function(HermesBackendService) captureOutcomeService,
   required Duration lateSessionCleanupDeadline,
+  required String? voiceContext,
 }) async {
   final configController =
       ref.read(hermesConfigProvider.notifier) as HermesConfigController;
@@ -1675,6 +1726,9 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
 
   void finishOwned() {
     if (!projectionStore.finalize(projection)) return;
+    if (projection.message.error != null) {
+      reportOutcome(HermesChatOutcome.failed);
+    }
     if (!owner.isActive(ref)) return;
     notifier.finishStreamingMessage(
       assistantMessageId,
@@ -1738,6 +1792,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     completeStreamingUiOwned();
     return;
   }
+  captureOutcomeService(service);
   if (service is! HermesResponsesTurnService &&
       service is! HermesDesktopTurnService) {
     if (!registry.complete(currentRunKey(), cancelToken: cancelToken)) return;
@@ -1765,6 +1820,22 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       ),
     );
   }
+  if (owner._conversationSnapshot == null) {
+    desktopOptions =
+        ref.read(hermesVisualDraftOptionsProvider) ?? desktopOptions;
+  }
+  // A mobile pick belongs to its conversation, not the ambient model picker.
+  // Captured session identity has already passed the native provenance fence.
+  if (isNativeHermesConversation(owner._conversationSnapshot) &&
+      capturedSessionId != null &&
+      capturedSessionConnectionIdentity != null) {
+    desktopOptions =
+        HermesVisualModelStore.read(
+          capturedSessionConnectionIdentity,
+          capturedSessionId,
+        ) ??
+        desktopOptions;
+  }
   final endpointIdentity = HermesConfigController.connectionEndpoint(
     service.config.baseUrl,
   );
@@ -1774,6 +1845,31 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           endpointIdentity: endpointIdentity,
           principalId: configController.documentTrustPrincipalId(),
         );
+
+  void notifyCompleted() {
+    final conversation = owner._conversationSnapshot;
+    if (conversation == null ||
+        !owner.backendContextIsCurrent(ref) ||
+        !identical(ref.read(hermesApiServiceProvider), service) ||
+        projection.message.error != null) {
+      return;
+    }
+    reportOutcome(HermesChatOutcome.completed);
+    try {
+      projectionStore._materializeContent(projection);
+      ref.read(hermesChatCompletionCallbackProvider)(
+        conversation,
+        projection.message,
+      );
+    } catch (_) {
+      // Notifications are auxiliary; failure cannot turn a valid answer into
+      // an error or expose reflected credentials in diagnostics.
+      DebugLogger.error(
+        'completion-notification-failed',
+        scope: 'hermes/transport',
+      );
+    }
+  }
 
   // Bind a server-side Hermes session so the transcript persists and is
   // reloadable from the sessions browser. For a Hermes segment embedded in an
@@ -1870,6 +1966,21 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         ownerMessages: ownerMessages,
         sendHandle: sendHandle,
       );
+      if (isDesktop &&
+          desktopOptions != null &&
+          documentTrustConnectionIdentity != null &&
+          owner._conversationSnapshot != null &&
+          isNativeHermesConversation(owner._conversationSnapshot) &&
+          ref.read(hermesVisualDraftOptionsProvider) != null) {
+        await HermesVisualModelStore.write(
+          documentTrustConnectionIdentity,
+          createdSessionId,
+          desktopOptions.followGlobal
+              ? const HermesDesktopSessionOptions(followGlobal: true)
+              : const HermesDesktopSessionOptions(preserveSession: true),
+        );
+        if (cancelled()) return;
+      }
       ref.invalidate(hermesSessionsProvider);
     } catch (error) {
       if (cancelled()) return;
@@ -1944,6 +2055,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           sessionId: sessionId,
           options: desktopOptions!,
           cancelToken: turnCancelToken,
+          voiceContext: voiceContext,
         ),
         HermesResponsesTurnService() => service.streamResponseWithReasoning(
           responseInput ?? HermesChatInput.text(input),
@@ -2026,6 +2138,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         }
       },
       onCompletedSuccessfully: () async {
+        notifyCompleted();
         final committedSessionId = sessionId;
         final committedBaselineMessageIds = baselineServerMessageIds;
         if (committedSessionId == null ||
@@ -2094,6 +2207,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     appendStatus: appendProjectedStatus,
     updateMessage: updateProjectedMessage,
     reportStopError: reportTerminalCleanupError,
+    onCompletedSuccessfully: notifyCompleted,
     finishStreaming: finishOwned,
     completeStreamingUi: completeStreamingUiOwned,
   );

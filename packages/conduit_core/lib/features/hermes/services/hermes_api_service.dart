@@ -314,6 +314,7 @@ int _hermesEventCharacters(
       raw: raw,
       maxCharacters: maxCharacters,
     ),
+  HermesApprovalDismissed(:final approvalId) => approvalId.length,
   HermesDecisionRequested(:final requestId, :final prompt, :final raw) =>
     requestId.length +
         (prompt?.length ?? 0) +
@@ -321,6 +322,7 @@ int _hermesEventCharacters(
   HermesLifecycle(:final status) => status.length,
   HermesFinalOutput(:final text) => text.length,
   HermesComposerPrefill(:final text) => text.length,
+  HermesConfigurationRequested(:final command) => command.length,
   HermesRunError(:final message) => message.length,
   HermesRunDone() => 0,
 };

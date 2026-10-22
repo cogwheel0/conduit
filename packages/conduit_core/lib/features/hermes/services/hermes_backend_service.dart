@@ -17,15 +17,21 @@ final class HermesDesktopSessionOptions {
     this.provider,
     this.reasoningEffort,
     this.fast,
+    this.followGlobal = false,
+    this.preserveSession = false,
+    this.serviceTier,
   });
 
   final String? model;
   final String? provider;
   final String? reasoningEffort;
   final bool? fast;
+  final bool followGlobal;
+  final bool preserveSession;
+  final String? serviceTier;
 
   String get fingerprint =>
-      '${provider ?? ''}\u0000${model ?? ''}\u0000${reasoningEffort ?? ''}\u0000${fast ?? ''}';
+      '${provider ?? ''}\u0000${model ?? ''}\u0000${reasoningEffort ?? ''}\u0000${fast ?? ''}\u0000${serviceTier ?? ''}';
 }
 
 /// Shared settings, session, and scheduler surface implemented by both Hermes
@@ -98,11 +104,15 @@ abstract interface class HermesDesktopTurnService
     CancelToken? cancelToken,
   });
 
+  /// [voiceContext] marks the turn as one a realtime call handed over: the
+  /// recent spoken conversation, which the model reads and the session's
+  /// transcript does not keep.
   Future<HermesResponseStream> streamDesktopResponse(
     HermesChatInput input, {
     String? sessionId,
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
+    String? voiceContext,
   });
 }
 

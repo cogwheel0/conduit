@@ -86,6 +86,12 @@ final stopGenerationProvider = Provider<void Function()>((ref) {
   return () => unawaited(_stopGeneration(ref));
 });
 
+/// Stops what the open chat is answering, as [stopGenerationProvider] does,
+/// and completes once the stop has settled, with whether it was accepted.
+final stopGenerationSettledProvider = Provider<Future<bool> Function()>((ref) {
+  return () => _stopGeneration(ref);
+});
+
 /// Stops the Open WebUI response the visible chat is streaming and completes
 /// once that is settled: the transport and the server's task for the chat are
 /// told to stop, and a requestCompletion that has not started is removed. The

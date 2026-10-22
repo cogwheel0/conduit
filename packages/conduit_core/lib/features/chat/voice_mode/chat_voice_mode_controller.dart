@@ -17,8 +17,13 @@ import 'package:conduit_core/voice/voice_session.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart'
-    show selectedModelProvider, socketServiceProvider;
+    show
+        activeConversationProvider,
+        isActiveConversationInPlaceRemap,
+        selectedModelProvider,
+        socketServiceProvider;
 
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart'
@@ -27,6 +32,16 @@ import 'package:conduit_core/services/socket_service.dart'
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+
+import '../server_speech/hermes_server_speech.dart';
+
+import 'package:conduit_core/features/chat/realtime_call/bridge_call_engine.dart';
+import 'package:conduit_core/features/chat/realtime_call/bridge_call_host.dart';
+import 'package:conduit_core/features/chat/realtime_call/gpt_live_call_engine.dart';
+import 'package:conduit_core/features/chat/realtime_call/chat_bridge_call_host.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_bridge_transport.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_state.dart';
 import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
 import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart';
 
@@ -53,6 +68,25 @@ final class _ChatVoiceModeFailure implements Exception {
 
 ChatVoiceModeError _errorKindOf(Object error) =>
     error is _ChatVoiceModeFailure ? error.kind : ChatVoiceModeError.other;
+
+/// Where a realtime call in [callChatId] stands once [nextChatId] is open.
+/// It follows only its own chat: the one its first send created
+/// ([createdByCall]), and that chat's server id given in place ([remapped]).
+/// Any other chat, or none, ends it.
+@visibleForTesting
+({bool ends, String? chatId}) realtimeCallChatAfter(
+  String? callChatId,
+  String? nextChatId, {
+  bool createdByCall = false,
+  bool remapped = false,
+}) {
+  if (nextChatId == callChatId) return (ends: false, chatId: callChatId);
+  if (nextChatId != null &&
+      ((callChatId == null && createdByCall) || remapped)) {
+    return (ends: false, chatId: nextChatId);
+  }
+  return (ends: true, chatId: callChatId);
+}
 
 final chatVoiceModeControllerProvider =
     NotifierProvider<ChatVoiceModeController, ChatVoiceModeSnapshot>(
@@ -170,6 +204,13 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   bool _streamingTtsStarted = false;
   bool _iosAudioSessionManagedExternally = false;
   bool _markedCallConnected = false;
+
+  /// The realtime voice of a call that has one; the turn-by-turn input and
+  /// speech are then unused.
+  RealtimeCallEngine? _realtime;
+  ChatBridgeCallHost? _realtimeHost;
+  StreamSubscription<RealtimeCallState>? _realtimeSub;
+  ProviderSubscription<Conversation?>? _realtimeChatSub;
   bool _pausedDuringSpeech = false;
   bool _pausedDuringAssistantTurn = false;
   bool _mutedDuringSpeech = false;
@@ -180,6 +221,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   String? _lastSubmittedTranscript;
   bool _stoppingFromCallKit = false;
   bool _sendingTranscript = false;
+  bool _composerFocused = false;
+  bool _queueSpokenTurns = false;
+  Future<void>? _continuousCaptureRestart;
+  ProviderSubscription<Conversation?>? _standardChatSub;
   bool _usesOpenWebUiTransport = false;
   List<String> _assistantSpeechChunks = const <String>[];
   int _activeAssistantSpeechChunkIndex = -1;
@@ -205,7 +250,35 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _handleChatMessagesChanged(next);
     });
 
+    ref.listen<bool>(composerHasFocusProvider, (_, focused) {
+      _composerFocused = focused;
+      if (!state.isActive || _realtime != null || _queueSpokenTurns) return;
+      if (focused) {
+        state = state.copyWith(isInputSuspended: true, intensity: 0);
+        unawaited(
+          _enqueue(() async {
+            if (!_disposed &&
+                _composerFocused &&
+                state.phase == ChatVoiceModePhase.listening) {
+              await _cancelListening();
+            }
+          }),
+        );
+      } else if (state.isInputSuspended) {
+        unawaited(
+          _enqueue(() async {
+            if (_disposed || _composerFocused || !state.isActive) return;
+            state = state.copyWith(isInputSuspended: false);
+            if (state.phase == ChatVoiceModePhase.listening && !state.isMuted) {
+              await _startListening(_token);
+            }
+          }),
+        );
+      }
+    });
+
     ref.onDispose(() {
+      _standardChatSub?.close();
       // Invalidate every detached transcript/TTS continuation before tearing
       // down its subscriptions. Async work must use only dependencies captured
       // while the provider was alive; reading Ref from this point is invalid.
@@ -234,6 +307,18 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       final callKit = _callKit;
       final callId = _activeCallId;
       final socketBackgroundLease = _socketBackgroundLease;
+      final realtime = _realtime;
+      final realtimeSub = _realtimeSub;
+      final realtimeChatSub = _realtimeChatSub;
+      _realtime = null;
+      _realtimeHost = null;
+      _realtimeSub = null;
+      _realtimeChatSub = null;
+      realtimeChatSub?.close();
+      // The voice's microphone and connection end with the provider; the
+      // host skips the chat writes a disposed provider can no longer make.
+      unawaited(realtimeSub?.cancel());
+      unawaited(realtime?.end());
       _activeCallId = null;
       _usesOpenWebUiTransport = false;
       selectedModelSub?.close();
@@ -289,8 +374,15 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     required bool startNewConversation,
     bool Function()? shouldStart,
     Model? admittedModel,
+    bool preferStandard = false,
+    bool queueSpokenTurns = false,
   }) async {
     final stopGenerationAtRequest = _stopRequestGeneration;
+    // The chat the call is for, as the user asked for it: the open one, or
+    // the new one it starts.
+    final callChatId = startNewConversation
+        ? null
+        : ref.read(activeConversationProvider)?.id;
     bool cancellationRequested() =>
         _disposed || stopGenerationAtRequest != _stopRequestGeneration;
 
@@ -346,6 +438,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           final startToken = ++_token;
           token = startToken;
           _resetRuntime();
+          _queueSpokenTurns = queueSpokenTurns;
 
           void cancelIfRequested() {
             if (cancellationRequested() ||
@@ -367,6 +460,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           final VoiceModeInput input =
               _voiceInput ?? ref.read(voiceModeInputProvider);
           _voiceInput = input;
+          if (input is ContinuousVoiceModeInput) {
+            (input as ContinuousVoiceModeInput).setContinuousCallActive(
+              queueSpokenTurns,
+            );
+          }
           final VoiceModeSpeech tts =
               _textToSpeech ?? ref.read(voiceModeSpeechProvider);
           _textToSpeech = tts;
@@ -378,28 +476,69 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             startedAt: DateTime.now(),
             elapsed: Duration.zero,
             clearErrorMessage: true,
-            isCollapsed: false,
+            isCollapsed: true,
+            isInputSuspended: false,
+            isContinuousListening: queueSpokenTurns,
             isMuted: false,
             isSpeakerphoneEnabled: false,
+          );
+
+          var ownedChatId = callChatId;
+          _standardChatSub?.close();
+          _standardChatSub = ref.listen<Conversation?>(
+            activeConversationProvider,
+            (_, next) {
+              if (!_isCurrent(startToken) ||
+                  _realtime != null ||
+                  !state.isActive) {
+                return;
+              }
+              if (next?.id == ownedChatId) return;
+              if (isActiveConversationInPlaceRemap(
+                    ref,
+                    ownedChatId,
+                    next?.id,
+                  ) ||
+                  (ownedChatId == null && next != null && _sendingTranscript)) {
+                ownedChatId = next?.id;
+              } else {
+                unawaited(stop());
+              }
+            },
           );
 
           _socketServiceSub = ref.listen<SocketService?>(
             socketServiceProvider,
             (_, next) => _replaceSocketBackgroundLease(next),
           );
-          _selectedModelSub = ref.listen<Model?>(
-            selectedModelProvider,
-            (_, next) => _updateVoiceTransport(next),
-          );
+          _selectedModelSub = ref.listen<Model?>(selectedModelProvider, (
+            _,
+            next,
+          ) {
+            if (next?.id != model.id && state.isActive) {
+              unawaited(stop());
+            } else {
+              _updateVoiceTransport(next);
+            }
+          });
           _updateVoiceTransport(ref.read(selectedModelProvider) ?? model);
 
-          final inputReady = await input.initialize();
+          final inputReady = await input.initialize(
+            forceLocalStt: queueSpokenTurns,
+          );
           if (lostOwnership()) return;
           cancelIfRequested();
           if (!inputReady) {
             throw const _ChatVoiceModeFailure(
               ChatVoiceModeError.inputUnavailable,
               'Voice input initialization failed.',
+            );
+          }
+          if (queueSpokenTurns &&
+              (!input.hasLocalStt || input.prefersServerOnly)) {
+            throw const _ChatVoiceModeFailure(
+              ChatVoiceModeError.message,
+              'Continuous calls require on-device speech recognition.',
             );
           }
           if (!await input.checkPermissions()) {
@@ -417,6 +556,44 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           await _applyDefaultSpeakerphoneRoute();
           if (lostOwnership()) return;
           cancelIfRequested();
+
+          final realtime = preferStandard || queueSpokenTurns
+              ? null
+              : await _resolveRealtime(model, newChat: startNewConversation);
+          if (lostOwnership()) return;
+          cancelIfRequested();
+          if (realtime != null) {
+            await _startCallKit(model.name, startToken);
+            if (lostOwnership()) return;
+            cancelIfRequested();
+            await _startBackgroundVoiceLease(input, startToken);
+            if (lostOwnership()) return;
+            cancelIfRequested();
+            _startElapsedTimer(startToken);
+            if (startNewConversation) {
+              startNewChat(ref, modelForNewConversation: model);
+            }
+            // Both directions at once, on the voice-chat route that cancels
+            // echo.
+            await _audioSessionCoordinator?.configureForBargeInSpeaking();
+            if (lostOwnership()) return;
+            cancelIfRequested();
+            try {
+              await _startRealtime(realtime, startToken, chatId: callChatId);
+            } catch (_) {
+              // Hung up while it connected: the stop ended it, which is no
+              // failure.
+              cancelIfRequested();
+              rethrow;
+            }
+            if (lostOwnership()) return;
+            cancelIfRequested();
+            if (_isCurrent(startToken) && state.isActive) {
+              result = ChatVoiceModeStartResult.started;
+            }
+            return;
+          }
+
           await _initializeTts(tts, settings);
           if (lostOwnership()) return;
           cancelIfRequested();
@@ -498,6 +675,172 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     return result;
   }
 
+  /// How to build the realtime voice for a call with [model], or null when
+  /// the call is a Standard one: the user chose Standard, the device cannot
+  /// run the voice's audio, or the model's backend offers no realtime voice.
+  Future<RealtimeCallEngine Function(BridgeCallHost host)?> _resolveRealtime(
+    Model model, {
+    required bool newChat,
+  }) async {
+    final voiceProfile = newChat
+        ? null
+        : hermesVoiceProfile(ref.read(activeConversationProvider));
+    final RealtimeCallRoute route;
+    try {
+      route = await ref.read(realtimeCallRouteResolverProvider)(
+        model,
+        newChat: newChat,
+      );
+    } catch (error) {
+      // What cannot be read keeps the call Standard, like anything unknown.
+      DebugLogger.warning(
+        'realtime-route-failed',
+        scope: 'chat/voice_mode',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return null;
+    }
+    final bridge = route.bridge;
+    if (bridge != null) {
+      final audio = ref.read(realtimePcmAudioFactoryProvider)();
+      if (audio != null) {
+        return (host) =>
+            BridgeCallEngine(transport: bridge, audio: audio, host: host);
+      }
+      await bridge.close();
+    }
+    final hermes = route.hermes;
+    if (hermes != null) {
+      final media = ref.read(realtimeWebRtcMediaFactoryProvider)();
+      if (media != null) {
+        // Built after a new chat has started, so the voice never hears the
+        // chat the call left.
+        return (host) => GptLiveCallEngine(
+          media: media,
+          host: host,
+          history: gptLiveHistory(ref.read(chatMessagesProvider)),
+          open: (offer, history) async => (await hermes.createVoiceLiveSession(
+            sdp: offer,
+            history: history,
+            profile: voiceProfile,
+          )).answerSdp,
+        );
+      }
+    }
+    DebugLogger.log(
+      'realtime-unavailable',
+      scope: 'chat/voice_mode',
+      data: {'reason': route.block?.name ?? 'no-device-audio'},
+    );
+    return null;
+  }
+
+  Future<void> _startRealtime(
+    RealtimeCallEngine Function(BridgeCallHost host) build,
+    int token, {
+    required String? chatId,
+  }) async {
+    // Another chat opened while the call set up: its voice was made for the
+    // one the user left.
+    final openChatId = ref.read(activeConversationProvider)?.id;
+    if (openChatId != chatId &&
+        !isActiveConversationInPlaceRemap(ref, chatId, openChatId)) {
+      throw const _ChatVoiceModeStartCancelled();
+    }
+    final host = ChatBridgeCallHost(
+      ref,
+      onNotice: (notice) {
+        if (!_isCurrent(token) || _disposed) return;
+        state = state.copyWith(
+          notice: notice,
+          noticeCount: state.noticeCount + 1,
+        );
+      },
+    );
+    final engine = build(host);
+    _realtime = engine;
+    _realtimeHost = host;
+    // Followed from before it connects: a chat opened while it connects
+    // ends it too.
+    _followRealtimeChat(host, token);
+    try {
+      await engine.connect();
+    } on RealtimeBridgeException catch (error) {
+      // The start fails with this; the engine's own ending is not a second
+      // failure.
+      throw _ChatVoiceModeFailure(ChatVoiceModeError.message, error.message);
+    }
+    _realtimeSub = engine.states.listen(
+      (realtime) => _onRealtimeState(realtime, token),
+    );
+    _onRealtimeState(engine.state, token);
+    final callId = state.activeCallId;
+    if (_isCurrent(token) && !_markedCallConnected && callId != null) {
+      _markedCallConnected = true;
+      unawaited(_callKit!.markCallConnected(callId));
+    }
+  }
+
+  /// Ends a realtime call when the user leaves its chat: the voice talks
+  /// about that chat, and a request it handed over is answered there. The
+  /// chat the call's own send creates, and that chat's server id, stay the
+  /// call's.
+  void _followRealtimeChat(ChatBridgeCallHost host, int token) {
+    _realtimeChatSub = ref.listen<Conversation?>(activeConversationProvider, (
+      _,
+      next,
+    ) {
+      if (!_isCurrent(token)) return;
+      final callChatId = host.chatId;
+      final followed = realtimeCallChatAfter(
+        callChatId,
+        next?.id,
+        createdByCall: host.createdChat(next),
+        remapped: isActiveConversationInPlaceRemap(ref, callChatId, next?.id),
+      );
+      if (followed.ends) {
+        unawaited(stop());
+      } else {
+        host.followChat(next);
+      }
+    });
+  }
+
+  /// Shows the realtime call in the same snapshot a Standard call uses.
+  void _onRealtimeState(RealtimeCallState realtime, int token) {
+    if (!_isCurrent(token) || _disposed) return;
+    if (realtime.phase == RealtimeCallPhase.ended) {
+      final error = realtime.error;
+      if (error != null) {
+        unawaited(_fail(error, token, ChatVoiceModeError.message));
+      } else {
+        unawaited(stop());
+      }
+      return;
+    }
+    final level = realtime.assistantSpeaking
+        ? realtime.outputLevel
+        : realtime.inputLevel;
+    state = state.copyWith(
+      phase: switch (realtime) {
+        RealtimeCallState(phase: RealtimeCallPhase.connecting) =>
+          ChatVoiceModePhase.starting,
+        RealtimeCallState(muted: true) => ChatVoiceModePhase.muted,
+        RealtimeCallState(assistantSpeaking: true) =>
+          ChatVoiceModePhase.speaking,
+        RealtimeCallState(working: true) => ChatVoiceModePhase.sending,
+        _ => ChatVoiceModePhase.listening,
+      },
+      transcript: realtime.userCaption,
+      assistantPreview: realtime.assistantCaption,
+      spokenResponse: realtime.assistantSpeaking
+          ? realtime.assistantCaption
+          : '',
+      intensity: (level * 40).round().clamp(0, 10),
+      isMuted: realtime.muted,
+    );
+  }
+
   /// Starts accessory-free calls on the loudspeaker, and follows the route the
   /// coordinator reads back for the rest of the call.
   ///
@@ -543,14 +886,35 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _pendingStartReadinessCancellation != null;
 
   Future<void> stop() {
+    _cancelStart();
+    return _enqueue(() => _stopInternal(endCallKit: true));
+  }
+
+  /// Stops a start under way before it goes further. A realtime voice still
+  /// connecting ends now: its microphone and connection must not wait for
+  /// the start queued ahead of the stop.
+  void _cancelStart() {
     ++_stopRequestGeneration;
     _cancelPendingStartReadiness();
-    return _enqueue(() => _stopInternal(endCallKit: true));
+    final realtime = _realtime;
+    if (realtime != null &&
+        realtime.state.phase == RealtimeCallPhase.connecting) {
+      // Teardown awaits this same ending, and reports what it throws.
+      unawaited(realtime.end().catchError((Object _) {}));
+    }
   }
 
   Future<void> pause() {
     return _enqueue(() async {
       if (!state.canPause) return;
+      final realtime = _realtime;
+      if (realtime != null) {
+        // Stops talking and listening, and holds its answers until resume.
+        realtime
+          ..setPaused(true)
+          ..setMuted(true);
+        return;
+      }
 
       final wasAwaitingAssistant = _awaitingAssistant;
       _pausedDuringSpeech = state.phase == ChatVoiceModePhase.speaking;
@@ -571,11 +935,19 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> resume() {
     return _enqueue(() async {
       if (!state.canResume) return;
+      final realtime = _realtime;
+      if (realtime != null) {
+        realtime
+          ..setMuted(false)
+          ..setPaused(false);
+        return;
+      }
 
       final token = _token;
+      final keepMuted = _queueSpokenTurns && state.isMuted;
       state = state.copyWith(
         phase: ChatVoiceModePhase.starting,
-        isMuted: false,
+        isMuted: keepMuted,
         clearErrorMessage: true,
       );
 
@@ -593,6 +965,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       }
 
       await _startListening(token);
+      await _drainQueuedSpeechIfReady(token);
     });
   }
 
@@ -601,13 +974,27 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       if (!state.isActive && state.phase != ChatVoiceModePhase.paused) {
         return;
       }
+      final realtime = _realtime;
+      if (realtime != null) {
+        if (realtime.state.muted) {
+          // Unmuting ends a pause too: the call is back.
+          realtime
+            ..setPaused(false)
+            ..setMuted(false);
+        } else {
+          realtime.setMuted(true);
+        }
+        return;
+      }
 
       if (!state.isMuted) {
         final token = _token;
         final phaseBeforeMute = state.phase;
         try {
           final keepAssistantAlive =
-              _awaitingAssistant && state.phase != ChatVoiceModePhase.paused;
+              !_queueSpokenTurns &&
+              _awaitingAssistant &&
+              state.phase != ChatVoiceModePhase.paused;
           if (keepAssistantAlive) {
             await _serviceLifecycleGate.runExclusive(() async {
               if (!_isCurrent(token)) return;
@@ -648,6 +1035,21 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         return;
       }
 
+      if (_queueSpokenTurns &&
+          _awaitingAssistant &&
+          !_pausedDuringAssistantTurn) {
+        state = state.copyWith(
+          phase: _mutedDuringSpeech
+              ? ChatVoiceModePhase.speaking
+              : ChatVoiceModePhase.sending,
+          isMuted: false,
+          clearErrorMessage: true,
+        );
+        _mutedDuringSpeech = false;
+        await _ensureContinuousCapture(_token);
+        return;
+      }
+
       final resumeBargeIn =
           _awaitingAssistant &&
           ref.read(appSettingsProvider).voiceBargeInEnabled &&
@@ -683,6 +1085,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         clearErrorMessage: true,
       );
       await _startListening(_token);
+      await _drainQueuedSpeechIfReady(_token);
     });
   }
 
@@ -707,6 +1110,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
   Future<void> cancelSpeaking() {
     return _enqueue(() async {
+      final realtime = _realtime;
+      if (realtime != null) {
+        realtime.interrupt();
+        return;
+      }
       final tts = _textToSpeech;
       if (tts == null) return;
       await tts.stopStreamingTts();
@@ -738,16 +1146,24 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
   }
 
-  Future<void> _initializeTts(VoiceModeSpeech tts, AppSettings settings) {
+  Future<void> _initializeTts(VoiceModeSpeech tts, AppSettings settings) async {
     tts.setVoiceCallActive(true);
-    return tts.initialize(
-      deviceVoice: settings.ttsVoice,
-      serverVoice: settings.ttsServerVoiceId,
-      speechRate: settings.ttsSpeechRate,
-      pitch: settings.ttsPitch,
-      volume: settings.ttsVolume,
-      engine: settings.ttsEngine,
-    );
+    try {
+      final available = await tts.initialize(
+        deviceVoice: settings.ttsVoice,
+        serverVoice: settings.ttsServerVoiceId,
+        speechRate: settings.ttsSpeechRate,
+        pitch: settings.ttsPitch,
+        volume: settings.ttsVolume,
+        engine: settings.ttsEngine,
+      );
+      if (!available) throw StateError('Call voice unavailable');
+    } catch (_) {
+      throw const _ChatVoiceModeFailure(
+        ChatVoiceModeError.message,
+        'Could not load the call voice. No other voice was used.',
+      );
+    }
   }
 
   Future<void> _startCallKit(String modelName, int token) async {
@@ -793,6 +1209,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       case VoiceCallKitEnded(callId: final endedCallId):
         if (endedCallId == callId) {
           _stoppingFromCallKit = true;
+          _cancelStart();
           unawaited(_enqueue(() => _stopInternal(endCallKit: false)));
         }
       case VoiceCallKitMuteToggled(callId: final mutedCallId, :final isMuted):
@@ -981,6 +1398,21 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
+    if (_composerFocused &&
+        !_queueSpokenTurns &&
+        beforeAcceptingTranscripts == null) {
+      await _cancelListening();
+      await _audioSessionCoordinator?.endResponseWaitCapture();
+      if (_isCurrent(token)) {
+        state = state.copyWith(
+          phase: ChatVoiceModePhase.listening,
+          isInputSuspended: true,
+          intensity: 0,
+        );
+      }
+      return;
+    }
+    state = state.copyWith(isInputSuspended: false);
     final input = _voiceInput!;
     final transferResponseCaptureToLocalStt = input.willUseNativeLocalStt;
     if (!transferResponseCaptureToLocalStt) {
@@ -1040,11 +1472,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     if (!_isCurrent(token)) return;
 
     _currentTranscript = '';
+    final preserveReply = _queueSpokenTurns && _awaitingAssistant;
     state = state.copyWith(
-      phase: ChatVoiceModePhase.listening,
-      transcript: '',
-      assistantPreview: '',
-      clearSpokenResponse: true,
+      phase: preserveReply ? state.phase : ChatVoiceModePhase.listening,
+      transcript: preserveReply ? state.transcript : '',
+      assistantPreview: preserveReply ? state.assistantPreview : '',
+      clearSpokenResponse: !preserveReply,
       intensity: 0,
       clearErrorMessage: true,
     );
@@ -1079,7 +1512,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     await _intensitySub?.cancel();
     if (!_isCurrent(token)) return;
     _intensitySub = input.intensityStream.listen((intensity) {
-      if (_isCurrent(token) && state.phase == ChatVoiceModePhase.listening) {
+      if (_isCurrent(token) &&
+          !state.isMuted &&
+          (state.phase == ChatVoiceModePhase.listening ||
+              (_queueSpokenTurns &&
+                  state.isActive &&
+                  state.phase != ChatVoiceModePhase.paused))) {
         state = state.copyWith(intensity: intensity);
       }
     });
@@ -1111,7 +1549,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   void _handleTranscriptEvent(VoiceTranscriptEvent event, int token) {
-    if (!_isCurrent(token) || state.isMuted) return;
+    if (!_isCurrent(token) ||
+        state.isMuted ||
+        (_composerFocused && !_queueSpokenTurns)) {
+      return;
+    }
 
     _currentTranscript = event.text;
     if (state.isActive && state.phase != ChatVoiceModePhase.paused) {
@@ -1126,6 +1568,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   Future<void> _handleFinalTranscript(String text, int token) async {
     if (!_isCurrent(token) ||
         state.isMuted ||
+        (_composerFocused && !_queueSpokenTurns) ||
         state.phase == ChatVoiceModePhase.paused) {
       return;
     }
@@ -1135,30 +1578,97 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
-    if (_sendingTranscript) {
+    if (_sendingTranscript || (_queueSpokenTurns && _awaitingAssistant)) {
       _enqueuePendingFinalTranscript(transcript);
       return;
     }
 
-    await _drainFinalTranscripts(transcript, token);
+    if (_queueSpokenTurns && _pendingFinalTranscripts.isNotEmpty) {
+      _enqueuePendingFinalTranscript(transcript);
+      await _drainQueuedSpeechIfReady(token);
+    } else {
+      await _drainFinalTranscripts(transcript, token);
+    }
   }
 
   Future<void> _handleListeningDone(int token) async {
-    if (!_isCurrent(token) || state.phase != ChatVoiceModePhase.listening) {
+    if (!_isCurrent(token) ||
+        state.isMuted ||
+        state.phase == ChatVoiceModePhase.paused ||
+        (!(_queueSpokenTurns && state.isActive) &&
+            state.phase != ChatVoiceModePhase.listening)) {
       return;
     }
-
     final input = _voiceInput!;
-    final transcript = input.lastCompletedTranscriptSendable
+    // Continuous input has already delivered each final segment. Replaying its
+    // last completed segment here could submit it again after a reply finishes.
+    final transcript =
+        !_queueSpokenTurns && input.lastCompletedTranscriptSendable
         ? _currentTranscript.trim()
         : '';
-    if (transcript.isEmpty) {
+    if (transcript.isNotEmpty) {
+      _emptyTranscriptRestarts = 0;
+      await _handleFinalTranscript(transcript, token);
+    }
+    if (_queueSpokenTurns) {
+      await _ensureContinuousCapture(token);
+    } else if (transcript.isEmpty) {
       await _restartAfterEmptyTranscript(token);
+    }
+  }
+
+  Future<void> _drainQueuedSpeechIfReady(int token) async {
+    if (!_queueSpokenTurns ||
+        !_isCurrent(token) ||
+        !state.isActive ||
+        state.isMuted ||
+        state.phase == ChatVoiceModePhase.paused ||
+        _awaitingAssistant ||
+        _sendingTranscript) {
       return;
     }
+    final pending = _takePendingFinalTranscript();
+    if (pending != null) await _drainFinalTranscripts(pending, token);
+  }
 
-    _emptyTranscriptRestarts = 0;
-    await _handleFinalTranscript(transcript, token);
+  Future<void> _ensureContinuousCapture(int token) async {
+    if (!_isCurrent(token) ||
+        !_queueSpokenTurns ||
+        state.isMuted ||
+        state.phase == ChatVoiceModePhase.paused ||
+        !state.isActive ||
+        (_voiceInput?.isListening == true && _transcriptSub != null)) {
+      return;
+    }
+    final pending = _continuousCaptureRestart;
+    if (pending != null) {
+      // The first owner reports a restart failure and tears down the call.
+      try {
+        await pending;
+      } catch (_) {}
+      return;
+    }
+    final operation = _serviceLifecycleGate.runExclusive(() async {
+      if (_isCurrent(token) &&
+          !state.isMuted &&
+          state.isActive &&
+          state.phase != ChatVoiceModePhase.paused &&
+          (_voiceInput?.isListening != true || _transcriptSub == null)) {
+        await _startListening(token);
+      }
+    });
+    _continuousCaptureRestart = operation;
+    try {
+      await operation;
+    } catch (error) {
+      if (_isCurrent(token)) {
+        await _fail(error.toString(), token, _errorKindOf(error));
+      }
+    } finally {
+      if (identical(_continuousCaptureRestart, operation)) {
+        _continuousCaptureRestart = null;
+      }
+    }
   }
 
   Future<void> _drainFinalTranscripts(
@@ -1190,6 +1700,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
             _awaitingAssistant ||
             state.phase == ChatVoiceModePhase.sending ||
             state.phase == ChatVoiceModePhase.speaking;
+        if (assistantActive && _queueSpokenTurns) {
+          _enqueuePendingFinalTranscript(transcript);
+          return;
+        }
         if (assistantActive &&
             !ref.read(appSettingsProvider).voiceBargeInEnabled) {
           _pendingFinalTranscripts.clear();
@@ -1205,6 +1719,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         _sendingTranscript = false;
       }
 
+      if (_queueSpokenTurns && _awaitingAssistant) return;
       final pending = _takePendingFinalTranscript();
       if (pending == null || pending == transcript) {
         return;
@@ -1257,14 +1772,64 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     }
   }
 
-  Future<void> _sendTranscript(String transcript, int token) async {
+  /// Admits typed input or a skill through the existing voice turn lifecycle.
+  /// A composer dispatch retains its attachment/outbox path and sends once.
+  Future<bool> submitText(
+    String text, {
+    Future<bool> Function()? dispatch,
+  }) async {
+    var accepted = false;
+    await _enqueue(() async {
+      if (!state.isActive ||
+          _realtime != null ||
+          _awaitingAssistant ||
+          _sendingTranscript ||
+          !{
+            ChatVoiceModePhase.listening,
+            ChatVoiceModePhase.muted,
+          }.contains(state.phase) ||
+          text.trim().isEmpty) {
+        return;
+      }
+      final token = _token;
+      _sendingTranscript = true;
+      if (!_queueSpokenTurns) _pendingFinalTranscripts.clear();
+      try {
+        await _sendTranscript(
+          text.trim(),
+          token,
+          dispatch: dispatch == null
+              ? null
+              : () async {
+                  accepted = await dispatch();
+                  return accepted;
+                },
+        );
+        if (dispatch == null) accepted = _isCurrent(token) && state.isActive;
+      } finally {
+        _sendingTranscript = false;
+      }
+    });
+    return accepted;
+  }
+
+  void bindAssistantMessage(String id) {
+    if (state.isActive && _awaitingAssistant) _activeAssistantMessageId = id;
+  }
+
+  Future<void> _sendTranscript(
+    String transcript,
+    int token, {
+    Future<bool> Function()? dispatch,
+  }) async {
     if (!_isCurrent(token)) return;
 
     try {
       final input = _voiceInput!;
       final keepListening =
-          ref.read(appSettingsProvider).voiceBargeInEnabled &&
-          input.isUsingNativeLocalStt;
+          _queueSpokenTurns ||
+          (ref.read(appSettingsProvider).voiceBargeInEnabled &&
+              input.isUsingNativeLocalStt);
       await _serviceLifecycleGate.runExclusive(() async {
         if (!_isCurrent(token)) return;
         var inputOwnsResponseCapture = false;
@@ -1274,7 +1839,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           inputOwnsResponseCapture = await input.prepareResponseWaitHandoff();
           if (!_isCurrent(token)) return;
         }
-        if (_platform.isIOS) {
+        if (_platform.isIOS || _queueSpokenTurns) {
           await _audioSessionCoordinator?.configureForBargeInSpeaking();
         } else {
           await _audioSessionCoordinator?.configureForSpeaking();
@@ -1316,13 +1881,25 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       await _backgroundCoordinator?.keepAlive();
       if (!_isCurrent(token)) return;
       final selectedToolIds = ref.read(selectedToolIdsProvider);
-      await durableSend(
-        ref,
-        transcript,
-        null,
-        toolIds: selectedToolIds,
-        isVoiceMode: true,
-      );
+      if (dispatch != null) {
+        if (!await dispatch()) {
+          _awaitingAssistant = false;
+          await tts.stopStreamingTts();
+          _streamingTtsStarted = false;
+          if (_isCurrent(token) && !state.isMuted) await _startListening(token);
+          return;
+        }
+      } else {
+        await durableSend(
+          ref,
+          transcript,
+          null,
+          toolIds: selectedToolIds,
+          isVoiceMode: true,
+          onAssistantPlaceholderCreated: (handle) =>
+              bindAssistantMessage(handle.assistantMessageId),
+        );
+      }
       if (!_isCurrent(token)) return;
 
       _activeAssistantMessageId ??= _activeAssistantMessage()?.id;
@@ -1464,13 +2041,18 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
     if (!_awaitingAssistant) {
       await _startListening(token);
+      await _drainQueuedSpeechIfReady(token);
       return;
     }
 
     try {
-      await _audioSessionCoordinator?.beginResponseWaitCapture(
-        callKitCallId: _activeCallId,
-      );
+      if (_queueSpokenTurns) {
+        await _ensureContinuousCapture(token);
+      } else {
+        await _audioSessionCoordinator?.beginResponseWaitCapture(
+          callKitCallId: _activeCallId,
+        );
+      }
     } catch (error, stackTrace) {
       if (!_isCurrent(token)) return;
       DebugLogger.error(
@@ -1542,7 +2124,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
 
     _awaitingAssistant = false;
     _streamingTtsStarted = false;
-    _pendingFinalTranscripts.clear();
+    if (!_queueSpokenTurns) _pendingFinalTranscripts.clear();
     _lastSubmittedTranscript = null;
     _activeAssistantMessageId = null;
     _lastFedAssistantText = '';
@@ -1556,7 +2138,23 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
-    await _startListening(token);
+    if (_queueSpokenTurns) {
+      state = state.copyWith(
+        phase: ChatVoiceModePhase.listening,
+        clearSpokenResponse: true,
+      );
+      await _ensureContinuousCapture(token);
+      if (!_isCurrent(token) ||
+          _sendingTranscript ||
+          state.isMuted ||
+          state.phase == ChatVoiceModePhase.paused) {
+        return;
+      }
+      final pending = _takePendingFinalTranscript();
+      if (pending != null) await _drainFinalTranscripts(pending, token);
+    } else {
+      await _startListening(token);
+    }
   }
 
   Set<String> _currentAssistantMessageIds() {
@@ -1675,6 +2273,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       return;
     }
 
+    _standardChatSub?.close();
+    _standardChatSub = null;
     ++_token;
     final stopToken = _token;
     state = state.copyWith(phase: ChatVoiceModePhase.ending);
@@ -1721,6 +2321,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final socketBackgroundLease = _socketBackgroundLease;
     final backgroundCoordinator = _backgroundCoordinator;
     final audioSessionCoordinator = _audioSessionCoordinator;
+    final realtime = _realtime;
+    final realtimeHost = _realtimeHost;
+    final realtimeSub = _realtimeSub;
+    final realtimeChatSub = _realtimeChatSub;
 
     // Detach this session's instance state before the first await. A stale
     // teardown can then finish its captured resources without a later finally
@@ -1745,6 +2349,15 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _callKit = null;
     _iosAudioSessionManagedExternally = false;
     _usesOpenWebUiTransport = false;
+    _realtime = null;
+    _realtimeHost = null;
+    _realtimeSub = null;
+    _realtimeChatSub = null;
+    realtimeChatSub?.close();
+    // Its ending is this teardown's own; nothing listens for it any more.
+    unawaited(realtimeSub?.cancel());
+    // Ends the realtime voice and saves what it had not saved yet.
+    final realtimeEnded = realtime?.end();
     elapsedTimer?.cancel();
     backgroundKeepAliveTimer?.cancel();
     selectedModelSub?.close();
@@ -1764,6 +2377,15 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
                 _textToSpeech != null ||
                 _backgroundLeaseId != null);
 
+        // Before the audio session goes, so the call's audio stops first.
+        await _runTeardownStep('realtime-end', () async {
+          try {
+            await realtimeEnded;
+          } finally {
+            // Answers still running go on in the chat, unfollowed.
+            realtimeHost?.close();
+          }
+        });
         await _runTeardownStep('transcript-subscription-cancel', () async {
           await transcriptSub?.cancel();
         });
@@ -1778,7 +2400,15 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
         });
         await _runTeardownStep('voice-input-stop', () async {
           if (!replacementOwnsInput()) {
-            await input?.stopListening();
+            try {
+              await input?.stopListening();
+            } finally {
+              if (input is ContinuousVoiceModeInput) {
+                (input as ContinuousVoiceModeInput).setContinuousCallActive(
+                  false,
+                );
+              }
+            }
           }
         });
         await _runTeardownStep('response-wait-capture-stop', () async {
@@ -1864,6 +2494,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   }
 
   void _resetRuntime() {
+    _queueSpokenTurns = false;
+    _continuousCaptureRestart = null;
     _selectedModelSub?.close();
     _selectedModelSub = null;
     _socketServiceSub?.close();
@@ -2009,6 +2641,9 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     try {
       await input?.stopListening();
     } catch (_) {}
+    if (input is ContinuousVoiceModeInput) {
+      (input as ContinuousVoiceModeInput).setContinuousCallActive(false);
+    }
   }
 
   Future<void> _stopTtsAfterDispose(VoiceModeSpeech? tts) async {

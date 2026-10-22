@@ -429,6 +429,7 @@ class ConduitMarkdown {
     required String language,
     required ConduitThemeExtension theme,
     VoidCallback? onPreview,
+    bool deferHighlight = false,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
@@ -439,33 +440,28 @@ class ConduitMarkdown {
     // Map common language aliases to highlight.js recognized names
     final highlightLanguage = mapLanguage(normalizedLanguage);
 
-    // Use Atom One Dark for dark mode, GitHub for light mode
-    // These colors must match the highlight themes for visual consistency
-    final highlightTheme = isDark ? atomOneDarkTheme : githubTheme;
-    final codeBackground = isDark
-        ? const Color(0xFF282c34) // Atom One Dark
-        : const Color(0xFFF6F8FA); // GitHub light
-
-    // Derive border color from background for consistency
-    final borderColor = isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : Colors.black.withValues(alpha: 0.1);
+    final codeBackground = markdownStyle.codeBlockBackground;
+    final baseHighlightTheme = isDark ? atomOneDarkTheme : githubTheme;
+    final highlightTheme = <String, TextStyle>{
+      for (final entry in baseHighlightTheme.entries)
+        entry.key: entry.value.copyWith(
+          color: entry.value.color == null
+              ? null
+              : withMinContrast(
+                  entry.value.color!,
+                  entry.key == 'root'
+                      ? codeBackground
+                      : entry.value.backgroundColor ?? codeBackground,
+                  4.5,
+                ),
+        ),
+    };
+    final borderColor = markdownStyle.codeBlockBorder;
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: Spacing.xs + 2),
       decoration: BoxDecoration(
         color: codeBackground,
-        borderRadius: BorderRadius.circular(AppBorderRadius.lg),
-        border: Border.all(color: borderColor, width: BorderWidth.thin),
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.03),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+        borderRadius: BorderRadius.circular(markdownStyle.codeBlockRadius),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -498,6 +494,7 @@ class ConduitMarkdown {
             highlightTheme: highlightTheme,
             codeStyle: markdownStyle.codeBlock,
             isDark: isDark,
+            deferHighlight: deferHighlight,
           ),
         ],
       ),
@@ -1081,23 +1078,26 @@ class _HighlightCacheKey {
     required this.language,
     required this.code,
     required this.isDark,
+    required this.themeHash,
   }) : codeHash = Object.hash(code, code.length);
 
   final String language;
   final String code;
   final bool isDark;
   final int codeHash;
+  final int themeHash;
 
   @override
   bool operator ==(Object other) {
     return other is _HighlightCacheKey &&
         other.language == language &&
         other.isDark == isDark &&
+        other.themeHash == themeHash &&
         other.code == code;
   }
 
   @override
-  int get hashCode => Object.hash(language, codeHash, isDark);
+  int get hashCode => Object.hash(language, codeHash, isDark, themeHash);
 }
 
 class _HighlightSpanCache {
@@ -1277,6 +1277,9 @@ class _HighlightedCodeTextState extends State<_HighlightedCodeText> {
     language: widget.language,
     code: widget.source,
     isDark: widget.isDark,
+    themeHash: Object.hashAll(
+      widget.theme.entries.map((entry) => Object.hash(entry.key, entry.value)),
+    ),
   );
 
   /// Highlighted spans if available now, otherwise null after arranging for
@@ -1421,6 +1424,7 @@ class _CodeBlockBody extends StatefulWidget {
     required this.highlightTheme,
     required this.codeStyle,
     required this.isDark,
+    this.deferHighlight = false,
   });
 
   final String code;
@@ -1428,6 +1432,7 @@ class _CodeBlockBody extends StatefulWidget {
   final Map<String, TextStyle> highlightTheme;
   final TextStyle codeStyle;
   final bool isDark;
+  final bool deferHighlight;
 
   /// Lines above this count trigger collapse behavior.
   static const collapseThreshold = 15;
@@ -1471,6 +1476,7 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
         : widget.code;
     final hiddenCount = lines.length - _CodeBlockBody.previewLines;
     final renderPlainPreview =
+        widget.deferHighlight ||
         displayCode.length > _CodeBlockBody.largePlainRenderCharThreshold ||
         (_isCollapsed &&
             widget.highlightLanguage == 'json' &&
@@ -1616,7 +1622,6 @@ class CodeBlockHeader extends StatefulWidget {
 }
 
 class _CodeBlockHeaderState extends State<CodeBlockHeader> {
-  bool _isHovering = false;
   bool _isCopied = false;
 
   void _handleCopy() {
@@ -1631,105 +1636,54 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
   Widget build(BuildContext context) {
     final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
     final label = widget.language.isEmpty ? 'plaintext' : widget.language;
-
-    // Colors derived from the code block theme for consistency
-    final labelColor = widget.isDark
-        ? const Color(0xFF9DA5B4) // Atom One Dark muted
-        : const Color(0xFF57606A); // GitHub muted
-
-    final iconColor = _isHovering
-        ? (widget.isDark ? const Color(0xFFABB2BF) : const Color(0xFF24292F))
-        : labelColor;
-
-    final successColor = widget.isDark
-        ? const Color(0xFF98C379)
-        : const Color(0xFF1A7F37);
-
+    final l10n = AppLocalizations.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Spacing.sm + 2,
-        vertical: Spacing.xs + 1,
-      ),
-      decoration: BoxDecoration(
-        color: widget.backgroundColor,
-        border: Border(
-          bottom: BorderSide(
-            color: widget.borderColor,
-            width: BorderWidth.thin,
-          ),
-        ),
-      ),
+      padding: const EdgeInsets.only(left: 12, right: 4),
+      color: widget.backgroundColor,
       child: Row(
         children: [
-          // Language icon
           Icon(
             _getLanguageIcon(label),
-            size: 14,
-            color: labelColor.withValues(alpha: 0.7),
+            size: 16,
+            color: markdownStyle.textSecondary,
           ),
-          const SizedBox(width: Spacing.xs),
-          // Language label
-          Text(
-            label,
-            style: markdownStyle.codeChrome.copyWith(
-              color: labelColor,
-              fontWeight: FontWeight.w600,
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: markdownStyle.codeChrome.copyWith(
+                color: markdownStyle.textSecondary,
+              ),
             ),
           ),
-          const Spacer(),
-          if (widget.onPreview != null) ...[
-            _CodeBlockActionButton(
-              icon: Icons.visibility_outlined,
-              label: AppLocalizations.of(context)!.preview,
-              color: iconColor,
-              onTap: widget.onPreview!,
+          if (widget.onPreview != null)
+            SizedBox.square(
+              dimension: 48,
+              child: IconButton(
+                tooltip: l10n?.preview ?? 'Preview',
+                onPressed: widget.onPreview,
+                icon: Icon(
+                  Icons.visibility_outlined,
+                  size: 18,
+                  color: markdownStyle.textSecondary,
+                ),
+              ),
             ),
-            const SizedBox(width: Spacing.xs),
-          ],
-          // Copy button with hover effect
-          MouseRegion(
-            onEnter: (_) => setState(() => _isHovering = true),
-            onExit: (_) => setState(() => _isHovering = false),
-            child: GestureDetector(
-              onTap: _handleCopy,
-              child: AnimatedContainer(
-                duration: context.motionDuration(AnimationDuration.fast),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: Spacing.xs + 2,
-                  vertical: Spacing.xs - 1,
-                ),
-                decoration: BoxDecoration(
-                  color: _isHovering
-                      ? widget.borderColor.withValues(alpha: 0.5)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(AppBorderRadius.xs),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AnimatedSwitcher(
-                      duration: context.motionDuration(AnimationDuration.fast),
-                      child: Icon(
-                        _isCopied
-                            ? Icons.check_rounded
-                            : Icons.content_copy_rounded,
-                        key: ValueKey(_isCopied),
-                        size: 14,
-                        color: _isCopied ? successColor : iconColor,
-                      ),
-                    ),
-                    if (_isHovering || _isCopied) ...[
-                      const SizedBox(width: Spacing.xs),
-                      Text(
-                        _isCopied ? 'Copied!' : 'Copy',
-                        style: markdownStyle.codeChrome.copyWith(
-                          color: _isCopied ? successColor : iconColor,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+          SizedBox.square(
+            dimension: 48,
+            child: IconButton(
+              tooltip: _isCopied
+                  ? l10n?.copiedToClipboard ?? 'Copied'
+                  : l10n?.copy ?? 'Copy',
+              onPressed: _handleCopy,
+              icon: Icon(
+                _isCopied ? Icons.check_rounded : Icons.content_copy_rounded,
+                size: 18,
+                color: _isCopied
+                    ? context.conduitTheme.success
+                    : markdownStyle.textSecondary,
               ),
             ),
           ),
@@ -1755,52 +1709,6 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
       'docker' || 'dockerfile' => Icons.cloud_rounded,
       _ => Icons.code_rounded,
     };
-  }
-}
-
-class _CodeBlockActionButton extends StatelessWidget {
-  const _CodeBlockActionButton({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.xs + 2,
-          vertical: Spacing.xs - 1,
-        ),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppBorderRadius.xs),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: Spacing.xs),
-            Text(
-              label,
-              style: markdownStyle.codeChrome.copyWith(
-                color: color,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

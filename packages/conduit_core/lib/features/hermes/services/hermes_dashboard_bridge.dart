@@ -33,3 +33,9 @@ typedef HermesDashboardBridgeFactory = HermesDashboardBridge Function({
   required Uri root,
   required Map<String, String> accessHeaders,
 });
+
+/// Optional binary-transfer capability. Credentials may only be issued for the
+/// same gateway origin and must never follow redirects to another destination.
+abstract interface class HermesDashboardTransferBridge {
+  Future<Map<String, String>> transferHeaders(Uri url);
+}

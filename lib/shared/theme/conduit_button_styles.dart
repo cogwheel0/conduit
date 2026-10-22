@@ -2,6 +2,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'theme_extensions.dart';
+import 'color_tokens.dart';
 
 /// Resolved styling for a button variant.
 typedef ButtonVariantStyle = ({
@@ -36,7 +37,12 @@ class ConduitButtonStyles {
   /// Filled button with the error/destructive color.
   ButtonVariantStyle destructive() => (
     background: theme.error,
-    foreground: theme.buttonPrimaryText,
+    foreground: readableOn(
+      theme.error,
+      preferred: theme.tokens.statusOnError60,
+      foreground: theme.textPrimary,
+      background: theme.surfaceBackground,
+    ),
     adaptiveStyle: AdaptiveButtonStyle.filled,
   );
 

@@ -5,12 +5,255 @@ final class _HermesDesktopAdministration {
 
   final HermesDesktopApiService _owner;
 
+  Future<Map<String, dynamic>> _get(String path) async => _owner._object(
+    await _owner._requestJson(
+      'GET',
+      path,
+      query: {'profile': _owner.config.desktopProfile},
+    ),
+  );
+
+  Future<HermesAgentSettings> agentSettings() async {
+    final results = await Future.wait([
+      _get('/api/config'),
+      _get('/api/config/schema'),
+    ]);
+    final config = results[0]['config'] is Map
+        ? _owner._object(results[0]['config'])
+        : results[0];
+    // Older gateways can expose config without the newer model summaries.
+    Future<Map<String, dynamic>> optional(String path) async {
+      try {
+        return await _get(path);
+      } on DioException catch (error) {
+        if (const {404, 405, 501}.contains(error.response?.statusCode)) {
+          return const {};
+        }
+        rethrow;
+      } on StateError catch (error) {
+        if (const {
+          'Hermes dashboard request failed (404).',
+          'Hermes dashboard request failed (405).',
+          'Hermes dashboard request failed (501).',
+        }.contains(error.message)) {
+          return const {};
+        }
+        rethrow;
+      }
+    }
+
+    final models = await Future.wait([
+      optional('/api/model/info'),
+      optional('/api/model/auxiliary'),
+      optional('/api/model/moa'),
+    ]);
+    return HermesAgentSettings(
+      config: config,
+      schema: _owner._object(results[1]['fields']),
+      model: models[0],
+      auxiliary: _owner._objects(models[1]['tasks']),
+      supportsGlobalModel: models[1]['supports_global_model'] == true,
+      ensembles: models[2],
+    );
+  }
+
+  Future<void> _patch(String path, Object? value, Object? expected) async {
+    final latest = await _get('/api/config');
+    final config = latest['config'] is Map
+        ? _owner._object(latest['config'])
+        : latest;
+    if (jsonEncode(hermesSettingValue(config, path)) != jsonEncode(expected)) {
+      throw StateError(
+        'This setting changed elsewhere. Refresh and try again.',
+      );
+    }
+    final result = _owner._object(
+      await _owner._requestJson(
+        'PUT',
+        '/api/config',
+        query: {
+          'profile': _owner.config.desktopProfile,
+          'preserve_language': true,
+        },
+        body: {'config': hermesSettingPatch(path, value)},
+      ),
+    );
+    if (result['ok'] == false || result['error'] != null) {
+      throw StateError('Hermes could not save this setting.');
+    }
+  }
+
+  Future<void> setModelEnsembles(
+    Map<String, dynamic> settings,
+    Map<String, dynamic> expected,
+  ) async {
+    final presets = settings['presets'];
+    if (presets is! Map ||
+        presets.isEmpty ||
+        presets.length > 32 ||
+        !presets.containsKey(settings['default_preset'])) {
+      throw const FormatException('Invalid model ensembles.');
+    }
+    bool validModel(Object? row) =>
+        row is Map &&
+        validateHermesBoundedString(row['provider'], maxCharacters: 256) !=
+            null &&
+        row['provider'] != 'moa' &&
+        validateHermesBoundedString(row['model'], maxCharacters: 512) != null;
+    for (final preset in presets.values) {
+      if (preset is! Map ||
+          !validModel(preset['aggregator']) ||
+          preset['reference_models'] is! List ||
+          (preset['reference_models'] as List).isEmpty ||
+          (preset['reference_models'] as List).length > 32 ||
+          !(preset['reference_models'] as List).every(validModel)) {
+        throw const FormatException('Invalid ensemble models.');
+      }
+    }
+    final current = await _get('/api/model/moa');
+    if (jsonEncode(current) != jsonEncode(expected)) {
+      throw StateError('Model ensembles changed elsewhere.');
+    }
+    final result = _owner._object(
+      await _owner._requestJson(
+        'PUT',
+        '/api/model/moa',
+        query: {'profile': _owner.config.desktopProfile},
+        body: settings,
+      ),
+    );
+    if (result['ok'] == false || result['error'] != null) {
+      throw StateError('Hermes could not save model ensembles.');
+    }
+  }
+
+  Future<void> setAgentSetting(HermesSettingField field, Object? value) async {
+    if (!hermesMobileSettingGroups.any(
+      (group) => group.fields.containsKey(field.path),
+    )) {
+      throw const FormatException('Unsupported setting.');
+    }
+    field.validate(value);
+    await _patch(field.path, value, field.value);
+  }
+
+  Future<void> _setModel(Map<String, dynamic> body) async {
+    final result = _owner._object(
+      await _owner._requestJson(
+        'POST',
+        '/api/model/set',
+        query: {'profile': _owner.config.desktopProfile},
+        body: body,
+      ),
+    );
+    if (result['ok'] == false ||
+        result['error'] != null ||
+        result['confirm_required'] == true) {
+      throw StateError('Hermes could not apply this model.');
+    }
+  }
+
+  Future<void> setDefaultModel(
+    HermesDesktopModelOption model, {
+    String? task,
+  }) async {
+    if (model.id.isEmpty ||
+        model.provider.isEmpty ||
+        (task != null && validateHermesOpaqueIdentifier(task) == null)) {
+      throw const FormatException('Invalid model selection.');
+    }
+    await _setModel({
+      'model': model.id,
+      'provider': model.provider,
+      if (model.baseUrl != null) 'base_url': model.baseUrl,
+      if (task != null) ...{'scope': 'auxiliary', 'task': task},
+    });
+  }
+
+  Future<void> setAuxiliaryReasoning({
+    required String task,
+    required String provider,
+    required String model,
+    String? effort,
+    String? baseUrl,
+  }) async {
+    if (validateHermesOpaqueIdentifier(task) == null ||
+        provider.isEmpty ||
+        (effort != null &&
+            !const {
+              'none',
+              'minimal',
+              'low',
+              'medium',
+              'high',
+              'xhigh',
+              'max',
+              'ultra',
+            }.contains(effort))) {
+      throw const FormatException('Invalid reasoning selection.');
+    }
+    await _setModel({
+      'scope': 'auxiliary',
+      'task': task,
+      'provider': provider,
+      'model': model,
+      'reasoning_effort': effort,
+      'base_url': ?baseUrl,
+    });
+  }
+
+  Future<void> resetAuxiliaryModel(String task) async {
+    if (validateHermesOpaqueIdentifier(task) == null) {
+      throw const FormatException('Invalid task.');
+    }
+    await _setModel({
+      'scope': 'auxiliary',
+      'task': task,
+      'provider': 'auto',
+      'model': '',
+      'reasoning_effort': null,
+    });
+  }
+
+  Future<void> useGlobalModel(String task) async {
+    if (validateHermesOpaqueIdentifier(task) == null) {
+      throw const FormatException('Invalid task.');
+    }
+    final modes = await _get('/api/model/auxiliary');
+    if (modes['supports_global_model'] != true) {
+      throw StateError('This Hermes server needs global model support.');
+    }
+    await _setModel({
+      'scope': 'auxiliary',
+      'task': task,
+      'provider': 'global',
+      'model': '',
+      'reasoning_effort': null,
+    });
+  }
+
+  Future<void> setFallbackModels(
+    List<Map<String, dynamic>> models,
+    Object? expected,
+  ) async {
+    if (models.length > 32 ||
+        models.any(
+          (model) =>
+              validateHermesOpaqueIdentifier(model['provider']) == null ||
+              validateHermesBoundedString(model['model'], maxCharacters: 512) ==
+                  null,
+        )) {
+      throw const FormatException('Invalid fallback models.');
+    }
+    await _patch('fallback_providers', models, expected);
+  }
+
   Future<List<HermesDesktopModelOption>> configuredModels() async {
     await _owner._ensureConnected();
     final result = _owner._object(
       await _owner._rpc.request<Object?>(
         'model.options',
-        params: const {'explicit_only': true},
+        params: const {'explicit_only': true, 'refresh': true},
       ),
     );
     return parseHermesDesktopConfiguredModels(result)
@@ -24,7 +267,7 @@ final class _HermesDesktopAdministration {
     final installed = _owner._object(
       await _owner._rpc.request<Object?>(
         'skills.manage',
-        params: const {'action': 'list'},
+        params: {'action': 'list', 'profile': _owner.config.desktopProfile},
       ),
     );
     final commands = await listCommands();
@@ -33,8 +276,28 @@ final class _HermesDesktopAdministration {
       descriptions[command['name']?.toString() ?? ''] =
           command['description']?.toString() ?? '';
     }
-    final rows = installed['skills'];
-    if (rows is! List) return const [];
+    final source = installed['skills'];
+    final rows = source is List
+        ? source
+        : source is Map
+        ? source.entries
+              .where((entry) => entry.value is List)
+              .expand(
+                (entry) => (entry.value as List).map(
+                  (item) => {
+                    if (item is Map)
+                      ...Map<String, dynamic>.from(item)
+                    else
+                      'name': item,
+                    'category': item is Map
+                        ? item['category'] ?? entry.key.toString()
+                        : entry.key.toString(),
+                  },
+                ),
+              )
+              .take(256)
+              .toList()
+        : const <Object>[];
     return rows
         .take(256)
         .map<Map<String, dynamic>>((row) {
@@ -45,6 +308,7 @@ final class _HermesDesktopAdministration {
           );
           return {
             'name': name,
+            'category': map?['category']?.toString(),
             'description':
                 map?['description']?.toString() ?? descriptions[name] ?? '',
           };
@@ -381,6 +645,7 @@ final class _HermesDesktopAdministration {
     required String name,
     required String prompt,
     required String schedule,
+    List<String>? skills,
   }) async => _owner._object(
     await _owner._requestJson(
       'POST',
@@ -390,6 +655,7 @@ final class _HermesDesktopAdministration {
         'prompt': prompt,
         'schedule': schedule,
         'deliver': 'local',
+        'skills': ?skills,
       },
     ),
   );
@@ -400,6 +666,7 @@ final class _HermesDesktopAdministration {
     String? prompt,
     String? schedule,
     bool? enabled,
+    List<String>? skills,
   }) async {
     await _owner._requestJson(
       'PUT',
@@ -410,6 +677,7 @@ final class _HermesDesktopAdministration {
           'prompt': ?prompt,
           'schedule': ?schedule,
           'enabled': ?enabled,
+          'skills': ?skills,
         },
       },
     );
@@ -422,15 +690,17 @@ final class _HermesDesktopAdministration {
     );
   }
 
-  Future<List<Map<String, dynamic>>> listJobRuns(String id) async =>
-      _owner._objects(
-        await _owner._requestJson(
-          'GET',
-          '/api/cron/jobs/${Uri.encodeComponent(id)}/runs',
-          query: {'limit': 20},
-        ),
-        'runs',
-      );
+  Future<List<Map<String, dynamic>>> listJobRuns(
+    String id, {
+    String? profile,
+  }) async => _owner._objects(
+    await _owner._requestJson(
+      'GET',
+      '/api/cron/jobs/${Uri.encodeComponent(id)}/runs',
+      query: {'limit': 20, if (profile != null) 'profile': profile},
+    ),
+    'runs',
+  );
   Future<void> respondToMcpSetup({
     required String runtimeId,
     required String requestId,

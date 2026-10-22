@@ -55,9 +55,11 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.serverAddresses ||
       location == Routes.serverAddressEditor ||
       location == Routes.audioSettings ||
+      location == Routes.voiceProviderSettings ||
       location == Routes.appearanceSettings ||
       location == Routes.chatSettings ||
       location == Routes.dataConnectionSettings ||
+      location == Routes.notificationSettings ||
       location == Routes.personalization ||
       isDirectConnectionsLocation(location) ||
       isHermesSettingsLocation(location) ||
@@ -65,10 +67,12 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.about;
 }
 
-/// The saved Hermes connection list and its connection editors.
+/// Hermes settings, profile sections, connections, and connection editors.
 bool isHermesSettingsLocation(String location) =>
     location == Routes.hermesSettings ||
-    location.startsWith('${Routes.hermesSettings}/connections/');
+    location == Routes.hermesConnections ||
+    location.startsWith('${Routes.hermesSettings}/connections/') ||
+    location.startsWith('${Routes.hermesSettings}/settings/');
 
 bool isDirectConnectionsLocation(String location) {
   return location == Routes.directConnections ||

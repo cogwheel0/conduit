@@ -353,6 +353,33 @@ Future<bool> _dispatchFakeHermesResponse({
 );
 
 void main() {
+  for (final succeeds in [true, false]) {
+    test(
+      'run completion hook only fires for successful terminal output $succeeds',
+      () async {
+        final service = _FakeHermesApiService(
+          succeeds
+              ? const [HermesTokenDelta('Done'), HermesRunDone()]
+              : const [HermesRunError('Failed'), HermesRunDone()],
+        );
+        var notifications = 0;
+        await dispatchHermesRun(
+          service: service,
+          registry: HermesRunRegistry(),
+          assistantMessageId: 'completion-test',
+          input: 'hello',
+          appendContent: (_) {},
+          appendStatus: (_) {},
+          updateMessage: (_) {},
+          finishStreaming: () {},
+          completeStreamingUi: () {},
+          onCompletedSuccessfully: () => notifications++,
+        );
+        expect(notifications, succeeds ? 1 : 0);
+      },
+    );
+  }
+
   test('OpenWebUI Hermes run identity includes authentication epoch', () {
     final database = Object();
     final api = Object();
@@ -1385,6 +1412,122 @@ void main() {
     },
   );
 
+  test('withdrawal dismisses only the matching pending approval', () async {
+    final fake = _FakeHermesApiService([
+      const HermesApprovalRequested(approvalId: 'a1', summary: 'ok?'),
+      const HermesApprovalDismissed('another-approval'),
+      const HermesApprovalDismissed('a1'),
+      const HermesRunDone(),
+    ]);
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+    final states = <String>[];
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) {
+        message = updater(message);
+        final approval = message.metadata?[kHermesApprovalMeta];
+        if (approval is Map) states.add(approval['state'] as String);
+      },
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+    expect(states, containsAllInOrder(['pending', 'pending', 'expired']));
+    expect((message.metadata?[kHermesApprovalMeta] as Map)['state'], 'expired');
+  });
+
+  test('empty optional tool details do not become failure messages', () async {
+    final fake = _FakeHermesApiService([
+      for (final (index, empty) in <String?>[null, '', ' \n\t '].indexed)
+        HermesToolProgress(
+          toolName: 'read_file_$index',
+          arguments: empty,
+          result: empty,
+          inlineDiff: empty,
+          done: true,
+        ),
+      const HermesRunDone(),
+    ]);
+    final statuses = <ChatStatusUpdate>[];
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: statuses.add,
+      updateMessage: (_) {},
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+    expect(statuses, hasLength(3));
+    for (final status in statuses) {
+      expect(status.description, startsWith('read_file_'));
+      expect(status.items, isEmpty);
+    }
+  });
+
+  test('real tool details and failures remain visible and redacted', () async {
+    const secret = 'configured-tool-secret';
+    final fake = _FakeHermesApiService(
+      [
+        const HermesToolProgress(
+          toolName: 'edit_file',
+          inlineDiff: '-old +new $secret',
+          result: 'Saved',
+          done: true,
+        ),
+        const HermesToolProgress(
+          toolName: 'read_file',
+          detail: 'Permission denied $secret',
+          result: 'Permission denied $secret',
+          inlineDiff: '',
+          done: true,
+          failed: true,
+        ),
+        const HermesRunDone(),
+      ],
+      serviceConfig: const HermesConfig(
+        enabled: true,
+        baseUrl: 'http://x',
+        apiKey: secret,
+      ),
+    );
+    final statuses = <ChatStatusUpdate>[];
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: 'm',
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: statuses.add,
+      updateMessage: (_) {},
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+    expect(statuses, hasLength(2));
+    expect(statuses.first.items.map((item) => item.title), [
+      'Result',
+      'Inline diff',
+    ]);
+    expect(statuses.first.items.last.snippet, '-old +new [REDACTED]');
+    expect(
+      statuses.last.description,
+      'read_file failed: Permission denied [REDACTED]',
+    );
+    expect(statuses.last.items.single.title, 'Error');
+    expect(statuses.last.items.single.snippet, 'Permission denied [REDACTED]');
+  });
+
   test('dispatchHermesRun maps events onto chat callbacks', () async {
     final fake = _FakeHermesApiService([
       const HermesToolProgress(toolName: 'web_search', done: false),
@@ -1670,7 +1813,7 @@ void main() {
       check(summary).not((value) => value.contains(sessionKey));
       check(summary).not((value) => value.contains('reflected-approval-token'));
       check(summary).not((value) => value.contains('\u0000'));
-      check(summary).not((value) => value.contains('\n'));
+      check(summary).has((value) => value.contains('\n'), 'preserves command lines').isTrue();
     },
   );
 

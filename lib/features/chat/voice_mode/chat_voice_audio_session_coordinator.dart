@@ -3,6 +3,9 @@
 // ignore_for_file: experimental_member_use
 
 import 'dart:async';
+
+import 'call_audio_route.dart';
+
 import 'dart:developer' as developer;
 import 'dart:io';
 
@@ -26,6 +29,13 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
   static const MethodChannel _iosVoiceAudioRouteChannel = MethodChannel(
     'app.cogwheel.conduit/voice_audio_route',
   );
+
+  /// The Telecom call flutter_callkit_incoming hosts an Android call in, as
+  /// `TelecomCallBridge.kt` answers for it.
+  static const MethodChannel _androidTelecomCallChannel = MethodChannel(
+    'app.cogwheel.conduit/telecom_call',
+  );
+
   static ChatVoiceAudioSessionCoordinator? _iosFailureHandlerOwner;
 
   /// The configuration the shared session goes back to once a call is over.
@@ -92,6 +102,8 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
     AudioDeviceType.hdmiArc,
   };
 
+  String? _explicitAudioRoute;
+
   AudioSession? _session;
   AndroidAudioManager? _androidAudioManager;
   AndroidAudioHardwareMode? _previousAndroidMode;
@@ -99,6 +111,10 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
   bool _speakerphoneEnabled = false;
   bool _speakerphoneChosenByUser = false;
   bool? _accessoryAttached;
+
+  /// The flutter_callkit_incoming call this call runs under on Android, which
+  /// the plugin hosts in Telecom (see [_routeAndroidTelecomCall]).
+  String? _androidCallKitCallId;
 
   /// The session mode of the call phase last configured, or null when no call
   /// has configured the session. The speaker button re-applies the phase's
@@ -313,6 +329,10 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
 
   @override
   Future<void> setActiveCallKitCallId(String callId) async {
+    if (_isAndroid) {
+      _androidCallKitCallId = callId;
+      return;
+    }
     if (!Platform.isIOS) return;
     final accepted = await _iosVoiceAudioRouteChannel.invokeMethod<bool>(
       'setActiveCallKitCallId',
@@ -448,10 +468,12 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
         configurationEpoch: configurationEpoch,
         phase: phase,
       );
+      _explicitAudioRoute = null;
       _speakerphoneEnabled = false;
       _speakerphoneChosenByUser = false;
       _pendingSpeakerphoneRequests = 0;
       _accessoryAttached = null;
+      _androidCallKitCallId = null;
       _defaultRouteAwaitingConfirmation = false;
       _teardownsRunning--;
       if (_teardownsRunning == 0) {
@@ -899,6 +921,66 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
     return applied;
   }
 
+  Future<CallAudioRoutes> callAudioRoutes() async {
+    if (!_isAndroid || _routeChangesStopped) return const CallAudioRoutes();
+    try {
+      final payload = await _androidTelecomCallChannel
+          .invokeMapMethod<String, dynamic>('audioRoutes', {
+            'callId': _androidCallKitCallId,
+          });
+      final routes = <CallAudioRoute>[];
+      for (final raw in (payload?['routes'] as List? ?? const [])) {
+        if (raw is Map &&
+            raw['id'] is String &&
+            raw['name'] is String &&
+            raw['kind'] is String) {
+          routes.add(
+            CallAudioRoute(
+              raw['id'] as String,
+              raw['name'] as String,
+              raw['kind'] as String,
+            ),
+          );
+        }
+      }
+      return CallAudioRoutes(
+        routes: routes,
+        selected: payload?['selected'] as String?,
+      );
+    } catch (_) {
+      return const CallAudioRoutes();
+    }
+  }
+
+  Future<bool> selectCallAudioRoute(String id) {
+    final generation = _callGeneration;
+    return _serializeRouteChange(() async {
+      if (_routeChangesStopped || generation != _callGeneration) return false;
+      final applied = await _selectExplicitAndroidRoute(id);
+      if (_routeChangesStopped || generation != _callGeneration) return false;
+      if (applied) {
+        _explicitAudioRoute = id;
+        _speakerphoneChosenByUser = true;
+        _speakerphoneEnabled = id == 'speaker';
+        _publishRoute(_speakerphoneEnabled);
+      }
+      return applied;
+    });
+  }
+
+  Future<bool> _selectExplicitAndroidRoute(String id) async {
+    try {
+      final result = await _androidTelecomCallChannel
+          .invokeMapMethod<String, dynamic>('selectAudioRoute', {
+            'callId': _androidCallKitCallId,
+            'route': id,
+          });
+      return result?['selected'] == id;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Points the Android call at the route [_speakerphoneEnabled] asks for, and
   /// reports whether it landed and where the platform says the call is.
   Future<_RouteOutcome> _configureAndroidVoiceRoute({
@@ -927,6 +1009,13 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
       operation: 'set-in-communication',
       phase: phase,
     );
+    final explicit = _explicitAudioRoute;
+    if (explicit != null) {
+      final applied = await _selectExplicitAndroidRoute(explicit);
+      final loudspeaker = await _readAndroidLoudspeaker(manager, phase: phase);
+      return (applied: modeSet && applied, loudspeaker: loudspeaker);
+    }
+    await _routeAndroidTelecomCall(phase: phase);
     if (_speakerphoneEnabled) {
       final loudspeaker = await _routeAndroidToLoudspeaker(
         manager,
@@ -979,6 +1068,39 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
       );
     }
     return (applied: modeSet && loudspeaker != true, loudspeaker: loudspeaker);
+  }
+
+  /// Asks Telecom to move the call to the route [_speakerphoneEnabled] asks
+  /// for, when flutter_callkit_incoming hosts the call there.
+  ///
+  /// The plugin places Android calls in Telecom as self-managed calls, which
+  /// makes Telecom the audio mode owner. AudioService then ignores this app's
+  /// own communication-device and speakerphone requests, so the speaker button
+  /// could not leave the earpiece until Telecom dropped the call, two minutes
+  /// in (issue #846). The platform calls that follow still go out: they are
+  /// what holds the route once Telecom lets go mid-call, and their read-back
+  /// shows wherever Telecom put the call.
+  Future<void> _routeAndroidTelecomCall({required String phase}) async {
+    final callId = _androidCallKitCallId;
+    if (callId == null) return;
+    final outcome = await _safeAndroidRouteCall(
+      () => _androidTelecomCallChannel.invokeMapMethod<Object?, Object?>(
+        'routeAudio',
+        <String, Object?>{'callId': callId, 'speaker': _speakerphoneEnabled},
+      ),
+      operation: 'route-telecom-call',
+      phase: phase,
+    );
+    if (outcome == null) return;
+    DebugLogger.info(
+      'android-telecom-route',
+      scope: 'voice/audio-route',
+      data: {
+        'phase': phase,
+        'speakerphone': _speakerphoneEnabled,
+        'loudspeaker': outcome['loudspeaker'],
+      },
+    );
   }
 
   /// Whether the platform reports the Android call on the built-in speaker, or

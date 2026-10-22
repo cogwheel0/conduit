@@ -65,6 +65,13 @@ android {
                 "proguard-rules.pro"
             )
         }
+        // Explicit measurement builds can update the existing debug install
+        // without creating a second app/account or changing shipped identity.
+        getByName("profile") {
+            if (providers.gradleProperty("conduitProfileExistingInstall").orNull == "true") {
+                applicationIdSuffix = ".debug"
+            }
+        }
         getByName("debug") {
             // signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
@@ -80,6 +87,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
     // Core library desugaring for flutter_local_notifications
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("androidx.activity:activity:1.12.4")
@@ -90,6 +98,27 @@ dependencies {
     // Real org.json for JVM unit tests; the mockable android.jar only stubs it.
     testImplementation("org.json:json:20240303")
 }
+
+// Never package a local-voice call with missing native/model assets.
+val verifyPhononPack by tasks.registering {
+    group = "verification"
+    description = "Verifies the pinned local Zoey voice assets before packaging"
+    doLast {
+        val required = listOf(
+            "src/main/jniLibs/arm64-v8a/libptts_ffi.so",
+            "src/main/assets/phonon/model.q8.gguf",
+            "src/main/assets/phonon/config.json",
+            "src/main/assets/phonon/tokenizer.json",
+            "src/main/assets/phonon/voices/NbpkqMVS3CJeq2j8.safetensors",
+            "src/main/assets/phonon/LICENSE-APACHE",
+            "src/main/assets/phonon/ATTRIBUTION.txt",
+        )
+        check(required.all { file(it).isFile }) {
+            "Phonon Zoey assets are missing. Run scripts/voice/build_phonon_android.sh from the project root."
+        }
+    }
+}
+tasks.named("preBuild").configure { dependsOn(verifyPhononPack) }
 
 flutter {
     source = "../.."

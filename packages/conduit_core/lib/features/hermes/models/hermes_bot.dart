@@ -1,4 +1,5 @@
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_time_parsing.dart';
 
@@ -34,12 +35,14 @@ class HermesBot {
     this.avatarColor = '#8b5cf6',
     this.avatarImageKind,
     this.lastActive,
+    this.hidden = false,
+    this.icon,
   });
 
   /// Profile name; also the RPC `profile` scope for this bot's session calls.
   final String name;
 
-  /// Display title from `ui_meta['hermes-bots'].title`, falling back to [name].
+  /// Bot metadata title or profile display name; default profile uses "Hermes".
   final String title;
 
   final String? description;
@@ -47,7 +50,7 @@ class HermesBot {
   /// Preview of the newest message in the bot's canonical chat.
   final String? preview;
 
-  /// Pinned stored id of the canonical "Bot Chat", when the profile has one.
+  /// Gateway-reported stored id of the canonical "Bot Chat", when one exists.
   final String? chatSessionId;
 
   final bool hasAvatar;
@@ -57,6 +60,8 @@ class HermesBot {
   final String? avatarImageKind;
 
   final DateTime? lastActive;
+  final bool hidden;
+  final String? icon;
 
   /// Whether upstream considers this `profiles.list` row a Bot Mode bot.
   ///
@@ -101,8 +106,15 @@ class HermesBot {
 
     final meta = json['ui_meta'];
     final botMeta = meta is Map ? meta['hermes-bots'] : null;
-    final session = json['preferred_session'] ?? json['last_session'];
-    final sessionRow = session is Map ? session : const {};
+    // A profile's last/preferred session may be an ordinary conversation.
+    // Bot Mode uses only the gateway's canonical Bot Chat, never that history.
+    final rawCanonical = json['canonical_session'];
+    final canonical = rawCanonical is Map
+        ? HermesSessionSummary.fromJson(Map<String, dynamic>.from(rawCanonical))
+        : null;
+    final sessionRow = canonical?.isBotChat == true
+        ? rawCanonical as Map
+        : const {};
     final rawShape = validateHermesBoundedString(
       botMeta is Map ? botMeta['shape'] : null,
       maxCharacters: 96,
@@ -118,12 +130,18 @@ class HermesBot {
 
     return HermesBot(
       name: name,
+      hidden: botMeta is Map && botMeta['hidden'] == true,
+      icon: botMeta is Map && const {'research', 'code', 'brain', 'globe', 'folder', 'bot'}.contains(botMeta['conduitIcon']) ? botMeta['conduitIcon'] as String : null,
       title:
           validateHermesBoundedString(
             botMeta is Map ? botMeta['title'] : null,
             maxCharacters: kMaxHermesBotTitleCharacters,
           ) ??
-          name,
+          validateHermesBoundedString(
+            json['display_name'],
+            maxCharacters: kMaxHermesBotTitleCharacters,
+          ) ??
+          (name == 'default' ? 'Hermes' : name),
       description: validateHermesBoundedString(
         json['description'],
         maxCharacters: kMaxHermesBotTitleCharacters,
@@ -132,9 +150,7 @@ class HermesBot {
         sessionRow['preview'],
         maxCharacters: kMaxHermesBotPreviewCharacters,
       ),
-      chatSessionId: validateHermesOpaqueIdentifier(
-        botMeta is Map ? botMeta['chat'] : null,
-      ),
+      chatSessionId: canonical?.isBotChat == true ? canonical!.id : null,
       hasAvatar: json['has_avatar'] == true,
       avatarShape: _validHermesBotShape(rawShape) ?? 'squircle',
       avatarColor: _validHermesBotColor(rawColor) ?? '#8b5cf6',

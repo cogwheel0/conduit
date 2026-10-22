@@ -7,6 +7,7 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -19,6 +20,9 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_serv
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
+import 'package:conduit/features/hermes/providers/hermes_mobile_navigation.dart';
+import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:dio/dio.dart';
@@ -44,6 +48,201 @@ void main() {
     HermesLocalDocumentTrustStore.debugResetRuntimeState();
     PreferencesStore.debugReset();
   });
+
+  for (final scenario in ['rapid', 'back', 'connection', 'failure']) {
+    testWidgets('session open rejects stale ownership: $scenario', (
+      tester,
+    ) async {
+      final a = Completer<void>(), b = Completer<void>();
+      final service = _FakeHermesApiService(sessionGates: {'a': a, 'b': b});
+      final replacement = _FakeHermesApiService();
+      final container = ProviderContainer(
+        retry: (_, _) => null,
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          hermesApiServiceProvider.overrideWithValue(service),
+          modelsProvider.overrideWith(_FailingModels.new),
+          hermesMobileLayoutProvider.overrideWithValue(true),
+          selectedModelProvider.overrideWith(
+            () => _SeededSelectedModel(hermesSyntheticModel()),
+          ),
+          authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      late BuildContext actionContext;
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, _) {
+              actionContext = context;
+              return const Scaffold(body: Text('History'));
+            },
+          ),
+          GoRoute(
+            path: Routes.chat,
+            builder: (_, _) => const Scaffold(body: Text('Detail')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final first = openHermesSessionWithReader(
+        actionContext,
+        container.read,
+        const HermesSessionSummary(id: 'a', title: 'Conversation A'),
+      );
+      await service.messagesStarted.future;
+      final oldToken = service.requestTokens['a']!;
+      if (scenario == 'rapid') {
+        final second = openHermesSessionWithReader(
+          actionContext,
+          container.read,
+          const HermesSessionSummary(id: 'b', title: 'Conversation B'),
+        );
+        b.complete();
+        await second;
+        await tester.pumpAndSettle();
+        expect(oldToken.isCancelled, true);
+        a.completeError(StateError('Late A failure'));
+        await first;
+        await tester.pumpAndSettle();
+        expect(
+          container.read(activeConversationProvider)?.title,
+          'Conversation B',
+        );
+        expect(
+          container.read(hermesMobileNavigationProvider).conversation,
+          true,
+        );
+        expect(find.byType(SnackBar), findsNothing);
+      } else {
+        if (scenario == 'back')
+          container.read(hermesMobileNavigationProvider.notifier).back();
+        if (scenario == 'connection')
+          container.updateOverrides([
+            hermesApiServiceProvider.overrideWithValue(replacement),
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
+            modelsProvider.overrideWith(_FailingModels.new),
+            hermesMobileLayoutProvider.overrideWithValue(true),
+            selectedModelProvider.overrideWith(
+              () => _SeededSelectedModel(hermesSyntheticModel()),
+            ),
+            authStateManagerProvider.overrideWith(
+              _SignedOutAuthStateManager.new,
+            ),
+          ]);
+        if (scenario == 'failure')
+          a.completeError(StateError('Failed load'));
+        else
+          a.complete();
+        await first;
+        await tester.pumpAndSettle();
+        expect(container.read(activeConversationProvider), isNull);
+        expect(
+          container.read(hermesMobileNavigationProvider).conversation,
+          false,
+        );
+        expect(container.read(hermesSessionOpeningProvider), isNull);
+        if (scenario != 'failure') expect(oldToken.isCancelled, true);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+    'opening a saved conversation shows immediate feedback and deduplicates taps',
+    (tester) async {
+      final gate = Completer<void>();
+      final service = _FakeHermesApiService(messagesGate: gate);
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          hermesApiServiceProvider.overrideWithValue(service),
+          modelsProvider.overrideWith(
+            () => _TestModels([hermesSyntheticModel()]),
+          ),
+          authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+          selectedModelProvider.overrideWith(
+            () => _SeededSelectedModel(hermesSyntheticModel()),
+          ),
+          isChatStreamingProvider.overrideWithValue(false),
+          hermesMobileLayoutProvider.overrideWithValue(true),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (_, _) => const Scaffold(
+              body: HermesSessionTile(
+                session: HermesSessionSummary(
+                  id: 'session-1',
+                  title: 'Saved session',
+                ),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: Routes.chat,
+            builder: (_, _) =>
+                const Scaffold(body: Text('Loaded conversation')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Saved session'));
+      await tester.pump();
+      expect(container.read(hermesSessionOpeningProvider)?.id, 'session-1');
+      expect(
+        tester
+            .widget<ConversationTile>(find.byType(ConversationTile))
+            .isLoading,
+        isTrue,
+      );
+      expect(
+        tester.widget<ConversationTile>(find.byType(ConversationTile)).selected,
+        isTrue,
+      );
+      await tester.tap(find.text('Saved session'));
+      await tester.pump();
+      expect(
+        service.operationLog.where((event) => event == 'get:session-1'),
+        hasLength(1),
+      );
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.text('Loaded conversation'), findsOneWidget);
+      expect(container.read(hermesSessionOpeningProvider), isNull);
+    },
+  );
 
   testWidgets('deleting the active Hermes session clears both bindings', (
     tester,
@@ -797,6 +996,7 @@ class _FakeHermesApiService extends HermesApiService {
     this.deleteGate,
     this.messagesGate,
     this.messagesError,
+    this.sessionGates = const {},
   }) : super(
          config: const HermesConfig(
            enabled: true,
@@ -809,6 +1009,8 @@ class _FakeHermesApiService extends HermesApiService {
   final Completer<void>? deleteGate;
   final Completer<void>? messagesGate;
   final Object? messagesError;
+  final Map<String, Completer<void>> sessionGates;
+  final requestTokens = <String, CancelToken>{};
   final deleteStarted = Completer<void>();
   final messagesStarted = Completer<void>();
   final List<String> deletedSessionIds = [];
@@ -823,8 +1025,10 @@ class _FakeHermesApiService extends HermesApiService {
     CancelToken? cancelToken,
   }) async {
     operationLog.add('get:$id');
+    if (cancelToken != null) requestTokens[id] = cancelToken;
     if (!messagesStarted.isCompleted) messagesStarted.complete();
     await messagesGate?.future;
+    await sessionGates[id]?.future;
     if (messagesError != null) throw messagesError!;
     return messages;
   }

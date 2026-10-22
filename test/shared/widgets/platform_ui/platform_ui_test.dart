@@ -394,7 +394,7 @@ void main() {
     expect(find.bySemanticsLabel('Loading: Connect'), findsOneWidget);
   });
 
-  testWidgets('compact variants are smaller than regular variants', (
+  testWidgets('compact controls retain Android minimum touch targets', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
@@ -435,11 +435,11 @@ void main() {
       ),
     );
 
-    expect(tester.getSize(find.byKey(const Key('compact-text'))).height, 44);
+    expect(tester.getSize(find.byKey(const Key('compact-text'))).height, 48);
     expect(tester.getSize(find.byKey(const Key('regular-text'))).height, 48);
     expect(
       tester.getSize(find.byKey(const Key('compact-icon'))),
-      const Size(44, 44),
+      const Size(48, 48),
     );
     expect(
       tester.getSize(find.byKey(const Key('regular-icon'))),

@@ -22,6 +22,8 @@ import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
 import 'enhanced_attachment.dart';
+import 'hermes_message_actions.dart';
+import '../../hermes/providers/hermes_mobile_navigation.dart';
 import 'enhanced_image_attachment.dart';
 import 'image_gallery_scope.dart';
 
@@ -781,6 +783,21 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     ];
   }
 
+  Widget _messageMenu({
+    required List<ConduitContextMenuAction> actions,
+    required Widget child,
+  }) => ref.watch(hermesMobileLayoutProvider)
+      ? HermesMessageActions(
+          key: ValueKey('hermes-message-actions-${widget.message.id}'),
+          messageId: widget.message.id,
+          text: widget.message.content,
+          readOnly: widget.readOnly,
+          streaming: widget.isStreaming,
+          onCopy: widget.onCopy,
+          child: child,
+        )
+      : ConduitContextMenu(actions: actions, child: child);
+
   @override
   Widget build(BuildContext context) {
     return _buildUserMessage();
@@ -795,10 +812,11 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     final filePartitions = _currentFilePartitions();
     final hasFilesFromArray = filePartitions?.hasRenderableFiles ?? false;
     // Prefer input/textPrimary colors during inline editing to avoid low contrast
+    final mobileHermes = ref.watch(hermesMobileLayoutProvider);
     final inlineEditTextColor = theme.textPrimary;
     final inlineEditFill = theme.surfaceContainer.withValues(alpha: 0.92);
     final bubbleMaxWidth = math.min(
-      MediaQuery.sizeOf(context).width * 0.78,
+      MediaQuery.sizeOf(context).width * (mobileHermes ? 0.85 : 0.78),
       640.0,
     );
     // Tail-less, borderless fill: the neutral tone alone separates the turn.
@@ -821,7 +839,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           // Display images outside and above the text bubble (iMessage style)
           // Prioritize files array over attachmentIds to avoid duplication
           if (attachmentContent != null)
-            ConduitContextMenu(actions: actions, child: attachmentContent),
+            _messageMenu(actions: actions, child: attachmentContent),
 
           // Display text bubble if there's text content
           if (hasText) const SizedBox(height: Spacing.xs),
@@ -832,7 +850,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                 Flexible(
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
-                    child: ConduitContextMenu(
+                    child: _messageMenu(
                       actions: actions,
                       child: Container(
                         key: const Key('user-message-bubble-surface'),
@@ -841,7 +859,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                           vertical: Spacing.sm + Spacing.xxs,
                         ),
                         decoration: BoxDecoration(
-                          color: theme.chatBubbleUser,
+                          color: mobileHermes
+                              ? Color.alphaBlend(
+                                  theme.success.withValues(alpha: .18),
+                                  theme.surfaceBackground,
+                                )
+                              : theme.chatBubbleUser,
                           borderRadius: bubbleBorderRadius,
                         ),
                         child: _isEditing

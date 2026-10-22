@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
+
 import '../compiled_markdown_document.dart';
 import '../citation_badge.dart';
 import 'latex_preprocessor.dart';
@@ -396,11 +397,23 @@ class InlineRenderer {
     return switch (element.tag) {
       'strong' => _renderStyled(
         element,
-        currentStyle.copyWith(fontWeight: FontWeight.bold),
+        currentStyle.copyWith(
+          fontWeight: FontWeight.bold,
+          color: currentStyle.decoration == TextDecoration.underline
+              ? currentStyle.color
+              : style.strongColor,
+        ),
       ),
       'em' => _renderStyled(
         element,
-        currentStyle.copyWith(fontStyle: FontStyle.italic),
+        currentStyle.copyWith(
+          fontStyle: FontStyle.italic,
+          color:
+              currentStyle.decoration == TextDecoration.underline ||
+                  currentStyle.fontWeight == FontWeight.bold
+              ? currentStyle.color
+              : style.emphasisColor,
+        ),
       ),
       'del' => _renderStyled(
         element,
@@ -836,9 +849,7 @@ class FadableRichText extends StatelessWidget {
 
 /// Inline code chip with tap-to-copy behavior.
 ///
-/// Displays code in a monospace font with a colored
-/// background, styled to match common chat-UI conventions
-/// (e.g., OpenWebUI's red-on-gray inline code).
+/// Displays tappable inline code in a subtly tinted monospace chip.
 class _InlineCodeWidget extends StatelessWidget {
   const _InlineCodeWidget({required this.code, required this.style});
 
@@ -850,13 +861,20 @@ class _InlineCodeWidget extends StatelessWidget {
     return GestureDetector(
       onTap: () => _copyToClipboard(context),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width > 64
+              ? MediaQuery.sizeOf(context).width - 64
+              : double.infinity,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
         decoration: BoxDecoration(
           color: style.codeSpanBackgroundColor,
           borderRadius: BorderRadius.circular(style.codeSpanRadius),
         ),
         child: Text(
+          // WidgetSpan applies the surrounding paragraph scaler once.
           code,
+          textScaler: TextScaler.noScaling,
           style: style.codeSpan.copyWith(color: style.codeSpanTextColor),
         ),
       ),

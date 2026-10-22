@@ -21,7 +21,10 @@ void main() {
           'imageKind': 'shape',
         },
       },
-      'last_session': {
+      'canonical_session': {
+        'id': 'session-7',
+        'title': 'Bot Chat',
+        'root_title': 'Bot Chat',
         'preview': 'Found three candidates',
         'last_active': 1700000000,
       },
@@ -39,11 +42,11 @@ void main() {
     check(bot.lastActive).isNotNull();
   });
 
-  test('falls back to the profile name and tolerates missing meta', () {
+  test('uses Hermes for default and tolerates missing meta', () {
     final bot = HermesBot.fromJson({'name': 'default'});
 
     check(bot).isNotNull();
-    check(bot!.title).equals('default');
+    check(bot!.title).equals('Hermes');
     check(bot.chatSessionId).isNull();
     check(bot.preview).isNull();
     check(bot.hasAvatar).isFalse();
@@ -112,12 +115,12 @@ void main() {
 
     check(bot).isNotNull();
     check(bot!.name).equals('default');
-    check(bot.title).equals('default');
+    check(bot.title).equals('Hermes');
     check(bot.description).isNull();
     check(bot.chatSessionId).isNull();
-    check(bot.preview).equals('Can you show me an approval prompt');
+    check(bot.preview).isNull();
     check(bot.hasAvatar).isFalse();
-    check(bot.lastActive).isNotNull();
+    check(bot.lastActive).isNull();
   });
 
   group('roster from profiles.list', () {
@@ -210,14 +213,17 @@ void main() {
         .deepEquals(['fresh', 'stale', 'never']);
   });
 
-  test('prefers the caller-pinned session over the newest one', () {
+  test('prefers the canonical registry over ordinary history or legacy pinned metadata', () {
     final bot = HermesBot.fromJson({
-      'name': 'bot',
-      'preferred_session': {'preview': 'pinned chat'},
-      'last_session': {'preview': 'some other chat'},
-    });
-
-    check(bot!.preview).equals('pinned chat');
+      'name': 'researcher',
+      'ui_meta': {
+        'hermes-bots': {'chat': 'legacy-pinned'},
+      },
+      'preferred_session': {'id': 'ordinary', 'preview': 'Ordinary reply'},
+      'canonical_session': {'id': 'canonical', 'title': 'Bot Chat'},
+    })!;
+    check(bot.chatSessionId).equals('canonical');
+    check(bot.preview).isNull();
   });
 
   test('a persisted decision keeps its bot profile across a restart', () {

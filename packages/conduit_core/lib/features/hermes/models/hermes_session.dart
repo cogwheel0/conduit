@@ -12,7 +12,9 @@ class HermesSessionSummary {
     required this.title,
     this.preview,
     this.source,
+    this.rootTitle,
     this.updatedAt,
+    this.archived = false,
   });
 
   final String id;
@@ -26,7 +28,21 @@ class HermesSessionSummary {
   /// Origin channel (e.g. `telegram`, `cron`, `api_server`).
   final String? source;
 
+  /// Original session title retained when Hermes retitles a conversation.
+  final String? rootTitle;
   final DateTime? updatedAt;
+  final bool archived;
+
+  /// Same Bot Mode classifier as Hermes desktop's canonical-chat registry.
+  bool get isBotChat =>
+      rootTitle?.trim() == 'Bot Chat' ||
+      (rootTitle?.trim().isNotEmpty != true && title.trim() == 'Bot Chat');
+
+  /// Scheduled execution belongs to the work queue, rather than chat history.
+  /// A legacy cron id is used only when the server omitted the origin channel.
+  bool get isScheduledRun =>
+      const {'cron', 'cron_output'}.contains(source?.toLowerCase()) ||
+      (source == null && id.startsWith('cron_'));
 
   /// Parses one session object from `GET /api/sessions`, or null when it has no
   /// usable id. Tolerant of the field-name variations across Hermes versions.
@@ -52,11 +68,16 @@ class HermesSessionSummary {
 
     return HermesSessionSummary(
       id: id,
+      archived: json['archived'] == true || json['archived'] == 1,
       title: rawTitle ?? 'Untitled session',
       preview: rawPreview,
       source: validateHermesBoundedString(
         json['source'],
         maxCharacters: kMaxHermesSessionSourceCharacters,
+      ),
+      rootTitle: validateHermesBoundedString(
+        json['root_title'],
+        maxCharacters: kMaxHermesSessionTitleCharacters,
       ),
       updatedAt: parseHermesTimestamp(
         json['last_active'] ??

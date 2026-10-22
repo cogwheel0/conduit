@@ -9,6 +9,7 @@ Future<void> _sendMessageInternal(
   String? pendingFolderIdOverride,
   void Function(ChatSendPlaceholderHandle handle)?
   onAssistantPlaceholderCreated,
+  ChatSendVoiceContext? voice,
 ]) async {
   final hermesSelectedAtStart = ref.read(selectedModelProvider) as Model?;
   if (hermesSelectedAtStart != null && isHermesModel(hermesSelectedAtStart)) {
@@ -248,23 +249,26 @@ Future<void> _sendMessageInternal(
   // after fetching server info.
   final userMessageId = const Uuid().v4();
   final String assistantMessageId = const Uuid().v4();
-  var userMessage = ChatMessage(
-    id: userMessageId,
-    role: 'user',
-    content: message,
-    timestamp: DateTime.now(),
-    model: selectedModel.id,
-    attachmentIds: attachments,
-    files: initialUserFiles,
-    metadata: {
-      'parentId': openWebUiParentId,
-      'childrenIds': <String>[assistantMessageId],
-      'models': <String>[selectedModel.id],
-    },
+  var userMessage = _withUserVoice(
+    ChatMessage(
+      id: userMessageId,
+      role: 'user',
+      content: message,
+      timestamp: DateTime.now(),
+      model: selectedModel.id,
+      attachmentIds: attachments,
+      files: initialUserFiles,
+      metadata: {
+        'parentId': openWebUiParentId,
+        'childrenIds': <String>[assistantMessageId],
+        'models': <String>[selectedModel.id],
+      },
+    ),
+    voice,
   );
 
   // Add assistant placeholder immediately to show typing indicator right away
-  final assistantPlaceholder = ChatMessage(
+  final placeholder = ChatMessage(
     id: assistantMessageId,
     role: 'assistant',
     content: '',
@@ -280,6 +284,10 @@ Future<void> _sendMessageInternal(
         'modelName': selectedModel.name.trim(),
     },
   );
+  final voiceReply = voice?.reply;
+  final assistantPlaceholder = voiceReply == null
+      ? placeholder
+      : _voiceReplyMessage(placeholder, voiceReply);
   final messagesNotifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
   if ((directRoute != null || isHermesModel(selectedModel)) &&
@@ -309,6 +317,42 @@ Future<void> _sendMessageInternal(
     mutationOwner: sendMutationOwner,
   );
   onAssistantPlaceholderCreated?.call(sendHandle);
+  if (voiceReply != null) {
+    // The voice already answered: the turn is stored as it was said, and no
+    // model runs. Chats this path holds only in memory keep it there.
+    if (directRoute != null) {
+      _DirectConversationOwner? owner;
+      try {
+        owner = await _persistDirectTurnStart(
+          ref,
+          route: directRoute,
+          expectedConversation: currentConversation,
+          expectedConversationId: directSendConversationId,
+          userMessage: userMessage,
+          assistantMessage: assistantPlaceholder,
+          allMessages: optimisticTurnMessages,
+          bindOwner: (resolvedOwner) {
+            // Kept here: the helper's post-commit auth fence may throw
+            // instead of returning the owner, whose lease must still go.
+            owner = resolvedOwner;
+            return true;
+          },
+          sourceApi: directSourceApi,
+          sourceAuthSnapshot: directSourceAuthSnapshot,
+          sourceAuthSessionEpoch: directSourceAuthSessionEpoch,
+          remapEvents: directRemapEvents,
+          openWebUiAuthSessionEpoch:
+              sendMutationOwner.openWebUiAuthSessionEpoch,
+          openWebUiSyncEngine: directOpenWebUiSyncEngine,
+          pendingFolderId:
+              pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider),
+        );
+      } finally {
+        await owner?.releaseDatabaseLease();
+      }
+    }
+    return;
+  }
   final DirectRunRegistry? directRegistry = directRoute == null
       ? null
       : ref.read(directRunRegistryProvider);
@@ -519,6 +563,7 @@ Future<void> _sendMessageInternal(
         databaseLease: hermesDatabaseLease,
         preRegisteredCancelToken: pendingCancelToken,
         reasoningEffort: reasoningEffortAtSendStart,
+        voiceContext: voice?.spokenContext,
       );
     } catch (error) {
       final visible = hermesOwner.isActive(ref)
@@ -1497,9 +1542,24 @@ Future<void> _sendMessageInternal(
         assistantMessageId: assistantMessageId,
       );
     }
-    if (e.toString().contains('401') || e.toString().contains('403')) {
-      // Authentication errors - clear auth state and redirect to login.
-      ref.invalidate(authStateManagerProvider);
+    // A 401 or 403 here may be a model provider rejecting its API key, which
+    // Open WebUI passes through, or the session ending. Ask the session
+    // endpoint: as everywhere else, the auth interceptor reports its refusal
+    // as the session ending, and a provider's refusal only marks the reply.
+    if (e is ChatCompletionHttpException && e.mayRejectSession) {
+      final ApiService? api = ref.read(apiServiceProvider) as ApiService?;
+      if (api != null) {
+        unawaited(
+          api.getCurrentUser().then<void>(
+            (_) {},
+            onError: (Object error) => DebugLogger.log(
+              'session-check-after-refused-completion',
+              scope: 'chat/providers',
+              data: {'errorType': error.runtimeType.toString()},
+            ),
+          ),
+        );
+      }
     }
   }
 }

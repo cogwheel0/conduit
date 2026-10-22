@@ -575,7 +575,9 @@ LIMIT ?
         model: Value(row.model),
         createdAt: row.createdAt,
         orderIndex: orderIndex,
-        payload: jsonEncode(row.payload),
+        payload: jsonEncode(
+          withStoredMessageMeta(row.payload, existing?.payload),
+        ),
         dirty: const Value(false),
       ),
     );

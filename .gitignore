@@ -162,3 +162,7 @@ GoogleService-Info.plist
 !**/ios/**/default.pbxuser
 !**/ios/**/default.perspectivev3
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
+
+# Reproducible pinned Phonon build outputs (scripts/voice/build_phonon_android.sh).
+/android/app/src/main/assets/phonon/
+/android/app/src/main/jniLibs/arm64-v8a/libptts_ffi.so

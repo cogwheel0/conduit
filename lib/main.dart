@@ -1,3 +1,5 @@
+import 'platform/hermes_workspace_probe.dart';
+
 import 'dart:async';
 import 'dart:developer' as developer;
 
@@ -13,6 +15,7 @@ import 'package:flutter/foundation.dart'
         kIsWeb;
 import 'package:flutter_driver/driver_extension.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -23,6 +26,8 @@ import 'platform/android_ime_inset_resync.dart';
 import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
+import 'platform/realtime_pcm_audio.dart';
+import 'platform/webrtc_realtime_media.dart';
 import 'platform/url_launcher_open_external_url_port.dart';
 import 'platform/flutter_cookie_jar.dart';
 import 'platform/flutter_flush_scheduler.dart';
@@ -71,6 +76,8 @@ import 'platform/carplay_service.dart';
 import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
@@ -85,6 +92,8 @@ import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeNoVoiceProviderId,
+        nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
         nativeAccountSignOutActionId,
         nativeAccountSwitchActionId,
@@ -102,6 +111,7 @@ import 'core/utils/current_localizations.dart';
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 
 import 'features/chat/providers/text_to_speech_provider.dart';
+import 'features/hermes/providers/hermes_task_receipts.dart';
 import 'core/services/callkit_service.dart';
 import 'features/chat/services/voice_input_service.dart';
 import 'features/chat/voice_mode/chat_voice_audio_session_coordinator.dart';
@@ -110,6 +120,8 @@ import 'features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         chatWakelockCoordinatorProvider,
+        hermesChatCompletionCallbackProvider,
+        hermesChatOutcomeCallbackProvider,
         isChatStreamingProvider,
         localChatGenerationActiveProvider,
         restoreDefaultModel;
@@ -142,10 +154,15 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'platform/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
 import 'features/notifications/services/local_notification_service.dart';
+import 'features/notifications/providers/notification_socket_listener.dart'
+    show notifyHermesChatCompletion, notificationSocketListenerProvider;
 import 'shared/widgets/sign_out_options_dialog.dart';
 import 'shared/theme/theme_extensions.dart';
+import 'shared/theme/app_theme.dart';
 import 'shared/theme/theme_providers.dart';
 import 'platform/frame_profiler.dart';
+import 'platform/motion_probe.dart';
+import 'platform/continuity_replay.dart';
 import 'features/direct_connections/providers/apple_pcc_providers.dart';
 import 'features/direct_connections/services/apple_pcc_adapter.dart'
     show PigeonApplePccHost;
@@ -158,9 +175,11 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show openWebUiRouteResolverProvider;
+
 import 'core/services/background_streaming_handler.dart';
 import 'features/profile/widgets/account_actions.dart';
 import 'features/profile/widgets/account_sheet.dart'
@@ -224,6 +243,13 @@ void _registerBundledLicenses() {
   });
 }
 
+/// Whether this device runs realtime voice calls' audio: the native engine
+/// and WebRTC exist on iOS and Android.
+bool get _hasRealtimeAudio =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android);
+
 void main() {
   // Diagnostics have no destination until a host gives them one.
   // Installed first, so startup itself is logged.
@@ -251,6 +277,7 @@ void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      MotionProbe.install();
       // Conduit intentionally owns separate direct-local and per-server files.
       driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
       RasterMediaPolicy.configureGlobalImageCache();
@@ -376,6 +403,15 @@ void main() {
             const FlutterDatabaseOpener(),
           ),
           appLifecycleProvider.overrideWithValue(appLifecycle),
+          hermesChatCompletionCallbackProvider.overrideWith((ref) {
+            return (conversation, message) =>
+                notifyHermesChatCompletion(ref, conversation, message);
+          }),
+          hermesChatOutcomeCallbackProvider.overrideWith((ref) {
+            return (conversation, message, outcome) => ref
+                .read(hermesTaskReceiptsProvider.notifier)
+                .record(conversation, message, outcome);
+          }),
           workerPortProvider.overrideWithValue(const FlutterWorkerPort()),
           connectivityPortProvider.overrideWithValue(FlutterConnectivityPort()),
           cookieJarProvider.overrideWithValue(const FlutterCookieJar()),
@@ -505,6 +541,14 @@ void main() {
           voiceModePlatformProvider.overrideWithValue(
             const FlutterVoiceModePlatform(),
           ),
+          // A realtime voice needs the native echo-cancelled audio engine.
+          realtimePcmAudioFactoryProvider.overrideWithValue(
+            () => _hasRealtimeAudio ? MethodChannelRealtimePcmAudio() : null,
+          ),
+          // Hermes's GPT-Live calls run over WebRTC.
+          realtimeWebRtcMediaFactoryProvider.overrideWithValue(
+            () => _hasRealtimeAudio ? WebRtcRealtimeMedia() : null,
+          ),
         ],
       );
       // CarPlay can cold-launch Conduit without a visible Flutter scene, so
@@ -514,6 +558,8 @@ void main() {
       installConduitErrorWidgetBuilder();
 
       await modelLogosLoaded;
+      ContinuityReplay.install(providerContainer);
+      HermesWorkspaceProbe.install(providerContainer);
       runApp(
         UncontrolledProviderScope(
           container: providerContainer,
@@ -595,7 +641,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   /// The native Settings rows for accounts and connections. Returns whether
   /// [actionId] was one of them.
-  Future<bool> _handleNativeAccountAction(String actionId, Object? value) async {
+  Future<bool> _handleNativeAccountAction(
+    String actionId,
+    Object? value,
+  ) async {
     final context = NavigationService.context;
     switch (actionId) {
       case nativeAccountSwitchActionId:
@@ -1060,6 +1109,29 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await notifier.setTtsEngineSelection(TtsEngine.device);
             await _refreshNativeVoiceDetail();
           }
+        case 'voice-call-mode':
+          final mode = VoiceCallMode.values
+              .where((mode) => mode.name == value)
+              .firstOrNull;
+          if (mode != null) {
+            await ref.read(appSettingsProvider.notifier).setVoiceCallMode(mode);
+            await _refreshNativeVoiceDetail();
+          }
+        case 'voice-provider-connection':
+          if (value is String) {
+            await _chooseNativeVoiceProvider(value);
+            await _refreshNativeVoiceDetail(NativeSheetRoutes.voiceProvider);
+          }
+        case final id when nativeVoiceProviderFieldIds.containsKey(id):
+          final current = ref.read(appSettingsProvider).directVoiceProvider;
+          if (value is String && current != null) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setDirectVoiceProvider(
+                  current.withField(nativeVoiceProviderFieldIds[id]!, value),
+                );
+            await _refreshNativeVoiceDetail(NativeSheetRoutes.voiceProvider);
+          }
         case 'theme-light':
           switch (value) {
             case 'system':
@@ -1208,10 +1280,37 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
-  Future<void> _refreshNativeVoiceDetail() {
+  /// Makes the connection with [profileId] the Voice provider, or clears it.
+  Future<void> _chooseNativeVoiceProvider(String profileId) async {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    if (profileId == nativeNoVoiceProviderId) {
+      await notifier.setDirectVoiceProvider(null);
+      return;
+    }
+    // Connections still loading are not gone: the choice waits for them.
+    final profiles = ref.read(directConnectionProfilesProvider).value;
+    if (profiles == null) return;
+    final profile = profiles
+        .where(canBeVoiceProvider)
+        .where((profile) => profile.id == profileId)
+        .firstOrNull;
+    await notifier.setDirectVoiceProvider(
+      profile == null
+          ? null
+          : DirectVoiceProviderSettings.forConnection(
+              profile,
+              current: ref.read(appSettingsProvider).directVoiceProvider,
+            ),
+    );
+  }
+
+  /// Redraws the Voice pages from [detailId], the one the change came from.
+  Future<void> _refreshNativeVoiceDetail([
+    String detailId = NativeSheetRoutes.voice,
+  ]) {
     return ref
         .read(nativeSheetHydrationServiceProvider)
-        .hydrateDetail(NativeSheetRoutes.voice);
+        .hydrateDetail(detailId);
   }
 
   Future<void> _saveNativePasswordDraft(String id, Object? value) async {
@@ -1405,6 +1504,14 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
   void _initializeAppState() {
     DebugLogger.auth('init', scope: 'app');
     ref.read(appStartupFlowProvider.notifier).start();
+    // Hermes-only connections do not enter the OpenWebUI authenticated
+    // startup branch. They still need notification taps and cold-launch links.
+    ref.read(notificationSocketListenerProvider);
+    unawaited(
+      ref
+          .read(notificationSocketListenerProvider.notifier)
+          .handleLaunchTap(hermesOnly: true),
+    );
   }
 
   @override
@@ -1418,102 +1525,124 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
     final themeMode = ref.watch(appThemeModeProvider.select((mode) => mode));
     final router = ref.watch(goRouterProvider);
     final locale = ref.watch(appLocaleProvider);
-    final lightTheme = ref.watch(appLightThemeProvider);
-    final darkTheme = ref.watch(appDarkThemeProvider);
-    final cupertinoLight = ref.watch(appCupertinoLightThemeProvider);
-    final cupertinoDark = ref.watch(appCupertinoDarkThemeProvider);
+    final fallbackLight = ref.watch(appLightThemeProvider);
+    final fallbackDark = ref.watch(appDarkThemeProvider);
+    final fallbackCupertinoLight = ref.watch(appCupertinoLightThemeProvider);
+    final fallbackCupertinoDark = ref.watch(appCupertinoDarkThemeProvider);
+    final palette = ref.watch(appThemePaletteProvider);
 
-    return AdaptiveApp.router(
-      routerConfig: router,
-      onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
-      materialLightTheme: lightTheme,
-      materialDarkTheme: darkTheme,
-      cupertinoLightTheme: cupertinoLight,
-      cupertinoDarkTheme: cupertinoDark,
-      themeMode: themeMode,
-      locale: locale,
-      localizationsDelegates: conduitLocalizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      localeListResolutionCallback: (deviceLocales, supported) {
-        if (locale != null) return locale;
-        if (deviceLocales == null || deviceLocales.isEmpty) {
-          return supported.first;
-        }
-        final resolved = _resolveSupportedLocale(deviceLocales, supported);
-        return resolved ?? supported.first;
-      },
-      material: (_, _) =>
-          const MaterialAppData(debugShowCheckedModeBanner: false),
-      cupertino: (_, _) =>
-          const CupertinoAppData(debugShowCheckedModeBanner: false),
-      builder: (context, child) {
-        // Resolve brightness from themeMode rather than
-        // Theme.of(context) — on iOS, CupertinoApp's
-        // auto-generated Theme may not reflect themeMode.
-        final Brightness brightness;
-        switch (themeMode) {
-          case ThemeMode.dark:
-            brightness = Brightness.dark;
-          case ThemeMode.light:
-            brightness = Brightness.light;
-          case ThemeMode.system:
-            brightness = MediaQuery.platformBrightnessOf(context);
-        }
-        if (_lastAppliedOverlayBrightness != brightness) {
-          _lastAppliedOverlayBrightness = brightness;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            applySystemUiOverlayStyleOnce(brightness: brightness);
-          });
-        }
-        final safeChild = child ?? const SizedBox.shrink();
+    return DynamicColorBuilder(
+      builder: (dynamicLight, dynamicDark) {
+        final lightTheme = palette.usesDynamicColors && dynamicLight != null
+            ? AppTheme.light(palette, dynamicScheme: dynamicLight)
+            : fallbackLight;
+        final darkTheme = palette.usesDynamicColors && dynamicDark != null
+            ? AppTheme.dark(palette, dynamicScheme: dynamicDark)
+            : fallbackDark;
+        final cupertinoLight = palette.usesDynamicColors && dynamicLight != null
+            ? AppTheme.cupertinoLight(palette, dynamicScheme: dynamicLight)
+            : fallbackCupertinoLight;
+        final cupertinoDark = palette.usesDynamicColors && dynamicDark != null
+            ? AppTheme.cupertinoDark(palette, dynamicScheme: dynamicDark)
+            : fallbackCupertinoDark;
 
-        // On iOS, AdaptiveApp creates CupertinoApp which
-        // doesn't propagate Material ThemeExtensions.
-        // Wrap with Theme to ensure all custom extensions
-        // (ConduitThemeExtension, AppColorTokens, etc.)
-        // are available via Theme.of(context) on every
-        // platform.
-        final materialTheme = brightness == Brightness.dark
-            ? darkTheme
-            : lightTheme;
-        final nativeTheme = materialTheme.extension<ConduitThemeExtension>();
-        if (nativeTheme != null) {
-          // Sheets share the grouped settings colors with the Flutter
-          // settings screens so both read as one surface system.
-          final isDarkSheet = brightness == Brightness.dark;
-          final sheetBackground = nativeTheme.groupedBackground;
-          final sheetSurface = nativeTheme.groupedSurface;
-          unawaited(
-            NativeSheetBridge.instance.syncTheme(
-              NativeSheetThemeConfig(
-                isDark: isDarkSheet,
-                backgroundArgb: sheetBackground.toARGB32(),
-                surfaceArgb: sheetSurface.toARGB32(),
-                elevatedSurfaceArgb: nativeTheme.surfaceContainerHighest
-                    .toARGB32(),
-                inputArgb: nativeTheme.inputBackground.toARGB32(),
-                foregroundArgb: nativeTheme.textPrimary.toARGB32(),
-                secondaryForegroundArgb: nativeTheme.textSecondary.toARGB32(),
-                iconArgb: nativeTheme.iconSecondary.toARGB32(),
-                borderArgb: nativeTheme.cardBorder.toARGB32(),
-                accentArgb: nativeTheme.buttonPrimary.toARGB32(),
-                onAccentArgb: nativeTheme.buttonPrimaryText.toARGB32(),
-                destructiveArgb: nativeTheme.error.toARGB32(),
+        return AdaptiveApp.router(
+          routerConfig: router,
+          onGenerateTitle: (context) => AppLocalizations.of(context)!.appTitle,
+          materialLightTheme: lightTheme,
+          materialDarkTheme: darkTheme,
+          cupertinoLightTheme: cupertinoLight,
+          cupertinoDarkTheme: cupertinoDark,
+          themeMode: themeMode,
+          locale: locale,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          localeListResolutionCallback: (deviceLocales, supported) {
+            if (locale != null) return locale;
+            if (deviceLocales == null || deviceLocales.isEmpty) {
+              return supported.first;
+            }
+            final resolved = _resolveSupportedLocale(deviceLocales, supported);
+            return resolved ?? supported.first;
+          },
+          material: (_, _) =>
+              const MaterialAppData(debugShowCheckedModeBanner: false),
+          cupertino: (_, _) =>
+              const CupertinoAppData(debugShowCheckedModeBanner: false),
+          builder: (context, child) {
+            // Resolve brightness from themeMode rather than
+            // Theme.of(context) — on iOS, CupertinoApp's
+            // auto-generated Theme may not reflect themeMode.
+            final Brightness brightness;
+            switch (themeMode) {
+              case ThemeMode.dark:
+                brightness = Brightness.dark;
+              case ThemeMode.light:
+                brightness = Brightness.light;
+              case ThemeMode.system:
+                brightness = MediaQuery.platformBrightnessOf(context);
+            }
+            if (_lastAppliedOverlayBrightness != brightness) {
+              _lastAppliedOverlayBrightness = brightness;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                applySystemUiOverlayStyleOnce(brightness: brightness);
+              });
+            }
+            final safeChild = child ?? const SizedBox.shrink();
+
+            // On iOS, AdaptiveApp creates CupertinoApp which
+            // doesn't propagate Material ThemeExtensions.
+            // Wrap with Theme to ensure all custom extensions
+            // (ConduitThemeExtension, AppColorTokens, etc.)
+            // are available via Theme.of(context) on every
+            // platform.
+            final materialTheme = brightness == Brightness.dark
+                ? darkTheme
+                : lightTheme;
+            final nativeTheme = materialTheme
+                .extension<ConduitThemeExtension>();
+            if (nativeTheme != null) {
+              // Sheets share the grouped settings colors with the Flutter
+              // settings screens so both read as one surface system.
+              final isDarkSheet = brightness == Brightness.dark;
+              final sheetBackground = nativeTheme.groupedBackground;
+              final sheetSurface = nativeTheme.groupedSurface;
+              unawaited(
+                NativeSheetBridge.instance.syncTheme(
+                  NativeSheetThemeConfig(
+                    isDark: isDarkSheet,
+                    backgroundArgb: sheetBackground.toARGB32(),
+                    surfaceArgb: sheetSurface.toARGB32(),
+                    elevatedSurfaceArgb: nativeTheme.surfaceContainerHighest
+                        .toARGB32(),
+                    inputArgb: nativeTheme.inputBackground.toARGB32(),
+                    foregroundArgb: nativeTheme.textPrimary.toARGB32(),
+                    secondaryForegroundArgb: nativeTheme.textSecondary
+                        .toARGB32(),
+                    iconArgb: nativeTheme.iconSecondary.toARGB32(),
+                    borderArgb: nativeTheme.cardBorder.toARGB32(),
+                    accentArgb: nativeTheme.buttonPrimary.toARGB32(),
+                    onAccentArgb: nativeTheme.buttonPrimaryText.toARGB32(),
+                    destructiveArgb: nativeTheme.error.toARGB32(),
+                  ),
+                ),
+              );
+            }
+
+            return Theme(
+              data: materialTheme,
+              child: Builder(
+                builder: (context) => LegacyDesignCompatibility(
+                  child: ReleaseNotesCoordinator(
+                    child: MotionProbe.overlay(
+                      _KeyboardDismissOnScroll(child: safeChild),
+                    ),
+                  ),
+                ),
               ),
-            ),
-          );
-        }
-
-        return Theme(
-          data: materialTheme,
-          child: Builder(
-            builder: (context) => LegacyDesignCompatibility(
-              child: ReleaseNotesCoordinator(
-                child: _KeyboardDismissOnScroll(child: safeChild),
-              ),
-            ),
-          ),
+            );
+          },
         );
       },
     );

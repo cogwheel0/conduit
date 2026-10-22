@@ -53,6 +53,18 @@ enum ChatVoiceModeError {
 
 enum ChatVoiceModeStartResult { started, alreadyActive, cancelled, failed }
 
+/// Something worth telling the user mid-call that does not end it.
+enum ChatVoiceModeNotice {
+  /// The user's words could not be made out.
+  transcriptionFailed,
+
+  /// The voice's reply stopped before it finished.
+  replyIncomplete,
+
+  /// Part of what was said could not be saved into the chat.
+  transcriptNotSaved,
+}
+
 @immutable
 class ChatVoiceModeSnapshot {
   const ChatVoiceModeSnapshot({
@@ -69,8 +81,12 @@ class ChatVoiceModeSnapshot {
     this.errorMessage,
     this.errorKind,
     this.isCollapsed = false,
+    this.isInputSuspended = false,
+    this.isContinuousListening = false,
     this.isMuted = false,
     this.isSpeakerphoneEnabled = false,
+    this.notice,
+    this.noticeCount = 0,
   });
 
   final ChatVoiceModePhase phase;
@@ -88,8 +104,15 @@ class ChatVoiceModeSnapshot {
   /// Why [errorMessage] is set; null when there is none.
   final ChatVoiceModeError? errorKind;
   final bool isCollapsed;
+  final bool isInputSuspended;
+  final bool isContinuousListening;
   final bool isMuted;
   final bool isSpeakerphoneEnabled;
+
+  /// The latest notice of the call; [noticeCount] grows with each, so the
+  /// same notice twice is shown twice.
+  final ChatVoiceModeNotice? notice;
+  final int noticeCount;
 
   bool get isActive {
     return switch (phase) {
@@ -130,8 +153,12 @@ class ChatVoiceModeSnapshot {
     ChatVoiceModeError? errorKind,
     bool clearErrorMessage = false,
     bool? isCollapsed,
+    bool? isInputSuspended,
+    bool? isContinuousListening,
     bool? isMuted,
     bool? isSpeakerphoneEnabled,
+    ChatVoiceModeNotice? notice,
+    int? noticeCount,
   }) {
     return ChatVoiceModeSnapshot(
       phase: phase ?? this.phase,
@@ -157,9 +184,14 @@ class ChatVoiceModeSnapshot {
           : errorMessage ?? this.errorMessage,
       errorKind: clearErrorMessage ? null : errorKind ?? this.errorKind,
       isCollapsed: isCollapsed ?? this.isCollapsed,
+      isInputSuspended: isInputSuspended ?? this.isInputSuspended,
+      isContinuousListening:
+          isContinuousListening ?? this.isContinuousListening,
       isMuted: isMuted ?? this.isMuted,
       isSpeakerphoneEnabled:
           isSpeakerphoneEnabled ?? this.isSpeakerphoneEnabled,
+      notice: notice ?? this.notice,
+      noticeCount: noticeCount ?? this.noticeCount,
     );
   }
 }

@@ -174,6 +174,170 @@ Future<void> _pumpSettleFrames(
 }
 
 void main() {
+  _viewportTest(
+    'short history cannot scroll into empty space above the composer',
+    (tester) async {
+      final controller = _controller(tester);
+      await tester.pumpWidget(
+        _viewportHost(
+          _viewport(
+            controller: controller,
+            ids: const ['user', 'assistant'],
+            alignShortContentToBottom: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final latestBottom = controller.rowRect('assistant')!.bottom;
+      expect(latestBottom, closeTo(600 - 80, 1));
+      for (final drag in [const Offset(0, -400), const Offset(0, 400)]) {
+        await tester.drag(find.byType(CustomScrollView), drag);
+        await tester.pumpAndSettle();
+        expect(
+          controller.rowRect('assistant')!.bottom,
+          closeTo(latestBottom, 1),
+        );
+        expect(controller.distanceFromLatest, closeTo(0, 1));
+      }
+    },
+  );
+
+  _viewportTest(
+    'short saved history stays above the composer after reopening',
+    (tester) async {
+      final controller = _controller(tester);
+      await tester.pumpWidget(
+        _viewportHost(
+          _viewport(
+            controller: controller,
+            ids: const ['first', 'last'],
+            alignShortContentToBottom: true,
+            maintainVisibleAnchor: true,
+            initialAnchor: const ChatScrollAnchor(
+              messageId: 'last',
+              offsetWithinMessage: 0,
+              loadedCount: 2,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.rowRect('last')!.bottom, closeTo(520, 1));
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
+      await tester.pumpAndSettle();
+      expect(controller.rowRect('last')!.bottom, closeTo(520, 1));
+      expect(
+        controller.metrics!.maxScrollExtent,
+        controller.metrics!.minScrollExtent,
+      );
+    },
+  );
+
+  _viewportTest('drag releases a short prompt pin to the real composer edge', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    String? pin = 'user';
+    late StateSetter rebuild;
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: const ['user', 'assistant'],
+              alignShortContentToBottom: true,
+              pinnedUserMessageId: pin,
+              pinAutomatic: pin != null,
+              maintainVisibleAnchor: pin == null,
+              followLatest: false,
+              onUserDragStart: () => rebuild(() => pin = null),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await controller.jumpMessageToTop('user');
+    await tester.pumpAndSettle();
+    expect(controller.rowRect('user')!.top, closeTo(_topContentInset, 1));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    expect(pin, isNull);
+    expect(controller.rowRect('assistant')!.bottom, closeTo(520, 1));
+    expect(controller.distanceFromLatest, closeTo(0, 1));
+  });
+
+  _viewportTest(
+    'short history can grow into normally scrollable long history',
+    (tester) async {
+      final controller = _controller(tester);
+      var height = 52.0;
+      var followLatest = true;
+      late StateSetter rebuild;
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _viewport(
+                controller: controller,
+                ids: const ['user', 'assistant'],
+                alignShortContentToBottom: true,
+                rowHeight: (id) => id == 'assistant' ? height : 52,
+                followLatest: followLatest,
+                onUserDragStart: () => rebuild(() => followLatest = false),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.rowRect('assistant')!.bottom, closeTo(520, 1));
+      rebuild(() => height = 900);
+      await tester.pumpAndSettle();
+      expect(controller.hasRealContentOverflow, isTrue);
+      expect(controller.rowRect('assistant')!.bottom, closeTo(520, 1));
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
+      await tester.pump();
+      expect(controller.distanceFromLatest, greaterThan(100));
+      controller.jumpToLatest();
+      await tester.pumpAndSettle();
+      expect(controller.rowRect('assistant')!.bottom, closeTo(520, 1));
+      rebuild(() => height = 52);
+      await tester.pumpAndSettle();
+      expect(controller.rowRect('assistant')!.bottom, closeTo(520, 1));
+      expect(
+        controller.metrics!.maxScrollExtent,
+        controller.metrics!.minScrollExtent,
+      );
+    },
+  );
+
+  _viewportTest(
+    'short history follows composer space when the window shrinks',
+    (tester) async {
+      final controller = _controller(tester);
+      await tester.pumpWidget(
+        _viewportHost(
+          _viewport(
+            controller: controller,
+            ids: const ['user', 'assistant'],
+            alignShortContentToBottom: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      tester.view.physicalSize = const Size(800, 350);
+      await tester.pumpAndSettle();
+      expect(controller.rowRect('assistant')!.bottom, closeTo(270, 1));
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -150));
+      await tester.pumpAndSettle();
+      expect(controller.rowRect('assistant')!.bottom, closeTo(270, 1));
+    },
+  );
+
   _viewportTest('uses one scroll controller for each platform scrollbar', (
     tester,
   ) async {
@@ -635,6 +799,44 @@ void main() {
     check(controller.rowRect(ids.first)!.top)
         .isCloseTo(viewportTop + _topContentInset, 1);
   });
+
+  _viewportTest(
+    'a fast fling leaves the first variable-height message below the toolbar',
+    (tester) async {
+      final controller = _controller(tester);
+      final ids = List.generate(60, (index) => 'message-$index');
+      await tester.pumpWidget(
+        _viewportHost(
+          _viewport(
+            controller: controller,
+            ids: ids,
+            initialAnchor: const ChatScrollAnchor(
+              messageId: 'message-20',
+              offsetWithinMessage: 0,
+              loadedCount: 60,
+            ),
+            maintainVisibleAnchor: true,
+            rowHeight: (id) => id == ids.first
+                ? 900
+                : 70 + int.parse(id.split('-').last) % 5 * 35.0,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 3; i++) {
+        await tester.fling(
+          find.byType(CustomScrollView),
+          const Offset(0, 3500),
+          12000,
+        );
+        await tester.pumpAndSettle();
+      }
+      final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+      check(controller.rowRect(ids.first)!.top)
+          .isCloseTo(viewportTop + _topContentInset, 1);
+      check(tester.takeException()).isNull();
+    },
+  );
 
   _viewportTest('native iOS status-bar tap scrolls to the oldest row', (
     tester,
@@ -2130,7 +2332,7 @@ void main() {
     tester,
   ) async {
     final controller = _controller(tester);
-    final ids = List<String>.generate(30, (index) => 'message-$index');
+    final ids = List<String>.generate(80, (index) => 'message-$index');
 
     await tester.pumpWidget(
       _viewportHost(
@@ -2138,15 +2340,22 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    check(await controller.jumpMessageToTop('message-12')).isTrue();
+    final seek = controller.jumpMessageToTop('message-12');
+    await tester.pumpAndSettle();
+    check(await seek).isTrue();
     await tester.pump();
     final startingDistance = controller.distanceFromLatest;
+    final scrollPosition = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    final startingPixels = scrollPosition.pixels;
     check(startingDistance).isGreaterThan(48);
 
     final navigation = controller.animateToLatest(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
     );
+    check(scrollPosition.pixels).isCloseTo(startingPixels, 1);
     var navigationDone = false;
     unawaited(navigation.then((_) => navigationDone = true));
     await tester.pump();
@@ -2181,6 +2390,39 @@ void main() {
     check(controller.distanceFromLatest).isCloseTo(0, 1);
     check(controller.isProgrammaticNavigationActive).isFalse();
   });
+
+  _viewportTest(
+    'short bottom-aligned row growth updates without parent publication',
+    (tester) async {
+      final controller = _controller(tester);
+      final height = ValueNotifier<double>(28);
+      addTearDown(height.dispose);
+      await tester.pumpWidget(
+        _viewportHost(
+          _viewport(
+            controller: controller,
+            ids: const ['assistant'],
+            alignShortContentToBottom: true,
+            followLatest: true,
+            rowBuilder: (context, index) => ValueListenableBuilder<double>(
+              valueListenable: height,
+              builder: (context, value, _) =>
+                  SizedBox(height: value, child: const Text('Live reply')),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final bottom = controller.rowRect('assistant')!.bottom;
+      for (final value in [64.0, 120.0, 240.0]) {
+        height.value = value;
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        check(controller.rowRect('assistant')!.bottom).isCloseTo(bottom, 1);
+      }
+    },
+  );
 
   _viewportTest(
     'attached streaming growth keeps the live footer fixed in the growth frame',
@@ -2829,6 +3071,7 @@ Widget _viewport({
   Widget? liveFooter,
   Widget? trailingContent,
   bool hideUntilSettled = false,
+  bool alignShortContentToBottom = false,
   double Function(String id)? rowHeight,
   double? Function(int index)? estimateRowExtent,
   void Function(int index, double extent)? onRowExtentMeasured,
@@ -2864,6 +3107,7 @@ Widget _viewport({
     followLatest: followLatest ?? !maintainVisibleAnchor,
     pinAutomatic: pinAutomatic,
     hideUntilSettled: hideUntilSettled,
+    alignShortContentToBottom: alignShortContentToBottom,
     onPointerDown: onPointerDown ?? () {},
     onUserDragStart: onUserDragStart ?? () {},
     onUserDragEnd: onUserDragEnd ?? () {},

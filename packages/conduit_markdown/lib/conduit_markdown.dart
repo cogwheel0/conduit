@@ -11,6 +11,7 @@ export 'src/details_block_syntax.dart';
 export 'src/embed_utils.dart';
 export 'src/linear_inline_syntaxes.dart';
 export 'src/markdown_preprocessor.dart';
+export 'src/markdown_code_policy.dart';
 export 'src/mention_inline_syntax.dart';
 export 'src/message_segments.dart';
 export 'src/reasoning_parser.dart';

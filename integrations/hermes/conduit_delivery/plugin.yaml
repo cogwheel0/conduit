@@ -1,0 +1,7 @@
+name: conduit-delivery
+version: 0.1.0
+description: Deliver user-requested files to Conduit without another model turn.
+kind: standalone
+requires_hermes: ">=0.22.2"
+provides_tools:
+  - send_to_conduit

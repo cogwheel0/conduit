@@ -11,6 +11,8 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
+import 'package:conduit/features/hermes/providers/hermes_mobile_navigation.dart';
+import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/platform/flutter_flush_scheduler.dart';
@@ -67,6 +69,179 @@ const _answerWithTool =
     '<summary>Tool Executed</summary></details>\n\nAnswer.';
 
 void main() {
+  for (final text in [
+    'A short, complete reply.',
+    List.filled(
+      8,
+      'A long reply preserves its width while streaming finishes.',
+    ).join(' '),
+    '# Heading\n\n**Bold text** and a list.\n\n1. First item\n2. Second item\n\n```dart\nfinal value = 42;\n```',
+  ]) {
+    testWidgets(
+      'mobile bubble retains geometry and identity at completion: ${text.length}',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+        final database = AppDatabase(NativeDatabase.memory());
+        final container = ProviderContainer(
+          overrides: [
+            openWebUiDatabaseAccessProvider.overrideWith(
+              _OpenDatabaseAccess.new,
+            ),
+            appDatabaseProvider.overrideWithValue(database),
+            activeConversationProvider.overrideWith(_NoActiveConversation.new),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(null),
+            hermesMobileLayoutProvider.overrideWithValue(true),
+            textToSpeechControllerProvider.overrideWith(_InactiveTts.new),
+            streamingHapticsEnabledProvider.overrideWithValue(false),
+            flushSchedulerProvider.overrideWithValue(
+              const FlutterFlushScheduler(),
+            ),
+          ],
+        );
+        addTearDown(() async {
+          container.dispose();
+          await database.close();
+        });
+        final notifier = container.read(chatMessagesProvider.notifier);
+        notifier.setMessages([
+          ChatMessage(
+            id: 'geometry',
+            role: 'assistant',
+            content: text,
+            isStreaming: true,
+            timestamp: DateTime(2024),
+          ),
+        ]);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: AppTheme.light(TweakcnThemes.t3Chat),
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Consumer(
+                    builder: (context, ref, _) {
+                      final message = ref.watch(chatMessagesProvider).last;
+                      return AssistantMessageWidget(
+                        message: message,
+                        isStreaming: message.isStreaming,
+                        showFollowUps: false,
+                        showActionBar: false,
+                        animateOnMount: false,
+                        suppressStreamingHaptics: true,
+                        onDelete: () {},
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        final bubble = find.byKey(
+          const ValueKey('assistant-message-bubble-surface-geometry'),
+        );
+        final before = tester.getRect(bubble);
+        final element = tester.element(bubble);
+        final markdownElement = tester.element(
+          find.byType(StreamingMarkdownWidget),
+        );
+        final markdown = tester.widget<StreamingMarkdownWidget>(
+          find.byType(StreamingMarkdownWidget),
+        );
+        expect(markdown.enableStreamingTextFade, true);
+        expect(
+          markdown.streamingTextFadeDuration,
+          const Duration(milliseconds: 120),
+        );
+        final shellElement = tester.element(
+          find.byType(AssistantMessageWidget),
+        );
+        notifier.finishStreaming();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        final after = tester.getRect(bubble);
+        expect(tester.element(bubble), same(element));
+        expect(
+          tester.element(find.byType(AssistantMessageWidget)),
+          same(shellElement),
+        );
+        expect(
+          tester.element(find.byType(StreamingMarkdownWidget)),
+          same(markdownElement),
+        );
+        expect(after.left, closeTo(before.left, .5));
+        expect(after.width, closeTo(before.width, .5));
+        expect(after.height, closeTo(before.height, .5));
+        if (text.startsWith('# Heading')) {
+          await tester.longPress(
+            find.byKey(const ValueKey('hermes-message-actions-geometry')),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Select'));
+          await tester.pumpAndSettle();
+          final selection = find.byKey(
+            const ValueKey('hermes-select-message-text'),
+          );
+          expect(
+            tester.widget<StreamingMarkdownWidget>(selection).content,
+            text,
+          );
+          final rich = tester.widgetList<RichText>(
+            find.descendant(of: selection, matching: find.byType(RichText)),
+          );
+          bool boldSpan(InlineSpan span) =>
+              span is TextSpan &&
+              ((span.text == 'Bold text' &&
+                      span.style?.fontWeight == FontWeight.bold) ||
+                  (span.children?.any(boldSpan) ?? false));
+          expect(rich.any((t) => boldSpan(t.text)), isTrue);
+          expect(
+            find.descendant(
+              of: selection,
+              matching: find.byType(SelectionArea),
+            ),
+            findsOneWidget,
+          );
+        }
+
+        if (text.startsWith('# Heading')) {
+          await tester.tap(find.byTooltip('Close'));
+          await tester.pumpAndSettle();
+          await tester.longPress(
+            find.byKey(const ValueKey('hermes-message-actions-geometry')),
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('Select'), findsOneWidget);
+          notifier.setMessages([
+            container
+                .read(chatMessagesProvider)
+                .last
+                .copyWith(
+                  isStreaming: true,
+                  metadata: const {'responseDone': false},
+                ),
+          ]);
+          await tester.pump();
+          await tester.pump();
+          expect(find.text('Select'), findsNothing);
+          expect(
+            tester.element(find.byType(StreamingMarkdownWidget)),
+            same(markdownElement),
+          );
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
   for (final canonicalFirst in [true, false]) {
     testWidgets(
       'tool tile survives ${canonicalFirst ? 'canonical then live' : 'live then canonical'} '

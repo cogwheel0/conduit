@@ -1,6 +1,7 @@
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/utils/openwebui_message_payload.dart';
 import 'package:conduit_core/utils/persisted_message_content.dart';
 
@@ -24,6 +25,8 @@ Map<String, dynamic> directPersistedMessagePayload(
     if (message.role == 'assistant' && assistantTransport != null)
       'transport': assistantTransport,
   };
+  // What a call spoke lives in `meta.voice`, where Open WebUI reads it.
+  final voice = metadata.remove(kMessageVoiceMetadataKey);
   return <String, dynamic>{
     'id': message.id,
     'parentId': parentId,
@@ -59,6 +62,7 @@ Map<String, dynamic> directPersistedMessagePayload(
           .toList(growable: false),
     if (message.error != null) 'error': message.error!.toJson(),
     if (metadata.isNotEmpty) 'metadata': metadata,
+    if (voice is Map) 'meta': {'voice': voice},
     'timestamp': message.timestamp.millisecondsSinceEpoch ~/ 1000,
   };
 }

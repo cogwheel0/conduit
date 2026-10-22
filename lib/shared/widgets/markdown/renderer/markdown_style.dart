@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../../theme/theme_extensions.dart';
+import '../../../theme/color_tokens.dart';
 
 /// Centralized per-element style configuration for the
 /// custom markdown renderer.
@@ -52,6 +53,8 @@ class ConduitMarkdownStyle {
     required this.tableBorderColor,
     required this.tableHeaderBackground,
     required this.linkColor,
+    required this.strongColor,
+    required this.emphasisColor,
     required this.dividerColor,
     required this.textPrimary,
     required this.textSecondary,
@@ -68,102 +71,122 @@ class ConduitMarkdownStyle {
   /// This is the recommended way to create an instance.
   factory ConduitMarkdownStyle.fromTheme(BuildContext context) {
     final theme = context.conduitTheme;
-    final textTheme = Theme.of(context).textTheme;
     final tokens = theme.tokens;
     final dark = theme.isDark;
-    TextStyle resolveHeadingStyle(
-      TextStyle? themedStyle,
-      TextStyle fallback, {
-      required Color color,
-    }) {
-      return themedStyle?.copyWith(color: color, fontWeight: FontWeight.w600) ??
-          fallback.copyWith(color: color);
-    }
-
-    // Base body style used as the foundation for all
-    // text styles.
     final bodyStyle = AppTypography.chatMessageStyle.copyWith(
       color: theme.textPrimary,
+      height: 1.5,
     );
-
-    // Monospace base for code elements.
+    final bodySize = bodyStyle.fontSize ?? 17;
+    TextStyle heading(double ratio) => bodyStyle.copyWith(
+      fontSize: bodySize * ratio,
+      fontWeight: FontWeight.w600,
+      height: 1.3,
+    );
     final monoBase =
         theme.code?.copyWith(color: theme.codeText) ??
         AppTypography.codeStyle.copyWith(color: theme.codeText);
+    Color readingAccent(Color color) {
+      for (final surface in [
+        theme.surfaceBackground,
+        theme.chatBubbleAssistant,
+        theme.surfaceMessage,
+      ]) {
+        color = withMinContrast(color, surface, 4.5);
+      }
+      return color;
+    }
 
-    // Inline code highlight color that matches common
-    // chat-UI conventions (#eb5757 light / #E06C75 dark).
-    final codeSpanText = dark
-        ? const Color(0xFFE06C75)
-        : const Color(0xFFEB5757);
+    // Neutral presets still need visible formatting accents. Chromatic
+    // palettes keep their own hues; contrast is resolved on the actual surfaces.
+    Color accentOr(Color color, Color light, Color darkColor) {
+      final hsl = HSLColor.fromColor(color);
+      return hsl.saturation >= .12 && hsl.lightness > .12 && hsl.lightness < .88
+          ? color
+          : dark
+          ? darkColor
+          : light;
+    }
+
+    final accent = readingAccent(
+      accentOr(
+        tokens.brandTone40,
+        const Color(0xFF4555A0),
+        const Color(0xFFAFBEF5),
+      ),
+    );
+    final codeAccent = dark ? const Color(0xFFE6A0AF) : const Color(0xFF9D425A);
+    final codeSpanBackground = Color.alphaBlend(
+      codeAccent.withValues(alpha: dark ? .12 : .07),
+      tokens.codeBackground,
+    );
+    final codeSpanText = withMinContrast(codeAccent, codeSpanBackground, 4.5);
 
     return ConduitMarkdownStyle(
       isDark: dark,
 
       // -- Text styles --
       body: bodyStyle,
-      h1: resolveHeadingStyle(
-        textTheme.displaySmall,
-        AppTypography.displaySmallStyle,
-        color: theme.textPrimary,
+      h1: heading(21 / 17),
+      h2: heading(20 / 17),
+      h3: heading(18 / 17),
+      h4: heading(1),
+      h5: heading(1),
+      h6: heading(1).copyWith(color: theme.textSecondary),
+      codeSpan: monoBase.copyWith(
+        color: codeSpanText,
+        fontSize: bodySize * .9,
+        fontWeight: FontWeight.w400,
       ),
-      h2: resolveHeadingStyle(
-        textTheme.headlineLarge,
-        AppTypography.headlineLargeStyle,
-        color: theme.textPrimary,
-      ),
-      h3: resolveHeadingStyle(
-        textTheme.headlineMedium,
-        AppTypography.headlineMediumStyle,
-        color: theme.textPrimary,
-      ),
-      h4: resolveHeadingStyle(
-        textTheme.headlineSmall,
-        AppTypography.headlineSmallStyle,
-        color: theme.textPrimary,
-      ),
-      h5: resolveHeadingStyle(
-        textTheme.titleLarge,
-        AppTypography.titleLargeStyle,
-        color: theme.textPrimary,
-      ),
-      h6: resolveHeadingStyle(
-        textTheme.titleMedium,
-        AppTypography.titleMediumStyle,
+      codeBlock: monoBase.copyWith(color: theme.codeText, height: 1.6),
+      blockquoteText: bodyStyle.copyWith(
         color: theme.textSecondary,
+        fontStyle: FontStyle.italic,
       ),
-      codeSpan: monoBase.copyWith(color: codeSpanText),
-      codeBlock: monoBase.copyWith(color: theme.codeText),
-      blockquoteText: bodyStyle.copyWith(color: theme.textSecondary),
       tableHeader: bodyStyle.copyWith(
-        color: theme.textPrimary,
-        fontWeight: FontWeight.w600,
+        color: theme.textSecondary,
+        fontSize: bodySize * .85,
+        fontWeight: FontWeight.w500,
       ),
-      tableCell: bodyStyle.copyWith(color: theme.textPrimary),
-
-      paragraphSpacing: Spacing.md,
+      tableCell: bodyStyle.copyWith(color: theme.textPrimary, height: 1.35),
+      paragraphSpacing: 12,
       headingTopSpacing: Spacing.md,
-      headingBottomSpacing: Spacing.sm,
-      listItemSpacing: Spacing.sm,
-      codeBlockSpacing: Spacing.md,
-      blockquoteSpacing: Spacing.md,
-      tableSpacing: Spacing.md,
+      headingBottomSpacing: Spacing.xs,
+      listItemSpacing: Spacing.xs,
+      codeBlockSpacing: Spacing.sm,
+      blockquoteSpacing: Spacing.sm,
+      tableSpacing: Spacing.sm,
 
       // -- Colors --
       codeSpanTextColor: codeSpanText,
-      codeSpanBackgroundColor: tokens.codeBackground,
+      codeSpanBackgroundColor: codeSpanBackground,
       codeBlockBackground: theme.codeBackground,
       codeBlockBorder: theme.codeBorder,
       blockquoteBorderColor: theme.dividerColor,
-      tableBorderColor: theme.dividerColor,
-      tableHeaderBackground: tokens.codeBackground,
-      linkColor: theme.variant.primary,
+      tableBorderColor: Color.alphaBlend(
+        theme.textPrimary.withValues(alpha: dark ? .15 : .12),
+        theme.surfaceBackground,
+      ),
+      tableHeaderBackground: theme.surfaceBackground,
+      linkColor: withMinContrast(
+        withMinContrast(theme.variant.primary, theme.surfaceBackground, 4.5),
+        theme.chatBubbleAssistant,
+        4.5,
+      ),
+      strongColor: accent,
+      emphasisColor: readingAccent(
+        accentOr(
+          tokens.accentTeal60,
+          const Color(0xFF277568),
+          const Color(0xFF8BCFC0),
+        ),
+      ),
       dividerColor: theme.dividerColor,
       textPrimary: theme.textPrimary,
       textSecondary: theme.textSecondary,
 
       // -- Shapes --
-      codeBlockRadius: AppBorderRadius.lg,
+      codeBlockRadius: 12,
       codeSpanRadius: AppBorderRadius.xs,
       tableRadius: AppBorderRadius.sm,
     );
@@ -260,6 +283,10 @@ class ConduitMarkdownStyle {
 
   /// Color used for hyperlinks.
   final Color linkColor;
+
+  /// Theme accents for emphasis, corrected for chat and page surfaces.
+  final Color strongColor;
+  final Color emphasisColor;
 
   /// Color used for horizontal rules / dividers.
   final Color dividerColor;

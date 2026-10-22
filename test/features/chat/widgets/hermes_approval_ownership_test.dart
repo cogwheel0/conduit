@@ -259,7 +259,12 @@ void main() {
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: HermesComposerPromptOverlay(message: first)),
+          home: Scaffold(
+            body: HermesComposerPromptOverlay(
+              message: first,
+              presentation: HermesPromptPresentation.approvalSheet,
+            ),
+          ),
         ),
       ),
     );
@@ -286,7 +291,7 @@ void main() {
 
     // Deliberately do not pump: this taps the callback rendered for the old
     // generation after the registry and message owner were replaced.
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Allow once'));
     await tester.pump();
 
     check(service.decisions).isEmpty();
@@ -360,12 +365,17 @@ void main() {
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: HermesComposerPromptOverlay(message: first)),
+          home: Scaffold(
+            body: HermesComposerPromptOverlay(
+              message: first,
+              presentation: HermesPromptPresentation.approvalSheet,
+            ),
+          ),
         ),
       ),
     );
     await tester.pump();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Allow once'));
     // The widget has not rebuilt yet, so the second button is still callable.
     // The metadata state transition itself must provide the single-flight CAS.
     await tester.tap(find.text('Deny'));
@@ -502,13 +512,16 @@ void main() {
               localizationsDelegates: conduitLocalizationsDelegates,
               supportedLocales: AppLocalizations.supportedLocales,
               home: Scaffold(
-                body: HermesComposerPromptOverlay(message: pending),
+                body: HermesComposerPromptOverlay(
+                  message: pending,
+                  presentation: HermesPromptPresentation.approvalSheet,
+                ),
               ),
             ),
           ),
         );
         await tester.pump();
-        await tester.tap(find.text('Approve'));
+        await tester.tap(find.text('Allow once'));
         await tester.pump();
         check(service.decisions).deepEquals(<(String, String, bool)>[
           ('approval-run', 'approval-offscreen', true),
@@ -661,16 +674,19 @@ void main() {
             supportedLocales: AppLocalizations.supportedLocales,
             home: Scaffold(
               body: SingleChildScrollView(
-                child: HermesComposerPromptOverlay(message: pending),
+                child: HermesComposerPromptOverlay(
+                  message: pending,
+                  presentation: HermesPromptPresentation.approvalSheet,
+                ),
               ),
             ),
           ),
         ),
       );
       await tester.pump();
-      await tester.ensureVisible(find.text('Approve'));
+      await tester.ensureVisible(find.text('Allow once'));
       await tester.pump();
-      await tester.tap(find.text('Approve'));
+      await tester.tap(find.text('Allow once'));
       await tester.pump();
 
       // Settle and persist the run while resolveApproval is still awaiting
@@ -842,12 +858,17 @@ void main() {
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: HermesComposerPromptOverlay(message: pending)),
+          home: Scaffold(
+            body: HermesComposerPromptOverlay(
+              message: pending,
+              presentation: HermesPromptPresentation.approvalSheet,
+            ),
+          ),
         ),
       ),
     );
     await tester.pump();
-    await tester.tap(find.text('Approve'));
+    await tester.tap(find.text('Allow once'));
     await tester.pump();
 
     container

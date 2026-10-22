@@ -824,42 +824,12 @@ class SocketService {
         .setTimeout(20000)
         .setPath(path);
 
-    // Merge Authorization (if any) with user-defined custom headers for the
-    // Socket.IO handshake. Avoid overriding reserved headers.
-    final Map<String, String> extraHeaders = {
-      ConduitUserAgent.headerName: ConduitUserAgent.value,
-    };
+    final extraHeaders = openWebUiWebSocketHeaders(
+      serverConfig,
+      authToken: _authToken,
+    );
     if (_authToken != null && _authToken!.isNotEmpty) {
-      extraHeaders['Authorization'] = 'Bearer $_authToken';
       builder.setAuth({'token': _authToken});
-    }
-    if (serverConfig.customHeaders.isNotEmpty) {
-      final reserved = {
-        'authorization',
-        'content-type',
-        'accept',
-        // Socket/WebSocket reserved or managed by client/runtime
-        'host',
-        'origin',
-        'connection',
-        'upgrade',
-        'sec-websocket-key',
-        'sec-websocket-version',
-        'sec-websocket-extensions',
-        'sec-websocket-protocol',
-        'user-agent',
-      };
-      serverConfig.customHeaders.forEach((key, value) {
-        final lower = key.toLowerCase();
-        if (!reserved.contains(lower) && value.isNotEmpty) {
-          // Do not overwrite Authorization we already set from authToken
-          if (lower == 'authorization' &&
-              extraHeaders.containsKey('Authorization')) {
-            return;
-          }
-          extraHeaders[key] = value;
-        }
-      });
     }
     if (extraHeaders.isNotEmpty) {
       builder.setExtraHeaders(extraHeaders);
@@ -1537,6 +1507,12 @@ class SocketService {
             'Open WebUI browser client.',
         'result': null,
       },
+      // Conduit runs no terminal of its own, so there is no AGENTS.md to
+      // read, and no user terminal open for the shell tools.
+      'request:terminal' => const <String, dynamic>{},
+      'request:terminal:state' => const <String, dynamic>{'connected': false},
+      // MCP elicitation has no form here; cancelling lets the tool go on.
+      'request:elicitation' => const <String, dynamic>{'action': 'cancel'},
       _ => null,
     };
     if (unsupported != null &&
@@ -1545,6 +1521,9 @@ class SocketService {
       ackFn(unsupported);
       return;
     }
+    // Says an interactive request was answered or timed out on the server.
+    // Conduit's prompts keep their own deadline, so there is nothing to do.
+    if (type == 'request:interaction:done') return;
 
     // A direct tool call is consumed here for the same reason: the server
     // blocks until this session answers, whichever chat is open.
@@ -2203,4 +2182,40 @@ final class _BufferedChatReplay {
 /// answered, times out or loses its connection.
 class _ToolCallScope {
   bool active = true;
+}
+
+/// The headers of a WebSocket handshake with an Open WebUI server: the
+/// session's bearer token, if any, and the server's custom headers, except
+/// those the handshake or the runtime owns.
+Map<String, String> openWebUiWebSocketHeaders(
+  ServerConfig serverConfig, {
+  String? authToken,
+}) {
+  final headers = <String, String>{
+    ConduitUserAgent.headerName: ConduitUserAgent.value,
+  };
+  if (authToken != null && authToken.isNotEmpty) {
+    headers['Authorization'] = 'Bearer $authToken';
+  }
+  const reserved = {
+    'authorization',
+    'content-type',
+    'accept',
+    // Socket/WebSocket reserved or managed by client/runtime
+    'host',
+    'origin',
+    'connection',
+    'upgrade',
+    'sec-websocket-key',
+    'sec-websocket-version',
+    'sec-websocket-extensions',
+    'sec-websocket-protocol',
+    'user-agent',
+  };
+  serverConfig.customHeaders.forEach((key, value) {
+    if (!reserved.contains(key.toLowerCase()) && value.isNotEmpty) {
+      headers[key] = value;
+    }
+  });
+  return headers;
 }

@@ -1,5 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/models/hermes_notification_target.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -204,6 +211,59 @@ void main() {
     check(socket.chat.single.requireFocus).isFalse();
     check(socket.channel.single.requireFocus).isFalse();
   });
+
+  test(
+    'Hermes background completion routes once to its captured session',
+    () async {
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final container = makeContainer(socket);
+      final binding = TestWidgetsFlutterBinding.ensureInitialized();
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      addTearDown(
+        () => binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed),
+      );
+      final conversation = markNativeHermesConversation(
+        Conversation(
+          id: 'local:hermes_session-1',
+          title: 'My conversation',
+          createdAt: DateTime(2024),
+          updatedAt: DateTime(2024),
+          metadata: const {
+            'hermesSessionId': 'session-1',
+            kHermesConnectionIdentityMetadataKey: 'connection-one',
+          },
+        ),
+      );
+      final message = ChatMessage(
+        id: 'reply-one',
+        role: 'assistant',
+        content: 'Done',
+        timestamp: DateTime(2024),
+      );
+      final send = Provider<void Function()>(
+        (ref) =>
+            () => notifyHermesChatCompletion(ref, conversation, message),
+      );
+      container.read(send)();
+      container.read(send)();
+      await Future<void>.delayed(Duration.zero);
+      expect(routed, hasLength(1));
+      final target = HermesNotificationTarget.decode(routed.single.sourceId)!;
+      expect(target.sessionId, 'session-1');
+      expect(target.connectionIdentity, 'connection-one');
+      expect(routed.single.body, contains('finished replying'));
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final otherMessage = message.copyWith(id: 'foreground-reply');
+      container.read(
+        Provider<void>(
+          (ref) => notifyHermesChatCompletion(ref, conversation, otherMessage),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(routed, hasLength(1));
+    },
+  );
 
   test('routes a notifiable chat completion', () async {
     final socket = _MockSocketService();

@@ -231,7 +231,7 @@ void main() {
     check(materialTheme.inputDecorationTheme.hintStyle?.fontWeight)
         .equals(FontWeight.w300);
     check(materialTheme.inputDecorationTheme.hintStyle?.color)
-        .equals(conduitTheme.textSecondary.withValues(alpha: 0.5));
+        .equals(conduitTheme.inputPlaceholder);
     check(materialTheme.appBarTheme.titleTextStyle?.fontSize).equals(22);
     check(cupertinoTheme.textTheme.navTitleTextStyle.fontSize).equals(17);
     check(cupertinoTheme.textTheme.navLargeTitleTextStyle.fontSize).equals(34);

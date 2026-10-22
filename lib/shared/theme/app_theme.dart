@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -10,28 +8,45 @@ import 'tweakcn_themes.dart';
 import 'color_tokens.dart';
 
 class AppTheme {
-  static ThemeData light(TweakcnThemeDefinition theme) {
-    final tokens = AppColorTokens.light(theme: theme);
-    return _buildTheme(
-      theme: theme,
-      tokens: tokens,
-      brightness: Brightness.light,
-    );
-  }
+  static ThemeData light(
+    TweakcnThemeDefinition theme, {
+    ColorScheme? dynamicScheme,
+  }) => _buildMaterialTheme(theme, Brightness.light, dynamicScheme);
 
-  static ThemeData dark(TweakcnThemeDefinition theme) {
-    final tokens = AppColorTokens.dark(theme: theme);
+  static ThemeData dark(
+    TweakcnThemeDefinition theme, {
+    ColorScheme? dynamicScheme,
+  }) => _buildMaterialTheme(theme, Brightness.dark, dynamicScheme);
+
+  static ThemeData _buildMaterialTheme(
+    TweakcnThemeDefinition theme,
+    Brightness brightness,
+    ColorScheme? dynamicScheme,
+  ) {
+    final scheme = theme.usesDynamicColors ? dynamicScheme : null;
+    final resolved = theme.withDynamicColors(
+      lightScheme: brightness == Brightness.light ? scheme : null,
+      darkScheme: brightness == Brightness.dark ? scheme : null,
+    );
+    final tokens = brightness == Brightness.light
+        ? AppColorTokens.light(theme: resolved)
+        : AppColorTokens.dark(theme: resolved);
     return _buildTheme(
-      theme: theme,
+      theme: resolved,
       tokens: tokens,
-      brightness: Brightness.dark,
+      brightness: brightness,
+      dynamicScheme: scheme,
     );
   }
 
   /// Builds a [CupertinoThemeData] for light mode.
-  static CupertinoThemeData cupertinoLight(TweakcnThemeDefinition theme) {
-    final variant = theme.variantFor(Brightness.light);
-    final tokens = AppColorTokens.light(theme: theme);
+  static CupertinoThemeData cupertinoLight(
+    TweakcnThemeDefinition theme, {
+    ColorScheme? dynamicScheme,
+  }) {
+    final resolved = theme.withDynamicColors(lightScheme: dynamicScheme);
+    final variant = resolved.variantFor(Brightness.light);
+    final tokens = AppColorTokens.light(theme: resolved);
     return _buildCupertinoThemeData(
       brightness: Brightness.light,
       variant: variant,
@@ -40,9 +55,13 @@ class AppTheme {
   }
 
   /// Builds a [CupertinoThemeData] for dark mode.
-  static CupertinoThemeData cupertinoDark(TweakcnThemeDefinition theme) {
-    final variant = theme.variantFor(Brightness.dark);
-    final tokens = AppColorTokens.dark(theme: theme);
+  static CupertinoThemeData cupertinoDark(
+    TweakcnThemeDefinition theme, {
+    ColorScheme? dynamicScheme,
+  }) {
+    final resolved = theme.withDynamicColors(darkScheme: dynamicScheme);
+    final variant = resolved.variantFor(Brightness.dark);
+    final tokens = AppColorTokens.dark(theme: resolved);
     return _buildCupertinoThemeData(
       brightness: Brightness.dark,
       variant: variant,
@@ -54,10 +73,13 @@ class AppTheme {
     required TweakcnThemeDefinition theme,
     required AppColorTokens tokens,
     required Brightness brightness,
+    ColorScheme? dynamicScheme,
   }) {
     final variant = theme.variantFor(brightness);
     final isDark = brightness == Brightness.dark;
-    final surfaces = SurfaceThemeExtension.fromVariant(variant);
+    final surfaces = dynamicScheme == null
+        ? SurfaceThemeExtension.fromVariant(variant)
+        : SurfaceThemeExtension.fromColorScheme(dynamicScheme);
     final shadows = ShadowThemeExtension.standard();
     final shapes = ShapeThemeExtension.fromVariant(variant);
     final sidebar = SidebarThemeExtension.fromVariant(variant);
@@ -69,58 +91,91 @@ class AppTheme {
       shadows: shadows,
       shapes: shapes,
     );
-    final colorScheme = tokens.toColorScheme().copyWith(
-      primary: variant.primary,
-      onPrimary: _pickOnColor(variant.primary, tokens),
-      secondary: variant.secondary,
-      onSecondary: _pickOnColor(variant.secondary, tokens),
-      tertiary: variant.accent,
-      onTertiary: _pickOnColor(variant.accent, tokens),
-      surfaceTint: variant.primary,
-      // Roles left to `ColorScheme.fromSeed` come out hue-shifted from the
-      // seed (pink/teal containers on the monochrome Conduit palette), and
-      // Material components such as segmented buttons, chips, menus, and
-      // switches read them directly. Derive every one from the palette.
-      // shadcn draws selected tabs/toggles with `secondary`; `accent` is a
-      // hover color (Catppuccin's is saturated sky blue).
-      secondaryContainer: variant.secondary,
-      onSecondaryContainer: variant.secondaryForeground,
-      tertiaryContainer: variant.muted,
-      onTertiaryContainer: variant.foreground,
-      errorContainer: Color.alphaBlend(
-        tokens.statusError60.withValues(alpha: isDark ? 0.24 : 0.12),
-        surfaces.background,
-      ),
-      // Error details render as body text inside the container.
-      onErrorContainer: tokens.neutralOnSurface,
-      surfaceContainerLowest: isDark ? surfaces.background : surfaces.popover,
-      surfaceContainer: surfaces.container,
-      surfaceContainerHigh: Color.lerp(surfaces.container, surfaces.card, 0.5),
-      surfaceDim: isDark ? surfaces.background : surfaces.card,
-      surfaceBright: isDark ? surfaces.card : surfaces.background,
-      inverseSurface: variant.foreground,
-      onInverseSurface: variant.background,
-      // Accent text on the inverse surface: the palette primary, with its
-      // lightness adjusted where it would blend into that surface.
-      inversePrimary: withMinContrast(variant.primary, variant.foreground, 4.5),
-    );
+    final fixedVariant = theme.light;
+    final fixedTokens = AppColorTokens.light(theme: theme);
+    final colorScheme =
+        dynamicScheme ??
+        tokens.toColorScheme().copyWith(
+          primary: variant.primary,
+          onPrimary: conduitExtension.buttonPrimaryText,
+          secondary: variant.secondary,
+          onSecondary: conduitExtension.selectionForeground,
+          tertiary: variant.accent,
+          onTertiary: readableOn(
+            variant.accent,
+            preferred: variant.accentForeground,
+            foreground: variant.foreground,
+            background: variant.background,
+          ),
+          surfaceTint: variant.primary,
+          // Roles left to `ColorScheme.fromSeed` come out hue-shifted from the
+          // seed (pink/teal containers on the monochrome Conduit palette), and
+          // Material components such as segmented buttons, chips, menus, and
+          // switches read them directly. Derive every one from the palette.
+          // shadcn draws selected tabs/toggles with `secondary`; `accent` is a
+          // hover color (Catppuccin's is saturated sky blue).
+          secondaryContainer: conduitExtension.selectionBackground,
+          onSecondaryContainer: conduitExtension.selectionForeground,
+          tertiaryContainer: variant.muted,
+          onTertiaryContainer: variant.foreground,
+          errorContainer: Color.alphaBlend(
+            tokens.statusError60.withValues(alpha: isDark ? 0.24 : 0.12),
+            surfaces.background,
+          ),
+          // Error details render as body text inside the container.
+          onErrorContainer: tokens.neutralOnSurface,
+          surfaceContainerLowest: isDark
+              ? surfaces.background
+              : surfaces.popover,
+          surfaceContainer: surfaces.container,
+          surfaceContainerHigh: Color.lerp(
+            surfaces.container,
+            surfaces.card,
+            0.5,
+          ),
+          surfaceDim: isDark ? surfaces.background : surfaces.card,
+          surfaceBright: isDark ? surfaces.card : surfaces.background,
+          inverseSurface: variant.foreground,
+          onInverseSurface: variant.background,
+          // Accent text on the inverse surface: the palette primary, with its
+          // lightness adjusted where it would blend into that surface.
+          inversePrimary: withMinContrast(
+            variant.primary,
+            variant.foreground,
+            4.5,
+          ),
+          primaryFixed: fixedTokens.brandTone90,
+          primaryFixedDim: fixedTokens.brandTone90,
+          onPrimaryFixed: fixedTokens.brandOn90,
+          onPrimaryFixedVariant: fixedTokens.brandOn90,
+          secondaryFixed: fixedVariant.secondary,
+          secondaryFixedDim: fixedVariant.secondary,
+          onSecondaryFixed: fixedVariant.secondaryForeground,
+          onSecondaryFixedVariant: fixedVariant.secondaryForeground,
+          tertiaryFixed: fixedVariant.muted,
+          tertiaryFixedDim: fixedVariant.muted,
+          onTertiaryFixed: fixedVariant.foreground,
+          onTertiaryFixedVariant: fixedVariant.foreground,
+        );
 
     final OutlineInputBorder baseInputBorder = OutlineInputBorder(
       borderRadius: shapes.medium,
       borderSide: BorderSide(
-        color: isDark
-            ? Color.lerp(surfaces.border, surfaces.input, 0.6)!
-            : Color.lerp(surfaces.border, surfaces.input, 0.4)!,
-        width: 1,
+        color: conduitExtension.inputBorder,
+        width: BorderWidth.standard,
       ),
     );
 
-    final TextTheme textTheme = _buildTextTheme(tokens: tokens, isDark: isDark);
+    final TextTheme textTheme = _buildTextTheme(
+      tokens: tokens,
+      isDark: isDark,
+      tertiary: conduitExtension.textTertiary,
+    );
     final TextTheme materialChromeTextTheme =
         AppTypography.materialChromeTextTheme(
           primary: tokens.neutralOnSurface,
           secondary: isDark ? tokens.neutralTone80 : tokens.neutralTone60,
-          tertiary: tokens.neutralTone60,
+          tertiary: conduitExtension.textTertiary,
         );
     final cupertinoOverrideTheme = _buildCupertinoThemeData(
       brightness: brightness,
@@ -128,6 +183,64 @@ class AppTheme {
       tokens: tokens,
     );
     final textInputAccentColor = variant.primary;
+
+    final inputDecorationTheme = InputDecorationThemeData(
+      filled: true,
+      fillColor: conduitExtension.inputBackground,
+      focusColor: conduitExtension.inputBorderFocused,
+      hoverColor: Color.alphaBlend(
+        shadows.shadowXs.first.color,
+        conduitExtension.inputBackground,
+      ),
+      hintStyle: AppTypography.inputHintStyle.copyWith(
+        color: conduitExtension.inputPlaceholder,
+      ),
+      border: baseInputBorder,
+      enabledBorder: baseInputBorder,
+      focusedBorder: baseInputBorder.copyWith(
+        borderSide: BorderSide(
+          color: conduitExtension.inputBorderFocused,
+          width: 2,
+        ),
+      ),
+      errorBorder: baseInputBorder.copyWith(
+        borderSide: BorderSide(
+          color: conduitExtension.error,
+          width: BorderWidth.standard,
+        ),
+      ),
+      focusedErrorBorder: baseInputBorder.copyWith(
+        borderSide: BorderSide(color: conduitExtension.error, width: 2),
+      ),
+      disabledBorder: baseInputBorder.copyWith(
+        borderSide: BorderSide(color: surfaces.border),
+      ),
+      labelStyle: TextStyle(color: conduitExtension.inputPlaceholder),
+      floatingLabelStyle: WidgetStateTextStyle.resolveWith(
+        (states) => TextStyle(
+          color: states.contains(WidgetState.error)
+              ? conduitExtension.error
+              : conduitExtension.inputBorderFocused,
+        ),
+      ),
+      errorStyle: AppTypography.small.copyWith(color: conduitExtension.error),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: Spacing.inputPadding,
+        vertical: AppTypography.inputVerticalPadding,
+      ),
+    );
+    final menuStyle = MenuStyle(
+      backgroundColor: WidgetStatePropertyAll(surfaces.popover),
+      surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+    );
+    var actionForeground = variant.primary;
+    for (final surface in [
+      surfaces.background,
+      surfaces.card,
+      surfaces.popover,
+    ]) {
+      actionForeground = withMinContrast(actionForeground, surface, 4.5);
+    }
 
     return ThemeData(
       useMaterial3: true,
@@ -180,28 +293,64 @@ class AppTheme {
         elevation: Elevation.low,
         insetPadding: const EdgeInsets.all(Spacing.md),
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: conduitExtension.inputBackground,
-        focusColor: surfaces.ring,
-        hoverColor: Color.alphaBlend(
-          shadows.shadowXs.first.color,
-          conduitExtension.inputBackground,
+      inputDecorationTheme: inputDecorationTheme,
+      dropdownMenuTheme: DropdownMenuThemeData(
+        inputDecorationTheme: inputDecorationTheme,
+        textStyle: textTheme.bodyLarge?.copyWith(
+          color: conduitExtension.inputText,
         ),
-        hintStyle: AppTypography.inputHintStyle.copyWith(
-          color: conduitExtension.inputPlaceholder,
+        menuStyle: menuStyle,
+      ),
+      menuTheme: MenuThemeData(style: menuStyle),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: conduitExtension.buttonPrimary,
+          foregroundColor: conduitExtension.buttonPrimaryText,
         ),
-        border: baseInputBorder,
-        enabledBorder: baseInputBorder,
-        focusedBorder: baseInputBorder.copyWith(
-          borderSide: BorderSide(color: surfaces.ring, width: 2),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: surfaces.card,
+          foregroundColor: actionForeground,
+          surfaceTintColor: Colors.transparent,
         ),
-        errorBorder: baseInputBorder.copyWith(
-          borderSide: BorderSide(color: tokens.statusError60, width: 1),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: actionForeground),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(foregroundColor: actionForeground),
+      ),
+      switchTheme: SwitchThemeData(
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              !states.contains(WidgetState.disabled) &&
+                  states.contains(WidgetState.selected)
+              ? colorScheme.primary
+              : null,
         ),
-        contentPadding: EdgeInsets.symmetric(
-          horizontal: Spacing.inputPadding,
-          vertical: AppTypography.inputVerticalPadding,
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              !states.contains(WidgetState.disabled) &&
+                  states.contains(WidgetState.selected)
+              ? colorScheme.onPrimary
+              : null,
+        ),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              !states.contains(WidgetState.disabled) &&
+                  states.contains(WidgetState.selected)
+              ? colorScheme.primary
+              : null,
+        ),
+        checkColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              !states.contains(WidgetState.disabled) &&
+                  states.contains(WidgetState.selected)
+              ? colorScheme.onPrimary
+              : null,
         ),
       ),
       chipTheme: ChipThemeData(
@@ -215,16 +364,20 @@ class AppTheme {
           shadows.shadowXs.first.color,
           surfaces.card,
         ),
-        selectedColor: conduitExtension.statusPalette.success.background,
-        secondarySelectedColor: conduitExtension.statusPalette.info.background,
+        selectedColor: conduitExtension.selectionBackground,
+        secondarySelectedColor: conduitExtension.selectionBackground,
         shadowColor: shadows.shadowSm.first.color,
         selectedShadowColor: shadows.shadowSm.first.color,
         brightness: brightness,
-        labelStyle: textTheme.bodySmall?.copyWith(
-          color: tokens.neutralOnSurface,
+        labelStyle: WidgetStateTextStyle.resolveWith(
+          (states) => textTheme.bodySmall!.copyWith(
+            color: states.contains(WidgetState.selected)
+                ? conduitExtension.selectionForeground
+                : conduitExtension.textPrimary,
+          ),
         ),
         secondaryLabelStyle: textTheme.bodySmall?.copyWith(
-          color: conduitExtension.statusPalette.info.onBase,
+          color: conduitExtension.selectionForeground,
         ),
         side: BorderSide(color: surfaces.border),
       ),
@@ -254,10 +407,8 @@ class AppTheme {
       listTileTheme: ListTileThemeData(
         shape: RoundedRectangleBorder(borderRadius: shapes.medium),
         tileColor: Color.lerp(surfaces.card, surfaces.muted, 0.25),
-        selectedTileColor: Color.alphaBlend(
-          conduitExtension.statusPalette.info.background,
-          surfaces.card,
-        ),
+        selectedTileColor: conduitExtension.selectionBackground,
+        selectedColor: conduitExtension.selectionForeground,
         iconColor: tokens.neutralTone80,
         textColor: tokens.neutralOnSurface,
       ),
@@ -303,21 +454,13 @@ class AppTheme {
     );
   }
 
-  static Color _pickOnColor(Color background, AppColorTokens tokens) {
-    final contrastOnLight = _contrastRatio(background, tokens.neutralTone00);
-    final contrastOnDark = _contrastRatio(background, tokens.neutralOnSurface);
-    return contrastOnLight >= contrastOnDark
-        ? tokens.neutralTone00
-        : tokens.neutralOnSurface;
-  }
-
   static TextTheme _buildTextTheme({
     required AppColorTokens tokens,
     required bool isDark,
+    required Color tertiary,
   }) {
     final primary = tokens.neutralOnSurface;
     final secondary = isDark ? tokens.neutralTone80 : tokens.neutralTone60;
-    final tertiary = tokens.neutralTone60;
     return AppTypography.textTheme(
       primary: primary,
       secondary: secondary,
@@ -365,14 +508,6 @@ class AppTheme {
         dateTimePickerTextStyle: chromeTextTheme.titleLarge,
       ),
     );
-  }
-
-  static double _contrastRatio(Color a, Color b) {
-    final luminanceA = a.computeLuminance();
-    final luminanceB = b.computeLuminance();
-    final lighter = math.max(luminanceA, luminanceB);
-    final darker = math.min(luminanceA, luminanceB);
-    return (lighter + 0.05) / (darker + 0.05);
   }
 
   static const PageTransitionsTheme _pageTransitionsTheme =

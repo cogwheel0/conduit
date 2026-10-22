@@ -18,6 +18,8 @@ import android.util.AtomicFile
 import android.util.Log
 import android.view.View
 import android.view.WindowInsets
+import android.view.WindowInsetsAnimation
+import android.widget.FrameLayout
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import androidx.core.view.WindowCompat
@@ -519,8 +521,12 @@ internal fun loadPendingShareState(
 class MainActivity : FlutterFragmentActivity() {
     private lateinit var backgroundStreamingHandler: BackgroundStreamingHandler
     private lateinit var nativeSttBridge: NativeSttBridge
+    private lateinit var phononTtsBridge: app.cogwheel.conduit.phonon.PhononTtsBridge
     private lateinit var nativeTtsBridge: NativeTtsBridge
+    private lateinit var realtimeAudioBridge: RealtimeAudioBridge
     private lateinit var imageGalleryBridge: ImageGalleryBridge
+    private lateinit var fileDeliveryBridge: FileDeliveryBridge
+    private lateinit var telecomCallBridge: TelecomCallBridge
 
     override fun onCreate(savedInstanceState: Bundle?) {
         reconcileInterruptedShareImportIfNeeded()
@@ -567,6 +573,25 @@ class MainActivity : FlutterFragmentActivity() {
     
     private val ASSISTANT_CHANNEL = "app.cogwheel.conduit/assistant"
     private val SHARE_TEXT_CHANNEL = "conduit/share_receiver_text"
+    private var continuityView: View? = null
+    private fun startContinuityProbe() {
+        if (Build.VERSION.SDK_INT < 30 || continuityView != null) return
+        val root = window.decorView as? FrameLayout ?: return
+        val observer = View(this)
+        observer.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        observer.setWindowInsetsAnimationCallback(object : WindowInsetsAnimation.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+            override fun onProgress(insets: WindowInsets, animations: MutableList<WindowInsetsAnimation>): WindowInsets {
+                val values = JSONObject().put("monoUs", System.nanoTime() / 1000)
+                    .put("imePx", insets.getInsets(WindowInsets.Type.ime()).bottom)
+                    .put("navPx", insets.getInsets(WindowInsets.Type.navigationBars()).bottom)
+                Log.i("ConduitContinuity", values.toString())
+                return insets
+            }
+        })
+        root.addView(observer, FrameLayout.LayoutParams(1, 1))
+        continuityView = observer
+    }
+
     private val KEYBOARD_INSETS_CHANNEL = "app.cogwheel.conduit/keyboard_insets"
     private val HOME_WIDGET_LAUNCH_ACTION = "es.antonborri.home_widget.action.LAUNCH"
     private val SHARE_TEXT_PREFS_NAME = "conduit_share_receiver_text"
@@ -624,8 +649,16 @@ class MainActivity : FlutterFragmentActivity() {
         nativeSttBridge.setup(flutterEngine)
         nativeTtsBridge = NativeTtsBridge(this)
         nativeTtsBridge.setup(flutterEngine)
+        phononTtsBridge = app.cogwheel.conduit.phonon.PhononTtsBridge(applicationContext)
+        phononTtsBridge.setup(flutterEngine)
+        realtimeAudioBridge = RealtimeAudioBridge()
+        realtimeAudioBridge.setup(flutterEngine)
         imageGalleryBridge = ImageGalleryBridge(this)
         imageGalleryBridge.setup(flutterEngine)
+        fileDeliveryBridge = FileDeliveryBridge(this)
+        fileDeliveryBridge.setup(flutterEngine)
+        telecomCallBridge = TelecomCallBridge(this)
+        telecomCallBridge.setup(flutterEngine)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
         shareChannel = MethodChannel(
@@ -672,6 +705,7 @@ class MainActivity : FlutterFragmentActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "resyncImeInsets" -> result.success(resyncStaleImeInsets())
+                "startContinuityProbe" -> { startContinuityProbe(); result.success(null) }
                 else -> result.notImplemented()
             }
         }
@@ -1760,12 +1794,22 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
     
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (::fileDeliveryBridge.isInitialized && fileDeliveryBridge.onActivityResult(requestCode, resultCode, data)) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun onDestroy() {
+        if (::fileDeliveryBridge.isInitialized) fileDeliveryBridge.dispose()
         if (::nativeSttBridge.isInitialized) {
             nativeSttBridge.dispose()
         }
+        if (::phononTtsBridge.isInitialized) phononTtsBridge.dispose()
         if (::nativeTtsBridge.isInitialized) {
             nativeTtsBridge.dispose()
+        }
+        if (::realtimeAudioBridge.isInitialized) {
+            realtimeAudioBridge.dispose()
         }
         if (::imageGalleryBridge.isInitialized) {
             imageGalleryBridge.dispose()

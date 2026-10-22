@@ -1,6 +1,7 @@
 import 'package:html_unescape/html_unescape.dart';
 
 import 'semantic_details.dart';
+import 'markdown_code_policy.dart';
 
 /// Content preprocessing, sanitization, and transformation for Markdown.
 ///
@@ -18,16 +19,6 @@ class ConduitMarkdownPreprocessor {
   // Pre-compiled Patterns - Display/Sanitization
   // ============================================================
 
-  static final _bulletFenceRegex = RegExp(
-    r'^(\s*(?:[*+-]|\d+\.)\s+)```([^\s`]*)\s*$',
-    multiLine: true,
-  );
-  static final _dedentOpenRegex = RegExp(
-    r'^[ \t]+```([^\n`]*)\s*$',
-    multiLine: true,
-  );
-  static final _dedentCloseRegex = RegExp(r'^[ \t]+```\s*$', multiLine: true);
-  static final _inlineClosingRegex = RegExp(r'([^\r\n`])```(?=\s*(?:\r?\n|$))');
   static final _labelThenDashRegex = RegExp(
     r'^(\*\*[^\n*]+\*\*.*)\n(\s*-{3,}\s*$)',
     multiLine: true,
@@ -36,7 +27,6 @@ class ConduitMarkdownPreprocessor {
     r'^(\s{0,3}#{1,6}\s+\d+)\.(\s*)(\S)',
     multiLine: true,
   );
-  static final _fenceAtBolRegex = RegExp(r'^\s*```', multiLine: true);
   static final _linkWithTrailingSpaces = RegExp(r'\[[^\]]+\]\([^\)]+\)\s{2,}$');
   static final _linkReferenceDefinition = RegExp(
     r'^[ ]{0,3}\[[^\]\r\n]+\]:[ \t]*(?:<[^>\r\n]*>|[^\s\r\n]+)(?:[ \t]+(?:"[^"\r\n]*"|'
@@ -175,7 +165,7 @@ class ConduitMarkdownPreprocessor {
     output = _stripLinkReferenceDefinitions(output);
 
     // Fix fence issues
-    output = _normalizeFences(output);
+    output = normalizeContextAwareFences(output);
 
     // Fix Setext heading false positives
     output = output.replaceAllMapped(
@@ -348,40 +338,6 @@ class ConduitMarkdownPreprocessor {
   // ============================================================
   // Private Helpers
   // ============================================================
-
-  static String _normalizeFences(String input) {
-    var output = input;
-
-    // Move fences after list markers to new line
-    output = output.replaceAllMapped(
-      _bulletFenceRegex,
-      (match) => '${match[1]}\n```${match[2]}',
-    );
-
-    // Dedent opening fences
-    output = output.replaceAllMapped(
-      _dedentOpenRegex,
-      (match) => '```${match[1]}',
-    );
-
-    // Dedent closing fences
-    output = output.replaceAllMapped(_dedentCloseRegex, (_) => '```');
-
-    // Ensure closing fences stand alone
-    output = output.replaceAllMapped(
-      _inlineClosingRegex,
-      (match) => '${match[1]}\n```',
-    );
-
-    // Auto-close unmatched fence
-    final fenceCount = _fenceAtBolRegex.allMatches(output).length;
-    if (fenceCount.isOdd) {
-      if (!output.endsWith('\n')) output += '\n';
-      output += '```';
-    }
-
-    return output;
-  }
 
   static String _separateConsecutiveLinks(String input) {
     final lines = input.split('\n');

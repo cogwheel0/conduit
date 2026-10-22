@@ -15,6 +15,7 @@ import 'package:conduit_core/utils/sensitive_value_utils.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_approval_text.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
@@ -37,7 +38,8 @@ const String kHermesResponsesMode = 'responses';
 const int kMaxHermesProviderErrorCharacters = 512;
 const int kMaxHermesToolNameCharacters = 80;
 const int kMaxHermesStatusDetailCharacters = 120;
-const int kMaxHermesApprovalSummaryCharacters = 512;
+const int kMaxHermesApprovalSummaryCharacters =
+    kMaxHermesApprovalTextCharacters + kHermesApprovalTextTruncated.length;
 const int _maxHermesRecoveryStatusCharacters = 64;
 
 /// Maximum number of status-history rows one Hermes turn may introduce.
@@ -433,6 +435,7 @@ Future<void> dispatchHermesRun({
   required void Function(ChatMessage Function(ChatMessage) updater)
   updateMessage,
   void Function(ChatMessageError error)? reportStopError,
+  void Function()? onCompletedSuccessfully,
   required void Function() finishStreaming,
   required void Function() completeStreamingUi,
 }) async {
@@ -551,6 +554,7 @@ Future<void> dispatchHermesRun({
   });
 
   var sawTerminal = false;
+  var completedSuccessfully = false;
   var gotContent = false;
   final streamedText = StringBuffer();
   String? finalOutput;
@@ -573,6 +577,7 @@ Future<void> dispatchHermesRun({
           if (event is HermesFinalOutput) finalOutput = event.text;
           if (event is HermesRunDone || event is HermesRunError) {
             sawTerminal = true;
+            completedSuccessfully = event is HermesRunDone;
             if (!completer.isCompleted) completer.complete();
           }
           _handleEvent(
@@ -672,7 +677,8 @@ Future<void> dispatchHermesRun({
             replaceContent: replaceContent,
           );
         }
-        if (recovered.status != 'completed') {
+        completedSuccessfully = recovered.status == 'completed';
+        if (!completedSuccessfully) {
           final errorMessage = switch (recovered.status) {
             'cancelled' || 'canceled' => 'Hermes run was cancelled.',
             'stopped' => 'Hermes run was stopped.',
@@ -698,6 +704,9 @@ Future<void> dispatchHermesRun({
           ),
         );
       }
+    }
+    if (completedSuccessfully && !runCancelToken.isCancelled) {
+      onCompletedSuccessfully?.call();
     }
   } finally {
     _signalHermesTransportCancellation(eventCancelToken);
@@ -1375,6 +1384,22 @@ void _handleEvent(
         return m.copyWith(metadata: meta);
       });
 
+    case HermesApprovalDismissed(:final approvalId):
+      updateMessage((message) {
+        final approval = message.metadata?[kHermesApprovalMeta];
+        if (approval is! Map ||
+            approval['approvalId'] != approvalId ||
+            !const {'pending', 'resolving'}.contains(approval['state'])) {
+          return message;
+        }
+        return message.copyWith(
+          metadata: {
+            ...?message.metadata,
+            kHermesApprovalMeta: {...approval, 'state': 'expired'},
+          },
+        );
+      });
+
     case HermesDecisionRequested(
       :final kind,
       :final requestId,
@@ -1402,7 +1427,7 @@ void _handleEvent(
       }
       final safePrompt = prompt == null
           ? null
-          : _sanitizeHermesApprovalSummary(
+          : _sanitizeHermesDecisionPrompt(
               prompt,
               sensitiveValues: sensitiveValues,
             );
@@ -1442,6 +1467,22 @@ void _handleEvent(
     case HermesFinalOutput():
       // Captured in the stream listener (appended only if no deltas streamed).
       break;
+
+    case HermesConfigurationRequested(:final command):
+      if (storedSessionId == null ||
+          !const {'model', 'reasoning'}.contains(command)) {
+        break;
+      }
+      updateMessage(
+        (message) => message.copyWith(
+          metadata: {
+            ...?message.metadata,
+            'hermesConfigurationCommand': command,
+            'hermesConfigurationSessionId': storedSessionId,
+            'hermesConfigurationAutoOpen': true,
+          },
+        ),
+      );
 
     case HermesComposerPrefill():
       break;
@@ -1507,13 +1548,19 @@ String? _sanitizeHermesApprovalSummary(
   String raw, {
   required Iterable<String> sensitiveValues,
 }) {
+  return sanitizeHermesApprovalText(raw, sensitiveValues: sensitiveValues);
+}
+
+String? _sanitizeHermesDecisionPrompt(
+  String raw, {
+  required Iterable<String> sensitiveValues,
+}) {
   final safe = sanitizeHermesProviderErrorMessage(
     raw,
     sensitiveValues: sensitiveValues,
-    maxCharacters: kMaxHermesApprovalSummaryCharacters,
+    maxCharacters: 512,
   );
-  if (safe == 'Hermes run failed.' || safe == '[REDACTED]') return null;
-  return safe;
+  return safe == 'Hermes run failed.' || safe == '[REDACTED]' ? null : safe;
 }
 
 List<String> _boundedHermesDecisionChoices(Object? value) {

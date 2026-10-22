@@ -22,7 +22,17 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 
 import 'hermes_approval_card.dart';
+import 'hermes_approval_sheet.dart';
 import 'hermes_decision_card.dart';
+import '../providers/hermes_decision_drafts.dart';
+import '../providers/hermes_mobile_navigation.dart';
+
+enum HermesPromptPresentation {
+  attached,
+  inlineMessage,
+  approvalSheet,
+  callSurface,
+}
 
 typedef _HermesApprovalBinding = ({
   HermesRunKey runKey,
@@ -75,12 +85,24 @@ ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
   return null;
 }
 
+ChatMessage? findPendingHermesApprovalPrompt(List<ChatMessage> messages) =>
+    findPendingHermesComposerPrompt(
+      messages
+          .where((message) => message.metadata?[kHermesApprovalMeta] is Map)
+          .toList(growable: false),
+    );
+
 /// Hermes-owned approval and interactive-decision presentation attached to
 /// the active chat composer.
 class HermesComposerPromptOverlay extends ConsumerStatefulWidget {
-  const HermesComposerPromptOverlay({super.key, required this.message});
+  const HermesComposerPromptOverlay({
+    super.key,
+    required this.message,
+    this.presentation = HermesPromptPresentation.attached,
+  });
 
   final ChatMessage message;
+  final HermesPromptPresentation presentation;
 
   @override
   ConsumerState<HermesComposerPromptOverlay> createState() =>
@@ -90,20 +112,81 @@ class HermesComposerPromptOverlay extends ConsumerStatefulWidget {
 class _HermesComposerPromptOverlayState
     extends ConsumerState<HermesComposerPromptOverlay> {
   Timer? _expiryTimer;
+  bool _approvalFailed = false;
 
   @override
   Widget build(BuildContext context) {
     _expiryTimer?.cancel();
     _expiryTimer = null;
-    final messages = ref.watch(chatMessagesProvider);
+    final messages =
+        widget.presentation == HermesPromptPresentation.inlineMessage
+        ? const <ChatMessage>[]
+        : ref.watch(chatMessagesProvider);
+    ref.watch(hermesDecisionDraftsProvider);
+    final owner = ref.watch(activeConversationProvider);
+    final mobile = ref.watch(hermesMobileLayoutProvider);
+    final navigation = ref.watch(hermesMobileNavigationProvider);
+    if (mobile &&
+        widget.presentation != HermesPromptPresentation.inlineMessage &&
+        (navigation.area != HermesWorkArea.chat || !navigation.conversation)) {
+      return const SizedBox.shrink();
+    }
+    if (widget.presentation != HermesPromptPresentation.attached) {
+      final message = messages
+          .where((message) => message.id == widget.message.id)
+          .firstOrNull;
+      final current = message ?? (messages.isEmpty ? widget.message : null);
+      final card =
+          current == null || current.metadata?['archivedVariant'] == true
+          ? null
+          : widget.presentation == HermesPromptPresentation.callSurface
+          ? _buildPromptCard(current)
+          : widget.presentation == HermesPromptPresentation.inlineMessage
+          ? _buildDecisionCard(current)
+          : _buildApprovalCard(current);
+      if (widget.presentation == HermesPromptPresentation.approvalSheet &&
+          card == null) {
+        final route = ModalRoute.of(context);
+        final navigator = Navigator.of(context);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && route is PopupRoute && route.isActive) {
+            navigator.removeRoute(route);
+          }
+        });
+      }
+      return card ?? const SizedBox.shrink();
+    }
     for (final message in messages.reversed) {
+      if (widget.message.metadata?[kHermesApprovalMeta] is Map &&
+          message.metadata?[kHermesApprovalMeta] is! Map) {
+        continue;
+      }
       final card = _buildPromptCard(message);
-      if (card != null) return card;
+      if (card != null) return _present(message, card, owner?.id);
     }
     if (messages.any((message) => message.id == widget.message.id)) {
       return const SizedBox.shrink();
     }
-    return _buildPromptCard(widget.message) ?? const SizedBox.shrink();
+    final card = _buildPromptCard(widget.message);
+    return card == null
+        ? const SizedBox.shrink()
+        : _present(widget.message, card, owner?.id);
+  }
+
+  Widget _present(ChatMessage message, Widget card, String? ownerId) {
+    if (card is! HermesApprovalCard) return card;
+    final approval = message.metadata?[kHermesApprovalMeta] as Map;
+    final container = ProviderScope.containerOf(context, listen: false);
+    return HermesApprovalSheetLauncher(
+      key: ValueKey('$ownerId:${approval['runId']}:${approval['approvalId']}'),
+      builder: (_) => UncontrolledProviderScope(
+        container: container,
+        child: HermesComposerPromptOverlay(
+          message: message,
+          presentation: HermesPromptPresentation.approvalSheet,
+        ),
+      ),
+    );
   }
 
   Widget? _buildPromptCard(ChatMessage message) =>
@@ -135,7 +218,15 @@ class _HermesComposerPromptOverlayState
       _ => HermesApprovalState.pending,
     };
     final storedSessionId = approval['storedSessionId']?.toString();
-    final choices = _approvalChoices(approval['choices']);
+    final approvalService = ref.read(hermesApiServiceProvider);
+    final choices = _approvalChoices(approval['choices'])
+        .where(
+          (choice) =>
+              approvalService is HermesDesktopApiService ||
+              choice == 'once' ||
+              choice == 'deny',
+        )
+        .toList(growable: false);
     if (message.metadata?['restoredDesktopDecision'] == true) {
       final service = ref.read(hermesApiServiceProvider);
       if (message.metadata?['transport'] != kHermesTransport ||
@@ -151,11 +242,17 @@ class _HermesComposerPromptOverlayState
         return null;
       }
       return HermesApprovalCard(
+        compactActions:
+            widget.presentation == HermesPromptPresentation.callSurface,
+        failed: _approvalFailed,
         state: state,
         summary: approval['summary'] is String
             ? approval['summary'] as String
             : null,
         choices: choices,
+        onDismiss: widget.presentation == HermesPromptPresentation.approvalSheet
+            ? () => Navigator.of(context).pop()
+            : null,
         onChoice: choices.isEmpty
             ? null
             : (choice) => _resolveRestoredDesktopApproval(
@@ -218,11 +315,17 @@ class _HermesComposerPromptOverlayState
       return null;
     }
     return HermesApprovalCard(
+      compactActions:
+          widget.presentation == HermesPromptPresentation.callSurface,
+      failed: _approvalFailed,
       state: state,
       summary: approval['summary'] is String
           ? approval['summary'] as String
           : null,
       choices: choices,
+      onDismiss: widget.presentation == HermesPromptPresentation.approvalSheet
+          ? () => Navigator.of(context).pop()
+          : null,
       onChoice: choices.isEmpty
           ? null
           : (choice) =>
@@ -236,6 +339,12 @@ class _HermesComposerPromptOverlayState
       return null;
     }
     final decision = message.metadata?[kHermesDecisionMeta];
+    final draftOwner = ref.read(activeConversationProvider)?.id;
+    if (draftOwner != null) {
+      ref
+          .read(hermesDecisionDraftsProvider)
+          .reconcile(draftOwner, message.id, decision is Map ? decision : null);
+    }
     if (decision is! Map || decision['state'] != 'pending') {
       return null;
     }
@@ -262,11 +371,36 @@ class _HermesComposerPromptOverlayState
     if (ownerConversationId == null || storedSessionId == null) {
       return null;
     }
+    final service = ref.read(hermesApiServiceProvider);
+    final ownerStoredId = activeConversation?.metadata['hermesSessionId']
+        ?.toString();
+    if (ownerStoredId == null ||
+        (ownerStoredId != storedSessionId &&
+            (service is! HermesDesktopApiService ||
+                !service.sessionIdsReferToSameBinding(
+                  ownerStoredId,
+                  storedSessionId,
+                )))) {
+      return null;
+    }
     _expiryTimer = Timer(expiresAt.difference(clock.now().toUtc()), () {
       if (mounted) setState(() {});
     });
+    final drafts = ref.read(hermesDecisionDraftsProvider);
+    final draftKey = (
+      conversation: ownerConversationId,
+      session: storedSessionId,
+      message: message.id,
+      runtime: runtimeId,
+      request: requestId,
+    );
+    final draft = kind == HermesDecisionKind.clarification
+        ? drafts.obtain(draftKey, expiresAt)
+        : null;
     return HermesDecisionCard(
-      key: ValueKey('$runtimeId\u0000$requestId\u0000${kind.name}'),
+      compact: widget.presentation == HermesPromptPresentation.callSurface,
+      key: ValueKey((drafts, draftKey, kind)),
+      draft: draft,
       kind: kind,
       prompt: decision['prompt']?.toString(),
       mcpServer: decision['mcpServer']?.toString(),
@@ -324,6 +458,7 @@ class _HermesComposerPromptOverlayState
               return message.copyWith(metadata: metadata);
             },
           );
+          drafts.remove(draftKey);
           return true;
         } catch (_) {
           return false;
@@ -394,6 +529,7 @@ class _HermesComposerPromptOverlayState
     }
 
     update('pending', 'resolving');
+    if (mounted) setState(() => _approvalFailed = false);
     try {
       await service.resolveApprovalChoiceForSession(
         storedSessionId,
@@ -401,6 +537,7 @@ class _HermesComposerPromptOverlayState
         choice: choice,
       );
     } catch (_) {
+      if (mounted) setState(() => _approvalFailed = true);
       if (_ownsDesktopDecision(
         service: service,
         ownerConversationId: ownerConversationId,
@@ -523,6 +660,7 @@ class _HermesComposerPromptOverlayState
       return;
     }
     if (!setApprovalState('resolving', expectedState: 'pending')) return;
+    if (mounted) setState(() => _approvalFailed = false);
     try {
       if (service is HermesDesktopApiService &&
           binding.storedSessionId != null) {
@@ -545,6 +683,7 @@ class _HermesComposerPromptOverlayState
         );
       }
     } catch (_) {
+      if (mounted) setState(() => _approvalFailed = true);
       DebugLogger.error(
         'approval-resolve-failed',
         scope: 'chat/hermes_approval',

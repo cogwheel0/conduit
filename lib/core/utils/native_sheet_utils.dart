@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../l10n/app_localizations.dart';
 import '../../shared/utils/locale_display_formatters.dart';
 
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -756,16 +757,39 @@ class NativeAudioSheetParts {
   const NativeAudioSheetParts({
     required this.mainSections,
     required this.voicePickerDetail,
+    required this.voiceProviderDetail,
   });
 
   final List<NativeSheetSectionConfig> mainSections;
   final NativeSheetDetailConfig voicePickerDetail;
+  final NativeSheetDetailConfig voiceProviderDetail;
 }
 
+/// The Voice provider choice that clears it.
+const nativeNoVoiceProviderId = 'none';
+
+/// The text fields of the Voice provider page, by item id.
+const nativeVoiceProviderFieldIds = {
+  'voice-provider-transcription-model':
+      DirectVoiceProviderField.transcriptionModel,
+  'voice-provider-speech-model': DirectVoiceProviderField.speechModel,
+  'voice-provider-speech-voice': DirectVoiceProviderField.speechVoice,
+  'voice-provider-realtime-model': DirectVoiceProviderField.realtimeModel,
+  'voice-provider-realtime-voice': DirectVoiceProviderField.realtimeVoice,
+  'voice-provider-realtime-instructions':
+      DirectVoiceProviderField.realtimeInstructions,
+};
+
+/// [voiceProviderCandidates] are the connections that can be the Voice
+/// provider. [serverOffersVoiceChoice] hides the server voice picker for
+/// backends that speak with their own voice.
 NativeAudioSheetParts buildNativeAudioSheetParts(
   AppLocalizations l10n,
   AppSettings appSettings, {
   List<Map<String, dynamic>> ttsVoices = const <Map<String, dynamic>>[],
+  List<DirectConnectionProfile> voiceProviderCandidates =
+      const <DirectConnectionProfile>[],
+  bool serverOffersVoiceChoice = true,
 }) {
   final sttSegment = NativeSheetItemConfig(
     id: 'stt-engine',
@@ -890,7 +914,8 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
 
   final ttsItems = <NativeSheetItemConfig>[
     ttsSegment,
-    voicePickerNav,
+    if (appSettings.ttsEngine == TtsEngine.device || serverOffersVoiceChoice)
+      voicePickerNav,
     if (appSettings.ttsEngine == TtsEngine.device) speechRateSlider,
     previewNav,
   ];
@@ -902,12 +927,156 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     items: const [],
   );
 
+  final voiceProvider = appSettings.directVoiceProvider;
+  final chosenProvider = voiceProviderCandidates
+      .where((profile) => profile.id == voiceProvider?.profileId)
+      .firstOrNull;
+  NativeSheetItemConfig providerField(
+    String id,
+    String title,
+    String? value,
+    String placeholder,
+  ) => NativeSheetItemConfig(
+    id: id,
+    title: title,
+    sfSymbol: 'textformat',
+    kind: NativeSheetItemKind.textField,
+    value: value ?? '',
+    placeholder: placeholder,
+  );
+
+  final voiceProviderDetail = NativeSheetDetailConfig(
+    id: NativeSheetRoutes.voiceProvider,
+    title: l10n.voiceProviderTitle,
+    sections: [
+      NativeSheetSectionConfig(
+        footer: voiceProviderCandidates.isEmpty
+            ? l10n.voiceProviderNoConnections
+            : l10n.voiceProviderDescription,
+        items: [
+          NativeSheetItemConfig(
+            id: 'voice-provider-connection',
+            title: l10n.voiceProviderConnection,
+            sfSymbol: 'link',
+            kind: NativeSheetItemKind.dropdown,
+            value: chosenProvider?.id ?? nativeNoVoiceProviderId,
+            options: [
+              NativeSheetOptionConfig(
+                id: nativeNoVoiceProviderId,
+                label: l10n.voiceProviderNone,
+              ),
+              for (final profile in voiceProviderCandidates)
+                NativeSheetOptionConfig(
+                  id: profile.id,
+                  label: profile.name,
+                  subtitle: profile.baseUrl,
+                ),
+            ],
+          ),
+        ],
+      ),
+      if (chosenProvider != null) ...[
+        NativeSheetSectionConfig(
+          title: l10n.sttSettings,
+          items: [
+            providerField(
+              'voice-provider-transcription-model',
+              l10n.voiceProviderTranscriptionModel,
+              voiceProvider?.transcriptionModel,
+              'whisper-1',
+            ),
+          ],
+        ),
+        NativeSheetSectionConfig(
+          title: l10n.ttsSettings,
+          footer: l10n.voiceProviderModelsHint,
+          items: [
+            providerField(
+              'voice-provider-speech-model',
+              l10n.voiceProviderSpeechModel,
+              voiceProvider?.speechModel,
+              'tts-1',
+            ),
+            providerField(
+              'voice-provider-speech-voice',
+              l10n.voice,
+              voiceProvider?.speechVoice,
+              'alloy',
+            ),
+          ],
+        ),
+        NativeSheetSectionConfig(
+          title: l10n.voiceCallModeTitle,
+          footer: l10n.voiceProviderRealtimeFooter,
+          items: [
+            providerField(
+              'voice-provider-realtime-model',
+              l10n.voiceProviderRealtimeModel,
+              voiceProvider?.realtimeModel,
+              'gpt-realtime-2.1-mini',
+            ),
+            providerField(
+              'voice-provider-realtime-voice',
+              l10n.voice,
+              voiceProvider?.realtimeVoice,
+              'marin',
+            ),
+            NativeSheetItemConfig(
+              id: 'voice-provider-realtime-instructions',
+              title: l10n.voiceProviderRealtimeInstructions,
+              sfSymbol: 'text.alignleft',
+              kind: NativeSheetItemKind.multilineTextField,
+              value: voiceProvider?.realtimeInstructions ?? '',
+              placeholder: l10n.voiceProviderRealtimeInstructionsHint,
+            ),
+          ],
+        ),
+      ],
+    ],
+  );
+
   return NativeAudioSheetParts(
     mainSections: [
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'voice-call-mode',
+            title: l10n.voiceCallModeTitle,
+            subtitle: appSettings.voiceCallMode == VoiceCallMode.auto
+                ? l10n.voiceCallModeRealtimeDescription
+                : l10n.voiceCallModeStandardDescription,
+            sfSymbol: 'phone.badge.waveform',
+            kind: NativeSheetItemKind.segment,
+            value: appSettings.voiceCallMode.name,
+            options: [
+              NativeSheetOptionConfig(
+                id: VoiceCallMode.auto.name,
+                label: l10n.voiceCallModeRealtime,
+              ),
+              NativeSheetOptionConfig(
+                id: VoiceCallMode.standard.name,
+                label: l10n.voiceCallModeStandard,
+              ),
+            ],
+          ),
+        ],
+      ),
       NativeSheetSectionConfig(items: sttItems),
       NativeSheetSectionConfig(items: ttsItems),
+      NativeSheetSectionConfig(
+        footer: l10n.voiceProviderDescription,
+        items: [
+          NativeSheetItemConfig(
+            id: NativeSheetRoutes.voiceProvider,
+            title: l10n.voiceProviderTitle,
+            subtitle: chosenProvider?.name ?? l10n.voiceProviderNone,
+            sfSymbol: 'waveform',
+          ),
+        ],
+      ),
     ],
     voicePickerDetail: voicePickerDetail,
+    voiceProviderDetail: voiceProviderDetail,
   );
 }
 

@@ -1,14 +1,23 @@
+import 'dart:async';
+
+import 'package:conduit/core/router/app_router.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/profile/views/profile_page.dart';
+import 'package:conduit/features/notifications/views/notification_settings_page.dart';
+import 'package:conduit_core/navigation/routes.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 const _homeAgent = HermesConnectionProfile(
   id: 'hermes-home',
@@ -18,6 +27,80 @@ const _homeAgent = HermesConnectionProfile(
 );
 
 void main() {
+  testWidgets('Hermes-only settings open the notification opt-in controls', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        reviewerModeProvider.overrideWithValue(false),
+        activeServerProvider.overrideWith((_) async => null),
+        preferredBackendProvider.overrideWith(_NotificationTestBackend.new),
+        hermesConfigProvider.overrideWith(_NotificationTestHermes.new),
+        authStateManagerProvider.overrideWith(_NotificationTestAuth.new),
+        currentUserProvider2.overrideWithValue(null),
+        currentUserProvider.overrideWith((ref) async => null),
+        isAuthLoadingProvider2.overrideWithValue(false),
+        apiServiceProvider.overrideWithValue(null),
+        hermesOnlyModeProvider.overrideWithValue(true),
+        appSettingsProvider.overrideWith(_NotificationTestSettings.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(activeServerProvider.future);
+    await container.read(authStateManagerProvider.future);
+    final notifier = container.read(routerNotifierProvider);
+    final router = GoRouter(
+      initialLocation: Routes.chat,
+      refreshListenable: notifier,
+      redirect: notifier.redirect,
+      routes: [
+        ShellRoute(
+          builder: (_, _, child) => child,
+          routes: [
+            GoRoute(path: Routes.chat, builder: (_, _) => const SizedBox()),
+          ],
+        ),
+        GoRoute(path: Routes.profile, builder: (_, _) => const ProfilePage()),
+        GoRoute(
+          path: Routes.notificationSettings,
+          name: RouteNames.notificationSettings,
+          builder: (_, _) => const NotificationSettingsPage(),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    unawaited(router.push<void>(Routes.profile));
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const Key('settings-notifications'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(NotificationSettingsPage), findsOneWidget);
+    expect(find.text('Enable notifications'), findsOneWidget);
+    expect(find.text('Webhook destinations'), findsNothing);
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(ProfilePage), findsOneWidget);
+    // Reopening must not retain a conflicting page key.
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byType(NotificationSettingsPage), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('Hermes-only profile exposes only app-local settings', (
     tester,
   ) async {
@@ -48,7 +131,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Personalization'), findsNothing);
-    expect(find.text('Notifications'), findsNothing);
+    expect(find.text('Notifications'), findsOneWidget);
     expect(find.text('No email'), findsNothing);
 
     expect(find.text('Audio'), findsOneWidget);
@@ -170,7 +253,7 @@ void main() {
 
     await tester.scrollUntilVisible(find.text('Personalization'), 300);
     expect(find.text('Personalization'), findsOneWidget);
-    expect(find.text('Notifications'), findsNothing);
+    expect(find.text('Notifications'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     ErrorWidget.builder = originalErrorWidgetBuilder;
@@ -181,4 +264,29 @@ void main() {
 class _DirectPreferredBackendController extends PreferredBackendController {
   @override
   PreferredBackend build() => PreferredBackend.direct;
+}
+
+class _NotificationTestSettings extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings();
+}
+
+class _NotificationTestBackend extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.hermes;
+}
+
+class _NotificationTestHermes extends HermesConfigController {
+  @override
+  HermesConfig build() => const HermesConfig(
+    enabled: true,
+    baseUrl: 'http://10.0.0.5:8642',
+    apiKey: 'test-key',
+  );
+}
+
+class _NotificationTestAuth extends AuthStateManager {
+  @override
+  Future<AuthState> build() async =>
+      const AuthState(status: AuthStatus.unauthenticated);
 }

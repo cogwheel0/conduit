@@ -18,11 +18,13 @@ class ComposerTextInsertion {
     required this.id,
     required this.targetId,
     required this.text,
+    this.separateParagraph = false,
   });
 
   final int id;
   final String targetId;
   final String text;
+  final bool separateParagraph;
 }
 
 final composerTextInsertionProvider =
@@ -36,7 +38,11 @@ class ComposerTextInsertionNotifier extends Notifier<ComposerTextInsertion?> {
   @override
   ComposerTextInsertion? build() => null;
 
-  void insert({required String targetId, required String text}) {
+  void insert({
+    required String targetId,
+    required String text,
+    bool separateParagraph = false,
+  }) {
     if (text.trim().isEmpty) {
       return;
     }
@@ -44,6 +50,7 @@ class ComposerTextInsertionNotifier extends Notifier<ComposerTextInsertion?> {
       id: ++_nextId,
       targetId: targetId,
       text: text,
+      separateParagraph: separateParagraph,
     );
   }
 

@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
+
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/services/raster_media_policy.dart';
 import '../../../l10n/app_localizations.dart';
@@ -11,6 +12,8 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import 'assistant_detail_header.dart';
+import 'hermes_tool_summary.dart';
+import 'hermes_inline_activity.dart';
 
 List<ChatStatusUpdate> filterVisibleStatusUpdates(
   List<ChatStatusUpdate> updates, {
@@ -40,10 +43,16 @@ class StreamingStatusWidget extends StatefulWidget {
     super.key,
     required this.updates,
     this.isStreaming = true,
+    this.inlineHermesActivity = false,
+    this.stateId = '',
+    this.hasReplyText = false,
   });
 
   final List<ChatStatusUpdate> updates;
   final bool isStreaming;
+  final bool inlineHermesActivity;
+  final String stateId;
+  final bool hasReplyText;
 
   @override
   State<StreamingStatusWidget> createState() => _StreamingStatusWidgetState();
@@ -52,6 +61,15 @@ class StreamingStatusWidget extends StatefulWidget {
 class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
   @override
   Widget build(BuildContext context) {
+    if (widget.inlineHermesActivity &&
+        widget.updates.any(isHermesActivityStatus)) {
+      return HermesInlineActivity(
+        updates: widget.updates,
+        isStreaming: widget.isStreaming,
+        stateId: widget.stateId,
+        hasReplyText: widget.hasReplyText,
+      );
+    }
     final displayUpdates = filterVisibleStatusUpdates(
       widget.updates,
       isStreaming: widget.isStreaming,
@@ -67,6 +85,7 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
         ? hermesTools.any((update) => update.done != true) && widget.isStreaming
         : current.done != true && widget.isStreaming;
     final hasDetails =
+        _isHermesToolUpdate(current) ||
         displayUpdates.length > 1 ||
         _collectQueries(current).isNotEmpty ||
         _collectLinks(current).isNotEmpty ||
@@ -101,8 +120,8 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
     final theme = context.conduitTheme;
     final current = updates.last;
     final hermesTools = updates.where(_isHermesToolUpdate).toList();
-    final title = hermesTools.length > 1
-        ? _buildHermesToolGroupTitle(context, hermesTools, isStreaming)
+    final title = hermesTools.isNotEmpty
+        ? 'Tool activity'
         : _resolveStatusDescription(current);
 
     if (Platform.isIOS) {
@@ -196,7 +215,9 @@ class _StreamingStatusWidgetState extends State<StreamingStatusWidget> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Icon(
-                        Icons.public,
+                        hermesTools.isNotEmpty
+                            ? Icons.receipt_long_outlined
+                            : Icons.public,
                         size: IconSize.md,
                         color: theme.textPrimary,
                       ),
@@ -333,6 +354,9 @@ class _MinimalHistoryTimeline extends StatelessWidget {
       final isFirst = index == 0;
       final isLast = index == updates.length - 1;
       final isPending = isLast && update.done != true && isStreaming;
+      if (_isHermesToolUpdate(update)) {
+        return _HermesToolActionRow(update: update, isPending: isPending);
+      }
       final description = _resolveStatusDescription(update);
       final queries = _collectQueries(update);
       final links = _collectLinks(update);
@@ -399,6 +423,173 @@ class _MinimalHistoryTimeline extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: items,
+    );
+  }
+}
+
+/// Summaries live only in the expanded history. Each action can reveal its
+/// original arguments and result without filling the chat with raw traces.
+class _HermesToolActionRow extends StatelessWidget {
+  const _HermesToolActionRow({required this.update, required this.isPending});
+
+  final ChatStatusUpdate update;
+  final bool isPending;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final summary = HermesToolSummary.fromUpdate(update);
+    final details = _collectDetailItems(update);
+    final color = summary.failed ? theme.error : theme.textSecondary;
+    final icon = switch (summary.kind) {
+      HermesToolKind.terminal => Icons.terminal,
+      HermesToolKind.code => Icons.code,
+      HermesToolKind.search => Icons.search,
+      HermesToolKind.web => Icons.public,
+      HermesToolKind.skill => Icons.auto_stories_outlined,
+      HermesToolKind.read => Icons.description_outlined,
+      HermesToolKind.write => Icons.edit_note,
+      HermesToolKind.image => Icons.image_outlined,
+      HermesToolKind.tool => Icons.settings_outlined,
+    };
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AssistantDetailHeader(
+          title: summary.title,
+          showShimmer: isPending && !summary.failed,
+          allowWrap: true,
+          showChevron: false,
+        ),
+        if (summary.preview?.isNotEmpty == true) ...[
+          const SizedBox(height: 4),
+          if (summary.kind == HermesToolKind.terminal ||
+              summary.kind == HermesToolKind.code)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: theme.codeBackground,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    summary.kind == HermesToolKind.terminal ? 'Shell' : 'Code',
+                    style: AppTypography.labelSmallStyle.copyWith(
+                      color: theme.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    summary.preview!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.codeStyle.copyWith(
+                      color: theme.codeText,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Text(
+              summary.preview!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.bodySmallStyle.copyWith(
+                color: theme.textSecondary,
+              ),
+            ),
+        ],
+        if (summary.failed)
+          Text(
+            'Failed',
+            style: AppTypography.bodySmallStyle.copyWith(color: color),
+          ),
+        if (_collectQueries(update).isNotEmpty) ...[
+          const SizedBox(height: 4),
+          _MinimalQueryChips(queries: _collectQueries(update)),
+        ],
+        if (_collectLinks(update).isNotEmpty) ...[
+          const SizedBox(height: 4),
+          _MinimalSourceLinks(links: _collectLinks(update)),
+        ],
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 14),
+            child: Icon(icon, size: 20, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: details.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: content,
+                  )
+                : Theme(
+                    data: Theme.of(context).copyWith(
+                      dividerColor: Colors.transparent,
+                      listTileTheme: Theme.of(context).listTileTheme.copyWith(
+                        tileColor: Colors.transparent,
+                        selectedTileColor: Colors.transparent,
+                        shape: const Border(),
+                      ),
+                    ),
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: ExpansionTile(
+                        backgroundColor: Colors.transparent,
+                        collapsedBackgroundColor: Colors.transparent,
+                        shape: const Border(),
+                        collapsedShape: const Border(),
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: const EdgeInsets.fromLTRB(0, 4, 0, 12),
+                        expandedAlignment: Alignment.centerLeft,
+                        title: content,
+                        subtitle: Text(
+                          'Details',
+                          style: AppTypography.labelSmallStyle.copyWith(
+                            color: theme.textSecondary,
+                          ),
+                        ),
+                        children: [
+                          for (final detail in details)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    detail.title!,
+                                    style: AppTypography.labelSmallStyle
+                                        .copyWith(color: theme.textSecondary),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  SelectableText(
+                                    detail.snippet!,
+                                    style: AppTypography.codeStyle.copyWith(
+                                      color: theme.textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

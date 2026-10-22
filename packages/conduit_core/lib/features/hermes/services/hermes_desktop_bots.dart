@@ -8,6 +8,64 @@ const int _kMaxHermesBotAvatarCharacters = 3 * 1024 * 1024;
 const String kHermesBotChatTitle = 'Bot Chat';
 
 extension _HermesDesktopBots on HermesDesktopApiService {
+  Future<HermesBot> _createBot(HermesBotDraft draft) async {
+    draft.validate();
+    final roster = await _messagesProfileRequest('profiles.list', {
+      'include_sessions': false,
+    });
+    if (roster['bot_mode_protocol'] != true) {
+      throw UnsupportedError('Update Hermes to create bots.');
+    }
+    await _messagesProfileRequest('profiles.create', {
+      'name': draft.profile,
+      'description': draft.description,
+      'clone_from': draft.cloneFrom,
+      'share_auth': draft.shareAuth,
+      'mirror_credentials': draft.shareAuth,
+      'soul': draft.soul,
+      'model': ?draft.model,
+      'provider': ?draft.provider,
+    });
+    try {
+      return await _finishBotSetup(draft);
+    } catch (_) {
+      throw HermesBotSetupIncomplete(draft.profile);
+    }
+  }
+
+  Future<HermesBot> _finishBotSetup(HermesBotDraft draft) async {
+    draft.validate();
+    final result = await _messagesProfileRequest('profiles.configure', {
+      'name': draft.profile,
+      if (draft.disabledSkills != null) 'disabled_skills': draft.disabledSkills,
+      if (draft.toolsets != null) 'enabled_toolsets': draft.toolsets,
+      if (draft.mcpServers != null) 'enabled_mcp_servers': draft.mcpServers,
+      'ui_meta': {
+        'hermes-bots': {
+          'title': draft.title.trim(),
+          'shape': 'squircle',
+          'color': '#8b5cf6',
+          'imageKind': 'shape',
+          'created': DateTime.now().millisecondsSinceEpoch,
+        },
+      },
+    });
+    final applied = result['applied'];
+    if (applied is! Map ||
+        applied['ui_meta'] != true ||
+        applied.values.any((value) => value == false) ||
+        result['confirm_required'] == true) {
+      throw StateError(
+        'The profile was created, but Hermes could not finish bot setup. Review the profile in Hermes before retrying.',
+      );
+    }
+    return HermesBot(
+      name: draft.profile,
+      title: draft.title.trim(),
+      description: draft.description,
+    );
+  }
+
   /// The Bot Mode roster: only profiles carrying `ui_meta['hermes-bots']`.
   /// Empty when the gateway predates Bot Mode (no `bot_mode_protocol` flag),
   /// which is how the sidebar section stays hidden.
@@ -73,30 +131,18 @@ extension _HermesDesktopBots on HermesDesktopApiService {
   /// Returns the stored session id.
   Future<String> _openBotChat(HermesBot bot) async {
     await _ensureConnected();
-    for (final candidate in <String?>[bot.chatSessionId, kHermesBotChatTitle]) {
-      if (candidate == null) continue;
-      _sessionProfiles[candidate] = bot.name;
-      try {
-        final binding = await _resume(candidate, refresh: true);
-        _sessionProfiles[binding.storedId] = bot.name;
-        return binding.storedId;
-      } catch (error) {
-        _sessionProfiles.remove(candidate);
-        DebugLogger.warning(
-          'bot-chat-resume-failed',
-          scope: 'hermes/desktop/bots',
-          data: {'errorType': error.runtimeType.toString()},
-        );
-      } finally {
-        // Every bot resolves its canonical chat by the same title, so the
-        // lookup key must never stay cached as an alias for one bot's
-        // session — only the resolved stored id may.
-        if (candidate == kHermesBotChatTitle) {
-          _sessionProfiles.remove(candidate);
-          _bindings.remove(candidate);
-          _bindingSocketGenerations.remove(candidate);
-        }
-      }
+    final canonical = await findBotChat(bot.name);
+    if (canonical != null) {
+      bindBotSession(bot.name, canonical.id);
+      // A failed resume must surface; it must never create a duplicate bot chat.
+      final binding = await _resume(canonical.id, refresh: true);
+      bindBotSession(bot.name, binding.storedId);
+      return binding.storedId;
+    }
+    if (bot.chatSessionId != null) {
+      throw StateError(
+        'Hermes could not confirm the existing Bot Chat registry. Refresh before opening.',
+      );
     }
     final stored = await _runtimeCreateDesktopSession(
       title: kHermesBotChatTitle,

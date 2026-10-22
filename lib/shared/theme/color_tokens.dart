@@ -193,11 +193,21 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
     final Color neutralTone20 = variant.card;
     final Color neutralTone10 = mix(neutralTone00, neutralTone20, 0.5);
     final Color neutralTone40 = variant.muted;
-    final Color neutralTone60 = mix(
+    Color neutralTone60 = mix(
       variant.mutedForeground,
       variant.foreground,
       isLight ? 0.25 : 0.4,
     );
+    // Secondary/caption text is used on every common surface, including menus
+    // and filled fields. Some preset muted foregrounds only pass on the page.
+    for (final surface in [
+      variant.background,
+      variant.card,
+      variant.popover,
+      Color.lerp(variant.background, variant.input, isLight ? .75 : .35)!,
+    ]) {
+      neutralTone60 = withMinContrast(neutralTone60, surface, 4.5);
+    }
     final Color neutralTone80 = mix(
       variant.foreground,
       isLight ? Colors.black : Colors.white,
@@ -527,7 +537,6 @@ class AppColorTokens extends ThemeExtension<AppColorTokens> {
     required Color foreground,
     double minContrast = 4.5,
   }) {
-    // No-op for testing; bypass contrast adjustments.
-    return foreground;
+    return withMinContrast(foreground, surface, minContrast);
   }
 }

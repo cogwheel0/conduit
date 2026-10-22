@@ -9,6 +9,7 @@ class UtilityRow extends StatefulWidget {
   const UtilityRow({
     super.key,
     required this.title,
+    this.value,
     this.subtitle,
     this.subtitleTrailing,
     this.subtitleMaxLines = 3,
@@ -36,6 +37,10 @@ class UtilityRow extends StatefulWidget {
   });
 
   final String title;
+
+  /// Current setting value, distinct from optional explanatory [subtitle].
+  /// Stacks below the label at accessibility text sizes.
+  final String? value;
   final String? subtitle;
   final Widget? subtitleTrailing;
   final int subtitleMaxLines;
@@ -91,6 +96,17 @@ class _UtilityRowState extends State<UtilityRow> {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final usesLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final settingValue = widget.value;
+    final valueText = settingValue == null
+        ? null
+        : Text(
+            settingValue,
+            textAlign: usesLargeText ? TextAlign.start : TextAlign.end,
+            style: AppTypography.bodySmallStyle.copyWith(
+              color: theme.textSecondary,
+              fontWeight: FontWeight.w400,
+            ),
+          );
     final foreground =
         widget.foregroundColor ??
         (widget.destructive ? theme.error : theme.textPrimary);
@@ -99,6 +115,7 @@ class _UtilityRowState extends State<UtilityRow> {
         widget.semanticLabel ??
         [
           widget.title,
+          if (settingValue?.isNotEmpty ?? false) settingValue,
           if (widget.subtitle?.isNotEmpty ?? false) widget.subtitle,
         ].join('. ');
 
@@ -173,15 +190,19 @@ class _UtilityRowState extends State<UtilityRow> {
                             children: [
                               Text(
                                 widget.title,
-                                maxLines: usesLargeText ? null : 2,
-                                overflow: usesLargeText
+                                maxLines: usesLargeText || settingValue != null
+                                    ? null
+                                    : 2,
+                                overflow: usesLargeText || settingValue != null
                                     ? TextOverflow.visible
                                     : TextOverflow.ellipsis,
                                 style: AppTypography.bodyMediumStyle.copyWith(
                                   color: foreground,
                                   fontWeight:
                                       widget.titleFontWeight ??
-                                      (context.usesCupertinoChrome
+                                      (settingValue != null
+                                          ? FontWeight.w500
+                                          : context.usesCupertinoChrome
                                           ? FontWeight.w400
                                           : FontWeight.w600),
                                 ),
@@ -214,10 +235,23 @@ class _UtilityRowState extends State<UtilityRow> {
                                   ],
                                 ),
                               ],
+                              if (usesLargeText && valueText != null) ...[
+                                const SizedBox(height: Spacing.xs),
+                                valueText,
+                              ],
                             ],
                           ),
                         ),
                       ),
+                      if (!usesLargeText && valueText != null) ...[
+                        const SizedBox(width: Spacing.md),
+                        Expanded(
+                          child: ExcludeSemantics(
+                            excluding: widget.preserveTrailingSemantics,
+                            child: valueText,
+                          ),
+                        ),
+                      ],
                       if (widget.status != null) ...[
                         SizedBox(
                           width: widget.statusFlex == null

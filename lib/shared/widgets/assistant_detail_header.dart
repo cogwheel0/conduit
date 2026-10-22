@@ -14,6 +14,7 @@ class AssistantDetailHeader extends StatefulWidget {
     this.allowWrap = false,
     this.useInlineChevron = false,
     this.isExpanded = false,
+    this.compact = false,
   });
 
   final String title;
@@ -22,15 +23,18 @@ class AssistantDetailHeader extends StatefulWidget {
   final bool allowWrap;
   final bool useInlineChevron;
   final bool isExpanded;
+  final bool compact;
 
   @override
   State<AssistantDetailHeader> createState() => _AssistantDetailHeaderState();
 }
 
 class _AssistantDetailHeaderState extends State<AssistantDetailHeader>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _shimmerController;
   var _disableAnimations = false;
+  var _foreground = true;
+  var _tickerEnabled = true;
 
   @override
   void initState() {
@@ -39,18 +43,14 @@ class _AssistantDetailHeaderState extends State<AssistantDetailHeader>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     );
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _disableAnimations =
-        MediaQuery.maybeDisableAnimationsOf(context) ??
-        WidgetsBinding
-            .instance
-            .platformDispatcher
-            .accessibilityFeatures
-            .disableAnimations;
+    _disableAnimations = context.reduceMotion;
+    _tickerEnabled = TickerMode.valuesOf(context).enabled;
     _syncShimmerController();
   }
 
@@ -64,6 +64,7 @@ class _AssistantDetailHeaderState extends State<AssistantDetailHeader>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _shimmerController.dispose();
     super.dispose();
   }
@@ -81,7 +82,19 @@ class _AssistantDetailHeaderState extends State<AssistantDetailHeader>
     }
   }
 
-  bool get _shouldAnimateShimmer => widget.showShimmer && !_disableAnimations;
+  bool get _shouldAnimateShimmer =>
+      widget.showShimmer &&
+      !_disableAnimations &&
+      _foreground &&
+      _tickerEnabled;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground =
+        state == AppLifecycleState.resumed ||
+        state == AppLifecycleState.inactive;
+    _syncShimmerController();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -96,13 +109,18 @@ class _AssistantDetailHeaderState extends State<AssistantDetailHeader>
             widget.title,
             overflow: widget.allowWrap ? null : TextOverflow.ellipsis,
             maxLines: widget.allowWrap ? null : 1,
-            style:
-                textTheme.bodyLarge?.copyWith(
-                  color: theme.textPrimary.withValues(alpha: 0.6),
-                ) ??
-                AppTypography.chatMessageStyle.copyWith(
-                  color: theme.textPrimary.withValues(alpha: 0.6),
-                ),
+            style: widget.compact
+                ? AppTypography.bodySmallStyle.copyWith(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: theme.textSecondary,
+                  )
+                : textTheme.bodyLarge?.copyWith(
+                        color: theme.textPrimary.withValues(alpha: 0.6),
+                      ) ??
+                      AppTypography.chatMessageStyle.copyWith(
+                        color: theme.textPrimary.withValues(alpha: 0.6),
+                      ),
           ),
         ),
         if (widget.showChevron) ...[
@@ -111,14 +129,20 @@ class _AssistantDetailHeaderState extends State<AssistantDetailHeader>
             turns: widget.useInlineChevron
                 ? (widget.isExpanded ? 0 : -0.25)
                 : 0,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
+            duration: context.motionDuration(
+              widget.compact
+                  ? AnimationDuration.assistantDisclosure
+                  : const Duration(milliseconds: 180),
+            ),
+            curve: widget.compact ? Curves.fastOutSlowIn : Curves.easeOutCubic,
             child: Icon(
               widget.useInlineChevron
                   ? Icons.expand_more_rounded
                   : Icons.chevron_right_rounded,
-              size: 16,
-              color: theme.textPrimary.withValues(alpha: 0.6),
+              size: widget.compact ? 12 : 16,
+              color: widget.compact
+                  ? theme.textSecondary
+                  : theme.textPrimary.withValues(alpha: 0.6),
             ),
           ),
         ],

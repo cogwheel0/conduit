@@ -48,9 +48,13 @@ class _TimelineRowKey extends ValueKey<String> {
 /// position performs the same correction while Flutter is resolving the new
 /// content dimensions, before paint.
 class _ChatTimelineScrollController extends ScrollController {
-  _ChatTimelineScrollController({required this.shouldMaintainLatest});
+  _ChatTimelineScrollController({
+    required this.shouldMaintainLatest,
+    required this.shouldLockShortContent,
+  });
 
   final bool Function() shouldMaintainLatest;
+  final bool Function() shouldLockShortContent;
 
   @override
   ScrollPosition createScrollPosition(
@@ -66,6 +70,7 @@ class _ChatTimelineScrollController extends ScrollController {
       oldPosition: oldPosition,
       debugLabel: debugLabel,
       shouldMaintainLatest: shouldMaintainLatest,
+      shouldLockShortContent: shouldLockShortContent,
     );
   }
 }
@@ -79,17 +84,32 @@ class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext {
     super.oldPosition,
     super.debugLabel,
     required this.shouldMaintainLatest,
+    required this.shouldLockShortContent,
   });
 
   static const double _latestEpsilon = 0.5;
 
   final bool Function() shouldMaintainLatest;
+  final bool Function() shouldLockShortContent;
+
+  @override
+  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    // A fully visible transcript has one resting position. The centered
+    // slivers must not expose the unused space above it as a scroll range.
+    return shouldLockShortContent()
+        ? super.applyContentDimensions(0, 0)
+        : super.applyContentDimensions(minScrollExtent, maxScrollExtent);
+  }
 
   @override
   bool correctForNewDimensions(
     ScrollMetrics oldPosition,
     ScrollMetrics newPosition,
   ) {
+    if (shouldLockShortContent() && pixels.abs() > _latestEpsilon) {
+      correctPixels(0);
+      return false;
+    }
     final wasAtLatest =
         (pixels - oldPosition.maxScrollExtent).abs() <= _latestEpsilon;
     if (shouldMaintainLatest() &&
@@ -284,6 +304,7 @@ class ChatTimelineViewport extends StatefulWidget {
     this.liveFooter,
     this.trailingContent,
     this.hideUntilSettled = false,
+    this.alignShortContentToBottom = false,
     this.rowRebuildKeys = const <Object?>[],
     this.estimateRowExtent,
     this.onRowExtentMeasured,
@@ -326,6 +347,10 @@ class ChatTimelineViewport extends StatefulWidget {
   final bool followLatest;
   final bool pinAutomatic;
   final bool hideUntilSettled;
+
+  /// Keeps a transcript that fits above the composer at its bottom edge.
+  /// Active prompt pins retain their separate placement until released.
+  final bool alignShortContentToBottom;
   final VoidCallback onPointerDown;
   final VoidCallback onUserDragStart;
   final VoidCallback onUserDragEnd;
@@ -425,6 +450,17 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   double get _effectivePinSupportSpace =>
       widget.pinnedUserMessageId == null ? 0 : _pinSupportSpace.value;
 
+  double? _shortContentAnchorPixels;
+  double? _shortContentViewportHeight;
+  final GlobalKey _liveFooterBoxKey = GlobalKey();
+  final GlobalKey _trailingContentBoxKey = GlobalKey();
+
+  bool get _locksShortContent =>
+      widget.alignShortContentToBottom &&
+      widget.pinnedUserMessageId == null &&
+      !widget.isLoadingOlder &&
+      _shortContentAnchorPixels != null;
+
   bool get _maintainsLatestDuringLayout =>
       _initialPositionResolved &&
       widget.followLatest &&
@@ -438,6 +474,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     super.initState();
     _scrollController = _ChatTimelineScrollController(
       shouldMaintainLatest: () => mounted && _maintainsLatestDuringLayout,
+      shouldLockShortContent: () => mounted && _locksShortContent,
     );
     WidgetsBinding.instance.addObserver(this);
     _syncTimelineEntries();
@@ -553,6 +590,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _initialPositionAttempts = 0;
     _pinEndSpace = 0;
     _pinSupportSpace.value = 0;
+    _shortContentAnchorPixels = null;
     _pinGeometryReported = false;
     _pinGeometryAttempts = 0;
     _cachedPinnedMessageId = null;
@@ -1050,6 +1088,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         _scheduleInitialPositionCallback(_restoreInitialPosition);
       }
       final rowRects = _frameRowRectSnapshot();
+      _updateShortContentGeometry(rowRects);
       final centerRecoveryOwnedFrame = _maintainVisibleContent(rowRects);
       _updatePinGeometry();
       final oldestThresholdVisible = _anyOldestLoadedRowVisible(rowRects);
@@ -1075,6 +1114,48 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       _scheduleMetricsCallback();
     });
     binding.scheduleFrame();
+  }
+
+  void _updateShortContentGeometry(Map<String, Rect> rowRects) {
+    double? next;
+    if (widget.alignShortContentToBottom &&
+        widget.pinnedUserMessageId == null &&
+        !widget.isLoadingOlder &&
+        _messageIds.isNotEmpty &&
+        rowRects.length == _messageIds.length) {
+      final viewport = _viewportRect;
+      final footer = widget.liveFooter == null
+          ? 0.0
+          : _renderBoxFor(_liveFooterBoxKey)?.size.height;
+      final trailing = widget.trailingContent == null
+          ? 0.0
+          : _renderBoxFor(_trailingContentBoxKey)?.size.height;
+      if (viewport != null && footer != null && trailing != null) {
+        // Layout heights exclude Android's temporary edge-stretch transform.
+        var contentHeight = footer + trailing;
+        var centerToEndHeight = contentHeight;
+        for (var index = 0; index < _messageIds.length; index += 1) {
+          // An entry update can clear measured heights before the cached
+          // rectangle snapshot expires. Wait for complete measurements.
+          final height = _rowExtents[_messageIds[index]] ?? double.infinity;
+          contentHeight += height;
+          if (index >= _centerIndex) centerToEndHeight += height;
+        }
+        final available =
+            viewport.height - widget.topContentInset - widget.bottomPadding;
+        if (contentHeight <= available + _geometryEpsilon) {
+          next = viewport.height - widget.bottomPadding - centerToEndHeight;
+        }
+      }
+    }
+    final previous = _shortContentAnchorPixels;
+    if (previous == next ||
+        (previous != null &&
+            next != null &&
+            (previous - next).abs() <= _geometryEpsilon)) {
+      return;
+    }
+    setState(() => _shortContentAnchorPixels = next);
   }
 
   bool _maintainVisibleContent(Map<String, Rect> rowRects) {
@@ -1428,23 +1509,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final generation = ++_navigationGeneration;
     _programmaticNavigationActive = true;
     try {
-      var target = _contentLatestOffset(position);
-      final distance = (target - position.pixels).abs();
-      if (distance > position.viewportDimension) {
-        position.jumpTo(
-          math.max(
-            position.minScrollExtent,
-            target - position.viewportDimension,
-          ),
-        );
-        await WidgetsBinding.instance.endOfFrame;
-        if (!mounted || generation != _navigationGeneration) {
-          return;
-        }
-        position = _dimensionedPosition;
-        if (position == null) return;
-        target = _contentLatestOffset(position);
-      }
+      final target = _contentLatestOffset(position);
       await _scrollController.animateTo(
         target,
         duration: duration,
@@ -1860,6 +1925,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       messageId: id,
       onMounted: _registerMountedRow,
       onUnmounted: _unregisterMountedRow,
+      onSizeChanged: () {
+        // Streaming content publishes inside the row. A short, bottom-aligned
+        // transcript can grow without changing scroll metrics or rebuilding
+        // this owner; refresh its measured extents before completion does it.
+        if (_locksShortContent) {
+          _scheduleLayoutMaintenance();
+        }
+      },
       child: IndexedSemantics(
         index: chronologicalIndex,
         child: Builder(
@@ -1921,9 +1994,18 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;
+        if (widget.alignShortContentToBottom &&
+            _shortContentViewportHeight != viewportHeight) {
+          _shortContentViewportHeight = viewportHeight;
+          _scheduleLayoutMaintenance();
+        }
         final anchor = !viewportHeight.isFinite || viewportHeight <= 0
             ? 0.0
-            : (widget.topContentInset / viewportHeight).clamp(0.0, 1.0);
+            : ((_locksShortContent
+                          ? _shortContentAnchorPixels!
+                          : widget.topContentInset) /
+                      viewportHeight)
+                  .clamp(0.0, 1.0);
         return _buildViewport(
           centerIndex: centerIndex,
           anchor: anchor,
@@ -2037,7 +2119,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                   ),
                   sliver: SliverToBoxAdapter(
                     key: _liveFooterSliverKey,
-                    child: liveFooter,
+                    child: KeyedSubtree(
+                      key: _liveFooterBoxKey,
+                      child: liveFooter,
+                    ),
                   ),
                 ),
               if (widget.trailingContent case final trailingContent?)
@@ -2047,7 +2132,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                   ),
                   sliver: SliverToBoxAdapter(
                     key: _trailingContentSliverKey,
-                    child: trailingContent,
+                    child: KeyedSubtree(
+                      key: _trailingContentBoxKey,
+                      child: trailingContent,
+                    ),
                   ),
                 ),
               // Measured remaining space is metadata only. The synthetic
@@ -2292,6 +2380,7 @@ class _MountedTimelineRow extends StatefulWidget {
     required this.messageId,
     required this.onMounted,
     required this.onUnmounted,
+    required this.onSizeChanged,
     required this.child,
     super.key,
   });
@@ -2299,6 +2388,7 @@ class _MountedTimelineRow extends StatefulWidget {
   final String messageId;
   final ValueChanged<String> onMounted;
   final ValueChanged<String> onUnmounted;
+  final VoidCallback onSizeChanged;
   final Widget child;
 
   @override
@@ -2327,5 +2417,12 @@ class _MountedTimelineRowState extends State<_MountedTimelineRow> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) =>
+      NotificationListener<SizeChangedLayoutNotification>(
+        onNotification: (_) {
+          widget.onSizeChanged();
+          return false;
+        },
+        child: SizeChangedLayoutNotifier(child: widget.child),
+      );
 }

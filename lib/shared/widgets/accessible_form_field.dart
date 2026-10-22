@@ -80,6 +80,7 @@ class AccessibleFormField extends StatelessWidget {
     if (PlatformInfo.isIOS && iosSettingsRow && label != null) {
       return _buildIosSettingsRow(context, hasExternalError);
     }
+    if (!PlatformInfo.isIOS) return _buildMaterialField(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -191,6 +192,47 @@ class AccessibleFormField extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildMaterialField(BuildContext context) {
+    final theme = context.conduitTheme;
+    final visibleLabel = label == null
+        ? null
+        : isRequired
+        ? '$label *'
+        : label;
+    final inputPadding = isCompact
+        ? const EdgeInsets.symmetric(
+            horizontal: Spacing.md,
+            vertical: Spacing.sm,
+          )
+        : Theme.of(context).inputDecorationTheme.contentPadding ??
+              const EdgeInsets.symmetric(
+                horizontal: Spacing.inputPadding,
+                vertical: Spacing.md,
+              );
+
+    return _buildInput(
+      context,
+      suffix: suffixIcon,
+      inputStyle:
+          style ?? AppTypography.standard.copyWith(color: theme.textPrimary),
+      inputPadding: inputPadding,
+      materialDecoration: InputDecoration(
+        labelText: semanticLabel == null ? visibleLabel : null,
+        label: semanticLabel == null
+            ? null
+            : Text(
+                visibleLabel ?? semanticLabel!,
+                semanticsLabel: semanticLabel,
+              ),
+        hintText: hint,
+        prefixIcon: prefixIcon,
+        suffixIcon: suffixIcon,
+        errorText: errorText,
+      ),
+      cupertinoBoxDecoration: const BoxDecoration(),
     );
   }
 

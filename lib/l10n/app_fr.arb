@@ -31,7 +31,13 @@
   "buyMeACoffeeSubtitle": "Faites un don ponctuel pour nous encourager.",
   "releaseNotesTitle": "Nouveautés",
   "releaseNotesAnnouncementTitle": "Nouveautés de {version}",
-  "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
+  "@releaseNotesAnnouncementTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "releaseNotesLearnMore": "En savoir plus",
   "releaseNotesReviewButton": "Noter Conduit",
   "releaseNotesDoneButton": "Terminé",
@@ -99,6 +105,35 @@
   "useHttpOrHttpsOnly": "Utilisez uniquement http:// ou https://.",
   "loginFailed": "Échec de la connexion",
   "invalidCredentials": "Nom d'utilisateur ou mot de passe invalide. Réessayez.",
+  "signInAccountPendingApproval": "Votre compte attend l'approbation d'un administrateur. Réessayez une fois qu'il aura été approuvé.",
+  "signInTwoStepVerificationRequired": "Ce compte utilise la validation en deux étapes. Reconnectez-vous, puis saisissez le code de votre application d'authentification.",
+  "twoStepVerifyTitle": "Confirmez votre connexion",
+  "twoStepEnrollTitle": "Configurez votre authentificateur",
+  "twoStepRecoverTitle": "Récupérez votre authentificateur",
+  "twoStepVerifyDescription": "Saisissez le code à six chiffres de votre application d'authentification.",
+  "twoStepRecoveryCodeDescription": "Saisissez l'un des codes de récupération que vous avez enregistrés.",
+  "twoStepEnrollDescription": "Ajoutez ce compte à votre application d'authentification, puis saisissez le code à six chiffres affiché.",
+  "twoStepRecoverDescription": "Votre administrateur a réinitialisé la validation en deux étapes de ce compte. Saisissez le jeton de récupération qu'il vous a donné.",
+  "twoStepCodeLabel": "Code d'authentification",
+  "twoStepRecoveryCodeLabel": "Code de récupération",
+  "twoStepResetTokenLabel": "Jeton de récupération",
+  "twoStepUseRecoveryCode": "Utiliser un code de récupération",
+  "twoStepUseAuthenticatorCode": "Utiliser un code d'authentification",
+  "twoStepBackToSignIn": "Retour à la connexion",
+  "twoStepOpenAuthenticator": "Ajouter à l'application d'authentification",
+  "twoStepSetupKeyLabel": "Clé de configuration",
+  "twoStepCopySetupKey": "Copier la clé de configuration",
+  "twoStepQrCodeLabel": "Code QR pour votre application d'authentification",
+  "twoStepSetupLoading": "Préparation de votre authentificateur…",
+  "twoStepSetupFailed": "Impossible de charger la clé de configuration.",
+  "twoStepNoAuthenticatorApp": "Aucune application n'a pu l'ajouter. Copiez plutôt la clé de configuration dans votre application d'authentification.",
+  "twoStepRecoveryCodesTitle": "Enregistrez vos codes de récupération",
+  "twoStepRecoveryCodesDescription": "Chaque code vous connecte une fois si vous perdez votre authentificateur. Conservez-les en lieu sûr : ils ne seront plus affichés.",
+  "twoStepCopyRecoveryCodes": "Copier les codes de récupération",
+  "twoStepInvalidCode": "Ce code n'a pas fonctionné. Vérifiez-le et réessayez.",
+  "twoStepExpired": "Cette étape a expiré. Revenez à la connexion et recommencez.",
+  "twoStepTooManyAttempts": "Trop de tentatives. Patientez quelques minutes, puis reconnectez-vous.",
+  "twoStepFailed": "Impossible de vérifier le code. Réessayez.",
   "serverRedirectingHttps": "Le serveur redirige les requêtes. Vérifiez la configuration HTTPS.",
   "unableToConnectServer": "Impossible de se connecter au serveur. Vérifiez votre connexion.",
   "requestTimedOut": "Délai d'attente dépassé. Réessayez.",
@@ -377,6 +412,36 @@
   "ttsEngineServerDescription": "Demande toujours l'audio à votre serveur Open WebUI.",
   "ttsDeviceUnavailableWarning": "La synthèse vocale sur l’appareil n’est pas disponible sur cet appareil.",
   "ttsServerUnavailableWarning": "Connectez-vous à un serveur avec la synthèse vocale activée pour utiliser cette option.",
+  "voiceProviderTitle": "Fournisseur vocal",
+  "voiceProviderDescription": "Les chats Direct et Apple utilisent cette connexion lorsque « Voix vers texte » ou « Synthèse vocale » est réglé sur « Serveur ».",
+  "voiceProviderConnection": "Connexion",
+  "voiceProviderNone": "Aucun",
+  "voiceProviderNoConnections": "Ajoutez une connexion Direct compatible avec OpenAI pour pouvoir la choisir ici.",
+  "voiceProviderTranscriptionModel": "Modèle de transcription",
+  "voiceProviderSpeechModel": "Modèle de synthèse vocale",
+  "voiceProviderModelsHint": "Utilisez les noms de modèles indiqués par votre fournisseur. Si un champ reste vide, cet appareil s'en charge à la place.",
+  "voiceProviderRealtimeModel": "Modèle temps réel",
+  "voiceProviderRealtimeInstructions": "Instructions",
+  "voiceProviderRealtimeInstructionsHint": "Laissez vide pour utiliser celles de Conduit.",
+  "voiceProviderRealtimeFooter": "Dans les chats Direct et Apple, les appels utilisent cette voix, qui suit ce que vous dites grâce au modèle de transcription ci-dessus.",
+  "voiceCallModeTitle": "Appels",
+  "voiceCallModeRealtime": "Temps réel",
+  "voiceCallModeStandard": "Standard",
+  "voiceCallModeRealtimeDescription": "Parlez avec une voix en temps réel lorsque le serveur du chat ou le fournisseur vocal en propose une ; vous pouvez lui couper la parole. Les autres appels sont en mode Standard.",
+  "voiceCallModeStandardDescription": "Les appels vous écoutent, envoient ce que vous avez dit, puis lisent la réponse à voix haute.",
+  "voiceCallNoticeTranscriptionFailed": "C'était difficile à comprendre. Veuillez répéter.",
+  "voiceCallNoticeReplyIncomplete": "La réponse de la voix a été interrompue.",
+  "voiceCallNoticeTranscriptNotSaved": "Une partie de l'appel n'a pas pu être enregistrée dans le chat.",
+  "voiceReplySpokenLabel": "{model} · à l'oral",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
+  },
   "ttsVoice": "Voix",
   "ttsSpeechRate": "Vitesse de parole",
   "ttsPitch": "Hauteur",
@@ -693,6 +758,7 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
+  "themePaletteMaterialYouLabel": "Material You",
   "themePaletteConduitLabel": "Conduit",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
@@ -1004,9 +1070,24 @@
   "chatSettingErrorNotANumber": "Saisissez un nombre.",
   "chatSettingErrorNotAWholeNumber": "Saisissez un nombre entier.",
   "chatSettingErrorRange": "Saisissez une valeur de {min} à {max}.",
-  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "@chatSettingErrorRange": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
   "chatSettingErrorMinimum": "Saisissez {min} ou plus.",
-  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "@chatSettingErrorMinimum": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      }
+    }
+  },
   "chatSettingErrorNotJson": "Saisissez un mot comme json ou un schéma JSON valide.",
   "chatSettingErrorNotAChoice": "Choisissez une valeur prise en charge.",
   "personalConnectionsTitle": "Connexions personnelles",
@@ -1068,13 +1149,21 @@
   "sidebarNotesTab": "Notes",
   "sidebarChannelsTab": "Canaux",
   "sidebarResizeHandle": "Redimensionner la barre latérale",
-  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "@sidebarResizeHandle": {
+    "description": "Accessibility label for the draggable tablet sidebar divider."
+  },
   "sidebarResizeResetHint": "Touchez deux fois pour réinitialiser sa largeur",
-  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "@sidebarResizeResetHint": {
+    "description": "Accessibility hint for resetting the tablet sidebar width."
+  },
   "sidebarWidthValue": "{width} points",
   "@sidebarWidthValue": {
     "description": "Accessibility value describing the current tablet sidebar width.",
-    "placeholders": {"width": {"type": "int"}}
+    "placeholders": {
+      "width": {
+        "type": "int"
+      }
+    }
   },
   "closeSidebar": "Fermer la barre latérale",
   "terminalSelectServer": "Sélectionner un serveur de terminal",
@@ -2013,7 +2102,9 @@
   },
   "workspaceModelBaseModelNone": "None (custom)",
   "workspaceModelBaseModelRequired": "Choisissez un modèle de base.",
-  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
+  "@workspaceModelBaseModelRequired": {
+    "description": "Validation shown when a non-admin model create or protected edit has no base model."
+  },
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
@@ -2948,7 +3039,13 @@
   "workspaceToolSpecs": "Generated specifications",
   "workspaceToolDetails": "Détails de l’outil",
   "workspaceToolFunctionCount": "{count, plural, =1{1 fonction} other{{count} fonctions}}",
-  "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
+  "@workspaceToolFunctionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
   "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
   "workspaceToolValves": "Valves",
@@ -3001,11 +3098,17 @@
   "hermesApprovalRequired": "Approbation requise",
   "hermesApprovalFallback": "L’agent demande l’autorisation de continuer.",
   "openWebUiPromptOther": "Autre",
-  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "@openWebUiPromptOther": {
+    "description": "Label for a free-form answer to an Open WebUI ask-user question."
+  },
   "openWebUiPromptAnswerHint": "Saisissez votre réponse",
-  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "@openWebUiPromptAnswerHint": {
+    "description": "Placeholder for a free-form Open WebUI ask-user answer."
+  },
   "openWebUiPromptSubmit": "Envoyer",
-  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
+  "@openWebUiPromptSubmit": {
+    "description": "Action that submits all answers to an Open WebUI ask-user prompt."
+  },
   "hermesApprovalApproved": "Approuvé ✓",
   "hermesApprovalDenied": "Refusé",
   "hermesApprovalApproveAction": "Approuver",
@@ -3068,7 +3171,14 @@
   "openWebUiDirectConnectionsUnavailable": "Les connexions Open WebUI sont indisponibles.",
   "directConnectionNoLongerExists": "Cette connexion n’existe plus.",
   "openWebUiDirectConnectionDeleteMessage": "Cette action supprime {name} de votre compte Open WebUI et des autres clients connectés.",
-  "@openWebUiDirectConnectionDeleteMessage": {"description":"Confirmation message shown before deleting an Open WebUI-synced direct connection.","placeholders":{"name":{"type":"String"}}},
+  "@openWebUiDirectConnectionDeleteMessage": {
+    "description": "Confirmation message shown before deleting an Open WebUI-synced direct connection.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "addDirectConnection": "Ajouter une connexion",
   "editDirectConnection": "Modifier la connexion",
   "directConnectionName": "Nom de la connexion",
@@ -3114,7 +3224,9 @@
   "directCustomHeaders": "En-têtes personnalisés",
   "directManualModelIds": "ID de modèle saisis manuellement",
   "directManualModelIdsDescription": "Facultatif. Saisissez un ID par ligne si le serveur ne peut pas répertorier ses modèles.",
-  "@directManualModelIdsDescription": {"placeholders":{}},
+  "@directManualModelIdsDescription": {
+    "placeholders": {}
+  },
   "directModelIdPrefix": "Préfixe de l’ID du modèle",
   "directModelIdPrefixDescription": "Facultatif. Ajoute un espace de noms visible, comme studio.model-name, sans modifier l’ID du modèle envoyé au fournisseur.",
   "directModelTags": "Étiquettes du modèle",
@@ -3205,7 +3317,13 @@
   "hermesMemoryKeyShortDescription": "Associe la mémoire à long terme de l’agent à votre identité. Laissez ce champ vide pour que Conduit crée une clé.",
   "hermesConnectAction": "Connecter Hermes",
   "hermesToolCount": "{count, plural, =1{1 outil} other{{count} outils}}",
-  "@hermesToolCount": {"placeholders":{"count":{"type":"int"}}},
+  "@hermesToolCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "hermesNoToolsets": "Aucun ensemble d’outils signalé par le serveur.",
   "hermesToolsetsNewSessions": "Les modifications s'appliquent aux nouvelles sessions Hermes. Les conversations existantes conservent leurs outils actuels.",
   "hermesServerStatusTitle": "État du serveur",
@@ -3258,7 +3376,13 @@
   "hermesTurnControlsUnsupported": "Mettez Hermes à jour pour activer les contrôles de tour sécurisés.",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "{count, plural, =1{Afficher 1 ligne de plus} other{Afficher {count} lignes de plus}}",
-  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "@markdownShowMoreLines": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "markdownShowLess": "Afficher moins",
   "voiceBargeIn": "Interruption",
   "voiceBargeInDescription": "Continue à écouter pendant que l'assistant parle pour pouvoir l'interrompre.",
@@ -3319,56 +3443,151 @@
   "notificationRequiresSound": "Activez le son pour modifier ce réglage.",
   "passwordChangeDescription": "Mettre à jour le mot de passe du compte",
   "profileDetailsSummary": "Biographie, genre et date de naissance",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Deny", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
-  ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
-  ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
-  ,"hermesSessionTooLarge": "Cette conversation est trop volumineuse pour être chargée sur cet appareil."
-  ,"hermesSessionNotFound": "Cette conversation n'est plus disponible sur le serveur Hermes."
-  ,"hermesSessionLoadFailedDetail": "Impossible de charger cette conversation : {detail}"
-  ,"@hermesSessionLoadFailedDetail": {
+  "directMcpServersTitle": "MCP servers",
+  "directMcpEmptyTitle": "No MCP servers yet",
+  "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.",
+  "directMcpEditorTitle": "Edit MCP server",
+  "directMcpAddTitle": "Add MCP server",
+  "directMcpName": "Server name",
+  "directMcpEndpoint": "Streamable HTTP endpoint",
+  "directMcpBearerToken": "Bearer token (optional)",
+  "directMcpCustomHeaders": "Custom headers (optional)",
+  "directMcpCustomHeadersHint": "One per line: Name: Value",
+  "directMcpTestConnection": "Test connection",
+  "directMcpTesting": "Testing connection…",
+  "directMcpTestSucceeded": "Connected — {count} tools found.",
+  "directMcpTestFailed": "Could not list tools from this MCP server.",
+  "directMcpSaveFailed": "Could not save this MCP server.",
+  "directMcpLoadFailed": "Could not load MCP servers from secure storage.",
+  "directMcpMissing": "This MCP server no longer exists.",
+  "directMcpCredentialTransferTitle": "Use credentials with new server?",
+  "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.",
+  "directMcpCredentialTransferConfirm": "Use credentials",
+  "directMcpDeleteTitle": "Delete MCP server?",
+  "directMcpDeleteMessage": "This removes {name} and its credentials from this device.",
+  "directMcpDeleteFailed": "Could not delete this MCP server.",
+  "directMcpAuthMode": "Authentication",
+  "directMcpAuthNone": "None",
+  "directMcpAuthBearer": "Bearer token",
+  "directMcpAuthOAuth": "OAuth",
+  "directMcpOAuthConnect": "Connect in browser",
+  "directMcpOAuthReconnect": "Reconnect in browser",
+  "directMcpOAuthDisconnect": "Disconnect OAuth",
+  "directMcpOAuthPending": "Waiting for authorization in the browser…",
+  "directMcpOAuthConnected": "OAuth connected.",
+  "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}",
+  "directMcpOAuthNoScopes": "No scopes reported",
+  "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.",
+  "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.",
+  "directMcpApprovalTitle": "Tool approval",
+  "directMcpApprovalAllowOnce": "Allow once",
+  "directMcpApprovalAllowSession": "Allow for session",
+  "directMcpApprovalAllowAlways": "Always allow",
+  "directMcpApprovalAlwaysTitle": "Always allow this tool?",
+  "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.",
+  "@directMcpApprovalAlwaysMessage": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "toolName": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.",
+  "directMcpApprovalDeny": "Deny",
+  "directMcpApprovalAllowed": "Allowed once",
+  "directMcpApprovalAllowedSession": "Allowed for session",
+  "directMcpApprovalAllowedAlways": "Always allowed",
+  "directMcpApprovalDenied": "Denied",
+  "directMcpApprovalExpired": "Approval expired",
+  "directMcpRememberedApprovalsTitle": "Always allowed tools",
+  "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.",
+  "directMcpRememberedApprovalRevoke": "Revoke",
+  "directMcpRememberedApprovalsRevokeAll": "Revoke all",
+  "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval.",
+  "directMcpContentAction": "MCP content",
+  "directMcpContentTitle": "MCP content",
+  "directMcpContentServer": "MCP server",
+  "directMcpContentSearch": "Search prompts and resources",
+  "directMcpContentPrompts": "Prompts",
+  "directMcpContentResources": "Resources",
+  "directMcpContentEmpty": "This server has no prompts or resources.",
+  "directMcpContentNoMatches": "No matching prompts or resources.",
+  "directMcpContentLoadFailed": "Could not load content from this MCP server.",
+  "directMcpContentRefresh": "Refresh MCP content",
+  "directMcpContentPreviewTitle": "Preview",
+  "directMcpContentInsert": "Insert",
+  "directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}",
+  "@directMcpContentPromptHeading": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "promptName": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}",
+  "@directMcpContentResourceHeading": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "resourceUri": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpContentRoleUser": "User",
+  "directMcpContentRoleAssistant": "Assistant",
+  "directMcpContentRequestFailed": "Could not load this MCP content. Try again.",
+  "directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource.",
+  "directMcpContentChanged": "This item changed on the server. Refresh and choose it again.",
+  "directMcpContentTooLarge": "This content is too large to insert.",
+  "directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again.",
+  "directMcpContentLoading": "Loading MCP content…",
+  "directMcpInsecureCredentialsTitle": "Send credentials without encryption?",
+  "directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network.",
+  "directMcpInsecureCredentialsConfirm": "Send without encryption",
+  "hermesSessionTooLarge": "Cette conversation est trop volumineuse pour être chargée sur cet appareil.",
+  "hermesSessionNotFound": "Cette conversation n'est plus disponible sur le serveur Hermes.",
+  "hermesSessionLoadFailedDetail": "Impossible de charger cette conversation : {detail}",
+  "@hermesSessionLoadFailedDetail": {
     "placeholders": {
       "detail": {
         "type": "String"
       }
     }
-  }
-  ,"directBearerDescription": "Envoie l'identifiant dans l'en-tête Authorization: Bearer. La plupart des serveurs compatibles OpenAI (llama.cpp, vLLM, LM Studio, Ollama) l'attendent ainsi."
-  ,"directApiKeyHeaderAzureOnlyDescription": "Envoie l'identifiant dans l'en-tête api-key. À utiliser uniquement pour Azure OpenAI ; les autres serveurs compatibles OpenAI attendent un jeton Bearer.",
+  },
+  "directBearerDescription": "Envoie l'identifiant dans l'en-tête Authorization: Bearer. La plupart des serveurs compatibles OpenAI (llama.cpp, vLLM, LM Studio, Ollama) l'attendent ainsi.",
+  "directApiKeyHeaderAzureOnlyDescription": "Envoie l'identifiant dans l'en-tête api-key. À utiliser uniquement pour Azure OpenAI ; les autres serveurs compatibles OpenAI attendent un jeton Bearer.",
   "appleOnDeviceUnavailable": "Apple On-Device n'est pas disponible sur cet appareil.",
   "applePccContextSize": "Contexte : {tokens} jetons",
-  "@applePccContextSize": {"description": "Apple PCC context size label.", "placeholders": {"tokens": {"type": "String"}}},
+  "@applePccContextSize": {
+    "description": "Apple PCC context size label.",
+    "placeholders": {
+      "tokens": {
+        "type": "String"
+      }
+    }
+  },
   "applePccCurrentLanguageUnsupported": "La langue actuelle de l'appareil n'est peut-être pas prise en charge.",
   "applePccOnDeviceFallback": "Repli sur l'appareil",
   "applePccOnDeviceFallbackSubtitle": "Utiliser le modèle Apple plus petit sur l'appareil quand PCC est inaccessible. Les requêtes avec raisonnement n'utilisent jamais ce repli.",
   "applePccQuotaApproaching": "Limite d'utilisation quotidienne bientôt atteinte",
   "applePccQuotaReached": "Limite d'utilisation quotidienne atteinte",
   "applePccQuotaResetsAt": "Réinitialisation : {time}",
-  "@applePccQuotaResetsAt": {"description": "Apple PCC quota reset time.", "placeholders": {"time": {"type": "String"}}},
+  "@applePccQuotaResetsAt": {
+    "description": "Apple PCC quota reset time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "applePccShowQuotaOptions": "Afficher les options d'utilisation",
   "applePccStatusAvailable": "Disponible",
   "applePccUnavailable": "Apple Private Cloud Compute n'est pas disponible sur cet appareil.",
@@ -3385,7 +3604,14 @@
   "directContextCompactionPickerDescription": "Choisissez la fenêtre de contexte que Conduit doit utiliser pour le compactage automatique.",
   "directContextCompactionTitle": "Compactage du contexte",
   "directContextLimit": "Limite de contexte : {tokens}",
-  "@directContextLimit": {"description": "Provider-neutral model context limit label.", "placeholders": {"tokens": {"type": "String"}}},
+  "@directContextLimit": {
+    "description": "Provider-neutral model context limit label.",
+    "placeholders": {
+      "tokens": {
+        "type": "String"
+      }
+    }
+  },
   "notificationSystemSettingsDescription": "Modifier les autorisations, le son et les bannières pour Conduit.",
   "notificationSystemSettingsOpenFailed": "Impossible d'ouvrir les réglages de notifications du système.",
   "notificationTargetsTitle": "Destinations de webhook",
@@ -3418,7 +3644,13 @@
   "notificationTargetTestFailed": "La notification de test n'a pas pu être remise.",
   "notificationTargetDelete": "Supprimer la destination",
   "notificationTargetDeleteConfirm": "Supprimer {name} ? Votre serveur cessera de lui envoyer des notifications.",
-  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
+  "@notificationTargetDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "notificationSystemSettingsTitle": "Réglages de notifications du système",
   "proxyAuthSignInAgain": "Se reconnecter via le proxy",
   "readOnly": "Lecture seule",
@@ -3428,7 +3660,15 @@
   "reasoningEffortModerate": "Modéré",
   "sharedBadge": "Partagé",
   "sharedFolderOwner": "Partagé par {name}",
-  "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "@sharedFolderOwner": {
+    "description": "Owner label on a folder another user shared with this account.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
   "transcribingAudio": "Transcription...",
   "chatTaskProgress": "Tâches : {completed} sur {total} terminées",
   "@chatTaskProgress": {
@@ -3448,7 +3688,14 @@
   "chatTaskCancelled": "Annulée",
   "webSearchSettingsFooterAuto": "Utilisé par les modèles Direct sans recherche Web intégrée. Les recherches partent de cet appareil : les requêtes sont envoyées à DuckDuckGo, puis à Brave, Bing, Mojeek ou Wikipédia s'il ne répond pas. Les pages lues par le modèle sont aussi récupérées depuis cet appareil.",
   "webSearchSettingsFooterEngine": "Utilisé par les modèles Direct sans recherche Web intégrée. Les recherches partent de cet appareil et les requêtes sont envoyées uniquement à {engine}. Les pages lues par le modèle sont aussi récupérées depuis cet appareil.",
-  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "@webSearchSettingsFooterEngine": {
+    "placeholders": {
+      "engine": {
+        "type": "String",
+        "example": "DuckDuckGo"
+      }
+    }
+  },
   "webSearchEngineLabel": "Moteur de recherche",
   "webSearchEngineAuto": "Automatique",
   "webSearchSafeSearchLabel": "Recherche sécurisée",
@@ -3460,9 +3707,27 @@
   "webSearchRegionWorldwide": "Monde entier",
   "directModelToolsUnsupported": "Ce modèle ne peut pas utiliser d'outils et ne peut donc pas effectuer de recherche sur le Web. Désactivez la recherche Web et tous les outils, puis réessayez.",
   "directContextCompactionModelCount": "{count, plural, =1{1 modèle} other{{count} modèles}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "@directContextCompactionModelCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "42"
+      }
+    }
+  },
   "imageViewerPosition": "{current} sur {total}",
-  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "@imageViewerPosition": {
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
   "saveImage": "Enregistrer l'image",
   "imageSaved": "Image enregistrée",
   "imageSaveFailed": "Impossible d'enregistrer l'image.",
@@ -3479,11 +3744,17 @@
   },
   "askConduitAction": "Demander à Conduit",
   "voiceCallStartTimeout": "Le démarrage de l'appel vocal a pris trop de temps. Réessayez.",
-  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "@voiceCallStartTimeout": {
+    "description": "Error shown when starting a voice call takes too long."
+  },
   "voiceCallNoSpeech": "Aucune voix détectée.",
-  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "@voiceCallNoSpeech": {
+    "description": "Message shown when the voice call heard no speech for several tries."
+  },
   "voiceCallFailed": "L'appel vocal n'a pas pu continuer.",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "@voiceCallFailed": {
+    "description": "Generic error shown when a voice call fails for a reason with no specific message."
+  },
   "personalToolSettings": "Réglages des outils",
   "personalToolSettingsDescription": "Vos options personnelles pour les outils et le modèle sélectionnés.",
   "personalToolSettingsYours": "Vos réglages",
@@ -3518,7 +3789,15 @@
   "channelMembersAdd": "Ajouter des membres",
   "channelMembersAddConfirm": "Ajouter",
   "channelMembersRemoveMember": "Retirer {name}",
-  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "@channelMembersRemoveMember": {
+    "description": "Accessibility label for the button that removes one person from the channel.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
   "channelMembersChangeFailed": "Impossible de mettre à jour les membres. Réessayez.",
   "channelMembersChangeDenied": "Le serveur n'a pas autorisé cette modification.",
   "channelMembersChangeNotPermitted": "Vous ne pouvez pas gérer les membres de ce canal.",
@@ -3589,8 +3868,20 @@
   "folderProjectReadOnly": "Ce dossier partagé est en lecture seule, ses paramètres de projet ne peuvent donc pas être modifiés.",
   "folderProjectGone": "Ce dossier n'est plus disponible.",
   "folderProjectModelFallbackNotice": "Le modèle par défaut de ce dossier n'est pas disponible, votre modèle par défaut est donc utilisé.",
-  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
-  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectMoveUp": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@folderProjectRemove": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTasksTitle": "Tâches planifiées",
   "scheduledTasksDescription": "Votre serveur Open WebUI exécute ces tâches selon son propre calendrier, même lorsque ce téléphone est hors ligne.",
   "scheduledTasksUnavailable": "Les tâches planifiées ne sont pas disponibles pour ce compte sur ce serveur.",
@@ -3609,20 +3900,53 @@
   "scheduledTaskStatusActive": "Active",
   "scheduledTaskStatusPaused": "En pause",
   "scheduledTaskNextRun": "Prochaine exécution {time}",
-  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskNextRun": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskNoNextRun": "Aucune exécution à venir",
   "scheduledTaskLastRun": "Dernière exécution {time}",
-  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskLastRun": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskNeverRun": "Jamais exécutée",
   "scheduledTaskScheduleOnce": "Une fois",
   "scheduledTaskScheduleDaily": "Tous les jours",
   "scheduledTaskScheduleWeekly": "Toutes les semaines",
   "scheduledTaskScheduleOnceSummary": "Une fois, {date}",
-  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "@scheduledTaskScheduleOnceSummary": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleDailySummary": "Tous les jours à {time}",
-  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskScheduleDailySummary": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleWeeklySummary": "{days} à {time}",
-  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "@scheduledTaskScheduleWeeklySummary": {
+    "placeholders": {
+      "days": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleCustom": "Planification personnalisée",
   "scheduledTaskNewTitle": "Nouvelle tâche planifiée",
   "scheduledTaskEditTitle": "Modifier la tâche planifiée",
@@ -3632,7 +3956,13 @@
   "scheduledTaskModelLabel": "Modèle",
   "scheduledTaskModelChoose": "Choisir un modèle",
   "scheduledTaskModelUnavailable": "{id} (n'est plus disponible)",
-  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "@scheduledTaskModelUnavailable": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleLabel": "Planification",
   "scheduledTaskTimeLabel": "Heure",
   "scheduledTaskDateLabel": "Date",
@@ -3674,7 +4004,13 @@
   "scheduledTaskOpenResultFailed": "Impossible d'ouvrir ce résultat.",
   "scheduledTaskDelete": "Supprimer la tâche",
   "scheduledTaskDeleteConfirm": "{name} ne sera plus exécutée sur le serveur et son historique d'exécutions sera supprimé.",
-  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "@scheduledTaskDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskChangeFailed": "Impossible de modifier cette tâche.",
   "scheduledTaskTerminalKept": "Un terminal est associé à cette tâche. Il est conservé lorsque vous modifiez la tâche.",
   "scheduledTaskPromptSection": "Instructions",
@@ -3687,12 +4023,27 @@
   "queuedDraftFileFailed": "Un fichier n’a pas été téléversé. Réessayez ou supprimez-le.",
   "queuedDraftsSendFailed": "Impossible d’envoyer les messages en file d’attente. Ils y restent.",
   "queuedDraftsSending": "Envoi des messages en file d’attente…",
-  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "@queuedDraftsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "calendarTitle": "Calendrier",
   "calendarUnavailable": "Le calendrier n'est pas disponible pour ce compte sur ce serveur.",
   "calendarTimezoneNote": "Les heures sont affichées dans le fuseau horaire de cet appareil.",
   "calendarRangeLabel": "{start} – {end}",
-  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "@calendarRangeLabel": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
   "calendarToday": "Aujourd'hui",
   "calendarEmpty": "Aucun événement sur cette période.",
   "calendarLoadFailed": "Impossible de charger le calendrier.",
@@ -3719,9 +4070,21 @@
   "calendarEventDelete": "Supprimer",
   "calendarEventDeleteSeries": "Supprimer la série",
   "calendarEventDeleteConfirm": "Supprimer {title} ? Cette action est irréversible.",
-  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "@calendarEventDeleteConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "calendarEventDeleteSeriesConfirm": "Supprimer {title} et toutes ses répétitions ? Cette action est irréversible.",
-  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "@calendarEventDeleteSeriesConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "calendarEventDeleteFailed": "Impossible de supprimer cet événement.",
   "calendarEventLoadFailed": "Impossible d'ouvrir cet événement pour le modifier.",
   "calendarEventReadOnly": "Vous ne pouvez pas modifier cet événement. Vous pouvez toujours répondre à une invitation.",
@@ -3754,7 +4117,13 @@
   "calendarAddPeople": "Ajouter des personnes",
   "calendarInvitedPerson": "Personne invitée",
   "calendarRemovePerson": "Retirer {name}",
-  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "@calendarRemovePerson": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "calendarAttendeesNote": "Les personnes invitées répondent pour elles-mêmes. Leurs réponses sont conservées lorsque vous modifiez la liste.",
   "calendarNoWritableCalendar": "Vous n'avez aucun calendrier auquel ajouter des événements. Créez un calendrier pour continuer.",
   "calendarTitleRequired": "Saisissez un titre.",
@@ -4167,5 +4536,33 @@
   "accountsRemoveAddressMessage": "Conduit n'essaiera plus cette adresse. Vos comptes restent connectés.",
   "accountsAddressConfirmTitle": "Vérifier cette adresse ?",
   "accountsAddressConfirmMessage": "Pour s'assurer que {host} est bien ce serveur, Conduit lui envoie la session d'un compte enregistré ici. Ne continuez que si vous faites confiance à cette adresse.",
-  "accountsAddressConfirmAction": "Vérifier l'adresse"
+  "accountsAddressConfirmAction": "Vérifier l'adresse",
+  "chatSwitcherReady": "Touchez ou maintenez",
+  "@chatSwitcherReady": {
+    "description": "Idle hint above the floating new-chat and recent-chat switcher button."
+  },
+  "chatSwitcherPress": "Maintenez…",
+  "@chatSwitcherPress": {
+    "description": "Hint while pressing the chat switcher before a long press is recognized."
+  },
+  "chatSwitcherHold": "Glissez vers un chat",
+  "@chatSwitcherHold": {
+    "description": "Hint after holding the chat switcher; sliding selects a recent chat."
+  },
+  "chatSwitcherRelease": "Relâchez pour ouvrir",
+  "@chatSwitcherRelease": {
+    "description": "Hint when releasing the held chat switcher will open the highlighted chat."
+  },
+  "chatSwitcherCancel": "Relâchez pour annuler",
+  "@chatSwitcherCancel": {
+    "description": "Hint when releasing the held chat switcher will cancel without changing chats."
+  },
+  "chatSwitcherCancelled": "Annulé",
+  "@chatSwitcherCancelled": {
+    "description": "Brief confirmation after cancelling the chat-switcher gesture."
+  },
+  "chatSwitcherHint": "Touchez pour un nouveau chat. Maintenez et glissez pour changer de chat.",
+  "@chatSwitcherHint": {
+    "description": "Accessibility hint for the floating button: tap creates a chat, hold and slide switches chats."
+  }
 }

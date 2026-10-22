@@ -9,7 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
 
-import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech.dart';
 
 import '../../../core/services/background_streaming_handler.dart';
 
@@ -21,6 +21,7 @@ import 'package:conduit_markdown/conduit_markdown.dart' as speech;
 import 'package:conduit_core/voice/voice_events.dart';
 
 import 'native_tts_service.dart';
+import 'phonon_tts_service.dart';
 
 export 'package:conduit_core/voice/voice_events.dart'
     show
@@ -49,6 +50,7 @@ class TtsPlaybackSession {
     required this.id,
     required this.chunks,
     required this.useServerTts,
+    this.serverSpeech,
   });
 
   /// Unique session identifier.
@@ -59,6 +61,10 @@ class TtsPlaybackSession {
 
   /// Whether to use server TTS (true) or device TTS (false).
   final bool useServerTts;
+
+  /// The server that speaks it, chosen when it started: text is only ever
+  /// spoken by the chat it came from.
+  final ServerSpeechProvider? serverSpeech;
 }
 
 @visibleForTesting
@@ -174,6 +180,27 @@ class TtsManager {
   NativeTtsService _nativeTts = NativeTtsService();
   StreamSubscription<NativeTtsEvent>? _nativeTtsSub;
   bool _nativeTtsAvailable = false;
+  NativeTtsService _phononTts = PhononTtsService();
+  StreamSubscription<NativeTtsEvent>? _phononTtsSub;
+  NativeTtsService? _sessionDeviceTts;
+  bool _phononAvailable = false;
+
+  bool get _usePhonon =>
+      _voiceCallActive &&
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.android;
+  NativeTtsService get _selectedDeviceTts =>
+      _usePhonon ? _phononTts : _nativeTts;
+  NativeTtsService get _playbackDeviceTts =>
+      _sessionDeviceTts ?? _selectedDeviceTts;
+
+  @visibleForTesting
+  Future<void> debugSetPhononTtsService(NativeTtsService? service) async {
+    await _phononTtsSub?.cancel();
+    _phononTtsSub = null;
+    _phononTts = service ?? PhononTtsService();
+    _phononAvailable = false;
+  }
 
   // Server TTS playback goes through the host's audio port.
   final AudioPlaybackPort _player = AudioPlaybackPort.hostFactory();
@@ -186,8 +213,8 @@ class TtsManager {
   /// events should not be emitted to listeners.
   bool _isTransitioningChunks = false;
 
-  // API service for server TTS (must be set before using server TTS)
-  ApiService? _apiService;
+  // The chat backend's speech, for server TTS (null when it has none)
+  ServerSpeechProvider? _serverSpeech;
 
   // Configuration
   TtsConfig _config = const TtsConfig();
@@ -245,10 +272,15 @@ class TtsManager {
   bool get deviceAvailable => _deviceEngineAvailable;
 
   /// Whether server TTS is available.
-  bool get serverAvailable => _apiService != null;
+  bool get serverAvailable => _serverSpeech?.canSynthesize == true;
+
+  /// Whether the user picks the server voice in Audio settings; see
+  /// [ServerSpeechProvider.offersVoiceChoice].
+  bool get serverOffersVoiceChoice => _serverSpeech?.offersVoiceChoice == true;
 
   /// Whether any TTS is available.
-  bool get isAvailable => _deviceEngineAvailable || serverAvailable;
+  bool get isAvailable =>
+      _usePhonon ? _phononAvailable : _deviceEngineAvailable || serverAvailable;
 
   /// Whether a session is currently active.
   bool get isPlaying => _activeSession != null;
@@ -256,9 +288,9 @@ class TtsManager {
   /// Current configuration.
   TtsConfig get config => _config;
 
-  /// Sets the API service for server TTS.
-  void setApiService(ApiService? api) {
-    _apiService = api;
+  /// Sets the backend that synthesizes server TTS, or null for none.
+  void setServerSpeech(ServerSpeechProvider? speech) {
+    _serverSpeech = speech;
   }
 
   /// Swaps the device engine binding so tests can drive device playback
@@ -283,6 +315,9 @@ class TtsManager {
   /// stay on the media stream or it lands on the earpiece at call volume.
   void setVoiceCallActive(bool active) {
     _voiceCallActive = active;
+    _deviceEngineAvailable = _usePhonon
+        ? _phononAvailable
+        : _nativeTtsAvailable;
   }
 
   /// Updates the TTS configuration.
@@ -377,7 +412,9 @@ class TtsManager {
     await _ensureTtsInitialized();
 
     // Determine whether to use server or device TTS
-    final shouldUseServer = useServer ?? _shouldUseServer();
+    final shouldUseServer = _usePhonon
+        ? false
+        : (useServer ?? _shouldUseServer());
 
     // Split text into chunks
     final chunks = splitTextForSpeech(text);
@@ -391,6 +428,7 @@ class TtsManager {
       id: _sessionCounter,
       chunks: chunks,
       useServerTts: shouldUseServer,
+      serverSpeech: shouldUseServer ? _serverSpeech : null,
     );
     _activeSession = session;
 
@@ -443,12 +481,15 @@ class TtsManager {
     await stop();
     await _ensureTtsInitialized();
 
-    final shouldUseServer = useServer ?? _shouldUseServer();
+    final shouldUseServer = _usePhonon
+        ? false
+        : (useServer ?? _shouldUseServer());
     _sessionCounter++;
     final session = TtsPlaybackSession._(
       id: _sessionCounter,
       chunks: <String>[],
       useServerTts: shouldUseServer,
+      serverSpeech: shouldUseServer ? _serverSpeech : null,
     );
     _activeSession = session;
     _isStreamingSession = true;
@@ -534,7 +575,7 @@ class TtsManager {
       if (session.useServerTts) {
         await _player.pause();
       } else {
-        await _nativeTts.pause();
+        await _playbackDeviceTts.pause();
       }
     } catch (e) {
       _emitEvent(TtsError(e.toString()));
@@ -551,7 +592,7 @@ class TtsManager {
         await _player.play();
         _emitEvent(const TtsResumed());
       } else {
-        await _nativeTts.resume();
+        await _playbackDeviceTts.resume();
       }
     } catch (e) {
       _emitEvent(TtsError(e.toString()));
@@ -561,7 +602,10 @@ class TtsManager {
   /// Stops the current playback.
   Future<void> stop() async {
     final session = _activeSession;
-    if (session == null) return;
+    if (session == null) {
+      if (_usePhonon) await _phononTts.stop();
+      return;
+    }
 
     _activeSession = null;
 
@@ -569,7 +613,7 @@ class TtsManager {
       if (session.useServerTts) {
         await _player.stop();
       } else {
-        await _nativeTts.stop();
+        await _playbackDeviceTts.stop();
       }
       _resetPlaybackState();
       _emitEvent(const TtsCancelled());
@@ -613,6 +657,8 @@ class TtsManager {
     await stop();
     await _nativeTtsSub?.cancel();
     _nativeTtsSub = null;
+    await _phononTtsSub?.cancel();
+    _phononTtsSub = null;
     await _playerStateSub?.cancel();
     await _playerIndexSub?.cancel();
     await _player.dispose();
@@ -694,7 +740,8 @@ class TtsManager {
   Future<({Uint8List bytes, String mimeType})> synthesizeChunk(
     String text,
   ) async {
-    if (_apiService == null) {
+    final speech = _serverSpeech;
+    if (speech == null || !speech.canSynthesize) {
       throw StateError('Server TTS is not available');
     }
     if (text.trim().isEmpty) {
@@ -702,8 +749,7 @@ class TtsManager {
     }
 
     final voice = await _resolveServerVoice();
-    final result = await _apiService!.generateSpeech(text: text, voice: voice);
-    return (bytes: result.bytes, mimeType: result.mimeType);
+    return speech.synthesize(text, preferredVoice: voice);
   }
 
   /// Chains feeds so a second one cannot append its chunks in between the ones
@@ -808,6 +854,7 @@ class TtsManager {
     unawaited(() async {
       try {
         final chunk = await _fetchServerAudioWithRetry(
+          session.serverSpeech,
           session.chunks[index],
           voice,
         );
@@ -839,7 +886,34 @@ class TtsManager {
   // ===========================================================================
 
   Future<void> _ensureTtsInitialized() async {
-    if (_ttsInitialized) return;
+    if (_usePhonon) {
+      _phononTtsSub ??= _phononTts.events.listen(
+        (event) {
+          if (identical(_sessionDeviceTts, _phononTts)) {
+            _handleNativeTtsEvent(event);
+          }
+        },
+        onError: (Object error) {
+          if (identical(_sessionDeviceTts, _phononTts)) {
+            _emitEvent(
+              const TtsError('Phonon Zoey failed. No other voice was used.'),
+            );
+          }
+        },
+      );
+      _phononAvailable = await _phononTts.isAvailable();
+      _deviceEngineAvailable = _phononAvailable;
+      if (!_phononAvailable) {
+        throw StateError(
+          'Phonon Zoey could not load. No other voice was used.',
+        );
+      }
+      return;
+    }
+    if (_ttsInitialized) {
+      _deviceEngineAvailable = _nativeTtsAvailable;
+      return;
+    }
 
     if (_initCompleter != null) {
       await _initCompleter!.future;
@@ -865,9 +939,15 @@ class TtsManager {
     _nativeTtsAvailable = await _nativeTts.isAvailable();
     if (_nativeTtsAvailable && _nativeTtsSub == null) {
       _nativeTtsSub = _nativeTts.events.listen(
-        _handleNativeTtsEvent,
+        (event) {
+          if (identical(_sessionDeviceTts, _nativeTts)) {
+            _handleNativeTtsEvent(event);
+          }
+        },
         onError: (Object error) {
-          _emitEvent(TtsError(error.toString()));
+          if (identical(_sessionDeviceTts, _nativeTts)) {
+            _emitEvent(TtsError(error.toString()));
+          }
         },
       );
     }
@@ -912,6 +992,7 @@ class TtsManager {
   // ===========================================================================
 
   Future<void> _startDevicePlayback(TtsPlaybackSession session) async {
+    _sessionDeviceTts = _selectedDeviceTts;
     if (!_deviceEngineAvailable) {
       throw StateError('Device TTS is not available');
     }
@@ -957,7 +1038,8 @@ class TtsManager {
   }
 
   Future<void> _speakDeviceChunk(String chunk) async {
-    final started = await _nativeTts.speak(
+    _sessionDeviceTts ??= _selectedDeviceTts;
+    final started = await _playbackDeviceTts.speak(
       text: chunk,
       voiceIdentifier: _config.voice,
       rate: _config.speechRate,
@@ -983,7 +1065,7 @@ class TtsManager {
   // ===========================================================================
 
   Future<void> _startServerPlayback(TtsPlaybackSession session) async {
-    if (_apiService == null) {
+    if (!serverAvailable) {
       throw StateError('Server TTS is not available');
     }
 
@@ -998,6 +1080,7 @@ class TtsManager {
 
     // Fetch and play first chunk
     final firstChunk = await _fetchServerAudioWithRetry(
+      session.serverSpeech,
       session.chunks.first,
       voice,
     );
@@ -1016,6 +1099,7 @@ class TtsManager {
     if (session.chunks.length > 1) {
       try {
         final secondChunk = await _fetchServerAudioWithRetry(
+          session.serverSpeech,
           session.chunks[1],
           voice,
         ).timeout(_serverInitialLookaheadTimeout);
@@ -1076,6 +1160,7 @@ class TtsManager {
 
         try {
           final chunk = await _fetchServerAudioWithRetry(
+            session.serverSpeech,
             session.chunks[i],
             voice,
           );
@@ -1098,19 +1183,22 @@ class TtsManager {
   }
 
   Future<_AudioChunk> _fetchServerAudio(
+    ServerSpeechProvider? speech,
     String text,
     String? voice, {
     double? speed,
   }) async {
-    final result = await _apiService!.generateSpeech(
-      text: text,
-      voice: voice,
+    if (speech == null) throw StateError('Server TTS is not available');
+    final result = await speech.synthesize(
+      text,
+      preferredVoice: voice,
       speed: speed,
     );
     return _AudioChunk(bytes: result.bytes, mimeType: result.mimeType);
   }
 
   Future<_AudioChunk> _fetchServerAudioWithRetry(
+    ServerSpeechProvider? speech,
     String text,
     String? voice,
   ) async {
@@ -1124,7 +1212,7 @@ class TtsManager {
 
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await _fetchServerAudio(requestText, requestVoice);
+        return await _fetchServerAudio(speech, requestText, requestVoice);
       } catch (error) {
         lastError = error;
 
@@ -1222,6 +1310,7 @@ class TtsManager {
       }
 
       final recovered = await _fetchServerAudioWithRetry(
+        session.serverSpeech,
         session.chunks[index],
         voice,
       );
@@ -1397,16 +1486,18 @@ class TtsManager {
   // ===========================================================================
 
   bool _shouldUseServer() {
-    if (_config.preferServer && _apiService != null) {
+    if (_usePhonon) return false;
+    if (_config.preferServer && serverAvailable) {
       return true;
     }
     if (_deviceEngineAvailable) {
       return false;
     }
-    return _apiService != null;
+    return serverAvailable;
   }
 
   void _resetPlaybackState() {
+    _sessionDeviceTts = null;
     _currentChunkIndex = -1;
     _serverCurrentIndex = -1;
     _serverLastEnqueuedIndex = -1;

@@ -43,6 +43,7 @@ void main() {
         socketServiceProvider.overrideWithValue(null),
         appSettingsProvider.overrideWithValue(const AppSettings()),
         voiceModeInputProvider.overrideWithValue(input),
+        voiceModeSpeechProvider.overrideWithValue(_AvailableTestSpeech()),
         voiceAudioSessionProvider.overrideWithValue(audioSession),
       ],
     );
@@ -161,6 +162,8 @@ class _RejectedVoiceStartController extends ChatVoiceModeController {
     required bool startNewConversation,
     bool Function()? shouldStart,
     Model? admittedModel,
+    bool preferStandard = false,
+    bool queueSpokenTurns = false,
   }) async {
     state = const ChatVoiceModeSnapshot(
       phase: ChatVoiceModePhase.error,
@@ -182,6 +185,8 @@ class _RecordingVoiceStartController extends ChatVoiceModeController {
     required bool startNewConversation,
     bool Function()? shouldStart,
     Model? admittedModel,
+    bool preferStandard = false,
+    bool queueSpokenTurns = false,
   }) async {
     admittedModels.add(admittedModel);
     startedByStartNewConversation.add(startNewConversation);
@@ -240,4 +245,16 @@ class _FakeAudioSession extends NoVoiceAudioSession {
   Future<void> configureForListening() async {
     listeningCalls += 1;
   }
+}
+
+class _AvailableTestSpeech extends SilentVoiceModeSpeech {
+  @override
+  Future<bool> initialize({
+    String? deviceVoice,
+    String? serverVoice,
+    double speechRate = 0.5,
+    double pitch = 1,
+    double volume = 1,
+    TtsEngine engine = TtsEngine.device,
+  }) async => true;
 }

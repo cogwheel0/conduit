@@ -20,6 +20,7 @@ import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/markdown_table.dart';
 import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
@@ -1015,6 +1016,7 @@ void main() {
     MarkdownLinkTapCallback? onTapLink,
     Widget Function(Uri uri, String? title, String? alt)? imageBuilderOverride,
     bool enableStreamingTextFade = false,
+    Duration streamingTextFadeDuration = const Duration(milliseconds: 320),
   }) {
     return ProviderScope(
       child: MaterialApp(
@@ -1032,6 +1034,7 @@ void main() {
               onTapLink: onTapLink,
               imageBuilderOverride: imageBuilderOverride,
               enableStreamingTextFade: enableStreamingTextFade,
+              streamingTextFadeDuration: streamingTextFadeDuration,
               debugRenderInterval: debugRenderInterval,
               debugOnCompiledViewMounted: onCompiledViewMounted,
               debugOnCompiledViewDisposed: onCompiledViewDisposed,
@@ -1083,7 +1086,8 @@ void main() {
     await tester.pumpWidget(buildHarness(content));
     await tester.pumpAndSettle();
 
-    DataTable table() => tester.widget<DataTable>(find.byType(DataTable));
+    MarkdownTableView table() =>
+        tester.widget<MarkdownTableView>(find.byType(MarkdownTableView));
     check(table().rows).length.equals(20);
 
     final showMore = find.text('Show 15 more lines');
@@ -1752,6 +1756,49 @@ graph TD
       isTrue,
     );
   });
+
+  for (final duration in [Duration.zero, const Duration(milliseconds: 120)]) {
+    testWidgets('short suffix reveal preserves text geometry: $duration', (
+      tester,
+    ) async {
+      Widget harness(String text) => buildHarness(
+        text,
+        isStreaming: true,
+        enableStreamingTextFade: true,
+        streamingTextFadeDuration: duration,
+      );
+      await tester.pumpWidget(harness('Hello'));
+      await tester.pump();
+      await tester.pumpWidget(harness('Hello **world**'));
+      await tester.pump();
+      final rendered = find.byWidgetPredicate(
+        (w) => w is Text && w.textSpan?.toPlainText() == 'Hello world',
+      );
+      double alpha() =>
+          _textSpanLeaves(tester.widget<Text>(rendered).textSpan!)
+              .singleWhere((span) => span.text == 'world')
+              .style
+              ?.color
+              ?.a ??
+          1;
+      final start = alpha();
+      final rect = tester.getRect(rendered);
+      expect(start, duration == Duration.zero ? 1 : lessThan(1));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(alpha(), greaterThanOrEqualTo(start));
+      expect(tester.getRect(rendered), rect);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(alpha(), 1);
+      expect(tester.getRect(rendered), rect);
+      expect(
+        _textSpanLeaves(tester.widget<Text>(rendered).textSpan!)
+            .singleWhere((span) => span.text == 'world')
+            .style
+            ?.fontWeight,
+        FontWeight.bold,
+      );
+    });
+  }
 
   testWidgets(
     'fade reuses the cached base span tree instead of rebuilding per frame',
@@ -4073,7 +4120,7 @@ Tail keeps growing
 
       await tester.pumpWidget(buildHarness(content));
 
-      expect(find.text('Preview'), findsOneWidget);
+      expect(find.byTooltip('Preview'), findsOneWidget);
       expect(find.text('html'), findsAtLeastNWidgets(1));
       expect(find.text('HTML Preview'), findsNothing);
       expect(
@@ -4081,7 +4128,7 @@ Tail keeps growing
         findsNothing,
       );
 
-      await tester.tap(find.text('Preview'));
+      await tester.tap(find.byTooltip('Preview'));
       await tester.pumpAndSettle();
 
       expect(find.text('HTML Preview'), findsOneWidget);

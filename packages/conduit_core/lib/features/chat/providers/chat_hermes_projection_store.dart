@@ -6,6 +6,20 @@ part of 'chat_providers.dart';
 // it. Final snapshots are retained only as a bounded recovery bridge; the
 // Hermes server remains authoritative for native Hermes session history.
 const int _maxRetainedHermesProjections = 32;
+
+/// Host notification hook. Completion belongs to the captured conversation,
+/// even when another chat is visible. Hosts without notifications bind a no-op.
+final hermesChatCompletionCallbackProvider =
+    Provider<void Function(Conversation, ChatMessage)>((ref) => (_, _) {});
+
+/// Terminal state belongs to the run's captured owner, including when another
+/// conversation is visible. Hosts may retain a bounded work receipt.
+enum HermesChatOutcome { completed, failed, stopped }
+
+final hermesChatOutcomeCallbackProvider =
+    Provider<void Function(Conversation, ChatMessage, HermesChatOutcome)>(
+      (ref) => (_, _, _) {},
+    );
 const int _maxRetainedHermesProjectionBytes = 32 * 1024 * 1024;
 const Duration _hermesLateSessionCleanupDeadline = Duration(seconds: 5);
 const int _maxHermesReplayHistoryCharacters = 512 * 1024;

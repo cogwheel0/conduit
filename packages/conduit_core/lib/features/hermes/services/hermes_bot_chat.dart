@@ -20,6 +20,7 @@ typedef HermesBotChatPresentation = ({
 /// data URL when it has one. Empty without a bot.
 Map<String, Object> hermesBotChatMetadata({HermesBot? bot, String? avatar}) => {
   if (bot != null) kHermesBotTitleMetadataKey: bot.title,
+  if (bot != null) 'hermesBotProfile': bot.name,
   kHermesBotAvatarMetadataKey: ?avatar,
   if (bot != null) kHermesBotShapeMetadataKey: bot.avatarShape,
   if (bot != null) kHermesBotColorMetadataKey: bot.avatarColor,

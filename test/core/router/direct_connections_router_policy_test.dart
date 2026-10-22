@@ -17,6 +17,7 @@ void main() {
         Routes.appearanceSettings,
         Routes.chatSettings,
         Routes.dataConnectionSettings,
+        Routes.notificationSettings,
         Routes.personalization,
         Routes.directConnections,
         Routes.directConnectionEditorPath('profile_1'),
@@ -31,7 +32,6 @@ void main() {
     test('does not expose Open WebUI-only surfaces', () {
       for (final location in <String>[
         Routes.accountSettings,
-        Routes.notificationSettings,
         Routes.notes,
         Routes.channel,
       ]) {

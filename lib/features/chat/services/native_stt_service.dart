@@ -38,6 +38,7 @@ class NativeSttEvent {
     this.engine,
     this.code,
     this.message,
+    this.level,
   });
 
   final String type;
@@ -47,6 +48,9 @@ class NativeSttEvent {
   final String? code;
   final String? message;
 
+  /// Microphone amplitude normalized to 0–1, independent of transcript updates.
+  final double? level;
+
   factory NativeSttEvent.fromMap(Map<Object?, Object?> map) {
     return NativeSttEvent(
       type: (map['type'] as String?) ?? 'unknown',
@@ -55,6 +59,7 @@ class NativeSttEvent {
       engine: map['engine'] as String?,
       code: map['code'] as String?,
       message: map['message'] as String?,
+      level: (map['level'] as num?)?.toDouble(),
     );
   }
 }
@@ -188,6 +193,7 @@ class NativeSttService {
     bool emitPartialResults = true,
     bool accumulateResults = true,
     bool allowOnlineFallback = true,
+    bool voiceCall = false,
   }) async {
     if (!isSupportedPlatform) {
       throw const NativeSttException('Unsupported platform');
@@ -224,6 +230,7 @@ class NativeSttService {
           'emitPartialResults': emitPartialResults,
           'accumulateResults': accumulateResults,
           'allowOnlineFallback': allowOnlineFallback,
+          'voiceCall': voiceCall,
         },
       );
       final availability = NativeSttAvailability.fromMap(response);

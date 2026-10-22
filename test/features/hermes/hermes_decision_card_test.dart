@@ -37,6 +37,169 @@ class _DecisionMessages extends ChatMessagesNotifier {
 }
 
 void main() {
+  Widget host(Widget child) => MaterialApp(
+    theme: AppTheme.light(TweakcnThemes.t3Chat),
+    localizationsDelegates: conduitLocalizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: Scaffold(body: child),
+  );
+
+  testWidgets('dismissed draft survives scrolling its lazy row out of view', (
+    tester,
+  ) async {
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    final sent = <String>[];
+    await tester.pumpWidget(
+      host(
+        ListView.builder(
+          controller: scroll,
+          cacheExtent: 0,
+          itemCount: 100,
+          itemBuilder: (context, index) => index == 0
+              ? HermesDecisionCard(
+                  key: const ValueKey('pending-question'),
+                  kind: HermesDecisionKind.clarification,
+                  prompt: 'What should I update?',
+                  onSubmit: (answer) async {
+                    sent.add(answer);
+                    return true;
+                  },
+                )
+              : SizedBox(height: 100, child: Text('Message $index')),
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byType(TextField),
+      'Keep the draft while scrolling',
+    );
+    await tester.tap(find.text('Dismiss'));
+    await tester.pumpAndSettle();
+    scroll.jumpTo(3000);
+    await tester.pumpAndSettle();
+    expect(find.text('Waiting for your response'), findsNothing);
+    scroll.jumpTo(0);
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.text('Waiting for your response'));
+    await tester.pumpAndSettle();
+    expect(find.text('Keep the draft while scrolling'), findsOneWidget);
+    await tester.tap(find.text('Send'));
+    await tester.pump();
+    expect(sent, ['Keep the draft while scrolling']);
+  });
+
+  testWidgets(
+    'written answer has no helper text; dismiss keeps its draft and sends nothing',
+    (tester) async {
+      final sent = <String>[];
+      await tester.pumpWidget(
+        host(
+          HermesDecisionCard(
+            kind: HermesDecisionKind.clarification,
+            prompt: 'What should I update?',
+            onSubmit: (answer) async {
+              sent.add(answer);
+              return true;
+            },
+          ),
+        ),
+      );
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.decoration?.hintText, isNull);
+      expect(field.decoration?.labelText, isNull);
+      expect(field.decoration?.helperText, isNull);
+      expect(find.text('Hermes needs clarification'), findsNothing);
+      await tester.enterText(find.byType(TextField), 'Keep this draft');
+      await tester.tap(find.text('Dismiss'));
+      await tester.pump();
+      expect(sent, isEmpty);
+      expect(find.byType(TextField), findsNothing);
+      await tester.tap(find.text('Waiting for your response'));
+      await tester.pump();
+      expect(find.text('Keep this draft'), findsOneWidget);
+      await tester.tap(find.text('Send'));
+      await tester.pump();
+      expect(sent, ['Keep this draft']);
+    },
+  );
+
+  testWidgets('written alternative takes precedence over selected choices', (
+    tester,
+  ) async {
+    String? sent;
+    await tester.pumpWidget(
+      host(
+        HermesDecisionCard(
+          kind: HermesDecisionKind.clarification,
+          choices: const ['Home', 'Pricing'],
+          multiSelect: true,
+          onSubmit: (answer) async {
+            sent = answer;
+            return true;
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.text('Home'));
+    await tester.pump();
+    await tester.tap(find.text('Write a different answer'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'Contact instead');
+    await tester.pump();
+    await tester.tap(find.text('Send'));
+    await tester.pump();
+    expect(sent, 'Contact instead');
+  });
+
+  testWidgets(
+    'inline prompt is bound to its own message, not another pending question',
+    (tester) async {
+      ChatMessage question(String id, String prompt) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2026),
+        metadata: {
+          'transport': kHermesTransport,
+          kHermesDecisionMeta: {
+            'state': 'pending',
+            'kind': 'clarification',
+            'prompt': prompt,
+            'requestId': id,
+            'runtimeId': 'runtime',
+            'storedSessionId': 'session',
+            'expiresAt': clock
+                .now()
+                .add(const Duration(hours: 1))
+                .toUtc()
+                .toIso8601String(),
+          },
+        },
+      );
+      final first = question('first', 'First question');
+      final second = question('second', 'Second question');
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            activeConversationProvider.overrideWith(_DecisionConversation.new),
+            chatMessagesProvider.overrideWith(
+              () => _DecisionMessages([first, second]),
+            ),
+          ],
+          child: host(
+            HermesComposerPromptOverlay(
+              message: first,
+              presentation: HermesPromptPresentation.inlineMessage,
+            ),
+          ),
+        ),
+      );
+      expect(find.text('First question'), findsOneWidget);
+      expect(find.text('Second question'), findsNothing);
+    },
+  );
   test('selects the newest unresolved Hermes composer prompt', () {
     final approval = ChatMessage(
       id: 'approval',
@@ -399,7 +562,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), 'keep this');
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send'));
     await tester.pump();
     expect(find.text('keep this'), findsOneWidget);
   });
@@ -429,7 +592,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('beta'));
     await tester.pump();
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send'));
     await tester.pump();
     expect(answer, '["alpha","beta"]');
   });

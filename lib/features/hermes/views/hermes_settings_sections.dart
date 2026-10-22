@@ -140,6 +140,11 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
         HermesBackendMode.desktopGateway;
     return InsetGroupedSection(
       title: l10n.hermesCapabilityToolsets,
+      titleStyle: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        color: theme.textPrimary,
+      ),
       child: ref
           .watch(hermesToolsetsProvider)
           .when(
@@ -165,9 +170,13 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
                     UtilityRow(
                       title: toolset.label,
                       subtitle: l10n.hermesToolCount(toolset.tools.length),
+                      value: toolset.enabled ? l10n.enabled : l10n.disabled,
+                      preserveTrailingSemantics: desktop,
+                      enabled: !_pending.contains(toolset.name),
                       trailing: desktop
                           ? AdaptiveSwitch(
                               value: toolset.enabled,
+                              semanticLabel: toolset.label,
                               onChanged: _pending.contains(toolset.name)
                                   ? null
                                   : (enabled) =>
@@ -310,6 +319,7 @@ class _HermesTransportSectionState extends State<HermesTransportSection> {
             subtitle: l10n.allowSelfSignedCertificatesDescription,
             trailing: AdaptiveSwitch(
               value: _controller.allowSelfSignedCertificates,
+              semanticLabel: l10n.allowSelfSignedCertificates,
               onChanged: _controller.setAllowSelfSignedCertificates,
             ),
             onTap: () => _controller.setAllowSelfSignedCertificates(

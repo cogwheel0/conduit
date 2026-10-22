@@ -100,6 +100,8 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
     this.askConduitComposerTargetId,
     this.stateScopeId,
     this.enableStreamingTextFade = true,
+    this.streamingTextFadeDuration = const Duration(milliseconds: 320),
+    this.enableTextSelection = true,
     this.debugTreatAsWidgetTest,
     this.debugRenderInterval,
     this.debugOnCompiledViewMounted,
@@ -135,6 +137,10 @@ class StreamingMarkdownWidget extends ConsumerStatefulWidget {
   /// explicitly disables it so token updates remain immediate; low-frequency
   /// preview surfaces can retain the decorative reveal.
   final bool enableStreamingTextFade;
+  final Duration streamingTextFadeDuration;
+
+  /// Disable when a parent owns long-press actions and provides selection separately.
+  final bool enableTextSelection;
 
   @visibleForTesting
   final bool? debugTreatAsWidgetTest;
@@ -813,7 +819,8 @@ class _StreamingMarkdownWidgetState
     // must not be made selectable: SelectionArea over rapidly-changing content
     // triggers concurrent-modification errors in Flutter's selection system.
     // Chunked inflation mutates children per frame, so it also holds this off.
-    if (widget.isStreaming ||
+    if (!widget.enableTextSelection ||
+        widget.isStreaming ||
         _settledPreparationPending ||
         !hasFreshCompiledDocument ||
         !_renderGate.isComplete) {
@@ -943,6 +950,7 @@ class _StreamingMarkdownWidgetState
       onSourceTap: widget.onSourceTap,
       stateScopeId: stateScopeId,
       enableStreamingTextFade: enableStreamingTextFade,
+      streamingTextFadeDuration: widget.streamingTextFadeDuration,
       heavyBlockPolicy: widget.isStreaming
           ? MarkdownHeavyBlockPolicy.defer
           : MarkdownHeavyBlockPolicy.eager,

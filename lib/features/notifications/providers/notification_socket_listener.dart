@@ -20,6 +20,15 @@ import 'package:conduit_core/features/channels/providers/channel_providers.dart'
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/services/active_view_tracker.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/features/hermes/models/hermes_notification_target.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+
+import '../../hermes/widgets/hermes_session_tile.dart';
 
 import '../services/local_notification_service.dart';
 
@@ -51,6 +60,40 @@ bool _isAppForeground() {
   final state = WidgetsBinding.instance.lifecycleState;
   // Null very early in startup — treat as foreground so banners work.
   return state == null || state == AppLifecycleState.resumed;
+}
+
+/// Hermes uses its own turn transport, so OpenWebUI's socket completion
+/// listener cannot observe it. The captured owner supplies the destination.
+void notifyHermesChatCompletion(
+  Ref ref,
+  Conversation conversation,
+  ChatMessage message,
+) {
+  if (_isAppForeground() || !isNativeHermesConversation(conversation)) return;
+  final sessionId = conversation.metadata['hermesSessionId'];
+  final connection =
+      conversation.metadata[kHermesConnectionIdentityMetadataKey];
+  if (sessionId is! String || connection is! String) return;
+  final target = HermesNotificationTarget(
+    sessionId: sessionId,
+    connectionIdentity: connection,
+  );
+  final sourceId = target.encode();
+  final l10n = currentAppLocalizations();
+  unawaited(
+    ref
+        .read(notificationRouterProvider)
+        .route(
+          AppNotification(
+            kind: NotificationKind.chatCompletion,
+            title: conversation.title,
+            body: l10n.hermesReplyReadyNotification,
+            sourceId: sourceId,
+            dedupKey: '$sourceId:${message.id}',
+          ),
+        )
+        .catchError((Object _) => NotificationSurface.suppressed),
+  );
 }
 
 void _showInAppBanner(Ref ref, AppNotification notification) {
@@ -95,6 +138,36 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
       case NotificationKind.channelMessage:
         NavigationService.navigateToChannel(tap.sourceId);
       case NotificationKind.chatCompletion:
+        if (tap.sourceId.startsWith(HermesNotificationTarget.prefix)) {
+          final target = HermesNotificationTarget.decode(tap.sourceId);
+          if (target == null) return;
+          await ref
+              .read(hermesConfigProvider.notifier)
+              .waitForSecretsHydration();
+          final service = ref.read(hermesApiServiceProvider);
+          final context = NavigationService.navigatorKey.currentContext;
+          if (service == null || context == null || !context.mounted) return;
+          final endpoint = HermesConfigController.connectionEndpoint(
+            service.config.baseUrl,
+          );
+          if (endpoint == null) return;
+          final identity = HermesLocalDocumentTrustStore.connectionIdentity(
+            endpointIdentity: endpoint,
+            principalId: ref
+                .read(hermesConfigProvider.notifier)
+                .documentTrustPrincipalId(),
+          );
+          if (identity != target.connectionIdentity) return;
+          await openHermesSessionWithReader(
+            context,
+            ref.read,
+            HermesSessionSummary(
+              id: target.sessionId,
+              title: tap.title ?? 'Hermes',
+            ),
+          );
+          return;
+        }
         final ownership = captureOpenWebUiConversationRead(ref);
         if (ownership == null) return;
         final outgoing = ref.read(activeConversationProvider);
@@ -140,6 +213,7 @@ class NotificationSocketListener extends _$NotificationSocketListener {
   StreamSubscription<void>? _reconnectSub;
   StreamSubscription<NotificationTap>? _tapSub;
   SocketService? _boundSocket;
+  bool _launchTapHandled = false;
 
   @override
   void build() {
@@ -168,7 +242,7 @@ class NotificationSocketListener extends _$NotificationSocketListener {
 
   /// Handles a notification that cold-launched the app from a killed state.
   /// Called once after the router is ready.
-  Future<void> handleLaunchTap() async {
+  Future<void> handleLaunchTap({bool hermesOnly = false}) async {
     final local = ref.read(localNotificationServiceProvider);
     // Ensure the plugin finished native init before querying the launch intent:
     // on Android getNotificationAppLaunchDetails() returns null until then, so
@@ -176,7 +250,11 @@ class NotificationSocketListener extends _$NotificationSocketListener {
     // and shares the in-flight future started in build().
     await local.initialize();
     final tap = await local.launchTap();
-    if (tap != null) {
+    if (tap != null &&
+        !_launchTapHandled &&
+        (!hermesOnly ||
+            tap.sourceId.startsWith(HermesNotificationTarget.prefix))) {
+      _launchTapHandled = true;
       await _handleTap(ref, tap);
     }
   }

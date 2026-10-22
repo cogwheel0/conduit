@@ -64,7 +64,7 @@ class FileAttachmentWidget extends ConsumerWidget {
           Text(
             AppLocalizations.of(context)!.attachments,
             style: AppTypography.labelMediumStyle.copyWith(
-              color: context.conduitTheme.textSecondary.withValues(alpha: 0.7),
+              color: context.conduitTheme.textTertiary,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -146,7 +146,7 @@ class _FileAttachmentCard extends ConsumerWidget {
           Text(
             LocaleDisplayFormatters.bytes(context, fileState.fileSize),
             style: AppTypography.labelSmallStyle.copyWith(
-              color: context.conduitTheme.textSecondary.withValues(alpha: 0.6),
+              color: context.conduitTheme.textTertiary,
             ),
           ),
           if (fileState.status == FileUploadStatus.uploading) ...[

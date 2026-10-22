@@ -1,8 +1,10 @@
 package app.cogwheel.conduit
 
 import android.content.Intent
+import android.media.AudioFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognitionSupport
 import android.speech.RecognitionSupportCallback
@@ -36,7 +38,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-class NativeSttBridge(private val activity: MainActivity) : MethodChannel.MethodCallHandler,
+class NativeSttBridge internal constructor(
+    private val activity: MainActivity,
+    private val audioSourceFactory: ((Double) -> Unit, (Throwable) -> Unit, Boolean) -> SttAudioSource =
+        { onLevel, onError, voiceCall -> MeteredSttAudioSource(onLevel, onError, voiceCall) }
+) : MethodChannel.MethodCallHandler,
     EventChannel.StreamHandler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var eventSink: EventChannel.EventSink? = null
@@ -44,7 +50,10 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     private var activeMlKitRecognizer: MlKitSpeechRecognizer? = null
     private var activePlatformRecognizer: AndroidSpeechRecognizer? = null
     private var recognitionJob: kotlinx.coroutines.Job? = null
+    @Volatile
+    private var meteredAudioSource: SttAudioSource? = null
     private var platformRestartJob: kotlinx.coroutines.Job? = null
+    private var voiceCallCapture = false
     private var platformStopRequested = false
     private var platformEmitPartialResults = true
     private var platformAccumulateResults = true
@@ -55,6 +64,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     private val platformFailedLocaleIds = mutableSetOf<String?>()
     private var platformEngineName = "android_speech"
     private var platformCommittedText = ""
+    private var platformCaptureStartedAt = 0L
+    private val languageSwitchSupport = mutableMapOf<Boolean, List<String>>()
     @Volatile
     private var recognitionGeneration = 0
 
@@ -90,12 +101,14 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 val emitPartialResults = call.argument<Boolean>("emitPartialResults") ?: true
                 val accumulateResults = call.argument<Boolean>("accumulateResults") ?: true
                 val allowOnlineFallback = call.argument<Boolean>("allowOnlineFallback") ?: true
+                val voiceCall = call.argument<Boolean>("voiceCall") ?: false
                 scope.launch {
                     start(
                         localeId,
                         emitPartialResults,
                         accumulateResults,
                         allowOnlineFallback,
+                        voiceCall,
                         result
                     )
                 }
@@ -135,10 +148,10 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         localeId: String?,
         allowOnlineFallback: Boolean
     ): Map<String, Any?> {
-        val languageSwitch = platformLanguageSwitch(localeId, allowOnlineFallback)
-        if (languageSwitch != null) {
-            runCatching { languageSwitch.recognizer.destroy() }
-            return available("android_speech_auto")
+        if (platformRecognizerAvailable(allowOnlineFallback)) {
+            val automatic = NativeSttLanguagePolicy.usesPlatformLanguageSwitch(localeId, Build.VERSION.SDK_INT) &&
+                NativeSttLanguagePolicy.hasMultipleLanguages(languageSwitchSupport[allowOnlineFallback].orEmpty())
+            return available(if (automatic) "android_speech_auto" else "android_speech")
         }
 
         val mlKitAvailability = checkMlKitAvailability(localeId)
@@ -192,14 +205,20 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         emitPartialResults: Boolean,
         accumulateResults: Boolean,
         allowOnlineFallback: Boolean,
+        voiceCall: Boolean,
         result: MethodChannel.Result
     ) {
         val generation = recognitionGeneration + 1
         recognitionGeneration = generation
         stopInternal(emitDone = false, awaitCompletion = false)
+        voiceCallCapture = voiceCall
+        val usePlatformCapture = platformRecognizerAvailable(allowOnlineFallback) &&
+            (!voiceCall || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && usesSystemOnDeviceRecognizer(allowOnlineFallback)))
         val languageSwitch = platformLanguageSwitch(localeId, allowOnlineFallback)
         val usePlatformLanguageSwitch = languageSwitch != null
-        val prepared = if (usePlatformLanguageSwitch) {
+        // Use the phone's recognizer directly. ML Kit preparation/downloads
+        // are a fallback only for devices without a platform recognizer.
+        val prepared = if (usePlatformCapture) {
             null
         } else {
             try {
@@ -224,7 +243,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             return
         }
         if (prepared == null) {
-            if (platformRecognizerAvailable(allowOnlineFallback)) {
+            if (usePlatformCapture) {
                 try {
                     startPlatformRecognizer(
                         localeId,
@@ -255,6 +274,33 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
 
         val (recognizer, engineName) = prepared
+        val audio = audioSourceFactory(
+            { level ->
+                activity.runOnUiThread {
+                    if (isCurrentGeneration(generation) && activeMlKitRecognizer === recognizer) {
+                        emit(mapOf("type" to "level", "level" to level, "engine" to engineName))
+                    }
+                }
+            },
+            { error ->
+                activity.runOnUiThread {
+                    if (isCurrentGeneration(generation) && activeMlKitRecognizer === recognizer) {
+                        emitError("MICROPHONE_ERROR", error.message ?: "Microphone capture failed", engineName)
+                        emitDone(engineName)
+                    }
+                }
+            },
+            voiceCallCapture
+        )
+        try {
+            audio.start(scope)
+        } catch (error: Throwable) {
+            audio.close()
+            recognizer.close()
+            result.success(unavailable(error.message ?: "Microphone capture failed"))
+            return
+        }
+        meteredAudioSource = audio
         activeMlKitRecognizer = recognizer
         emitStatus("listening", engineName)
         recognitionJob = scope.launch(Dispatchers.IO) {
@@ -262,7 +308,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             var doneEmitted = false
             try {
                 val request = speechRecognizerRequest {
-                    audioSource = AudioSource.fromMic()
+                    audioSource = AudioSource.fromPfd(audio.descriptor)
                 }
                 recognizer.startRecognition(request).collect { response ->
                     if (!isCurrentGeneration(generation)) return@collect
@@ -307,6 +353,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             } catch (error: Throwable) {
                 emitError("MLKIT_ERROR", error.message ?: error.toString(), engineName)
             } finally {
+                audio.close()
+                if (meteredAudioSource === audio) meteredAudioSource = null
                 if (activeMlKitRecognizer === recognizer) {
                     activeMlKitRecognizer = null
                     runCatching { recognizer.close() }
@@ -465,16 +513,52 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             "android_speech_auto"
         }
         platformCommittedText = ""
-        // Listen on the recognizer that answered the support check. Destroying
-        // it and binding a fresh one makes system_server drop the recognition
-        // service connection, so the new recognizer fails with
-        // ERROR_SERVER_DISCONNECTED before it hears anything.
+        // Keep one recognizer for the whole capture session. Rebinding after
+        // destroying a recognizer can drop the system service connection.
         val recognizer = languageSwitch?.recognizer
             ?: createPlatformRecognizer(allowOnlineFallback)
-        activePlatformRecognizer = recognizer.also {
-            it.setRecognitionListener(platformRecognitionListener)
-            it.startListening(platformRecognizerIntent())
+        platformCaptureStartedAt = SystemClock.elapsedRealtime()
+        activePlatformRecognizer = recognizer
+        try {
+            // Android 13+ accepts our PCM stream. The same 32 ms frames drive
+            // the meter and the system's on-device transcriber; no second mic.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                usesSystemOnDeviceRecognizer(allowOnlineFallback)) {
+                val generation = recognitionGeneration
+                val audio = audioSourceFactory(
+                    { level -> activity.runOnUiThread {
+                        if (isCurrentGeneration(generation) &&
+                            activePlatformRecognizer === recognizer && !platformStopRequested) {
+                            emit(mapOf("type" to "level", "level" to level, "engine" to platformEngineName))
+                        }
+                    } },
+                    { error -> activity.runOnUiThread {
+                        if (isCurrentGeneration(generation) &&
+                            activePlatformRecognizer === recognizer && !platformStopRequested) {
+                            meteredAudioSource?.close()
+                            meteredAudioSource = null
+                            platformStopRequested = true
+                            emitError("MICROPHONE_ERROR", error.message ?: "Microphone capture failed", platformEngineName)
+                            emitDone(platformEngineName)
+                        }
+                    } },
+                    voiceCallCapture
+                )
+                meteredAudioSource = audio
+                audio.start(scope)
+            }
+            recognizer.setRecognitionListener(platformRecognitionListener)
+            recognizer.startListening(platformRecognizerIntent())
+        } catch (error: Throwable) {
+            meteredAudioSource?.close()
+            meteredAudioSource = null
+            activePlatformRecognizer = null
+            platformStopRequested = true
+            runCatching { recognizer.destroy() }
+            throw error
         }
+        // Diagnostic metadata only; never log audio or recognized words.
+        Log.i(TAG, "Capture started engine=$platformEngineName onDevice=${usesSystemOnDeviceRecognizer(allowOnlineFallback)}")
         emitStatus("listening", platformEngineName)
     }
 
@@ -512,12 +596,20 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
 
     private val platformRecognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
+            if (platformStopRequested || activePlatformRecognizer == null) return
+            Log.i(TAG, "Capture ready after ${SystemClock.elapsedRealtime() - platformCaptureStartedAt}ms")
             emitStatus("listening", platformEngineName)
         }
 
         override fun onBeginningOfSpeech() {}
 
-        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onRmsChanged(rmsdB: Float) {
+            if (platformStopRequested || activePlatformRecognizer == null || !rmsdB.isFinite() ||
+                meteredAudioSource != null) return
+            // Android reports recognizer-relative dB rather than PCM amplitude.
+            val level = ((rmsdB - 1f) / 9f).coerceIn(0f, 1f).toDouble()
+            emit(mapOf("type" to "level", "level" to level, "engine" to platformEngineName))
+        }
 
         override fun onBufferReceived(buffer: ByteArray?) {}
 
@@ -535,6 +627,23 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
 
         override fun onResults(results: Bundle?) {
+            emitPlatformResult(results)
+            restartPlatformRecognizerIfActive()
+        }
+
+        override fun onSegmentResults(segmentResults: Bundle) {
+            emitPlatformResult(segmentResults)
+        }
+
+        override fun onEndOfSegmentedSession() {
+            if (platformStopRequested) return
+            platformStopRequested = true
+            meteredAudioSource?.close()
+            meteredAudioSource = null
+            emitDone(platformEngineName)
+        }
+
+        private fun emitPlatformResult(results: Bundle?) {
             val text = firstRecognitionText(results)
             if (text != null) {
                 val emitted = if (platformAccumulateResults) {
@@ -545,7 +654,6 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 }
                 emitResult(emitted, true, platformEngineName)
             }
-            restartPlatformRecognizerIfActive()
         }
 
         override fun onError(error: Int) {
@@ -568,6 +676,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
 
     private fun finishPlatformError(error: Int) {
         platformStopRequested = true
+        meteredAudioSource?.close()
+        meteredAudioSource = null
         platformRestartJob?.cancel()
         platformRestartJob = null
         emitError("ANDROID_SPEECH_$error", platformSpeechErrorMessage(error), platformEngineName)
@@ -668,6 +778,15 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, platformEmitPartialResults)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, !platformAllowOnlineFallback)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                meteredAudioSource?.let { audio ->
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, audio.descriptor)
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16000)
+                    putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
+                }
+            }
         }
     }
 
@@ -681,7 +800,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
      * Resolves automatic language switching. The caller owns the returned
      * recognizer and must listen on it or destroy it.
      */
-    private suspend fun platformLanguageSwitch(
+    private fun platformLanguageSwitch(
         localeId: String?,
         allowOnlineFallback: Boolean
     ): PlatformLanguageSwitch? {
@@ -693,31 +812,18 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         ) {
             return null
         }
-        return withContext(Dispatchers.Main.immediate) {
-            val recognizer = try {
-                createPlatformRecognizer(allowOnlineFallback)
-            } catch (error: Throwable) {
-                Log.w(TAG, "Unable to create Android recognizer for language switching", error)
-                return@withContext null
-            }
-            // Destroy on every exit that does not hand the recognizer to the
-            // caller, including cancellation before the support check runs.
-            var ownershipTransferred = false
-            try {
-                val languages = platformRecognitionLanguages(
-                    allowOnlineFallback = allowOnlineFallback,
-                    requestLanguageSwitch = true,
-                    recognizer = recognizer
-                )?.takeIf { NativeSttLanguagePolicy.hasMultipleLanguages(it) }
-                    ?: return@withContext null
-                ownershipTransferred = true
-                PlatformLanguageSwitch(recognizer, languages)
-            } finally {
-                if (!ownershipTransferred) {
-                    runCatching { recognizer.destroy() }
-                }
-            }
+        // Optional capability discovery belongs to the language picker. Never
+        // wait for its support callback while the user is already speaking.
+        val languages = languageSwitchSupport[allowOnlineFallback]
+            ?.takeIf { NativeSttLanguagePolicy.hasMultipleLanguages(it) }
+            ?: return null
+        val recognizer = try {
+            createPlatformRecognizer(allowOnlineFallback)
+        } catch (error: Throwable) {
+            Log.w(TAG, "Unable to create Android recognizer for language switching", error)
+            return null
         }
+        return PlatformLanguageSwitch(recognizer, languages)
     }
 
     /**
@@ -827,6 +933,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     }
 
     private suspend fun stopInternal(emitDone: Boolean, awaitCompletion: Boolean) {
+        meteredAudioSource?.close()
+        meteredAudioSource = null
         val platformRecognizer = activePlatformRecognizer
         activePlatformRecognizer = null
         platformStopRequested = true
@@ -867,10 +975,12 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
 
     private suspend fun localesPayload(deviceLocaleId: String?): Map<String, Any?> {
         val systemLocale = parseLocale(deviceLocaleId)
-        val installedLocales = platformRecognitionLanguages(
+        val supportedLanguages = platformRecognitionLanguages(
             allowOnlineFallback = false,
-            requestLanguageSwitch = false
+            requestLanguageSwitch = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
         ).orEmpty()
+        languageSwitchSupport[false] = supportedLanguages
+        val installedLocales = supportedLanguages
             .map(Locale::forLanguageTag)
             .filter { it.language.isNotBlank() }
         val candidateLocales = installedLocales.ifEmpty {

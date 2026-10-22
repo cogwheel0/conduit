@@ -83,6 +83,12 @@ abstract interface class VoiceModeInput {
   Future<void> stopListening();
 }
 
+/// Optional input capability for a call that keeps its microphone open during
+/// output. The host selects communication capture/AEC without changing settings.
+abstract interface class ContinuousVoiceModeInput {
+  void setContinuousCallActive(bool active);
+}
+
 /// The speech engine a voice call speaks through: device or server TTS,
 /// fed incrementally while the assistant's reply streams in.
 abstract interface class VoiceModeSpeech {

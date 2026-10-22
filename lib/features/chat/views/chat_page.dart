@@ -1,3 +1,14 @@
+import '../../hermes/widgets/hermes_call_interface.dart';
+import '../../hermes/providers/hermes_messages.dart' show HermesBotConversation;
+
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
+
+import '../../hermes/widgets/hermes_conversation_drawer.dart';
+import '../../hermes/widgets/hermes_conversation_actions.dart';
+import '../../hermes/widgets/hermes_conversation_stage.dart';
+import '../../hermes/widgets/hermes_keyboard_footer.dart';
+import '../../../platform/motion_probe.dart';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -66,6 +77,8 @@ import 'package:conduit_core/features/hermes/services/hermes_pending_decision_st
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
+import '../../hermes/providers/hermes_mobile_navigation.dart';
+import '../../hermes/widgets/hermes_mobile_shell.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -476,6 +489,7 @@ class ChatPage extends ConsumerStatefulWidget {
 class _ChatPageState extends ConsumerState<ChatPage> {
   static const double _scrollButtonShowThreshold = 48.0;
   static const double _scrollButtonHideThreshold = 12.0;
+  static const double _modelSelectorHideThreshold = 96.0;
   static const int _pinScrollMaxAttempts = 12;
   static const double _scrollCorrectionEpsilon = 1.0;
   static const double _pinnedMeasurementEpsilon = 0.5;
@@ -489,6 +503,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         hideThreshold: _scrollButtonHideThreshold,
       );
   bool _showScrollToBottom = false;
+  bool _showModelSelector = true;
   bool _scrollToBottomVisibilitySyncScheduled = false;
   bool _scrollToBottomPrewarmPending = false;
   bool _hasUserScrolled = false;
@@ -984,6 +999,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await _sendMessage(text, includeComposerContext: true);
   }
 
+  Future<bool> _handleCallComposerSend(String text) => ref
+      .read(chatVoiceModeControllerProvider.notifier)
+      .submitText(
+        text,
+        dispatch: () async {
+          final result = await _sendMessage(text, includeComposerContext: true);
+          return result.dispatched;
+        },
+      );
+
   /// Sends the composer's message to the chosen models as one comparison turn.
   /// The result names the committed turn, so the composer can tell whether it
   /// still shows that chat. It is null when the turn was refused or not
@@ -1362,8 +1387,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           text,
           uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
           toolIds: toolIds.isNotEmpty ? toolIds : null,
+          isVoiceMode: ref.read(chatVoiceModeControllerProvider).isActive,
           onAssistantPlaceholderCreated: (handle) {
             didDispatch = true;
+            ref
+                .read(chatVoiceModeControllerProvider.notifier)
+                .bindAssistantMessage(handle.assistantMessageId);
             _releaseMessageSendAdmission(sendOwner);
             pendingSend = handle;
             _activatePinToTopAnchor(
@@ -2017,10 +2046,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _handleVoiceCall() async {
+    _dismissComposerFocus();
+    ref.read(composerAutofocusEnabledProvider.notifier).set(false);
     try {
       await ref
           .read(voiceCallLauncherProvider)
-          .launch(startNewConversation: false);
+          .launch(
+            startNewConversation: false,
+            preferStandard: ref.read(hermesMobileLayoutProvider),
+          );
     } catch (error, stackTrace) {
       DebugLogger.error(
         'launch-failed',
@@ -2071,9 +2105,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       distanceFromLatest: anchorState.distanceFromBottom,
     );
 
-    if (showButton != _showScrollToBottom) {
+    // Use presentation distance, not drag admission: dragging past the latest
+    // row to refresh must not dismiss controls. Separate thresholds prevent
+    // the selector's own height change from repeatedly toggling visibility.
+    final showSelector =
+        (_wantsPinToTop &&
+            _timelineScrollMode != _ChatTimelineScrollMode.freeScrolling) ||
+        (anchorState.distanceFromBottom <=
+                (_showModelSelector
+                    ? _modelSelectorHideThreshold
+                    : _scrollButtonHideThreshold) &&
+            // Geometry can briefly report latest while a lazy layout settles.
+            // Reopen after user navigation, not that incidental publication.
+            (_showModelSelector ||
+                _isUserInteractingWithScroll ||
+                _timelineScrollMode != _ChatTimelineScrollMode.freeScrolling ||
+                _explicitLatestNavigationInFlight));
+    if (showButton != _showScrollToBottom ||
+        showSelector != _showModelSelector) {
       setState(() {
         _showScrollToBottom = showButton;
+        _showModelSelector = showSelector;
       });
     }
   }
@@ -2124,10 +2176,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   double _messageListBottomPadding() {
     final voice = ref.read(chatVoiceModeControllerProvider);
-    final voiceOverlayHeight = voice.isActive
+    final voiceOverlayHeight =
+        voice.isActive && !ref.read(hermesMobileLayoutProvider)
         ? (voice.isCollapsed ? 72.0 : 180.0)
         : 0.0;
-    return Spacing.lg + _inputHeight + voiceOverlayHeight;
+    return (ref.read(hermesMobileLayoutProvider) ? 0 : Spacing.lg) +
+        _inputHeight +
+        voiceOverlayHeight;
   }
 
   /// User-initiated scroll to bottom (e.g. button tap).
@@ -2373,7 +2428,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _invalidateChatListStableLayoutMetadata();
     _hasUserScrolled = false;
     final totalMessages = ref.read(chatMessagesProvider).length;
-    final anchor = conversationId == null
+    _showModelSelector = true;
+    final anchor =
+        conversationId == null ||
+            (ref.read(hermesMobileLayoutProvider) &&
+                isNativeHermesConversation(
+                  ref.read(activeConversationProvider),
+                ))
         ? null
         : _savedScrollAnchors[conversationId];
     if (anchor != null) {
@@ -2412,6 +2473,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _timelineScrollMode = _ChatTimelineScrollMode.followingLatest;
       _showScrollToBottom = false;
       _hasUserScrolled = false;
+      _showModelSelector = true;
     });
   }
 
@@ -3002,14 +3064,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       onRowExtentMeasured: rememberRowExtent,
       initialAnchor: _initialScrollAnchor,
       pinnedUserMessageId: _wantsPinToTop ? _pinnedUserMessageId : null,
-      liveFooter: timeline.runningFooterHost == null
+      // Mobile Hermes paints its waiting mark in the response row. Other
+      // layouts retain a completed tail host for the zero-height exit overlay.
+      liveFooter:
+          watchRef.watch(hermesMobileLayoutProvider) ||
+              timeline.tailAssistant == null
           ? null
           : Consumer(
               builder: (context, rowRef, _) {
                 final latestMessage = rowRef.watch(
-                  chatMessageByIdProvider(
-                    timeline.runningFooterHost!.messageId,
-                  ),
+                  chatMessageByIdProvider(timeline.tailAssistant!.id),
                 );
                 if (latestMessage == null) return const SizedBox.shrink();
                 return StreamingTurnFooter(
@@ -3030,6 +3094,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           _timelineScrollMode == _ChatTimelineScrollMode.followingLatest,
       pinAutomatic: _shouldAutoFollowPinnedTurn,
       hideUntilSettled: hideForInitialPin,
+      alignShortContentToBottom: watchRef.watch(hermesMobileLayoutProvider),
       onPointerDown: () {
         // Ramp the ProMotion panel before the drag even clears touch slop;
         // waiting for drag-start leaves the fling's first stretch at 40 Hz.
@@ -3348,7 +3413,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [bubble, ChatBranchSwitcher(messageId: messageId)],
+            children: [
+              bubble,
+              ChatBranchSwitcher(messageId: messageId),
+            ],
           );
         },
       );
@@ -3589,6 +3657,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   // Inline editing handled by UserMessageBubble. Dialog flow removed.
 
   Widget _buildEmptyState(ThemeData theme) {
+    if (ref.watch(hermesMobileLayoutProvider) &&
+        ref.watch(hermesMobileNavigationProvider).taskDraft) {
+      return const HermesTaskStarter();
+    }
     final l10n = AppLocalizations.of(context)!;
     final authUser = ref.watch(currentUserProvider2);
     final asyncUser = ref.watch(currentUserProvider);
@@ -3724,24 +3796,25 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ],
                   ),
                 ] else ...[
-                  ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: greetingHeight),
-                    child: AnimatedOpacity(
-                      duration: context.motionDuration(
-                        const Duration(milliseconds: 260),
-                      ),
-                      curve: Curves.easeOutCubic,
-                      opacity: _greetingReady ? 1 : 0,
-                      child: Align(
-                        alignment: Alignment.center,
-                        child: Text(
-                          _greetingReady ? greetingDisplay : '',
-                          style: greetingStyle,
-                          textAlign: TextAlign.center,
+                  if (!ref.watch(hermesMobileLayoutProvider))
+                    ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: greetingHeight),
+                      child: AnimatedOpacity(
+                        duration: context.motionDuration(
+                          const Duration(milliseconds: 260),
+                        ),
+                        curve: Curves.easeOutCubic,
+                        opacity: _greetingReady ? 1 : 0,
+                        child: Align(
+                          alignment: Alignment.center,
+                          child: Text(
+                            _greetingReady ? greetingDisplay : '',
+                            style: greetingStyle,
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   const ReleaseNotesBanner(),
                   if (isTemporary) ...[
                     const SizedBox(height: Spacing.md),
@@ -3779,175 +3852,203 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           minimum: Platform.isAndroid
               ? EdgeInsets.zero
               : const EdgeInsets.only(bottom: Spacing.sm),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: Spacing.xl),
-              OpenWebUiTaskList(
-                keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
-              ),
-              const FileAttachmentWidget(),
-              const ContextAttachmentWidget(),
-              if (hasAttachments) const SizedBox(height: Spacing.sm),
-              Consumer(
-                builder: (context, composerRef, _) {
-                  final isLoadingConversation = composerRef.watch(
-                    isLoadingConversationProvider,
-                  );
-                  final activeConversation = composerRef.watch(
-                    activeConversationProvider,
-                  );
-                  final activeConversationId = activeConversation?.id;
-                  final pendingPromptIdentity = composerRef.watch(
-                    chatMessagesProvider.select(
-                      (messages) =>
-                          findPendingOpenWebUiToolPrompt(messages)
-                              ?.prompt
-                              .identity,
-                    ),
-                  );
-                  final persistedPrompt =
-                      pendingPromptIdentity != null &&
-                          debugCanUsePersistedOpenWebUiPromptForTesting(
-                            isLoadingConversation: isLoadingConversation,
-                            ownerConversationId: activeConversationId,
-                            activeConversationId: activeConversationId,
-                          ) &&
-                          conversationUsesOpenWebUiStorage(
-                            activeConversation,
-                          ) &&
-                          !isTemporaryChat(activeConversation?.id)
-                      ? findPendingOpenWebUiToolPrompt(
-                          composerRef.read(chatMessagesProvider),
-                        )
-                      : null;
-                  final livePrompt = composerRef.watch(
-                    openWebUiLivePromptProvider,
-                  );
-                  final matchingLivePrompt =
-                      livePrompt != null &&
-                          livePrompt.conversationId == activeConversationId
-                      ? livePrompt
-                      : null;
-                  final pendingHermesPrompt = composerRef.watch(
-                    chatMessagesProvider.select(
-                      findPendingHermesComposerPrompt,
-                    ),
-                  );
-                  final pendingDirectMcpMetadata = composerRef.watch(
-                    chatMessagesProvider.select(
-                      findPendingDirectMcpComposerPrompt,
-                    ),
-                  );
-                  composerRef.watch(directMcpApprovalRevisionProvider);
-                  final pendingDirectMcpPrompt =
-                      pendingDirectMcpMetadata == null
-                      ? null
-                      : findPendingDirectMcpComposerPrompt(
-                          composerRef.read(chatMessagesProvider),
-                          isLive: composerRef
-                              .read(directRunRegistryProvider)
-                              .hasLiveMcpApproval,
-                        );
-                  final Widget? attachedOverlay;
-                  if (persistedPrompt != null) {
-                    attachedOverlay = OpenWebUiPromptOverlay(
-                      key: ValueKey(persistedPrompt.prompt.identity),
-                      prompt: persistedPrompt.prompt,
-                      onAnswer: (answers) => _resolvePersistedOpenWebUiPrompt(
-                        activeConversationId!,
-                        persistedPrompt,
-                        OpenWebUiToolCallAction.answer,
-                        answers: answers,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: HermesNavigationInset.of(context)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  height: ref.watch(hermesMobileLayoutProvider)
+                      ? 4
+                      : Spacing.xl,
+                ),
+                OpenWebUiTaskList(
+                  keyboardVisible: MediaQuery.viewInsetsOf(context).bottom > 0,
+                ),
+                const FileAttachmentWidget(),
+                const ContextAttachmentWidget(),
+                if (hasAttachments) const SizedBox(height: Spacing.sm),
+                Consumer(
+                  builder: (context, composerRef, _) {
+                    final isLoadingConversation = composerRef.watch(
+                      isLoadingConversationProvider,
+                    );
+                    final activeConversation = composerRef.watch(
+                      activeConversationProvider,
+                    );
+                    final activeConversationId = activeConversation?.id;
+                    final pendingPromptIdentity = composerRef.watch(
+                      chatMessagesProvider.select(
+                        (messages) =>
+                            findPendingOpenWebUiToolPrompt(messages)
+                                ?.prompt
+                                .identity,
                       ),
-                      onDecision: (approved) =>
-                          _resolvePersistedOpenWebUiPrompt(
-                            activeConversationId!,
-                            persistedPrompt,
-                            openWebUiDecisionAction(
-                              persistedPrompt.prompt,
-                              approved,
-                            ),
-                          ),
                     );
-                  } else if (matchingLivePrompt != null) {
-                    attachedOverlay = OpenWebUiPromptOverlay(
-                      key: ValueKey(matchingLivePrompt.prompt.identity),
-                      prompt: matchingLivePrompt.prompt,
-                      onAnswer: (answers) {
-                        composerRef
-                            .read(openWebUiLivePromptProvider.notifier)
-                            .answer(
-                              matchingLivePrompt.prompt.identity,
-                              answers,
-                            );
-                      },
-                      onDecision: (approved) {
-                        final notifier = composerRef.read(
-                          openWebUiLivePromptProvider.notifier,
-                        );
-                        if (matchingLivePrompt.prompt.kind ==
-                            OpenWebUiComposerPromptKind.confirmation) {
-                          notifier.decide(
-                            matchingLivePrompt.prompt.identity,
-                            approved,
+                    final persistedPrompt =
+                        pendingPromptIdentity != null &&
+                            debugCanUsePersistedOpenWebUiPromptForTesting(
+                              isLoadingConversation: isLoadingConversation,
+                              ownerConversationId: activeConversationId,
+                              activeConversationId: activeConversationId,
+                            ) &&
+                            conversationUsesOpenWebUiStorage(
+                              activeConversation,
+                            ) &&
+                            !isTemporaryChat(activeConversation?.id)
+                        ? findPendingOpenWebUiToolPrompt(
+                            composerRef.read(chatMessagesProvider),
+                          )
+                        : null;
+                    final livePrompt = composerRef.watch(
+                      openWebUiLivePromptProvider,
+                    );
+                    final matchingLivePrompt =
+                        livePrompt != null &&
+                            livePrompt.conversationId == activeConversationId
+                        ? livePrompt
+                        : null;
+                    final pendingHermesPrompt = composerRef.watch(
+                      chatMessagesProvider.select(
+                        findPendingHermesApprovalPrompt,
+                      ),
+                    );
+                    final pendingDirectMcpMetadata = composerRef.watch(
+                      chatMessagesProvider.select(
+                        findPendingDirectMcpComposerPrompt,
+                      ),
+                    );
+                    composerRef.watch(directMcpApprovalRevisionProvider);
+                    final pendingDirectMcpPrompt =
+                        pendingDirectMcpMetadata == null
+                        ? null
+                        : findPendingDirectMcpComposerPrompt(
+                            composerRef.read(chatMessagesProvider),
+                            isLive: composerRef
+                                .read(directRunRegistryProvider)
+                                .hasLiveMcpApproval,
                           );
-                        } else {
-                          notifier.cancel();
-                        }
-                      },
+                    final Widget? attachedOverlay;
+                    final callExpanded = composerRef.watch(
+                      chatVoiceModeControllerProvider.select(
+                        (s) => s.isActive && !s.isCollapsed,
+                      ),
                     );
-                  } else if (pendingHermesPrompt != null) {
-                    attachedOverlay = HermesComposerPromptOverlay(
-                      key: ValueKey(pendingHermesPrompt.id),
-                      message: pendingHermesPrompt,
+                    if (callExpanded &&
+                        composerRef.watch(hermesMobileLayoutProvider)) {
+                      attachedOverlay = null;
+                    } else if (persistedPrompt != null) {
+                      attachedOverlay = OpenWebUiPromptOverlay(
+                        key: ValueKey(persistedPrompt.prompt.identity),
+                        prompt: persistedPrompt.prompt,
+                        onAnswer: (answers) => _resolvePersistedOpenWebUiPrompt(
+                          activeConversationId!,
+                          persistedPrompt,
+                          OpenWebUiToolCallAction.answer,
+                          answers: answers,
+                        ),
+                        onDecision: (approved) =>
+                            _resolvePersistedOpenWebUiPrompt(
+                              activeConversationId!,
+                              persistedPrompt,
+                              openWebUiDecisionAction(
+                                persistedPrompt.prompt,
+                                approved,
+                              ),
+                            ),
+                      );
+                    } else if (matchingLivePrompt != null) {
+                      attachedOverlay = OpenWebUiPromptOverlay(
+                        key: ValueKey(matchingLivePrompt.prompt.identity),
+                        prompt: matchingLivePrompt.prompt,
+                        onAnswer: (answers) {
+                          composerRef
+                              .read(openWebUiLivePromptProvider.notifier)
+                              .answer(
+                                matchingLivePrompt.prompt.identity,
+                                answers,
+                              );
+                        },
+                        onDecision: (approved) {
+                          final notifier = composerRef.read(
+                            openWebUiLivePromptProvider.notifier,
+                          );
+                          if (matchingLivePrompt.prompt.kind ==
+                              OpenWebUiComposerPromptKind.confirmation) {
+                            notifier.decide(
+                              matchingLivePrompt.prompt.identity,
+                              approved,
+                            );
+                          } else {
+                            notifier.cancel();
+                          }
+                        },
+                      );
+                    } else if (pendingHermesPrompt != null) {
+                      attachedOverlay = HermesComposerPromptOverlay(
+                        key: ValueKey(pendingHermesPrompt.id),
+                        message: pendingHermesPrompt,
+                      );
+                    } else if (pendingDirectMcpPrompt != null) {
+                      final approval =
+                          pendingDirectMcpPrompt
+                                  .metadata![kDirectMcpApprovalMetadataKey]
+                              as Map;
+                      attachedOverlay = DirectMcpComposerPromptOverlay(
+                        key: ValueKey(approval['id']),
+                        message: pendingDirectMcpPrompt,
+                      );
+                    } else {
+                      attachedOverlay = null;
+                    }
+                    if (isReadOnlySharedConversation(
+                      activeConversation,
+                      composerRef.watch(
+                        currentUserProvider2.select((user) => user?.id),
+                      ),
+                    )) {
+                      return _buildReadOnlyNotice(context);
+                    }
+                    return ModernChatInput(
+                      showModelSelector: _showModelSelector,
+                      onSendMessage: _handleMessageSend,
+                      onSendAccepted:
+                          composerRef.watch(hermesMobileLayoutProvider) &&
+                              composerRef.watch(
+                                chatVoiceModeControllerProvider.select(
+                                  (s) => s.isActive,
+                                ),
+                              )
+                          ? _handleCallComposerSend
+                          : null,
+                      onCompareSend: _handleCompareSend,
+                      enabled: debugCanSubmitChatMessageForTesting(
+                        isLoadingConversation: isLoadingConversation,
+                        isSavingTemporary: _isSavingTemporary,
+                        isPreparingMessageSend: _messageSendAdmission.isHeld,
+                      ),
+                      placeholder: ref.watch(hermesMobileLayoutProvider)
+                          ? AppLocalizations.of(context)!.mobileAskHermes
+                          : null,
+                      bottomPadding: 0,
+                      managesSystemKeyboardInset: Platform.isAndroid,
+                      composerTextInsertionTargetId:
+                          chatComposerTextInsertionTargetId,
+                      attachedOverlay: attachedOverlay,
+                      onVoiceInput: null,
+                      onVoiceCall: _handleVoiceCall,
+                      onFileAttachment: _handleFileAttachment,
+                      onServerFileAttachment: _handleServerFileAttachment,
+                      onImageAttachment: _handleImageAttachment,
+                      onCameraCapture: () =>
+                          _handleImageAttachment(fromCamera: true),
+                      onWebAttachment: _promptAttachWebpage,
+                      onPastedAttachments: _handlePastedAttachments,
                     );
-                  } else if (pendingDirectMcpPrompt != null) {
-                    final approval =
-                        pendingDirectMcpPrompt
-                                .metadata![kDirectMcpApprovalMetadataKey]
-                            as Map;
-                    attachedOverlay = DirectMcpComposerPromptOverlay(
-                      key: ValueKey(approval['id']),
-                      message: pendingDirectMcpPrompt,
-                    );
-                  } else {
-                    attachedOverlay = null;
-                  }
-                  if (isReadOnlySharedConversation(
-                    activeConversation,
-                    composerRef.watch(
-                      currentUserProvider2.select((user) => user?.id),
-                    ),
-                  )) {
-                    return _buildReadOnlyNotice(context);
-                  }
-                  return ModernChatInput(
-                    onSendMessage: _handleMessageSend,
-                    onCompareSend: _handleCompareSend,
-                    enabled: debugCanSubmitChatMessageForTesting(
-                      isLoadingConversation: isLoadingConversation,
-                      isSavingTemporary: _isSavingTemporary,
-                      isPreparingMessageSend: _messageSendAdmission.isHeld,
-                    ),
-                    bottomPadding: 0,
-                    managesSystemKeyboardInset: Platform.isAndroid,
-                    composerTextInsertionTargetId:
-                        chatComposerTextInsertionTargetId,
-                    attachedOverlay: attachedOverlay,
-                    onVoiceInput: null,
-                    onVoiceCall: _handleVoiceCall,
-                    onFileAttachment: _handleFileAttachment,
-                    onServerFileAttachment: _handleServerFileAttachment,
-                    onImageAttachment: _handleImageAttachment,
-                    onCameraCapture: () =>
-                        _handleImageAttachment(fromCamera: true),
-                    onWebAttachment: _promptAttachWebpage,
-                    onPastedAttachments: _handlePastedAttachments,
-                  );
-                },
-              ),
-            ],
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -4041,14 +4142,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       });
     }
 
+    final mobileNavigation = ref.watch(hermesMobileNavigationProvider);
+    final mobileChatHidden =
+        ref.watch(hermesMobileLayoutProvider) &&
+        (mobileNavigation.area != HermesWorkArea.chat ||
+            !mobileNavigation.conversation);
     Widget page = PopScope(
-      canPop: false,
+      canPop: mobileChatHidden || ref.watch(hermesMobileLayoutProvider),
       onPopInvokedWithResult: (bool didPop, Object? result) async {
-        if (didPop) return;
+        if (didPop || mobileChatHidden) return;
 
         // First, if any input has focus, clear focus and consume back press.
         // Also covers native platform inputs which don't participate in
         // Flutter's focus tree (composerHasFocusProvider tracks them).
+        if (ref.read(hermesMobileLayoutProvider)) {
+          // The mobile shell owns its history, including hidden Chat pages.
+          return;
+        }
         final hasNativeFocus = ref.read(composerHasFocusProvider);
         final currentFocus = FocusManager.instance.primaryFocus;
         await handleChatBackNavigation(
@@ -4091,99 +4201,145 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: Consumer(
-                  builder: (context, listRef, _) {
-                    return RepaintBoundary(
-                      child: _buildMessagesList(theme, listRef),
-                    );
-                  },
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                top: 0,
-                child: ConduitChromeGradientFade.top(
-                  contentHeight:
-                      MediaQuery.viewPaddingOf(context).top +
-                      conduitAdaptiveToolbarHeightOf(context),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: ConduitChromeGradientFade.bottom(
-                  contentHeight: math.max(
-                    0,
-                    math.max(
-                      _inputHeight - Spacing.xl,
-                      MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
-                    ),
-                  ),
-                  fadeHeight: Spacing.md,
-                ),
-              ),
-              Positioned(
-                bottom: (_inputHeight > 0)
-                    ? math.max(0, _inputHeight - Spacing.xl + Spacing.md)
-                    : (Spacing.xxl + Spacing.xxxl),
-                left: 0,
-                right: 0,
-                child: AnimatedSwitcher(
-                  duration: context.motionDuration(
-                    AnimationDuration.microInteraction,
-                  ),
-                  switchInCurve: AnimationCurves.microInteraction,
-                  switchOutCurve: AnimationCurves.microInteraction,
-                  transitionBuilder: (child, animation) {
-                    final slideAnimation = Tween<Offset>(
-                      begin: context.reduceMotion
-                          ? Offset.zero
-                          : const Offset(0, 0.15),
-                      end: Offset.zero,
-                    ).animate(animation);
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: slideAnimation,
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: ThemedSheets.hideNativeChromeWhileCovered(
-                    child: Consumer(
-                      builder: (context, scrollButtonRef, _) {
-                        final hasMessages = scrollButtonRef.watch(
-                          hasChatMessagesProvider,
-                        );
-                        return debugShouldRenderScrollToLatestForTesting(
-                              requested: _showScrollToBottom,
-                              hasScrollableContent: canScroll,
-                              hasMessages: hasMessages,
-                            )
-                            ? Center(
-                                key: const ValueKey('scroll_to_bottom_visible'),
-                                child: AdaptiveTooltip(
-                                  message: l10n.scrollToBottom,
-                                  child: _buildScrollToBottomButton(context),
+                child: ExcludeSemantics(
+                  excluding:
+                      ref.watch(hermesMobileLayoutProvider) &&
+                      ref.watch(chatVoiceModeControllerProvider).isActive &&
+                      !ref.watch(chatVoiceModeControllerProvider).isCollapsed,
+                  child: IgnorePointer(
+                    ignoring:
+                        ref.watch(hermesMobileLayoutProvider) &&
+                        ref.watch(chatVoiceModeControllerProvider).isActive &&
+                        !ref.watch(chatVoiceModeControllerProvider).isCollapsed,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Consumer(
+                            builder: (context, listRef, _) {
+                              return RepaintBoundary(
+                                child: MotionProbe.wrap(
+                                  'viewport',
+                                  _buildMessagesList(theme, listRef),
+                                  data: () => {
+                                    'pixels': _timelineViewportController
+                                        .metrics
+                                        ?.pixels,
+                                    'maxScroll': _timelineViewportController
+                                        .metrics
+                                        ?.maxScrollExtent,
+                                    'distanceLatest':
+                                        _timelineViewportController
+                                            .distanceFromLatest,
+                                    'pinned': _isAnchoredToBottom,
+                                  },
                                 ),
-                              )
-                            : const SizedBox.shrink(
-                                key: ValueKey('scroll_to_bottom_hidden'),
                               );
-                      },
+                            },
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          top: 0,
+                          child: ConduitChromeGradientFade.top(
+                            contentHeight:
+                                MediaQuery.viewPaddingOf(context).top +
+                                conduitAdaptiveToolbarHeightOf(context),
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: ConduitChromeGradientFade.bottom(
+                            contentHeight: math.max(
+                              0,
+                              math.max(
+                                _inputHeight - Spacing.xl,
+                                MediaQuery.viewPaddingOf(context).bottom +
+                                    Spacing.xxl,
+                              ),
+                            ),
+                            fadeHeight: Spacing.md,
+                          ),
+                        ),
+                        Positioned(
+                          bottom: (_inputHeight > 0)
+                              ? math.max(
+                                  0,
+                                  _inputHeight - Spacing.xl + Spacing.md,
+                                )
+                              : (Spacing.xxl + Spacing.xxxl),
+                          left: 0,
+                          right: 0,
+                          child: AnimatedSwitcher(
+                            duration: context.motionDuration(
+                              AnimationDuration.microInteraction,
+                            ),
+                            switchInCurve: AnimationCurves.microInteraction,
+                            switchOutCurve: AnimationCurves.microInteraction,
+                            transitionBuilder: (child, animation) {
+                              final slideAnimation = Tween<Offset>(
+                                begin: context.reduceMotion
+                                    ? Offset.zero
+                                    : const Offset(0, 0.15),
+                                end: Offset.zero,
+                              ).animate(animation);
+                              return FadeTransition(
+                                opacity: animation,
+                                child: SlideTransition(
+                                  position: slideAnimation,
+                                  child: child,
+                                ),
+                              );
+                            },
+                            child: ThemedSheets.hideNativeChromeWhileCovered(
+                              child: Consumer(
+                                builder: (context, scrollButtonRef, _) {
+                                  final hasMessages = scrollButtonRef.watch(
+                                    hasChatMessagesProvider,
+                                  );
+                                  return debugShouldRenderScrollToLatestForTesting(
+                                        requested: _showScrollToBottom,
+                                        hasScrollableContent: canScroll,
+                                        hasMessages: hasMessages,
+                                      )
+                                      ? Center(
+                                          key: const ValueKey(
+                                            'scroll_to_bottom_visible',
+                                          ),
+                                          child: AdaptiveTooltip(
+                                            message: l10n.scrollToBottom,
+                                            child: _buildScrollToBottomButton(
+                                              context,
+                                            ),
+                                          ),
+                                        )
+                                      : const SizedBox.shrink(
+                                          key: ValueKey(
+                                            'scroll_to_bottom_hidden',
+                                          ),
+                                        );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: _buildComposerSection(context),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _buildComposerSection(context),
-              ),
-              ChatVoiceModeOverlay(bottomOffset: _inputHeight),
+              if (ref.watch(hermesMobileLayoutProvider))
+                const HermesCallOverlay()
+              else
+                ChatVoiceModeOverlay(bottomOffset: _inputHeight),
             ],
           ),
         ),
@@ -4252,6 +4408,76 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required HermesBotChatPresentation? hermesBot,
   }) {
     final activeConversation = ref.watch(activeConversationProvider);
+    if (ref.watch(hermesMobileLayoutProvider)) {
+      final session = ref.watch(hermesActiveSessionProvider);
+      final workspaceBot = activeHermesWorkspaceBot(ref);
+      final voice = ref.watch(
+        chatVoiceModeControllerProvider.select(
+          (s) => (s.isActive, s.isCollapsed),
+        ),
+      );
+      final expanded = voice.$1 && !voice.$2;
+      return AdaptiveAppBar(
+        useNativeToolbar: false,
+        appBar: AppBar(
+          toolbarHeight: 48,
+          centerTitle: true,
+          backgroundColor: context.conduitTheme.surfaceBackground,
+          scrolledUnderElevation: 0,
+          leading: CompactIconAction(
+            tooltip: expanded ? 'Minimize call' : 'Conversations',
+            icon: Icon(
+              expanded ? Icons.keyboard_arrow_down_rounded : Icons.menu_rounded,
+            ),
+            onPressed: expanded
+                ? ref.read(chatVoiceModeControllerProvider.notifier).collapse
+                : () => showHermesConversationDrawer(
+                    context,
+                    ref,
+                    bots: hermesBot != null,
+                  ),
+          ),
+          title: HermesConversationHeaderTitle(
+            id: session,
+            child: workspaceBot != null
+                ? const HermesWorkspaceBadge()
+                : Text(
+                    activeConversation?.title.trim().isNotEmpty == true
+                        ? activeConversation!.title
+                        : AppLocalizations.of(context)!.newChat,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.standard.copyWith(
+                      color: context.conduitTheme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+          ),
+          actions: [
+            HermesCallHeaderActions(onStart: _handleVoiceCall),
+            if (!voice.$1 && workspaceBot != null)
+              HermesBotActions(
+                row: HermesBotConversation(
+                  bot: workspaceBot,
+                  session: session == null
+                      ? null
+                      : HermesSessionSummary(id: session, title: 'Bot Chat'),
+                ),
+              )
+            else if (!voice.$1 &&
+                hermesBot == null &&
+                activeConversation != null &&
+                session != null)
+              HermesChatActions(
+                session: HermesSessionSummary(
+                  id: session,
+                  title: activeConversation.title,
+                ),
+              ),
+          ],
+        ),
+      );
+    }
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
     final hasMessages = ref.watch(hasChatMessagesProvider);
     final showNewChatAction = activeConversation != null || hasMessages;

@@ -1,8 +1,15 @@
 part of 'chat_providers.dart';
 
-void resetHermesForNewChat(dynamic ref) {
+void resetHermesForNewChat(dynamic ref, {bool preserveBoundRuns = false}) {
   final registry = ref.read(hermesRunRegistryProvider) as HermesRunRegistry;
-  for (final stop in registry.cancelAll()) {
+  final stops = preserveBoundRuns
+      ? registry.cancelWhere(
+          (key) =>
+              key.ownerConversationId.startsWith('conduit-hermes-pending://') ||
+              key.ownerConversationId.startsWith('conduit-hermes-legacy://'),
+        )
+      : registry.cancelAll();
+  for (final stop in stops) {
     _observeDetachedCancellation(stop, scope: 'hermes/cancel');
   }
   ref.read(hermesActiveSessionProvider.notifier).set(null);
@@ -80,8 +87,11 @@ void startNewChat(dynamic ref, {Model? modelForNewConversation}) {
 /// Starts a new chat pinned to the Hermes agent model. Unlike [startNewChat],
 /// this does NOT reset to the default model (which would race past and clobber
 /// the Hermes selection); it resolves and selects the Hermes model explicitly.
-Future<void> startNewHermesChat(dynamic ref) async {
-  resetHermesForNewChat(ref);
+Future<void> startNewHermesChat(
+  dynamic ref, {
+  bool preserveBoundRuns = false,
+}) async {
+  resetHermesForNewChat(ref, preserveBoundRuns: preserveBoundRuns);
   resetDirectRunsForNewChat(ref);
   clearSelectedFiltersForConversationBoundary(ref);
 

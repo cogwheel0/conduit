@@ -379,15 +379,6 @@ class ProfilePage extends ConsumerWidget {
           title: l10n.profileTitle,
           onTap: () => context.pushNamed(RouteNames.accountSettings),
         ),
-        _buildAccountOption(
-          context,
-          icon: UiUtils.platformIcon(
-            ios: CupertinoIcons.bell,
-            android: Icons.notifications_outlined,
-          ),
-          title: l10n.notificationsTitle,
-          onTap: () => context.pushNamed(RouteNames.notificationSettings),
-        ),
         personalizationItem,
         _buildAccountOption(
           context,
@@ -404,6 +395,16 @@ class ProfilePage extends ConsumerWidget {
     // Single-line settings rows, so each title and its
     // icon carry the meaning without a descriptive subtitle.
     final appItems = <Widget>[
+      _buildAccountOption(
+        context,
+        key: const Key('settings-notifications'),
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.bell,
+          android: Icons.notifications_outlined,
+        ),
+        title: l10n.notificationsTitle,
+        onTap: () => context.pushNamed(RouteNames.notificationSettings),
+      ),
       _buildAccountOption(
         context,
         icon: UiUtils.platformIcon(

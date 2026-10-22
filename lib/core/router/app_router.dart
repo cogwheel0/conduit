@@ -33,10 +33,13 @@ import '../../features/profile/views/manage_accounts_page.dart';
 import '../../features/profile/views/server_addresses_page.dart';
 import '../../features/profile/views/app_customization_page.dart';
 import '../../features/profile/views/audio_settings_page.dart';
+import '../../features/profile/views/voice_provider_settings_page.dart';
 import '../../features/hermes/views/hermes_connections_page.dart';
+import '../../features/hermes/views/hermes_agent_settings_page.dart';
 import '../../features/hermes/views/hermes_settings_page.dart';
 import '../../features/hermes/views/hermes_jobs_page.dart';
 import '../../features/hermes/views/hermes_mcp_page.dart';
+import '../../features/hermes/providers/hermes_mobile_route_stack.dart';
 import '../../features/profile/views/personalization_page.dart';
 import '../../features/profile/views/profile_page.dart';
 import '../../features/notifications/views/notification_settings_page.dart';
@@ -119,6 +122,7 @@ final routerNotifierProvider = Provider<RouterNotifier>((ref) {
 
 final goRouterProvider = Provider<GoRouter>((ref) {
   final notifier = ref.watch(routerNotifierProvider);
+  final shellStack = ref.watch(hermesMobileRouteStackProvider);
 
   final appRoutes = <RouteBase>[
     GoRoute(
@@ -133,6 +137,8 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     // so it doesn't reload on tablets when switching between chat, channels,
     // and notes.
     ShellRoute(
+      navigatorKey: shellStack.navigatorKey,
+      observers: [shellStack],
       builder: (context, state, child) => DrawerShellPage(child: child),
       routes: [
         GoRoute(
@@ -301,6 +307,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.audioSettings,
       pageBuilder: (context, state) =>
           _buildPlatformPage(state: state, child: const AudioSettingsPage()),
+    ),
+    GoRoute(
+      path: Routes.voiceProviderSettings,
+      name: RouteNames.voiceProviderSettings,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const VoiceProviderSettingsPage(),
+      ),
     ),
     GoRoute(
       path: Routes.accountSettings,
@@ -494,11 +508,30 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       name: RouteNames.hermesSettings,
       pageBuilder: (context, state) => _buildPlatformPage(
         state: state,
-        // Onboarding sets up the first connection directly; afterwards this
-        // is the list of saved connections.
+        // Onboarding still opens connection setup directly.
         child: state.extra == true
             ? const HermesSettingsPage(isOnboarding: true)
+            : defaultTargetPlatform == TargetPlatform.android
+            ? const HermesAgentSettingsPage()
             : const HermesConnectionsPage(),
+      ),
+    ),
+    GoRoute(
+      path: Routes.hermesConnections,
+      name: RouteNames.hermesConnections,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: const HermesConnectionsPage(),
+      ),
+    ),
+    GoRoute(
+      path: Routes.hermesAgentSection,
+      name: RouteNames.hermesAgentSection,
+      pageBuilder: (context, state) => _buildPlatformPage(
+        state: state,
+        child: HermesAgentSettingsPage(
+          section: state.pathParameters['section'],
+        ),
       ),
     ),
     GoRoute(

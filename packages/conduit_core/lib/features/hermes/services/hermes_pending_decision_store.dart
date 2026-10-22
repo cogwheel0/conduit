@@ -8,6 +8,7 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
+import 'package:conduit_core/features/hermes/services/hermes_approval_text.dart';
 
 enum HermesPendingDesktopDecisionKind {
   approval,
@@ -91,7 +92,7 @@ final class HermesPendingDesktopDecision {
   });
 
   static HermesPendingDesktopDecision? fromStorage(String source) {
-    if (source.length > 8192) return null;
+    if (source.length > 262144) return null;
     try {
       final value = jsonDecode(source);
       if (value is! Map) return null;
@@ -133,7 +134,15 @@ final class HermesPendingDesktopDecision {
         requestId: requestId,
         kind: kind,
         expiresAt: expiresAt,
-        prompt: prompt is String && prompt.length <= 512 ? prompt : null,
+        prompt:
+            prompt is String &&
+                prompt.length <=
+                    (kind == HermesPendingDesktopDecisionKind.approval
+                        ? kMaxHermesApprovalTextCharacters * 2 +
+                              kHermesApprovalTextTruncated.length
+                        : 512)
+            ? prompt
+            : null,
         mcpServer: mcpServer,
         mcpAction: mcpAction,
         choices: choices,
@@ -228,7 +237,9 @@ final class HermesPendingDecisionStore {
       // update can never silently drop a bot chat back to the connection.
       profile: profile ?? previous?.profile,
       connectionId: connectionId,
-      prompt: _sanitizePrompt(prompt, sensitiveValues),
+      prompt: kind == HermesPendingDesktopDecisionKind.approval
+          ? sanitizeHermesApprovalText(prompt, sensitiveValues: sensitiveValues)
+          : _sanitizePrompt(prompt, sensitiveValues),
       mcpServer: kind == HermesPendingDesktopDecisionKind.mcpSetup
           ? validateHermesBoundedString(mcpServer, maxCharacters: 128)
           : null,

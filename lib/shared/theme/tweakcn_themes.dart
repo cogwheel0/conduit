@@ -88,6 +88,48 @@ class TweakcnThemeVariant {
       infoForeground = Color(variant.infoForeground),
       radius = variant.radius;
 
+  /// Adapts platform colors to the same roles used by the preset palettes.
+  /// Status colors retain their semantic meaning rather than becoming accents.
+  factory TweakcnThemeVariant.fromColorScheme(
+    ColorScheme scheme, {
+    required TweakcnThemeVariant fallback,
+  }) => TweakcnThemeVariant(
+    background: scheme.surface,
+    foreground: scheme.onSurface,
+    card: scheme.surfaceContainerLow,
+    cardForeground: scheme.onSurface,
+    popover: scheme.surfaceContainerHigh,
+    popoverForeground: scheme.onSurface,
+    primary: scheme.primary,
+    primaryForeground: scheme.onPrimary,
+    secondary: scheme.secondaryContainer,
+    secondaryForeground: scheme.onSecondaryContainer,
+    muted: scheme.surfaceContainerHighest,
+    mutedForeground: scheme.onSurfaceVariant,
+    accent: scheme.tertiaryContainer,
+    accentForeground: scheme.onTertiaryContainer,
+    destructive: scheme.error,
+    destructiveForeground: scheme.onError,
+    border: scheme.outlineVariant,
+    input: scheme.surfaceContainerHighest,
+    ring: scheme.primary,
+    sidebarBackground: scheme.surfaceContainerLow,
+    sidebarForeground: scheme.onSurface,
+    sidebarPrimary: scheme.primary,
+    sidebarPrimaryForeground: scheme.onPrimary,
+    sidebarAccent: scheme.secondaryContainer,
+    sidebarAccentForeground: scheme.onSecondaryContainer,
+    sidebarBorder: scheme.outlineVariant,
+    sidebarRing: scheme.primary,
+    success: fallback.success,
+    successForeground: fallback.successForeground,
+    warning: fallback.warning,
+    warningForeground: fallback.warningForeground,
+    info: fallback.info,
+    infoForeground: fallback.infoForeground,
+    radius: fallback.radius,
+  );
+
   final Color background;
   final Color foreground;
   final Color card;
@@ -152,6 +194,36 @@ class TweakcnThemeDefinition {
   final TweakcnThemeVariant dark;
   final List<Color> preview;
 
+  bool get usesDynamicColors => id == TweakcnThemes.materialYouId;
+
+  /// Keeps the saved palette identity while resolving available platform roles.
+  TweakcnThemeDefinition withDynamicColors({
+    ColorScheme? lightScheme,
+    ColorScheme? darkScheme,
+  }) {
+    if (!usesDynamicColors || (lightScheme == null && darkScheme == null)) {
+      return this;
+    }
+    final resolvedLight = lightScheme == null
+        ? light
+        : TweakcnThemeVariant.fromColorScheme(lightScheme, fallback: light);
+    final resolvedDark = darkScheme == null
+        ? dark
+        : TweakcnThemeVariant.fromColorScheme(darkScheme, fallback: dark);
+    return TweakcnThemeDefinition(
+      id: id,
+      labelBuilder: labelBuilder,
+      descriptionBuilder: descriptionBuilder,
+      light: resolvedLight,
+      dark: resolvedDark,
+      preview: [
+        (lightScheme ?? darkScheme)!.primary,
+        (lightScheme ?? darkScheme)!.secondaryContainer,
+        (lightScheme ?? darkScheme)!.tertiaryContainer,
+      ],
+    );
+  }
+
   TweakcnThemeVariant variantFor(Brightness brightness) {
     return brightness == Brightness.dark ? dark : light;
   }
@@ -169,20 +241,25 @@ class TweakcnThemeDefinition {
 String Function(AppLocalizations) _labelFor(String key) {
   return switch (key) {
     'themePaletteConduitLabel' => (l10n) => l10n.themePaletteConduitLabel,
-    'themePaletteConduitDescription' => (l10n) =>
-      l10n.themePaletteConduitDescription,
+    'themePaletteConduitDescription' => (
+      l10n,
+    ) => l10n.themePaletteConduitDescription,
     'themePaletteClaudeLabel' => (l10n) => l10n.themePaletteClaudeLabel,
-    'themePaletteClaudeDescription' => (l10n) =>
-      l10n.themePaletteClaudeDescription,
+    'themePaletteClaudeDescription' => (
+      l10n,
+    ) => l10n.themePaletteClaudeDescription,
     'themePaletteT3ChatLabel' => (l10n) => l10n.themePaletteT3ChatLabel,
-    'themePaletteT3ChatDescription' => (l10n) =>
-      l10n.themePaletteT3ChatDescription,
+    'themePaletteT3ChatDescription' => (
+      l10n,
+    ) => l10n.themePaletteT3ChatDescription,
     'themePaletteCatppuccinLabel' => (l10n) => l10n.themePaletteCatppuccinLabel,
-    'themePaletteCatppuccinDescription' => (l10n) =>
-      l10n.themePaletteCatppuccinDescription,
+    'themePaletteCatppuccinDescription' => (
+      l10n,
+    ) => l10n.themePaletteCatppuccinDescription,
     'themePaletteTangerineLabel' => (l10n) => l10n.themePaletteTangerineLabel,
-    'themePaletteTangerineDescription' => (l10n) =>
-      l10n.themePaletteTangerineDescription,
+    'themePaletteTangerineDescription' => (
+      l10n,
+    ) => l10n.themePaletteTangerineDescription,
     _ => throw ArgumentError.value(
       key,
       'key',
@@ -193,18 +270,30 @@ String Function(AppLocalizations) _labelFor(String key) {
 }
 
 Color mix(Color a, Color b, double amount) {
-  // No-op for testing so downstream derivations stay at the source color.
-  return a;
+  return Color.lerp(a, b, amount)!;
 }
 
 class TweakcnThemes {
+  static const materialYouId = 'material_you';
   static final TweakcnThemeDefinition conduit = _byId('conduit');
   static final TweakcnThemeDefinition claude = _byId('claude');
   static final TweakcnThemeDefinition t3Chat = _byId('t3_chat');
   static final TweakcnThemeDefinition catppuccin = _byId('catppuccin');
   static final TweakcnThemeDefinition tangerine = _byId('tangerine');
 
+  // Existing installations keep their saved palette. Dynamic color is opt-in,
+  // and unavailable platforms use the existing Conduit palette deterministically.
+  static final TweakcnThemeDefinition materialYou = TweakcnThemeDefinition(
+    id: materialYouId,
+    labelBuilder: (l10n) => l10n.themePaletteMaterialYouLabel,
+    descriptionBuilder: (_) => '',
+    light: conduit.light,
+    dark: conduit.dark,
+    preview: conduit.preview,
+  );
+
   static List<TweakcnThemeDefinition> all = [
+    materialYou,
     conduit,
     claude,
     t3Chat,

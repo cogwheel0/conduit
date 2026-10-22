@@ -25,8 +25,7 @@ class ConduitInputStyles {
     borderSide: BorderSide(color: color, width: width),
   );
 
-  BorderRadius get _standardRadius =>
-      BorderRadius.circular(AppBorderRadius.input);
+  BorderRadius get _standardRadius => theme.shapes.medium;
 
   TextStyle get _hintStyle =>
       AppTypography.inputHintStyle.copyWith(color: theme.inputPlaceholder);
@@ -94,9 +93,7 @@ class ConduitInputStyles {
   /// Underline border, no fill. For dialog text inputs.
   InputDecoration underline({String? hint}) => InputDecoration(
     hintText: hint,
-    hintStyle: _hintStyle.copyWith(
-      color: theme.textSecondary.withValues(alpha: 0.6),
-    ),
+    hintStyle: _hintStyle,
     filled: false,
     border: UnderlineInputBorder(
       borderSide: BorderSide(color: theme.cardBorder),
@@ -106,7 +103,7 @@ class ConduitInputStyles {
     ),
     focusedBorder: UnderlineInputBorder(
       borderSide: BorderSide(
-        color: theme.buttonPrimary,
+        color: theme.inputBorderFocused,
         width: BorderWidth.thick,
       ),
     ),

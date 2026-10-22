@@ -20,6 +20,7 @@ class Routes {
   static const String profile = '/profile';
   static const String personalization = '/profile/personalization';
   static const String audioSettings = '/profile/audio';
+  static const String voiceProviderSettings = '/profile/audio/voice-provider';
   static const String accountSettings = '/profile/account';
   static const String accounts = '/profile/accounts';
   static const String serverAddresses = '/profile/accounts/addresses';
@@ -43,6 +44,8 @@ class Routes {
   static const String directMcpServerEditor =
       '/profile/direct-connections/mcp/:id';
   static const String hermesSettings = '/profile/hermes';
+  static const String hermesConnections = '/profile/hermes/connections';
+  static const String hermesAgentSection = '/profile/hermes/settings/:section';
 
   /// Editor for one saved Hermes connection; [hermesNewConnectionId] adds one.
   static const String hermesConnectionEditor =
@@ -81,6 +84,7 @@ class RouteNames {
   static const String profile = 'profile';
   static const String personalization = 'personalization';
   static const String audioSettings = 'audio-settings';
+  static const String voiceProviderSettings = 'voice-provider-settings';
   static const String accountSettings = 'account-settings';
   static const String accounts = 'accounts';
   static const String serverAddresses = 'server-addresses';
@@ -101,6 +105,8 @@ class RouteNames {
   static const String directConnectionEditor = 'direct-connection-editor';
   static const String directMcpServerEditor = 'direct-mcp-server-editor';
   static const String hermesSettings = 'hermes-settings';
+  static const String hermesConnections = 'hermes-connections';
+  static const String hermesAgentSection = 'hermes-agent-section';
   static const String hermesConnectionEditor = 'hermes-connection-editor';
   static const String hermesJobs = 'hermes-jobs';
   static const String hermesMcp = 'hermes-mcp';

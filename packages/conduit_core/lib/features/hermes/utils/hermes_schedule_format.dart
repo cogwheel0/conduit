@@ -59,7 +59,9 @@ String describeHermesCronSchedule(String expression) {
   final numericHour = int.tryParse(hour);
   if (numericMinute == null ||
       numericHour == null ||
+      numericMinute < 0 ||
       numericMinute > 59 ||
+      numericHour < 0 ||
       numericHour > 23) {
     return normalized;
   }
@@ -78,6 +80,10 @@ String describeHermesCronSchedule(String expression) {
     }
     final weekday = _weekdayLabel(dayOfWeek);
     if (weekday != null) return 'Every $weekday at $time';
+    final weekdays = dayOfWeek.split(',').map(_weekdayLabel).toList();
+    if (weekdays.length > 1 && weekdays.every((day) => day != null)) {
+      return 'Every ${weekdays.toSet().join(', ')} at $time';
+    }
   }
 
   final numericDay = int.tryParse(dayOfMonth);
@@ -92,6 +98,17 @@ String describeHermesCronSchedule(String expression) {
   return normalized;
 }
 
+/// Compact summaries never present an unfamiliar cron expression as prose.
+String hermesScheduleSummary(String expression) {
+  final normalized = expression.trim().replaceAll(RegExp(r'\s+'), ' ');
+  final description = describeHermesCronSchedule(expression);
+  return description == normalized &&
+          normalized.split(' ').length == 5 &&
+          RegExp(r'^[0-9*?]').hasMatch(normalized)
+      ? 'Custom schedule'
+      : description;
+}
+
 /// Whether [schedule] benefits from showing its raw cron expression alongside
 /// the human-readable cadence.
 bool hermesScheduleNeedsRawDisplay(String schedule) {
@@ -102,6 +119,7 @@ bool hermesScheduleNeedsRawDisplay(String schedule) {
 
 String hermesJobTimingDetail(HermesJob job, {String? locale}) {
   final nextRun = job.nextRun;
+  if (!job.enabled) return 'Paused';
   if (nextRun != null) {
     final formatter = DateFormat.MMMEd(locale).add_jm();
     return 'Next ${formatter.format(nextRun.toLocal())}';

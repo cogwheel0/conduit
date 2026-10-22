@@ -70,7 +70,13 @@
   },
   "releaseNotesTitle": "Novinky",
   "releaseNotesAnnouncementTitle": "Novinky v {version}",
-  "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
+  "@releaseNotesAnnouncementTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "releaseNotesLearnMore": "Zjistit více",
   "releaseNotesReviewButton": "Ohodnotit Conduit",
   "releaseNotesDoneButton": "Hotovo",
@@ -373,6 +379,122 @@
   "invalidCredentials": "Neplatné uživatelské jméno nebo heslo. Zkuste to znovu.",
   "@invalidCredentials": {
     "description": "Detailed message when authentication fails."
+  },
+  "signInAccountPendingApproval": "Váš účet čeká na schválení správcem. Zkuste to znovu, až bude schválen.",
+  "@signInAccountPendingApproval": {
+    "description": "Sign-in error when the Open WebUI account still waits for an administrator to approve it."
+  },
+  "signInTwoStepVerificationRequired": "Tento účet používá dvoufázové ověření. Přihlaste se znovu a pak zadejte kód z ověřovací aplikace.",
+  "@signInTwoStepVerificationRequired": {
+    "description": "Sign-in error when saved credentials met Open WebUI's two-step verification, which needs a code typed in."
+  },
+  "twoStepVerifyTitle": "Potvrďte přihlášení",
+  "@twoStepVerifyTitle": {
+    "description": "Title of the sign-in step that asks for a two-step verification code."
+  },
+  "twoStepEnrollTitle": "Nastavte ověřovací aplikaci",
+  "@twoStepEnrollTitle": {
+    "description": "Title of the sign-in step that adds an authenticator app for two-step verification."
+  },
+  "twoStepRecoverTitle": "Obnovte ověřovací aplikaci",
+  "@twoStepRecoverTitle": {
+    "description": "Title of the sign-in step that redeems an administrator's two-step verification recovery token."
+  },
+  "twoStepVerifyDescription": "Zadejte šestimístný kód z ověřovací aplikace.",
+  "@twoStepVerifyDescription": {
+    "description": "Instruction for entering a two-step verification code."
+  },
+  "twoStepRecoveryCodeDescription": "Zadejte jeden z kódů pro obnovení, které jste si uložili.",
+  "@twoStepRecoveryCodeDescription": {
+    "description": "Instruction for signing in with a saved two-step verification recovery code."
+  },
+  "twoStepEnrollDescription": "Přidejte tento účet do ověřovací aplikace a pak zadejte šestimístný kód, který zobrazí.",
+  "@twoStepEnrollDescription": {
+    "description": "Instruction for adding the account to an authenticator app during sign-in."
+  },
+  "twoStepRecoverDescription": "Správce pro tento účet resetoval dvoufázové ověření. Zadejte token pro obnovení, který vám dal.",
+  "@twoStepRecoverDescription": {
+    "description": "Instruction for redeeming the recovery token an administrator issued after resetting two-step verification."
+  },
+  "twoStepCodeLabel": "Ověřovací kód",
+  "@twoStepCodeLabel": {
+    "description": "Label of the field for an authenticator app code."
+  },
+  "twoStepRecoveryCodeLabel": "Kód pro obnovení",
+  "@twoStepRecoveryCodeLabel": {
+    "description": "Label of the field for a two-step verification recovery code."
+  },
+  "twoStepResetTokenLabel": "Token pro obnovení",
+  "@twoStepResetTokenLabel": {
+    "description": "Label of the field for an administrator's two-step verification recovery token."
+  },
+  "twoStepUseRecoveryCode": "Použít kód pro obnovení",
+  "@twoStepUseRecoveryCode": {
+    "description": "Switches the two-step verification field to a recovery code."
+  },
+  "twoStepUseAuthenticatorCode": "Použít ověřovací kód",
+  "@twoStepUseAuthenticatorCode": {
+    "description": "Switches the two-step verification field back to an authenticator app code."
+  },
+  "twoStepBackToSignIn": "Zpět na přihlášení",
+  "@twoStepBackToSignIn": {
+    "description": "Leaves the two-step verification step for the sign-in form."
+  },
+  "twoStepOpenAuthenticator": "Přidat do ověřovací aplikace",
+  "@twoStepOpenAuthenticator": {
+    "description": "Opens an authenticator app on this device to add the account."
+  },
+  "twoStepSetupKeyLabel": "Klíč pro nastavení",
+  "@twoStepSetupKeyLabel": {
+    "description": "Label above the secret key to type into an authenticator app."
+  },
+  "twoStepCopySetupKey": "Kopírovat klíč pro nastavení",
+  "@twoStepCopySetupKey": {
+    "description": "Copies the authenticator setup key."
+  },
+  "twoStepQrCodeLabel": "QR kód pro ověřovací aplikaci",
+  "@twoStepQrCodeLabel": {
+    "description": "Accessibility label of the QR code for an authenticator app."
+  },
+  "twoStepSetupLoading": "Připravuje se ověřovací aplikace…",
+  "@twoStepSetupLoading": {
+    "description": "Shown while the authenticator setup key loads."
+  },
+  "twoStepSetupFailed": "Klíč pro nastavení se nepodařilo načíst.",
+  "@twoStepSetupFailed": {
+    "description": "Shown when the authenticator setup key could not be loaded."
+  },
+  "twoStepNoAuthenticatorApp": "Žádná aplikace ho nedokázala přidat. Zkopírujte klíč pro nastavení do ověřovací aplikace.",
+  "@twoStepNoAuthenticatorApp": {
+    "description": "Shown when no app on the device could open the authenticator link."
+  },
+  "twoStepRecoveryCodesTitle": "Uložte si kódy pro obnovení",
+  "@twoStepRecoveryCodesTitle": {
+    "description": "Title of the screen that shows new two-step verification recovery codes once."
+  },
+  "twoStepRecoveryCodesDescription": "Každý kód vás jednou přihlásí, pokud přijdete o ověřovací aplikaci. Uložte je na bezpečné místo: znovu se nezobrazí.",
+  "@twoStepRecoveryCodesDescription": {
+    "description": "Explains new two-step verification recovery codes before continuing."
+  },
+  "twoStepCopyRecoveryCodes": "Kopírovat kódy pro obnovení",
+  "@twoStepCopyRecoveryCodes": {
+    "description": "Copies the new two-step verification recovery codes."
+  },
+  "twoStepInvalidCode": "Tento kód nefungoval. Zkontrolujte ho a zkuste to znovu.",
+  "@twoStepInvalidCode": {
+    "description": "Shown when a two-step verification code or recovery token was not accepted."
+  },
+  "twoStepExpired": "Platnost tohoto kroku vypršela. Vraťte se na přihlášení a začněte znovu.",
+  "@twoStepExpired": {
+    "description": "Shown when the two-step verification step expired or no longer applies."
+  },
+  "twoStepTooManyAttempts": "Příliš mnoho pokusů. Počkejte několik minut a pak se přihlaste znovu.",
+  "@twoStepTooManyAttempts": {
+    "description": "Shown when the server refuses more two-step verification codes for now."
+  },
+  "twoStepFailed": "Kód se nepodařilo ověřit. Zkuste to znovu.",
+  "@twoStepFailed": {
+    "description": "Shown when a two-step verification code could not be checked, for example offline."
   },
   "serverRedirectingHttps": "Server přesměrovává požadavky. Zkontrolujte konfiguraci HTTPS serveru.",
   "@serverRedirectingHttps": {
@@ -1248,6 +1370,7 @@
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
+  "themePaletteMaterialYouLabel": "Material You",
   "themePaletteConduitLabel": "Conduit",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
@@ -1513,6 +1636,36 @@
   "ttsServerUnavailableWarning": "Chcete-li použít tuto možnost, připojte se k serveru se zapnutým převodem textu na řeč.",
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
+  },
+  "voiceProviderTitle": "Poskytovatel hlasu",
+  "voiceProviderDescription": "Chaty Direct a Apple používají toto připojení, když je „Řeč na text“ nebo „Text na řeč“ nastaveno na „Server“.",
+  "voiceProviderConnection": "Připojení",
+  "voiceProviderNone": "Žádný",
+  "voiceProviderNoConnections": "Přidejte připojení Direct kompatibilní s OpenAI, abyste ho zde mohli vybrat.",
+  "voiceProviderTranscriptionModel": "Model přepisu",
+  "voiceProviderSpeechModel": "Model syntézy řeči",
+  "voiceProviderModelsHint": "Použijte názvy modelů, které uvádí váš poskytovatel. Pokud pole necháte prázdné, daný směr použije toto zařízení.",
+  "voiceProviderRealtimeModel": "Model v reálném čase",
+  "voiceProviderRealtimeInstructions": "Pokyny",
+  "voiceProviderRealtimeInstructionsHint": "Nechte prázdné, aby se použily pokyny Conduit.",
+  "voiceProviderRealtimeFooter": "Hovory v chatech Direct a Apple vede tento hlas a model přepisu výše mu pomáhá sledovat, co říkáte.",
+  "voiceCallModeTitle": "Hovory",
+  "voiceCallModeRealtime": "V reálném čase",
+  "voiceCallModeStandard": "Standardní",
+  "voiceCallModeRealtimeDescription": "Mluvte s hlasem v reálném čase, pokud ho server chatu nebo poskytovatel hlasu nabízí; můžete mu skočit do řeči. Ostatní hovory jsou standardní.",
+  "voiceCallModeStandardDescription": "Hovor vás poslouchá, odešle, co jste řekli, a pak odpověď přečte nahlas.",
+  "voiceCallNoticeTranscriptionFailed": "Tomu nebylo dobře rozumět. Řekněte to prosím znovu.",
+  "voiceCallNoticeReplyIncomplete": "Odpověď hlasu byla přerušena.",
+  "voiceCallNoticeTranscriptNotSaved": "Část hovoru se nepodařilo uložit do chatu.",
+  "voiceReplySpokenLabel": "{model} · hlasem",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
   },
   "ttsSettings": "Text na řeč",
   "@ttsSettings": {
@@ -2223,9 +2376,24 @@
   "chatSettingErrorNotANumber": "Zadejte číslo.",
   "chatSettingErrorNotAWholeNumber": "Zadejte celé číslo.",
   "chatSettingErrorRange": "Zadejte hodnotu od {min} do {max}.",
-  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "@chatSettingErrorRange": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
   "chatSettingErrorMinimum": "Zadejte {min} nebo více.",
-  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "@chatSettingErrorMinimum": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      }
+    }
+  },
   "chatSettingErrorNotJson": "Zadejte slovo, např. json, nebo platné schéma JSON.",
   "chatSettingErrorNotAChoice": "Vyberte podporovanou hodnotu.",
   "personalConnectionsTitle": "Osobní připojení",
@@ -2469,13 +2637,21 @@
   },
   "sidebarChannelsTab": "Kanály",
   "sidebarResizeHandle": "Změnit šířku postranního panelu",
-  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "@sidebarResizeHandle": {
+    "description": "Accessibility label for the draggable tablet sidebar divider."
+  },
   "sidebarResizeResetHint": "Dvojitým klepnutím obnovíte šířku postranního panelu",
-  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "@sidebarResizeResetHint": {
+    "description": "Accessibility hint for resetting the tablet sidebar width."
+  },
   "sidebarWidthValue": "{width} bodů",
   "@sidebarWidthValue": {
     "description": "Accessibility value describing the current tablet sidebar width.",
-    "placeholders": {"width": {"type": "int"}}
+    "placeholders": {
+      "width": {
+        "type": "int"
+      }
+    }
   },
   "@sidebarChannelsTab": {
     "description": "Label for the Channels tab in the sidebar"
@@ -3835,7 +4011,9 @@
   },
   "workspaceModelBaseModelNone": "None (custom)",
   "workspaceModelBaseModelRequired": "Vyberte základní model.",
-  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
+  "@workspaceModelBaseModelRequired": {
+    "description": "Validation shown when a non-admin model create or protected edit has no base model."
+  },
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
@@ -4770,7 +4948,13 @@
   "workspaceToolSpecs": "Generated specifications",
   "workspaceToolDetails": "Podrobnosti nástroje",
   "workspaceToolFunctionCount": "Počet funkcí: {count}",
-  "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
+  "@workspaceToolFunctionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
   "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
   "workspaceToolValves": "Valves",
@@ -4823,11 +5007,17 @@
   "hermesApprovalRequired": "Approval required",
   "hermesApprovalFallback": "The agent is requesting permission to continue.",
   "openWebUiPromptOther": "Jiné",
-  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "@openWebUiPromptOther": {
+    "description": "Label for a free-form answer to an Open WebUI ask-user question."
+  },
   "openWebUiPromptAnswerHint": "Napište svou odpověď",
-  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "@openWebUiPromptAnswerHint": {
+    "description": "Placeholder for a free-form Open WebUI ask-user answer."
+  },
   "openWebUiPromptSubmit": "Odeslat",
-  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
+  "@openWebUiPromptSubmit": {
+    "description": "Action that submits all answers to an Open WebUI ask-user prompt."
+  },
   "hermesApprovalApproved": "Approved ✓",
   "hermesApprovalDenied": "Denied",
   "hermesApprovalApproveAction": "Approve",
@@ -4890,7 +5080,14 @@
   "openWebUiDirectConnectionsUnavailable": "Připojení Open WebUI nejsou dostupná.",
   "directConnectionNoLongerExists": "Toto připojení už neexistuje.",
   "openWebUiDirectConnectionDeleteMessage": "Připojení {name} bude odebráno z vašeho účtu Open WebUI i z ostatních přihlášených klientů.",
-  "@openWebUiDirectConnectionDeleteMessage": {"description":"Confirmation message shown before deleting an Open WebUI-synced direct connection.","placeholders":{"name":{"type":"String"}}},
+  "@openWebUiDirectConnectionDeleteMessage": {
+    "description": "Confirmation message shown before deleting an Open WebUI-synced direct connection.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "addDirectConnection": "Add connection",
   "editDirectConnection": "Edit connection",
   "directConnectionName": "Connection name",
@@ -4936,7 +5133,9 @@
   "directCustomHeaders": "Custom headers",
   "directManualModelIds": "Manual model IDs",
   "directManualModelIdsDescription": "Volitelné. Pokud server nedokáže vypsat modely, zadejte jedno ID na řádek.",
-  "@directManualModelIdsDescription": {"placeholders":{}},
+  "@directManualModelIdsDescription": {
+    "placeholders": {}
+  },
   "directModelIdPrefix": "Model ID prefix",
   "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
   "directModelTags": "Model tags",
@@ -5027,7 +5226,13 @@
   "hermesMemoryKeyShortDescription": "Přiřadí dlouhodobou paměť agenta k vám. Nechte prázdné a Conduit klíč vytvoří.",
   "hermesConnectAction": "Připojit Hermes",
   "hermesToolCount": "{count, plural, one{1 nástroj} few{{count} nástroje} other{{count} nástrojů}}",
-  "@hermesToolCount": {"placeholders":{"count":{"type":"int"}}},
+  "@hermesToolCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "hermesNoToolsets": "Server neohlásil žádné sady nástrojů.",
   "hermesToolsetsNewSessions": "Změny se projeví v nových relacích Hermes. Stávající chaty si ponechají své současné nástroje.",
   "hermesServerStatusTitle": "Stav serveru",
@@ -5080,7 +5285,13 @@
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, abyste povolili bezpečné ovládání tahů.",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "{count, plural, one{Zobrazit další řádek} few{Zobrazit další {count} řádky} other{Zobrazit dalších {count} řádků}}",
-  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "@markdownShowMoreLines": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "markdownShowLess": "Zobrazit méně",
   "voiceBargeIn": "Skákat do řeči",
   "voiceBargeInDescription": "Naslouchá i během mluvení asistenta, takže ho můžete přerušit.",
@@ -5141,56 +5352,151 @@
   "hermesSessionDeleteFailed": "Konverzaci se nepodařilo smazat.",
   "hermesSessionLoadFailed": "Tuto konverzaci se nepodařilo načíst. Zkontrolujte připojení a zkuste to znovu.",
   "hermesMemoryKeyFieldLabel": "Klíč paměti",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Deny", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
-  ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
-  ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
-  ,"hermesSessionTooLarge": "Tato konverzace je příliš velká na načtení v tomto zařízení."
-  ,"hermesSessionNotFound": "Tato konverzace už není na serveru Hermes dostupná."
-  ,"hermesSessionLoadFailedDetail": "Tuto konverzaci se nepodařilo načíst: {detail}"
-  ,"@hermesSessionLoadFailedDetail": {
+  "directMcpServersTitle": "MCP servers",
+  "directMcpEmptyTitle": "No MCP servers yet",
+  "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.",
+  "directMcpEditorTitle": "Edit MCP server",
+  "directMcpAddTitle": "Add MCP server",
+  "directMcpName": "Server name",
+  "directMcpEndpoint": "Streamable HTTP endpoint",
+  "directMcpBearerToken": "Bearer token (optional)",
+  "directMcpCustomHeaders": "Custom headers (optional)",
+  "directMcpCustomHeadersHint": "One per line: Name: Value",
+  "directMcpTestConnection": "Test connection",
+  "directMcpTesting": "Testing connection…",
+  "directMcpTestSucceeded": "Connected — {count} tools found.",
+  "directMcpTestFailed": "Could not list tools from this MCP server.",
+  "directMcpSaveFailed": "Could not save this MCP server.",
+  "directMcpLoadFailed": "Could not load MCP servers from secure storage.",
+  "directMcpMissing": "This MCP server no longer exists.",
+  "directMcpCredentialTransferTitle": "Use credentials with new server?",
+  "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.",
+  "directMcpCredentialTransferConfirm": "Use credentials",
+  "directMcpDeleteTitle": "Delete MCP server?",
+  "directMcpDeleteMessage": "This removes {name} and its credentials from this device.",
+  "directMcpDeleteFailed": "Could not delete this MCP server.",
+  "directMcpAuthMode": "Authentication",
+  "directMcpAuthNone": "None",
+  "directMcpAuthBearer": "Bearer token",
+  "directMcpAuthOAuth": "OAuth",
+  "directMcpOAuthConnect": "Connect in browser",
+  "directMcpOAuthReconnect": "Reconnect in browser",
+  "directMcpOAuthDisconnect": "Disconnect OAuth",
+  "directMcpOAuthPending": "Waiting for authorization in the browser…",
+  "directMcpOAuthConnected": "OAuth connected.",
+  "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}",
+  "directMcpOAuthNoScopes": "No scopes reported",
+  "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.",
+  "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.",
+  "directMcpApprovalTitle": "Tool approval",
+  "directMcpApprovalAllowOnce": "Allow once",
+  "directMcpApprovalAllowSession": "Allow for session",
+  "directMcpApprovalAllowAlways": "Always allow",
+  "directMcpApprovalAlwaysTitle": "Always allow this tool?",
+  "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.",
+  "@directMcpApprovalAlwaysMessage": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "toolName": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.",
+  "directMcpApprovalDeny": "Deny",
+  "directMcpApprovalAllowed": "Allowed once",
+  "directMcpApprovalAllowedSession": "Allowed for session",
+  "directMcpApprovalAllowedAlways": "Always allowed",
+  "directMcpApprovalDenied": "Denied",
+  "directMcpApprovalExpired": "Approval expired",
+  "directMcpRememberedApprovalsTitle": "Always allowed tools",
+  "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.",
+  "directMcpRememberedApprovalRevoke": "Revoke",
+  "directMcpRememberedApprovalsRevokeAll": "Revoke all",
+  "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval.",
+  "directMcpContentAction": "MCP content",
+  "directMcpContentTitle": "MCP content",
+  "directMcpContentServer": "MCP server",
+  "directMcpContentSearch": "Search prompts and resources",
+  "directMcpContentPrompts": "Prompts",
+  "directMcpContentResources": "Resources",
+  "directMcpContentEmpty": "This server has no prompts or resources.",
+  "directMcpContentNoMatches": "No matching prompts or resources.",
+  "directMcpContentLoadFailed": "Could not load content from this MCP server.",
+  "directMcpContentRefresh": "Refresh MCP content",
+  "directMcpContentPreviewTitle": "Preview",
+  "directMcpContentInsert": "Insert",
+  "directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}",
+  "@directMcpContentPromptHeading": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "promptName": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}",
+  "@directMcpContentResourceHeading": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "resourceUri": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpContentRoleUser": "User",
+  "directMcpContentRoleAssistant": "Assistant",
+  "directMcpContentRequestFailed": "Could not load this MCP content. Try again.",
+  "directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource.",
+  "directMcpContentChanged": "This item changed on the server. Refresh and choose it again.",
+  "directMcpContentTooLarge": "This content is too large to insert.",
+  "directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again.",
+  "directMcpContentLoading": "Loading MCP content…",
+  "directMcpInsecureCredentialsTitle": "Send credentials without encryption?",
+  "directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network.",
+  "directMcpInsecureCredentialsConfirm": "Send without encryption",
+  "hermesSessionTooLarge": "Tato konverzace je příliš velká na načtení v tomto zařízení.",
+  "hermesSessionNotFound": "Tato konverzace už není na serveru Hermes dostupná.",
+  "hermesSessionLoadFailedDetail": "Tuto konverzaci se nepodařilo načíst: {detail}",
+  "@hermesSessionLoadFailedDetail": {
     "placeholders": {
       "detail": {
         "type": "String"
       }
     }
-  }
-  ,"directBearerDescription": "Odešle přihlašovací údaje v hlavičce Authorization: Bearer. Většina serverů kompatibilních s OpenAI (llama.cpp, vLLM, LM Studio, Ollama) to očekává."
-  ,"directApiKeyHeaderAzureOnlyDescription": "Odešle přihlašovací údaje v hlavičce api-key. Používejte pouze pro Azure OpenAI; ostatní servery kompatibilní s OpenAI očekávají token Bearer.",
+  },
+  "directBearerDescription": "Odešle přihlašovací údaje v hlavičce Authorization: Bearer. Většina serverů kompatibilních s OpenAI (llama.cpp, vLLM, LM Studio, Ollama) to očekává.",
+  "directApiKeyHeaderAzureOnlyDescription": "Odešle přihlašovací údaje v hlavičce api-key. Používejte pouze pro Azure OpenAI; ostatní servery kompatibilní s OpenAI očekávají token Bearer.",
   "appleOnDeviceUnavailable": "Apple On-Device není na tomto zařízení dostupný.",
   "applePccContextSize": "Kontext {tokens} tokenů",
-  "@applePccContextSize": {"description": "Apple PCC context size label.", "placeholders": {"tokens": {"type": "String"}}},
+  "@applePccContextSize": {
+    "description": "Apple PCC context size label.",
+    "placeholders": {
+      "tokens": {
+        "type": "String"
+      }
+    }
+  },
   "applePccCurrentLanguageUnsupported": "Aktuální jazyk zařízení nemusí být podporován.",
   "applePccOnDeviceFallback": "Záloha v zařízení",
   "applePccOnDeviceFallbackSubtitle": "Použít menší model Apple v zařízení, když je PCC nedostupné. Požadavky s uvažováním tuto zálohu nikdy nepoužijí.",
   "applePccQuotaApproaching": "Blížíte se dennímu limitu využití",
   "applePccQuotaReached": "Denní limit využití vyčerpán",
   "applePccQuotaResetsAt": "Obnovení: {time}",
-  "@applePccQuotaResetsAt": {"description": "Apple PCC quota reset time.", "placeholders": {"time": {"type": "String"}}},
+  "@applePccQuotaResetsAt": {
+    "description": "Apple PCC quota reset time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "applePccShowQuotaOptions": "Zobrazit možnosti využití",
   "applePccStatusAvailable": "Dostupné",
   "applePccUnavailable": "Apple Private Cloud Compute není na tomto zařízení dostupný.",
@@ -5207,7 +5513,14 @@
   "directContextCompactionPickerDescription": "Vyberte kontextové okno, které má Conduit použít pro automatické zhuštění.",
   "directContextCompactionTitle": "Zhuštění kontextu",
   "directContextLimit": "Limit kontextu: {tokens}",
-  "@directContextLimit": {"description": "Provider-neutral model context limit label.", "placeholders": {"tokens": {"type": "String"}}},
+  "@directContextLimit": {
+    "description": "Provider-neutral model context limit label.",
+    "placeholders": {
+      "tokens": {
+        "type": "String"
+      }
+    }
+  },
   "notificationSystemSettingsDescription": "Změňte oprávnění, zvuk a možnosti bannerů pro Conduit.",
   "notificationSystemSettingsOpenFailed": "Systémové nastavení oznámení se nepodařilo otevřít.",
   "notificationTargetsTitle": "Cíle webhooků",
@@ -5240,7 +5553,13 @@
   "notificationTargetTestFailed": "Testovací oznámení se nepodařilo doručit.",
   "notificationTargetDelete": "Smazat cíl",
   "notificationTargetDeleteConfirm": "Smazat {name}? Váš server na něj přestane odesílat oznámení.",
-  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
+  "@notificationTargetDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "notificationSystemSettingsTitle": "Systémové nastavení oznámení",
   "proxyAuthSignInAgain": "Znovu se přihlásit přes proxy",
   "readOnly": "Jen pro čtení",
@@ -5250,7 +5569,15 @@
   "reasoningEffortModerate": "Střední",
   "sharedBadge": "Sdíleno",
   "sharedFolderOwner": "Sdílí {name}",
-  "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "@sharedFolderOwner": {
+    "description": "Owner label on a folder another user shared with this account.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
   "transcribingAudio": "Přepis...",
   "chatTaskProgress": "Úkoly: dokončeno {completed} z {total}",
   "@chatTaskProgress": {
@@ -5270,7 +5597,14 @@
   "chatTaskCancelled": "Zrušeno",
   "webSearchSettingsFooterAuto": "Používají modely Direct bez vlastního vyhledávání na webu. Vyhledávání probíhá z tohoto zařízení: dotazy jdou na DuckDuckGo, a pokud neodpoví, na Brave, Bing, Mojeek nebo Wikipedii. Stránky, které model čte, se také načítají z tohoto zařízení.",
   "webSearchSettingsFooterEngine": "Používají modely Direct bez vlastního vyhledávání na webu. Vyhledávání probíhá z tohoto zařízení a dotazy jdou pouze na {engine}. Stránky, které model čte, se také načítají z tohoto zařízení.",
-  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "@webSearchSettingsFooterEngine": {
+    "placeholders": {
+      "engine": {
+        "type": "String",
+        "example": "DuckDuckGo"
+      }
+    }
+  },
   "webSearchEngineLabel": "Vyhledávač",
   "webSearchEngineAuto": "Automaticky",
   "webSearchSafeSearchLabel": "Bezpečné vyhledávání",
@@ -5282,9 +5616,27 @@
   "webSearchRegionWorldwide": "Celosvětově",
   "directModelToolsUnsupported": "Tento model neumí používat nástroje, a proto nemůže vyhledávat na webu. Vypněte vyhledávání na webu a všechny nástroje a zkuste to znovu.",
   "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modely} many{{count} modelu} other{{count} modelů}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "@directContextCompactionModelCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "42"
+      }
+    }
+  },
   "imageViewerPosition": "{current} z {total}",
-  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "@imageViewerPosition": {
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
   "saveImage": "Uložit obrázek",
   "imageSaved": "Obrázek uložen",
   "imageSaveFailed": "Obrázek se nepodařilo uložit.",
@@ -5301,11 +5653,17 @@
   },
   "askConduitAction": "Zeptat se Conduitu",
   "voiceCallStartTimeout": "Spuštění hlasového hovoru trvalo příliš dlouho. Zkuste to znovu.",
-  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "@voiceCallStartTimeout": {
+    "description": "Error shown when starting a voice call takes too long."
+  },
   "voiceCallNoSpeech": "Nebyla zjištěna žádná řeč.",
-  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "@voiceCallNoSpeech": {
+    "description": "Message shown when the voice call heard no speech for several tries."
+  },
   "voiceCallFailed": "Hlasový hovor nemohl pokračovat.",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "@voiceCallFailed": {
+    "description": "Generic error shown when a voice call fails for a reason with no specific message."
+  },
   "personalToolSettings": "Nastavení nástrojů",
   "personalToolSettingsDescription": "Vaše osobní možnosti pro vybrané nástroje a model.",
   "personalToolSettingsYours": "Vaše nastavení",
@@ -5340,7 +5698,15 @@
   "channelMembersAdd": "Přidat členy",
   "channelMembersAddConfirm": "Přidat",
   "channelMembersRemoveMember": "Odebrat {name}",
-  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "@channelMembersRemoveMember": {
+    "description": "Accessibility label for the button that removes one person from the channel.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
   "channelMembersChangeFailed": "Členy se nepodařilo aktualizovat. Zkuste to znovu.",
   "channelMembersChangeDenied": "Server tuto změnu nepovolil.",
   "channelMembersChangeNotPermitted": "Nemůžete spravovat členy tohoto kanálu.",
@@ -5411,8 +5777,20 @@
   "folderProjectReadOnly": "Tato sdílená složka je jen pro čtení, takže její nastavení projektu nelze změnit.",
   "folderProjectGone": "Tato složka už není dostupná.",
   "folderProjectModelFallbackNotice": "Výchozí model této složky není dostupný, proto se použije tvůj výchozí model.",
-  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
-  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectMoveUp": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@folderProjectRemove": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTasksTitle": "Naplánované úlohy",
   "scheduledTasksDescription": "Váš server Open WebUI spouští tyto úlohy podle vlastního plánu, i když je tento telefon offline.",
   "scheduledTasksUnavailable": "Naplánované úlohy nejsou pro tento účet na tomto serveru k dispozici.",
@@ -5431,20 +5809,53 @@
   "scheduledTaskStatusActive": "Aktivní",
   "scheduledTaskStatusPaused": "Pozastavená",
   "scheduledTaskNextRun": "Příští spuštění: {time}",
-  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskNextRun": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskNoNextRun": "Žádné další spuštění",
   "scheduledTaskLastRun": "Poslední spuštění: {time}",
-  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskLastRun": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskNeverRun": "Dosud nespuštěno",
   "scheduledTaskScheduleOnce": "Jednou",
   "scheduledTaskScheduleDaily": "Denně",
   "scheduledTaskScheduleWeekly": "Týdně",
   "scheduledTaskScheduleOnceSummary": "Jednou, {date}",
-  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "@scheduledTaskScheduleOnceSummary": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleDailySummary": "Denně v {time}",
-  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskScheduleDailySummary": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleWeeklySummary": "{days} v {time}",
-  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "@scheduledTaskScheduleWeeklySummary": {
+    "placeholders": {
+      "days": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleCustom": "Vlastní plán",
   "scheduledTaskNewTitle": "Nová naplánovaná úloha",
   "scheduledTaskEditTitle": "Upravit naplánovanou úlohu",
@@ -5454,7 +5865,13 @@
   "scheduledTaskModelLabel": "Model",
   "scheduledTaskModelChoose": "Zvolte model",
   "scheduledTaskModelUnavailable": "{id} (již není k dispozici)",
-  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "@scheduledTaskModelUnavailable": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleLabel": "Plán",
   "scheduledTaskTimeLabel": "Čas",
   "scheduledTaskDateLabel": "Datum",
@@ -5496,7 +5913,13 @@
   "scheduledTaskOpenResultFailed": "Tento výsledek se nepodařilo otevřít.",
   "scheduledTaskDelete": "Smazat úlohu",
   "scheduledTaskDeleteConfirm": "Úloha {name} se na serveru přestane spouštět a její historie spuštění bude odstraněna.",
-  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "@scheduledTaskDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskChangeFailed": "Tuto úlohu se nepodařilo změnit.",
   "scheduledTaskTerminalKept": "K této úloze je připojen terminál. Při úpravě zůstane zachován.",
   "scheduledTaskPromptSection": "Pokyny",
@@ -5509,12 +5932,27 @@
   "queuedDraftFileFailed": "Soubor se nenahrál. Zkuste to znovu, nebo jej odeberte.",
   "queuedDraftsSendFailed": "Zprávy ve frontě se nepodařilo odeslat. Zůstávají ve frontě.",
   "queuedDraftsSending": "Odesílání zpráv z fronty…",
-  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "@queuedDraftsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "calendarTitle": "Kalendář",
   "calendarUnavailable": "Kalendář není pro tento účet na tomto serveru k dispozici.",
   "calendarTimezoneNote": "Časy se zobrazují v časovém pásmu tohoto zařízení.",
   "calendarRangeLabel": "{start} – {end}",
-  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "@calendarRangeLabel": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
   "calendarToday": "Dnes",
   "calendarEmpty": "V tomto období nejsou žádné události.",
   "calendarLoadFailed": "Kalendář se nepodařilo načíst.",
@@ -5541,9 +5979,21 @@
   "calendarEventDelete": "Smazat",
   "calendarEventDeleteSeries": "Smazat sérii",
   "calendarEventDeleteConfirm": "Smazat {title}? Tuto akci nelze vrátit zpět.",
-  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "@calendarEventDeleteConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "calendarEventDeleteSeriesConfirm": "Smazat {title} a všechna jeho opakování? Tuto akci nelze vrátit zpět.",
-  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "@calendarEventDeleteSeriesConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "calendarEventDeleteFailed": "Tuto událost se nepodařilo smazat.",
   "calendarEventLoadFailed": "Tuto událost se nepodařilo otevřít k úpravám.",
   "calendarEventReadOnly": "Tuto událost nemůžete měnit. Na pozvánku však stále můžete odpovědět.",
@@ -5576,7 +6026,13 @@
   "calendarAddPeople": "Přidat lidi",
   "calendarInvitedPerson": "Pozvaná osoba",
   "calendarRemovePerson": "Odebrat {name}",
-  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "@calendarRemovePerson": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "calendarAttendeesNote": "Pozvaní lidé odpovídají sami za sebe. Jejich odpovědi zůstanou zachovány, když změníte seznam.",
   "calendarNoWritableCalendar": "Nemáte žádný kalendář, do kterého můžete přidávat události. Chcete-li pokračovat, vytvořte kalendář.",
   "calendarTitleRequired": "Zadejte název.",
@@ -5989,5 +6445,33 @@
   "accountsRemoveAddressMessage": "Conduit přestane tuto adresu zkoušet. Vaše účty zůstanou přihlášené.",
   "accountsAddressConfirmTitle": "Ověřit tuto adresu?",
   "accountsAddressConfirmMessage": "Aby Conduit ověřil, že {host} je tento server, pošle mu relaci účtu uloženého v tomto zařízení. Pokračujte, jen pokud této adrese důvěřujete.",
-  "accountsAddressConfirmAction": "Ověřit adresu"
+  "accountsAddressConfirmAction": "Ověřit adresu",
+  "chatSwitcherReady": "Klepněte nebo podržte",
+  "@chatSwitcherReady": {
+    "description": "Idle hint above the floating new-chat and recent-chat switcher button."
+  },
+  "chatSwitcherPress": "Držte dál…",
+  "@chatSwitcherPress": {
+    "description": "Hint while pressing the chat switcher before a long press is recognized."
+  },
+  "chatSwitcherHold": "Posuňte na chat",
+  "@chatSwitcherHold": {
+    "description": "Hint after holding the chat switcher; sliding selects a recent chat."
+  },
+  "chatSwitcherRelease": "Pusťte pro otevření",
+  "@chatSwitcherRelease": {
+    "description": "Hint when releasing the held chat switcher will open the highlighted chat."
+  },
+  "chatSwitcherCancel": "Pusťte pro zrušení",
+  "@chatSwitcherCancel": {
+    "description": "Hint when releasing the held chat switcher will cancel without changing chats."
+  },
+  "chatSwitcherCancelled": "Zrušeno",
+  "@chatSwitcherCancelled": {
+    "description": "Brief confirmation after cancelling the chat-switcher gesture."
+  },
+  "chatSwitcherHint": "Klepnutím vytvoříte nový chat. Podržením a posunutím přepnete chat.",
+  "@chatSwitcherHint": {
+    "description": "Accessibility hint for the floating button: tap creates a chat, hold and slide switches chats."
+  }
 }

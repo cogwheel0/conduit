@@ -1,3 +1,7 @@
+import '../../../platform/motion_probe.dart';
+
+import 'package:conduit_core/utils/continuity_probe.dart';
+
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -12,10 +16,12 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../providers/text_to_speech_provider.dart';
+import '../providers/streaming_arrival_memory.dart';
 
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dart';
@@ -26,6 +32,16 @@ import 'image_gallery_scope.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 
 import 'enhanced_attachment.dart';
+import 'hermes_message_actions.dart';
+import '../../hermes/providers/hermes_mobile_navigation.dart';
+import '../../hermes/widgets/hermes_configuration_actions.dart';
+import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../../hermes/widgets/hermes_media_attachment.dart';
+import '../../hermes/providers/hermes_media.dart';
+import 'package:conduit_core/features/hermes/models/hermes_media.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 
@@ -70,6 +86,10 @@ import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 
 import 'streaming_status_widget.dart';
+import 'hermes_inline_activity.dart';
+import 'streaming_turn_footer.dart';
+
+import 'package:conduit_core/models/response_animation.dart';
 
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
@@ -173,10 +193,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   late AnimationController _streamingContentFadeController;
   late CurvedAnimation _streamingContentFade;
   String _displayedContent = '';
+  String? _mediaSource;
+  Object? _mediaFiles;
+  List<HermesMediaReference> _mediaReferences = const [];
+
+  List<HermesMediaReference> _resolveMedia(String content, List? files) {
+    if (_mediaSource != content || !identical(files, _mediaFiles)) {
+      _mediaSource = content;
+      _mediaFiles = files;
+      _mediaReferences = hermesMediaReferences(content, files: files?.whereType<Map>() ?? const []);
+    }
+    return _mediaReferences;
+  }
   late final ValueNotifier<String> _displayedContentListenable;
   Widget? _cachedAvatar;
   String? _cachedAvatarModelName;
   String? _cachedAvatarIconUrl;
+  // The label as shown, in the app's language: a voice reply's names it.
+  String? _cachedAvatarLabel;
   // Hysteresis for the action row: a message that has streamed in this widget's
   // lifetime must reach a settled completion before the action row appears, so
   // a transient in-progress state can never flash the row mid-stream. Settled
@@ -215,6 +249,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   ChatMessage? get _chatMessage =>
       widget.message is ChatMessage ? widget.message as ChatMessage : null;
+
+  /// A reply a realtime call's voice gave by itself, stored under the voice
+  /// model. There is no chat model answer to run again.
+  /// Only the current version can say: earlier versions keep no `meta`.
+  bool get _isVoiceReply =>
+      _activeVersionIndex < 0 && _spokenOnly(widget.message);
+
+  static bool _spokenOnly(Object? message) =>
+      message is ChatMessage && voiceReplayFor(message).spokenOnly;
 
   ChatTurnPhase get _turnPhase =>
       chatTurnPhaseForMessage(_chatMessage, isStreaming: widget.isStreaming);
@@ -327,6 +370,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _cachedAvatar = null;
       _cachedAvatarModelName = null;
       _cachedAvatarIconUrl = null;
+      _cachedAvatarLabel = null;
       _clearVisibleFollowUps();
       _resetTtsPlainTextState();
       _hasAnimated = !_shouldAnimateOnMount;
@@ -389,6 +433,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         oldWidget.versionModelNames != widget.versionModelNames ||
         oldWidget.versionModelIconUrls != widget.versionModelIconUrls ||
         oldWidget.message.model != widget.message.model ||
+        // A call's transcript can arrive after the message did.
+        _spokenOnly(oldWidget.message) != _spokenOnly(widget.message) ||
         _didVersionMetadataChange(oldWidget)) {
       _buildCachedAvatar();
     }
@@ -467,6 +513,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final contentChanged = raw != _displayedContent;
 
     if (contentChanged) {
+      ContinuityProbe.mark('widget-content', {
+        'characters': raw.length,
+        'streaming': widget.isStreaming,
+      });
       final shellPresentationChanged =
           _displayedContent.trim().isEmpty != raw.trim().isEmpty;
       if (shouldFadeStreamingContent) {
@@ -498,8 +548,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
   }
 
+  bool _markInitialArrival() =>
+      ref.read(streamingArrivalMemoryProvider).markVisible((
+        ref.read(activeConversationProvider)?.id,
+        widget.message.id,
+        widget.message.timestamp,
+        widget.message.versions.length,
+        widget.message.versions.isEmpty
+            ? null
+            : widget.message.versions.last.id,
+      ));
+
   void _primeInitialStreamingContentFade() {
-    if (!_canFadeStreamingContent(_displayedContent)) {
+    if (!_claimInitialStreamingContent(_displayedContent)) {
       return;
     }
     _streamingContentFadeController.value = 0.0;
@@ -512,15 +573,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   bool _shouldFadeInStreamingContent(String nextRaw) {
-    return _canFadeStreamingContent(nextRaw) &&
-        _displayedContent.trim().isEmpty;
+    return _displayedContent.trim().isEmpty &&
+        _claimInitialStreamingContent(nextRaw);
   }
 
-  bool _canFadeStreamingContent(String nextRaw) {
-    if (_disableAnimations || !_uiTreatsAsStreaming) {
-      return false;
-    }
-    return nextRaw.trim().isNotEmpty;
+  bool _canFadeStreamingContent(String nextRaw) =>
+      !_disableAnimations && _uiTreatsAsStreaming && nextRaw.trim().isNotEmpty;
+
+  bool _claimInitialStreamingContent(String nextRaw) {
+    if (!_uiTreatsAsStreaming || nextRaw.trim().isEmpty) return false;
+    // Reduced-motion readers have also seen this content. Re-enabling motion
+    // must not turn a later remount into a new arrival.
+    final first = _markInitialArrival();
+    return first && !_disableAnimations;
   }
 
   Object? _comparisonGroupMessage;
@@ -837,6 +902,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       children.add(RepaintBoundary(child: markdownWidget));
     }
 
+    final scope = _mediaScope();
+    if (scope != null) {
+      final files = _activeVersionIndex >= 0
+          ? widget.message.versions[_activeVersionIndex].files : widget.message.files;
+      for (final media in _resolveMedia(displayedContent, files as List?)) {
+        children.add(Padding(padding: const EdgeInsets.only(top: 8),
+          child: HermesMediaAttachment(key: ValueKey(('media', scope.session, scope.profile, media.path)),
+            media: media, sessionId: scope.session, profile: scope.profile)));
+      }
+    }
+
     if (children.isEmpty) return const SizedBox.shrink();
     // Keep playback progress local to the content subtree too. Watching this
     // provider from the assistant shell would make every word-progress event
@@ -998,27 +1074,36 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // selected historical version can carry a DIFFERENT model, though, and
     // that identity was never shown above — so only stay silent while the
     // active identity still matches the one the group header announced.
+    final isVoiceReply = _isVoiceReply;
+    final label = isVoiceReply
+        ? AppLocalizations.of(context)!.voiceReplySpokenLabel(modelName)
+        : modelName;
     if (!widget.showModelHeader &&
+        !isVoiceReply &&
         modelName == widget.modelName?.trim() &&
         iconUrl == widget.modelIconUrl) {
       _cachedAvatar = null;
       _cachedAvatarModelName = modelName;
       _cachedAvatarIconUrl = iconUrl;
+      _cachedAvatarLabel = label;
       return;
     }
     if (_cachedAvatar != null &&
         _cachedAvatarModelName == modelName &&
-        _cachedAvatarIconUrl == iconUrl) {
+        _cachedAvatarIconUrl == iconUrl &&
+        _cachedAvatarLabel == label) {
       return;
     }
     final hasIcon = iconUrl != null && iconUrl.isNotEmpty;
 
     // A quiet speaker label, like a group-chat sender name: it names a model
     // change without competing with the answer below it.
-    final Widget leading = hasIcon
+    final Widget leading = hasIcon && !isVoiceReply
         ? ModelAvatar(size: 16, imageUrl: iconUrl, label: modelName)
         : Icon(
-            Icons.auto_awesome,
+            isVoiceReply
+                ? (Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq)
+                : Icons.auto_awesome,
             color: theme.textTertiary,
             size: IconSize.sm - 2,
           );
@@ -1031,7 +1116,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           const SizedBox(width: Spacing.xs + Spacing.xxs),
           Flexible(
             child: MiddleEllipsisText(
-              modelName,
+              label,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textTertiary,
                 fontWeight: FontWeight.w400,
@@ -1044,6 +1129,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
     _cachedAvatarModelName = modelName;
     _cachedAvatarIconUrl = iconUrl;
+    _cachedAvatarLabel = label;
   }
 
   String _resolveActiveModelName() {
@@ -1230,10 +1316,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   Widget _buildDocumentationMessage() {
     widget.debugOnShellBuild?.call();
-    final displayStatusHistory = filterVisibleStatusUpdates(
-      widget.message.statusHistory,
-      isStreaming: _uiTreatsAsStreaming,
-    );
+    final mobileHermes = ref.watch(hermesMobileLayoutProvider);
+    final hasInlineActivity =
+        mobileHermes &&
+        widget.message.statusHistory.any(isHermesActivityStatus);
+    final displayStatusHistory =
+        filterVisibleStatusUpdates(
+              widget.message.statusHistory,
+              isStreaming: _uiTreatsAsStreaming,
+            )
+            .where(
+              (status) => !hasInlineActivity || !isHermesActivityStatus(status),
+            )
+            .toList(growable: false);
     final hasStatusTimeline = displayStatusHistory.isNotEmpty;
     final activeCodeExecutions = _resolveActiveCodeExecutions();
     final hasCodeExecutions = activeCodeExecutions.isNotEmpty;
@@ -1274,18 +1369,33 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final footer = shouldBuildActionFooter
         ? _buildFooterBar(
             activeSources: activeSources,
-            includeActions: widget.showActionBar,
+            includeActions:
+                widget.showActionBar && !ref.watch(hermesMobileLayoutProvider),
           )
         : null;
 
+    final onlyInlineActivity =
+        hasInlineActivity &&
+        _displayedContent.trim().isEmpty &&
+        !hasStatusTimeline &&
+        !(activeFiles?.isNotEmpty ?? false) &&
+        !(widget.message.attachmentIds?.isNotEmpty ?? false) &&
+        !(activeEmbeds?.isNotEmpty ?? false) &&
+        !hasCodeExecutions &&
+        !hasQueuedCompletion &&
+        _getActiveError() == null &&
+        _chatMessage?.metadata?['hermesDecision'] == null;
     final content = Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 16, right: Spacing.xs),
+      width: mobileHermes ? null : double.infinity,
+      margin: EdgeInsets.only(
+        bottom: mobileHermes ? 0 : 16,
+        right: mobileHermes ? 0 : Spacing.xs,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Cached AI Name and Avatar to prevent flashing
-          _cachedAvatar ?? const SizedBox.shrink(),
+          if (!mobileHermes) _cachedAvatar ?? const SizedBox.shrink(),
 
           // Every saved answer of a multi-model turn stays reachable, whether
           // or not Advanced is on: only comparison setup depends on it.
@@ -1315,7 +1425,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
           // Documentation-style content without heavy bubble; premium markdown
           SizedBox(
-            width: double.infinity,
+            width: mobileHermes ? null : double.infinity,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1346,6 +1456,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   _buildQueuedCompletionBanner(queuedCompletion)
                 else if (suppressEmptyQueuedContent)
                   const SizedBox.shrink()
+                else if (ref.watch(hermesMobileLayoutProvider) &&
+                    widget.message.metadata?['hermesConfigurationCommand'] ==
+                        'reasoning' &&
+                    !_uiTreatsAsStreaming)
+                  Text(
+                    hermesReasoningSummary(
+                      widget.message,
+                      AppLocalizations.of(context)!,
+                    ),
+                  )
                 else
                   // Content streams in here. Empty content renders as
                   // SizedBox.shrink, and the footer indicator covers that
@@ -1386,12 +1506,22 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 ],
 
                 // Version switcher moved inline with action buttons below
+                if (_chatMessage case final message?
+                    when !widget.readOnly &&
+                        !showingVersion &&
+                        message.metadata?['hermesDecision'] is Map)
+                  HermesComposerPromptOverlay(
+                    key: ValueKey('hermes-inline-decision-${message.id}'),
+                    message: message,
+                    presentation: HermesPromptPresentation.inlineMessage,
+                  ),
               ],
             ),
           ),
 
-          // Footer slot: keep completion actions inside the message while the
-          // running turn indicator is owned by the timeline. The plain action
+          // Footer slot: keep completion actions inside the message. Mobile
+          // Hermes owns its waiting mark beside the bubble; other layouts use
+          // the timeline indicator. The plain action
           // row is extent-matched to the timeline's typing indicator (16+32
           // vs 16+28+4) so the settle swap does not shift the
           // bottom-anchored viewport; see settle_height_test.dart.
@@ -1442,7 +1572,117 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       _fadeController.forward();
     }
 
-    return FadeTransition(opacity: _fadeController, child: content);
+    return MotionProbe.wrap(
+      'assistant-${identityHashCode(this)}',
+      FadeTransition(
+        opacity: _fadeController,
+        child: mobileHermes
+            ? LayoutBuilder(
+                builder: (context, constraints) => Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (hasInlineActivity)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: MediaQuery(
+                            data: MediaQuery.of(context).copyWith(
+                              disableAnimations:
+                                  context.reduceMotion ||
+                                  ref.watch(
+                                    appSettingsProvider.select(
+                                      (settings) => settings.reduceMotion,
+                                    ),
+                                  ),
+                            ),
+                            child: StreamingStatusWidget(
+                              key: ValueKey('hermes-activity-$_messageId'),
+                              updates: widget.message.statusHistory,
+                              isStreaming: _uiTreatsAsStreaming,
+                              inlineHermesActivity: true,
+                              stateId:
+                                  '${ref.read(activeConversationProvider)?.id}:$_messageId:$_activeVersionIndex',
+                              hasReplyText: _displayedContent.trim().isNotEmpty,
+                            ),
+                          ),
+                        ),
+                      if (_chatMessage case final message?)
+                        StreamingTurnFooter(
+                          key: ValueKey('hermes-waiting-indicator-$_messageId'),
+                          message: message,
+                          inline: true,
+                          hermesActivityMark: true,
+                          show:
+                              _uiTreatsAsStreaming &&
+                              _displayedContent.trim().isEmpty &&
+                              !(hasInlineActivity &&
+                                  hasPendingHermesActivity(
+                                    widget.message.statusHistory,
+                                    hasReplyText: _displayedContent
+                                        .trim()
+                                        .isNotEmpty,
+                                  )),
+                          // Text arrival always gets the requested quick fade;
+                          // a turn that ends empty uses the chosen finish style.
+                          finishStyle: _displayedContent.trim().isNotEmpty
+                              ? ResponseFinishStyle.fade
+                              : null,
+                          suppressStreamingHaptics:
+                              widget.suppressStreamingHaptics,
+                        ),
+                      if (!onlyInlineActivity &&
+                          (!_uiTreatsAsStreaming ||
+                              !_isAssistantResponseEmpty ||
+                              _chatMessage?.metadata?['hermesDecision'] !=
+                                  null ||
+                              hasQueuedCompletion))
+                        Container(
+                          key: ValueKey(
+                            'assistant-message-bubble-surface-$_messageId',
+                          ),
+                          constraints: BoxConstraints(
+                            maxWidth: constraints.maxWidth * .88,
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: context.conduitTheme.surfaceMessage,
+                            border: Border.all(
+                              color: context.conduitTheme.borderMessage,
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: DefaultTextStyle.merge(
+                            textWidthBasis: TextWidthBasis.longestLine,
+                            child: HermesMessageActions(
+                              key: ValueKey(
+                                'hermes-message-actions-$_messageId',
+                              ),
+                              messageId: _messageId,
+                              text: _displayedContent,
+                              readOnly: widget.readOnly,
+                              streaming: _uiTreatsAsStreaming,
+                              onCopy: widget.onCopy,
+                              onSpeak: () =>
+                                  unawaited(_handleTtsToggle(_messageId)),
+                              child: content,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              )
+            : content,
+      ),
+      data: () => {
+        'characters': _displayedContent.length,
+        'streaming': _uiTreatsAsStreaming,
+        'stateIdentity': identityHashCode(this),
+      },
+    );
   }
 
   /// Builds the keyed child for the footer [AnimatedSwitcher]: the action row
@@ -1671,7 +1911,29 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   void _handleMarkdownLinkTap(String url, String _) {
+    final media = HermesMediaReference.fromPath(url);
+    final scope = _mediaScope();
+    if (media != null && scope != null) {
+      showHermesMedia(context, media, sessionId: scope.session, profile: scope.profile);
+      return;
+    }
     launchExternalLink(url, scope: 'chat/assistant');
+  }
+
+  ({String session, String? profile})? _mediaScope() {
+    final conversation = ref.read(activeConversationProvider);
+    final service = ref.read(hermesApiServiceProvider);
+    if (service == null || !isNativeHermesConversation(conversation) || _chatMessage?.role != 'assistant') return null;
+    if (conversation == null) return null;
+    final metadata = conversation.metadata;
+    final session = metadata['hermesSessionId'];
+    if (session is! String || session.isEmpty) return null;
+    final messageSession = _chatMessage?.metadata?['hermesSessionId'];
+    if (messageSession != null && messageSession != session) return null;
+    final identity = ref.read(hermesMediaConnectionIdentityProvider);
+    if (identity == null) return null;
+    if (metadata[kHermesConnectionIdentityMetadataKey] != identity) return null;
+    return (session: session, profile: metadata['hermesBotProfile'] as String?);
   }
 
   Widget _buildMarkdownImage(Uri uri, String? title, String? alt) {
@@ -1696,17 +1958,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     // Keep the raw markdown intact so the shared renderer can parse
     // Open WebUI-style <details> blocks directly.
-    final processedContent = _processContentForImages(content);
+    final processedContent = _processContentForImages(_mediaScope() == null ? content : hermesVisibleMediaText(content));
     final bodyTreatsAsStreaming = _uiTreatsAsStreaming;
 
     Widget buildDefault(BuildContext context) {
       return StreamingMarkdownWidget(
         content: processedContent,
         isStreaming: bodyTreatsAsStreaming,
-        // Tokens should appear on the frame they arrive. The surrounding body
-        // already owns the single first-content reveal; re-fading every suffix
-        // makes streaming trail the model.
-        enableStreamingTextFade: false,
+        // Content is published immediately. Only the new mutable suffix gets
+        // a brief opacity reveal; existing text and its geometry stay stable.
+        enableStreamingTextFade:
+            ref.watch(hermesMobileLayoutProvider) && !context.reduceMotion,
+        streamingTextFadeDuration: context.motionDuration(
+          AnimationDuration.streamingTextArrival,
+        ),
+        enableTextSelection: !ref.watch(hermesMobileLayoutProvider),
         askConduitComposerTargetId: chatComposerTextInsertionTargetId,
         stateScopeId: _markdownStateScopeId(),
         onTapLink: _markdownLinkTapCallback,
@@ -1910,7 +2176,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       return const SizedBox.shrink();
     }
 
-    final allFiles = filesArray;
+    final allFiles = _mediaScope() == null ? filesArray : filesArray.where((file) =>
+      file is! Map || HermesMediaReference.fromDescriptor(file) == null).toList();
 
     // Separate images and non-image files
     // Match OpenWebUI: type === 'image' OR content_type starts with 'image/'
@@ -2115,6 +2382,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final overflowButton = overflowActions.isNotEmpty
         ? _buildOverflowActionButton(overflowActions)
         : null;
+    final mobile = ref.watch(hermesMobileLayoutProvider);
     // Like Open WebUI, the version pager leads the row; the icon buttons sit
     // edge to edge with the overflow trailing them inline, and informational
     // chips follow the buttons. With the continue pill the pager is a group of
@@ -2130,6 +2398,34 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       ?overflowButton,
     ];
 
+    if (mobile && includeActions && !widget.readOnly) {
+      final configuration =
+          widget.message.metadata?['hermesConfigurationCommand'] != null
+          ? HermesConfigurationActions(message: widget.message)
+          : null;
+      return SizedBox(
+        width: double.infinity,
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (continueFromId != null) pagerGroup!,
+                ...actionButtons,
+                ...infoWidgets,
+              ],
+            ),
+            ?configuration,
+          ],
+        ),
+      );
+    }
     return Wrap(
       spacing: Spacing.sm,
       runSpacing: Spacing.sm,
@@ -2407,7 +2703,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? 'stop.fill'
               : 'speaker.wave.2',
         ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && !_isVoiceReply)
         _AssistantFooterAction(
           id: isErrorMessage ? 'retry' : 'regenerate',
           icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
@@ -2471,6 +2767,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     required String label,
     VoidCallback? onTap,
   }) {
+    if (ref.watch(hermesMobileLayoutProvider)) {
+      return CompactActionBubble(icon: icon, label: label, onPressed: onTap);
+    }
     return ChatActionButton(icon: icon, label: label, onTap: onTap);
   }
 
@@ -2521,6 +2820,36 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   ) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
+
+    if (ref.watch(hermesMobileLayoutProvider)) {
+      return SizedBox.square(
+        dimension: 40,
+        child: CompactActionSurface(
+          child: CompactPopupMenu<String>(
+            key: const ValueKey<String>('assistant-response-overflow-button'),
+            tooltip: l10n.more,
+            icon: const Icon(Icons.more_horiz_rounded, size: 18),
+            choices: [
+              for (final action in overflowActions)
+                CompactMenuChoice(
+                  action.id,
+                  action.label,
+                  icon: action.icon,
+                  enabled: action.onTap != null,
+                ),
+            ],
+            onSelected: (id) {
+              for (final action in overflowActions) {
+                if (action.id == id) {
+                  action.onTap?.call();
+                  return;
+                }
+              }
+            },
+          ),
+        ),
+      );
+    }
 
     return AdaptiveTooltip(
       message: l10n.more,

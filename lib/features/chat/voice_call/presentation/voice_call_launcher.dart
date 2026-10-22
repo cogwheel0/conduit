@@ -27,7 +27,10 @@ class VoiceCallLauncher {
 
   final Ref _ref;
 
-  Future<void> launch({required bool startNewConversation}) async {
+  Future<void> launch({
+    required bool startNewConversation,
+    bool preferStandard = false,
+  }) async {
     final eligibility = await resolveVoiceCallEligibility(_ref);
     if (!eligibility.canStart) {
       throw StateError(eligibility.errorMessage!);
@@ -48,6 +51,8 @@ class VoiceCallLauncher {
         .start(
           startNewConversation: startNewConversation,
           admittedModel: eligibility.model!,
+          preferStandard: preferStandard,
+          queueSpokenTurns: preferStandard,
         );
     final snapshot = _ref.read(chatVoiceModeControllerProvider);
     if (result == ChatVoiceModeStartResult.failed || !snapshot.isActive) {

@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/model_avatar.dart';
+import 'hermes_message_icon.dart';
 
 /// Renders Hermes' synced shape face, or its uploaded/photo avatar.
 class HermesBotAvatar extends StatefulWidget {
@@ -15,6 +16,7 @@ class HermesBotAvatar extends StatefulWidget {
     this.imageUrl,
     this.imageKind,
     this.active = false,
+    this.icon,
     super.key,
   });
 
@@ -25,6 +27,7 @@ class HermesBotAvatar extends StatefulWidget {
   final String? imageUrl;
   final String? imageKind;
   final bool active;
+  final String? icon;
 
   @override
   State<HermesBotAvatar> createState() => _HermesBotAvatarState();
@@ -83,7 +86,29 @@ class _HermesBotAvatarState extends State<HermesBotAvatar>
         ),
         child: child,
       ),
-      child: hasHermesAvatar
+      child: widget.icon != null
+          ? Container(
+              width: widget.size,
+              height: widget.size,
+              decoration: BoxDecoration(
+                color: _parseColor(widget.color).withValues(alpha: .18),
+                borderRadius: BorderRadius.circular(widget.size * .3),
+              ),
+              child: Icon(
+                switch (widget.icon) {
+                  'research' => HermesMessageIcons.compass,
+                  'code' => Icons.code,
+                  'brain' => Icons.psychology_outlined,
+                  'globe' => Icons.language,
+                  'folder' => HermesMessageIcons.folder,
+                    'group' => HermesMessageIcons.groups,
+                  _ => HermesMessageIcons.bots,
+                },
+                size: widget.size * .58,
+                color: _parseColor(widget.color),
+              ),
+            )
+          : hasHermesAvatar
           ? ModelAvatar(
               size: widget.size,
               imageUrl: widget.imageUrl,

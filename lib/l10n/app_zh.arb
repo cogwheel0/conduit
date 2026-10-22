@@ -31,7 +31,13 @@
   "buyMeACoffeeSubtitle": "一次性捐赠以表达感谢。",
   "releaseNotesTitle": "新变化",
   "releaseNotesAnnouncementTitle": "{version} 新变化",
-  "@releaseNotesAnnouncementTitle": {"placeholders": {"version": {"type": "String"}}},
+  "@releaseNotesAnnouncementTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "releaseNotesLearnMore": "了解更多",
   "releaseNotesReviewButton": "评价 Conduit",
   "releaseNotesDoneButton": "完成",
@@ -99,6 +105,35 @@
   "useHttpOrHttpsOnly": "仅使用 http:// 或 https://。",
   "loginFailed": "登录失败",
   "invalidCredentials": "无效的用户名或密码。请重试。",
+  "signInAccountPendingApproval": "你的账户正在等待管理员批准。批准后请重试。",
+  "signInTwoStepVerificationRequired": "此账户使用两步验证。请重新登录，然后输入身份验证器应用中的验证码。",
+  "twoStepVerifyTitle": "验证登录",
+  "twoStepEnrollTitle": "设置身份验证器",
+  "twoStepRecoverTitle": "恢复身份验证器",
+  "twoStepVerifyDescription": "输入身份验证器应用中的六位验证码。",
+  "twoStepRecoveryCodeDescription": "输入您保存的恢复码之一。",
+  "twoStepEnrollDescription": "将此账户添加到身份验证器应用，然后输入其显示的六位验证码。",
+  "twoStepRecoverDescription": "管理员已重置此账户的两步验证。请输入管理员提供的恢复令牌。",
+  "twoStepCodeLabel": "身份验证码",
+  "twoStepRecoveryCodeLabel": "恢复码",
+  "twoStepResetTokenLabel": "恢复令牌",
+  "twoStepUseRecoveryCode": "使用恢复码",
+  "twoStepUseAuthenticatorCode": "使用身份验证码",
+  "twoStepBackToSignIn": "返回登录",
+  "twoStepOpenAuthenticator": "添加到身份验证器应用",
+  "twoStepSetupKeyLabel": "设置密钥",
+  "twoStepCopySetupKey": "复制设置密钥",
+  "twoStepQrCodeLabel": "身份验证器应用的二维码",
+  "twoStepSetupLoading": "正在准备身份验证器…",
+  "twoStepSetupFailed": "无法加载设置密钥。",
+  "twoStepNoAuthenticatorApp": "没有应用可以添加。请改为将设置密钥复制到身份验证器应用中。",
+  "twoStepRecoveryCodesTitle": "保存恢复码",
+  "twoStepRecoveryCodesDescription": "如果丢失身份验证器，每个恢复码可登录一次。请妥善保存，它们不会再次显示。",
+  "twoStepCopyRecoveryCodes": "复制恢复码",
+  "twoStepInvalidCode": "该验证码无效。请检查后重试。",
+  "twoStepExpired": "此步骤已过期。请返回登录并重新开始。",
+  "twoStepTooManyAttempts": "尝试次数过多。请等待几分钟后重新登录。",
+  "twoStepFailed": "无法验证该验证码。请重试。",
   "serverRedirectingHttps": "服务器正在重定向请求。请检查您的服务器的 HTTPS 配置。",
   "unableToConnectServer": "无法连接到服务器。请检查您的连接。",
   "requestTimedOut": "请求超时。请重试。",
@@ -377,6 +412,36 @@
   "ttsEngineServerDescription": "始终向你的 Open WebUI 服务器请求音频。",
   "ttsDeviceUnavailableWarning": "此设备不支持本机文本转语音。",
   "ttsServerUnavailableWarning": "连接到启用文本转语音的服务器后才能使用此选项。",
+  "voiceProviderTitle": "语音提供商",
+  "voiceProviderDescription": "当“语音转文字”或“文本转语音”设为“服务器”时，Direct 和 Apple 聊天会使用此连接。",
+  "voiceProviderConnection": "连接",
+  "voiceProviderNone": "无",
+  "voiceProviderNoConnections": "添加一个兼容 OpenAI 的 Direct 连接后即可在此选择。",
+  "voiceProviderTranscriptionModel": "转写模型",
+  "voiceProviderSpeechModel": "语音合成模型",
+  "voiceProviderModelsHint": "请使用提供商列出的模型名称。留空的方向将改用此设备处理。",
+  "voiceProviderRealtimeModel": "实时模型",
+  "voiceProviderRealtimeInstructions": "指令",
+  "voiceProviderRealtimeInstructionsHint": "留空则使用 Conduit 自带的指令。",
+  "voiceProviderRealtimeFooter": "Direct 和 Apple 聊天中的通话将使用此语音，并借助上方的转写模型理解你说的话。",
+  "voiceCallModeTitle": "通话",
+  "voiceCallModeRealtime": "实时",
+  "voiceCallModeStandard": "标准",
+  "voiceCallModeRealtimeDescription": "当聊天的服务器或语音提供商提供实时语音时，与实时语音对话；你可以随时打断它。其他通话为标准模式。",
+  "voiceCallModeStandardDescription": "通话会聆听你说的话并发送，然后朗读回答。",
+  "voiceCallNoticeTranscriptionFailed": "没听清楚，请再说一遍。",
+  "voiceCallNoticeReplyIncomplete": "语音回复被中断了。",
+  "voiceCallNoticeTranscriptNotSaved": "部分通话内容未能保存到聊天中。",
+  "voiceReplySpokenLabel": "{model} · 语音",
+  "@voiceReplySpokenLabel": {
+    "description": "Header of a reply a realtime call's voice gave by itself, after the voice model's name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "gpt-realtime-2.1-mini"
+      }
+    }
+  },
   "ttsVoice": "语音",
   "ttsSpeechRate": "语速",
   "ttsPitch": "音调",
@@ -693,6 +758,7 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
+  "themePaletteMaterialYouLabel": "Material You",
   "themePaletteConduitLabel": "Conduit",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
@@ -1004,9 +1070,24 @@
   "chatSettingErrorNotANumber": "请输入数字。",
   "chatSettingErrorNotAWholeNumber": "请输入整数。",
   "chatSettingErrorRange": "请输入 {min} 到 {max} 之间的值。",
-  "@chatSettingErrorRange": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "@chatSettingErrorRange": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
   "chatSettingErrorMinimum": "请输入不小于 {min} 的值。",
-  "@chatSettingErrorMinimum": {"placeholders": {"min": {"type": "String"}}},
+  "@chatSettingErrorMinimum": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      }
+    }
+  },
   "chatSettingErrorNotJson": "请输入 json 之类的词，或有效的 JSON 模式。",
   "chatSettingErrorNotAChoice": "请选择受支持的值。",
   "personalConnectionsTitle": "个人连接",
@@ -1068,13 +1149,21 @@
   "sidebarNotesTab": "笔记",
   "sidebarChannelsTab": "频道",
   "sidebarResizeHandle": "调整侧边栏宽度",
-  "@sidebarResizeHandle": {"description": "Accessibility label for the draggable tablet sidebar divider."},
+  "@sidebarResizeHandle": {
+    "description": "Accessibility label for the draggable tablet sidebar divider."
+  },
   "sidebarResizeResetHint": "轻点两下以重置侧边栏宽度",
-  "@sidebarResizeResetHint": {"description": "Accessibility hint for resetting the tablet sidebar width."},
+  "@sidebarResizeResetHint": {
+    "description": "Accessibility hint for resetting the tablet sidebar width."
+  },
   "sidebarWidthValue": "{width} 点",
   "@sidebarWidthValue": {
     "description": "Accessibility value describing the current tablet sidebar width.",
-    "placeholders": {"width": {"type": "int"}}
+    "placeholders": {
+      "width": {
+        "type": "int"
+      }
+    }
   },
   "closeSidebar": "关闭侧边栏",
   "terminalSelectServer": "选择终端服务器",
@@ -2013,7 +2102,9 @@
   },
   "workspaceModelBaseModelNone": "None (custom)",
   "workspaceModelBaseModelRequired": "请选择基础模型。",
-  "@workspaceModelBaseModelRequired": {"description": "Validation shown when a non-admin model create or protected edit has no base model."},
+  "@workspaceModelBaseModelRequired": {
+    "description": "Validation shown when a non-admin model create or protected edit has no base model."
+  },
   "@workspaceModelBaseModelNone": {
     "description": "Base-model option meaning no base model is used."
   },
@@ -2948,7 +3039,13 @@
   "workspaceToolSpecs": "Generated specifications",
   "workspaceToolDetails": "工具详情",
   "workspaceToolFunctionCount": "{count} 个函数",
-  "@workspaceToolFunctionCount": {"placeholders":{"count":{"type":"int"}}},
+  "@workspaceToolFunctionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "workspaceToolSpecsEmpty": "No specifications were generated for this tool.",
   "workspaceToolIncompatible": "This tool requires Open WebUI v{required}, but the server is v{current}. Update the server to save.",
   "workspaceToolValves": "Valves",
@@ -3001,11 +3098,17 @@
   "hermesApprovalRequired": "Approval required",
   "hermesApprovalFallback": "The agent is requesting permission to continue.",
   "openWebUiPromptOther": "其他",
-  "@openWebUiPromptOther": {"description": "Label for a free-form answer to an Open WebUI ask-user question."},
+  "@openWebUiPromptOther": {
+    "description": "Label for a free-form answer to an Open WebUI ask-user question."
+  },
   "openWebUiPromptAnswerHint": "输入你的回答",
-  "@openWebUiPromptAnswerHint": {"description": "Placeholder for a free-form Open WebUI ask-user answer."},
+  "@openWebUiPromptAnswerHint": {
+    "description": "Placeholder for a free-form Open WebUI ask-user answer."
+  },
   "openWebUiPromptSubmit": "提交",
-  "@openWebUiPromptSubmit": {"description": "Action that submits all answers to an Open WebUI ask-user prompt."},
+  "@openWebUiPromptSubmit": {
+    "description": "Action that submits all answers to an Open WebUI ask-user prompt."
+  },
   "hermesApprovalApproved": "Approved ✓",
   "hermesApprovalDenied": "Denied",
   "hermesApprovalApproveAction": "Approve",
@@ -3068,7 +3171,14 @@
   "openWebUiDirectConnectionsUnavailable": "Open WebUI 连接不可用。",
   "directConnectionNoLongerExists": "此连接已不存在。",
   "openWebUiDirectConnectionDeleteMessage": "这会从 Open WebUI 帐户和其他已登录的客户端中移除 {name}。",
-  "@openWebUiDirectConnectionDeleteMessage": {"description":"Confirmation message shown before deleting an Open WebUI-synced direct connection.","placeholders":{"name":{"type":"String"}}},
+  "@openWebUiDirectConnectionDeleteMessage": {
+    "description": "Confirmation message shown before deleting an Open WebUI-synced direct connection.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "addDirectConnection": "Add connection",
   "editDirectConnection": "Edit connection",
   "directConnectionName": "Connection name",
@@ -3114,7 +3224,9 @@
   "directCustomHeaders": "Custom headers",
   "directManualModelIds": "Manual model IDs",
   "directManualModelIdsDescription": "可选。如果服务器无法列出模型，请每行输入一个 ID。",
-  "@directManualModelIdsDescription": {"placeholders":{}},
+  "@directManualModelIdsDescription": {
+    "placeholders": {}
+  },
   "directModelIdPrefix": "Model ID prefix",
   "directModelIdPrefixDescription": "Optional. Adds a visible namespace such as studio.model-name without changing the model ID sent to the provider.",
   "directModelTags": "Model tags",
@@ -3205,7 +3317,13 @@
   "hermesMemoryKeyShortDescription": "将智能体的长期记忆限定于你。留空时 Conduit 会创建密钥。",
   "hermesConnectAction": "连接 Hermes",
   "hermesToolCount": "{count} 个工具",
-  "@hermesToolCount": {"placeholders":{"count":{"type":"int"}}},
+  "@hermesToolCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "hermesNoToolsets": "服务器未报告工具集。",
   "hermesToolsetsNewSessions": "更改将应用于新的 Hermes 会话。现有聊天将保留当前工具。",
   "hermesServerStatusTitle": "服务器状态",
@@ -3258,7 +3376,13 @@
   "hermesTurnControlsUnsupported": "请升级 Hermes 以启用安全的轮次控制。",
   "sidebarHermesTab": "Hermes",
   "markdownShowMoreLines": "再显示 {count} 行",
-  "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
+  "@markdownShowMoreLines": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "markdownShowLess": "收起",
   "voiceBargeIn": "插话",
   "voiceBargeInDescription": "助手说话时继续聆听，以便你随时打断。",
@@ -3319,56 +3443,151 @@
   "hermesSessionDeleteFailed": "无法删除对话。",
   "hermesSessionLoadFailed": "无法加载此对话。请检查连接后重试。",
   "hermesMemoryKeyFieldLabel": "记忆键",
-  "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Deny", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
-  ,"directMcpContentAction": "MCP content"
-  ,"directMcpContentTitle": "MCP content"
-  ,"directMcpContentServer": "MCP server"
-  ,"directMcpContentSearch": "Search prompts and resources"
-  ,"directMcpContentPrompts": "Prompts"
-  ,"directMcpContentResources": "Resources"
-  ,"directMcpContentEmpty": "This server has no prompts or resources."
-  ,"directMcpContentNoMatches": "No matching prompts or resources."
-  ,"directMcpContentLoadFailed": "Could not load content from this MCP server."
-  ,"directMcpContentRefresh": "Refresh MCP content"
-  ,"directMcpContentPreviewTitle": "Preview"
-  ,"directMcpContentInsert": "Insert"
-  ,"directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}"
-  ,"@directMcpContentPromptHeading": {"placeholders":{"serverName":{"type":"String"},"promptName":{"type":"String"}}}
-  ,"directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}"
-  ,"@directMcpContentResourceHeading": {"placeholders":{"serverName":{"type":"String"},"resourceUri":{"type":"String"}}}
-  ,"directMcpContentRoleUser": "User"
-  ,"directMcpContentRoleAssistant": "Assistant"
-  ,"directMcpContentRequestFailed": "Could not load this MCP content. Try again."
-  ,"directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource."
-  ,"directMcpContentChanged": "This item changed on the server. Refresh and choose it again."
-  ,"directMcpContentTooLarge": "This content is too large to insert."
-  ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
-  ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
-  ,"hermesSessionTooLarge": "此对话过大，无法在此设备上加载。"
-  ,"hermesSessionNotFound": "此对话在 Hermes 服务器上已不可用。"
-  ,"hermesSessionLoadFailedDetail": "无法加载此对话：{detail}"
-  ,"@hermesSessionLoadFailedDetail": {
+  "directMcpServersTitle": "MCP servers",
+  "directMcpEmptyTitle": "No MCP servers yet",
+  "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.",
+  "directMcpEditorTitle": "Edit MCP server",
+  "directMcpAddTitle": "Add MCP server",
+  "directMcpName": "Server name",
+  "directMcpEndpoint": "Streamable HTTP endpoint",
+  "directMcpBearerToken": "Bearer token (optional)",
+  "directMcpCustomHeaders": "Custom headers (optional)",
+  "directMcpCustomHeadersHint": "One per line: Name: Value",
+  "directMcpTestConnection": "Test connection",
+  "directMcpTesting": "Testing connection…",
+  "directMcpTestSucceeded": "Connected — {count} tools found.",
+  "directMcpTestFailed": "Could not list tools from this MCP server.",
+  "directMcpSaveFailed": "Could not save this MCP server.",
+  "directMcpLoadFailed": "Could not load MCP servers from secure storage.",
+  "directMcpMissing": "This MCP server no longer exists.",
+  "directMcpCredentialTransferTitle": "Use credentials with new server?",
+  "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.",
+  "directMcpCredentialTransferConfirm": "Use credentials",
+  "directMcpDeleteTitle": "Delete MCP server?",
+  "directMcpDeleteMessage": "This removes {name} and its credentials from this device.",
+  "directMcpDeleteFailed": "Could not delete this MCP server.",
+  "directMcpAuthMode": "Authentication",
+  "directMcpAuthNone": "None",
+  "directMcpAuthBearer": "Bearer token",
+  "directMcpAuthOAuth": "OAuth",
+  "directMcpOAuthConnect": "Connect in browser",
+  "directMcpOAuthReconnect": "Reconnect in browser",
+  "directMcpOAuthDisconnect": "Disconnect OAuth",
+  "directMcpOAuthPending": "Waiting for authorization in the browser…",
+  "directMcpOAuthConnected": "OAuth connected.",
+  "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}",
+  "directMcpOAuthNoScopes": "No scopes reported",
+  "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.",
+  "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.",
+  "directMcpApprovalTitle": "Tool approval",
+  "directMcpApprovalAllowOnce": "Allow once",
+  "directMcpApprovalAllowSession": "Allow for session",
+  "directMcpApprovalAllowAlways": "Always allow",
+  "directMcpApprovalAlwaysTitle": "Always allow this tool?",
+  "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.",
+  "@directMcpApprovalAlwaysMessage": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "toolName": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.",
+  "directMcpApprovalDeny": "Deny",
+  "directMcpApprovalAllowed": "Allowed once",
+  "directMcpApprovalAllowedSession": "Allowed for session",
+  "directMcpApprovalAllowedAlways": "Always allowed",
+  "directMcpApprovalDenied": "Denied",
+  "directMcpApprovalExpired": "Approval expired",
+  "directMcpRememberedApprovalsTitle": "Always allowed tools",
+  "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.",
+  "directMcpRememberedApprovalRevoke": "Revoke",
+  "directMcpRememberedApprovalsRevokeAll": "Revoke all",
+  "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval.",
+  "directMcpContentAction": "MCP content",
+  "directMcpContentTitle": "MCP content",
+  "directMcpContentServer": "MCP server",
+  "directMcpContentSearch": "Search prompts and resources",
+  "directMcpContentPrompts": "Prompts",
+  "directMcpContentResources": "Resources",
+  "directMcpContentEmpty": "This server has no prompts or resources.",
+  "directMcpContentNoMatches": "No matching prompts or resources.",
+  "directMcpContentLoadFailed": "Could not load content from this MCP server.",
+  "directMcpContentRefresh": "Refresh MCP content",
+  "directMcpContentPreviewTitle": "Preview",
+  "directMcpContentInsert": "Insert",
+  "directMcpContentPromptHeading": "MCP prompt from {serverName}: {promptName}",
+  "@directMcpContentPromptHeading": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "promptName": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpContentResourceHeading": "MCP resource from {serverName}: {resourceUri}",
+  "@directMcpContentResourceHeading": {
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "resourceUri": {
+        "type": "String"
+      }
+    }
+  },
+  "directMcpContentRoleUser": "User",
+  "directMcpContentRoleAssistant": "Assistant",
+  "directMcpContentRequestFailed": "Could not load this MCP content. Try again.",
+  "directMcpContentUnsupported": "This item is binary or unsupported. Choose a text prompt or text resource.",
+  "directMcpContentChanged": "This item changed on the server. Refresh and choose it again.",
+  "directMcpContentTooLarge": "This content is too large to insert.",
+  "directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again.",
+  "directMcpContentLoading": "Loading MCP content…",
+  "directMcpInsecureCredentialsTitle": "Send credentials without encryption?",
+  "directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network.",
+  "directMcpInsecureCredentialsConfirm": "Send without encryption",
+  "hermesSessionTooLarge": "此对话过大，无法在此设备上加载。",
+  "hermesSessionNotFound": "此对话在 Hermes 服务器上已不可用。",
+  "hermesSessionLoadFailedDetail": "无法加载此对话：{detail}",
+  "@hermesSessionLoadFailedDetail": {
     "placeholders": {
       "detail": {
         "type": "String"
       }
     }
-  }
-  ,"directBearerDescription": "通过 Authorization: Bearer 请求头发送凭据。大多数 OpenAI 兼容服务器（llama.cpp、vLLM、LM Studio、Ollama）都采用此方式。"
-  ,"directApiKeyHeaderAzureOnlyDescription": "通过 api-key 请求头发送凭据。仅用于 Azure OpenAI；其他 OpenAI 兼容服务器需要 Bearer 令牌。",
+  },
+  "directBearerDescription": "通过 Authorization: Bearer 请求头发送凭据。大多数 OpenAI 兼容服务器（llama.cpp、vLLM、LM Studio、Ollama）都采用此方式。",
+  "directApiKeyHeaderAzureOnlyDescription": "通过 api-key 请求头发送凭据。仅用于 Azure OpenAI；其他 OpenAI 兼容服务器需要 Bearer 令牌。",
   "appleOnDeviceUnavailable": "此设备不支持 Apple On-Device。",
   "applePccContextSize": "{tokens} 令牌上下文",
-  "@applePccContextSize": {"description": "Apple PCC context size label.", "placeholders": {"tokens": {"type": "String"}}},
+  "@applePccContextSize": {
+    "description": "Apple PCC context size label.",
+    "placeholders": {
+      "tokens": {
+        "type": "String"
+      }
+    }
+  },
   "applePccCurrentLanguageUnsupported": "当前设备语言可能不受支持。",
   "applePccOnDeviceFallback": "设备端回退",
   "applePccOnDeviceFallbackSubtitle": "当无法连接 PCC 时，使用较小的 Apple 设备端模型。推理请求不会回退。",
   "applePccQuotaApproaching": "接近每日用量上限",
   "applePccQuotaReached": "已达每日用量上限",
   "applePccQuotaResetsAt": "重置时间：{time}",
-  "@applePccQuotaResetsAt": {"description": "Apple PCC quota reset time.", "placeholders": {"time": {"type": "String"}}},
+  "@applePccQuotaResetsAt": {
+    "description": "Apple PCC quota reset time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "applePccShowQuotaOptions": "显示用量选项",
   "applePccStatusAvailable": "可用",
   "applePccUnavailable": "此设备不支持 Apple Private Cloud Compute。",
@@ -3385,7 +3604,14 @@
   "directContextCompactionPickerDescription": "选择 Conduit 用于自动压缩的上下文窗口。",
   "directContextCompactionTitle": "上下文压缩",
   "directContextLimit": "上下文上限：{tokens}",
-  "@directContextLimit": {"description": "Provider-neutral model context limit label.", "placeholders": {"tokens": {"type": "String"}}},
+  "@directContextLimit": {
+    "description": "Provider-neutral model context limit label.",
+    "placeholders": {
+      "tokens": {
+        "type": "String"
+      }
+    }
+  },
   "notificationSystemSettingsDescription": "更改 Conduit 的权限、声音和横幅选项。",
   "notificationSystemSettingsOpenFailed": "无法打开系统通知设置。",
   "notificationTargetsTitle": "Webhook 目标",
@@ -3418,7 +3644,13 @@
   "notificationTargetTestFailed": "无法投递测试通知。",
   "notificationTargetDelete": "删除目标",
   "notificationTargetDeleteConfirm": "要删除 {name} 吗？您的服务器将不再向其发送通知。",
-  "@notificationTargetDeleteConfirm": {"placeholders":{"name":{"type":"String"}}},
+  "@notificationTargetDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "notificationSystemSettingsTitle": "系统通知设置",
   "proxyAuthSignInAgain": "重新通过代理登录",
   "readOnly": "只读",
@@ -3428,7 +3660,15 @@
   "reasoningEffortModerate": "中度",
   "sharedBadge": "已分享",
   "sharedFolderOwner": "由 {name} 分享",
-  "@sharedFolderOwner": {"description": "Owner label on a folder another user shared with this account.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "@sharedFolderOwner": {
+    "description": "Owner label on a folder another user shared with this account.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
   "transcribingAudio": "正在转录...",
   "chatTaskProgress": "任务：已完成 {completed}/{total}",
   "@chatTaskProgress": {
@@ -3448,7 +3688,14 @@
   "chatTaskCancelled": "已取消",
   "webSearchSettingsFooterAuto": "供没有自带网页搜索的 Direct 模型使用。搜索从此设备发起：查询会发送到 DuckDuckGo，若无响应则发送到 Brave、Bing、Mojeek 或维基百科。模型读取的网页也从此设备获取。",
   "webSearchSettingsFooterEngine": "供没有自带网页搜索的 Direct 模型使用。搜索从此设备发起，查询只会发送到 {engine}。模型读取的网页也从此设备获取。",
-  "@webSearchSettingsFooterEngine": {"placeholders": {"engine": {"type": "String", "example": "DuckDuckGo"}}},
+  "@webSearchSettingsFooterEngine": {
+    "placeholders": {
+      "engine": {
+        "type": "String",
+        "example": "DuckDuckGo"
+      }
+    }
+  },
   "webSearchEngineLabel": "搜索引擎",
   "webSearchEngineAuto": "自动",
   "webSearchSafeSearchLabel": "安全搜索",
@@ -3460,9 +3707,27 @@
   "webSearchRegionWorldwide": "全球",
   "directModelToolsUnsupported": "此模型无法使用工具，因此无法搜索网页。请关闭网页搜索和所有工具后重试。",
   "directContextCompactionModelCount": "{count, plural, other{{count} 个模型}}",
-  "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
+  "@directContextCompactionModelCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "42"
+      }
+    }
+  },
   "imageViewerPosition": "{current} / {total}",
-  "@imageViewerPosition": {"placeholders": {"current": {"type": "int", "example": "2"}, "total": {"type": "int", "example": "5"}}},
+  "@imageViewerPosition": {
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
   "saveImage": "保存图片",
   "imageSaved": "图片已保存",
   "imageSaveFailed": "无法保存图片。",
@@ -3479,11 +3744,17 @@
   },
   "askConduitAction": "问 Conduit",
   "voiceCallStartTimeout": "启动语音通话耗时过长，请重试。",
-  "@voiceCallStartTimeout": {"description": "Error shown when starting a voice call takes too long."},
+  "@voiceCallStartTimeout": {
+    "description": "Error shown when starting a voice call takes too long."
+  },
   "voiceCallNoSpeech": "未检测到语音。",
-  "@voiceCallNoSpeech": {"description": "Message shown when the voice call heard no speech for several tries."},
+  "@voiceCallNoSpeech": {
+    "description": "Message shown when the voice call heard no speech for several tries."
+  },
   "voiceCallFailed": "语音通话无法继续。",
-  "@voiceCallFailed": {"description": "Generic error shown when a voice call fails for a reason with no specific message."},
+  "@voiceCallFailed": {
+    "description": "Generic error shown when a voice call fails for a reason with no specific message."
+  },
   "personalToolSettings": "工具设置",
   "personalToolSettingsDescription": "所选工具和模型的个人选项。",
   "personalToolSettingsYours": "你的设置",
@@ -3518,7 +3789,15 @@
   "channelMembersAdd": "添加成员",
   "channelMembersAddConfirm": "添加",
   "channelMembersRemoveMember": "移除 {name}",
-  "@channelMembersRemoveMember": {"description": "Accessibility label for the button that removes one person from the channel.", "placeholders": {"name": {"type": "String", "example": "Alex"}}},
+  "@channelMembersRemoveMember": {
+    "description": "Accessibility label for the button that removes one person from the channel.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alex"
+      }
+    }
+  },
   "channelMembersChangeFailed": "无法更新成员。请重试。",
   "channelMembersChangeDenied": "服务器不允许此更改。",
   "channelMembersChangeNotPermitted": "您无权管理此频道的成员。",
@@ -3589,8 +3868,20 @@
   "folderProjectReadOnly": "此共享文件夹为只读，无法更改其项目设置。",
   "folderProjectGone": "此文件夹已不可用。",
   "folderProjectModelFallbackNotice": "此文件夹的默认模型不可用，因此使用你的默认模型。",
-  "@folderProjectMoveUp": {"placeholders": {"name": {"type": "String"}}},
-  "@folderProjectRemove": {"placeholders": {"name": {"type": "String"}}},
+  "@folderProjectMoveUp": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "@folderProjectRemove": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTasksTitle": "计划任务",
   "scheduledTasksDescription": "即使此手机已离线，您的 Open WebUI 服务器也会按其自身的计划运行这些任务。",
   "scheduledTasksUnavailable": "在此服务器上，此账户无法使用计划任务。",
@@ -3609,20 +3900,53 @@
   "scheduledTaskStatusActive": "已启用",
   "scheduledTaskStatusPaused": "已暂停",
   "scheduledTaskNextRun": "下次运行 {time}",
-  "@scheduledTaskNextRun": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskNextRun": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskNoNextRun": "没有即将进行的运行",
   "scheduledTaskLastRun": "上次运行 {time}",
-  "@scheduledTaskLastRun": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskLastRun": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskNeverRun": "从未运行",
   "scheduledTaskScheduleOnce": "仅一次",
   "scheduledTaskScheduleDaily": "每天",
   "scheduledTaskScheduleWeekly": "每周",
   "scheduledTaskScheduleOnceSummary": "仅一次，{date}",
-  "@scheduledTaskScheduleOnceSummary": {"placeholders": {"date": {"type": "String"}}},
+  "@scheduledTaskScheduleOnceSummary": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleDailySummary": "每天 {time}",
-  "@scheduledTaskScheduleDailySummary": {"placeholders": {"time": {"type": "String"}}},
+  "@scheduledTaskScheduleDailySummary": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleWeeklySummary": "{days} {time}",
-  "@scheduledTaskScheduleWeeklySummary": {"placeholders": {"days": {"type": "String"}, "time": {"type": "String"}}},
+  "@scheduledTaskScheduleWeeklySummary": {
+    "placeholders": {
+      "days": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleCustom": "自定义计划",
   "scheduledTaskNewTitle": "新建计划任务",
   "scheduledTaskEditTitle": "编辑计划任务",
@@ -3632,7 +3956,13 @@
   "scheduledTaskModelLabel": "模型",
   "scheduledTaskModelChoose": "选择模型",
   "scheduledTaskModelUnavailable": "{id}（已不可用）",
-  "@scheduledTaskModelUnavailable": {"placeholders": {"id": {"type": "String"}}},
+  "@scheduledTaskModelUnavailable": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskScheduleLabel": "计划",
   "scheduledTaskTimeLabel": "时间",
   "scheduledTaskDateLabel": "日期",
@@ -3674,7 +4004,13 @@
   "scheduledTaskOpenResultFailed": "无法打开该结果。",
   "scheduledTaskDelete": "删除任务",
   "scheduledTaskDeleteConfirm": "服务器将停止运行“{name}”，其运行历史记录也会被删除。",
-  "@scheduledTaskDeleteConfirm": {"placeholders": {"name": {"type": "String"}}},
+  "@scheduledTaskDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "scheduledTaskChangeFailed": "无法更改此任务。",
   "scheduledTaskTerminalKept": "此任务已连接终端。编辑时会予以保留。",
   "scheduledTaskPromptSection": "指令",
@@ -3687,12 +4023,27 @@
   "queuedDraftFileFailed": "有文件未能上传。请重试或移除它。",
   "queuedDraftsSendFailed": "无法发送排队的消息，它们仍在队列中。",
   "queuedDraftsSending": "正在发送排队的消息…",
-  "@queuedDraftsCount": {"placeholders": {"count": {"type": "int"}}},
+  "@queuedDraftsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "calendarTitle": "日历",
   "calendarUnavailable": "在此服务器上，此账户无法使用日历。",
   "calendarTimezoneNote": "时间按此设备的时区显示。",
   "calendarRangeLabel": "{start} – {end}",
-  "@calendarRangeLabel": {"placeholders": {"start": {"type": "String"}, "end": {"type": "String"}}},
+  "@calendarRangeLabel": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
   "calendarToday": "今天",
   "calendarEmpty": "此时间段内没有日程。",
   "calendarLoadFailed": "无法加载日历。",
@@ -3719,9 +4070,21 @@
   "calendarEventDelete": "删除",
   "calendarEventDeleteSeries": "删除系列",
   "calendarEventDeleteConfirm": "要删除 {title} 吗？此操作无法撤销。",
-  "@calendarEventDeleteConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "@calendarEventDeleteConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "calendarEventDeleteSeriesConfirm": "要删除 {title} 及其所有重复日程吗？此操作无法撤销。",
-  "@calendarEventDeleteSeriesConfirm": {"placeholders": {"title": {"type": "String"}}},
+  "@calendarEventDeleteSeriesConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "calendarEventDeleteFailed": "无法删除此日程。",
   "calendarEventLoadFailed": "无法打开此日程进行编辑。",
   "calendarEventReadOnly": "您无法更改此日程，但仍可回复邀请。",
@@ -3754,7 +4117,13 @@
   "calendarAddPeople": "添加用户",
   "calendarInvitedPerson": "受邀用户",
   "calendarRemovePerson": "移除 {name}",
-  "@calendarRemovePerson": {"placeholders": {"name": {"type": "String"}}},
+  "@calendarRemovePerson": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "calendarAttendeesNote": "受邀用户自行回复。更改名单时，他们的回复会予以保留。",
   "calendarNoWritableCalendar": "您没有可添加日程的日历。请先创建日历再继续。",
   "calendarTitleRequired": "请输入标题。",
@@ -4167,5 +4536,33 @@
   "accountsRemoveAddressMessage": "Conduit 将不再尝试此地址。你的账户将保持登录状态。",
   "accountsAddressConfirmTitle": "要检查此地址吗？",
   "accountsAddressConfirmMessage": "为确认 {host} 就是这台服务器，Conduit 会向它发送此设备上已保存账户的会话。仅在你信任此地址时继续。",
-  "accountsAddressConfirmAction": "检查地址"
+  "accountsAddressConfirmAction": "检查地址",
+  "chatSwitcherReady": "轻点或按住",
+  "@chatSwitcherReady": {
+    "description": "Idle hint above the floating new-chat and recent-chat switcher button."
+  },
+  "chatSwitcherPress": "继续按住…",
+  "@chatSwitcherPress": {
+    "description": "Hint while pressing the chat switcher before a long press is recognized."
+  },
+  "chatSwitcherHold": "滑动选择聊天",
+  "@chatSwitcherHold": {
+    "description": "Hint after holding the chat switcher; sliding selects a recent chat."
+  },
+  "chatSwitcherRelease": "松开以打开",
+  "@chatSwitcherRelease": {
+    "description": "Hint when releasing the held chat switcher will open the highlighted chat."
+  },
+  "chatSwitcherCancel": "松开以取消",
+  "@chatSwitcherCancel": {
+    "description": "Hint when releasing the held chat switcher will cancel without changing chats."
+  },
+  "chatSwitcherCancelled": "已取消",
+  "@chatSwitcherCancelled": {
+    "description": "Brief confirmation after cancelling the chat-switcher gesture."
+  },
+  "chatSwitcherHint": "轻点以新建聊天。按住并滑动以切换聊天。",
+  "@chatSwitcherHint": {
+    "description": "Accessibility hint for the floating button: tap creates a chat, hold and slide switches chats."
+  }
 }

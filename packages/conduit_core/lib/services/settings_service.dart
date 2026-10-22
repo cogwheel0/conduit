@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:developer' as developer;
 
 import 'package:riverpod/riverpod.dart';
@@ -8,8 +9,10 @@ import '../providers/app_providers.dart' show settledActiveAccountIdProvider;
 import '../persistence/persistence_keys.dart';
 import '../persistence/preferences_store.dart';
 
+import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
 import 'package:conduit_core/features/web_search/models/web_search_preferences.dart';
 import 'package:conduit_core/models/animation_settings.dart';
+import 'package:conduit_core/models/response_animation.dart';
 import 'package:conduit_ddgs/conduit_ddgs.dart' show SafeSearch;
 
 part 'settings_service.g.dart';
@@ -19,6 +22,10 @@ enum SttPreference { deviceOnly, serverOnly }
 
 /// TTS engine selection
 enum TtsEngine { device, server }
+
+/// How a call talks: [auto] uses the backend's realtime voice when it offers
+/// one, [standard] always transcribes, sends and reads aloud turn by turn.
+enum VoiceCallMode { auto, standard }
 
 /// Action to take when the Android digital assistant is triggered.
 enum AndroidAssistantTrigger { overlay, newChat, voiceCall }
@@ -280,6 +287,10 @@ class SettingsService {
     final updates = <String, Object?>{
       _reduceMotionKey: settings.reduceMotion,
       _animationSpeedKey: settings.animationSpeed,
+      PreferenceKeys.thinkingIndicatorStyle:
+          settings.thinkingIndicatorStyle.name,
+      PreferenceKeys.skillIndicatorStyle: settings.skillIndicatorStyle.name,
+      PreferenceKeys.responseFinishStyle: settings.responseFinishStyle.name,
       _disableHapticsWhileStreamingKey: settings.disableHapticsWhileStreaming,
       PreferenceKeys.citationShowTitles: settings.citationShowTitles,
       _highContrastKey: settings.highContrast,
@@ -287,6 +298,7 @@ class SettingsService {
       _voiceHoldToTalkKey: settings.voiceHoldToTalk,
       _voiceAutoSendKey: settings.voiceAutoSendFinal,
       PreferenceKeys.voiceBargeInEnabled: settings.voiceBargeInEnabled,
+      PreferenceKeys.voiceCallMode: settings.voiceCallMode.name,
       _socketTransportModeKey: settings.socketTransportMode,
       _quickPillsKey: settings.quickPills.toList(),
       _sendOnEnterKey: settings.sendOnEnter,
@@ -720,6 +732,19 @@ class SettingsService {
     List<String>? getStringList(String key) =>
         PreferencesStore.getStringList(scopedPreferenceReadKey(key));
     return AppSettings(
+      thinkingIndicatorStyle: ResponseIndicatorStyle.fromStorage(
+        get<String>(PreferenceKeys.thinkingIndicatorStyle),
+        choices: ResponseIndicatorStyle.thinkingChoices,
+        fallback: ResponseIndicatorStyle.facets,
+      ),
+      skillIndicatorStyle: ResponseIndicatorStyle.fromStorage(
+        get<String>(PreferenceKeys.skillIndicatorStyle),
+        choices: ResponseIndicatorStyle.skillChoices,
+        fallback: ResponseIndicatorStyle.exchange,
+      ),
+      responseFinishStyle: ResponseFinishStyle.fromStorage(
+        get<String>(PreferenceKeys.responseFinishStyle),
+      ),
       reduceMotion: get<bool>(_reduceMotionKey) ?? false,
       animationSpeed:
           get<num>(_animationSpeedKey)?.toDouble() ?? 1.0,
@@ -743,6 +768,10 @@ class SettingsService {
       voiceBargeInEnabled:
           get<bool>(PreferenceKeys.voiceBargeInEnabled) ??
           false,
+      voiceCallMode: VoiceCallMode.values.firstWhere(
+        (mode) => mode.name == get<String>(PreferenceKeys.voiceCallMode),
+        orElse: () => VoiceCallMode.auto,
+      ),
       socketTransportMode:
           get<String>(_socketTransportModeKey) ?? 'ws',
       quickPills: getStringList(_quickPillsKey) ?? const [],
@@ -817,7 +846,19 @@ class SettingsService {
       webSearchRegion: get<String>(
         PreferenceKeys.webSearchRegion,
       ),
+      directVoiceProvider: _parseDirectVoiceProvider(
+        get<String>(PreferenceKeys.directVoiceProvider),
+      ),
     );
+  }
+
+  static DirectVoiceProviderSettings? _parseDirectVoiceProvider(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return DirectVoiceProviderSettings.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return null;
+    }
   }
 }
 
@@ -830,6 +871,9 @@ class _DefaultValue {
 class AppSettings {
   final bool reduceMotion;
   final double animationSpeed;
+  final ResponseIndicatorStyle thinkingIndicatorStyle;
+  final ResponseIndicatorStyle skillIndicatorStyle;
+  final ResponseFinishStyle responseFinishStyle;
   final bool disableHapticsWhileStreaming;
   final bool citationShowTitles;
   final bool highContrast;
@@ -840,6 +884,7 @@ class AppSettings {
   final bool voiceHoldToTalk;
   final bool voiceAutoSendFinal;
   final bool voiceBargeInEnabled;
+  final VoiceCallMode voiceCallMode;
   final String socketTransportMode; // 'polling' or 'ws'
   final List<String> quickPills; // e.g., ['web','image']
   final bool? chatWebSearchEnabled;
@@ -874,9 +919,16 @@ class AppSettings {
 
   /// `null` follows the device locale; see [resolveWebSearchRegion].
   final String? webSearchRegion;
+
+  /// The Direct connection that speaks and listens for Direct and Apple
+  /// chats, or `null` when none is chosen.
+  final DirectVoiceProviderSettings? directVoiceProvider;
   const AppSettings({
     this.reduceMotion = false,
     this.animationSpeed = 1.0,
+    this.thinkingIndicatorStyle = ResponseIndicatorStyle.facets,
+    this.skillIndicatorStyle = ResponseIndicatorStyle.exchange,
+    this.responseFinishStyle = ResponseFinishStyle.fade,
     this.disableHapticsWhileStreaming = false,
     this.citationShowTitles = false,
     this.highContrast = false,
@@ -887,6 +939,7 @@ class AppSettings {
     this.voiceHoldToTalk = false,
     this.voiceAutoSendFinal = false,
     this.voiceBargeInEnabled = false,
+    this.voiceCallMode = VoiceCallMode.auto,
     this.socketTransportMode = 'ws',
     this.quickPills = const [],
     this.chatWebSearchEnabled,
@@ -917,11 +970,15 @@ class AppSettings {
     this.webSearchEngine = WebSearchEngineChoice.auto,
     this.webSearchSafeSearch = SafeSearch.moderate,
     this.webSearchRegion,
+    this.directVoiceProvider,
   });
 
   AppSettings copyWith({
     bool? reduceMotion,
     double? animationSpeed,
+    ResponseIndicatorStyle? thinkingIndicatorStyle,
+    ResponseIndicatorStyle? skillIndicatorStyle,
+    ResponseFinishStyle? responseFinishStyle,
     bool? disableHapticsWhileStreaming,
     bool? citationShowTitles,
     bool? highContrast,
@@ -932,6 +989,7 @@ class AppSettings {
     bool? voiceHoldToTalk,
     bool? voiceAutoSendFinal,
     bool? voiceBargeInEnabled,
+    VoiceCallMode? voiceCallMode,
     String? socketTransportMode,
     List<String>? quickPills,
     bool? chatWebSearchEnabled,
@@ -962,10 +1020,15 @@ class AppSettings {
     WebSearchEngineChoice? webSearchEngine,
     SafeSearch? webSearchSafeSearch,
     Object? webSearchRegion = const _DefaultValue(),
+    Object? directVoiceProvider = const _DefaultValue(),
   }) {
     return AppSettings(
       reduceMotion: reduceMotion ?? this.reduceMotion,
       animationSpeed: animationSpeed ?? this.animationSpeed,
+      thinkingIndicatorStyle:
+          thinkingIndicatorStyle ?? this.thinkingIndicatorStyle,
+      skillIndicatorStyle: skillIndicatorStyle ?? this.skillIndicatorStyle,
+      responseFinishStyle: responseFinishStyle ?? this.responseFinishStyle,
       disableHapticsWhileStreaming:
           disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
       citationShowTitles: citationShowTitles ?? this.citationShowTitles,
@@ -984,6 +1047,7 @@ class AppSettings {
       voiceHoldToTalk: voiceHoldToTalk ?? this.voiceHoldToTalk,
       voiceAutoSendFinal: voiceAutoSendFinal ?? this.voiceAutoSendFinal,
       voiceBargeInEnabled: voiceBargeInEnabled ?? this.voiceBargeInEnabled,
+      voiceCallMode: voiceCallMode ?? this.voiceCallMode,
       socketTransportMode: socketTransportMode ?? this.socketTransportMode,
       quickPills: quickPills ?? this.quickPills,
       chatWebSearchEnabled: chatWebSearchEnabled ?? this.chatWebSearchEnabled,
@@ -1032,6 +1096,9 @@ class AppSettings {
       webSearchRegion: webSearchRegion is _DefaultValue
           ? this.webSearchRegion
           : webSearchRegion as String?,
+      directVoiceProvider: directVoiceProvider is _DefaultValue
+          ? this.directVoiceProvider
+          : directVoiceProvider as DirectVoiceProviderSettings?,
     );
   }
 
@@ -1041,6 +1108,9 @@ class AppSettings {
     return other is AppSettings &&
         other.reduceMotion == reduceMotion &&
         other.animationSpeed == animationSpeed &&
+        other.thinkingIndicatorStyle == thinkingIndicatorStyle &&
+        other.skillIndicatorStyle == skillIndicatorStyle &&
+        other.responseFinishStyle == responseFinishStyle &&
         other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
         other.citationShowTitles == citationShowTitles &&
         other.highContrast == highContrast &&
@@ -1052,6 +1122,7 @@ class AppSettings {
         other.voiceHoldToTalk == voiceHoldToTalk &&
         other.voiceAutoSendFinal == voiceAutoSendFinal &&
         other.voiceBargeInEnabled == voiceBargeInEnabled &&
+        other.voiceCallMode == voiceCallMode &&
         other.chatWebSearchEnabled == chatWebSearchEnabled &&
         other.chatImageGenerationEnabled == chatImageGenerationEnabled &&
         other.sttPreference == sttPreference &&
@@ -1079,6 +1150,7 @@ class AppSettings {
         other.webSearchEngine == webSearchEngine &&
         other.webSearchSafeSearch == webSearchSafeSearch &&
         other.webSearchRegion == webSearchRegion &&
+        other.directVoiceProvider == directVoiceProvider &&
         _listEquals(other.pinnedModels, pinnedModels) &&
         _listEquals(other.quickPills, quickPills);
     // socketTransportMode intentionally not included in == to avoid frequent rebuilds
@@ -1089,6 +1161,9 @@ class AppSettings {
     return Object.hashAll([
       reduceMotion,
       animationSpeed,
+      thinkingIndicatorStyle,
+      skillIndicatorStyle,
+      responseFinishStyle,
       disableHapticsWhileStreaming,
       citationShowTitles,
       highContrast,
@@ -1099,6 +1174,7 @@ class AppSettings {
       voiceHoldToTalk,
       voiceAutoSendFinal,
       voiceBargeInEnabled,
+      voiceCallMode,
       chatWebSearchEnabled,
       chatImageGenerationEnabled,
       sttPreference,
@@ -1126,6 +1202,7 @@ class AppSettings {
       webSearchEngine,
       webSearchSafeSearch,
       webSearchRegion,
+      directVoiceProvider,
       Object.hashAllUnordered(quickPills),
       Object.hashAll(pinnedModels),
     ]);
@@ -1185,6 +1262,32 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setAnimationSpeed(double value) async {
     state = state.copyWith(animationSpeed: value);
     await SettingsService.setAnimationSpeed(value);
+  }
+
+  Future<void> setThinkingIndicatorStyle(ResponseIndicatorStyle value) async {
+    if (!ResponseIndicatorStyle.thinkingChoices.contains(value)) return;
+    await SettingsService._putPreference(
+      PreferenceKeys.thinkingIndicatorStyle,
+      value.name,
+    );
+    state = state.copyWith(thinkingIndicatorStyle: value);
+  }
+
+  Future<void> setSkillIndicatorStyle(ResponseIndicatorStyle value) async {
+    if (!ResponseIndicatorStyle.skillChoices.contains(value)) return;
+    await SettingsService._putPreference(
+      PreferenceKeys.skillIndicatorStyle,
+      value.name,
+    );
+    state = state.copyWith(skillIndicatorStyle: value);
+  }
+
+  Future<void> setResponseFinishStyle(ResponseFinishStyle value) async {
+    await SettingsService._putPreference(
+      PreferenceKeys.responseFinishStyle,
+      value.name,
+    );
+    state = state.copyWith(responseFinishStyle: value);
   }
 
   Future<void> setDisableHapticsWhileStreaming(bool value) async {
@@ -1400,6 +1503,18 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     await SettingsService._putOrRemove(PreferenceKeys.webSearchRegion, value);
   }
 
+  /// Chooses the Voice provider for Direct and Apple chats; `null` clears it.
+  Future<void> setDirectVoiceProvider(
+    DirectVoiceProviderSettings? value,
+  ) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(directVoiceProvider: value);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.directVoiceProvider,
+      value == null ? null : jsonEncode(value.toJson()),
+    );
+  }
+
   Future<void> setSendOnEnter(bool value) async {
     state = state.copyWith(sendOnEnter: value);
     await SettingsService.setSendOnEnter(value);
@@ -1447,6 +1562,16 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     }
     state = state.copyWith(sttPreference: preference);
     await SettingsService.saveSettings(state);
+  }
+
+  Future<void> setVoiceCallMode(VoiceCallMode mode) async {
+    state = state.copyWith(voiceCallMode: mode);
+    // Only this key: a whole snapshot could put back an older value of
+    // another setting saved meanwhile.
+    await SettingsService._putPreference(
+      PreferenceKeys.voiceCallMode,
+      mode.name,
+    );
   }
 
   Future<void> setVoiceBargeInEnabled(bool value) async {
@@ -1538,6 +1663,11 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> resetToDefaults() async {
     const defaultSettings = AppSettings();
     await SettingsService.saveSettings(defaultSettings);
+    // Written only by its own setter, so the bulk save leaves it.
+    await SettingsService._putOrRemove(
+      PreferenceKeys.directVoiceProvider,
+      null,
+    );
     state = defaultSettings;
   }
 }

@@ -1,4 +1,7 @@
 import 'dart:async';
+
+import 'package:conduit_core/ports/background_execution_port.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -461,6 +464,22 @@ class _SessionRecordingHermesApi extends HermesApiService {
     await stopGate?.future;
     final error = stopError;
     if (error != null) throw error;
+  }
+}
+
+class _UnfinishedCheckpointHermesApi extends _SessionRecordingHermesApi {
+  _UnfinishedCheckpointHermesApi(StreamController<HermesRunEvent> events)
+    : super(events: events);
+
+  int recoveryLookups = 0;
+
+  @override
+  Future<Map<String, dynamic>> getRun(
+    String runId, {
+    CancelToken? cancelToken,
+  }) async {
+    recoveryLookups++;
+    return {'status': 'running', 'output': 'Partial answer'};
   }
 }
 
@@ -1128,6 +1147,22 @@ ProviderContainer _buildContainer({HermesApiService? hermesService}) {
   );
 }
 
+class _RecordingHermesBackgroundExecution implements BackgroundExecutionPort {
+  final begun = <List<String>>[];
+  final ended = <List<String>>[];
+  Completer<void>? startGate;
+  @override
+  Future<void> begin(List<String> ids) async {
+    begun.add(ids);
+    await startGate?.future;
+  }
+
+  @override
+  Future<void> end(List<String> ids) async {
+    ended.add(ids);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -1143,6 +1178,197 @@ void main() {
       HermesLocalDocumentTrustStore.debugResetRuntimeState();
       PreferencesStore.debugReset();
     });
+
+    test(
+      'Hermes exhausted checkpoint recovery never reports completion',
+      () async {
+        final events = StreamController<HermesRunEvent>();
+        addTearDown(events.close);
+        final service = _UnfinishedCheckpointHermesApi(events);
+        final outcomes = <HermesChatOutcome>[];
+        var completionNotifications = 0;
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              _TestActiveConversationNotifier.new,
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(_FixedHermesConfigController.new),
+            hermesApiServiceProvider.overrideWithValue(service),
+            hermesChatOutcomeCallbackProvider.overrideWithValue(
+              (_, _, outcome) => outcomes.add(outcome),
+            ),
+            hermesChatCompletionCallbackProvider.overrideWithValue(
+              (_, _) => completionNotifications++,
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'unfinished-checkpoint',
+          content: '',
+          isStreaming: true,
+          metadata: const {'transport': kHermesTransport},
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                _conversation('local:hermes_checkpoint', [assistant]).copyWith(
+                  metadata: const {
+                    'backend': 'hermes',
+                    'hermesSessionId': 'checkpoint',
+                  },
+                ),
+              ),
+            );
+        await Future<void>.delayed(Duration.zero);
+        final dispatch = dispatchHermesRunFromChatForTest(
+          container,
+          assistantMessageId: assistant.id,
+          input: 'Run the fixture task',
+          existingMessages: const [],
+        );
+        await service.runEventsStarted.future.timeout(
+          const Duration(seconds: 1),
+        );
+        // The stream provides content, but never confirms a terminal outcome.
+        events
+          ..add(const HermesTokenDelta('Partial answer'))
+          ..addError(
+            const HermesStreamGuardException(
+              'The Hermes stream was idle for too long.',
+              allowsCheckpointRecovery: true,
+            ),
+          );
+        await dispatch.timeout(const Duration(seconds: 1));
+
+        // Idle recovery admits one authoritative lookup. A still-running result
+        // exhausts that budget; finishing local UI is not terminal success.
+        expect(service.recoveryLookups, 1);
+        expect(outcomes, [HermesChatOutcome.failed]);
+        expect(completionNotifications, 0);
+        final settled = container.read(chatMessagesProvider).single;
+        expect(settled.content, 'Partial answer');
+        expect(settled.error, isNotNull);
+        expect(settled.isStreaming, isFalse);
+        container.read(chatMessagesProvider.notifier).clearMessages();
+      },
+    );
+
+    for (final outcome in HermesChatOutcome.values) {
+      test(
+        'Hermes ${outcome.name} reports one outcome for its captured offscreen owner',
+        () async {
+          final events = StreamController<HermesRunEvent>();
+          addTearDown(events.close);
+          final service = _SessionRecordingHermesApi(events: events);
+          final outcomes =
+              <
+                ({
+                  Conversation conversation,
+                  ChatMessage message,
+                  HermesChatOutcome outcome,
+                })
+              >[];
+          final container = _testContainer(
+            overrides: [
+              activeConversationProvider.overrideWith(
+                _TestActiveConversationNotifier.new,
+              ),
+              apiServiceProvider.overrideWithValue(null),
+              socketServiceProvider.overrideWithValue(null),
+              hermesConfigProvider.overrideWith(
+                _FixedHermesConfigController.new,
+              ),
+              hermesApiServiceProvider.overrideWithValue(service),
+              hermesChatOutcomeCallbackProvider.overrideWithValue(
+                (conversation, message, outcome) => outcomes.add((
+                  conversation: conversation,
+                  message: message,
+                  outcome: outcome,
+                )),
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+          final assistant = _assistantMessage(
+            id: 'outcome-assistant',
+            content: '',
+            isStreaming: true,
+            metadata: const {'transport': kHermesTransport},
+          );
+          final owner = markNativeHermesConversation(
+            _conversation('local:hermes_outcome-session', [assistant]).copyWith(
+              title: 'Captured task',
+              metadata: const {
+                'backend': 'hermes',
+                'hermesSessionId': 'outcome-session',
+                'hermesBotProfile': 'planner',
+                'hermesBotTitle': 'Planner',
+              },
+            ),
+          );
+          container.read(activeConversationProvider.notifier).set(owner);
+          await Future<void>.delayed(Duration.zero);
+          final dispatch = dispatchHermesRunFromChatForTest(
+            container,
+            assistantMessageId: assistant.id,
+            input: 'Run the fixture task',
+            existingMessages: const [],
+          );
+          await service.runEventsStarted.future.timeout(
+            const Duration(seconds: 1),
+          );
+          events.add(const HermesTokenDelta('Owned answer'));
+          await Future<void>.delayed(Duration.zero);
+          final visible = _conversation('another-chat', [
+            _assistantMessage(id: 'visible-answer', content: 'Visible answer'),
+          ]);
+          container.read(activeConversationProvider.notifier).set(visible);
+          await Future<void>.delayed(Duration.zero);
+
+          if (outcome == HermesChatOutcome.stopped) {
+            await Future.wait(
+              container.read(hermesRunRegistryProvider).cancelAll(),
+            ).timeout(const Duration(seconds: 1));
+          } else {
+            if (outcome == HermesChatOutcome.failed) {
+              events.add(const HermesRunError('Fixture terminal failure'));
+            }
+            events
+              ..add(const HermesRunDone())
+              ..add(const HermesRunDone());
+          }
+          await dispatch.timeout(const Duration(seconds: 1));
+          expect(outcomes, hasLength(1));
+          final report = outcomes.single;
+          expect(report.outcome, outcome);
+          expect(report.conversation.id, owner.id);
+          expect(report.conversation.title, 'Captured task');
+          expect(report.conversation.metadata['hermesBotProfile'], 'planner');
+          expect(report.message.id, assistant.id);
+          expect(report.message.content, 'Owned answer');
+          expect(
+            report.message.metadata?['hermesSessionId'],
+            'outcome-session',
+          );
+          expect(
+            report.message.error?.content,
+            outcome == HermesChatOutcome.failed
+                ? 'Fixture terminal failure'
+                : null,
+          );
+          expect(container.read(activeConversationProvider)?.id, visible.id);
+          expect(
+            container.read(chatMessagesProvider).single.content,
+            'Visible answer',
+          );
+          container.read(chatMessagesProvider.notifier).clearMessages();
+        },
+      );
+    }
 
     test('send recovery follows an OpenWebUI local-to-server remap', () {
       final container = _buildContainer();
@@ -2238,6 +2464,95 @@ void main() {
             .equals('hermes');
       },
     );
+
+    for (final failed in [false, true]) {
+      test(
+        'Hermes background lease and completion hook ${failed ? "failure" : "success"}',
+        () async {
+          final service = _ResponsesHermesApi()..failNextResponse = failed;
+          final background = _RecordingHermesBackgroundExecution()
+            ..startGate = Completer<void>();
+          final previousBackground = BackgroundExecutionPort.hostDefault;
+          BackgroundExecutionPort.hostDefault = background;
+          addTearDown(() {
+            BackgroundExecutionPort.hostDefault = previousBackground;
+          });
+          final completions =
+              <({Conversation conversation, ChatMessage message})>[];
+          final container = _testContainer(
+            overrides: [
+              activeConversationProvider.overrideWith(
+                () => _TestActiveConversationNotifier(),
+              ),
+              apiServiceProvider.overrideWithValue(null),
+              socketServiceProvider.overrideWithValue(null),
+              hermesConfigProvider.overrideWith(
+                () => _FixedHermesConfigController(),
+              ),
+              hermesApiServiceProvider.overrideWithValue(service),
+              hermesChatCompletionCallbackProvider.overrideWithValue((
+                conversation,
+                message,
+              ) {
+                completions.add((conversation: conversation, message: message));
+              }),
+            ],
+          );
+          addTearDown(container.dispose);
+          final placeholder = _assistantMessage(
+            id: 'background-assistant',
+            content: '',
+            isStreaming: true,
+            metadata: const {'transport': kHermesTransport},
+          );
+          container
+              .read(activeConversationProvider.notifier)
+              .set(
+                markNativeHermesConversation(
+                  Conversation(
+                    id: 'local:hermes_existing',
+                    title: 'Background chat',
+                    createdAt: DateTime(2024),
+                    updatedAt: DateTime(2024),
+                    messages: [placeholder],
+                    metadata: const {
+                      'backend': 'hermes',
+                      'hermesSessionId': 'existing',
+                    },
+                  ),
+                ),
+              );
+          await Future<void>.delayed(Duration.zero);
+          await dispatchHermesRunFromChatForTest(
+            container,
+            assistantMessageId: placeholder.id,
+            assistantSeed: placeholder,
+            input: 'hello',
+            existingMessages: const [],
+            responseInput: HermesChatInput.text('hello'),
+          ).timeout(const Duration(seconds: 1));
+          expect(background.begun, [
+            ['hermes-reply-background-assistant'],
+          ]);
+          expect(
+            background.ended,
+            isEmpty,
+          ); // The late native start has not settled.
+          expect(completions, hasLength(failed ? 0 : 1));
+          if (!failed) {
+            expect(completions.single.message.content, 'answer 1');
+            expect(
+              completions.single.conversation.metadata['hermesSessionId'],
+              'responses-session',
+            );
+          }
+          background.startGate!.complete();
+          await Future<void>.delayed(Duration.zero);
+          expect(background.ended, background.begun);
+          container.read(chatMessagesProvider.notifier).clearMessages();
+        },
+      );
+    }
 
     test('first Responses turn adopts the server-owned session', () async {
       final service = _ResponsesHermesApi(
@@ -5614,6 +5929,45 @@ void main() {
         notifier.clearMessages();
       },
     );
+
+    test('Android new chat preserves bound Hermes work and cancels unbound preflight', () async {
+      final service = _StoppingHermesApi();
+      final container = _buildContainer(hermesService: service);
+      addTearDown(container.dispose);
+      final registry = container.read(hermesRunRegistryProvider);
+      final bound = CancelToken();
+      final unbound = CancelToken();
+      final key = hermesRunKey(
+        ownerConversationId: 'local:hermes_session-1',
+        assistantMessageId: 'bound',
+      );
+      registry.register(
+        key,
+        runId: 'bound-run',
+        cancelToken: bound,
+        subscription: const Stream<void>.empty().listen(null),
+        stopRemote: service.stopRun,
+      );
+      registry.register(
+        hermesRunKey(
+          ownerConversationId: 'conduit-hermes-pending://draft',
+          assistantMessageId: 'pending',
+        ),
+        runId: 'pending-run',
+        cancelToken: unbound,
+        subscription: const Stream<void>.empty().listen(null),
+        stopRemote: service.stopRun,
+      );
+      container.read(hermesActiveSessionProvider.notifier).set('session-1');
+      resetHermesForNewChat(container, preserveBoundRuns: true);
+      await Future<void>.delayed(Duration.zero);
+      expect(bound.isCancelled, isFalse);
+      expect(registry.owns(key, cancelToken: bound), isTrue);
+      expect(unbound.isCancelled, isTrue);
+      expect(service.stopped, ['pending-run']);
+      expect(container.read(hermesActiveSessionProvider), isNull);
+      await registry.cancel(key);
+    });
 
     test('New Chat reset observes rejected direct cleanup futures', () async {
       final container = _buildContainer();

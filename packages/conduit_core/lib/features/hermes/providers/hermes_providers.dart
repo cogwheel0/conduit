@@ -1026,9 +1026,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
             // As on the way in, the endpoint goes before the credentials
             // change, so neither a restart nor a concurrent read pairs the
             // replacement server with the restored credentials.
-            await _writeProfiles(
-              _replacing(nextProfile.copyWith(baseUrl: '')),
-            );
+            await _writeProfiles(_replacing(nextProfile.copyWith(baseUrl: '')));
             await _persistSecretsAtomically(
               connectionId: connectionId,
               previous: nextCredentials,
@@ -1145,126 +1143,127 @@ class HermesConfigController extends Notifier<HermesConfig> {
   ///
   /// Deleting the active connection activates the most recently used
   /// remaining one, or leaves Hermes without a connection.
-  Future<void> deleteConnection(String connectionId) =>
-      _serializeMutation(() async {
-        await _secretsHydration;
-        _throwIfSecretsUnavailable();
-        final target = _profile(connectionId);
-        if (target == null) return;
-        final remaining = [
-          for (final profile in _profiles)
-            if (profile.id != connectionId) profile,
-        ];
-        final wasActive = state.connectionId == connectionId;
+  Future<void> deleteConnection(String connectionId) => _serializeMutation(
+    () async {
+      await _secretsHydration;
+      _throwIfSecretsUnavailable();
+      final target = _profile(connectionId);
+      if (target == null) return;
+      final remaining = [
+        for (final profile in _profiles)
+          if (profile.id != connectionId) profile,
+      ];
+      final wasActive = state.connectionId == connectionId;
 
-        Future<void> commit() async {
-          // Reads that can fail come first, so such a failure changes
-          // nothing.
-          HermesConnectionProfile? replacement;
-          var replacementSecrets = const _HermesCredentialSnapshot();
-          if (wasActive) {
-            replacement = _mostRecentlyUsed(remaining);
-            if (replacement != null) {
-              replacementSecrets = await _readSecrets(replacement.id);
-            }
+      Future<void> commit() async {
+        // Reads that can fail come first, so such a failure changes
+        // nothing.
+        HermesConnectionProfile? replacement;
+        var replacementSecrets = const _HermesCredentialSnapshot();
+        if (wasActive) {
+          replacement = _mostRecentlyUsed(remaining);
+          if (replacement != null) {
+            replacementSecrets = await _readSecrets(replacement.id);
           }
-          final kept = _profiles;
-          // The connection survives, so keep it the active one as well.
-          Future<void> keepActive() async {
-            if (!wasActive) return;
+        }
+        final kept = _profiles;
+        // The connection survives, so keep it the active one as well.
+        Future<void> keepActive() async {
+          if (!wasActive) return;
+          try {
+            await HermesConnectionStore.writeActiveId(connectionId);
+          } catch (error) {
+            DebugLogger.warning(
+              'active-connection-restore-failed',
+              scope: 'hermes/connections',
+              data: {'errorType': error.runtimeType.toString()},
+            );
+          }
+        }
+
+        // Moves the runtime off the deleted connection.
+        void leaveDeleted() {
+          if (!wasActive) return;
+          if (replacement == null) {
+            state = HermesConfig(enabled: state.enabled);
+            _releaseRuntimeSession();
+            ref.read(hermesConnectionGenerationProvider.notifier).bump();
+          } else {
+            _activateRuntime(replacement, replacementSecrets);
+          }
+        }
+
+        if (wasActive) {
+          // Repoint the runtime first: an active id must never name a
+          // profile that is gone, and if the document write below fails the
+          // deleted connection is simply no longer active.
+          await HermesConnectionStore.writeActiveId(replacement?.id);
+        }
+        try {
+          await _writeProfiles(remaining);
+        } catch (_) {
+          await keepActive();
+          rethrow;
+        }
+        // Cleared once the connection is gone from the list, so a write that
+        // fails above leaves it signed in to its dashboard. A clear that
+        // fails puts the connection back, still signed in, rather than
+        // report a deletion that left its dashboard session behind. A
+        // connection sharing the origin still uses that session.
+        if (connectionOrigin(target.baseUrl) != null &&
+            !_originSharedByAnotherConnection(target.baseUrl, connectionId)) {
+          Object? clearError;
+          StackTrace? clearStackTrace;
+          var cleared = false;
+          try {
+            cleared = await ref
+                .read(cookieJarProvider)
+                .clearForOrigin(target.baseUrl);
+          } catch (error, stackTrace) {
+            clearError = error;
+            clearStackTrace = stackTrace;
+          }
+          if (!cleared) {
+            var restored = false;
             try {
-              await HermesConnectionStore.writeActiveId(connectionId);
+              await _writeProfiles(kept);
+              restored = true;
             } catch (error) {
               DebugLogger.warning(
-                'active-connection-restore-failed',
+                'deleted-connection-restore-failed',
                 scope: 'hermes/connections',
                 data: {'errorType': error.runtimeType.toString()},
               );
             }
-          }
-
-          // Moves the runtime off the deleted connection.
-          void leaveDeleted() {
-            if (!wasActive) return;
-            if (replacement == null) {
-              state = HermesConfig(enabled: state.enabled);
-              _releaseRuntimeSession();
-              ref.read(hermesConnectionGenerationProvider.notifier).bump();
+            if (restored) {
+              await keepActive();
             } else {
-              _activateRuntime(replacement, replacementSecrets);
+              // It stays deleted, so nothing may go on using it: the active
+              // id already names its replacement.
+              leaveDeleted();
+              await _discardConnectionData(target);
             }
-          }
-
-          if (wasActive) {
-            // Repoint the runtime first: an active id must never name a
-            // profile that is gone, and if the document write below fails the
-            // deleted connection is simply no longer active.
-            await HermesConnectionStore.writeActiveId(replacement?.id);
-          }
-          try {
-            await _writeProfiles(remaining);
-          } catch (_) {
-            await keepActive();
-            rethrow;
-          }
-          // Cleared once the connection is gone from the list, so a write that
-          // fails above leaves it signed in to its dashboard. A clear that
-          // fails puts the connection back, still signed in, rather than
-          // report a deletion that left its dashboard session behind. A
-          // connection sharing the origin still uses that session.
-          if (connectionOrigin(target.baseUrl) != null &&
-              !_originSharedByAnotherConnection(target.baseUrl, connectionId)) {
-            Object? clearError;
-            StackTrace? clearStackTrace;
-            var cleared = false;
-            try {
-              cleared = await ref
-                  .read(cookieJarProvider)
-                  .clearForOrigin(target.baseUrl);
-            } catch (error, stackTrace) {
-              clearError = error;
-              clearStackTrace = stackTrace;
+            if (clearError != null) {
+              Error.throwWithStackTrace(clearError, clearStackTrace!);
             }
-            if (!cleared) {
-              var restored = false;
-              try {
-                await _writeProfiles(kept);
-                restored = true;
-              } catch (error) {
-                DebugLogger.warning(
-                  'deleted-connection-restore-failed',
-                  scope: 'hermes/connections',
-                  data: {'errorType': error.runtimeType.toString()},
-                );
-              }
-              if (restored) {
-                await keepActive();
-              } else {
-                // It stays deleted, so nothing may go on using it: the active
-                // id already names its replacement.
-                leaveDeleted();
-                await _discardConnectionData(target);
-              }
-              if (clearError != null) {
-                Error.throwWithStackTrace(clearError, clearStackTrace!);
-              }
-              throw StateError('Hermes dashboard cookies could not be cleared.');
-            }
+            throw StateError('Hermes dashboard cookies could not be cleared.');
           }
-          leaveDeleted();
-          DebugLogger.log('connection-deleted', scope: 'hermes/connections');
-          await _discardConnectionData(target);
         }
+        leaveDeleted();
+        DebugLogger.log('connection-deleted', scope: 'hermes/connections');
+        await _discardConnectionData(target);
+      }
 
-        if (wasActive) {
-          await _withRunAdmissionBlocked(() async {
-            await _cancelActiveRuns();
-            await commit();
-          });
-        } else {
+      if (wasActive) {
+        await _withRunAdmissionBlocked(() async {
+          await _cancelActiveRuns();
           await commit();
-        }
-      });
+        });
+      } else {
+        await commit();
+      }
+    },
+  );
 
   /// Best-effort cleanup once a deleted profile is gone from the document.
   /// Leftovers are unreachable: ids are never reused and a full sign-out wipes
@@ -1294,10 +1293,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
       );
       await attempt(
         'deleted-connection-session-binding-cleanup-failed',
-        () =>
-            HermesMixedSessionBindingTrustStore.forgetConnectionIdentity(
-              identity,
-            ),
+        () => HermesMixedSessionBindingTrustStore.forgetConnectionIdentity(
+          identity,
+        ),
       );
     }
     // Records from before saved connections carry no id and match by origin
@@ -1322,7 +1320,11 @@ class HermesConfigController extends Notifier<HermesConfig> {
     _releaseRuntimeSession();
     // The selected model follows through its own listener on the active
     // connection (see SelectedModel.build); reading it here would be circular.
-    state = _configForProfile(profile, enabled: state.enabled, secrets: secrets);
+    state = _configForProfile(
+      profile,
+      enabled: state.enabled,
+      secrets: secrets,
+    );
     ref.read(hermesConnectionGenerationProvider.notifier).bump();
   }
 
@@ -1341,7 +1343,8 @@ class HermesConfigController extends Notifier<HermesConfig> {
     for (final profile in profiles) {
       final used = profile.lastUsedAt;
       final bestUsed = best?.lastUsedAt;
-      if (best == null || (used != null && (bestUsed == null || used.isAfter(bestUsed)))) {
+      if (best == null ||
+          (used != null && (bestUsed == null || used.isAfter(bestUsed)))) {
         best = profile;
       }
     }
@@ -1447,7 +1450,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
   }
 
   void _publishConnections() {
-    if (ref.mounted) ref.read(hermesConnectionsRevisionProvider.notifier).bump();
+    if (ref.mounted) {
+      ref.read(hermesConnectionsRevisionProvider.notifier).bump();
+    }
   }
 
   /// Rejects new config writes, drains already-queued writes, and revokes
@@ -1954,15 +1959,19 @@ final hostHermesDashboardBridgeFactoryProvider =
 
 /// Asks the user whether to switch to the saved Hermes connection named
 /// [connectionName]. Resolves false when declined or when nobody can be asked.
-typedef HermesConnectionSwitchPrompt =
-    Future<bool> Function(String connectionName);
+typedef HermesConnectionSwitchPrompt = Future<bool> Function(
+  String connectionName,
+);
 
 /// Offered before continuing a mixed chat whose Hermes session belongs to an
 /// inactive saved connection. The core cannot localize the question, so the
 /// host binds it (through its UI request port); the default declines, which
 /// keeps starting a new session on the active connection.
 final hermesConnectionSwitchPromptProvider =
-    Provider<HermesConnectionSwitchPrompt>((ref) => (_) async => false);
+    Provider<HermesConnectionSwitchPrompt>(
+      (ref) =>
+          (_) async => false,
+    );
 
 final hermesConfigProvider =
     NotifierProvider<HermesConfigController, HermesConfig>(
@@ -1995,7 +2004,8 @@ final hermesConnectionsProvider = Provider<List<HermesConnectionProfile>>((
 
 /// Id of the active saved connection, or null when none is saved.
 final hermesActiveConnectionIdProvider = Provider<String?>(
-  (ref) => ref.watch(hermesConfigProvider.select((config) => config.connectionId)),
+  (ref) =>
+      ref.watch(hermesConfigProvider.select((config) => config.connectionId)),
 );
 
 /// Display name of the active saved connection, or null when none is saved.
@@ -2434,6 +2444,36 @@ class HermesSessionsController
     return newId;
   }
 
+  Future<void> autoRename(String id) async {
+    final controller = ref.read(hermesConfigProvider.notifier);
+    final admission = controller.captureSessionActionAdmission();
+    final service = _service;
+    if (admission == null || service is! HermesDesktopApiService) {
+      throw StateError(
+        'Auto rename requires a connected Hermes Desktop gateway.',
+      );
+    }
+    final title = await service.suggestSessionTitle(id);
+    if (!ref.mounted ||
+        !controller.sessionActionAdmissionIsCurrent(admission) ||
+        !identical(ref.read(hermesApiServiceProvider), service)) {
+      return;
+    }
+    await service.renameSession(id, title);
+    if (!ref.mounted ||
+        !controller.sessionActionAdmissionIsCurrent(admission) ||
+        !identical(ref.read(hermesApiServiceProvider), service)) {
+      return;
+    }
+    final active = ref.read(activeConversationProvider);
+    if (active?.id == 'local:hermes_$id') {
+      ref
+          .read(activeConversationProvider.notifier)
+          .set(active!.copyWith(title: title));
+    }
+    ref.invalidateSelf();
+  }
+
   Future<void> rename(String id, String title) async {
     final configController = ref.read(hermesConfigProvider.notifier);
     final admission = configController.captureSessionActionAdmission();
@@ -2445,6 +2485,12 @@ class HermesSessionsController
     await service.renameSession(id, title);
     if (configController.sessionActionAdmissionIsCurrent(admission) &&
         identical(ref.read(hermesApiServiceProvider), service)) {
+      final active = ref.read(activeConversationProvider);
+      if (active?.id == 'local:hermes_$id') {
+        ref
+            .read(activeConversationProvider.notifier)
+            .set(active!.copyWith(title: title));
+      }
       ref.invalidateSelf();
     }
   }
@@ -2619,9 +2665,22 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     required String name,
     required String prompt,
     required String schedule,
+    List<String>? skills,
   }) async {
     final service = _service;
-    await service.createJob(name: name, prompt: prompt, schedule: schedule);
+    if (skills != null && service is HermesDesktopApiService) {
+      await service.createJob(
+        name: name,
+        prompt: prompt,
+        schedule: schedule,
+        skills: skills,
+      );
+    } else {
+      if (skills?.isNotEmpty == true) {
+        throw UnsupportedError('Skill schedules require Desktop Gateway');
+      }
+      await service.createJob(name: name, prompt: prompt, schedule: schedule);
+    }
     ref.invalidateSelf();
   }
 
@@ -2630,9 +2689,28 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     String? name,
     String? prompt,
     String? schedule,
+    List<String>? skills,
   }) async {
     final service = _service;
-    await service.updateJob(id, name: name, prompt: prompt, schedule: schedule);
+    if (skills != null && service is HermesDesktopApiService) {
+      await service.updateJob(
+        id,
+        name: name,
+        prompt: prompt,
+        schedule: schedule,
+        skills: skills,
+      );
+    } else {
+      if (skills?.isNotEmpty == true) {
+        throw UnsupportedError('Skill schedules require Desktop Gateway');
+      }
+      await service.updateJob(
+        id,
+        name: name,
+        prompt: prompt,
+        schedule: schedule,
+      );
+    }
     ref.invalidateSelf();
   }
 
@@ -3073,9 +3151,14 @@ class HermesRunRegistry {
     }
   }
 
-  List<Future<void>> cancelAll() {
+  List<Future<void>> cancelAll() => cancelWhere((_) => true);
+
+  /// Cancels only matching owners, leaving established background generations
+  /// registered with their existing projection and remote-stop ownership.
+  List<Future<void>> cancelWhere(bool Function(HermesRunKey) matches) {
     final stops = <Future<void>>[];
     for (final key in _runs.keys.toList(growable: false)) {
+      if (!matches(key)) continue;
       final stop = cancel(key);
       if (stop != null) stops.add(stop);
     }
@@ -3152,3 +3235,19 @@ class _ActiveRun {
 final hermesRunRegistryProvider = Provider<HermesRunRegistry>(
   (ref) => HermesRunRegistry(),
 );
+
+/// Composer choices before a native Hermes conversation has a server id.
+class HermesVisualDraftOptions extends Notifier<HermesDesktopSessionOptions?> {
+  @override
+  HermesDesktopSessionOptions? build() {
+    ref.watch(hermesApiServiceProvider);
+    return null;
+  }
+
+  void set(HermesDesktopSessionOptions? options) => state = options;
+}
+
+final hermesVisualDraftOptionsProvider =
+    NotifierProvider<HermesVisualDraftOptions, HermesDesktopSessionOptions?>(
+      HermesVisualDraftOptions.new,
+    );

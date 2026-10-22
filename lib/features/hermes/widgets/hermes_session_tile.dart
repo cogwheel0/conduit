@@ -1,7 +1,11 @@
+import 'hermes_conversation_stage.dart';
+import '../../../platform/motion_probe.dart';
+
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:dio/dio.dart' show DioException;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
 
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -21,6 +25,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show isChatStreamingProvider;
 
 import '../../navigation/widgets/conversation_tile.dart';
+import '../providers/hermes_mobile_navigation.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -42,32 +47,79 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 /// A single Hermes session row, styled to match the chat conversation tiles —
 /// single-line title, selected highlight, and an in-progress spinner while a
 /// run is streaming. Shared by the Hermes sidebar tab and settings page.
-class HermesSessionTile extends ConsumerWidget {
-  const HermesSessionTile({required this.session, super.key});
+class HermesSessionTile extends ConsumerStatefulWidget {
+  const HermesSessionTile({
+    required this.session,
+    this.onOpened,
+    this.showActiveIndicator = false,
+    super.key,
+  });
 
   final HermesSessionSummary session;
+  final VoidCallback? onOpened;
+  final bool showActiveIndicator;
 
+  @override
+  ConsumerState<HermesSessionTile> createState() => _HermesSessionTileState();
+}
+
+class _HermesSessionTileState extends ConsumerState<HermesSessionTile> {
+  bool _renaming = false;
+  HermesSessionSummary get session => widget.session;
+  VoidCallback? get onOpened => widget.onOpened;
+  bool get showActiveIndicator => widget.showActiveIndicator;
   String get _localConversationId => 'local:hermes_${session.id}';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final selected =
         ref.watch(activeConversationProvider)?.id == _localConversationId;
+    final opening = ref.watch(hermesSessionOpeningProvider)?.id == session.id;
     // The session is "in progress" when its run is the one currently streaming.
     final isGenerating =
         ref.watch(hermesActiveSessionProvider) == session.id &&
         ref.watch(isChatStreamingProvider);
 
-    return ConduitContextMenu(
-      actions: _contextMenuActions(context, ref),
-      previewBuilder: buildConversationTileContextPreview,
-      child: ConversationTile(
-        title: _displayTitle(context),
-        pinned: false,
-        selected: selected,
-        isLoading: false,
-        isGenerating: isGenerating,
-        onTap: () => openHermesSession(context, ref, session),
+    return MergeSemantics(
+      child: ConduitContextMenu(
+        actions: _contextMenuActions(context, ref),
+        previewBuilder: buildConversationTileContextPreview,
+        child: Row(
+          children: [
+            if (showActiveIndicator)
+              SizedBox(
+                width: 16,
+                child: selected
+                    ? Center(
+                        child: Container(
+                          key: const ValueKey('hermes-current-conversation'),
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      )
+                    : null,
+              ),
+            Expanded(
+              child: ConversationTile(
+                title: _displayTitle(context),
+                pinned: false,
+                selected: selected || opening,
+                isLoading: opening || _renaming,
+                isGenerating: isGenerating,
+                onTap: () => openHermesSession(
+                  context,
+                  ref,
+                  session,
+                  onOpened: onOpened,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -97,6 +149,26 @@ class HermesSessionTile extends ConsumerWidget {
         label: l10n.hermesSessionFork,
         onSelected: () => _fork(context, ref),
       ),
+      if (ref.watch(hermesApiServiceProvider) is HermesDesktopApiService)
+        ConduitContextMenuAction(
+          cupertinoIcon: CupertinoIcons.sparkles,
+          materialIcon: Icons.auto_fix_high_outlined,
+          label: l10n.mobileAutoRename,
+          onSelected: () async {
+            if (_renaming) return;
+            final controller = ref.read(hermesSessionsProvider.notifier);
+            setState(() => _renaming = true);
+            try {
+              await _runSessionAction(
+                context,
+                l10n.hermesSessionRenameFailed,
+                () => controller.autoRename(session.id),
+              );
+            } finally {
+              if (mounted) setState(() => _renaming = false);
+            }
+          },
+        ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
         materialIcon: Icons.edit_outlined,
@@ -122,9 +194,10 @@ class HermesSessionTile extends ConsumerWidget {
   ) async {
     try {
       await action();
-    } catch (error) {
+    } catch (error, stackTrace) {
       DebugLogger.error(
         'session-action-failed',
+        stackTrace: stackTrace,
         scope: 'hermes/sessions',
         data: {'errorType': error.runtimeType.toString()},
       );
@@ -307,27 +380,87 @@ String? _hermesLoadFailureDetail(String raw) {
 /// Loads a Hermes session's transcript, binds it as the active chat, selects the
 /// Hermes model, and navigates to the chat view. Subsequent sends continue the
 /// same server-side session.
+typedef HermesSessionReader = T Function<T>(ProviderListenable<T> provider);
+
 Future<void> openHermesSession(
   BuildContext context,
   WidgetRef ref,
   HermesSessionSummary session, {
   HermesBot? bot,
   String? botAvatar,
+  VoidCallback? onOpened,
+}) => openHermesSessionWithReader(
+  context,
+  ref.read,
+  session,
+  bot: bot,
+  botAvatar: botAvatar,
+  onOpened: onOpened,
+);
+
+Future<void> openHermesSessionWithReader(
+  BuildContext context,
+  HermesSessionReader read,
+  HermesSessionSummary session, {
+  HermesBot? bot,
+  String? botAvatar,
+  VoidCallback? onOpened,
 }) async {
-  final openEpoch = ref
-      .read(hermesSessionNavigationEpochProvider.notifier)
-      .bump();
-  final configController = ref.read(hermesConfigProvider.notifier);
+  if (read(hermesSessionOpeningProvider)?.id == session.id) return;
+  final openEpoch = read(hermesSessionNavigationEpochProvider.notifier).bump();
+  final opening = read(hermesSessionOpeningProvider.notifier);
+  opening.start(session.id, openEpoch);
+  final link = HermesConversationLinkScope.of(context);
+  link?.begin(session.id, session.title, openEpoch);
+  var resolved = false;
+  try {
+    await _openHermesSessionWithReader(
+      context,
+      read,
+      session,
+      openEpoch: openEpoch,
+      bot: bot,
+      botAvatar: botAvatar,
+      onOpened: () {
+        resolved = true;
+        onOpened?.call();
+      },
+    );
+  } finally {
+    link?.finish(openEpoch, resolved: resolved);
+    opening.finish(openEpoch);
+  }
+}
+
+Future<void> _openHermesSessionWithReader(
+  BuildContext context,
+  HermesSessionReader read,
+  HermesSessionSummary session, {
+  required int openEpoch,
+  HermesBot? bot,
+  String? botAvatar,
+  VoidCallback? onOpened,
+}) async {
+  final configController = read(hermesConfigProvider.notifier);
   final admission = configController.captureSessionActionAdmission();
   if (admission == null) return;
-  final service = ref.read(hermesApiServiceProvider);
+  final service = read(hermesApiServiceProvider);
   if (service == null) return;
   final trustPrincipalId = configController.documentTrustPrincipalId();
 
   List<Map<String, dynamic>> raw;
   var pendingDecisions = const <HermesPendingDesktopDecision>[];
   try {
-    raw = await service.getSessionMessages(session.id);
+    MotionProbe.mark('history-fetch:$openEpoch');
+    raw = await service.getSessionMessages(
+      session.id,
+      cancelToken: read(hermesSessionOpeningProvider.notifier)
+          .tokenFor(openEpoch),
+    );
+    const delay = int.fromEnvironment('CONDUIT_HISTORY_LOAD_DELAY');
+    if (MotionProbe.enabled && delay > 0) {
+      await Future<void>.delayed(const Duration(milliseconds: delay));
+    }
   } catch (error) {
     // Don't silently open an existing session with an empty transcript — that
     // reads as data loss. Surface the failure and abort the open.
@@ -340,13 +473,21 @@ Future<void> openHermesSession(
         if (error is DioException) 'httpStatus': error.response?.statusCode,
       },
     );
-    if (context.mounted) {
+    if (context.mounted &&
+        openEpoch == read(hermesSessionNavigationEpochProvider) &&
+        identical(service, read(hermesApiServiceProvider)) &&
+        configController.sessionActionAdmissionIsCurrent(admission) &&
+        configController.documentTrustPrincipalId() == trustPrincipalId) {
       UiUtils.showMessage(
         context,
         hermesSessionLoadFailureMessage(AppLocalizations.of(context)!, error),
         isError: true,
       );
     }
+    return;
+  }
+  if (openEpoch != read(hermesSessionNavigationEpochProvider) ||
+      !identical(service, read(hermesApiServiceProvider))) {
     return;
   }
   if (service is HermesDesktopApiService) {
@@ -359,7 +500,7 @@ Future<void> openHermesSession(
 
   var hermesModel = hermesSyntheticModel(name: service.config.name);
   try {
-    final models = await ref.read(modelsProvider.future);
+    final models = await read(modelsProvider.future);
     for (final model in models) {
       if (isHermesModel(model)) {
         hermesModel = model;
@@ -374,9 +515,9 @@ Future<void> openHermesSession(
   // Connection edits rebuild the service. Never bind a transcript fetched
   // with an old endpoint or principal into the newly configured account.
   if (!context.mounted ||
-      openEpoch != ref.read(hermesSessionNavigationEpochProvider) ||
+      openEpoch != read(hermesSessionNavigationEpochProvider) ||
       !configController.sessionActionAdmissionIsCurrent(admission) ||
-      !identical(ref.read(hermesApiServiceProvider), service) ||
+      !identical(read(hermesApiServiceProvider), service) ||
       configController.documentTrustPrincipalId() != trustPrincipalId) {
     return;
   }
@@ -412,12 +553,12 @@ Future<void> openHermesSession(
     );
   }
 
-  ref.read(hermesActiveSessionProvider.notifier).set(session.id);
+  read(hermesActiveSessionProvider.notifier).set(session.id);
   // Mark as a manual selection (same as startNewHermesChat) so the default-
   // model restoration that fires on conversation-open can't race past this
   // and overwrite the Hermes model with the user's OWUI default.
-  ref.read(isManualModelSelectionProvider.notifier).set(true);
-  ref.read(selectedModelProvider.notifier).set(hermesModel);
+  read(isManualModelSelectionProvider.notifier).set(true);
+  read(selectedModelProvider.notifier).set(hermesModel);
 
   final now = DateTime.now();
   // `local:` prefix keeps the OpenWebUI socket/Drift machinery out of this chat
@@ -439,10 +580,18 @@ Future<void> openHermesSession(
       },
     ),
   );
-  ref.read(activeConversationProvider.notifier).set(conversation);
+  // Active selection bumps the navigation epoch. Commit the display identity
+  // first so that logical invalidation cannot erase the selected focal object.
+  HermesConversationLinkScope.of(context)?.finish(openEpoch, resolved: true);
+  MotionProbe.mark('history-resolved:$openEpoch');
+  read(activeConversationProvider.notifier).set(conversation);
 
   if (context.mounted) {
+    if (read(hermesMobileLayoutProvider)) {
+      read(hermesMobileNavigationProvider.notifier).showConversation();
+    }
     NavigationService.router.go(Routes.chat);
     closeSidebarDrawerIfOverlay(context);
+    onOpened?.call();
   }
 }

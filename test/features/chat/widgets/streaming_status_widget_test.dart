@@ -36,6 +36,77 @@ void main() {
     );
   }
 
+  testWidgets(
+    'Hermes actions and raw traces appear only after tapping history',
+    (tester) async {
+      const output = 'hello from the shell';
+      const args = '{"command":"echo hello"}';
+      await tester.pumpWidget(
+        buildHarness(
+          const [
+            ChatStatusUpdate(
+              action: 'hermes_tool_terminal',
+              description: 'terminal',
+              done: true,
+              items: [
+                ChatStatusItem(
+                  title: 'Arguments',
+                  snippet: args,
+                  presentation: ChatStatusItemPresentation.detail,
+                ),
+                ChatStatusItem(
+                  title: 'Result',
+                  snippet: output,
+                  presentation: ChatStatusItemPresentation.detail,
+                ),
+              ],
+            ),
+          ],
+          isStreaming: false,
+          disableAnimations: true,
+        ),
+      );
+      expect(find.text('Run command'), findsNothing);
+      expect(find.text(output), findsNothing);
+      await tester.tap(find.text('terminal'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.terminal), findsOneWidget);
+      expect(find.text('Run command'), findsOneWidget);
+      expect(find.text('echo hello'), findsOneWidget);
+      expect(find.text(output), findsNothing);
+      expect(find.text(args), findsNothing);
+      await tester.tap(find.text('Run command'));
+      await tester.pumpAndSettle();
+      expect(find.text(output), findsOneWidget);
+      expect(find.text(args), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'single Hermes action without arguments still opens its summary',
+    (tester) async {
+      await tester.pumpWidget(
+        buildHarness(
+          const [
+            ChatStatusUpdate(
+              action: 'hermes_tool_skills_list',
+              description: 'skills_list',
+              done: true,
+            ),
+          ],
+          isStreaming: false,
+          disableAnimations: true,
+        ),
+      );
+      await tester.tap(find.text('skills_list'));
+      await tester.pumpAndSettle();
+      expect(find.text('List skills'), findsOneWidget);
+      expect(find.byIcon(Icons.auto_stories_outlined), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('bottom sheet reuses header styling and renders a shared rail', (
     tester,
   ) async {

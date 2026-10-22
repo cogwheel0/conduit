@@ -273,6 +273,15 @@ void main() {
       check(resolveRouteRedirect(Routes.notes, settled))
           .equals(Routes.hermesSettings);
       check(resolveRouteRedirect(Routes.hermesSettings, settled)).isNull();
+      check(resolveRouteRedirect(Routes.hermesConnections, settled)).isNull();
+      check(resolveRouteRedirect('/profile/hermes/settings/Models', settled))
+          .isNull();
+      check(
+        resolveRouteRedirect(
+          '/profile/hermes/settings/Speech%20output',
+          settled,
+        ),
+      ).isNull();
       // Adding or editing a saved connection is part of recovering.
       for (final editor in [
         Routes.hermesConnectionEditorPath(Routes.hermesNewConnectionId),

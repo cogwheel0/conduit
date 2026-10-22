@@ -1984,6 +1984,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       'chat:message:files',
       'chat:message:embeds',
       'chat:message:follow_ups',
+      'chat:message:voice',
       'chat:outlet',
       'chat:completed',
       'chat:title',
@@ -4095,9 +4096,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           entry,
     ];
     if (owed.isEmpty) return null;
-    return Future.wait([
-      for (final entry in owed) _settleCancellation(entry),
-    ]).then((accepted) => accepted.every((ok) => ok));
+    return Future.wait([for (final entry in owed) _settleCancellation(entry)])
+        .then((accepted) => accepted.every((ok) => ok));
   }
 
   Future<bool> _settleCancellation(_OwedCancellation owed) async {
@@ -4638,6 +4638,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // Initialize buffer with existing content on first chunk
     _streamingBuffer ??= StringBuffer(lastMessage.content);
     _streamingBuffer!.write(content);
+    ContinuityProbe.mark('state-buffer', {
+      'deltaCharacters': content.length,
+      'characters': _streamingBuffer!.length,
+    });
     _markStreamingBufferChanged();
     _recordStreamingChunk(content);
 
@@ -4838,6 +4842,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         'intervalMs': streamingContentUpdateInterval.inMilliseconds,
       },
     );
+    ContinuityProbe.mark('visible-flush', {
+      'characters': nextContent.length,
+      'version': _streamingBufferVersion,
+      'reason': reason.name,
+    });
     ref.read(streamingContentProvider.notifier).set(nextContent);
   }
 
@@ -5541,6 +5550,11 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
             .where((model) => model.isNotEmpty)
             .toList(growable: false)
       : const <String>[];
+  final voice = messageVoiceRecord(message);
+  final metadata = voice == null
+      ? message.metadata
+      : (Map<String, dynamic>.of(message.metadata!)
+          ..remove(kMessageVoiceMetadataKey));
   return MessageRowData(
     id: message.id,
     chatId: chatId,
@@ -5573,8 +5587,10 @@ MessageRowData localEchoRowForMessage(String chatId, ChatMessage message) {
       // A user turn's saved model list is what makes Open WebUI render its
       // answers as a comparison; without it the saved merge is hidden.
       if (userModels.isNotEmpty) 'models': userModels,
-      if (message.metadata != null && message.metadata!.isNotEmpty)
-        'metadata': message.metadata,
+      if (metadata != null && metadata.isNotEmpty) 'metadata': metadata,
+      // Open WebUI reads a call's spoken transcripts from `meta.voice` and
+      // replays them to the chat model; metadata only mirrors them.
+      if (voice != null) 'meta': <String, dynamic>{'voice': voice},
       if (message.output != null && message.output!.isNotEmpty)
         'output': message.output,
       'files': ?sanitizedFiles,
