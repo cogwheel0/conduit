@@ -21,3 +21,5 @@ Build preparation and physical-device results are recorded separately. Local APK
 ## Physical save correction
 
 The first physical Save check found that an immutable title update lost the runtime-only native Hermes ownership mark. The open chat was then treated as an uncertified OpenWebUI conversation and cleared. Rename now explicitly inherits the original native provenance for both the manual/reviewed Save and the legacy automatic rename path. The focused regression uses a marked native conversation and fails before the correction because the renamed object loses its mark.
+
+Build 174 passes the physical Pixel check against the saved real Hermes connection. Long-press and the in-chat dropdown both expose Auto rename; a generated draft can be canceled; Save keeps the title and transcript in the same open chat; an edited title survives a force-stop/relaunch. The test ends with the original smoke-test title restored and confirmed after a second relaunch. Existing app data, the saved connection, and global device settings are preserved. No raw device captures or runtime logs are published.
