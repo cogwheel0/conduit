@@ -2469,7 +2469,12 @@ class HermesSessionsController
     if (active?.id == 'local:hermes_$id') {
       ref
           .read(activeConversationProvider.notifier)
-          .set(active!.copyWith(title: title));
+          .set(
+            inheritNativeHermesConversationProvenance(
+              active!,
+              active.copyWith(title: title),
+            ),
+          );
     }
     ref.invalidateSelf();
   }
@@ -2489,7 +2494,12 @@ class HermesSessionsController
       if (active?.id == 'local:hermes_$id') {
         ref
             .read(activeConversationProvider.notifier)
-            .set(active!.copyWith(title: title));
+            .set(
+              inheritNativeHermesConversationProvenance(
+                active!,
+                active.copyWith(title: title),
+              ),
+            );
       }
       ref.invalidateSelf();
     }

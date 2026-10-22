@@ -26,6 +26,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -182,11 +183,14 @@ class _Config extends HermesConfigController {
 
 class _Active extends ActiveConversationNotifier {
   @override
-  Conversation? build() => Conversation(
-    id: 'local:hermes_rename-test',
-    title: 'Old title',
-    createdAt: DateTime(2026),
-    updatedAt: DateTime(2026),
+  Conversation? build() => markNativeHermesConversation(
+    Conversation(
+      id: 'local:hermes_rename-test',
+      title: 'Old title',
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+      metadata: const {'backend': 'hermes', 'hermesSessionId': 'rename-test'},
+    ),
   );
 }
 
@@ -398,6 +402,11 @@ void main() {
     expect(
       container.read(activeConversationProvider)?.title,
       'Reviewed website title',
+    );
+    expect(
+      isNativeHermesConversation(container.read(activeConversationProvider)),
+      isTrue,
+      reason: 'Renaming must preserve the open native Hermes conversation',
     );
   });
   testWidgets('Cancel ignores a late suggestion without saving', (

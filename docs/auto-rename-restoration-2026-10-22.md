@@ -17,3 +17,7 @@ Twenty UI checks pass, including the actual shared menu, long-press entry, gener
 The broader desktop turn-state file passes 24 tests and fails six bot-registry tests. Running the same six tests with the original title-generation and rename-provider methods restores the same failures. Those bot-registry paths are outside this change and remain unresolved.
 
 Build preparation and physical-device results are recorded separately. Local APKs, device captures, and runtime logs are not part of this source commit.
+
+## Physical save correction
+
+The first physical Save check found that an immutable title update lost the runtime-only native Hermes ownership mark. The open chat was then treated as an uncertified OpenWebUI conversation and cleared. Rename now explicitly inherits the original native provenance for both the manual/reviewed Save and the legacy automatic rename path. The focused regression uses a marked native conversation and fails before the correction because the renamed object loses its mark.
