@@ -10,6 +10,7 @@ import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -21,10 +22,46 @@ const _toggleFilter = ToggleFilter(
   description: 'Adds a test system instruction.',
 );
 
+const _otherFilter = ToggleFilter(id: 'other-filter', name: 'Other Filter');
+
+/// A model offering both filters, with [defaults] set to start enabled.
+Model _modelWithDefaults(String id, List<String> defaults) => Model(
+  id: id,
+  name: id,
+  filters: const [_toggleFilter, _otherFilter],
+  metadata: {
+    'info': {
+      'meta': {'defaultFilterIds': defaults},
+    },
+  },
+);
+
+final class _SwitchableModel extends SelectedModel {
+  _SwitchableModel(this._initial);
+
+  final Model? _initial;
+
+  @override
+  Model? build() => _initial;
+
+  void choose(Model? model) => state = model;
+}
+
+ProviderContainer _containerWith(Model? model) {
+  final container = ProviderContainer(
+    overrides: [
+      selectedModelProvider.overrideWith(() => _SwitchableModel(model)),
+    ],
+  );
+  addTearDown(container.dispose);
+  return container;
+}
+
 void main() {
   test('conversation boundary clears selected filters', () {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
+    final container = _containerWith(
+      const Model(id: 'model-1', name: 'Model', filters: [_toggleFilter]),
+    );
     container.read(selectedFilterIdsProvider.notifier).set(const [
       'test-toggle-filter',
     ]);
@@ -34,9 +71,92 @@ void main() {
     expect(container.read(selectedFilterIdsProvider), isEmpty);
   });
 
+  // Filters set to "Start enabled in new chats" were ignored (#855).
+  test('a model starts with the default filters it offers', () {
+    expect(
+      defaultFilterIdsForModel(
+        _modelWithDefaults('model-1', [
+          'other-filter',
+          'removed-filter',
+          'test-toggle-filter',
+        ]),
+      ),
+      ['other-filter', 'test-toggle-filter'],
+    );
+    expect(
+      defaultFilterIdsForModel(
+        const Model(
+          id: 'model-1',
+          name: 'Model',
+          filters: [_toggleFilter],
+          metadata: {
+            'meta': {
+              'defaultFilterIds': ['test-toggle-filter'],
+            },
+          },
+        ),
+      ),
+      ['test-toggle-filter'],
+    );
+    expect(
+      defaultFilterIdsForModel(
+        const Model(
+          id: 'model-1',
+          name: 'Model',
+          metadata: {
+            'meta': {
+              'defaultFilterIds': ['test-toggle-filter'],
+            },
+          },
+        ),
+      ),
+      isEmpty,
+    );
+    expect(defaultFilterIdsForModel(null), isEmpty);
+  });
+
+  test('a new conversation starts from the model\'s default filters', () {
+    final container = _containerWith(
+      _modelWithDefaults('model-1', ['test-toggle-filter']),
+    );
+    expect(container.read(selectedFilterIdsProvider), ['test-toggle-filter']);
+
+    container.read(selectedFilterIdsProvider.notifier).set(const [
+      'other-filter',
+    ]);
+    clearSelectedFiltersForConversationBoundary(container);
+
+    expect(container.read(selectedFilterIdsProvider), ['test-toggle-filter']);
+  });
+
+  test('another model starts from its own default filters', () {
+    final container = _containerWith(
+      _modelWithDefaults('model-1', ['test-toggle-filter']),
+    );
+    container.read(selectedFilterIdsProvider.notifier).set(const []);
+
+    (container.read(selectedModelProvider.notifier) as _SwitchableModel)
+        .choose(_modelWithDefaults('model-2', ['other-filter']));
+
+    expect(container.read(selectedFilterIdsProvider), ['other-filter']);
+  });
+
+  test('the same model loading again keeps the filters chosen', () {
+    final container = _containerWith(
+      _modelWithDefaults('model-1', ['test-toggle-filter']),
+    );
+    container.read(selectedFilterIdsProvider.notifier).set(const [
+      'other-filter',
+    ]);
+
+    (container.read(selectedModelProvider.notifier) as _SwitchableModel)
+        .choose(_modelWithDefaults('model-1', ['test-toggle-filter']));
+
+    expect(container.read(selectedFilterIdsProvider), ['other-filter']);
+  });
+
   test('request-time filter selection drops ids absent from the model', () {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
+    final container = _containerWith(null);
     container.read(selectedFilterIdsProvider.notifier).set(const [
       'stale-filter',
       'test-toggle-filter',
