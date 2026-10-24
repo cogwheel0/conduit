@@ -560,6 +560,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   final ChatMessageSendAdmissionGuard _messageSendAdmission =
       ChatMessageSendAdmissionGuard();
   bool _screenContextSubmissionScheduled = false;
+  // A page summary waits until the page has chosen its first model, or it
+  // would be sent on whichever model happens to be listed first.
+  bool _initialModelChosen = false;
   String? _screenContextInFlight;
   Timer? _screenContextRetryTimer;
   String? _screenContextRetryContext;
@@ -919,11 +922,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (!mounted) return;
 
       // First, ensure a model is selected
-      await _checkAndAutoSelectModel();
+      try {
+        await _checkAndAutoSelectModel();
+      } finally {
+        _initialModelChosen = true;
+      }
       if (!mounted) return;
 
-      // On a cold start the assistant can store a page to summarize before
-      // this page exists. Send it now, on the model just chosen.
+      // The assistant can store a page to summarize before this page exists,
+      // on a cold start, or while it chose its model. Send it now.
       final waitingContext = ref.read(screenContextProvider);
       if (waitingContext != null && waitingContext.isNotEmpty) {
         _resetScreenContextRetry(context: waitingContext);
@@ -1120,7 +1127,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void _scheduleScreenContextSubmission() {
-    if (_screenContextSubmissionScheduled || _screenContextInFlight != null) {
+    if (!_initialModelChosen ||
+        _screenContextSubmissionScheduled ||
+        _screenContextInFlight != null) {
       return;
     }
     _screenContextSubmissionScheduled = true;
