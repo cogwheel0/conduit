@@ -90,6 +90,47 @@ void main() {
     });
   });
 
+  group('resolveServerRelativeImageUrl', () {
+    test('joins a server path to the server address', () {
+      check(
+        resolveServerRelativeImageUrl(
+          'https://openwebui.example.com/',
+          '/api/v1/files/abc/content',
+        ),
+      ).equals('https://openwebui.example.com/api/v1/files/abc/content');
+    });
+
+    test('keeps the path a server is served under', () {
+      check(
+        resolveServerRelativeImageUrl(
+          'https://example.com/openwebui',
+          '/api/v1/files/abc/content',
+        ),
+      ).equals('https://example.com/openwebui/api/v1/files/abc/content');
+    });
+
+    test('leaves other URLs as they are', () {
+      for (final url in [
+        'https://cdn.example.com/cat.png',
+        '//cdn.example.com/cat.png',
+        'data:image/png;base64,AAAA',
+        'cat.png',
+      ]) {
+        check(
+          resolveServerRelativeImageUrl('https://openwebui.example.com', url),
+        ).equals(url);
+      }
+    });
+
+    test('leaves a path as it is with no usable server address', () {
+      for (final base in [null, '', 'not a url', 'file:///tmp']) {
+        check(
+          resolveServerRelativeImageUrl(base, '/api/v1/files/abc/content'),
+        ).equals('/api/v1/files/abc/content');
+      }
+    });
+  });
+
   group('buildImageHeadersForUrlFromContainer', () {
     ProviderContainer buildContainer({
       String? token = 'token',

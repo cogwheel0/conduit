@@ -149,6 +149,15 @@ final class _EmptyHermes extends HermesConfigController {
   HermesConfig build() => const HermesConfig();
 }
 
+final class _UsableHermes extends HermesConfigController {
+  @override
+  HermesConfig build() => const HermesConfig(
+    enabled: true,
+    baseUrl: 'https://agent.example',
+    apiKey: 'key',
+  );
+}
+
 OpenWebUiAccountEntry _accountEntry(
   String id, {
   bool hasSession = true,
@@ -172,6 +181,7 @@ OpenWebUiAccountEntry _accountEntry(
 Future<PreferredBackend> _signOutOfLastAccount(
   Future<List<DirectConnectionProfile>> Function() direct, {
   _LastAccountStorage? storage,
+  bool hermesUsable = false,
 }) async {
   final accountStorage = storage ?? _LastAccountStorage();
   final container = ProviderContainer(
@@ -180,7 +190,9 @@ Future<PreferredBackend> _signOutOfLastAccount(
       authStateManagerProvider.overrideWith(
         () => _LastAccountAuth(accountStorage),
       ),
-      hermesConfigProvider.overrideWith(_EmptyHermes.new),
+      hermesConfigProvider.overrideWith(
+        hermesUsable ? _UsableHermes.new : _EmptyHermes.new,
+      ),
       openWebUiAccountsProvider.overrideWith((ref) async => const []),
       accountChangeReplyGuardProvider.overrideWithValue(() => false),
       effectiveDirectConnectionProfilesProvider.overrideWithValue(
@@ -559,6 +571,35 @@ void main() {
             .equals(PreferredBackend.direct);
       },
     );
+
+    // Hermes-only mode hides Direct, so a Hermes fallback left the Direct
+    // providers out of reach (#862).
+    test('usable Direct profiles come before Hermes', () async {
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://provider.example/v1',
+      );
+
+      check(
+        await _signOutOfLastAccount(() async => [profile], hermesUsable: true),
+      ).equals(PreferredBackend.direct);
+    });
+
+    test('Hermes takes over when no Direct profile is usable', () async {
+      final disabled = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://provider.example/v1',
+        enabled: false,
+      );
+
+      check(
+        await _signOutOfLastAccount(() async => [disabled], hermesUsable: true),
+      ).equals(PreferredBackend.hermes);
+    });
 
     test('Direct profiles that fail to load count as no Direct', () async {
       check(await _signOutOfLastAccount(() async => throw StateError('locked')))

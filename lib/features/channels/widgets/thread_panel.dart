@@ -145,6 +145,7 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
     final l10n = AppLocalizations.of(context)!;
     final api = ref.read(apiServiceProvider);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final repliesBottomPadding = _composerHeight + bottomInset;
     final threadAsync = ref.watch(
       threadMessagesProvider(widget.channelId, widget.parentMessage.id),
     );
@@ -176,39 +177,55 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
           children: [
             _ThreadHeader(theme: theme, onClose: widget.onClose),
             const Divider(height: 1),
-            _ParentMessageTile(
-              message: widget.parentMessage,
-              api: api,
-              theme: theme,
-              appReplies: appReplyActions,
-            ),
-            const Divider(height: 1),
             Expanded(
               child: Stack(
                 children: [
+                  // The parent scrolls with the replies: a long one held in
+                  // place above them pushed them off the screen. Another
+                  // thread opened in this panel starts at its top.
                   Positioned.fill(
-                    child: threadAsync.when(
-                      data: (messages) => _ThreadReplies(
-                        messages: messages
-                            .where((m) => m.id != widget.parentMessage.id)
-                            .toList(),
-                        api: api,
-                        theme: theme,
-                        currentUserId: ref.watch(currentUserProvider).value?.id,
-                        onReactionTap: widget.onReactionTap,
-                        appReplies: appReplyActions,
-                        bottomPadding: _composerHeight + bottomInset,
-                      ),
-                      loading: () =>
-                          const Center(child: CircularProgressIndicator()),
-                      error: (e, _) => Center(
-                        child: Text(
-                          e.toString(),
-                          style: AppTypography.bodyMediumStyle.copyWith(
-                            color: theme.error,
+                    child: CustomScrollView(
+                      key: ValueKey<String>(widget.parentMessage.id),
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: _ParentMessageTile(
+                            message: widget.parentMessage,
+                            api: api,
+                            theme: theme,
+                            appReplies: appReplyActions,
                           ),
                         ),
-                      ),
+                        const SliverToBoxAdapter(child: Divider(height: 1)),
+                        threadAsync.when(
+                          data: (messages) => _ThreadReplies(
+                            messages: messages
+                                .where((m) => m.id != widget.parentMessage.id)
+                                .toList(),
+                            api: api,
+                            theme: theme,
+                            currentUserId: ref
+                                .watch(currentUserProvider)
+                                .value
+                                ?.id,
+                            onReactionTap: widget.onReactionTap,
+                            appReplies: appReplyActions,
+                            bottomPadding: repliesBottomPadding,
+                          ),
+                          loading: () => _ThreadStatus(
+                            bottomPadding: repliesBottomPadding,
+                            child: const CircularProgressIndicator(),
+                          ),
+                          error: (e, _) => _ThreadStatus(
+                            bottomPadding: repliesBottomPadding,
+                            child: Text(
+                              e.toString(),
+                              style: AppTypography.bodyMediumStyle.copyWith(
+                                color: theme.error,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   Positioned(
@@ -428,7 +445,26 @@ class _ParentMessageTile extends StatelessWidget {
   }
 }
 
-/// Scrollable list of thread replies.
+/// A thread's loading, error or empty state, below its parent.
+class _ThreadStatus extends StatelessWidget {
+  const _ThreadStatus({required this.child, this.bottomPadding = 0});
+
+  final Widget child;
+  final double bottomPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverFillRemaining(
+      hasScrollBody: false,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomPadding),
+        child: Center(child: child),
+      ),
+    );
+  }
+}
+
+/// The thread's replies, as a sliver below its parent.
 class _ThreadReplies extends StatelessWidget {
   const _ThreadReplies({
     required this.messages,
@@ -451,7 +487,8 @@ class _ThreadReplies extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (messages.isEmpty) {
-      return Center(
+      return _ThreadStatus(
+        bottomPadding: bottomPadding,
         child: Text(
           'No replies yet',
           style: AppTypography.bodyMediumStyle.copyWith(
@@ -464,64 +501,66 @@ class _ThreadReplies extends StatelessWidget {
     final indexById = {
       for (final (index, message) in messages.indexed) message.id: index,
     };
-    return ListView.builder(
-      reverse: false,
+    return SliverPadding(
       padding: EdgeInsets.fromLTRB(
         0,
         Spacing.sm,
         0,
         Spacing.sm + bottomPadding,
       ),
-      itemCount: messages.length,
-      findChildIndexCallback: (key) =>
-          key is ValueKey<String> ? indexById[key.value] : null,
-      itemBuilder: (context, index) {
-        final message = messages[index];
-        final row = Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.md,
-            vertical: Spacing.xs,
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _senderAvatar(api, message, 24),
-              const SizedBox(width: Spacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _senderName(theme, message),
-                    const SizedBox(height: 2),
-                    ChannelMessageContent(
-                      content: message.content,
-                      stateScopeId: 'channel-thread:${message.id}',
-                    ),
-                    ChannelMessageAttachments(files: message.data?['files']),
-                    appReplies.cardsOf(message),
-                    if (message.reactions.isNotEmpty)
-                      ChannelMessageReactions(
-                        reactions: message.reactions,
-                        currentUserId: currentUserId,
-                        onReactionTap: (emoji) => onReactionTap(message, emoji),
+      sliver: SliverList.builder(
+        itemCount: messages.length,
+        findChildIndexCallback: (key) =>
+            key is ValueKey<String> ? indexById[key.value] : null,
+        itemBuilder: (context, index) {
+          final message = messages[index];
+          final row = Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Spacing.md,
+              vertical: Spacing.xs,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _senderAvatar(api, message, 24),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _senderName(theme, message),
+                      const SizedBox(height: 2),
+                      ChannelMessageContent(
+                        content: message.content,
+                        stateScopeId: 'channel-thread:${message.id}',
                       ),
-                  ],
+                      ChannelMessageAttachments(files: message.data?['files']),
+                      appReplies.cardsOf(message),
+                      if (message.reactions.isNotEmpty)
+                        ChannelMessageReactions(
+                          reactions: message.reactions,
+                          currentUserId: currentUserId,
+                          onReactionTap: (emoji) =>
+                              onReactionTap(message, emoji),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        );
-        final replies = appReplies.repliesTo(message, avatarSize: 24);
-        return KeyedSubtree(
-          key: ValueKey<String>(message.id),
-          child: replies.isEmpty
-              ? row
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [row, ...replies],
-                ),
-        );
-      },
+              ],
+            ),
+          );
+          final replies = appReplies.repliesTo(message, avatarSize: 24);
+          return KeyedSubtree(
+            key: ValueKey<String>(message.id),
+            child: replies.isEmpty
+                ? row
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [row, ...replies],
+                  ),
+          );
+        },
+      ),
     );
   }
 }

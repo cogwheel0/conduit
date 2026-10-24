@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/tools_service.dart';
@@ -123,17 +125,50 @@ class SelectedTerminalId extends _$SelectedTerminalId {
   void clear() => state = null;
 }
 
+/// The toggle filters a chat with [model] starts with: those set to "Start
+/// enabled in new chats" on the model that it still offers, as Open WebUI's
+/// own chat picks them.
+List<String> defaultFilterIdsForModel(Model? model) {
+  final offered = {for (final filter in model?.filters ?? const []) filter.id};
+  if (offered.isEmpty) return const <String>[];
+  final metadata = model?.metadata;
+  final info = metadata?['info'];
+  final defaults = <String>{};
+  for (final meta in [metadata?['meta'], if (info is Map) info['meta']]) {
+    if (meta is! Map) continue;
+    final ids = meta['defaultFilterIds'];
+    if (ids is List) defaults.addAll(ids.map((id) => id.toString()));
+  }
+  return [
+    for (final id in defaults)
+      if (offered.contains(id)) id,
+  ];
+}
+
+(String?, String) _defaultFiltersKey(Model? model) =>
+    (model?.id, defaultFilterIdsForModel(model).join('\n'));
+
 /// Provider for selected filter IDs (toggle filters enabled by user).
 ///
 /// These filters are dynamically created by OpenWebUI filters with
 /// `toggle = True` set in their module. They appear as toggleable
 /// buttons in the chat input UI.
+///
+/// Another model, like a new conversation, starts from that model's default
+/// filters, as on Open WebUI.
 @Riverpod(keepAlive: true)
 class SelectedFilterIds extends _$SelectedFilterIds {
   @override
-  List<String> build() => [];
+  List<String> build() {
+    ref.watch(selectedModelProvider.select(_defaultFiltersKey));
+    return defaultFilterIdsForModel(ref.read(selectedModelProvider));
+  }
 
   void set(List<String> ids) => state = List<String>.from(ids);
+
+  /// Goes back to the selected model's default filters.
+  void reset() =>
+      state = defaultFilterIdsForModel(ref.read(selectedModelProvider));
 
   void toggle(String id) {
     if (state.contains(id)) {

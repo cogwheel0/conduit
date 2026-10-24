@@ -536,6 +536,24 @@ void main() {
       expect(detailsBlock.toolCallData, toolCallData);
     });
 
+    test('keeps Open WebUI file paths among tool call images', () {
+      final document = compilePreparedMarkdownSync(
+        [
+          '<details type="tool_calls" done="true" name="qr" '
+              'arguments="{}" result="&quot;done&quot;" '
+              'files="[{&quot;type&quot;:&quot;image&quot;,&quot;url&quot;:&quot;/api/v1/files/a/content&quot;},'
+              '&quot;/api/v1/files/b/content&quot;,&quot;/etc/passwd&quot;]">',
+          '</details>',
+        ].join('\n'),
+      );
+
+      final detailsElement = document.nodes.first as CompiledMarkdownElement;
+      expect(detailsElement.detailsData!.toolCallData!.imageUrls, <String>[
+        '/api/v1/files/a/content',
+        '/api/v1/files/b/content',
+      ]);
+    });
+
     test('tool error results survive worker serialization', () {
       for (final entry in <(Object, bool)>[
         ('Error: request failed', true),
