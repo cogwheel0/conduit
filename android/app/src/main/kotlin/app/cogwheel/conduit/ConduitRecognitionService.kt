@@ -4,12 +4,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.os.Build
 import android.os.Bundle
 import android.os.RemoteException
 import android.speech.RecognitionListener
 import android.speech.RecognitionService
 import android.speech.SpeechRecognizer
 import android.util.Log
+import androidx.annotation.RequiresApi
 
 /**
  * The speech recognizer Conduit's assistant names as its own. Android checks
@@ -91,6 +93,21 @@ class ConduitRecognitionService : RecognitionService() {
 
         override fun onPartialResults(partialResults: Bundle?) {
             forward { listener.partialResults(partialResults ?: Bundle()) }
+        }
+
+        @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+        override fun onSegmentResults(segmentResults: Bundle) {
+            forward { listener.segmentResults(segmentResults) }
+        }
+
+        @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+        override fun onEndOfSegmentedSession() {
+            forward { listener.endOfSegmentedSession() }
+        }
+
+        @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        override fun onLanguageDetection(results: Bundle) {
+            forward { listener.languageDetection(results) }
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) {}

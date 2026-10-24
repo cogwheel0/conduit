@@ -208,6 +208,9 @@ class AndroidAssistantHandler {
       await _showChat();
       _resetChat(_ref);
       if (focusComposer) {
+        // Opening the sidebar turns composer autofocus off, and the composer
+        // ignores a focus request until it is back on.
+        _ref.read(composerAutofocusEnabledProvider.notifier).set(true);
         final tick = _ref.read(inputFocusTriggerProvider);
         _ref.read(inputFocusTriggerProvider.notifier).set(tick + 1);
       }

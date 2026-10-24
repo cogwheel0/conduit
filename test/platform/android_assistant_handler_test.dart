@@ -64,12 +64,15 @@ void main() {
   ) async {
     final container = await _pumpApp(tester);
     container.read(androidAssistantProvider);
+    // Opening the sidebar turns composer autofocus off.
+    container.read(composerAutofocusEnabledProvider.notifier).set(false);
 
     await _invokeAssistant(
       tester,
       const MethodCall('startNewChat', {'focusComposer': true}),
     );
 
+    expect(container.read(composerAutofocusEnabledProvider), isTrue);
     expect(container.read(inputFocusTriggerProvider), 1);
   });
 
