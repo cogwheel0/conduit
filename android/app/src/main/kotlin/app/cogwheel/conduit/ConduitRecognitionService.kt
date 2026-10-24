@@ -7,6 +7,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Bundle
 import android.os.RemoteException
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognitionService
 import android.speech.RecognitionSupport
@@ -90,7 +91,11 @@ class ConduitRecognitionService : RecognitionService() {
      * utterances can drop its connection (ERROR_SERVER_DISCONNECTED).
      */
     private fun delegate(): SpeechRecognizer? {
-        val target = recognitionDelegate(installedRecognizers(this), packageName)
+        val target = recognitionDelegate(
+            installedRecognizers(this),
+            packageName,
+            chosenRecognizer(this)
+        )
         if (target == null) {
             releaseDelegate()
             return null
@@ -186,16 +191,27 @@ internal data class RecognizerCandidate(
 )
 
 /**
- * The recognizer to forward to: one that came with the phone, normally its
- * default. Speech never goes to an installed app nobody chose for it, so with
- * no preinstalled recognizer there is none.
+ * The recognizer to forward to: the one chosen as the phone's default, unless
+ * that is Conduit's own, and otherwise one that came with the phone. Speech
+ * never goes to an installed app nobody chose, so with neither there is none.
  */
 internal fun recognitionDelegate(
     candidates: List<RecognizerCandidate>,
-    ownPackage: String
-): ComponentName? = candidates.firstOrNull {
-    it.isSystem && it.component.packageName != ownPackage
-}?.component
+    ownPackage: String,
+    chosen: ComponentName?
+): ComponentName? {
+    val others = candidates.filter { it.component.packageName != ownPackage }
+    return (others.firstOrNull { it.component == chosen }
+        ?: others.firstOrNull { it.isSystem })?.component
+}
+
+/** The phone's default recognizer, which apps may read. */
+private fun chosenRecognizer(context: Context): ComponentName? = try {
+    Settings.Secure.getString(context.contentResolver, "voice_recognition_service")
+        ?.let(ComponentName::unflattenFromString)
+} catch (e: SecurityException) {
+    null
+}
 
 /**
  * Whether a recognizer other than Conduit's forwarding one is installed. The

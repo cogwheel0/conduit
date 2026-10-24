@@ -65,16 +65,29 @@ class AssistantComponentsTest {
     }
 
     @Test
-    fun recognitionIsForwardedToTheRecognizerThatCameWithThePhone() {
+    fun recognitionIsForwardedToTheRecognizerChosenAsTheDefault() {
         val own = candidate(conduit, isSystem = false)
         val store = candidate("store.speech", isSystem = false)
         val system = candidate("system.speech", isSystem = true)
+        val all = listOf(own, store, system)
 
+        assertEquals(store.component, recognitionDelegate(all, conduit, store.component))
+    }
+
+    @Test
+    fun withConduitAsTheDefaultTheRecognizerThatCameWithThePhoneHears() {
+        val own = candidate(conduit, isSystem = false)
+        val store = candidate("store.speech", isSystem = false)
+        val system = candidate("system.speech", isSystem = true)
+        val all = listOf(own, store, system)
+
+        assertEquals(system.component, recognitionDelegate(all, conduit, own.component))
+        assertEquals(system.component, recognitionDelegate(all, conduit, null))
         assertEquals(
             system.component,
-            recognitionDelegate(listOf(own, store, system), conduit)
+            recognitionDelegate(all, conduit, ComponentName("gone.speech", "Recognizer"))
         )
-        assertNull(recognitionDelegate(listOf(own), conduit))
+        assertNull(recognitionDelegate(listOf(own), conduit, own.component))
     }
 
     @Test
@@ -82,7 +95,8 @@ class AssistantComponentsTest {
         val own = candidate(conduit, isSystem = false)
         val store = candidate("store.speech", isSystem = false)
 
-        assertNull(recognitionDelegate(listOf(own, store), conduit))
+        assertNull(recognitionDelegate(listOf(own, store), conduit, own.component))
+        assertNull(recognitionDelegate(listOf(own, store), conduit, null))
     }
 
     @Test
