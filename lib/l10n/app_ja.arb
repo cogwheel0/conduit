@@ -928,6 +928,14 @@
   "@failedToUpdateArchive": {
     "description": "Error notice when archiving/unarchiving fails."
   },
+  "markAsUnread": "未読にする",
+  "@markAsUnread": {
+    "description": "Context action that marks a chat unread so it shows the unread dot again."
+  },
+  "failedToMarkChatUnread": "チャットを未読にできませんでした",
+  "@failedToMarkChatUnread": {
+    "description": "Error notice when marking a chat unread fails."
+  },
   "unarchive": "アーカイブ解除",
   "@unarchive": {
     "description": "Action to unarchive an item."

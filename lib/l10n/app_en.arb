@@ -1135,6 +1135,14 @@
   "@failedToUpdateArchive": {
     "description": "Error notice when archiving/unarchiving fails."
   },
+  "markAsUnread": "Mark as unread",
+  "@markAsUnread": {
+    "description": "Context action that marks a chat unread so it shows the unread dot again."
+  },
+  "failedToMarkChatUnread": "Failed to mark chat as unread",
+  "@failedToMarkChatUnread": {
+    "description": "Error notice when marking a chat unread fails."
+  },
   "unarchive": "Unarchive",
   "@unarchive": {
     "description": "Action to unarchive an item."

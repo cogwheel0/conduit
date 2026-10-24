@@ -160,6 +160,22 @@ final serverIncompatibleProvider = Provider<bool>((ref) {
   return ServerVersionCompat.isUnsupported(config.version);
 });
 
+/// Whether the active Open WebUI server can mark a chat unread.
+///
+/// Fails open on the same terms as [serverIncompatibleProvider]: the action is
+/// hidden only when a config confirmed to belong to the active server reports
+/// a version older than [ServerVersionCompat.markChatUnreadVersion].
+final chatMarkUnreadSupportedProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return true;
+  if (config.serverId != activeId) return true;
+  return ServerVersionCompat.isAtLeast(
+    config.version,
+    ServerVersionCompat.markChatUnreadVersion,
+  );
+});
+
 @Riverpod(keepAlive: true)
 class BackendConfigNotifier extends _$BackendConfigNotifier {
   // AsyncNotifier instances survive dependency-triggered rebuilds. This must

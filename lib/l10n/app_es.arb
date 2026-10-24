@@ -204,6 +204,8 @@
   "enterChatName": "Ingresa nombre de conversación",
   "failedToRenameChat": "No se pudo renombrar la conversación",
   "failedToUpdateArchive": "No se pudo actualizar el archivo",
+  "markAsUnread": "Marcar como no leída",
+  "failedToMarkChatUnread": "No se pudo marcar la conversación como no leída",
   "unarchive": "Desarchivar",
   "archive": "Archivar",
   "pin": "Anclar",

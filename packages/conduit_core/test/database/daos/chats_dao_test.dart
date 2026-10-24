@@ -536,7 +536,7 @@ void main() {
     });
   });
 
-  group('lastReadAt is never lowered', () {
+  group('lastReadAt is never lowered by an older read', () {
     test('upsertServerChat merges max(local, server)', () async {
       final fixture = loadChatBlobFixtures().first;
 
@@ -611,6 +611,110 @@ void main() {
         lastReadAt: 150,
       );
       check((await db.chatsDao.getChat('st'))!.lastReadAt).equals(150);
+    });
+  });
+
+  group('explicit unread', () {
+    test('a server unread (0) lowers a newer local read', () async {
+      final fixture = loadChatBlobFixtures().first;
+
+      await db.chatsDao.upsertServerChat(
+        rows: rowsFromFixture(fixture),
+        listLastReadAt: 100,
+      );
+      await db.chatsDao.upsertServerChat(
+        rows: rowsFromFixture(fixture),
+        listLastReadAt: 0,
+      );
+      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt).equals(0);
+
+      // A list row without read state keeps the unread.
+      await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
+      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt).equals(0);
+
+      // Reading it again anywhere moves it forward as before.
+      await db.chatsDao.upsertServerChat(
+        rows: rowsFromFixture(fixture),
+        listLastReadAt: 120,
+      );
+      check(
+        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
+      ).equals(120);
+    });
+
+    test('upsertEnvelopeStub takes a server unread', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'st',
+        title: 'Stub',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'st',
+        title: 'Stub',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 0,
+      );
+      check((await db.chatsDao.getChat('st'))!.lastReadAt).equals(0);
+    });
+
+    test('markUnread stores 0 and returns the replaced value', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'mu',
+        title: 'Mark',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+
+      check(await db.chatsDao.markUnread('mu')).equals(100);
+      check((await db.chatsDao.getChat('mu'))!.lastReadAt).equals(0);
+      check(await db.chatsDao.markUnread('missing')).isNull();
+    });
+
+    test('replaceLastReadAt only writes over the expected value', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'cas',
+        title: 'CAS',
+        createdAt: 1,
+        updatedAt: 1,
+      );
+
+      check(
+        await db.chatsDao.replaceLastReadAt('cas', expected: 5, value: 0),
+      ).isFalse();
+      check((await db.chatsDao.getChat('cas'))!.lastReadAt).isNull();
+
+      check(
+        await db.chatsDao.replaceLastReadAt('cas', expected: null, value: 0),
+      ).isTrue();
+      check((await db.chatsDao.getChat('cas'))!.lastReadAt).equals(0);
+
+      check(
+        await db.chatsDao.replaceLastReadAt('cas', expected: 0, value: null),
+      ).isTrue();
+      check((await db.chatsDao.getChat('cas'))!.lastReadAt).isNull();
+    });
+
+    test('serverChatLastReadAts skips local and tombstoned chats', () async {
+      for (final id in ['server-chat', 'local:draft', 'gone']) {
+        await db.chatsDao.upsertEnvelopeStub(
+          id: id,
+          title: id,
+          createdAt: 1,
+          updatedAt: 1,
+          lastReadAt: 7,
+        );
+      }
+      await (db.update(db.chats)..where((t) => t.id.equals('gone'))).write(
+        const ChatsCompanion(deleted: Value(true)),
+      );
+
+      check(
+        await db.chatsDao.serverChatLastReadAts(),
+      ).deepEquals({'server-chat': 7});
     });
   });
 

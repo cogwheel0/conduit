@@ -928,6 +928,14 @@
   "@failedToUpdateArchive": {
     "description": "Error notice when archiving/unarchiving fails."
   },
+  "markAsUnread": "Označit jako nepřečtené",
+  "@markAsUnread": {
+    "description": "Context action that marks a chat unread so it shows the unread dot again."
+  },
+  "failedToMarkChatUnread": "Chat se nepodařilo označit jako nepřečtený",
+  "@failedToMarkChatUnread": {
+    "description": "Error notice when marking a chat unread fails."
+  },
   "unarchive": "Obnovit z archivu",
   "@unarchive": {
     "description": "Action to unarchive an item."

@@ -1,8 +1,8 @@
 /// Characterization tests for the conversation-mutation block of
 /// `lib/features/chat/providers/chat_providers.dart`:
 /// `renameDirectLocalConversation`, `deleteDirectLocalConversation`,
-/// `pinConversation`, `archiveConversation`, `shareConversation`,
-/// `deleteSharedConversation` and `cloneConversation`.
+/// `pinConversation`, `markConversationUnread`, `archiveConversation`,
+/// `shareConversation`, `deleteSharedConversation` and `cloneConversation`.
 ///
 /// These tests pin CURRENT OBSERVED behaviour so the block can be moved
 /// verbatim into a `part` file and proven unchanged. Nothing here asserts
@@ -98,6 +98,7 @@ final class _MutationApi extends ApiService {
   final String label;
   final List<_ToggleCall> pinCalls = <_ToggleCall>[];
   final List<_ToggleCall> archiveCalls = <_ToggleCall>[];
+  final List<String> unreadCalls = <String>[];
   final List<String> shareCalls = <String>[];
   final List<String> deleteShareCalls = <String>[];
   final List<String> cloneCalls = <String>[];
@@ -132,6 +133,12 @@ final class _MutationApi extends ApiService {
   @override
   Future<void> archiveConversation(String id, bool archived) async {
     archiveCalls.add((id: id, value: archived));
+    await _admit();
+  }
+
+  @override
+  Future<void> markConversationUnread(String id) async {
+    unreadCalls.add(id);
     await _admit();
   }
 
@@ -677,6 +684,90 @@ void main() {
         );
         expect(listed(container).single.pinned, isFalse);
       });
+    });
+  });
+
+  group('markConversationUnread', () {
+    int? listedReadSeconds(ProviderContainer container, String scopedId) {
+      final readAt = listedFor(container, scopedId).lastReadAt;
+      return readAt == null ? null : readAt.millisecondsSinceEpoch ~/ 1000;
+    }
+
+    Future<int?> storedReadAt(String id) async =>
+        (await serverDb.chatsDao.getChat(id))!.lastReadAt;
+
+    Future<ProviderContainer> readServerChat(_MutationApi api) async {
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      await seedServer('chat-s', title: 'Server');
+      await serverDb.chatsDao.setLastReadAt('chat-s', 200);
+      await container.read(conversationsProvider.future);
+      await waitUntil(
+        () => listedReadSeconds(container, _openWebUiScoped('chat-s')) == 200,
+      );
+      return container;
+    }
+
+    test('shows the chat unread and stores the server unread', () async {
+      final api = _MutationApi();
+      final container = await readServerChat(api);
+
+      await markConversationUnread(container, _openWebUiScoped('chat-s'));
+
+      expect(api.unreadCalls, ['chat-s']);
+      expect(await storedReadAt('chat-s'), 0);
+      expect(listedReadSeconds(container, _openWebUiScoped('chat-s')), 0);
+    });
+
+    test('a refused request restores the earlier read time', () async {
+      final api = _MutationApi()..failure = Exception('offline');
+      final container = await readServerChat(api);
+
+      await expectLater(
+        markConversationUnread(container, _openWebUiScoped('chat-s')),
+        throwsException,
+      );
+
+      expect(await storedReadAt('chat-s'), 200);
+      expect(listedReadSeconds(container, _openWebUiScoped('chat-s')), 200);
+    });
+
+    test('a refused request keeps a read made while it was in flight', () async {
+      final api = _MutationApi()
+        ..gate = Completer<void>()
+        ..callStarted = Completer<void>();
+      final container = await readServerChat(api);
+
+      final marking = markConversationUnread(
+        container,
+        _openWebUiScoped('chat-s'),
+      );
+      await api.callStarted!.future;
+      expect(await storedReadAt('chat-s'), 0);
+      await serverDb.chatsDao.setLastReadAt('chat-s', 300);
+      api.failure = Exception('offline');
+      api.gate!.complete();
+
+      await expectLater(marking, throwsException);
+      expect(await storedReadAt('chat-s'), 300);
+    });
+
+    test('rejects an on-device chat without calling the API', () async {
+      final api = _MutationApi();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      await seedDirect('chat-a', title: 'Direct');
+      await container.read(conversationsProvider.future);
+
+      await expectLater(
+        markConversationUnread(container, _directScoped('chat-a')),
+        throwsStateError,
+      );
+      expect(api.unreadCalls, isEmpty);
     });
   });
 

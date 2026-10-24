@@ -1849,6 +1849,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               conversation: conversation,
               foldersEnabled: foldersEnabled,
               folders: folders,
+              // Leaving the open chat marks it read again.
+              canMarkUnread: !unread && !isActive,
             ),
       previewBuilder: buildConversationTileContextPreview,
       child: tileWidget,

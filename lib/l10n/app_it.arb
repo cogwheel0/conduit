@@ -204,6 +204,8 @@
   "enterChatName": "Inserisci nome chat",
   "failedToRenameChat": "Impossibile rinominare la chat",
   "failedToUpdateArchive": "Impossibile aggiornare l'archivio",
+  "markAsUnread": "Segna come non letta",
+  "failedToMarkChatUnread": "Impossibile segnare la chat come non letta",
   "unarchive": "Ripristina",
   "archive": "Archivia",
   "pin": "Fissa",

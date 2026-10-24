@@ -179,6 +179,36 @@ Future<void> pinConversation(
   }
 }
 
+/// Marks an Open WebUI chat unread, as the web sidebar's "Mark as unread"
+/// does. The dot shows at once; if the server refuses, the earlier read time
+/// comes back unless the chat was read again meanwhile.
+Future<void> markConversationUnread(dynamic ref, String conversationId) async {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final localConversation = _listedConversationForSelection(
+    ref,
+    conversationId,
+  );
+  if (identity.storage == ChatStorageKind.directLocal ||
+      isDirectLocalConversation(localConversation)) {
+    throw StateError('On-device chats have no server read state.');
+  }
+  final api = _readProvider(ref, apiServiceProvider);
+  if (api == null) throw Exception('No API service available');
+
+  final conversations = _readProvider(ref, conversationsProvider.notifier);
+  final previous = await conversations.markConversationUnread(conversationId);
+  try {
+    await api.markConversationUnread(identity.rawId);
+  } catch (e) {
+    DebugLogger.log(
+      'Error marking conversation unread: $e',
+      scope: 'chat/providers',
+    );
+    await conversations.restoreConversationReadAt(conversationId, previous);
+    rethrow;
+  }
+}
+
 // Archive/Unarchive conversation
 Future<void> archiveConversation(
   dynamic ref,

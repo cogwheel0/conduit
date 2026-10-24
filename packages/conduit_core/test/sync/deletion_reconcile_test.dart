@@ -83,6 +83,24 @@ class _AuthFailingProbeClient extends FakeSyncApiClient {
   }
 }
 
+/// Runs [whileListLoads] after the server answers the first main list page
+/// and before the reconcile sees it, like a read made on this device
+/// meanwhile.
+class _ListHookClient extends FakeSyncApiClient {
+  _ListHookClient(super.server);
+
+  Future<void> Function()? whileListLoads;
+
+  @override
+  Future<List<Map<String, dynamic>>> getChatListPage(int page) async {
+    final items = await super.getChatListPage(page);
+    final hook = whileListLoads;
+    whileListLoads = null;
+    await hook?.call();
+    return items;
+  }
+}
+
 /// Seeds a server-keyed (NON-`local:`) chat row directly, body-synced, clean.
 Future<void> seedServerChat(
   AppDatabase db, {
@@ -250,6 +268,67 @@ void main() {
       // Both chats survive.
       check(await db.chatsDao.getChat('present')).isNotNull();
       check(await db.chatsDao.getChat('gappy')).isNotNull();
+    });
+  });
+
+  group('read state on list rows', () {
+    test('a chat marked unread elsewhere shows unread after reconcile', () async {
+      await seedServerChat(db, id: 'kept-for-later', updatedAt: 100);
+      await db.chatsDao.setLastReadAt('kept-for-later', 300);
+      server.seedChat(
+        id: 'kept-for-later',
+        blob: blobFor('kept-for-later'),
+        createdAt: 50,
+        updatedAt: 100,
+        lastReadAt: 0,
+      );
+
+      await reconcile.run(ReconcileReason.manualRefresh);
+
+      final row = await db.chatsDao.getChat('kept-for-later');
+      check(row!.lastReadAt).equals(0);
+      check(row.updatedAt).equals(100);
+    });
+
+    test('an older server read never undoes a newer local read', () async {
+      await seedServerChat(db, id: 'read-here', updatedAt: 100);
+      await db.chatsDao.setLastReadAt('read-here', 300);
+      server.seedChat(
+        id: 'read-here',
+        blob: blobFor('read-here'),
+        createdAt: 50,
+        updatedAt: 100,
+        lastReadAt: 200,
+      );
+
+      await reconcile.run(ReconcileReason.manualRefresh);
+
+      check((await db.chatsDao.getChat('read-here'))!.lastReadAt).equals(300);
+    });
+
+    test('a read made here while the list loads is kept', () async {
+      final hookClient = _ListHookClient(server);
+      reconcile = DeletionReconcile(
+        client: hookClient,
+        db: db,
+        locks: locks,
+        clock: clock,
+      );
+      await seedServerChat(db, id: 'opened-now', updatedAt: 100);
+      await db.chatsDao.setLastReadAt('opened-now', 300);
+      server.seedChat(
+        id: 'opened-now',
+        blob: blobFor('opened-now'),
+        createdAt: 50,
+        updatedAt: 100,
+        lastReadAt: 0,
+      );
+      hookClient.whileListLoads = () =>
+          db.chatsDao.setLastReadAt('opened-now', 600);
+
+      await reconcile.run(ReconcileReason.manualRefresh);
+
+      check((await db.chatsDao.getChat('opened-now'))!.lastReadAt).equals(600);
     });
   });
 

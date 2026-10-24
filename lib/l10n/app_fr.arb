@@ -204,6 +204,8 @@
   "enterChatName": "Saisir le nom du chat",
   "failedToRenameChat": "Échec du renommage du chat",
   "failedToUpdateArchive": "Échec de la mise à jour de l'archive",
+  "markAsUnread": "Marquer comme non lu",
+  "failedToMarkChatUnread": "Échec du marquage du chat comme non lu",
   "unarchive": "Désarchiver",
   "archive": "Archiver",
   "pin": "Épingler",
