@@ -28,9 +28,11 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -800,6 +802,61 @@ void main() {
       await expectLater(marking, throwsException);
       expect(await storedReadAt('chat-s'), 200);
       expect((await otherDb.chatsDao.getChat('chat-s'))!.lastReadAt, 0);
+    });
+
+    test('a refusal after switching accounts still reaches the account '
+        'the chat was marked in', () async {
+      final tempDir = Directory.systemTemp.createTempSync('conduit_unread');
+      final manager = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) => AppDatabase(
+          NativeDatabase(File('${tempDir.path}/$fileName.sqlite')),
+        ),
+      );
+      addTearDown(() async {
+        await manager.closeActive();
+        tempDir.deleteSync(recursive: true);
+      });
+      final accountA = manager.openForServerId('account-a');
+      await accountA.chatsDao.upsertServerChat(
+        rows: _rows('chat-s', title: 'Server', updatedAt: 100),
+        listLastReadAt: 200,
+      );
+      final api = _MutationApi()
+        ..gate = Completer<void>()
+        ..callStarted = Completer<void>();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+        storageOverrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          appDatabaseProvider.overrideWithValue(accountA),
+          databaseManagerProvider.overrideWithValue(manager),
+        ],
+      );
+      await container.read(conversationsProvider.future);
+
+      final marking = markConversationUnread(
+        container,
+        _openWebUiScoped('chat-s'),
+      );
+      await api.callStarted!.future;
+      // Signing in to another account retires account A's database.
+      manager.openForServerId('account-b');
+      api.failure = Exception('offline');
+      api.gate!.complete();
+      await expectLater(marking, throwsException);
+
+      late AppDatabase reopened;
+      await waitUntil(() {
+        try {
+          reopened = manager.openForServerId('account-a');
+          return true;
+        } on StateError {
+          return false;
+        }
+      });
+      expect((await reopened.chatsDao.getChat('chat-s'))!.lastReadAt, 200);
     });
 
     test('updates the drawer listing of the chat\'s folder', () async {

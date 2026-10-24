@@ -196,41 +196,49 @@ Future<void> markConversationUnread(dynamic ref, String conversationId) async {
   final api = _readProvider(ref, apiServiceProvider);
   if (api == null) throw Exception('No API service available');
   // Held for the whole request: a late answer must settle the account the
-  // chat was marked in, not whichever one is active by then.
+  // chat was marked in, not whichever one is active by then. The lease keeps
+  // that database open through an account switch until it has.
   final db = _readProvider(ref, appDatabaseProvider);
   if (db == null) throw StateError('No chat database for this account.');
-
-  final conversations = _readProvider(ref, conversationsProvider.notifier);
-  conversations.showConversationUnread(conversationId);
-  final previous = await db.chatsDao.markUnread(rawId);
-  conversations.refreshFolderConversations();
-  var refused = true;
+  final lease = _readProvider(
+    ref,
+    databaseManagerProvider,
+  ).tryAcquireLease(db);
   try {
-    await api.markConversationUnread(rawId);
-    refused = false;
-  } catch (e) {
-    DebugLogger.log(
-      'Error marking conversation unread: $e',
-      scope: 'chat/providers',
-    );
-    rethrow;
-  } finally {
+    final previous = await db.chatsDao.markUnread(rawId);
+    final conversations = _readProvider(ref, conversationsProvider.notifier)
+      ..showConversationUnread(conversationId)
+      ..refreshFolderConversations();
+    var refused = true;
     try {
-      await db.chatsDao.finishUnread(
-        rawId,
-        refused: refused,
-        previous: previous,
-      );
-      if (refused) conversations.refreshFolderConversations();
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'unread-finish-failed',
+      await api.markConversationUnread(rawId);
+      refused = false;
+    } catch (e) {
+      DebugLogger.log(
+        'Error marking conversation unread: $e',
         scope: 'chat/providers',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'id': rawId},
       );
+      rethrow;
+    } finally {
+      try {
+        await db.chatsDao.finishUnread(
+          rawId,
+          refused: refused,
+          previous: previous,
+        );
+        if (refused) conversations.refreshFolderConversations();
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'unread-finish-failed',
+          scope: 'chat/providers',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': rawId},
+        );
+      }
     }
+  } finally {
+    await lease?.release();
   }
 }
 

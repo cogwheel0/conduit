@@ -739,6 +739,32 @@ void main() {
       check((await db.chatsDao.getChat('listed'))!.lastReadAt).equals(400);
     });
 
+    test('a listed stub never undoes a read made after the list', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'archived',
+        title: 'Archived',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+      final since = db.chatsDao.localReadStateClock;
+      await db.chatsDao.setLastReadAt('archived', 200);
+
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'archived',
+        title: 'Archived',
+        createdAt: 1,
+        updatedAt: 1,
+        archived: true,
+        lastReadAt: 0,
+        readStateSince: since,
+      );
+
+      final row = (await db.chatsDao.getChat('archived'))!;
+      check(row.lastReadAt).equals(200);
+      check(row.archived).isTrue();
+    });
+
     test('serverChatLastReadAts skips local and tombstoned chats', () async {
       for (final id in ['server-chat', 'local:draft', 'gone']) {
         await db.chatsDao.upsertEnvelopeStub(

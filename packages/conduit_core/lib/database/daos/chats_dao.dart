@@ -920,6 +920,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     bool? archived,
     Value<String?> folderId = const Value.absent(),
     int? lastReadAt,
+
+    /// [localReadStateClock] when the list carrying [lastReadAt] was
+    /// requested; null when [lastReadAt] is not from a list.
+    int? readStateSince,
   }) {
     return transaction(() async {
       final existing = await getChat(id);
@@ -948,9 +952,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           pinned: pinned == null ? const Value.absent() : Value(pinned),
           archived: archived == null ? const Value.absent() : Value(archived),
           folderId: folderId,
-          lastReadAt: Value(
-            mergeServerLastReadAt(existing.lastReadAt, lastReadAt),
-          ),
+          lastReadAt:
+              readStateSince != null &&
+                  _readStateChangedSince(id, readStateSince)
+              ? const Value.absent()
+              : Value(mergeServerLastReadAt(existing.lastReadAt, lastReadAt)),
         ),
       );
     });

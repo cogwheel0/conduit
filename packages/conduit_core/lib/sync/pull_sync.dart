@@ -437,6 +437,7 @@ class PullSync {
               updatedAt: item.updatedAt,
               archived: true,
               lastReadAt: item.lastReadAt,
+              readStateSince: readStateSince,
             );
           });
         }
