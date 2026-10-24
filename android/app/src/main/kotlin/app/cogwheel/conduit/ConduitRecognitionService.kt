@@ -1,5 +1,6 @@
 package app.cogwheel.conduit
 
+import android.content.AttributionSource
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -8,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.RemoteException
 import android.provider.Settings
+import android.speech.ModelDownloadListener
 import android.speech.RecognitionListener
 import android.speech.RecognitionService
 import android.speech.RecognitionSupport
@@ -58,11 +60,11 @@ class ConduitRecognitionService : RecognitionService() {
             mainExecutor,
             object : RecognitionSupportCallback {
                 override fun onSupportResult(recognitionSupport: RecognitionSupport) {
-                    supportCallback.onSupportResult(recognitionSupport)
+                    forward { supportCallback.onSupportResult(recognitionSupport) }
                 }
 
                 override fun onError(error: Int) {
-                    supportCallback.onError(error)
+                    forward { supportCallback.onError(error) }
                 }
             }
         )
@@ -71,6 +73,42 @@ class ConduitRecognitionService : RecognitionService() {
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onTriggerModelDownload(recognizerIntent: Intent) {
         delegate()?.triggerModelDownload(recognizerIntent)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    override fun onTriggerModelDownload(
+        recognizerIntent: Intent,
+        attributionSource: AttributionSource,
+        listener: ModelDownloadListener
+    ) {
+        val recognizer = delegate()
+        if (recognizer == null) {
+            forward {
+                listener.onError(SpeechRecognizer.ERROR_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS)
+            }
+            return
+        }
+        recognizer.triggerModelDownload(
+            recognizerIntent,
+            mainExecutor,
+            object : ModelDownloadListener {
+                override fun onProgress(completedPercent: Int) {
+                    forward { listener.onProgress(completedPercent) }
+                }
+
+                override fun onSuccess() {
+                    forward { listener.onSuccess() }
+                }
+
+                override fun onScheduled() {
+                    forward { listener.onScheduled() }
+                }
+
+                override fun onError(error: Int) {
+                    forward { listener.onError(error) }
+                }
+            }
+        )
     }
 
     override fun onStopListening(listener: Callback) {
@@ -174,10 +212,16 @@ class ConduitRecognitionService : RecognitionService() {
             forward { listener.error(error) }
         }
 
+        /**
+         * Calls the client, which may have gone. Some callbacks rethrow its
+         * failed IPC as a RuntimeException, which would crash Conduit.
+         */
         inline fun forward(call: () -> Unit) {
             try {
                 call()
             } catch (e: RemoteException) {
+                Log.w(TAG, "The recognition client is gone", e)
+            } catch (e: RuntimeException) {
                 Log.w(TAG, "The recognition client is gone", e)
             }
         }
