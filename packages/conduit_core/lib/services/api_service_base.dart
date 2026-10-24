@@ -1721,12 +1721,19 @@ abstract class _ApiServiceBase {
     // value to an undeclared model only when the user picked one for that
     // model, and a chat's own `reasoning_effort` is a deliberate override;
     // either counts as an opt-in that outranks the missing advertisement
-    // (issue #779).
+    // (issue #779). An explicit refusal outranks both: the server said this
+    // model cannot take the parameter, so sending it would only fail the
+    // turn — no opt-in, saved or picked, overrides that refusal.
     final chatEffortOverride = chatParams?[kChatParamReasoningEffort];
     final explicitOptIn =
         reasoningEffort != null ||
         (chatEffortOverride is String && chatEffortOverride.trim().isNotEmpty);
-    if (isAutomaticEffort || (!advertisesEffort && !explicitOptIn)) {
+    final refusesEffort = modelExplicitlyRejectsReasoningEffort(
+      _coerceJsonMap(modelItem?['capabilities']),
+    );
+    if (isAutomaticEffort ||
+        refusesEffort ||
+        (!advertisesEffort && !explicitOptIn)) {
       params.remove('reasoning_effort');
     }
     data['params'] = params;

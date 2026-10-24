@@ -615,3 +615,55 @@ Future<void> persistOpenWebUiReasoningPick(
     );
   }
 }
+
+/// "Retry without reasoning effort" (issue #779 recovery): clears the picker's
+/// pick on [model] and, for an Open WebUI chat, the chat's saved override, and
+/// reports whether every clear is confirmed. The retry that follows must not
+/// resend the value the provider rejected, so unlike
+/// [persistOpenWebUiReasoningPick] — which lets a picker keep its local pick
+/// when the chat write fails — this writes the override itself and checks the
+/// params that came back saved. A null [model] (the failing turn's model left
+/// the model list) clears only the chat's override, the one opt-in that
+/// outlives a model.
+Future<bool> clearReasoningEffortForRetry(dynamic ref, Model? model) async {
+  var cleared = true;
+  if (model != null) {
+    try {
+      await setReasoningEffortForModel(
+        ref.read,
+        model,
+        kAutomaticReasoningEffort,
+      );
+    } catch (_) {
+      cleared = false;
+    }
+    // Direct, Apple and Hermes models carry a device-local pick only; the
+    // chat write exists solely for Open WebUI models.
+    if (!_reasoningPickIsSavedOnChat(ref, model)) return cleared;
+  }
+  try {
+    final saved = await saveOpenWebUiChatSettings(
+      ref,
+      conversation: ref.read(activeConversationProvider) as Conversation?,
+      set: <String, dynamic>{kChatParamReasoningEffort: null},
+    );
+    final value = saved[kChatParamReasoningEffort];
+    cleared =
+        cleared &&
+        (value == null ||
+            (value is String &&
+                (value.trim().isEmpty ||
+                    value.trim().toLowerCase() ==
+                        kAutomaticReasoningEffort)));
+  } on OpenWebUiChatSettingsException {
+    cleared = false;
+  } catch (error) {
+    DebugLogger.warning(
+      'reasoning-effort-retry-clear-failed',
+      scope: 'chat/settings',
+      data: {'error': error.runtimeType.toString()},
+    );
+    cleared = false;
+  }
+  return cleared;
+}

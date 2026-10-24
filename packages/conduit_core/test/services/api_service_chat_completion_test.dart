@@ -259,13 +259,18 @@ void main() {
       String? reasoningEffort,
       List<String>? toolIds,
       String model = 'gpt-5',
+      Map<String, dynamic>? modelItemExtra,
     }) async {
       final adapter = _FakeAdapter.json({'task_id': 'task-1', 'status': true});
       final api = _buildApiServiceForTest(adapter);
       await api.sendMessageSession(
         messages: _minimalMessages,
         model: model,
-        modelItem: {'id': model, 'name': model},
+        modelItem: <String, dynamic>{
+          'id': model,
+          'name': model,
+          ...?modelItemExtra,
+        },
         userSettings: userSettings,
         chatParams: chatParams,
         reasoningEffort: reasoningEffort,
@@ -473,6 +478,35 @@ void main() {
       );
 
       check(paramsOf(body)['reasoning_effort']).equals('minimal');
+    });
+
+    test('a saved or picked effort is stripped for an explicitly refusing model', () async {
+      // The server said this model cannot take the parameter: not even a
+      // chat-saved override or a stale picker value may send it (#779).
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        chatParams: {'reasoning_effort': 'high'},
+        reasoningEffort: 'high',
+        modelItemExtra: {
+          'capabilities': {'reasoning_effort': false},
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+    });
+
+    test('a declared empty supported_efforts set refuses the effort too', () async {
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        chatParams: {'reasoning_effort': 'high'},
+        modelItemExtra: {
+          'capabilities': {
+            'reasoning': {'supported_efforts': <String>[]},
+          },
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
     });
 
     test('the user-level default is not leaked to an undeclared model', () async {

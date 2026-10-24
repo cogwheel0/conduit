@@ -44,6 +44,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         ComparisonMergeException,
         ComparisonMergeFailure,
         chatBranchSiblingsProvider,
+        clearReasoningEffortForRetry,
         comparisonMergeCommandAvailableProvider,
         comparisonMergeProvider,
         stopComparisonAnswerProvider,
@@ -52,11 +53,13 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         comparisonAnswerStopPermittedProvider,
         isChatStreamingProvider,
         sendMessageWithContainer,
-        selectReasoningEffortForModel,
         streamingContentProvider,
         chatMessagesProvider;
 import 'package:conduit_core/providers/app_providers.dart'
-    show activeConversationProvider, selectedModelProvider;
+    show activeConversationProvider, modelsProvider, selectedModelProvider;
+import 'package:conduit_core/models/model.dart' show Model;
+import 'package:conduit_core/models/openwebui_chat_settings.dart'
+    show kChatParamReasoningEffort;
 
 import '../../../shared/utils/external_link_launcher.dart';
 
@@ -1584,6 +1587,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
                 isCompact: true,
               ),
+              if (info.isFailed &&
+                  _isReasoningEffortRejection(info.lastError ?? ''))
+                ConduitButton(
+                  onPressed: () => _retryQueuedWithoutReasoningEffort(info),
+                  text: l10n.retryWithoutReasoningEffort,
+                  icon: Platform.isIOS
+                      ? CupertinoIcons.slash_circle
+                      : Icons.highlight_off,
+                  isCompact: true,
+                  isSecondary: true,
+                ),
               ConduitButton(
                 onPressed: () => _cancelQueuedCompletion(info),
                 text: l10n.cancel,
@@ -1602,6 +1616,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     unawaited(() async {
       try {
         await ref.read(queuedCompletionActionsProvider).retry(info);
+      } catch (error, stackTrace) {
+        _handleQueuedCompletionActionError(error, stackTrace);
+      }
+    }());
+  }
+
+  /// Recovery for a completion the provider rejected for its frozen
+  /// `reasoning_effort`: clear the opt-ins for later turns and re-arm the op
+  /// with the parameter stripped from its stored settings snapshot. The
+  /// clearing is best effort here — the replay itself is fixed by the strip,
+  /// so a failed clear must not block the retry.
+  void _retryQueuedWithoutReasoningEffort(QueuedCompletionInfo info) {
+    unawaited(() async {
+      try {
+        await clearReasoningEffortForRetry(ref, _modelForRegeneratedAnswer());
+        await ref
+            .read(queuedCompletionActionsProvider)
+            .retryWithoutReasoningEffort(info);
       } catch (error, stackTrace) {
         _handleQueuedCompletionActionError(error, stackTrace);
       }
@@ -2304,42 +2336,74 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return _errorScanResult;
   }
 
-  // Issue #779: an explicit effort pick on a model that does not advertise
+  // Issue #779: an explicit effort opt-in on a model that does not advertise
   // support can be rejected by the upstream provider. When the failure names
-  // the parameter, the footer offers to clear the pick and retry.
+  // the parameter, the footer offers to clear the opt-in and retry.
   static final _reasoningEffortRejectionPattern = RegExp(
     r'reasoning[_\s-]*effort',
     caseSensitive: false,
   );
 
+  /// The model regeneration will route this answer through: the answer's own
+  /// model, the selected one when the answer carries no model or the same
+  /// one, and null when the failed model left the model list — then only the
+  /// chat-wide override can still be cleared.
+  Model? _modelForRegeneratedAnswer() {
+    final message = widget.message is ChatMessage
+        ? widget.message as ChatMessage
+        : null;
+    final selected = ref.read(selectedModelProvider);
+    final modelId = message?.model;
+    if (modelId == null || modelId.isEmpty || selected?.id == modelId) {
+      return selected;
+    }
+    for (final model in ref.read(modelsProvider).value ?? const <Model>[]) {
+      if (model.id == modelId) return model;
+    }
+    return null;
+  }
+
+  /// The chat's own saved `reasoning_effort` — the override that outranks the
+  /// picker and opts an undeclared model into sending the parameter.
+  bool get _chatHasReasoningEffortOverride {
+    final params = ref.read(activeConversationProvider)?.chatParams;
+    final value = params == null ? null : params[kChatParamReasoningEffort];
+    return value is String &&
+        value.trim().isNotEmpty &&
+        value.trim().toLowerCase() != kAutomaticReasoningEffort;
+  }
+
   bool _isReasoningEffortRejection(String errorText) {
     if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
-    final model = ref.read(selectedModelProvider);
-    if (model == null || model.advertisesReasoningEffort) return false;
-    return reasoningEffortForModel(ref.read, model) !=
-        kAutomaticReasoningEffort;
+    // Either opt-in can put the parameter on the wire for a model that does
+    // not advertise support: the picker's pick for that very model, or the
+    // chat's saved override (which outlives any model and outranks even an
+    // advertised one when the provider rejects the value).
+    final model = _modelForRegeneratedAnswer();
+    final pickerOptIn =
+        model != null &&
+        !model.advertisesReasoningEffort &&
+        reasoningEffortForModel(ref.read, model) != kAutomaticReasoningEffort;
+    return pickerOptIn || _chatHasReasoningEffortOverride;
   }
 
   Future<void> _retryWithoutReasoningEffort() async {
-    final model = ref.read(selectedModelProvider);
-    if (model != null) {
-      try {
-        // "Automatic" clears the local pick and the chat's saved override,
-        // so the retried turn goes out without the parameter.
-        await selectReasoningEffortForModel(
-          ref,
-          model,
-          kAutomaticReasoningEffort,
-        );
-      } catch (error) {
-        DebugLogger.warning(
-          'retry-without-effort-clear-failed',
-          scope: 'chat',
-          data: {'error': error.toString()},
-        );
-      }
-    }
+    // "Automatic" clears the local pick and the chat's saved override. The
+    // retry may only start once both clears are confirmed: regenerating with
+    // a swallowed persistence failure would resend the rejected value.
+    final cleared = await clearReasoningEffortForRetry(
+      ref,
+      _modelForRegeneratedAnswer(),
+    );
     if (!mounted) return;
+    if (!cleared) {
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.errorMessage,
+        type: AdaptiveSnackBarType.error,
+      );
+      return;
+    }
     widget.onRegenerate?.call();
   }
 

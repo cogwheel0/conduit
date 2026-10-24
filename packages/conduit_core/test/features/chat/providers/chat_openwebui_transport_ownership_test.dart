@@ -6189,22 +6189,30 @@ void main() {
       ).isA<String>().contains('cannot compare');
     });
 
-    test('mixed reasoning-effort support is refused in either slot order '
-        'until the override is removed', () async {
+    test('a saved effort opts every non-refusing model into the group', () async {
+      // Issue #779 review: the chat's saved value is itself the explicit
+      // opt-in, so an undeclared model is admitted with it too. Only a model
+      // that explicitly refuses the parameter blocks the group, in either
+      // slot order.
       const reasoning = Model(
         id: 'reasoner',
         name: 'Reasoner',
         supportedParameters: ['reasoning_effort'],
       );
       const plain = Model(id: 'plain', name: 'Plain');
+      const refuser = Model(
+        id: 'refuser',
+        name: 'Refuser',
+        capabilities: <String, dynamic>{'reasoning_effort': false},
+      );
       final (:api, :socket, :container) = await open(
-        available: const [reasoning, plain],
+        available: const [reasoning, plain, refuser],
         storedParams: {'reasoning_effort': 'high'},
       );
 
       for (final order in [
-        const [reasoning, plain],
-        const [plain, reasoning],
+        const [reasoning, refuser],
+        const [refuser, reasoning],
       ]) {
         await check(
           durableCompareSend(container, 'compare', null, models: order),
@@ -6220,14 +6228,9 @@ void main() {
       check(container.read(chatMessagesProvider)).length.equals(1);
       check(api.requests).isEmpty();
 
-      await db.chatsDao.patchChatParamsWithOutbox(
-        chatId,
-        remove: const ['reasoning_effort'],
-        updatedAt: 9,
-      );
-      await db.delete(db.outboxDao.outboxOps).go();
-
-      await durableCompareSend(
+      // With the override in place the undeclared model is admitted as well,
+      // and the one shared request carries the saved value for both answers.
+      final handles = await durableCompareSend(
         container,
         'compare',
         null,
@@ -6235,9 +6238,10 @@ void main() {
       );
       await replay(container);
       check(api.requests).length.equals(1);
-      check(api.requests.single.chatParams).isNotNull().not(
-        (it) => it.containsKey('reasoning_effort'),
-      );
+      final params = api.requests.single.chatParams;
+      check(params).isNotNull();
+      check(params!['reasoning_effort']).equals('high');
+      check(handles).length.equals(2);
     });
 
     test('a chat that is not on screen is driven headlessly: one request, '

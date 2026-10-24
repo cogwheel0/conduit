@@ -1139,6 +1139,70 @@ void main() {
       check((await db.select(db.outboxOps).get()).single).equals(before);
     });
 
+    test('stripReasoningEffort removes the frozen effort from a completion', () async {
+      // Issue #779 recovery: a plain re-arm replays the settings snapshot
+      // verbatim, so the rejected `reasoning_effort` must come out of the
+      // stored payload first.
+      final snapshot = OpenWebUiChatSettingsSnapshot(
+        params: <String, dynamic>{
+          'reasoning_effort': 'high',
+          'temperature': 0.5,
+        },
+        reasoningEffort: 'high',
+      );
+      final seq = await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c1',
+        payload: <String, dynamic>{
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+          'chatSettings': snapshot.toJson(),
+        },
+      );
+
+      check(
+        await dao.stripReasoningEffortFromCompletionPayload(seq),
+      ).isTrue();
+
+      final row = (await db.select(db.outboxOps).get()).single;
+      final decoded = RequestCompletionPayload.fromJson(
+        jsonDecode(row.payload) as Map<String, dynamic>,
+      );
+      check(
+        decoded.chatSettings?.params.containsKey('reasoning_effort'),
+      ).equals(false);
+      check(decoded.chatSettings?.params['temperature']).equals(0.5);
+      check(decoded.chatSettings?.reasoningEffort).isNull();
+    });
+
+    test('strip leaves completion payloads without a snapshot untouched', () async {
+      final seq = await enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c1',
+        payload: {
+          'assistantMessageId': 'a',
+          'model': 'm',
+          'toolIds': <String>[],
+        },
+      );
+      final before = (await db.select(db.outboxOps).get()).single;
+
+      check(
+        await dao.stripReasoningEffortFromCompletionPayload(seq),
+      ).isTrue();
+
+      check((await db.select(db.outboxOps).get()).single).equals(before);
+    });
+
+    test('strip refuses ops that are not completions', () async {
+      final seq = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+
+      check(
+        await dao.stripReasoningEffortFromCompletionPayload(seq),
+      ).isFalse();
+    });
+
     test('resetBackoffForPending arms every pending op to now', () async {
       final a = await enqueue(kind: OutboxKind.updateChat, chatId: 'cA');
       final b = await enqueue(kind: OutboxKind.updateChat, chatId: 'cB');

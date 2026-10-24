@@ -331,6 +331,43 @@ class QueuedCompletionActions {
     if (!result.committed) return;
   }
 
+  /// Manual retry without the frozen `reasoning_effort` (issue #779
+  /// recovery): strips the parameter from the queued completion's settings
+  /// snapshot before re-arming, so the replay cannot resend the value the
+  /// provider rejected. Plain [retry] replays the stored snapshot verbatim.
+  Future<void> retryWithoutReasoningEffort(QueuedCompletionInfo info) async {
+    final db = _ref.read(appDatabaseProvider);
+    if (db == null ||
+        !identical(info._databaseOwner, db) ||
+        !info._isCurrent(_ref)) {
+      return;
+    }
+
+    final result = await _runSessionAtomicMutation<bool>(
+      info: info,
+      database: db,
+      mutation: () async {
+        if (!await db.outboxDao.stripReasoningEffortFromCompletionPayload(
+          info.seq,
+        )) {
+          return false;
+        }
+        final now = _ref.read(syncClockProvider).nowEpochSeconds();
+        if (info.phase == QueuedCompletionPhase.failed) {
+          await db.outboxDao.requeueParked(info.seq, nowEpochSeconds: now);
+        } else {
+          await db.outboxDao.retryPendingNow(info.seq, nowEpochSeconds: now);
+        }
+        return true;
+      },
+      afterCommit: () async {
+        if (!info._isCurrent(_ref)) return;
+        await _ref.read(syncEngineProvider.notifier).drainNowForDatabase(db);
+      },
+    );
+    if (!result.committed) return;
+  }
+
   Future<int> cancel(QueuedCompletionInfo info) async {
     final db = _ref.read(appDatabaseProvider);
     if (db == null ||

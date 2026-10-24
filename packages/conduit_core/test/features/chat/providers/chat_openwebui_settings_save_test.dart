@@ -628,6 +628,59 @@ void main() {
       check(await stored('c1')).isEmpty();
     });
 
+    test(
+      'retry-clearing removes the pick and confirms the chat override',
+      () async {
+        // Issue #779 recovery: the retry only starts when both clears are
+        // confirmed, so the helper must report the saved params it saw.
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        final c = container(active: _conversation('c1'));
+        const plain = Model(id: 'plain-chat-model', name: 'Plain');
+        await selectReasoningEffortForModel(c, plain, 'high');
+
+        final cleared = await clearReasoningEffortForRetry(c, plain);
+
+        check(cleared).isTrue();
+        check(localReasoningEffortForModel(c.read, plain))
+            .equals(kAutomaticReasoningEffort);
+        check((await stored('c1'))['reasoning_effort']).isNull();
+      },
+    );
+
+    test(
+      'retry-clearing reports failure when the chat write is denied',
+      () async {
+        // A swallowed permission denial must not let the retry resend the
+        // rejected value: the helper says "not cleared" instead.
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        final c = container(
+          active: _conversation('c1'),
+          access: const OpenWebUiChatSettingsAccess(
+            canEditSystemPrompt: true,
+            canEditParameters: false,
+          ),
+        );
+
+        final cleared = await clearReasoningEffortForRetry(c, model);
+
+        check(cleared).isFalse();
+        check(await stored('c1')).deepEquals({'reasoning_effort': 'high'});
+      },
+    );
+
+    test(
+      'retry-clearing without a resolvable model still clears the chat',
+      () async {
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        final c = container(active: _conversation('c1'));
+
+        final cleared = await clearReasoningEffortForRetry(c, null);
+
+        check(cleared).isTrue();
+        check((await stored('c1'))['reasoning_effort']).isNull();
+      },
+    );
+
     group('while the pick is still being recorded locally', () {
       const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
 

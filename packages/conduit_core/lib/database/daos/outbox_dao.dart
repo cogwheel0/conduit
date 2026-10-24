@@ -566,6 +566,43 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         );
   }
 
+  /// Manual "retry without reasoning effort" (issue #779 recovery): removes
+  /// the frozen `reasoning_effort` from the settings snapshot of a queued
+  /// `requestCompletion` payload so the replay goes out without the parameter
+  /// the provider rejected — a plain re-arm replays the snapshot verbatim.
+  /// Returns false when [seq] is not a decodable completion op, and true
+  /// without rewriting when the payload holds no snapshot to strip (the
+  /// replay then reads the chat's live, already-cleared settings).
+  Future<bool> stripReasoningEffortFromCompletionPayload(int seq) async {
+    final op =
+        await (select(outboxOps)..where((t) => t.seq.equals(seq)))
+            .getSingleOrNull();
+    if (op == null || op.kind != OutboxKind.requestCompletion.name) {
+      return false;
+    }
+    final payload = _decodePayload(op.payload);
+    final settings = payload['chatSettings'];
+    if (settings is! Map) return true;
+    final stripped = Map<String, dynamic>.from(settings);
+    var changed = false;
+    final params = stripped['params'];
+    if (params is Map && params.containsKey('reasoning_effort')) {
+      stripped['params'] = Map<String, dynamic>.from(params)
+        ..remove('reasoning_effort');
+      changed = true;
+    }
+    if (stripped['reasoningEffort'] != null) {
+      stripped.remove('reasoningEffort');
+      changed = true;
+    }
+    if (!changed) return true;
+    payload['chatSettings'] = stripped;
+    await (update(outboxOps)..where((t) => t.seq.equals(seq))).write(
+      OutboxOpsCompanion(payload: Value(jsonEncode(payload))),
+    );
+    return true;
+  }
+
   /// Connectivity-regained backoff reset (A6/A7): re-arms every pending op for
   /// an immediate attempt. attempts/lastError are left intact.
   Future<void> resetBackoffForPending({required int nowEpochSeconds}) {

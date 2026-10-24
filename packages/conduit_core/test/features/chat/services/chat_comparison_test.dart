@@ -343,12 +343,22 @@ void main() {
       acceptsReasoningEffort: accepts.contains,
     );
 
-    test('a chat override must be readable by every model', () {
+    test('a chat override is the group opt-in; only unreadable values block', () {
+      // The saved chat value is a deliberate override (issue #779): it
+      // carries the parameter to models that never advertised it. Only a
+      // model that cannot read the value — an explicit refusal or a scale
+      // without it — blocks the group.
       final reasoner = model('reasoner');
-      final plain = model('plain', supports: false);
+      final refuses = model('refuses', accepts: const <String>{});
+      check(
+        findComparisonSettingsConflict(
+          chatParams: {'reasoning_effort': 'high'},
+          models: [reasoner, model('plain', supports: false)],
+        ),
+      ).isNull();
       for (final order in [
-        [reasoner, plain],
-        [plain, reasoner],
+        [reasoner, refuses],
+        [refuses, reasoner],
       ]) {
         final conflict = findComparisonSettingsConflict(
           chatParams: {'reasoning_effort': 'high'},
@@ -356,15 +366,8 @@ void main() {
         );
         check(conflict).isNotNull();
         check(conflict!.source).equals(ComparisonConflictSource.chatOverride);
-        check(conflict.modelIds).deepEquals(['plain']);
+        check(conflict.modelIds).deepEquals(['refuses']);
       }
-      // Removing the override clears it, whichever model sits first.
-      check(
-        findComparisonSettingsConflict(
-          chatParams: const {},
-          models: [plain, reasoner],
-        ),
-      ).isNull();
     });
 
     test('a value one model cannot take is a conflict', () {
