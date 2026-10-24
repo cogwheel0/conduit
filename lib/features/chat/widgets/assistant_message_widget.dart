@@ -2010,10 +2010,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       children: videoFiles.map<Widget>((file) {
         final fileUrl = getFileUrl(file);
         if (fileUrl == null) return const SizedBox.shrink();
+        // A legacy /api/v1/files/{id} URL names the file-info endpoint; play
+        // the content endpoint on the same host instead.
+        final attachmentId =
+            _fileIdPattern.hasMatch(fileUrl) && !fileUrl.endsWith('/content')
+            ? '$fileUrl/content'
+            : fileUrl;
         return RepaintBoundary(
           child: EnhancedVideoAttachment(
-            key: ValueKey('gen_video_$fileUrl'),
-            attachmentId: fileUrl,
+            key: ValueKey('gen_video_$attachmentId'),
+            attachmentId: attachmentId,
             httpHeaders: _headersForFile(file),
             constraints: const BoxConstraints(maxWidth: 500),
             filenameHint:

@@ -70,6 +70,9 @@ class _EnhancedVideoAttachmentState
   int _openRequestId = 0;
   PageRoute<void>? _fullscreenRoute;
   NavigatorState? _fullscreenNav;
+  // Controllers retired while the fullscreen viewer still renders them; the
+  // viewer disposes them as it closes.
+  final Set<VideoPlayerController> _viewerOwnedControllers = {};
   _SharedVideoDownload? _activeDownload;
   dio.CancelToken? _exportToken;
 
@@ -104,8 +107,6 @@ class _EnhancedVideoAttachmentState
     }
     // A replaced message can change the source under this state. Drop the
     // old player and transfer so the old clip is neither shown nor exported.
-    // The fullscreen page renders this controller, so close it first.
-    _retireFullscreen();
     _releaseSharedDownload();
     _exportToken?.cancel('video source changed');
     final previous = _controller;
@@ -116,20 +117,20 @@ class _EnhancedVideoAttachmentState
     _openUrl = null;
     _initializing = true;
     _playbackFailed = false;
-    if (previous != null) unawaited(previous.dispose());
+    _retireController(previous);
     _openVideo();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _retireFullscreen();
     _releaseSharedDownload();
     _exportToken?.cancel('video widget disposed');
     final controller = _controller;
+    controller?.removeListener(_onControllerChanged);
     _controller = null;
     _releaseCachePath(_tempCacheKey);
-    controller?.dispose();
+    _retireController(controller);
     super.dispose();
   }
 
@@ -147,12 +148,24 @@ class _EnhancedVideoAttachmentState
 
   String? _tempCacheKey;
 
-  void _retireFullscreen() {
+  /// Disposes [controller] once nothing renders it. While the fullscreen
+  /// viewer shows it, the viewer is removed after this frame, since popping
+  /// during build or unmount asserts, and disposes the controller as it
+  /// closes.
+  void _retireController(VideoPlayerController? controller) {
+    if (controller == null) return;
     final route = _fullscreenRoute;
-    if (route == null || !route.isActive) return;
-    // The fullscreen viewer renders this widget's controller; close it before
-    // the controller is disposed out from under the open route.
-    _fullscreenNav?.pop();
+    final nav = _fullscreenNav;
+    _fullscreenRoute = null;
+    _fullscreenNav = null;
+    if (route == null || nav == null || !route.isActive) {
+      unawaited(controller.dispose());
+      return;
+    }
+    _viewerOwnedControllers.add(controller);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (nav.mounted && route.isActive) nav.removeRoute(route);
+    });
   }
 
   void _retainCachePath(String? path) {
@@ -701,11 +714,10 @@ class _EnhancedVideoAttachmentState
       case ShareResultStatus.success:
         return true;
       case ShareResultStatus.dismissed:
-        // The user closed the share sheet: nothing was saved, but this is
-        // not a failure either — the caller must not claim success.
-        return false;
       case ShareResultStatus.unavailable:
-        throw StateError('Video share is unavailable on this platform');
+        // Closed, or the platform does not report what the user picked: the
+        // sheet still opened, so this is unconfirmed, not a failure.
+        return false;
     }
   }
 
@@ -771,8 +783,15 @@ class _EnhancedVideoAttachmentState
     final nav = Navigator.of(context);
     final route = buildPlatformPageRoute<void>(
       fullscreenDialog: true,
-      builder: (_) =>
-          _FullscreenVideoPage(controller: controller, label: _displayLabel()),
+      builder: (_) => _FullscreenVideoPage(
+        controller: controller,
+        label: _displayLabel(),
+        onClosed: () {
+          if (_viewerOwnedControllers.remove(controller)) {
+            unawaited(controller.dispose());
+          }
+        },
+      ),
     );
     _fullscreenNav = nav;
     _fullscreenRoute = route;
@@ -1014,10 +1033,17 @@ String _formatVideoDuration(Duration duration) {
 /// the route, so the texture survives the trip. Orientation follows the
 /// device, and system chrome returns when the viewer closes.
 class _FullscreenVideoPage extends StatefulWidget {
-  const _FullscreenVideoPage({required this.controller, required this.label});
+  const _FullscreenVideoPage({
+    required this.controller,
+    required this.label,
+    required this.onClosed,
+  });
 
   final VideoPlayerController controller;
   final String label;
+
+  /// Runs once the viewer no longer renders [controller].
+  final VoidCallback onClosed;
 
   @override
   State<_FullscreenVideoPage> createState() => _FullscreenVideoPageState();
@@ -1047,6 +1073,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
     // Android 14 and older. An empty list restores the app's orientations.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
+    widget.onClosed();
     super.dispose();
   }
 
