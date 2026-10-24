@@ -1536,9 +1536,11 @@ List<String> _extractToolCallImageUrls(Object? rawFiles) {
 
 Uri? _tryToolCallImageUri(Object? value) {
   if (value is String) {
+    // Open WebUI's own file paths are joined to the server when rendered.
     if (!value.startsWith('data:image/') &&
         !value.startsWith('http://') &&
-        !value.startsWith('https://')) {
+        !value.startsWith('https://') &&
+        !value.startsWith('/api/v1/files/')) {
       return null;
     }
     return Uri.tryParse(value);

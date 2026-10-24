@@ -721,8 +721,16 @@ class ConduitMarkdown {
     // are replaced without requiring the whole document to rebuild.
     return Consumer(
       builder: (context, ref, child) {
-        final headers = buildImageHeadersForUrlFromWidgetRef(ref, url);
-        final cacheKey = buildImageCacheKeyForUrlFromWidgetRef(ref, url);
+        // Open WebUI stores an image a tool returned as a path on the server.
+        final resolvedUrl = resolveServerRelativeImageUrlFromWidgetRef(
+          ref,
+          url,
+        );
+        final headers = buildImageHeadersForUrlFromWidgetRef(ref, resolvedUrl);
+        final cacheKey = buildImageCacheKeyForUrlFromWidgetRef(
+          ref,
+          resolvedUrl,
+        );
         final cacheManager = ref.watch(selfSignedImageCacheManagerProvider);
         final decodeTarget = RasterMediaPolicy.forBox(
           context,
@@ -754,7 +762,7 @@ class ConduitMarkdown {
             child: Image(
               image: RasterMediaPolicy.resizeProvider(
                 CachedNetworkImageProvider(
-                  url,
+                  resolvedUrl,
                   cacheKey: cacheKey,
                   cacheManager: cacheManager,
                   headers: headers,
