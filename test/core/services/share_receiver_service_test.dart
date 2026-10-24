@@ -8,12 +8,15 @@ import 'package:conduit/core/services/media_upload_controller.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:path/path.dart' as p;
 import 'package:drift/native.dart';
 
 import 'package:conduit/platform/share_receiver_service.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/share_staging_cleanup.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -208,6 +211,55 @@ void main() {
         ),
         '$importId-$itemId-0-',
       );
+    });
+  });
+
+  group('revealChatForIncomingShare', () {
+    GoRouter attachRouter(String initialLocation) {
+      final router = GoRouter(
+        initialLocation: initialLocation,
+        routes: [
+          GoRoute(path: Routes.chat, builder: (_, _) => const SizedBox()),
+          GoRoute(path: Routes.profile, builder: (_, _) => const SizedBox()),
+        ],
+      );
+      NavigationService.attachRouter(router);
+      addTearDown(router.dispose);
+      return router;
+    }
+
+    test('dismisses a native sheet that covers the chat', () async {
+      // iOS presents Settings as a native sheet over /chat, so the route
+      // alone never showed the share.
+      attachRouter(Routes.chat);
+      var dismissals = 0;
+
+      final revealed = await revealChatForIncomingShare(
+        dismissNativeSheet: () async {
+          dismissals += 1;
+          return true;
+        },
+      );
+
+      expect(revealed, isTrue);
+      expect(dismissals, 1);
+      expect(NavigationService.currentRoute, Routes.chat);
+    });
+
+    test('navigates to the chat from a Flutter route', () async {
+      attachRouter(Routes.profile);
+      var dismissals = 0;
+
+      final revealed = await revealChatForIncomingShare(
+        dismissNativeSheet: () async {
+          dismissals += 1;
+          return false;
+        },
+      );
+
+      expect(revealed, isTrue);
+      expect(dismissals, 1);
+      expect(NavigationService.currentRoute, Routes.chat);
     });
   });
 
