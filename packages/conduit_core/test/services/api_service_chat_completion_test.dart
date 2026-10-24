@@ -453,17 +453,42 @@ void main() {
     });
 
     test(
-      'a saved reasoning effort keeps the unsupported-model translation',
+      'a saved reasoning effort is sent to an undeclared model (opt-in)',
       () async {
-        // A model that cannot take an effort never receives one, saved or not.
+        // Issue #779: a value the user saved on the chat is a deliberate
+        // override and outranks the missing advertisement.
         final body = await sentBody(
           model: 'plain-chat-model',
           chatParams: {'reasoning_effort': 'low'},
         );
 
-        check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+        check(paramsOf(body)['reasoning_effort']).equals('low');
       },
     );
+
+    test('an explicit picker pick is sent to an undeclared model (opt-in)', () async {
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        reasoningEffort: 'minimal',
+      );
+
+      check(paramsOf(body)['reasoning_effort']).equals('minimal');
+    });
+
+    test('the user-level default is not leaked to an undeclared model', () async {
+      // Issue #613 stays fixed: without an explicit pick the parameter is
+      // still withheld from models that do not advertise support.
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        userSettings: {
+          'ui': {
+            'params': {'reasoning_effort': 'high'},
+          },
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+    });
 
     test(
       'a saved "automatic" effort is dropped, as the picker value is',

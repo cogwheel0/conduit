@@ -297,6 +297,10 @@
   "@customReasoningEffort": {
     "description": "Action for entering a provider-specific reasoning effort."
   },
+  "retryWithoutReasoningEffort": "Retry without reasoning effort",
+  "@retryWithoutReasoningEffort": {
+    "description": "Action on a failed response that clears the model's reasoning effort and retries."
+  },
   "customReasoningEffortHint": "Enter a provider-supported effort",
   "@customReasoningEffortHint": {
     "description": "Hint for a provider-specific reasoning effort value."

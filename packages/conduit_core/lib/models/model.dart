@@ -67,10 +67,11 @@ bool _isOpenAiReasoningEffortModel(String value) {
   return match != null && int.parse(match.group(1)!) >= 5;
 }
 
-/// Whether a model explicitly supports the OpenAI `reasoning_effort` request
-/// parameter. Unknown models fail closed because forwarding an unsupported
-/// optional parameter causes the entire completion request to fail.
-bool modelSupportsReasoningEffort({
+/// Whether a model advertises support for the OpenAI `reasoning_effort`
+/// request parameter, either through its catalog metadata or through a model
+/// name that follows the OpenAI reasoning naming scheme. Ad absence is not a
+/// refusal: see [modelExplicitlyRejectsReasoningEffort] for that.
+bool modelAdvertisesReasoningEffort({
   required String modelId,
   Object? supportedParameters,
   Map<String, dynamic>? capabilities,
@@ -111,6 +112,20 @@ bool modelSupportsReasoningEffort({
         candidate != null &&
         _isOpenAiReasoningEffortModel(candidate.toString()),
   );
+}
+
+/// Whether the server explicitly states that the model cannot take the
+/// `reasoning_effort` parameter. Only a declared `false` capability or a
+/// declared empty set of supported efforts refuses; silence leaves the choice
+/// to the user (issue #779).
+bool modelExplicitlyRejectsReasoningEffort(Map<String, dynamic>? capabilities) {
+  if (capabilities?['reasoning_effort'] == false) return true;
+  final reasoning = capabilities?['reasoning'];
+  if (reasoning is Map) {
+    final efforts = reasoning['supported_efforts'];
+    if (efforts != null) return efforts is Iterable && efforts.isEmpty;
+  }
+  return false;
 }
 
 @freezed
@@ -383,12 +398,14 @@ sealed class Model with _$Model {
 
   String? get workspaceOwnerId => metadata?['user_id']?.toString();
   String? get baseModelId => metadata?['base_model_id']?.toString();
-  bool get supportsReasoningEffort => modelSupportsReasoningEffort(
+  bool get advertisesReasoningEffort => modelAdvertisesReasoningEffort(
     modelId: id,
     supportedParameters: supportedParameters,
     capabilities: capabilities,
     metadata: metadata,
   );
+  bool get explicitlyRejectsReasoningEffort =>
+      modelExplicitlyRejectsReasoningEffort(capabilities);
   bool get isWorkspaceActive => _safeBool(metadata?['is_active']) ?? true;
   bool get hasWorkspaceWriteAccess =>
       _safeBool(metadata?['write_access']) ?? false;

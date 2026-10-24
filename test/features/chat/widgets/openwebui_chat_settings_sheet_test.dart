@@ -524,19 +524,41 @@ void main() {
       expect(saved['function_calling'], 'native');
     });
 
-    testWidgets('a model without reasoning support has no effort control', (
+    testWidgets('an undeclared model still offers the effort control', (
       tester,
     ) async {
+      // Issue #779: the picker is offered for every model that does not
+      // explicitly refuse the parameter.
       await tester.runAsync(() => seed('c1', {}));
       await openSheet(tester, active: _conversation('c1'), model: _plainModel);
 
       expect(
         find.byKey(const ValueKey('chat-setting-reasoning_effort-high')),
-        findsNothing,
+        findsOneWidget,
       );
       expect(
         find.byKey(const ValueKey('chat-setting-function_calling-native')),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('a model that refuses reasoning has no effort control', (
+      tester,
+    ) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(
+        tester,
+        active: _conversation('c1'),
+        model: const Model(
+          id: 'denied-chat-model',
+          name: 'Denied',
+          capabilities: <String, dynamic>{'reasoning_effort': false},
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('chat-setting-reasoning_effort-high')),
+        findsNothing,
       );
     });
 

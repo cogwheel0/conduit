@@ -297,6 +297,10 @@
   "@customReasoningEffort": {
     "description": "Action for entering a provider-specific reasoning effort."
   },
+  "retryWithoutReasoningEffort": "Ponów bez nakładu rozumowania",
+  "@retryWithoutReasoningEffort": {
+    "description": "Action on a failed response that clears the model's reasoning effort and retries."
+  },
   "customReasoningEffortHint": "Wpisz nakład obsługiwany przez dostawcę",
   "@customReasoningEffortHint": {
     "description": "Hint for a provider-specific reasoning effort value."

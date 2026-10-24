@@ -20,6 +20,8 @@ import '../providers/text_to_speech_provider.dart';
 
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
+    show kAutomaticReasoningEffort, reasoningEffortForModel;
 
 import 'enhanced_image_attachment.dart';
 import 'image_gallery_scope.dart';
@@ -50,10 +52,11 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         comparisonAnswerStopPermittedProvider,
         isChatStreamingProvider,
         sendMessageWithContainer,
+        selectReasoningEffortForModel,
         streamingContentProvider,
         chatMessagesProvider;
 import 'package:conduit_core/providers/app_providers.dart'
-    show activeConversationProvider;
+    show activeConversationProvider, selectedModelProvider;
 
 import '../../../shared/utils/external_link_launcher.dart';
 
@@ -2301,6 +2304,45 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return _errorScanResult;
   }
 
+  // Issue #779: an explicit effort pick on a model that does not advertise
+  // support can be rejected by the upstream provider. When the failure names
+  // the parameter, the footer offers to clear the pick and retry.
+  static final _reasoningEffortRejectionPattern = RegExp(
+    r'reasoning[_\s-]*effort',
+    caseSensitive: false,
+  );
+
+  bool _isReasoningEffortRejection(String errorText) {
+    if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
+    final model = ref.read(selectedModelProvider);
+    if (model == null || model.advertisesReasoningEffort) return false;
+    return reasoningEffortForModel(ref.read, model) !=
+        kAutomaticReasoningEffort;
+  }
+
+  Future<void> _retryWithoutReasoningEffort() async {
+    final model = ref.read(selectedModelProvider);
+    if (model != null) {
+      try {
+        // "Automatic" clears the local pick and the chat's saved override,
+        // so the retried turn goes out without the parameter.
+        await selectReasoningEffortForModel(
+          ref,
+          model,
+          kAutomaticReasoningEffort,
+        );
+      } catch (error) {
+        DebugLogger.warning(
+          'retry-without-effort-clear-failed',
+          scope: 'chat',
+          data: {'error': error.toString()},
+        );
+      }
+    }
+    if (!mounted) return;
+    widget.onRegenerate?.call();
+  }
+
   List<_AssistantFooterAction> _buildFooterActions() {
     final l10n = AppLocalizations.of(context)!;
     // Watch only the playback fields the footer renders so Listen/Stop stays
@@ -2352,6 +2394,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final bool canRegenerate =
         widget.onRegenerate != null &&
         (!isChatStreaming || currentStreamingMessageCompleted);
+    final bool canRetryWithoutEffort =
+        isErrorMessage &&
+        canRegenerate &&
+        _isReasoningEffortRejection('${activeError ?? ''}\n$_displayedContent');
 
     // Branch actions need a real message id. The providers below are what make
     // them exclusive to the user's own durable chat, so the widget adds no
@@ -2439,6 +2485,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           label: isErrorMessage ? l10n.retry : l10n.regenerate,
           onTap: canRegenerate ? widget.onRegenerate : null,
           sfSymbol: 'arrow.clockwise',
+        ),
+      if (canRetryWithoutEffort)
+        _AssistantFooterAction(
+          id: 'retry-without-effort',
+          icon: Platform.isIOS
+              ? CupertinoIcons.slash_circle
+              : Icons.highlight_off,
+          label: l10n.retryWithoutReasoningEffort,
+          onTap: () => unawaited(_retryWithoutReasoningEffort()),
+          sfSymbol: 'slash.circle',
         ),
       if (mergeIsRunningHere)
         _AssistantFooterAction(

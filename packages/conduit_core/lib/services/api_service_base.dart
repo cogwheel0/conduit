@@ -1705,7 +1705,7 @@ abstract class _ApiServiceBase {
     final effort = params['reasoning_effort'];
     final isAutomaticEffort =
         effort is String && effort.trim().toLowerCase() == 'automatic';
-    final supportsReasoningEffort = modelSupportsReasoningEffort(
+    final advertisesEffort = modelAdvertisesReasoningEffort(
       modelId: model,
       supportedParameters: modelItem?['supported_parameters'],
       capabilities: _coerceJsonMap(modelItem?['capabilities']),
@@ -1717,7 +1717,16 @@ abstract class _ApiServiceBase {
             (openAiModel is Map ? openAiModel['id'] : null),
       },
     );
-    if (isAutomaticEffort || !supportsReasoningEffort) {
+    // Fail closed only for implicit values (issue #613). The picker hands a
+    // value to an undeclared model only when the user picked one for that
+    // model, and a chat's own `reasoning_effort` is a deliberate override;
+    // either counts as an opt-in that outranks the missing advertisement
+    // (issue #779).
+    final chatEffortOverride = chatParams?[kChatParamReasoningEffort];
+    final explicitOptIn =
+        reasoningEffort != null ||
+        (chatEffortOverride is String && chatEffortOverride.trim().isNotEmpty);
+    if (isAutomaticEffort || (!advertisesEffort && !explicitOptIn)) {
       params.remove('reasoning_effort');
     }
     data['params'] = params;

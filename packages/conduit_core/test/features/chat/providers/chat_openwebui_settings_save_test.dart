@@ -587,15 +587,35 @@ void main() {
       },
     );
 
-    test('a value the model rejects is neither recorded nor saved', () async {
+    test(
+      'a user pick on an undeclared model is recorded and saved (opt-in)',
+      () async {
+        // Issue #779: the model does not advertise support; choosing an
+        // effort for it is the explicit opt-in.
+        await _seed(db, 'c1');
+        final c = container(active: _conversation('c1'));
+        const plain = Model(id: 'plain-chat-model', name: 'Plain');
+
+        await selectReasoningEffortForModel(c, plain, 'high');
+
+        check(localReasoningEffortForModel(c.read, plain)).equals('high');
+        check(await stored('c1')).deepEquals({'reasoning_effort': 'high'});
+      },
+    );
+
+    test('a value for a model that refuses reasoning effort is not recorded', () async {
       await _seed(db, 'c1');
       final c = container(active: _conversation('c1'));
-      const plain = Model(id: 'plain-chat-model', name: 'Plain');
+      const denied = Model(
+        id: 'denied-chat-model',
+        name: 'Denied',
+        capabilities: <String, dynamic>{'reasoning_effort': false},
+      );
 
-      await check(selectReasoningEffortForModel(c, plain, 'high'))
+      await check(selectReasoningEffortForModel(c, denied, 'high'))
           .throws<FormatException>();
 
-      check(localReasoningEffortForModel(c.read, plain)).isNull();
+      check(localReasoningEffortForModel(c.read, denied)).isNull();
       check(await stored('c1')).isEmpty();
     });
 
