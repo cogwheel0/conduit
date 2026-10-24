@@ -22,6 +22,7 @@ import 'package:conduit_core/features/chat/providers/queued_completion_provider.
 import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dart';
 
 import 'enhanced_image_attachment.dart';
+import 'enhanced_video_attachment.dart';
 import 'image_gallery_scope.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -1700,6 +1701,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   Widget _buildMarkdownImage(Uri uri, String? title, String? alt) {
+    if (inferFileTypeFromUrl(uri.toString()) == 'video') {
+      return RepaintBoundary(
+        child: EnhancedVideoAttachment(
+          attachmentId: uri.toString(),
+          constraints: const BoxConstraints(maxWidth: 500),
+          filenameHint: title ?? alt,
+        ),
+      );
+    }
     return RepaintBoundary(
       child: EnhancedImageAttachment(
         attachmentId: uri.toString(),
@@ -1940,7 +1950,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Separate images and non-image files
     // Match OpenWebUI: type === 'image' OR content_type starts with 'image/'
     final imageFiles = allFiles.where(isImageFile).toList();
-    final nonImageFiles = allFiles.where((file) => !isImageFile(file)).toList();
+    final videoFiles = allFiles.where(isVideoFile).toList();
+    final nonImageFiles = allFiles
+        .where((file) => !isImageFile(file) && !isVideoFile(file))
+        .toList();
 
     final widgets = <Widget>[];
 
@@ -1952,6 +1965,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           child: _buildImagesFromFiles(imageFiles),
         ),
       );
+    }
+
+    // Videos play inline; generated clips (mp4 et al.) must not render as
+    // broken image placeholders.
+    if (videoFiles.isNotEmpty) {
+      if (widgets.isNotEmpty) {
+        widgets.add(const SizedBox(height: Spacing.sm));
+      }
+      widgets.add(_buildVideosFromFiles(videoFiles));
     }
 
     // Add non-image files
@@ -1978,6 +2000,28 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       if (getFileUrl(file) case final url?)
         ImageViewerItem(attachmentId: url, httpHeaders: _headersForFile(file)),
   ];
+
+  Widget _buildVideosFromFiles(List<dynamic> videoFiles) {
+    return Wrap(
+      key: const ValueKey('assistant-file-video-stack'),
+      spacing: Spacing.sm,
+      runSpacing: Spacing.sm,
+      children: videoFiles.map<Widget>((file) {
+        final fileUrl = getFileUrl(file);
+        if (fileUrl == null) return const SizedBox.shrink();
+        return RepaintBoundary(
+          child: EnhancedVideoAttachment(
+            key: ValueKey('gen_video_$fileUrl'),
+            attachmentId: fileUrl,
+            httpHeaders: _headersForFile(file),
+            constraints: const BoxConstraints(maxWidth: 500),
+            filenameHint:
+                file['filename'] as String? ?? file['name'] as String?,
+          ),
+        );
+      }).toList(),
+    );
+  }
 
   Widget _buildImagesFromFiles(List<dynamic> imageFiles) {
     final imageCount = imageFiles.length;
