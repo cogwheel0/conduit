@@ -61,6 +61,15 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   bool _saving = false;
   String? _openUrl;
   int _openRequestId = 0;
+  String? _activeDownloadKey;
+  dio.CancelToken? _exportToken;
+
+  // One shared transfer per cache path, joined by every player rendering the
+  // same URL; refs tracks how many live widgets still care, so the download
+  // is canceled only when the last one is gone.
+  static final Map<String, _SharedVideoDownload> _sharedDownloads = {};
+  static int _scratchSeq = 0;
+  static const Duration _downloadStallTimeout = Duration(seconds: 45);
 
   @override
   void initState() {
@@ -72,6 +81,8 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _releaseSharedDownload();
+    _exportToken?.cancel('video widget disposed');
     final controller = _controller;
     _controller = null;
     controller?.dispose();
@@ -144,9 +155,10 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       // VideoPlayerController.networkUrl would bypass the TLS settings
       // (self-signed / client certs) that ApiService.dio already applies,
       // and streamed playback would leak the whole fetch into memory.
-      final file = await _downloadToLocalVideo(api, openUrl).timeout(
-        const Duration(seconds: 90),
-      );
+      // No fixed total-download deadline: large videos are fine as long as
+      // data keeps arriving (a stall watchdog inside the transfer handles
+      // dead connections).
+      final file = await _downloadToLocalVideo(api, openUrl);
       controller = VideoPlayerController.file(file);
 
       await controller.initialize().timeout(const Duration(seconds: 30));
@@ -179,10 +191,13 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     }
   }
 
-  /// Streams the video into the attachment cache. The transfer lands on a
-  /// scratch path and is renamed only after a complete download, so a
-  /// canceled request never leaves a half-written file that a later
-  /// length() > 0 cache hit would accept.
+  /// Returns the local cache copy for [url], sharing one in-flight transfer
+  /// per cache key: two players rendering the same clip join the same
+  /// download instead of racing on the same scratch file. The transfer
+  /// lands on a transfer-unique scratch path and is renamed only after a
+  /// complete download, so a canceled or stale request never clobbers a
+  /// live one and never leaves a half-written file that a later length() > 0
+  /// cache hit would accept.
   Future<File> _downloadToLocalVideo(ApiService? api, String url) async {
     final extension = _videoExtension();
     final dir = await getTemporaryDirectory();
@@ -195,20 +210,43 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     }
     await target.parent.create(recursive: true);
 
-    final part = File('${target.path}.part');
+    // This widget can only be interested in one playback transfer at a
+    // time; drop interest in any earlier attempt before joining a new one.
+    _releaseSharedDownload();
+    final key = target.path;
+    var entry = _sharedDownloads[key];
+    if (entry == null) {
+      entry = _SharedVideoDownload(dio.CancelToken());
+      entry.refs = 1;
+      final created = entry;
+      created.future = _runVideoDownload(api, url, target, created.token)
+          .whenComplete(() {
+            if (_sharedDownloads[key] == created) {
+              _sharedDownloads.remove(key);
+            }
+          });
+      _sharedDownloads[key] = entry;
+    } else {
+      entry.refs += 1;
+    }
+    _activeDownloadKey = key;
+    return await entry.future;
+  }
+
+  Future<File> _runVideoDownload(
+    ApiService? api,
+    String url,
+    File target,
+    dio.CancelToken token,
+  ) async {
+    final part = File('${target.path}.${_scratchSeq++}.part');
     final (client, headers, ownsClient) = _transportFor(api, url);
     try {
-      await client.download(
-        url,
-        part.path,
-        options: dio.Options(
-          headers: headers,
-          responseType: dio.ResponseType.stream,
-        ),
-      );
+      await _streamToFile(client, url, part.path, headers, token);
       await part.rename(target.path);
       return target;
     } finally {
+      // Never close ApiService.dio: it is shared with the rest of the app.
       if (ownsClient) {
         client.close(force: true);
       }
@@ -217,6 +255,58 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
           await part.delete();
         }
       } catch (_) {}
+    }
+  }
+
+  /// Downloads [url] to [path] with a stalled-transfer watchdog instead of a
+  /// fixed total-transfer deadline: the request is aborted only when no data
+  /// arrives for [_downloadStallTimeout] (45s) or the headers never arrive
+  /// (60s), not because the file is large. Cancelable via [token].
+  Future<void> _streamToFile(
+    dio.Dio client,
+    String url,
+    String path,
+    Map<String, String> headers,
+    dio.CancelToken token,
+  ) async {
+    var lastChunkAt = DateTime.now();
+    final watchdog = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (DateTime.now().difference(lastChunkAt) > _downloadStallTimeout) {
+        token.cancel('video download stalled');
+      }
+    });
+    try {
+      await client.download(
+        url,
+        path,
+        cancelToken: token,
+        onReceiveProgress: (received, total) {
+          lastChunkAt = DateTime.now();
+        },
+        options: dio.Options(
+          headers: headers,
+          responseType: dio.ResponseType.stream,
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 60),
+        ),
+      );
+    } finally {
+      watchdog.cancel();
+    }
+  }
+
+  /// Drops this widget's interest in its shared download; the transfer is
+  /// canceled only when the last interested player is gone. The shared
+  /// Dio client is never closed here.
+  void _releaseSharedDownload() {
+    final key = _activeDownloadKey;
+    if (key == null) return;
+    _activeDownloadKey = null;
+    final entry = _sharedDownloads[key];
+    if (entry == null) return;
+    entry.refs -= 1;
+    if (entry.refs <= 0) {
+      entry.token.cancel('video player disposed');
     }
   }
 
@@ -350,20 +440,18 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       '${DateTime.now().millisecondsSinceEpoch}.${_videoExtension()}',
     );
     await target.parent.create(recursive: true);
+    final token = dio.CancelToken();
+    _exportToken = token;
     final (client, headers, ownsClient) = _transportFor(api, url);
     try {
-      await client.download(
-        url,
-        target.path,
-        options: dio.Options(
-          headers: headers,
-          responseType: dio.ResponseType.stream,
-        ),
-      );
+      await _streamToFile(client, url, target.path, headers, token);
     } finally {
       // Never close ApiService.dio: it is shared with the rest of the app.
       if (ownsClient) {
         client.close(force: true);
+      }
+      if (_exportToken == token) {
+        _exportToken = null;
       }
     }
     return (target, true);
@@ -881,4 +969,15 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
       ),
     );
   }
+}
+
+/// One in-flight video download shared by every player that requested the
+/// same cache path. Cancel happens only when the last interested widget is
+/// disposed; the shared Dio client itself is never closed.
+class _SharedVideoDownload {
+  _SharedVideoDownload(this.token);
+
+  final dio.CancelToken token;
+  late final Future<File> future;
+  int refs = 0;
 }
