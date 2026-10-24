@@ -201,6 +201,12 @@ class _EnhancedVideoAttachmentState
       candidates.sort((a, b) => a.modified.compareTo(b.modified));
       for (final candidate in candidates) {
         if (total <= _maxVideoCacheBytes) break;
+        // A player may have opened (or a transfer may have finished into)
+        // this file after the scan; re-verify before deleting it.
+        if (_cacheRefs.containsKey(candidate.file.path) ||
+            _sharedDownloads.containsKey(candidate.file.path)) {
+          continue;
+        }
         try {
           await candidate.file.delete();
           total -= candidate.size;
@@ -276,12 +282,14 @@ class _EnhancedVideoAttachmentState
       await controller.initialize().timeout(const Duration(seconds: 30));
 
       if (!mounted || requestId != _openRequestId) {
+        // Nobody will hold this path: give the reservation back to the prune.
+        _releaseCachePath(file.path);
         unawaited(controller.dispose());
         return;
       }
 
       controller.setVolume(0);
-      _retainCachePath(file.path);
+      // Reserved by _downloadToLocalVideo; dispose() releases this handle.
       _tempCacheKey = file.path;
       _lastPositionSeconds = -1;
       _lastPlayed = false;
@@ -298,9 +306,16 @@ class _EnhancedVideoAttachmentState
       // A full download can succeed while the player still fails to
       // initialize; keep the completed cache copy so the fallback export
       // reuses it instead of fetching the same video again.
-      if (downloadedPath != null && requestId == _openRequestId) {
-        _retainCachePath(downloadedPath);
-        _tempCacheKey = downloadedPath;
+      if (downloadedPath != null) {
+        if (mounted && requestId == _openRequestId) {
+          // _downloadToLocalVideo already reserved the path; keep the handle
+          // so the fallback export reuses the completed cache copy.
+          _tempCacheKey = downloadedPath;
+        } else {
+          // Disposed mid-initialize: dispose() had no handle to release, so
+          // drop the reservation here instead of leaking it forever.
+          _releaseCachePath(downloadedPath);
+        }
       }
       if (!mounted || requestId != _openRequestId) return;
       setState(() {
@@ -339,6 +354,9 @@ class _EnhancedVideoAttachmentState
       'video_${_cacheNameFor(url, cacheIdentity)}.$extension',
     );
     if (await target.exists() && await target.length() > 0) {
+      // Reserve before returning: player initialization awaits afterwards,
+      // and a prune from another widget must not evict this file mid-open.
+      _retainCachePath(target.path);
       return target;
     }
     await target.parent.create(recursive: true);
@@ -382,8 +400,9 @@ class _EnhancedVideoAttachmentState
       entry.refs += 1;
     }
     _activeDownload = entry;
+    File downloaded;
     try {
-      return await entry.future;
+      downloaded = await entry.future;
     } finally {
       // This attempt's transfer is finished; forget it so a later dispose
       // cannot decrement references on a newer transfer for the same key.
@@ -391,6 +410,10 @@ class _EnhancedVideoAttachmentState
         _activeDownload = null;
       }
     }
+    // Reserve before handing the file to the player: the shared transfer
+    // is gone from the registry, and _openVideo awaits initialize().
+    _retainCachePath(downloaded.path);
+    return downloaded;
   }
 
   Future<File> _runVideoDownload(
@@ -646,7 +669,7 @@ class _EnhancedVideoAttachmentState
     return (target, true);
   }
 
-  Future<void> _exportVideoFile(File file, String displayName) async {
+  Future<bool> _exportVideoFile(File file, String displayName) async {
     final declaredType = _declaredContentType();
     final mimeType = declaredType.isNotEmpty
         ? declaredType
@@ -661,22 +684,32 @@ class _EnhancedVideoAttachmentState
           mimeType: mimeType,
           displayName: displayName,
         );
-        return;
+        return true;
       }
     }
-    await SharePlus.instance.share(
+    final result = await SharePlus.instance.share(
       ShareParams(
         files: <XFile>[XFile(file.path, mimeType: mimeType, name: displayName)],
         fileNameOverrides: <String>[displayName],
       ),
     );
+    switch (result.status) {
+      case ShareResultStatus.success:
+        return true;
+      case ShareResultStatus.dismissed:
+        // The user closed the share sheet: nothing was saved, but this is
+        // not a failure either — the caller must not claim success.
+        return false;
+      case ShareResultStatus.unavailable:
+        throw StateError('Video share is unavailable on this platform');
+    }
   }
 
   Future<void> _downloadVideo() async {
     if (_saving) return;
     setState(() => _saving = true);
     final l10n = AppLocalizations.of(context)!;
-    String message;
+    String? message;
     var failed = false;
     File? exported;
     var createdNew = false;
@@ -691,8 +724,10 @@ class _EnhancedVideoAttachmentState
       if (!mounted || _openUrl != sourceUrlAtStart) {
         throw StateError('Video source changed during export');
       }
-      await _exportVideoFile(file, _saveFileName());
-      message = l10n.videoSaved;
+      final confirmed = await _exportVideoFile(file, _saveFileName());
+      // A dismissed share sheet saved nothing; stay silent instead of
+      // reporting a save the user never performed.
+      message = confirmed ? l10n.videoSaved : null;
     } catch (error, stackTrace) {
       failed = true;
       message = l10n.videoSaveFailed;
@@ -712,11 +747,15 @@ class _EnhancedVideoAttachmentState
     }
     if (!mounted) return;
     setState(() => _saving = false);
-    AdaptiveSnackBar.show(
-      context,
-      message: message,
-      type: failed ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
-    );
+    if (message != null) {
+      AdaptiveSnackBar.show(
+        context,
+        message: message,
+        type: failed
+            ? AdaptiveSnackBarType.error
+            : AdaptiveSnackBarType.success,
+      );
+    }
   }
 
   void _openFullscreen() {
