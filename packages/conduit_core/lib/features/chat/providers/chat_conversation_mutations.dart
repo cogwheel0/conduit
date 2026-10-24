@@ -200,17 +200,21 @@ Future<void> markConversationUnread(dynamic ref, String conversationId) async {
   // that database open through an account switch until it has.
   final db = _readProvider(ref, appDatabaseProvider);
   if (db == null) throw StateError('No chat database for this account.');
+  // Read before the first await: the caller's ref may be disposed by then.
+  final conversations = _readProvider(ref, conversationsProvider.notifier);
   final lease = _readProvider(
     ref,
     databaseManagerProvider,
   ).tryAcquireLease(db);
   try {
     final previous = await db.chatsDao.markUnread(rawId);
-    final conversations = _readProvider(ref, conversationsProvider.notifier)
-      ..showConversationUnread(conversationId)
-      ..refreshFolderConversations();
+    // Every stored mark reaches finishUnread, or later lists stay blocked
+    // from this chat's read state.
     var refused = true;
     try {
+      conversations
+        ..showConversationUnread(conversationId)
+        ..refreshFolderConversations();
       await api.markConversationUnread(rawId);
       refused = false;
     } catch (e) {

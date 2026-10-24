@@ -71,6 +71,21 @@ final class _RecordingSyncEngine extends SyncEngine {
   }
 }
 
+/// A widget's ref, which stops working once the widget is disposed.
+final class _DisposableRef {
+  _DisposableRef(this._container);
+
+  final ProviderContainer _container;
+  bool disposed = false;
+
+  T read<T>(ProviderListenable<T> provider) {
+    if (disposed) {
+      throw StateError('Cannot use "ref" after the widget was disposed.');
+    }
+    return _container.read(provider);
+  }
+}
+
 final class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
   @override
   OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
@@ -857,6 +872,32 @@ void main() {
         }
       });
       expect((await reopened.chatsDao.getChat('chat-s'))!.lastReadAt, 200);
+    });
+
+    test('settles the mark when the drawer closes right away', () async {
+      final api = _MutationApi();
+      final container = await readServerChat(api);
+      final drawerRef = _DisposableRef(container);
+
+      final marking = markConversationUnread(
+        drawerRef,
+        _openWebUiScoped('chat-s'),
+      );
+      drawerRef.disposed = true;
+      await marking;
+
+      expect(api.unreadCalls, ['chat-s']);
+      expect(await storedReadAt('chat-s'), 0);
+      // Settled, so a list requested from now on applies again.
+      final since = serverDb.chatsDao.localReadStateClock;
+      expect(
+        await serverDb.chatsDao.applyListedLastReadAt(
+          'chat-s',
+          500,
+          since: since,
+        ),
+        isTrue,
+      );
     });
 
     test('updates the drawer listing of the chat\'s folder', () async {
