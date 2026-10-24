@@ -87,8 +87,8 @@ class VoiceInputService implements VoiceModeInput {
   Future<void>? _startingLocalStt;
   Future<Stream<String>>? _startListeningInFlight;
 
-  /// The stop that is still ending a listen, server transcription included.
-  Future<void>? _stopListeningInFlight;
+  /// Stops still ending a listen, server transcription included.
+  final Set<Future<void>> _stopsInFlight = <Future<void>>{};
   StreamController<String>? _textStreamController;
   StreamController<VoiceTranscriptEvent>? _transcriptEventController;
   String _currentText = '';
@@ -855,12 +855,11 @@ class VoiceInputService implements VoiceModeInput {
   }) async {
     ++_listenGeneration;
     if (!_isListening) {
-      // An earlier stop may still be waiting for the server's transcript.
-      // Closing the streams under it would lose the text (#822), so wait for
-      // it while anything still listens for that text.
-      final stopInFlight = _stopListeningInFlight;
-      if (stopInFlight != null && _hasTranscriptConsumer) {
-        await stopInFlight;
+      // Earlier stops may still be waiting for the server's transcript.
+      // Closing the streams under them would lose the text (#822), so wait
+      // for them while anything still listens for that text.
+      if (_stopsInFlight.isNotEmpty && _hasTranscriptConsumer) {
+        await Future.wait(_stopsInFlight.toList());
       }
       if (_nativeCaptureDetachedForResponseWait) {
         _nativeCaptureDetachedForResponseWait = false;
@@ -876,16 +875,14 @@ class VoiceInputService implements VoiceModeInput {
       return;
     }
 
-    final stopFuture = _stopActiveListening(
+    final stop = _stopActiveListening(
       holdServerRecorderForResponseWait: holdServerRecorderForResponseWait,
     );
-    _stopListeningInFlight = stopFuture;
+    _stopsInFlight.add(stop);
     try {
-      await stopFuture;
+      await stop;
     } finally {
-      if (identical(_stopListeningInFlight, stopFuture)) {
-        _stopListeningInFlight = null;
-      }
+      _stopsInFlight.remove(stop);
     }
   }
 
