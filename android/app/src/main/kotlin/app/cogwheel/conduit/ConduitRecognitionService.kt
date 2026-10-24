@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.os.RemoteException
 import android.speech.RecognitionListener
 import android.speech.RecognitionService
+import android.speech.RecognitionSupport
+import android.speech.RecognitionSupportCallback
 import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -25,29 +27,49 @@ class ConduitRecognitionService : RecognitionService() {
     private var delegateTarget: ComponentName? = null
 
     override fun onStartListening(recognizerIntent: Intent, listener: Callback) {
-        val target = recognitionDelegate(installedRecognizers(this), packageName)
-        if (target == null) {
+        try {
+            val recognizer = delegate()
+            if (recognizer == null) {
+                reportError(listener, SpeechRecognizer.ERROR_CLIENT)
+                return
+            }
+            recognizer.setRecognitionListener(ForwardingListener(listener))
+            recognizer.startListening(recognizerIntent)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Forwarding to $delegateTarget failed", e)
             releaseDelegate()
             reportError(listener, SpeechRecognizer.ERROR_CLIENT)
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    override fun onCheckRecognitionSupport(
+        recognizerIntent: Intent,
+        supportCallback: SupportCallback
+    ) {
+        val recognizer = delegate()
+        if (recognizer == null) {
+            supportCallback.onError(SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT)
             return
         }
-        try {
-            // Rebinding a recognizer between utterances can drop its connection
-            // (ERROR_SERVER_DISCONNECTED), so one delegate serves the session.
-            if (delegate == null || delegateTarget != target) {
-                releaseDelegate()
-                delegate = SpeechRecognizer.createSpeechRecognizer(this, target)
-                delegateTarget = target
+        recognizer.checkRecognitionSupport(
+            recognizerIntent,
+            mainExecutor,
+            object : RecognitionSupportCallback {
+                override fun onSupportResult(recognitionSupport: RecognitionSupport) {
+                    supportCallback.onSupportResult(recognitionSupport)
+                }
+
+                override fun onError(error: Int) {
+                    supportCallback.onError(error)
+                }
             }
-            delegate?.apply {
-                setRecognitionListener(ForwardingListener(listener))
-                startListening(recognizerIntent)
-            }
-        } catch (e: RuntimeException) {
-            Log.w(TAG, "Forwarding to $target failed", e)
-            releaseDelegate()
-            reportError(listener, SpeechRecognizer.ERROR_CLIENT)
-        }
+        )
+    }
+
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    override fun onTriggerModelDownload(recognizerIntent: Intent) {
+        delegate()?.triggerModelDownload(recognizerIntent)
     }
 
     override fun onStopListening(listener: Callback) {
@@ -61,6 +83,24 @@ class ConduitRecognitionService : RecognitionService() {
     override fun onDestroy() {
         releaseDelegate()
         super.onDestroy()
+    }
+
+    /**
+     * The phone's recognizer, kept for the whole session: rebinding it between
+     * utterances can drop its connection (ERROR_SERVER_DISCONNECTED).
+     */
+    private fun delegate(): SpeechRecognizer? {
+        val target = recognitionDelegate(installedRecognizers(this), packageName)
+        if (target == null) {
+            releaseDelegate()
+            return null
+        }
+        if (delegate == null || delegateTarget != target) {
+            releaseDelegate()
+            delegate = SpeechRecognizer.createSpeechRecognizer(this, target)
+            delegateTarget = target
+        }
+        return delegate
     }
 
     private fun releaseDelegate() {

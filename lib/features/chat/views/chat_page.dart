@@ -839,8 +839,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     super.initState();
     _livePromptNotifier = ref.read(openWebUiLivePromptProvider.notifier);
 
-    // The assistant can store a page to summarize before this page exists,
-    // on a cold start, so a context already waiting is sent too.
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) {
         _resetScreenContextRetry();
@@ -850,7 +848,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _resetScreenContextRetry(context: next);
       }
       _scheduleScreenContextSubmission();
-    }, fireImmediately: true);
+    });
     _conversationLoadingSub = ref.listenManual(isLoadingConversationProvider, (
       _,
       isLoading,
@@ -923,6 +921,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // First, ensure a model is selected
       await _checkAndAutoSelectModel();
       if (!mounted) return;
+
+      // On a cold start the assistant can store a page to summarize before
+      // this page exists. Send it now, on the model just chosen.
+      final waitingContext = ref.read(screenContextProvider);
+      if (waitingContext != null && waitingContext.isNotEmpty) {
+        _resetScreenContextRetry(context: waitingContext);
+        _scheduleScreenContextSubmission();
+      }
 
       // Then check for demo conversation in reviewer mode
       await _checkAndLoadDemoConversation();
