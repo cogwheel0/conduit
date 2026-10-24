@@ -61,7 +61,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   bool _saving = false;
   String? _openUrl;
   int _openRequestId = 0;
-  String? _activeDownloadKey;
+  _SharedVideoDownload? _activeDownload;
   dio.CancelToken? _exportToken;
 
   // One shared transfer per cache path, joined by every player rendering the
@@ -218,6 +218,17 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     }
     await target.parent.create(recursive: true);
 
+    // If the widget was disposed during the awaits above, `dispose` could
+    // not have released anything (no download was tracked yet). Stop before
+    // joining or starting a transfer nobody would ever release; `_openVideo`
+    // ignores errors for unmounted widgets.
+    if (!mounted) {
+      throw dio.DioException(
+        requestOptions: dio.RequestOptions(path: url),
+        message: 'Video widget was disposed',
+      );
+    }
+
     // This widget can only be interested in one playback transfer at a
     // time; drop interest in any earlier attempt before joining a new one.
     _releaseSharedDownload();
@@ -230,7 +241,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       entry = null;
     }
     if (entry == null) {
-      entry = _SharedVideoDownload(dio.CancelToken());
+      entry = _SharedVideoDownload(dio.CancelToken(), key);
       entry.refs = 1;
       final created = entry;
       created.future = _runVideoDownload(api, url, target, created.token)
@@ -243,8 +254,16 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     } else {
       entry.refs += 1;
     }
-    _activeDownloadKey = key;
-    return await entry.future;
+    _activeDownload = entry;
+    try {
+      return await entry.future;
+    } finally {
+      // This attempt's transfer is finished; forget it so a later dispose
+      // cannot decrement references on a newer transfer for the same key.
+      if (_activeDownload == entry) {
+        _activeDownload = null;
+      }
+    }
   }
 
   Future<File> _runVideoDownload(
@@ -313,17 +332,15 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   /// canceled only when the last interested player is gone. The shared
   /// Dio client is never closed here.
   void _releaseSharedDownload() {
-    final key = _activeDownloadKey;
-    if (key == null) return;
-    _activeDownloadKey = null;
-    final entry = _sharedDownloads[key];
+    final entry = _activeDownload;
     if (entry == null) return;
+    _activeDownload = null;
     entry.refs -= 1;
     if (entry.refs <= 0) {
       // Retire the entry immediately so a reopening player cannot join a
       // transfer that is about to be canceled.
-      if (_sharedDownloads[key] == entry) {
-        _sharedDownloads.remove(key);
+      if (_sharedDownloads[entry.key] == entry) {
+        _sharedDownloads.remove(entry.key);
       }
       entry.token.cancel('video player disposed');
     }
@@ -464,6 +481,16 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     final (client, headers, ownsClient) = _transportFor(api, url);
     try {
       await _streamToFile(client, url, target.path, headers, token);
+    } catch (error) {
+      // A stall, network error, or dispose-time cancel can leave a partial
+      // copy of a potentially large video; delete it instead of leaving it
+      // for the OS to clear.
+      try {
+        if (await target.exists()) {
+          await target.delete();
+        }
+      } catch (_) {}
+      rethrow;
     } finally {
       // Never close ApiService.dio: it is shared with the rest of the app.
       if (ownsClient) {
@@ -994,9 +1021,10 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
 /// same cache path. Cancel happens only when the last interested widget is
 /// disposed; the shared Dio client itself is never closed.
 class _SharedVideoDownload {
-  _SharedVideoDownload(this.token);
+  _SharedVideoDownload(this.token, this.key);
 
   final dio.CancelToken token;
+  final String key;
   late final Future<File> future;
   int refs = 0;
 }
