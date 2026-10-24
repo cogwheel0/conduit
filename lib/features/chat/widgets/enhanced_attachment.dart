@@ -271,6 +271,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
     // Video: play inline instead of showing a download-only card.
     if (_isVideoFile(_fileInfo)) {
       return EnhancedVideoAttachment(
+        key: ValueKey('att_video_${widget.attachmentId}'),
         attachmentId: widget.attachmentId,
         constraints: widget.constraints,
         filenameHint: (_fileInfo?['filename'] ?? _fileInfo?['name'])

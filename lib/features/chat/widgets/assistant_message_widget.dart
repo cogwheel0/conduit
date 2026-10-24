@@ -1704,6 +1704,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (inferFileTypeFromUrl(uri.toString()) == 'video') {
       return RepaintBoundary(
         child: EnhancedVideoAttachment(
+          key: ValueKey('md_video_$uri'),
           attachmentId: uri.toString(),
           constraints: const BoxConstraints(maxWidth: 500),
           filenameHint: title ?? alt,

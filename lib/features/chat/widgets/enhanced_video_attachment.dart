@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart' as dio;
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -56,7 +57,8 @@ class EnhancedVideoAttachment extends ConsumerStatefulWidget {
       _EnhancedVideoAttachmentState();
 }
 
-class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachment>
+class _EnhancedVideoAttachmentState
+    extends ConsumerState<EnhancedVideoAttachment>
     with WidgetsBindingObserver {
   VideoPlayerController? _controller;
   bool _initializing = true;
@@ -66,6 +68,8 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   bool _saving = false;
   String? _openUrl;
   int _openRequestId = 0;
+  PageRoute<void>? _fullscreenRoute;
+  NavigatorState? _fullscreenNav;
   _SharedVideoDownload? _activeDownload;
   dio.CancelToken? _exportToken;
 
@@ -77,6 +81,12 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   static const Duration _downloadStallTimeout = Duration(seconds: 45);
   // Markdown links download before Play is pressed, from any host.
   static const int _maxVideoBytes = 512 * 1024 * 1024;
+  // Aggregate playback cache ceiling: each distinct clip keeps a persistent
+  // cache file, so the oldest unreferenced files are evicted once the video
+  // cache passes this budget instead of accumulating until the OS clears it.
+  static const int _maxVideoCacheBytes = 1024 * 1024 * 1024;
+  static final Map<String, int> _cacheRefs = {};
+  static bool _pruning = false;
 
   @override
   void initState() {
@@ -88,14 +98,20 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   @override
   void didUpdateWidget(covariant EnhancedVideoAttachment oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.attachmentId == widget.attachmentId) return;
+    if (oldWidget.attachmentId == widget.attachmentId &&
+        mapEquals(oldWidget.httpHeaders, widget.httpHeaders)) {
+      return;
+    }
     // A replaced message can change the source under this state. Drop the
     // old player and transfer so the old clip is neither shown nor exported.
+    // The fullscreen page renders this controller, so close it first.
+    _retireFullscreen();
     _releaseSharedDownload();
     _exportToken?.cancel('video source changed');
     final previous = _controller;
     previous?.removeListener(_onControllerChanged);
     _controller = null;
+    _releaseCachePath(_tempCacheKey);
     _tempCacheKey = null;
     _openUrl = null;
     _initializing = true;
@@ -107,10 +123,12 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _retireFullscreen();
     _releaseSharedDownload();
     _exportToken?.cancel('video widget disposed');
     final controller = _controller;
     _controller = null;
+    _releaseCachePath(_tempCacheKey);
     controller?.dispose();
     super.dispose();
   }
@@ -128,6 +146,72 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   }
 
   String? _tempCacheKey;
+
+  void _retireFullscreen() {
+    final route = _fullscreenRoute;
+    if (route == null || !route.isActive) return;
+    // The fullscreen viewer renders this widget's controller; close it before
+    // the controller is disposed out from under the open route.
+    _fullscreenNav?.pop();
+  }
+
+  void _retainCachePath(String? path) {
+    if (path == null) return;
+    _cacheRefs[path] = (_cacheRefs[path] ?? 0) + 1;
+  }
+
+  void _releaseCachePath(String? path) {
+    if (path == null) return;
+    final refs = (_cacheRefs[path] ?? 1) - 1;
+    if (refs <= 0) {
+      _cacheRefs.remove(path);
+    } else {
+      _cacheRefs[path] = refs;
+    }
+  }
+
+  /// Evicts the oldest completed playback files once the video cache passes
+  /// the aggregate budget, skipping files live players or in-flight shared
+  /// transfers still reference.
+  static Future<void> _pruneVideoCache(Directory dir) async {
+    if (_pruning) return;
+    _pruning = true;
+    try {
+      if (!dir.existsSync()) return;
+      final candidates = <({File file, int size, DateTime modified})>[];
+      int total = 0;
+      await for (final entity in dir.list()) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        if (!name.startsWith('video_')) continue;
+        if (_cacheRefs.containsKey(entity.path) ||
+            _sharedDownloads.containsKey(entity.path)) {
+          continue;
+        }
+        final stat = await entity.stat();
+        if (stat.size <= 0) continue;
+        candidates.add((
+          file: entity,
+          size: stat.size,
+          modified: stat.modified,
+        ));
+        total += stat.size;
+      }
+      if (total <= _maxVideoCacheBytes) return;
+      candidates.sort((a, b) => a.modified.compareTo(b.modified));
+      for (final candidate in candidates) {
+        if (total <= _maxVideoCacheBytes) break;
+        try {
+          await candidate.file.delete();
+          total -= candidate.size;
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Cache bookkeeping must never break playback.
+    } finally {
+      _pruning = false;
+    }
+  }
 
   void _attachController(VideoPlayerController controller) {
     _controller?.removeListener(_onControllerChanged);
@@ -185,7 +269,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       // No fixed total-download deadline: large videos are fine as long as
       // data keeps arriving (a stall watchdog inside the transfer handles
       // dead connections).
-      final file = await _downloadToLocalVideo(api, openUrl);
+      final file = await _downloadToLocalVideo(api, openUrl, requestId);
       downloadedPath = file.path;
       controller = VideoPlayerController.file(file);
 
@@ -197,6 +281,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       }
 
       controller.setVolume(0);
+      _retainCachePath(file.path);
       _tempCacheKey = file.path;
       _lastPositionSeconds = -1;
       _lastPlayed = false;
@@ -214,6 +299,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       // initialize; keep the completed cache copy so the fallback export
       // reuses it instead of fetching the same video again.
       if (downloadedPath != null && requestId == _openRequestId) {
+        _retainCachePath(downloadedPath);
         _tempCacheKey = downloadedPath;
       }
       if (!mounted || requestId != _openRequestId) return;
@@ -232,7 +318,11 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   /// complete download, so a canceled or stale request never clobbers a
   /// live one and never leaves a half-written file that a later length() > 0
   /// cache hit would accept.
-  Future<File> _downloadToLocalVideo(ApiService? api, String url) async {
+  Future<File> _downloadToLocalVideo(
+    ApiService? api,
+    String url,
+    int requestId,
+  ) async {
     final extension = _videoExtension();
     // Open WebUI file URLs are the same for every account on a server, so
     // the cache name carries the account-scoped key the image cache uses.
@@ -257,10 +347,12 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     // not have released anything (no download was tracked yet). Stop before
     // joining or starting a transfer nobody would ever release; `_openVideo`
     // ignores errors for unmounted widgets.
-    if (!mounted) {
+    if (!mounted || requestId != _openRequestId) {
+      // Disposed, or a replaced source already started a newer open: never
+      // release or join transfers on behalf of a stale attempt.
       throw dio.DioException(
         requestOptions: dio.RequestOptions(path: url),
-        message: 'Video widget was disposed',
+        message: 'Video open attempt is no longer current',
       );
     }
 
@@ -312,6 +404,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     try {
       await _streamToFile(client, url, part.path, headers, token);
       await part.rename(target.path);
+      unawaited(_pruneVideoCache(target.parent));
       return target;
     } finally {
       // Never close ApiService.dio: it is shared with the rest of the app.
@@ -388,7 +481,10 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   /// ApiService.dio so its auth interceptors and ServerConfig TLS (including
   /// self-signed certificates and client certificates) apply; foreign URLs
   /// get a throwaway client carrying the eligible image headers.
-  (dio.Dio, Map<String, String>, bool) _transportFor(ApiService? api, String url) {
+  (dio.Dio, Map<String, String>, bool) _transportFor(
+    ApiService? api,
+    String url,
+  ) {
     final baseUrl = api?.baseUrl;
     final sameOrigin =
         api != null && baseUrl != null && imageUrlIsServerOrigin(baseUrl, url);
@@ -570,9 +666,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     }
     await SharePlus.instance.share(
       ShareParams(
-        files: <XFile>[
-          XFile(file.path, mimeType: mimeType, name: displayName),
-        ],
+        files: <XFile>[XFile(file.path, mimeType: mimeType, name: displayName)],
         fileNameOverrides: <String>[displayName],
       ),
     );
@@ -586,14 +680,18 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     var failed = false;
     File? exported;
     var createdNew = false;
+    final sourceUrlAtStart = _openUrl;
     try {
       final (file, created) = await _localVideoForExport();
       exported = file;
       createdNew = created;
-      // Disposed while fetching: skip delivery; scratch cleanup still runs.
-      if (mounted) {
-        await _exportVideoFile(file, _saveFileName());
+      // Disposed while fetching, or a replaced source changed under the
+      // export: the selected file belongs to the previous clip and must not
+      // be delivered under the new filename. Scratch cleanup still runs.
+      if (!mounted || _openUrl != sourceUrlAtStart) {
+        throw StateError('Video source changed during export');
       }
+      await _exportVideoFile(file, _saveFileName());
       message = l10n.videoSaved;
     } catch (error, stackTrace) {
       failed = true;
@@ -627,12 +725,21 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     if (controller.value.volume == 0) {
       controller.setVolume(1);
     }
-    Navigator.of(context).push(
-      buildPlatformPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) =>
-            _FullscreenVideoPage(controller: controller, label: _displayLabel()),
-      ),
+    final nav = Navigator.of(context);
+    final route = buildPlatformPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) =>
+          _FullscreenVideoPage(controller: controller, label: _displayLabel()),
+    );
+    _fullscreenNav = nav;
+    _fullscreenRoute = route;
+    unawaited(
+      nav.push(route).whenComplete(() {
+        if (_fullscreenRoute == route) {
+          _fullscreenRoute = null;
+          _fullscreenNav = null;
+        }
+      }),
     );
   }
 
@@ -641,7 +748,10 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     if (hint != null && hint.isNotEmpty) return hint;
     final idOrUrl = widget.attachmentId;
     try {
-      final parts = Uri.parse(idOrUrl).path.split('/').where((part) => part.isNotEmpty).toList();
+      final parts = Uri.parse(idOrUrl).path
+          .split('/')
+          .where((part) => part.isNotEmpty)
+          .toList();
       if (parts.isNotEmpty) return parts.last;
     } catch (_) {}
     return 'video';
@@ -828,9 +938,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
                         onPressed: _openFullscreen,
                       ),
                       _saving
-                          ? const _VideoSavingIndicator(
-                              color: _videoForeground,
-                            )
+                          ? const _VideoSavingIndicator(color: _videoForeground)
                           : ConduitIconButton(
                               icon: Icons.download_rounded,
                               tooltip: l10n.videoDownload,
