@@ -2011,10 +2011,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         final fileUrl = getFileUrl(file);
         if (fileUrl == null) return const SizedBox.shrink();
         // A legacy /api/v1/files/{id} URL names the file-info endpoint; play
-        // the content endpoint on the same host instead.
+        // the content endpoint on the same host instead. Only the path
+        // changes, so a query such as a signed token is kept.
+        final fileUri = Uri.tryParse(fileUrl);
         final attachmentId =
-            _fileIdPattern.hasMatch(fileUrl) && !fileUrl.endsWith('/content')
-            ? '$fileUrl/content'
+            fileUri != null &&
+                _fileIdPattern.hasMatch(fileUri.path) &&
+                !fileUri.path.endsWith('/content')
+            ? fileUri.replace(path: '${fileUri.path}/content').toString()
             : fileUrl;
         return RepaintBoundary(
           child: EnhancedVideoAttachment(
