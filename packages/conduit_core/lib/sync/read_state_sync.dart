@@ -8,30 +8,31 @@ import 'package:conduit_core/sync/chat_locks.dart';
 ///
 /// Reading a chat or marking it unread on another device changes
 /// `last_read_at` without advancing `updated_at`, so the watermark pull never
-/// re-fetches that chat for it. [localBefore] must be captured with
-/// [ChatsDao.serverChatLastReadAts] before the list is requested: a chat read
-/// or marked unread on this device while the list loads no longer holds its
-/// captured value, so it keeps its newer local state.
+/// re-fetches that chat for it. [since] is [ChatsDao.localReadStateClock]
+/// captured before the list was requested: a chat read or marked unread on
+/// this device after that, or whose unread request is still on its way, keeps
+/// its local state.
 ///
-/// Rows missing from [localBefore] are left to the regular chat merge.
+/// Rows this device does not hold are left to the regular chat merge.
 /// Returns how many chats changed.
 Future<int> applyServerReadStates({
   required AppDatabase db,
   required ChatLocks locks,
   required Map<String, int> serverLastReadAts,
-  required Map<String, int?> localBefore,
+  required int since,
   required String scope,
 }) async {
+  if (serverLastReadAts.isEmpty) return 0;
+  final local = await db.chatsDao.serverChatLastReadAts();
   var updated = 0;
   for (final MapEntry(key: id, value: server) in serverLastReadAts.entries) {
-    if (!localBefore.containsKey(id)) continue;
-    final local = localBefore[id];
-    final merged = ChatsDao.mergeServerLastReadAt(local, server);
-    if (merged == local) continue;
+    if (!local.containsKey(id)) continue;
+    final current = local[id];
+    if (ChatsDao.mergeServerLastReadAt(current, server) == current) continue;
     try {
       final changed = await locks.runExclusive(
         id,
-        () => db.chatsDao.replaceLastReadAt(id, expected: local, value: merged),
+        () => db.chatsDao.applyListedLastReadAt(id, server, since: since),
       );
       if (changed) updated++;
     } catch (error, stackTrace) {

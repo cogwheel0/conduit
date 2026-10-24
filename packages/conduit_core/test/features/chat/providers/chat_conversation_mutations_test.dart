@@ -69,6 +69,28 @@ final class _RecordingSyncEngine extends SyncEngine {
   }
 }
 
+final class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
+  @override
+  OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
+}
+
+/// The Open WebUI database of the signed-in account, switchable mid-test.
+final class _ActiveDatabase extends Notifier<AppDatabase> {
+  _ActiveDatabase(this.initial);
+
+  final AppDatabase initial;
+
+  @override
+  AppDatabase build() => initial;
+
+  void set(AppDatabase database) => state = database;
+}
+
+final _activeDatabaseProvider =
+    NotifierProvider<_ActiveDatabase, AppDatabase>(
+      () => throw UnimplementedError('override per test'),
+    );
+
 final class _ApiState extends Notifier<ApiService?> {
   _ApiState(this.initial);
 
@@ -271,10 +293,12 @@ void main() {
   ProviderContainer containerWith({
     required List<String> pulls,
     Override? apiOverride,
+    List<Override>? storageOverrides,
   }) {
     final container = ProviderContainer(
       overrides: [
-        ...openWebUiStorageOpenOverrides(database: serverDb),
+        ...storageOverrides ??
+            openWebUiStorageOpenOverrides(database: serverDb),
         directLocalDatabaseProvider.overrideWithValue(directDb),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         isAuthenticatedProvider2.overrideWithValue(true),
@@ -731,7 +755,49 @@ void main() {
       );
 
       expect(await storedReadAt('chat-s'), 200);
-      expect(listedReadSeconds(container, _openWebUiScoped('chat-s')), 200);
+      await waitUntil(
+        () => listedReadSeconds(container, _openWebUiScoped('chat-s')) == 200,
+      );
+    });
+
+    test('a late refusal settles the account it was marked in', () async {
+      // The same chat id, already unread in the account switched to.
+      final otherDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(otherDb.close);
+      await otherDb.chatsDao.upsertServerChat(
+        rows: _rows('chat-s', title: 'Other account', updatedAt: 100),
+        listLastReadAt: 0,
+      );
+      final api = _MutationApi()
+        ..gate = Completer<void>()
+        ..callStarted = Completer<void>();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+        storageOverrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          _activeDatabaseProvider.overrideWith(() => _ActiveDatabase(serverDb)),
+          appDatabaseProvider.overrideWith(
+            (ref) => ref.watch(_activeDatabaseProvider),
+          ),
+        ],
+      );
+      await seedServer('chat-s', title: 'Server');
+      await serverDb.chatsDao.setLastReadAt('chat-s', 200);
+      await container.read(conversationsProvider.future);
+
+      final marking = markConversationUnread(
+        container,
+        _openWebUiScoped('chat-s'),
+      );
+      await api.callStarted!.future;
+      container.read(_activeDatabaseProvider.notifier).set(otherDb);
+      api.failure = Exception('offline');
+      api.gate!.complete();
+
+      await expectLater(marking, throwsException);
+      expect(await storedReadAt('chat-s'), 200);
+      expect((await otherDb.chatsDao.getChat('chat-s'))!.lastReadAt, 0);
     });
 
     test('a refused request keeps a read made while it was in flight', () async {

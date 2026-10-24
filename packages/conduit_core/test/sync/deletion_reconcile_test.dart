@@ -330,6 +330,38 @@ void main() {
 
       check((await db.chatsDao.getChat('opened-now'))!.lastReadAt).equals(600);
     });
+
+    test('an unread whose request lands after the list is kept', () async {
+      final hookClient = _ListHookClient(server);
+      reconcile = DeletionReconcile(
+        client: hookClient,
+        db: db,
+        locks: locks,
+        clock: clock,
+      );
+      await seedServerChat(db, id: 'marked-here', updatedAt: 100);
+      await db.chatsDao.setLastReadAt('marked-here', 300);
+      server.seedChat(
+        id: 'marked-here',
+        blob: blobFor('marked-here'),
+        createdAt: 50,
+        updatedAt: 100,
+        lastReadAt: 300,
+      );
+      final previous = await db.chatsDao.markUnread('marked-here');
+      hookClient.whileListLoads = () async {
+        server.markChatUnread('marked-here');
+        await db.chatsDao.finishUnread(
+          'marked-here',
+          refused: false,
+          previous: previous,
+        );
+      };
+
+      await reconcile.run(ReconcileReason.manualRefresh);
+
+      check((await db.chatsDao.getChat('marked-here'))!.lastReadAt).equals(0);
+    });
   });
 
   group('confirmed server delete purges after reconcile', () {

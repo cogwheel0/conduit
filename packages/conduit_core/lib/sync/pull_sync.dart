@@ -324,8 +324,8 @@ class PullSync {
     final watermark = await _db.syncMetaDao.getPullWatermark();
     final threshold = watermark - kPullOverlapSeconds;
     var maxSeen = watermark;
-    // Captured before any list page is requested; see applyServerReadStates.
-    final localReadStates = await _db.chatsDao.serverChatLastReadAts();
+    // Before any list page is requested; see applyServerReadStates.
+    final readStateSince = _db.chatsDao.localReadStateClock;
 
     // Keyed by chat id; first occurrence wins (list order is newest-first).
     final changed = <String, _ChangedItem>{};
@@ -498,6 +498,7 @@ class PullSync {
           await _mergeChatResponse(
             resp,
             listLastReadAt: item.lastReadAt,
+            readStateSince: readStateSince,
             hasPendingCreateHashes: hasPendingCreateHashes,
           );
           _fetchMemo?.recordFetched(item.id, item.updatedAt);
@@ -528,7 +529,7 @@ class PullSync {
       db: _db,
       locks: _locks,
       serverLastReadAts: listedReadStates,
-      localBefore: localReadStates,
+      since: readStateSince,
       scope: 'sync/pull',
     );
 
@@ -658,6 +659,7 @@ class PullSync {
   Future<bool> _mergeChatResponse(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
+    int? readStateSince,
     bool? hasPendingCreateHashes,
   }) {
     final id = resp['id'] is String ? resp['id'] as String : '';
@@ -668,6 +670,7 @@ class PullSync {
       return _upsertServerChatUnlockedReturningPush(
         resp,
         listLastReadAt: listLastReadAt,
+        readStateSince: readStateSince,
         hasPendingCreateHashes: hasPendingCreateHashes,
       );
     });
@@ -680,6 +683,7 @@ class PullSync {
   Future<bool> _upsertServerChatUnlockedReturningPush(
     Map<String, dynamic> resp, {
     required int? listLastReadAt,
+    int? readStateSince,
     bool? hasPendingCreateHashes,
     bool refreshWhenClean = false,
   }) async {
@@ -760,6 +764,7 @@ class PullSync {
       userId: resp['user_id']?.toString(),
       meta: meta,
       listLastReadAt: listLastReadAt,
+      readStateSince: readStateSince,
       refreshWhenClean: refreshWhenClean,
     );
 

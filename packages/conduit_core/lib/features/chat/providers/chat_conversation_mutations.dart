@@ -184,6 +184,7 @@ Future<void> pinConversation(
 /// comes back unless the chat was read again meanwhile.
 Future<void> markConversationUnread(dynamic ref, String conversationId) async {
   final identity = ChatStorageIdentity.parse(conversationId);
+  final rawId = identity.rawId;
   final localConversation = _listedConversationForSelection(
     ref,
     conversationId,
@@ -194,18 +195,42 @@ Future<void> markConversationUnread(dynamic ref, String conversationId) async {
   }
   final api = _readProvider(ref, apiServiceProvider);
   if (api == null) throw Exception('No API service available');
+  // Held for the whole request: a late answer must settle the account the
+  // chat was marked in, not whichever one is active by then.
+  final db = _readProvider(ref, appDatabaseProvider);
+  if (db == null) throw StateError('No chat database for this account.');
 
-  final conversations = _readProvider(ref, conversationsProvider.notifier);
-  final previous = await conversations.markConversationUnread(conversationId);
+  _readProvider(
+    ref,
+    conversationsProvider.notifier,
+  ).showConversationUnread(conversationId);
+  final previous = await db.chatsDao.markUnread(rawId);
+  var refused = true;
   try {
-    await api.markConversationUnread(identity.rawId);
+    await api.markConversationUnread(rawId);
+    refused = false;
   } catch (e) {
     DebugLogger.log(
       'Error marking conversation unread: $e',
       scope: 'chat/providers',
     );
-    await conversations.restoreConversationReadAt(conversationId, previous);
     rethrow;
+  } finally {
+    try {
+      await db.chatsDao.finishUnread(
+        rawId,
+        refused: refused,
+        previous: previous,
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'unread-finish-failed',
+        scope: 'chat/providers',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'id': rawId},
+      );
+    }
   }
 }
 

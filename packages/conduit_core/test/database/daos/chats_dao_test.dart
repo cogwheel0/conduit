@@ -674,28 +674,69 @@ void main() {
       check(await db.chatsDao.markUnread('missing')).isNull();
     });
 
-    test('replaceLastReadAt only writes over the expected value', () async {
+    test('a refused unread restores only an unread still in place', () async {
       await db.chatsDao.upsertEnvelopeStub(
-        id: 'cas',
-        title: 'CAS',
+        id: 'refused',
+        title: 'Refused',
         createdAt: 1,
         updatedAt: 1,
+        lastReadAt: 100,
       );
 
+      final previous = await db.chatsDao.markUnread('refused');
+      await db.chatsDao.finishUnread(
+        'refused',
+        refused: true,
+        previous: previous,
+      );
+      check((await db.chatsDao.getChat('refused'))!.lastReadAt).equals(100);
+
+      await db.chatsDao.markUnread('refused');
+      await db.chatsDao.setLastReadAt('refused', 300);
+      await db.chatsDao.finishUnread('refused', refused: true, previous: 100);
+      check((await db.chatsDao.getChat('refused'))!.lastReadAt).equals(300);
+
+      await db.chatsDao.markUnread('refused');
+      await db.chatsDao.finishUnread('refused', refused: false, previous: 300);
+      check((await db.chatsDao.getChat('refused'))!.lastReadAt).equals(0);
+    });
+
+    test('a listed read state never undoes a later change here', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'listed',
+        title: 'Listed',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+
+      // A read after the list was requested.
+      var since = db.chatsDao.localReadStateClock;
+      await db.chatsDao.setLastReadAt('listed', 200);
       check(
-        await db.chatsDao.replaceLastReadAt('cas', expected: 5, value: 0),
+        await db.chatsDao.applyListedLastReadAt('listed', 0, since: since),
       ).isFalse();
-      check((await db.chatsDao.getChat('cas'))!.lastReadAt).isNull();
+      check((await db.chatsDao.getChat('listed'))!.lastReadAt).equals(200);
 
+      // An unread whose request is still out, then one that settled after
+      // the list was requested.
+      await db.chatsDao.markUnread('listed');
+      since = db.chatsDao.localReadStateClock;
       check(
-        await db.chatsDao.replaceLastReadAt('cas', expected: null, value: 0),
-      ).isTrue();
-      check((await db.chatsDao.getChat('cas'))!.lastReadAt).equals(0);
+        await db.chatsDao.applyListedLastReadAt('listed', 200, since: since),
+      ).isFalse();
+      await db.chatsDao.finishUnread('listed', refused: false, previous: 200);
+      check(
+        await db.chatsDao.applyListedLastReadAt('listed', 200, since: since),
+      ).isFalse();
+      check((await db.chatsDao.getChat('listed'))!.lastReadAt).equals(0);
 
+      // A list requested after both applies.
+      since = db.chatsDao.localReadStateClock;
       check(
-        await db.chatsDao.replaceLastReadAt('cas', expected: 0, value: null),
+        await db.chatsDao.applyListedLastReadAt('listed', 400, since: since),
       ).isTrue();
-      check((await db.chatsDao.getChat('cas'))!.lastReadAt).isNull();
+      check((await db.chatsDao.getChat('listed'))!.lastReadAt).equals(400);
     });
 
     test('serverChatLastReadAts skips local and tombstoned chats', () async {

@@ -116,8 +116,8 @@ class DeletionReconcile {
       }
     }
 
-    // Captured before any list page is requested; see applyServerReadStates.
-    final localReadStates = await _db.chatsDao.serverChatLastReadAts();
+    // Before any list page is requested; see applyServerReadStates.
+    final readStateSince = _db.chatsDao.localReadStateClock;
 
     // 1. Enumerate the COMPLETE server id set: both the main list (pinned +
     //    folders + root, archived excluded server-side) and the archived list,
@@ -157,7 +157,7 @@ class DeletionReconcile {
       db: _db,
       locks: _locks,
       serverLastReadAts: serverReadStates,
-      localBefore: localReadStates,
+      since: readStateSince,
       scope: 'sync/reconcile',
     );
     final candidates = [

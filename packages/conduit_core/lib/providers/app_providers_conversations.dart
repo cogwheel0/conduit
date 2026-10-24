@@ -536,51 +536,18 @@ class Conversations extends _$Conversations {
     );
   }
 
-  /// Shows the Open WebUI chat [id] as unread at once and stores the server's
-  /// explicit unread (`last_read_at = 0`). Returns the stored value it
-  /// replaced, for [restoreConversationReadAt] if the server refuses.
-  Future<int?> markConversationUnread(String id) async {
-    _setListedLastReadAt(id, DateTime.fromMillisecondsSinceEpoch(0));
-    final db = ref.read(appDatabaseProvider);
-    final rawId = ChatStorageIdentity.parse(id).rawId;
-    if (db == null || isTemporaryChat(rawId)) return null;
-    return db.chatsDao.markUnread(rawId);
-  }
-
-  /// Undoes [markConversationUnread] with the [lastReadAt] it returned, unless
-  /// the chat was read again in the meantime.
-  Future<void> restoreConversationReadAt(String id, int? lastReadAt) async {
-    final current = state.asData?.value;
-    final index = current == null
-        ? -1
-        : _conversationIndexForSelection(current, id);
-    if (index >= 0 &&
-        current![index].lastReadAt?.millisecondsSinceEpoch == 0) {
-      _setListedLastReadAt(
-        id,
-        lastReadAt == null
-            ? null
-            : DateTime.fromMillisecondsSinceEpoch(lastReadAt * 1000),
-      );
-    }
-    final db = ref.read(appDatabaseProvider);
-    final rawId = ChatStorageIdentity.parse(id).rawId;
-    if (db == null || isTemporaryChat(rawId)) return;
-    await db.chatsDao.replaceLastReadAt(
-      rawId,
-      expected: 0,
-      value: lastReadAt,
-    );
-  }
-
-  void _setListedLastReadAt(String id, DateTime? lastReadAt) {
+  /// Shows the chat [id] as unread at once. The database row, written by the
+  /// caller, takes over when the list stream next emits.
+  void showConversationUnread(String id) {
     final current = state.asData?.value;
     final index = current == null
         ? -1
         : _conversationIndexForSelection(current, id);
     if (index < 0) return;
     final updated = <Conversation>[...current!]
-      ..[index] = current[index].copyWith(lastReadAt: lastReadAt);
+      ..[index] = current[index].copyWith(
+        lastReadAt: DateTime.fromMillisecondsSinceEpoch(0),
+      );
     _replaceState(updated);
   }
 

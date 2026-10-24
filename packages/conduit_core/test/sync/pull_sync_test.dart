@@ -1477,7 +1477,12 @@ void main() {
     test('a chat read elsewhere moves its read time forward', () async {
       await seedOlderAndNewer();
 
-      await db.chatsDao.markUnread('older');
+      final previous = await db.chatsDao.markUnread('older');
+      await db.chatsDao.finishUnread(
+        'older',
+        refused: false,
+        previous: previous,
+      );
       server.seedChat(
         id: 'older',
         blob: blobFor('older'),
@@ -1500,6 +1505,53 @@ void main() {
       await pull.run();
 
       check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(600);
+    });
+
+    test('an unread whose request lands after the list is kept', () async {
+      final hookClient = _ListHookClient(server);
+      pull = PullSync(client: hookClient, db: db, locks: locks);
+      server.seedChat(
+        id: 'older',
+        blob: blobFor('older'),
+        createdAt: 100,
+        updatedAt: 100,
+        lastReadAt: 300,
+      );
+      server.seedChat(
+        id: 'newer',
+        blob: blobFor('newer'),
+        createdAt: 500,
+        updatedAt: 500,
+        lastReadAt: 500,
+      );
+      await pull.run();
+
+      // Both marked unread here; the list is read before the server stores
+      // either, and both requests succeed before the pull applies it.
+      final olderBefore = await db.chatsDao.markUnread('older');
+      final newerBefore = await db.chatsDao.markUnread('newer');
+      hookClient.whileListLoads = () async {
+        server
+          ..markChatUnread('older')
+          ..markChatUnread('newer');
+        await db.chatsDao.finishUnread(
+          'older',
+          refused: false,
+          previous: olderBefore,
+        );
+        await db.chatsDao.finishUnread(
+          'newer',
+          refused: false,
+          previous: newerBefore,
+        );
+      };
+      await pull.run();
+
+      // 'newer' sits in the overlap window, so it went through the merge.
+      check(hookClient.chatFetchStarts.where((id) => id == 'newer').length)
+          .equals(2);
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(0);
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(0);
     });
   });
 
