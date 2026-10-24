@@ -580,6 +580,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val SHARE_STAGING_DIRECTORY_NAME = "conduit-shared-intents"
     private val maxSharedFileCount = 6
     private var methodChannel: MethodChannel? = null
+    private val assistantLaunches = AssistantLaunchQueue()
     private var shareChannel: MethodChannel? = null
     private var pendingStagedShareInProgress: Boolean
         get() = PendingShareImportRuntime.isImportInProgress
@@ -634,6 +635,15 @@ class MainActivity : FlutterFragmentActivity() {
         telecomCallBridge.setup(flutterEngine)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ASSISTANT_CHANNEL)
+        assistantLaunches.reset()
+        methodChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "takePendingAction" -> {
+                    result.success(assistantLaunches.startListening()?.toChannelValue())
+                }
+                else -> result.notImplemented()
+            }
+        }
         shareChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             SHARE_TEXT_CHANNEL
@@ -1744,25 +1754,14 @@ class MainActivity : FlutterFragmentActivity() {
     private fun handleIntent(intent: Intent) {
         Log.d("MainActivity", "handleIntent called")
 
-        val screenContext = intent.getStringExtra("screen_context")
-        val screenshotPath = intent.getStringExtra("screenshot_path")
-        val startVoiceCall = intent.getBooleanExtra("start_voice_call", false)
-        val startNewChat = intent.getBooleanExtra("start_new_chat", false)
-
-        if (startVoiceCall) {
-            Log.d("MainActivity", "Invoking startVoiceCall")
-            methodChannel?.invokeMethod("startVoiceCall", null)
-        } else if (startNewChat) {
-            Log.d("MainActivity", "Invoking startNewChat")
-            methodChannel?.invokeMethod("startNewChat", null)
-        } else if (screenContext != null) {
-            Log.d("MainActivity", "Invoking analyzeScreen")
-            methodChannel?.invokeMethod("analyzeScreen", screenContext)
-        } else if (screenshotPath != null) {
-            Log.d("MainActivity", "Invoking analyzeScreenshot")
-            methodChannel?.invokeMethod("analyzeScreenshot", screenshotPath)
-        } else {
-            Log.d("MainActivity", "No screen context or screenshot path found")
+        val action = AssistantLaunchAction.take(intent)
+        if (action == null) {
+            Log.d("MainActivity", "No assistant request found")
+            return
+        }
+        Log.d("MainActivity", "Assistant asked for ${action.method}")
+        assistantLaunches.offer(action)?.let {
+            methodChannel?.invokeMethod(it.method, it.arguments)
         }
     }
     

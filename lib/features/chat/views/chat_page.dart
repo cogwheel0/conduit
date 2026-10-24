@@ -918,9 +918,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
 
-      // Initialize Android Assistant Handler
-      ref.read(androidAssistantProvider);
-
       // First, ensure a model is selected
       await _checkAndAutoSelectModel();
       if (!mounted) return;
