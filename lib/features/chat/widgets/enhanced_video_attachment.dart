@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart' as dio;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -73,11 +75,32 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   static final Map<String, _SharedVideoDownload> _sharedDownloads = {};
   static int _scratchSeq = 0;
   static const Duration _downloadStallTimeout = Duration(seconds: 45);
+  // Markdown links download before Play is pressed, from any host.
+  static const int _maxVideoBytes = 512 * 1024 * 1024;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _openVideo();
+  }
+
+  @override
+  void didUpdateWidget(covariant EnhancedVideoAttachment oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachmentId == widget.attachmentId) return;
+    // A replaced message can change the source under this state. Drop the
+    // old player and transfer so the old clip is neither shown nor exported.
+    _releaseSharedDownload();
+    _exportToken?.cancel('video source changed');
+    final previous = _controller;
+    previous?.removeListener(_onControllerChanged);
+    _controller = null;
+    _tempCacheKey = null;
+    _openUrl = null;
+    _initializing = true;
+    _playbackFailed = false;
+    if (previous != null) unawaited(previous.dispose());
     _openVideo();
   }
 
@@ -211,10 +234,19 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   /// cache hit would accept.
   Future<File> _downloadToLocalVideo(ApiService? api, String url) async {
     final extension = _videoExtension();
+    // Open WebUI file URLs are the same for every account on a server, so
+    // the cache name carries the account-scoped key the image cache uses.
+    final cacheIdentity =
+        buildImageCacheKeyForUrlFromContainer(
+          ProviderScope.containerOf(context, listen: false),
+          url,
+          effectiveHeaders: widget.httpHeaders,
+        ) ??
+        url;
     final dir = await getTemporaryDirectory();
     final target = File(
       '${dir.path}/conduit_attachments/'
-      'video_${_cacheNameFor(url)}.$extension',
+      'video_${_cacheNameFor(url, cacheIdentity)}.$extension',
     );
     if (await target.exists() && await target.length() > 0) {
       return target;
@@ -318,6 +350,9 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
         cancelToken: token,
         onReceiveProgress: (received, total) {
           lastChunkAt = DateTime.now();
+          if (received > _maxVideoBytes) {
+            token.cancel('video exceeds size limit');
+          }
         },
         options: dio.Options(
           headers: headers,
@@ -367,7 +402,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     return (dio.Dio(), headers, true);
   }
 
-  String _cacheNameFor(String url) {
+  String _cacheNameFor(String url, String cacheIdentity) {
     final uri = Uri.tryParse(url);
     final segments = uri == null
         ? const <String>[]
@@ -376,7 +411,8 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
         ? 'video'
         : segments.last.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     final trimmed = label.length > 48 ? label.substring(0, 48) : label;
-    return '${trimmed}_${url.hashCode.toRadixString(16)}';
+    final digest = sha256.convert(utf8.encode(cacheIdentity)).toString();
+    return '${trimmed}_${digest.substring(0, 32)}';
   }
 
   void _togglePlay() {
