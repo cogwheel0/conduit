@@ -184,6 +184,10 @@ class _EnhancedVideoAttachmentState
         if (entity is! File) continue;
         final name = entity.uri.pathSegments.last;
         if (!name.startsWith('video_')) continue;
+        // An in-flight playback download writes video_<key>.<seq>.part;
+        // _sharedDownloads keys the FINAL path, so the reference check below
+        // cannot protect it. Scratch owners delete their own partials.
+        if (name.endsWith('.part')) continue;
         if (_cacheRefs.containsKey(entity.path) ||
             _sharedDownloads.containsKey(entity.path)) {
           continue;
