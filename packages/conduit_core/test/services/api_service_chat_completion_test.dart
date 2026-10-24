@@ -527,8 +527,16 @@ void main() {
     test(
       'a saved "automatic" effort is dropped, as the picker value is',
       () async {
+        // An explicit automatic outranks the global default too (normalized
+        // "automatic" is what a queued retry-without-effort freezes into the
+        // settings snapshot for its replay).
         final body = await sentBody(
           chatParams: {'reasoning_effort': 'automatic', 'temperature': 0.5},
+          userSettings: {
+            'ui': {
+              'params': {'reasoning_effort': 'medium'},
+            },
+          },
         );
 
         check(paramsOf(body)).deepEquals({'temperature': 0.5});

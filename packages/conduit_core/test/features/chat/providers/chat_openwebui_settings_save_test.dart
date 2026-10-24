@@ -681,6 +681,60 @@ void main() {
       },
     );
 
+    test(
+      'retry-clearing lands on the chat it started in, not the one opened since',
+      () async {
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        await _seed(db, 'c2', params: {'reasoning_effort': 'low'});
+        final gate = Completer<void>();
+        final c = container(
+          active: _conversation('c1'),
+          extraOverrides: [
+            localReasoningEffortsProvider.overrideWith(
+              () => _SlowEfforts(gate),
+            ),
+          ],
+        );
+
+        final clear = clearReasoningEffortForRetry(c, model);
+        // Preference storage is slow; the user opens another chat meanwhile.
+        c.read(activeConversationProvider.notifier).set(_conversation('c2'));
+        gate.complete();
+        final cleared = await clear;
+
+        check(cleared).isTrue();
+        check((await stored('c1'))['reasoning_effort']).isNull();
+        check(await stored('c2')).deepEquals({'reasoning_effort': 'low'});
+      },
+    );
+
+    test(
+      'a denied chat write is still cleared when no override was ever saved',
+      () async {
+        // The picker keeps local picks when the chat write is denied, so a
+        // user without rights can be opted in locally with nothing saved.
+        // With nothing on the chat to resend, clearing must not block a
+        // retry that is already safe.
+        await _seed(db, 'c1');
+        final c = container(
+          active: _conversation('c1'),
+          access: const OpenWebUiChatSettingsAccess(
+            canEditSystemPrompt: true,
+            canEditParameters: false,
+          ),
+        );
+        const plain = Model(id: 'plain-chat-model', name: 'Plain');
+        await selectReasoningEffortForModel(c, plain, 'high');
+
+        final cleared = await clearReasoningEffortForRetry(c, plain);
+
+        check(cleared).isTrue();
+        check(localReasoningEffortForModel(c.read, plain))
+            .equals(kAutomaticReasoningEffort);
+        check(await stored('c1')).isEmpty();
+      },
+    );
+
     group('while the pick is still being recorded locally', () {
       const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
 

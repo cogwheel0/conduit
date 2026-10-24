@@ -2344,15 +2344,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     caseSensitive: false,
   );
 
-  /// The model regeneration will route this answer through: the answer's own
-  /// model, the selected one when the answer carries no model or the same
-  /// one, and null when the failed model left the model list — then only the
-  /// chat-wide override can still be cleared.
+  /// The model the retry will route this answer through: an ordinary
+  /// regeneration runs on the model selected now, while a comparison answer
+  /// regenerates with its own model. Null only when that model left the
+  /// model list — then just the chat-wide override can still be cleared.
   Model? _modelForRegeneratedAnswer() {
+    final selected = ref.read(selectedModelProvider);
+    final group = _comparisonGroup;
+    if (group == null || !group.isComparison) return selected;
     final message = widget.message is ChatMessage
         ? widget.message as ChatMessage
         : null;
-    final selected = ref.read(selectedModelProvider);
     final modelId = message?.model;
     if (modelId == null || modelId.isEmpty || selected?.id == modelId) {
       return selected;

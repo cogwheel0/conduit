@@ -566,14 +566,17 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         );
   }
 
-  /// Manual "retry without reasoning effort" (issue #779 recovery): removes
-  /// the frozen `reasoning_effort` from the settings snapshot of a queued
-  /// `requestCompletion` payload so the replay goes out without the parameter
-  /// the provider rejected — a plain re-arm replays the snapshot verbatim.
-  /// Returns false when [seq] is not a decodable completion op, and true
-  /// without rewriting when the payload holds no snapshot to strip (the
-  /// replay then reads the chat's live, already-cleared settings).
-  Future<bool> stripReasoningEffortFromCompletionPayload(int seq) async {
+  /// Manual "retry without reasoning effort" (issue #779 recovery): freezes
+  /// an explicit `automatic` into the queued `requestCompletion`'s settings
+  /// snapshot so the replay goes out without the parameter the provider
+  /// rejected. Freezing rather than deleting is deliberate: a replay that
+  /// finds no saved value falls back to the admitted global defaults, which
+  /// a model that advertises support still receives — while an explicit
+  /// automatic is dropped at the request boundary whatever the model or the
+  /// globals say. Returns false when [seq] is not a completion op. With no
+  /// readable snapshot the replay would read the chat's live params, so the
+  /// frozen copy is seeded from those.
+  Future<bool> freezeAutomaticReasoningEffortOnCompletion(int seq) async {
     final op =
         await (select(outboxOps)..where((t) => t.seq.equals(seq)))
             .getSingleOrNull();
@@ -581,22 +584,24 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
       return false;
     }
     final payload = _decodePayload(op.payload);
-    final settings = payload['chatSettings'];
-    if (settings is! Map) return true;
-    final stripped = Map<String, dynamic>.from(settings);
-    var changed = false;
-    final params = stripped['params'];
-    if (params is Map && params.containsKey('reasoning_effort')) {
-      stripped['params'] = Map<String, dynamic>.from(params)
-        ..remove('reasoning_effort');
-      changed = true;
-    }
-    if (stripped['reasoningEffort'] != null) {
-      stripped.remove('reasoningEffort');
-      changed = true;
-    }
-    if (!changed) return true;
-    payload['chatSettings'] = stripped;
+    final existing = OpenWebUiChatSettingsSnapshot.tryFromJson(
+      payload['chatSettings'],
+    );
+    final liveParams = existing != null || op.chatId == null || op.chatId!.isEmpty
+        ? null
+        : await attachedDatabase.chatsDao.getChatParams(op.chatId!);
+    final frozen = OpenWebUiChatSettingsSnapshot(
+      params: <String, dynamic>{
+        ...?existing?.params,
+        ...?liveParams,
+        'reasoning_effort': 'automatic',
+      },
+      // The picker's admitted value goes too; the explicit automatic above
+      // already outranks it at the request boundary.
+      reasoningEffort: null,
+      baseline: existing?.baseline,
+    );
+    payload['chatSettings'] = frozen.toJson();
     await (update(outboxOps)..where((t) => t.seq.equals(seq))).write(
       OutboxOpsCompanion(payload: Value(jsonEncode(payload))),
     );

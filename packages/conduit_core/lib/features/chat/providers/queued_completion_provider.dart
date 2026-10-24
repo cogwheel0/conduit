@@ -332,9 +332,10 @@ class QueuedCompletionActions {
   }
 
   /// Manual retry without the frozen `reasoning_effort` (issue #779
-  /// recovery): strips the parameter from the queued completion's settings
-  /// snapshot before re-arming, so the replay cannot resend the value the
-  /// provider rejected. Plain [retry] replays the stored snapshot verbatim.
+  /// recovery): freezes an explicit automatic into the queued completion's
+  /// settings snapshot before re-arming, so the replay can neither resend
+  /// the rejected value nor fall back to the admitted global default.
+  /// Plain [retry] replays the stored snapshot verbatim.
   Future<void> retryWithoutReasoningEffort(QueuedCompletionInfo info) async {
     final db = _ref.read(appDatabaseProvider);
     if (db == null ||
@@ -347,7 +348,7 @@ class QueuedCompletionActions {
       info: info,
       database: db,
       mutation: () async {
-        if (!await db.outboxDao.stripReasoningEffortFromCompletionPayload(
+        if (!await db.outboxDao.freezeAutomaticReasoningEffortOnCompletion(
           info.seq,
         )) {
           return false;
