@@ -486,6 +486,65 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
+  // The tablet panel stays mounted when another thread opens in it, and kept
+  // the scroll offset of the one before.
+  testWidgets('another thread opened in the panel starts at its top', (
+    tester,
+  ) async {
+    final api = _ChannelApi(threadMessages: const []);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        socketServiceProvider.overrideWithValue(null),
+      ],
+    );
+    addTearDown(container.dispose);
+    final longParent = List.generate(
+      120,
+      (line) => 'Line $line of a long prompt.',
+    ).join('\n\n');
+    Widget panel(Map<String, dynamic> parent) => UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: AppTheme.light(TweakcnThemes.t3Chat),
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ThreadPanel(
+          channelId: 'channel-1',
+          parentMessage: ChannelMessage.fromJson(parent),
+          onClose: () {},
+          onReactionTap: (_, _) {},
+        ),
+      ),
+    );
+    ScrollPosition position() => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(ThreadPanel),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+
+    await tester.pumpWidget(panel(_messageJson(longParent)));
+    await tester.pump(const Duration(milliseconds: 1));
+    position().jumpTo(1500);
+    await tester.pump();
+    check(position().pixels).equals(1500);
+
+    await tester.pumpWidget(
+      panel({..._messageJson(longParent), 'id': 'message-2'}),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+
+    check(position().pixels).equals(0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
   // Open WebUI 0.12.1 apps post with no user_id and name the app in `user`.
   testWidgets('back-to-back replies from two apps each name their app', (
     tester,

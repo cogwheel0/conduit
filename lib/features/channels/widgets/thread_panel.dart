@@ -181,9 +181,11 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
               child: Stack(
                 children: [
                   // The parent scrolls with the replies: a long one held in
-                  // place above them pushed them off the screen.
+                  // place above them pushed them off the screen. Another
+                  // thread opened in this panel starts at its top.
                   Positioned.fill(
                     child: CustomScrollView(
+                      key: ValueKey<String>(widget.parentMessage.id),
                       slivers: [
                         SliverToBoxAdapter(
                           child: _ParentMessageTile(
