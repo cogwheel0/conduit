@@ -92,5 +92,52 @@ void main() {
       ]);
       check(files.single['type']).equals('image');
     });
+
+    test('mime_type aliases classify extensionless videos', () {
+      final fromMimeType = debugExtractFilesFromResult([
+        {
+          'url': 'https://ai.fingaz.info/api/v1/files/abc/content',
+          'mime_type': 'video/webm',
+        },
+      ]);
+      check(fromMimeType.single['type']).equals('video');
+
+      final fromMimeCase = debugExtractFilesFromResult([
+        {
+          'url': 'https://ai.fingaz.info/api/v1/files/abc/content',
+          'mimeType': 'video/quicktime',
+        },
+      ]);
+      check(fromMimeCase.single['type']).equals('video');
+
+      final fromContentTypeCase = debugExtractFilesFromResult([
+        {
+          'url': 'https://ai.fingaz.info/api/v1/files/abc/content',
+          'contentType': 'video/mp4',
+        },
+      ]);
+      check(fromContentTypeCase.single['type']).equals('video');
+    });
+
+    test('entries carry the declared name and media type for export', () {
+      final files = debugExtractFilesFromResult([
+        {
+          'url': 'https://ai.fingaz.info/api/v1/files/abc/content',
+          'filename': 'clip.webm',
+        },
+      ]);
+      check(files.single['type']).equals('video');
+      check(files.single['filename']).equals('clip.webm');
+
+      final typed = debugExtractFilesFromResult([
+        {
+          'url': 'https://ai.fingaz.info/api/v1/files/abc/content',
+          'mime_type': 'video/x-matroska',
+          'name': 'render.mkv',
+        },
+      ]);
+      check(typed.single['content_type']).equals('video/x-matroska');
+      check(typed.single['filename']).equals('render.mkv');
+    });
   });
 }

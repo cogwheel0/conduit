@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart' as dio;
@@ -24,10 +23,13 @@ import '../services/native_image_viewer_bridge.dart';
 
 /// Inline video player for chat attachments (generated clips, tool output).
 ///
-/// Accepts a full URL, a server-relative path, or a bare file ID. Full URLs
-/// stream directly with auth headers when available; bare IDs resolve through
-/// the Files API and play from a local cached copy. Falls back to a compact
-/// open-in-browser card when playback is unavailable.
+/// Accepts a full URL, a server-relative path, or a bare file ID. Every
+/// source is fetched through the server-configured HTTP client (same-origin
+/// requests reuse ApiService.dio so self-signed certificates and client
+/// certificates from ServerConfig apply) and played from a local cached
+/// copy, so playback and export share one transport. Falls back to a compact
+/// card with open-in-browser and download actions when playback is
+/// unavailable.
 class EnhancedVideoAttachment extends ConsumerStatefulWidget {
   const EnhancedVideoAttachment({
     super.key,
@@ -35,12 +37,14 @@ class EnhancedVideoAttachment extends ConsumerStatefulWidget {
     this.httpHeaders,
     this.constraints,
     this.filenameHint,
+    this.contentType,
   });
 
   final String attachmentId;
   final Map<String, String>? httpHeaders;
   final BoxConstraints? constraints;
   final String? filenameHint;
+  final String? contentType;
 
   @override
   ConsumerState<EnhancedVideoAttachment> createState() =>
@@ -49,13 +53,11 @@ class EnhancedVideoAttachment extends ConsumerStatefulWidget {
 
 class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachment>
     with WidgetsBindingObserver {
-  // Keep shared temp copies alive while any player still references them.
-  static final Set<String> _activeCacheKeys = <String>{};
-
   VideoPlayerController? _controller;
   bool _initializing = true;
   bool _playbackFailed = false;
   bool _lastPlayed = false;
+  int _lastPositionSeconds = -1;
   bool _saving = false;
   String? _openUrl;
   int _openRequestId = 0;
@@ -71,11 +73,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     final controller = _controller;
-    final cacheKey = _tempCacheKey;
     _controller = null;
-    if (cacheKey != null) {
-      _activeCacheKeys.remove(cacheKey);
-    }
     controller?.dispose();
     super.dispose();
   }
@@ -103,9 +101,11 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   void _onControllerChanged() {
     if (!mounted) return;
     final controller = _controller;
-    if (controller != null &&
-        controller.value.isInitialized &&
+    if (controller == null || !controller.value.isInitialized) return;
+    final seconds = controller.value.position.inSeconds;
+    if (seconds != _lastPositionSeconds ||
         controller.value.isPlaying != _lastPlayed) {
+      _lastPositionSeconds = seconds;
       _lastPlayed = controller.value.isPlaying;
       setState(() {});
     }
@@ -116,50 +116,38 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     final idOrUrl = widget.attachmentId.trim();
     VideoPlayerController? controller;
     String? openUrl;
-    String? cacheKey;
 
     try {
       if (idOrUrl.isEmpty) {
         throw StateError('Empty video attachment id');
       }
 
+      final api = ref.read(apiServiceProvider);
       if (idOrUrl.startsWith('http://') || idOrUrl.startsWith('https://')) {
-        final headers =
-            (widget.httpHeaders ??
-                readImageHeadersForUrlFromWidgetRef(ref, idOrUrl)) ??
-            const <String, String>{};
-        controller = VideoPlayerController.networkUrl(
-          Uri.parse(idOrUrl),
-          httpHeaders: headers,
-        );
         openUrl = idOrUrl;
       } else if (idOrUrl.startsWith('/')) {
-        final api = ref.read(apiServiceProvider);
         final baseUrl = api?.baseUrl;
         if (baseUrl == null) {
           throw StateError('No server origin for relative video path');
         }
-        final fullUrl = '$baseUrl$idOrUrl';
-        final headers =
-            (widget.httpHeaders ??
-                readImageHeadersForUrlFromWidgetRef(ref, fullUrl)) ??
-            const <String, String>{};
-        controller = VideoPlayerController.networkUrl(
-          Uri.parse(fullUrl),
-          httpHeaders: headers,
-        );
-        openUrl = fullUrl;
+        openUrl = '$baseUrl$idOrUrl';
       } else {
-        // Bare file id: resolve through the Files API and play locally.
-        final api = ref.read(apiServiceProvider);
-        if (api == null) {
+        // Bare file id: resolve through the Files API content endpoint.
+        final baseUrl = api?.baseUrl;
+        if (baseUrl == null) {
           throw StateError('API service unavailable for video attachment');
         }
-        final file = await _ensureLocalVideoFile(api, idOrUrl);
-        cacheKey = file.path;
-        controller = VideoPlayerController.file(file);
-        openUrl = '${api.baseUrl}/api/v1/files/$idOrUrl/content';
+        openUrl = '$baseUrl/api/v1/files/$idOrUrl/content';
       }
+
+      // Fetch through the server-configured client and play a local copy:
+      // VideoPlayerController.networkUrl would bypass the TLS settings
+      // (self-signed / client certs) that ApiService.dio already applies,
+      // and streamed playback would leak the whole fetch into memory.
+      final file = await _downloadToLocalVideo(api, openUrl).timeout(
+        const Duration(seconds: 90),
+      );
+      controller = VideoPlayerController.file(file);
 
       await controller.initialize().timeout(const Duration(seconds: 30));
 
@@ -169,10 +157,9 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       }
 
       controller.setVolume(0);
-      _tempCacheKey = cacheKey;
-      if (cacheKey != null) {
-        _activeCacheKeys.add(cacheKey);
-      }
+      _tempCacheKey = file.path;
+      _lastPositionSeconds = -1;
+      _lastPlayed = false;
       _attachController(controller);
       setState(() {
         _initializing = false;
@@ -192,39 +179,75 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     }
   }
 
-  Future<File> _ensureLocalVideoFile(ApiService api, String fileId) async {
+  /// Streams the video into the attachment cache. The transfer lands on a
+  /// scratch path and is renamed only after a complete download, so a
+  /// canceled request never leaves a half-written file that a later
+  /// length() > 0 cache hit would accept.
+  Future<File> _downloadToLocalVideo(ApiService? api, String url) async {
+    final extension = _videoExtension();
     final dir = await getTemporaryDirectory();
-    final safeId = fileId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    final file = File('${dir.path}/conduit_attachments/video_$safeId.mp4');
-    if (await file.exists() && await file.length() > 0) {
-      return file;
+    final target = File(
+      '${dir.path}/conduit_attachments/'
+      'video_${_cacheNameFor(url)}.$extension',
+    );
+    if (await target.exists() && await target.length() > 0) {
+      return target;
     }
+    await target.parent.create(recursive: true);
 
-    final content = await api.getFileContent(fileId);
-    List<int> bytes;
-    if (_looksLikeBase64(content)) {
-      bytes = base64.decode(content);
-    } else {
-      bytes = utf8.encode(content);
+    final part = File('${target.path}.part');
+    final (client, headers, ownsClient) = _transportFor(api, url);
+    try {
+      await client.download(
+        url,
+        part.path,
+        options: dio.Options(
+          headers: headers,
+          responseType: dio.ResponseType.stream,
+        ),
+      );
+      await part.rename(target.path);
+      return target;
+    } finally {
+      if (ownsClient) {
+        client.close(force: true);
+      }
+      try {
+        if (await part.exists()) {
+          await part.delete();
+        }
+      } catch (_) {}
     }
-
-    await file.parent.create(recursive: true);
-    await file.writeAsBytes(bytes);
-    return file;
   }
 
-  bool _looksLikeBase64(String value) {
-    if (value.startsWith('data:')) return true;
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return false;
-    final candidate = trimmed.replaceAll(RegExp(r'\s+'), '');
-    if (candidate.length % 4 != 0) return false;
-    final binary = RegExp(r'^[A-Za-z0-9+/]+={0,2}$');
-    if (!binary.hasMatch(candidate)) return false;
-    if (candidate.length >= 1024) return true;
-    return utf8.decode(base64.decode(candidate), allowMalformed: true).codeUnits.any(
-      (unit) => unit == 0,
-    );
+  /// Picks the HTTP transport for [url]: same-origin requests reuse
+  /// ApiService.dio so its auth interceptors and ServerConfig TLS (including
+  /// self-signed certificates and client certificates) apply; foreign URLs
+  /// get a throwaway client carrying the eligible image headers.
+  (dio.Dio, Map<String, String>, bool) _transportFor(ApiService? api, String url) {
+    final baseUrl = api?.baseUrl;
+    final sameOrigin =
+        api != null && baseUrl != null && imageUrlIsServerOrigin(baseUrl, url);
+    if (sameOrigin) {
+      return (api.dio, widget.httpHeaders ?? const <String, String>{}, false);
+    }
+    final headers =
+        widget.httpHeaders ??
+        readImageHeadersForUrlFromWidgetRef(ref, url) ??
+        const <String, String>{};
+    return (dio.Dio(), headers, true);
+  }
+
+  String _cacheNameFor(String url) {
+    final uri = Uri.tryParse(url);
+    final segments = uri == null
+        ? const <String>[]
+        : uri.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    final label = segments.isEmpty
+        ? 'video'
+        : segments.last.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final trimmed = label.length > 48 ? label.substring(0, 48) : label;
+    return '${trimmed}_${url.hashCode.toRadixString(16)}';
   }
 
   void _togglePlay() {
@@ -259,7 +282,25 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     'avi': 'video/x-msvideo',
   };
 
+  static const Map<String, String> _videoExtensionByMime = {
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
+    'video/x-matroska': 'mkv',
+    'video/avi': 'avi',
+    'video/x-msvideo': 'avi',
+  };
+
+  /// Server-declared video MIME type, when present, wins over name guessing
+  /// so extensionless Files API URLs still download in the right container.
+  String _declaredContentType() {
+    final declared = widget.contentType?.toLowerCase().trim() ?? '';
+    return declared.startsWith('video/') ? declared : '';
+  }
+
   String _videoExtension() {
+    final fromMime = _videoExtensionByMime[_declaredContentType()];
+    if (fromMime != null) return fromMime;
     final candidates = <String>[
       widget.filenameHint ?? '',
       widget.attachmentId,
@@ -286,29 +327,30 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     return '$base.${_videoExtension()}';
   }
 
-  Future<File> _localVideoForExport() async {
+  /// Returns the file to hand to the exporter plus whether this call created
+  /// it. The playback cache is reused (and must not be deleted while the
+  /// player may still reference it); only freshly downloaded scratch copies
+  /// are cleaned up by the caller.
+  Future<(File, bool)> _localVideoForExport() async {
     final cached = _tempCacheKey;
     if (cached != null) {
       final cachedFile = File(cached);
       if (await cachedFile.exists() && await cachedFile.length() > 0) {
-        return cachedFile;
+        return (cachedFile, false);
       }
     }
     final url = _openUrl;
     if (url == null || url.isEmpty) {
       throw StateError('Video source unavailable');
     }
-    final headers =
-        widget.httpHeaders ??
-        readImageHeadersForUrlFromWidgetRef(ref, url) ??
-        const <String, String>{};
+    final api = ref.read(apiServiceProvider);
     final dir = await getTemporaryDirectory();
     final target = File(
       '${dir.path}/conduit_attachments/export_'
       '${DateTime.now().millisecondsSinceEpoch}.${_videoExtension()}',
     );
     await target.parent.create(recursive: true);
-    final client = dio.Dio();
+    final (client, headers, ownsClient) = _transportFor(api, url);
     try {
       await client.download(
         url,
@@ -319,13 +361,19 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
         ),
       );
     } finally {
-      client.close(force: true);
+      // Never close ApiService.dio: it is shared with the rest of the app.
+      if (ownsClient) {
+        client.close(force: true);
+      }
     }
-    return target;
+    return (target, true);
   }
 
   Future<void> _exportVideoFile(File file, String displayName) async {
-    final mimeType = _videoMimeByExtension[_videoExtension()] ?? 'video/mp4';
+    final declaredType = _declaredContentType();
+    final mimeType = declaredType.isNotEmpty
+        ? declaredType
+        : _videoMimeByExtension[_videoExtension()] ?? 'video/mp4';
     if (Platform.isAndroid) {
       final bridge = NativeImageViewerBridge.instance;
       if (await bridge.canSaveImages()) {
@@ -355,8 +403,12 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     final l10n = AppLocalizations.of(context)!;
     String message;
     var failed = false;
+    File? exported;
+    var createdNew = false;
     try {
-      final file = await _localVideoForExport();
+      final (file, created) = await _localVideoForExport();
+      exported = file;
+      createdNew = created;
       await _exportVideoFile(file, _saveFileName());
       message = l10n.videoSaved;
     } catch (error, stackTrace) {
@@ -368,6 +420,13 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
         error: error,
         stackTrace: stackTrace,
       );
+    }
+    if (createdNew && exported != null) {
+      // Scratch downloads belong to us; the playback cache may still be in
+      // use by the player, so it stays put.
+      try {
+        await exported.delete();
+      } catch (_) {}
     }
     if (!mounted) return;
     setState(() => _saving = false);
@@ -458,6 +517,20 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
                 IconButton(
                   icon: const Icon(Icons.open_in_new, size: 18),
                   onPressed: _openExternally,
+                ),
+              if (_openUrl != null || _tempCacheKey != null)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  tooltip: l10n.videoDownload,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_rounded, size: 18),
+                  onPressed: _saving ? null : _downloadVideo,
                 ),
             ],
           ),

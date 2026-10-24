@@ -275,6 +275,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
         constraints: widget.constraints,
         filenameHint: (_fileInfo?['filename'] ?? _fileInfo?['name'])
             ?.toString(),
+        contentType: _fileInfo?['content_type']?.toString(),
       );
     }
 

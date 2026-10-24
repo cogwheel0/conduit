@@ -4766,8 +4766,19 @@ Map<String, dynamic> _fileEntryFromUrl(
   Map<dynamic, dynamic>? sourceEntry,
 }) {
   final contentType =
-      sourceEntry?['content_type']?.toString().toLowerCase() ?? '';
+      (sourceEntry?['content_type'] ??
+              sourceEntry?['contentType'] ??
+              sourceEntry?['mime_type'] ??
+              sourceEntry?['mimeType'])
+          ?.toString()
+          .toLowerCase()
+          .trim() ??
+      '';
   final declaredType = sourceEntry?['type']?.toString().toLowerCase() ?? '';
+  final declaredName =
+      sourceEntry?['filename']?.toString() ??
+      sourceEntry?['name']?.toString() ??
+      '';
   String type;
   if (contentType.startsWith('video/')) {
     type = 'video';
@@ -4778,10 +4789,6 @@ Map<String, dynamic> _fileEntryFromUrl(
   } else if (declaredType == 'image') {
     type = 'image';
   } else {
-    final declaredName =
-        sourceEntry?['filename']?.toString() ??
-        sourceEntry?['name']?.toString() ??
-        '';
     final inferredFromName = declaredName.isEmpty
         ? 'file'
         : inferFileTypeFromUrl(declaredName);
@@ -4792,6 +4799,11 @@ Map<String, dynamic> _fileEntryFromUrl(
   final entry = <String, dynamic>{'type': type, 'url': url};
   if (contentType.isNotEmpty) {
     entry['content_type'] = contentType;
+  }
+  // Keep the declared name so players/exporters pick the right container
+  // even when the delivery URL has no extension (e.g. Files API URLs).
+  if (declaredName.isNotEmpty) {
+    entry['filename'] = declaredName;
   }
   return entry;
 }

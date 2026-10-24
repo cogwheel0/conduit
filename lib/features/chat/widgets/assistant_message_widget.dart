@@ -2017,6 +2017,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             constraints: const BoxConstraints(maxWidth: 500),
             filenameHint:
                 file['filename'] as String? ?? file['name'] as String?,
+            contentType: file['content_type'] as String?,
           ),
         );
       }).toList(),
