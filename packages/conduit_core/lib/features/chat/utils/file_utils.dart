@@ -71,6 +71,9 @@ bool isVideoFile(dynamic file) {
   return false;
 }
 
+/// Checks if a file map represents an image.
+/// Matches OpenWebUI behavior: type === 'image' OR content_type starts with
+/// 'image/', unless the entry is a video.
 bool isImageFile(dynamic file) {
   if (file is! Map) return false;
   if (isVideoFile(file)) return false;
@@ -79,6 +82,10 @@ bool isImageFile(dynamic file) {
   return contentType.startsWith('image/');
 }
 
+/// Extracts the file URL or ID from a file map.
+/// OpenWebUI stores either a full URL, data URL, or just the file ID.
+///
+/// Returns the URL/ID string, or null if the file has no valid URL.
 String? getFileUrl(dynamic file) {
   if (file is! Map) return null;
   final url = file['url'];

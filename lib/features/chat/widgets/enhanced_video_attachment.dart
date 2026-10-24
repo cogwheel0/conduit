@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart' as dio;
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -18,7 +18,10 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../core/network/image_header_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
+import '../../../shared/utils/platform_page_route.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../services/native_image_viewer_bridge.dart';
 
 /// Inline video player for chat attachments (generated clips, tool output).
@@ -476,6 +479,14 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       '${DateTime.now().millisecondsSinceEpoch}.${_videoExtension()}',
     );
     await target.parent.create(recursive: true);
+    // Disposed during the awaits above: dispose had no token to cancel, so a
+    // transfer started now could never be stopped.
+    if (!mounted) {
+      throw dio.DioException(
+        requestOptions: dio.RequestOptions(path: url),
+        message: 'Video widget was disposed',
+      );
+    }
     final token = dio.CancelToken();
     _exportToken = token;
     final (client, headers, ownsClient) = _transportFor(api, url);
@@ -543,7 +554,10 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       final (file, created) = await _localVideoForExport();
       exported = file;
       createdNew = created;
-      await _exportVideoFile(file, _saveFileName());
+      // Disposed while fetching: skip delivery; scratch cleanup still runs.
+      if (mounted) {
+        await _exportVideoFile(file, _saveFileName());
+      }
       message = l10n.videoSaved;
     } catch (error, stackTrace) {
       failed = true;
@@ -578,7 +592,8 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       controller.setVolume(1);
     }
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
+      buildPlatformPageRoute<void>(
+        fullscreenDialog: true,
         builder: (_) =>
             _FullscreenVideoPage(controller: controller, label: _displayLabel()),
       ),
@@ -619,7 +634,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
           child: const SizedBox(
             width: 24,
             height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: AdaptiveProgressIndicator(strokeWidth: 2),
           ),
         ),
       );
@@ -648,24 +663,21 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
                 ),
               ),
               if (_openUrl != null)
-                IconButton(
-                  icon: const Icon(Icons.open_in_new, size: 18),
+                ConduitIconButton(
+                  icon: Icons.open_in_new,
+                  tooltip: l10n.videoOpenInBrowser,
+                  isCompact: true,
                   onPressed: _openExternally,
                 ),
               if (_openUrl != null || _tempCacheKey != null)
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  tooltip: l10n.videoDownload,
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.download_rounded, size: 18),
-                  onPressed: _saving ? null : _downloadVideo,
-                ),
+                _saving
+                    ? const _VideoSavingIndicator()
+                    : ConduitIconButton(
+                        icon: Icons.download_rounded,
+                        tooltip: l10n.videoDownload,
+                        isCompact: true,
+                        onPressed: _downloadVideo,
+                      ),
             ],
           ),
         ),
@@ -703,12 +715,12 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
                     child: Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.45),
+                        color: _videoBackdrop.withValues(alpha: 0.45),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
                         Icons.play_arrow_rounded,
-                        color: Colors.white,
+                        color: _videoForeground,
                         size: 34,
                       ),
                     ),
@@ -720,28 +732,28 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
                 right: 0,
                 bottom: 0,
                 child: Container(
-                  padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.55),
+                        _videoBackdrop.withValues(alpha: 0),
+                        _videoBackdrop.withValues(alpha: 0.55),
                       ],
                     ),
                   ),
                   child: Row(
                     children: [
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 18,
-                        icon: Icon(
-                          controller.value.isPlaying
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                          color: Colors.white,
-                        ),
+                      ConduitIconButton(
+                        icon: controller.value.isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        tooltip: controller.value.isPlaying
+                            ? l10n.videoPause
+                            : l10n.videoPlay,
+                        iconColor: _videoForeground,
+                        isCompact: true,
                         onPressed: _togglePlay,
                       ),
                       Expanded(
@@ -749,57 +761,47 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
                           controller,
                           allowScrubbing: true,
                           colors: const VideoProgressColors(
-                            playedColor: Colors.white70,
-                            bufferedColor: Colors.white24,
-                            backgroundColor: Colors.white12,
+                            playedColor: _videoSecondaryForeground,
+                            bufferedColor: _videoBufferedTrack,
+                            backgroundColor: _videoTrack,
                           ),
                         ),
                       ),
+                      const SizedBox(width: 6),
                       Text(
                         _formatDuration(controller.value.position),
                         style: const TextStyle(
-                          color: Colors.white70,
+                          color: _videoSecondaryForeground,
                           fontSize: 11,
                         ),
                       ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 18,
-                        icon: Icon(
-                          muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-                          color: Colors.white,
-                        ),
+                      ConduitIconButton(
+                        icon: muted
+                            ? Icons.volume_off_rounded
+                            : Icons.volume_up_rounded,
+                        tooltip: muted ? l10n.unmute : l10n.mute,
+                        iconColor: _videoForeground,
+                        isCompact: true,
                         onPressed: _toggleMute,
                       ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 18,
+                      ConduitIconButton(
+                        icon: Icons.fullscreen_rounded,
                         tooltip: l10n.videoFullscreen,
-                        icon: const Icon(
-                          Icons.fullscreen_rounded,
-                          color: Colors.white,
-                        ),
+                        iconColor: _videoForeground,
+                        isCompact: true,
                         onPressed: _openFullscreen,
                       ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 18,
-                        tooltip: l10n.videoDownload,
-                        icon: _saving
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.download_rounded,
-                                color: Colors.white,
-                              ),
-                        onPressed: _saving ? null : _downloadVideo,
-                      ),
+                      _saving
+                          ? const _VideoSavingIndicator(
+                              color: _videoForeground,
+                            )
+                          : ConduitIconButton(
+                              icon: Icons.download_rounded,
+                              tooltip: l10n.videoDownload,
+                              iconColor: _videoForeground,
+                              isCompact: true,
+                              onPressed: _downloadVideo,
+                            ),
                     ],
                   ),
                 ),
@@ -854,16 +856,10 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
     widget.controller.pause();
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
-    SystemChrome.setPreferredOrientations(<DeviceOrientation>[
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    // MainActivity enables edge-to-edge; manual mode would drop it on
+    // Android 14 and older. An empty list restores the app's orientations.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
     super.dispose();
   }
 
@@ -892,126 +888,157 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     if (!controller.value.isInitialized) {
-      return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: CircularProgressIndicator(color: Colors.white),
+      return const ColoredBox(
+        color: _videoBackdrop,
+        child: Center(
+          child: AdaptiveProgressIndicator(color: _videoForeground),
         ),
       );
     }
+    final l10n = AppLocalizations.of(context)!;
     final muted = controller.value.volume == 0;
     final size = controller.value.size;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Center(
-            child: FittedBox(
-              child: SizedBox(
-                width: size.width > 0 ? size.width : 16 / 9,
-                height: size.height > 0 ? size.height : 1,
-                child: VideoPlayer(controller),
+    // No Material ancestor on this route, so text needs its own base style.
+    return ColoredBox(
+      color: _videoBackdrop,
+      child: DefaultTextStyle(
+        style: AppTypography.bodyMediumStyle.copyWith(
+          color: _videoSecondaryForeground,
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: FittedBox(
+                child: SizedBox(
+                  width: size.width > 0 ? size.width : 16 / 9,
+                  height: size.height > 0 ? size.height : 1,
+                  child: VideoPlayer(controller),
+                ),
               ),
             ),
-          ),
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => setState(() {}),
-              child: const SizedBox.expand(),
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() {}),
+                child: const SizedBox.expand(),
+              ),
             ),
-          ),
-          SafeArea(
-            child: Column(
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.6),
-                        Colors.transparent,
-                      ],
+            SafeArea(
+              child: Column(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          _videoBackdrop.withValues(alpha: 0.6),
+                          _videoBackdrop.withValues(alpha: 0),
+                        ],
+                      ),
                     ),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(8, 2, 4, 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(
-                          muted
-                              ? Icons.volume_off_rounded
-                              : Icons.volume_up_rounded,
-                          color: Colors.white,
-                        ),
-                        onPressed: _toggleMute,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close_rounded, color: Colors.white),
-                        tooltip: MaterialLocalizations.of(context)
-                            .closeButtonTooltip,
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.6),
-                      ],
-                    ),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        icon: Icon(
-                          controller.value.isPlaying
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                          color: Colors.white,
-                        ),
-                        onPressed: _togglePlay,
-                      ),
-                      Expanded(
-                        child: VideoProgressIndicator(
-                          controller,
-                          allowScrubbing: true,
-                          colors: const VideoProgressColors(
-                            playedColor: Colors.white70,
-                            bufferedColor: Colors.white24,
-                            backgroundColor: Colors.white12,
+                    padding: const EdgeInsets.fromLTRB(8, 2, 4, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ),
-                      Text(
-                        _formatVideoDuration(controller.value.position),
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    ],
+                        ConduitIconButton(
+                          icon: muted
+                              ? Icons.volume_off_rounded
+                              : Icons.volume_up_rounded,
+                          tooltip: muted ? l10n.unmute : l10n.mute,
+                          iconColor: _videoForeground,
+                          onPressed: _toggleMute,
+                        ),
+                        ConduitIconButton(
+                          icon: Icons.close_rounded,
+                          tooltip: l10n.close,
+                          iconColor: _videoForeground,
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const Spacer(),
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          _videoBackdrop.withValues(alpha: 0),
+                          _videoBackdrop.withValues(alpha: 0.6),
+                        ],
+                      ),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                    child: Row(
+                      children: [
+                        ConduitIconButton(
+                          icon: controller.value.isPlaying
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                          tooltip: controller.value.isPlaying
+                              ? l10n.videoPause
+                              : l10n.videoPlay,
+                          iconColor: _videoForeground,
+                          onPressed: _togglePlay,
+                        ),
+                        Expanded(
+                          child: VideoProgressIndicator(
+                            controller,
+                            allowScrubbing: true,
+                            colors: const VideoProgressColors(
+                              playedColor: _videoSecondaryForeground,
+                              bufferedColor: _videoBufferedTrack,
+                              backgroundColor: _videoTrack,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(_formatVideoDuration(controller.value.position)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Video chrome is light-on-dark in every theme.
+const _videoBackdrop = Color(0xFF000000);
+const _videoForeground = Color(0xFFFFFFFF);
+const _videoSecondaryForeground = Color(0xB3FFFFFF);
+const _videoBufferedTrack = Color(0x3DFFFFFF);
+const _videoTrack = Color(0x1FFFFFFF);
+
+/// Stands in for a download button while its save runs, at the same size.
+class _VideoSavingIndicator extends StatelessWidget {
+  const _VideoSavingIndicator({this.color});
+
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: TouchTarget.minimum,
+      child: Center(
+        child: SizedBox.square(
+          dimension: 16,
+          child: AdaptiveProgressIndicator(strokeWidth: 2, color: color),
+        ),
       ),
     );
   }
