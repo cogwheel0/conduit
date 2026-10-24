@@ -193,6 +193,7 @@ ChatRows _rows(
   required int updatedAt,
   bool pinned = false,
   bool archived = false,
+  String? folderId,
 }) {
   return ChatBlobMapper.blobToRows(
     chatId: id,
@@ -213,6 +214,7 @@ ChatRows _rows(
       },
     },
     title: title,
+    folderId: folderId,
     pinned: pinned,
     archived: archived,
     createdAt: updatedAt,
@@ -798,6 +800,36 @@ void main() {
       await expectLater(marking, throwsException);
       expect(await storedReadAt('chat-s'), 200);
       expect((await otherDb.chatsDao.getChat('chat-s'))!.lastReadAt, 0);
+    });
+
+    test('updates the drawer listing of the chat\'s folder', () async {
+      final api = _MutationApi();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      await serverDb.chatsDao.upsertServerChat(
+        rows: _rows('chat-f', title: 'Filed', updatedAt: 100, folderId: 'f-1'),
+        listLastReadAt: 200,
+      );
+      await container.read(conversationsProvider.future);
+      final folder = folderConversationSummariesProvider('f-1');
+      final subscription = container.listen(folder, (_, _) {});
+      addTearDown(subscription.close);
+      // Every other input of the listing settles first, so only the unread
+      // write can make it read the database again.
+      final foldersSubscription = container.listen(foldersProvider, (_, _) {});
+      addTearDown(foldersSubscription.close);
+      await container.read(foldersProvider.future);
+      await pumpEventQueue();
+      Future<int?> folderReadMs() async => (await container.read(
+        folder.future,
+      )).single.lastReadAt?.millisecondsSinceEpoch;
+      expect(await folderReadMs(), 200 * 1000);
+
+      await markConversationUnread(container, _openWebUiScoped('chat-f'));
+
+      await waitUntil(() async => await folderReadMs() == 0);
     });
 
     test('a refused request keeps a read made while it was in flight', () async {

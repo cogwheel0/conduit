@@ -536,6 +536,12 @@ class Conversations extends _$Conversations {
     );
   }
 
+  /// Re-reads the drawer's folder listings, which load their rows once
+  /// rather than following the list stream, after a caller's database write.
+  void refreshFolderConversations() {
+    ref.read(_folderConversationRefreshTickProvider.notifier).bumpIfMounted();
+  }
+
   /// Shows the chat [id] as unread at once. The database row, written by the
   /// caller, takes over when the list stream next emits.
   void showConversationUnread(String id) {

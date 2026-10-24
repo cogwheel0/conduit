@@ -72,6 +72,21 @@ class _ListHookClient extends FakeSyncApiClient {
   }
 }
 
+/// Runs [whileChatLoads] after the server answers a chat download and before
+/// the pull merges it, like a read made on this device meanwhile.
+class _ChatHookClient extends FakeSyncApiClient {
+  _ChatHookClient(super.server);
+
+  Future<void> Function(String id)? whileChatLoads;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final raw = await super.getChatRaw(id);
+    await whileChatLoads?.call(id);
+    return raw;
+  }
+}
+
 class _MalformedFullMainListClient extends FakeSyncApiClient {
   _MalformedFullMainListClient(super.server);
 
@@ -1552,6 +1567,34 @@ void main() {
           .equals(2);
       check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(0);
       check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(0);
+    });
+
+    test('a chat whose download fails still takes its read state', () async {
+      await seedOlderAndNewer();
+      await db.chatsDao.setLastReadAt('newer', 600);
+
+      // 'newer' is in the overlap window, so the pull downloads it.
+      server.markChatUnread('newer');
+      client.failChatIds.add('newer');
+      final result = await pull.run();
+
+      check(result.success).isFalse();
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(0);
+    });
+
+    test('a read made here while a chat downloads is kept', () async {
+      final hookClient = _ChatHookClient(server);
+      pull = PullSync(client: hookClient, db: db, locks: locks);
+      await seedOlderAndNewer();
+
+      server.markChatUnread('newer');
+      hookClient.whileChatLoads = (id) async {
+        if (id == 'newer') await db.chatsDao.setLastReadAt('newer', 700);
+      };
+      await pull.run();
+
+      check(hookClient.chatFetchStarts).contains('newer');
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(700);
     });
   });
 

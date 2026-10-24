@@ -200,11 +200,10 @@ Future<void> markConversationUnread(dynamic ref, String conversationId) async {
   final db = _readProvider(ref, appDatabaseProvider);
   if (db == null) throw StateError('No chat database for this account.');
 
-  _readProvider(
-    ref,
-    conversationsProvider.notifier,
-  ).showConversationUnread(conversationId);
+  final conversations = _readProvider(ref, conversationsProvider.notifier);
+  conversations.showConversationUnread(conversationId);
   final previous = await db.chatsDao.markUnread(rawId);
+  conversations.refreshFolderConversations();
   var refused = true;
   try {
     await api.markConversationUnread(rawId);
@@ -222,6 +221,7 @@ Future<void> markConversationUnread(dynamic ref, String conversationId) async {
         refused: refused,
         previous: previous,
       );
+      if (refused) conversations.refreshFolderConversations();
     } catch (error, stackTrace) {
       DebugLogger.error(
         'unread-finish-failed',

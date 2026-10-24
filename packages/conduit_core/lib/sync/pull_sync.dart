@@ -522,9 +522,9 @@ class PullSync {
       for (var i = 0; i < kPullFetchConcurrency; i++) worker(),
     ]);
 
-    // Changed chats took their list read state in the merge above. Best
-    // effort: a failure here never holds the watermark back.
-    listedReadStates.removeWhere((id, _) => changed.containsKey(id));
+    // Merged chats already hold their list read state and are skipped; a
+    // chat whose download failed still gets it. Best effort: a failure here
+    // never holds the watermark back.
     await applyServerReadStates(
       db: _db,
       locks: _locks,
