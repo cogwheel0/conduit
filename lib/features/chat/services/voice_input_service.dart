@@ -62,6 +62,7 @@ class VoiceInputService implements VoiceModeInput {
   final ServerSpeechProvider? Function() _serverSpeech;
   final Ref? _ref;
   final AudioCapturePort Function() _serverVadRecorderFactory;
+  final VadHandler Function() _vadHandlerFactory;
   bool _isInitialized = false;
   bool _didAttemptLocalInitialization = false;
   bool _isListening = false;
@@ -85,6 +86,9 @@ class VoiceInputService implements VoiceModeInput {
   bool _usingFallbackLocales = false;
   Future<void>? _startingLocalStt;
   Future<Stream<String>>? _startListeningInFlight;
+
+  /// The stop that is still ending a listen, server transcription included.
+  Future<void>? _stopListeningInFlight;
   StreamController<String>? _textStreamController;
   StreamController<VoiceTranscriptEvent>? _transcriptEventController;
   String _currentText = '';
@@ -153,11 +157,13 @@ class VoiceInputService implements VoiceModeInput {
     Ref? ref,
     NativeSttService? nativeStt,
     @visibleForTesting AudioCapturePort Function()? serverVadRecorderFactory,
+    @visibleForTesting VadHandler Function()? vadHandlerFactory,
   }) : _serverSpeech = serverSpeech ?? _noServerSpeech,
        _ref = ref,
        _nativeStt = nativeStt ?? NativeSttService(),
        _serverVadRecorderFactory =
-           serverVadRecorderFactory ?? AudioCapturePort.hostFactory;
+           serverVadRecorderFactory ?? AudioCapturePort.hostFactory,
+       _vadHandlerFactory = vadHandlerFactory ?? VadHandler.create;
 
   void updatePreference(SttPreference preference) {
     _preference = preference;
@@ -849,6 +855,13 @@ class VoiceInputService implements VoiceModeInput {
   }) async {
     ++_listenGeneration;
     if (!_isListening) {
+      // An earlier stop may still be waiting for the server's transcript.
+      // Closing the streams under it would lose the text (#822), so wait for
+      // it while anything still listens for that text.
+      final stopInFlight = _stopListeningInFlight;
+      if (stopInFlight != null && _hasTranscriptConsumer) {
+        await stopInFlight;
+      }
       if (_nativeCaptureDetachedForResponseWait) {
         _nativeCaptureDetachedForResponseWait = false;
         await _nativeStt.stopListening();
@@ -863,6 +876,22 @@ class VoiceInputService implements VoiceModeInput {
       return;
     }
 
+    final stopFuture = _stopActiveListening(
+      holdServerRecorderForResponseWait: holdServerRecorderForResponseWait,
+    );
+    _stopListeningInFlight = stopFuture;
+    try {
+      await stopFuture;
+    } finally {
+      if (identical(_stopListeningInFlight, stopFuture)) {
+        _stopListeningInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _stopActiveListening({
+    required bool holdServerRecorderForResponseWait,
+  }) async {
     _autoStopTimer?.cancel();
     _autoStopTimer = null;
     _cancelNativeDictationSettle();
@@ -984,7 +1013,7 @@ class VoiceInputService implements VoiceModeInput {
 
     // Create fresh native resources for every session so audio-focus failures
     // cannot poison the next recording attempt.
-    final vad = VadHandler.create();
+    final vad = _vadHandlerFactory();
     final recorderSession = ServerVadRecorderSession(
       _serverVadRecorderFactory(),
     );
@@ -1230,6 +1259,12 @@ class VoiceInputService implements VoiceModeInput {
     final frames = (milliseconds / frameDurationMs).ceil();
     return frames.clamp(_minVadRedemptionFrames, _maxVadRedemptionFrames);
   }
+
+  bool get _hasTranscriptConsumer => _shouldProcessServerSamples(
+    hasTextConsumer: _textStreamController?.hasListener ?? false,
+    hasTranscriptEventConsumer:
+        _transcriptEventController?.hasListener ?? false,
+  );
 
   static bool _shouldProcessServerSamples({
     required bool hasTextConsumer,

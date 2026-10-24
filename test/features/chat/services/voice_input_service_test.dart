@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:permission_handler_platform_interface/permission_handler_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:vad/vad.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -342,6 +343,113 @@ void main() {
           hasTranscriptEventConsumer: false,
         ),
       ).isFalse();
+    });
+  });
+
+  // Issue #822: the server answered with a transcript, but a stop tapped
+  // while the request was in flight closed the streams it was coming back on.
+  group('VoiceInputService stop while the server transcribes', () {
+    late _FakeServerVadRecorder recorder;
+    late _FakeVadHandler vad;
+    late _MockApiService api;
+    late VoiceInputService service;
+    late Completer<Map<String, dynamic>> reply;
+    final speech = List<double>.filled(1600, 0.1);
+
+    setUpAll(() => registerFallbackValue(Uint8List(0)));
+
+    setUp(() async {
+      recorder = _FakeServerVadRecorder();
+      vad = _FakeVadHandler();
+      api = _MockApiService();
+      reply = Completer<Map<String, dynamic>>();
+      when(
+        () => api.transcribeSpeech(
+          audioBytes: any(named: 'audioBytes'),
+          fileName: any(named: 'fileName'),
+          mimeType: any(named: 'mimeType'),
+          language: any(named: 'language'),
+        ),
+      ).thenAnswer((_) => reply.future);
+      service = _SupportedVoiceInputService(
+        nativeStt: _FakeNativeSttService(),
+        serverSpeech: () => OpenWebUiServerSpeech(api),
+        serverVadRecorderFactory: () => recorder,
+        vadHandlerFactory: () => vad,
+      );
+      service.updatePreference(SttPreference.serverOnly);
+      await service.initialize();
+    });
+
+    tearDown(() async {
+      if (!reply.isCompleted) reply.complete(const {'text': ''});
+      await service.dispose();
+      await recorder.close();
+    });
+
+    test('keeps the transcript of the pause that ended speech', () async {
+      final texts = <String>[];
+      var done = false;
+      (await service.startListening()).listen(
+        texts.add,
+        onDone: () => done = true,
+      );
+      await pumpEventQueue();
+      check(recorder.calls).contains('start-stream');
+
+      // The pause ends the utterance and sends it to the server.
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+      check(service.transcribing.value).isTrue();
+
+      final stopped = service.stopListening();
+      await pumpEventQueue();
+      check(done).isFalse();
+
+      reply.complete(const {'text': 'late words'});
+      await stopped;
+      check(texts).deepEquals(['late words']);
+      check(done).isTrue();
+    });
+
+    test('keeps the transcript when stop lands as the recorder stops', () async {
+      final texts = <String>[];
+      (await service.startListening()).listen(texts.add);
+      await pumpEventQueue();
+
+      // The pause's own stop is still shutting the microphone down.
+      final recorderStop = Completer<void>();
+      recorder.stopGate = recorderStop.future;
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+      check(recorder.calls).contains('stop');
+
+      final stopped = service.stopListening();
+      await pumpEventQueue();
+      recorderStop.complete();
+      await pumpEventQueue();
+      reply.complete(const {'text': 'quick tap'});
+      await stopped;
+
+      check(texts).deepEquals(['quick tap']);
+    });
+
+    test('ends a call without waiting for a transcript it left', () async {
+      final events = await service.beginListeningEvents();
+      final subscription = events.listen((_) {});
+      await pumpEventQueue();
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+      check(service.isHoldingServerRecorderForResponse).isTrue();
+
+      // Hanging up detaches from the transcript before stopping.
+      await subscription.cancel();
+      var stopped = false;
+      unawaited(service.stopListening().then((_) => stopped = true));
+      await pumpEventQueue();
+
+      check(stopped).isTrue();
+      check(service.isHoldingServerRecorderForResponse).isFalse();
     });
   });
 
@@ -767,6 +875,9 @@ class _FakeServerVadRecorder implements AudioCapturePort {
   final StreamController<Uint8List> audio =
       StreamController<Uint8List>.broadcast();
 
+  /// Holds [stop] open until it completes, like a slow platform recorder.
+  Future<void>? stopGate;
+
   Future<void> close() => audio.close();
 
   @override
@@ -790,6 +901,7 @@ class _FakeServerVadRecorder implements AudioCapturePort {
   @override
   Future<void> stop() async {
     calls.add('stop');
+    await stopGate;
   }
 
   @override
@@ -799,11 +911,55 @@ class _FakeServerVadRecorder implements AudioCapturePort {
   }
 }
 
+/// VAD stand-in. Like the real handler it owns the audio stream it is given;
+/// without a listener, closing that stream never completes and stops hang.
+class _FakeVadHandler extends Fake implements VadHandler {
+  final _speechEnd = StreamController<List<double>>.broadcast();
+  final _frames =
+      StreamController<
+        ({double isSpeech, double notSpeech, List<double> frame})
+      >.broadcast();
+  final _errors = StreamController<String>.broadcast();
+  StreamSubscription<Uint8List>? _audio;
+
+  void endSpeech(List<double> samples) => _speechEnd.add(samples);
+
+  @override
+  Stream<List<double>> get onSpeechEnd => _speechEnd.stream;
+
+  @override
+  Stream<({double isSpeech, double notSpeech, List<double> frame})>
+  get onFrameProcessed => _frames.stream;
+
+  @override
+  Stream<String> get onError => _errors.stream;
+
+  @override
+  Future<void> stopListening() async {
+    await _audio?.cancel();
+    _audio = null;
+  }
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    if (invocation.memberName == #startListening) {
+      final audio = invocation.namedArguments[#audioStream];
+      _audio = (audio as Stream<Uint8List>?)?.listen((_) {});
+      return Future<void>.value();
+    }
+    return super.noSuchMethod(invocation);
+  }
+}
+
 class _SupportedVoiceInputService extends VoiceInputService {
   _SupportedVoiceInputService({
     required super.nativeStt,
     super.serverSpeech,
     super.serverVadRecorderFactory,
+    super.vadHandlerFactory,
     this.deviceLocaleTag = 'en-US',
     this.usesAutomaticNativeLanguage = true,
     this.supportsNativeResponseWaitCapture = false,
