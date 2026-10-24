@@ -2,17 +2,25 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart' as dio;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
+
+import 'package:conduit/l10n/app_localizations.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../core/network/image_header_utils.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../services/native_image_viewer_bridge.dart';
 
 /// Inline video player for chat attachments (generated clips, tool output).
 ///
@@ -48,6 +56,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
   bool _initializing = true;
   bool _playbackFailed = false;
   bool _lastPlayed = false;
+  bool _saving = false;
   String? _openUrl;
   int _openRequestId = 0;
 
@@ -241,6 +250,148 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     launchExternalLink(url, scope: 'chat/video_attachment');
   }
 
+  static const Map<String, String> _videoMimeByExtension = {
+    'mp4': 'video/mp4',
+    'm4v': 'video/mp4',
+    'mov': 'video/quicktime',
+    'webm': 'video/webm',
+    'mkv': 'video/x-matroska',
+    'avi': 'video/x-msvideo',
+  };
+
+  String _videoExtension() {
+    final candidates = <String>[
+      widget.filenameHint ?? '',
+      widget.attachmentId,
+      _openUrl ?? '',
+    ];
+    final pattern = RegExp(r'\.([A-Za-z0-9]{2,5})(?=$|[?&#])');
+    for (final candidate in candidates) {
+      final match = pattern.firstMatch(candidate.split('#').first);
+      final extension = match?.group(1)?.toLowerCase();
+      if (extension != null && _videoMimeByExtension.containsKey(extension)) {
+        return extension;
+      }
+    }
+    return 'mp4';
+  }
+
+  String _saveFileName() {
+    final label = _displayLabel().replaceAll(
+      RegExp(r'\.[A-Za-z0-9]{2,5}$'),
+      '',
+    );
+    final safe = label.replaceAll(RegExp(r'[^A-Za-z0-9._ -]'), '_').trim();
+    final base = safe.isEmpty ? 'conduit_video' : safe;
+    return '$base.${_videoExtension()}';
+  }
+
+  Future<File> _localVideoForExport() async {
+    final cached = _tempCacheKey;
+    if (cached != null) {
+      final cachedFile = File(cached);
+      if (await cachedFile.exists() && await cachedFile.length() > 0) {
+        return cachedFile;
+      }
+    }
+    final url = _openUrl;
+    if (url == null || url.isEmpty) {
+      throw StateError('Video source unavailable');
+    }
+    final headers =
+        widget.httpHeaders ??
+        readImageHeadersForUrlFromWidgetRef(ref, url) ??
+        const <String, String>{};
+    final dir = await getTemporaryDirectory();
+    final target = File(
+      '${dir.path}/conduit_attachments/export_'
+      '${DateTime.now().millisecondsSinceEpoch}.${_videoExtension()}',
+    );
+    await target.parent.create(recursive: true);
+    final client = dio.Dio();
+    try {
+      await client.download(
+        url,
+        target.path,
+        options: dio.Options(
+          headers: headers,
+          responseType: dio.ResponseType.stream,
+        ),
+      );
+    } finally {
+      client.close(force: true);
+    }
+    return target;
+  }
+
+  Future<void> _exportVideoFile(File file, String displayName) async {
+    final mimeType = _videoMimeByExtension[_videoExtension()] ?? 'video/mp4';
+    if (Platform.isAndroid) {
+      final bridge = NativeImageViewerBridge.instance;
+      if (await bridge.canSaveImages()) {
+        // The native bridge routes video mime types into the Movies
+        // collection; images keep going to Pictures.
+        await bridge.saveImage(
+          path: file.path,
+          mimeType: mimeType,
+          displayName: displayName,
+        );
+        return;
+      }
+    }
+    await SharePlus.instance.share(
+      ShareParams(
+        files: <XFile>[
+          XFile(file.path, mimeType: mimeType, name: displayName),
+        ],
+        fileNameOverrides: <String>[displayName],
+      ),
+    );
+  }
+
+  Future<void> _downloadVideo() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final l10n = AppLocalizations.of(context)!;
+    String message;
+    var failed = false;
+    try {
+      final file = await _localVideoForExport();
+      await _exportVideoFile(file, _saveFileName());
+      message = l10n.videoSaved;
+    } catch (error, stackTrace) {
+      failed = true;
+      message = l10n.videoSaveFailed;
+      DebugLogger.error(
+        'video-save-failed',
+        scope: 'chat/video_attachment',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    if (!mounted) return;
+    setState(() => _saving = false);
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      type: failed ? AdaptiveSnackBarType.error : AdaptiveSnackBarType.success,
+    );
+  }
+
+  void _openFullscreen() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (controller.value.volume == 0) {
+      controller.setVolume(1);
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            _FullscreenVideoPage(controller: controller, label: _displayLabel()),
+      ),
+    );
+  }
+
   String _displayLabel() {
     final hint = widget.filenameHint?.trim();
     if (hint != null && hint.isNotEmpty) return hint;
@@ -252,16 +403,12 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     return 'video';
   }
 
-  String _formatDuration(Duration duration) {
-    final total = duration.inSeconds;
-    final minutes = total ~/ 60;
-    final seconds = total % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
-  }
+  String _formatDuration(Duration duration) => _formatVideoDuration(duration);
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     final constraints =
         (widget.constraints ?? const BoxConstraints(maxWidth: 520)).copyWith(
           maxHeight: 460,
@@ -417,6 +564,35 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
                         ),
                         onPressed: _toggleMute,
                       ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        tooltip: l10n.videoFullscreen,
+                        icon: const Icon(
+                          Icons.fullscreen_rounded,
+                          color: Colors.white,
+                        ),
+                        onPressed: _openFullscreen,
+                      ),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        iconSize: 18,
+                        tooltip: l10n.videoDownload,
+                        icon: _saving
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.download_rounded,
+                                color: Colors.white,
+                              ),
+                        onPressed: _saving ? null : _downloadVideo,
+                      ),
                     ],
                   ),
                 ),
@@ -424,6 +600,211 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+String _formatVideoDuration(Duration duration) {
+  final total = duration.inSeconds;
+  final minutes = total ~/ 60;
+  final seconds = total % 60;
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
+/// Immersive full-screen viewer for an inline chat video.
+///
+/// Reuses the inline player's controller: the chat card stays mounted under
+/// the route, so the texture survives the trip. Orientation follows the
+/// device, and system chrome returns when the viewer closes.
+class _FullscreenVideoPage extends StatefulWidget {
+  const _FullscreenVideoPage({required this.controller, required this.label});
+
+  final VideoPlayerController controller;
+  final String label;
+
+  @override
+  State<_FullscreenVideoPage> createState() => _FullscreenVideoPageState();
+}
+
+class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (!widget.controller.value.isPlaying) {
+      widget.controller.play();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    widget.controller.pause();
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
+    SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _togglePlay() {
+    final controller = widget.controller;
+    if (!controller.value.isInitialized) return;
+    if (controller.value.isPlaying) {
+      controller.pause();
+    } else {
+      controller.play();
+    }
+  }
+
+  void _toggleMute() {
+    final controller = widget.controller;
+    if (!controller.value.isInitialized) return;
+    controller.setVolume(controller.value.volume > 0 ? 0 : 1);
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    if (!controller.value.isInitialized) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+    }
+    final muted = controller.value.volume == 0;
+    final size = controller.value.size;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: FittedBox(
+              child: SizedBox(
+                width: size.width > 0 ? size.width : 16 / 9,
+                height: size.height > 0 ? size.height : 1,
+                child: VideoPlayer(controller),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() {}),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.6),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(8, 2, 4, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          muted
+                              ? Icons.volume_off_rounded
+                              : Icons.volume_up_rounded,
+                          color: Colors.white,
+                        ),
+                        onPressed: _toggleMute,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, color: Colors.white),
+                        tooltip: MaterialLocalizations.of(context)
+                            .closeButtonTooltip,
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.6),
+                      ],
+                    ),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: Icon(
+                          controller.value.isPlaying
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                          color: Colors.white,
+                        ),
+                        onPressed: _togglePlay,
+                      ),
+                      Expanded(
+                        child: VideoProgressIndicator(
+                          controller,
+                          allowScrubbing: true,
+                          colors: const VideoProgressColors(
+                            playedColor: Colors.white70,
+                            bufferedColor: Colors.white24,
+                            backgroundColor: Colors.white12,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        _formatVideoDuration(controller.value.position),
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
