@@ -52,7 +52,7 @@ class ConduitRecognitionService : RecognitionService() {
     ) {
         val recognizer = delegate()
         if (recognizer == null) {
-            supportCallback.onError(SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT)
+            forward { supportCallback.onError(SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT) }
             return
         }
         recognizer.checkRecognitionSupport(
