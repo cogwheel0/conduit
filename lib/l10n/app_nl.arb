@@ -3221,6 +3221,7 @@
   "reasoningEffortMaximum": "Maximaal",
   "reasoningEffortNone": "Geen",
   "customReasoningEffort": "Aangepast redeneerniveau",
+  "retryWithoutReasoningEffort": "Opnieuw proberen zonder redeneerniveau",
   "customReasoningEffortHint": "Voer een redeneerniveau in dat de provider ondersteunt",
   "proxyServerVerificationFailed": "De Open WebUI-server kon niet worden geverifieerd. De proxysessie is mogelijk verlopen of ongeldig. Probeer het opnieuw.",
   "proxyManualSignInRequired": "Verificatie mislukt. Probeer je handmatig aan te melden.",

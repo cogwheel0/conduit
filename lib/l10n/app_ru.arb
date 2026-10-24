@@ -3250,6 +3250,7 @@
   "reasoningEffortMaximum": "Максимальный",
   "reasoningEffortNone": "Нет",
   "customReasoningEffort": "Другой уровень",
+  "retryWithoutReasoningEffort": "Повторить без уровня рассуждения",
   "customReasoningEffortHint": "Введите уровень, поддерживаемый провайдером",
   "proxyServerVerificationFailed": "Не удалось проверить сервер Open WebUI. Возможно, сеанс прокси истёк или недействителен. Повторите попытку.",
   "proxyManualSignInRequired": "Не удалось пройти аутентификацию. Попробуйте войти вручную.",
