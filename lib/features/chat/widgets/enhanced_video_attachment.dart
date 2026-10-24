@@ -729,11 +729,18 @@ class _EnhancedVideoAttachmentState
     var failed = false;
     File? exported;
     var createdNew = false;
+    String? heldCachePath;
     final sourceUrlAtStart = _openUrl;
     try {
       final (file, created) = await _localVideoForExport();
       exported = file;
       createdNew = created;
+      if (!created) {
+        // The player's hold on its cache file can end mid-export; keep the
+        // file from pruning until the save has copied it.
+        heldCachePath = file.path;
+        _retainCachePath(heldCachePath);
+      }
       // Disposed while fetching, or a replaced source changed under the
       // export: the selected file belongs to the previous clip and must not
       // be delivered under the new filename. Scratch cleanup still runs.
@@ -754,6 +761,7 @@ class _EnhancedVideoAttachmentState
         stackTrace: stackTrace,
       );
     }
+    _releaseCachePath(heldCachePath);
     if (createdNew && exported != null) {
       // Scratch downloads belong to us; the playback cache may still be in
       // use by the player, so it stays put.
