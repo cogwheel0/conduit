@@ -505,7 +505,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         return NativeSttLanguagePolicy.platformRecognizerAvailable(
             allowOnlineFallback = allowOnlineFallback,
             sdkInt = Build.VERSION.SDK_INT,
-            recognitionAvailable = AndroidSpeechRecognizer.isRecognitionAvailable(context),
+            recognitionAvailable = otherRecognizerInstalled(context),
             onDeviceRecognitionAvailable = systemOnDeviceRecognitionAvailable()
         )
     }

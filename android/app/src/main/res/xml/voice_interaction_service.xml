@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:sessionService="app.cogwheel.conduit.ConduitVoiceInteractionSessionService"
-    android:recognitionService="android.speech.RecognitionService"
+    android:sessionService="app.cogwheel.conduit.ConduitAssistSessionService"
+    android:recognitionService="app.cogwheel.conduit.ConduitRecognitionService"
     android:settingsActivity="app.cogwheel.conduit.MainActivity"
     android:supportsAssist="true"
     android:supportsLocalInteraction="true" />

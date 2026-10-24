@@ -70,6 +70,24 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".ConduitAssistSessionService"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:exported="true" />
+
+        <service
+            android:name=".ConduitRecognitionService"
+            android:label="Conduit"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech"
+                android:resource="@xml/recognition_service" />
+        </service>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
