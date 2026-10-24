@@ -16,11 +16,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 
 /**
- * Saves chat images into the shared Pictures collection.
+ * Saves chat media into the shared media collections.
  *
- * Android 10 and later let apps add their own media through MediaStore
- * without a storage permission, so saving is only offered there. Older
- * versions keep the share sheet.
+ * Images land in Pictures/Conduit, videos in Movies/Conduit. Android 10 and
+ * later let apps add their own media through MediaStore without a storage
+ * permission, so saving is only offered there. Older versions keep the share
+ * sheet.
  */
 class ImageGalleryBridge(context: Context) : ImageGalleryHostApi {
     private val appContext = context.applicationContext
@@ -67,23 +68,30 @@ class ImageGalleryBridge(context: Context) : ImageGalleryHostApi {
 
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun insertImage(source: File, mimeType: String, displayName: String) {
-        if (!source.isFile) throw IOException("Image file is missing")
+        if (!source.isFile) throw IOException("Media file is missing")
         val resolver = appContext.contentResolver
+        val isVideo = mimeType.startsWith("video/")
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
-            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
-            put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/Conduit")
-            put(MediaStore.Images.Media.IS_PENDING, 1)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(
+                MediaStore.MediaColumns.RELATIVE_PATH,
+                if (isVideo) "${Environment.DIRECTORY_MOVIES}/Conduit"
+                else "${Environment.DIRECTORY_PICTURES}/Conduit",
+            )
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
-        val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val collection =
+            if (isVideo) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            else MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val uri = resolver.insert(collection, values) ?: throw IOException("MediaStore insert failed")
         try {
             val output = resolver.openOutputStream(uri) ?: throw IOException("MediaStore output unavailable")
             output.use { stream -> source.inputStream().use { it.copyTo(stream) } }
             values.clear()
-            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
             if (resolver.update(uri, values, null, null) != 1) {
-                throw IOException("MediaStore did not publish the image")
+                throw IOException("MediaStore did not publish the media")
             }
         } catch (error: Exception) {
             resolver.delete(uri, null, null)

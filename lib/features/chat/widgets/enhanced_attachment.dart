@@ -10,6 +10,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
 import 'enhanced_image_attachment.dart';
+import 'enhanced_video_attachment.dart';
 
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -101,6 +102,19 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
         .toLowerCase();
     final ext = name.split('.').length > 1 ? name.split('.').last : '';
     return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(ext);
+  }
+
+  bool _isVideoFile(Map<String, dynamic>? info) {
+    if (info == null) return false;
+    final mime = (info['content_type'] ?? info['mime'] ?? '')
+        .toString()
+        .toLowerCase();
+    if (mime.startsWith('video/')) return true;
+    final name = (info['filename'] ?? info['name'] ?? '')
+        .toString()
+        .toLowerCase();
+    final ext = name.split('.').length > 1 ? name.split('.').last : '';
+    return ['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v'].contains(ext);
   }
 
   Future<String?> _ensureLocalFile() async {
@@ -251,6 +265,19 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
         constraints: widget.constraints,
         isUserMessage: widget.isUserMessage,
         disableAnimation: widget.disableAnimation,
+      );
+    }
+
+    // Video: play inline instead of showing a download-only card.
+    if (_isVideoFile(_fileInfo)) {
+      return EnhancedVideoAttachment(
+        key: ValueKey('att_video_${widget.attachmentId}'),
+        attachmentId: widget.attachmentId,
+        constraints: widget.constraints,
+        filenameHint: (_fileInfo?['filename'] ?? _fileInfo?['name'])
+            ?.toString(),
+        contentType: (_fileInfo?['content_type'] ?? _fileInfo?['mime'])
+            ?.toString(),
       );
     }
 
