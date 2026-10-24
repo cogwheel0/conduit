@@ -1922,6 +1922,31 @@ class RunnerTests: XCTestCase {
     )
   }
 
+  func testShareEncodesOnlyInMemoryImagesWithinThePixelBudget() {
+    // The largest iPad screenshot, landscape.
+    XCTAssertTrue(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 2752,
+      pixelHeight: 2064
+    ))
+    XCTAssertTrue(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 4096,
+      pixelHeight: 4096
+    ))
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 4097,
+      pixelHeight: 4096
+    ))
+    // A 48 MP photo would need about 195 MB of decoded pixels.
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 8064,
+      pixelHeight: 6048
+    ))
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 0,
+      pixelHeight: 4096
+    ))
+  }
+
   func testShareDetectsAnArchivedInMemoryImageAndEncodesTheObject() throws {
     let image = UIGraphicsImageRenderer(
       size: CGSize(width: 40, height: 30)

@@ -13,6 +13,7 @@ private let maxSharedGenericFileBytes: Int64 = 100 * 1024 * 1024
 private let maxSharedAggregateBytes: Int64 = 300 * 1024 * 1024
 private let maxSharedTextBytes = nativeShareMaximumTextBytes
 private let maxSharedUrlBytes = nativeShareMaximumURLBytes
+private let preferredFileNameTimeout: TimeInterval = 2
 final class ShareLoadDeadline {
   private let lock = NSLock()
   private var active = true
@@ -377,12 +378,23 @@ final class ShareViewController: UIViewController {
       completion(provider.suggestedName)
       return
     }
-    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+    // The name is optional, so a slow lookup must not hold up the content
+    // of this attachment or the ones queued behind it.
+    let lookup = ShareLoadDeadline()
+    let progress = provider.loadObject(ofClass: URL.self) { url, _ in
+      guard lookup.finish() else { return }
       if let url, url.isFileURL {
         completion(url.lastPathComponent)
       } else {
         completion(provider.suggestedName)
       }
+    }
+    DispatchQueue.global(qos: .userInitiated).asyncAfter(
+      deadline: .now() + preferredFileNameTimeout
+    ) {
+      guard lookup.finish() else { return }
+      progress.cancel()
+      completion(provider.suggestedName)
     }
   }
 
@@ -462,7 +474,14 @@ final class ShareViewController: UIViewController {
       }
       let encoded: (data: Data, fileExtension: String)?
       if let image = item as? UIImage {
-        encoded = nativeShareEncodedImage(image, typeIdentifier: identifier)
+        guard let result = nativeShareEncodedImage(
+          image,
+          typeIdentifier: identifier
+        ) else {
+          recordImportError("The shared image is too large to import.")
+          return
+        }
+        encoded = result
       } else if let data = item as? Data,
                 let type = nativeShareImageType(of: data) {
         encoded = (data, type.preferredFilenameExtension ?? "png")
@@ -712,6 +731,11 @@ final class ShareViewController: UIViewController {
     ordinal: Int
   ) {
     guard loadDeadline.isActive else { return }
+    let allowedBytes = min(maxSharedBytes(for: type), remainingAggregateBytes())
+    guard Int64(data.count) <= allowedBytes else {
+      recordImportError("\(originalName) exceeds the share import size limit.")
+      return
+    }
     let directoryURL = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directoryURL) }

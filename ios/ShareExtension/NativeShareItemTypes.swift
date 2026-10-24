@@ -86,7 +86,24 @@ func nativeShareImageType(of data: Data) -> UTType? {
   return type
 }
 
-/// Encodes an in-memory shared image for upload.
+/// The most pixels an in-memory shared image may have to be encoded.
+///
+/// Drawing and encoding hold the decoded pixels, 4 bytes each, inside the
+/// extension's small memory budget. Even the largest iPad screenshot is
+/// about a third of this.
+let nativeShareMaximumEncodedImagePixels: CGFloat = 4096 * 4096
+
+/// Whether an image of these pixel dimensions fits the encoding budget.
+func nativeShareImageFitsEncodingBudget(
+  pixelWidth: CGFloat,
+  pixelHeight: CGFloat
+) -> Bool {
+  pixelWidth > 0 && pixelHeight > 0
+    && pixelWidth * pixelHeight <= nativeShareMaximumEncodedImagePixels
+}
+
+/// Encodes an in-memory shared image for upload, or returns nil when it is
+/// larger than the encoding budget.
 ///
 /// JPEG keeps photos small when the sender declared JPEG. Everything else,
 /// screenshots included, is written as lossless PNG.
@@ -94,6 +111,14 @@ func nativeShareEncodedImage(
   _ image: UIImage,
   typeIdentifier: String
 ) -> (data: Data, fileExtension: String)? {
+  // UIImage.size follows display orientation; multiplying by scale gives
+  // the pixel dimensions without decoding anything.
+  guard nativeShareImageFitsEncodingBudget(
+    pixelWidth: image.size.width * image.scale,
+    pixelHeight: image.size.height * image.scale
+  ) else {
+    return nil
+  }
   if UTType(typeIdentifier)?.conforms(to: .jpeg) == true {
     // JPEG data carries the orientation in its EXIF metadata.
     return image.jpegData(compressionQuality: 0.9).map { ($0, "jpg") }
