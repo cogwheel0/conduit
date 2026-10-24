@@ -127,6 +127,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     final idOrUrl = widget.attachmentId.trim();
     VideoPlayerController? controller;
     String? openUrl;
+    String? downloadedPath;
 
     try {
       if (idOrUrl.isEmpty) {
@@ -159,6 +160,7 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
       // data keeps arriving (a stall watchdog inside the transfer handles
       // dead connections).
       final file = await _downloadToLocalVideo(api, openUrl);
+      downloadedPath = file.path;
       controller = VideoPlayerController.file(file);
 
       await controller.initialize().timeout(const Duration(seconds: 30));
@@ -181,6 +183,12 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     } catch (error) {
       if (controller != null) {
         unawaited(controller.dispose());
+      }
+      // A full download can succeed while the player still fails to
+      // initialize; keep the completed cache copy so the fallback export
+      // reuses it instead of fetching the same video again.
+      if (downloadedPath != null && requestId == _openRequestId) {
+        _tempCacheKey = downloadedPath;
       }
       if (!mounted || requestId != _openRequestId) return;
       setState(() {
@@ -215,6 +223,12 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     _releaseSharedDownload();
     final key = target.path;
     var entry = _sharedDownloads[key];
+    if (entry != null && entry.token.isCancelled) {
+      // A canceled transfer is never reusable: a player reopening the video
+      // must start a fresh download, not join the dying one.
+      _sharedDownloads.remove(key);
+      entry = null;
+    }
     if (entry == null) {
       entry = _SharedVideoDownload(dio.CancelToken());
       entry.refs = 1;
@@ -306,6 +320,11 @@ class _EnhancedVideoAttachmentState extends ConsumerState<EnhancedVideoAttachmen
     if (entry == null) return;
     entry.refs -= 1;
     if (entry.refs <= 0) {
+      // Retire the entry immediately so a reopening player cannot join a
+      // transfer that is about to be canceled.
+      if (_sharedDownloads[key] == entry) {
+        _sharedDownloads.remove(key);
+      }
       entry.token.cancel('video player disposed');
     }
   }
