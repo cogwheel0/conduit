@@ -434,27 +434,28 @@ class OpenWebUiAccountsController {
   }
 
   Future<void> _fallBackWithoutOpenWebUi() async {
-    var fallback = PreferredBackend.hermes;
-    if (!_ref.read(hermesConfigProvider).isUsable) {
-      // The synchronous view can still be loading with no value, which would
-      // send a user who has usable Direct profiles back to backend selection.
-      var hasUsableDirect = false;
-      try {
-        final direct = await _ref.read(
-          effectiveDirectConnectionProfilesFutureProvider.future,
-        );
-        hasUsableDirect = direct.any((profile) => profile.isUsable);
-      } catch (error) {
-        DebugLogger.warning(
-          'direct-profiles-unavailable',
-          scope: 'auth/accounts',
-          data: {'errorType': error.runtimeType.toString()},
-        );
-      }
-      fallback = hasUsableDirect
-          ? PreferredBackend.direct
-          : PreferredBackend.unset;
+    // Direct comes before Hermes: Hermes joins a Direct primary, while
+    // Hermes-only mode hides every Direct provider.
+    // The synchronous view can still be loading with no value, which would
+    // send a user who has usable Direct profiles back to backend selection.
+    var hasUsableDirect = false;
+    try {
+      final direct = await _ref.read(
+        effectiveDirectConnectionProfilesFutureProvider.future,
+      );
+      hasUsableDirect = direct.any((profile) => profile.isUsable);
+    } catch (error) {
+      DebugLogger.warning(
+        'direct-profiles-unavailable',
+        scope: 'auth/accounts',
+        data: {'errorType': error.runtimeType.toString()},
+      );
     }
+    final fallback = hasUsableDirect
+        ? PreferredBackend.direct
+        : _ref.read(hermesConfigProvider).isUsable
+        ? PreferredBackend.hermes
+        : PreferredBackend.unset;
     // A sign-in can have made an account active while this waited; the app
     // stays on Open WebUI then, and when that cannot be read.
     try {

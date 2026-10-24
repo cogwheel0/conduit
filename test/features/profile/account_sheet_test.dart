@@ -19,6 +19,7 @@ import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
@@ -78,6 +79,11 @@ final class _EnableFails extends HermesConfigController {
   @override
   Future<void> setEnabled(bool enabled) async =>
       throw StateError('secure storage unavailable');
+}
+
+final class _OpenWebUiPrimary extends PreferredBackendController {
+  @override
+  PreferredBackend build() => PreferredBackend.owui;
 }
 
 final class _SettledOnAlex extends SettledActiveAccountId {
@@ -276,6 +282,53 @@ void main() {
     check(profiles.upsertCalls).equals(1);
     check(profiles.lastUpsert?.apiKey).equals('test-secret');
     expect(find.byType(AccountSheet), findsNothing);
+  });
+
+  // Hermes-only mode hid a provider added next to Hermes alone (#862).
+  testWidgets('Direct added where Hermes-only mode would hide it becomes the '
+      'primary backend', (tester) async {
+    final profiles = DirectTestOnboardingDirectProfiles(
+      const DirectConnectionProbe(reachable: true),
+    );
+    final container = await pumpSheet(
+      tester,
+      const AddAccountRequest(AccountKind.direct),
+      overrides: [
+        directConnectionProfilesProvider.overrideWith(() => profiles),
+        hermesOnlyModeProvider.overrideWithValue(true),
+      ],
+    );
+
+    await directTestSubmitOnboarding(tester);
+
+    check(profiles.upsertCalls).equals(1);
+    check(
+      container.read(preferredBackendProvider),
+    ).equals(PreferredBackend.direct);
+  });
+
+  testWidgets('Direct added next to Open WebUI leaves it primary', (
+    tester,
+  ) async {
+    final profiles = DirectTestOnboardingDirectProfiles(
+      const DirectConnectionProbe(reachable: true),
+    );
+    final container = await pumpSheet(
+      tester,
+      const AddAccountRequest(AccountKind.direct),
+      overrides: [
+        directConnectionProfilesProvider.overrideWith(() => profiles),
+        hermesOnlyModeProvider.overrideWithValue(false),
+        preferredBackendProvider.overrideWith(_OpenWebUiPrimary.new),
+      ],
+    );
+
+    await directTestSubmitOnboarding(tester);
+
+    check(profiles.upsertCalls).equals(1);
+    check(
+      container.read(preferredBackendProvider),
+    ).equals(PreferredBackend.owui);
   });
 
   testWidgets('Hermes tests a connection, saves it, and puts it in use, '
