@@ -7,6 +7,7 @@ import 'package:conduit/platform/android_assistant_handler.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -95,6 +96,28 @@ void main() {
     expect(find.text('Settings'), findsNothing);
   });
 
+  testWidgets('a cold-start voice call waits until chat is ready', (
+    tester,
+  ) async {
+    final launches = <bool>[];
+    final container = await _pumpApp(
+      tester,
+      pendingAction: const {'method': 'startVoiceCall', 'arguments': null},
+      launcher: (ref) => _RecordingVoiceCallLauncher(ref, launches),
+    );
+    // Still signing in, as on a cold start.
+    container.read(_chatReady.notifier).set(false);
+
+    container.read(androidAssistantProvider);
+    await tester.pump(const Duration(seconds: 2));
+    expect(launches, isEmpty);
+
+    container.read(_chatReady.notifier).set(true);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+    expect(launches, [isTrue]);
+  });
+
   testWidgets('the sidebar closes when asked to, from outside the drawer', (
     tester,
   ) async {
@@ -152,7 +175,12 @@ Future<ProviderContainer> _pumpApp(
   addTearDown(router.dispose);
   final container = ProviderContainer(
     overrides: [
-      chatEntryReadyProvider.overrideWithValue(true),
+      chatEntryReadyProvider.overrideWith((ref) => ref.watch(_chatReady)),
+      authNavigationStateProvider.overrideWith(
+        (ref) => ref.watch(_chatReady)
+            ? AuthNavigationState.authenticated
+            : AuthNavigationState.loading,
+      ),
       selectedModelProvider.overrideWithValue(_model),
       // The real reset needs the app's storage, which this rig doesn't have.
       androidAssistantProvider.overrideWith(
@@ -187,6 +215,15 @@ Future<void> _invokeAssistant(WidgetTester tester, MethodCall call) async {
     await completer.future;
   });
   await tester.pumpAndSettle();
+}
+
+final _chatReady = NotifierProvider<_ChatReady, bool>(_ChatReady.new);
+
+class _ChatReady extends Notifier<bool> {
+  @override
+  bool build() => true;
+
+  void set(bool ready) => state = ready;
 }
 
 final class _RecordingVoiceCallLauncher extends VoiceCallLauncher {

@@ -74,8 +74,15 @@ class AssistantComponentsTest {
             system.component,
             recognitionDelegate(listOf(own, store, system), conduit)
         )
-        assertEquals(store.component, recognitionDelegate(listOf(own, store), conduit))
         assertNull(recognitionDelegate(listOf(own), conduit))
+    }
+
+    @Test
+    fun speechNeverGoesToAnInstalledRecognizerNobodyChose() {
+        val own = candidate(conduit, isSystem = false)
+        val store = candidate("store.speech", isSystem = false)
+
+        assertNull(recognitionDelegate(listOf(own, store), conduit))
     }
 
     @Test

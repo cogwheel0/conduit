@@ -18,22 +18,30 @@ import androidx.annotation.RequiresApi
  * at boot that the assistant's recognizer exists, and drops an assistant that
  * names a missing one (#824). Some phones also make it the system recognizer
  * once Conduit is the assistant. Conduit has no recognizer of its own, so this
- * forwards every request to another installed one.
+ * forwards every request to the one that came with the phone.
  */
 class ConduitRecognitionService : RecognitionService() {
     private var delegate: SpeechRecognizer? = null
+    private var delegateTarget: ComponentName? = null
 
     override fun onStartListening(recognizerIntent: Intent, listener: Callback) {
-        releaseDelegate()
         val target = recognitionDelegate(installedRecognizers(this), packageName)
         if (target == null) {
+            releaseDelegate()
             reportError(listener, SpeechRecognizer.ERROR_CLIENT)
             return
         }
         try {
-            delegate = SpeechRecognizer.createSpeechRecognizer(this, target).also {
-                it.setRecognitionListener(ForwardingListener(listener))
-                it.startListening(recognizerIntent)
+            // Rebinding a recognizer between utterances can drop its connection
+            // (ERROR_SERVER_DISCONNECTED), so one delegate serves the session.
+            if (delegate == null || delegateTarget != target) {
+                releaseDelegate()
+                delegate = SpeechRecognizer.createSpeechRecognizer(this, target)
+                delegateTarget = target
+            }
+            delegate?.apply {
+                setRecognitionListener(ForwardingListener(listener))
+                startListening(recognizerIntent)
             }
         } catch (e: RuntimeException) {
             Log.w(TAG, "Forwarding to $target failed", e)
@@ -47,7 +55,7 @@ class ConduitRecognitionService : RecognitionService() {
     }
 
     override fun onCancel(listener: Callback) {
-        releaseDelegate()
+        delegate?.cancel()
     }
 
     override fun onDestroy() {
@@ -58,6 +66,7 @@ class ConduitRecognitionService : RecognitionService() {
     private fun releaseDelegate() {
         delegate?.destroy()
         delegate = null
+        delegateTarget = null
     }
 
     private class ForwardingListener(
@@ -137,16 +146,16 @@ internal data class RecognizerCandidate(
 )
 
 /**
- * The recognizer to forward to: never Conduit's own, and one that came with
- * the phone, normally its default, before any other.
+ * The recognizer to forward to: one that came with the phone, normally its
+ * default. Speech never goes to an installed app nobody chose for it, so with
+ * no preinstalled recognizer there is none.
  */
 internal fun recognitionDelegate(
     candidates: List<RecognizerCandidate>,
     ownPackage: String
-): ComponentName? {
-    val others = candidates.filter { it.component.packageName != ownPackage }
-    return (others.firstOrNull { it.isSystem } ?: others.firstOrNull())?.component
-}
+): ComponentName? = candidates.firstOrNull {
+    it.isSystem && it.component.packageName != ownPackage
+}?.component
 
 /**
  * Whether a recognizer other than Conduit's forwarding one is installed. The

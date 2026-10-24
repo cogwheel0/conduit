@@ -839,6 +839,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     super.initState();
     _livePromptNotifier = ref.read(openWebUiLivePromptProvider.notifier);
 
+    // The assistant can store a page to summarize before this page exists,
+    // on a cold start, so a context already waiting is sent too.
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) {
         _resetScreenContextRetry();
@@ -848,7 +850,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _resetScreenContextRetry(context: next);
       }
       _scheduleScreenContextSubmission();
-    });
+    }, fireImmediately: true);
     _conversationLoadingSub = ref.listenManual(isLoadingConversationProvider, (
       _,
       isLoading,
