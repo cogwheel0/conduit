@@ -459,6 +459,47 @@ void main() {
       check(service.isListening).isTrue();
     });
 
+    test('drops a start that a stop overtook while it waited', () async {
+      (await service.startListening()).listen((_) {});
+      await pumpEventQueue();
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+
+      // A start queues behind the transcription, then its owner leaves.
+      final started = service.startListening();
+      await pumpEventQueue();
+      final stopped = service.stopListening();
+      await pumpEventQueue();
+      reply.complete(const {'text': 'first take'});
+      final second = await started;
+      await stopped;
+
+      check(await second.isEmpty).isTrue();
+      check(service.isListening).isFalse();
+    });
+
+    test('keeps a listen started after a stop that is waiting', () async {
+      (await service.startListening()).listen((_) {});
+      await pumpEventQueue();
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+
+      final stopped = service.stopListening();
+      await pumpEventQueue();
+      var secondDone = false;
+      final started = service.startListening().then(
+        (stream) => stream.listen((_) {}, onDone: () => secondDone = true),
+      );
+      await pumpEventQueue();
+      reply.complete(const {'text': 'first take'});
+      await stopped;
+      await started;
+      await pumpEventQueue();
+
+      check(secondDone).isFalse();
+      check(service.isListening).isTrue();
+    });
+
     test('ends a call without waiting for a transcript it left', () async {
       final events = await service.beginListeningEvents();
       final subscription = events.listen((_) {});

@@ -675,9 +675,13 @@ class VoiceInputService implements VoiceModeInput {
     }
     // A stop still waiting for the server writes its transcript to the
     // streams and then closes them; let it finish before this listen opens
-    // new ones.
+    // new ones. A stop asked for in the meantime cancels this start.
     if (_stopsInFlight.isNotEmpty) {
+      final generation = _listenGeneration;
       await Future.wait(_stopsInFlight.toList());
+      if (generation != _listenGeneration) {
+        return const Stream<String>.empty();
+      }
     }
     final resumeHeldServerRecorder =
         shouldUseServer && isHoldingServerRecorderForResponse;
@@ -859,13 +863,15 @@ class VoiceInputService implements VoiceModeInput {
   Future<void> _stopListening({
     bool holdServerRecorderForResponseWait = false,
   }) async {
-    ++_listenGeneration;
+    final generation = ++_listenGeneration;
     if (!_isListening) {
       // Earlier stops may still be waiting for the server's transcript.
       // Closing the streams under them would lose the text (#822), so wait
       // for them while anything still listens for that text.
       if (_stopsInFlight.isNotEmpty && _hasTranscriptConsumer) {
         await Future.wait(_stopsInFlight.toList());
+        // A listen started or stopped meanwhile is not this stop's to end.
+        if (generation != _listenGeneration) return;
       }
       if (_nativeCaptureDetachedForResponseWait) {
         _nativeCaptureDetachedForResponseWait = false;
