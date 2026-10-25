@@ -1188,11 +1188,23 @@ void main() {
     );
 
     test(
-      'freeze seeds a missing snapshot so the replay cannot read globals back',
+      'freeze seeds a missing snapshot from the chat\'s live params',
       () async {
-        // A payload without a snapshot replays from the chat's live params;
-        // the frozen copy created here keeps that shape and adds the
-        // explicit automatic.
+        // A payload without a snapshot replays from the chat's stored
+        // params; the frozen copy keeps those and replaces the effort with
+        // the explicit automatic.
+        await db.into(db.chats).insert(
+          ChatsCompanion.insert(
+            id: 'c1',
+            title: 'c',
+            createdAt: 1,
+            updatedAt: 1,
+            rawExtra: const Value(
+              '{"params":{"temperature":0.5,"reasoning_effort":"high"}}',
+            ),
+            bodySynced: const Value(true),
+          ),
+        );
         final seq = await enqueue(
           kind: OutboxKind.requestCompletion,
           chatId: 'c1',
@@ -1213,7 +1225,7 @@ void main() {
         );
         check(decoded.chatSettings?.params)
             .isNotNull()
-            .deepEquals({'reasoning_effort': 'automatic'});
+            .deepEquals({'temperature': 0.5, 'reasoning_effort': 'automatic'});
         check(decoded.chatSettings?.reasoningEffort).isNull();
       },
     );

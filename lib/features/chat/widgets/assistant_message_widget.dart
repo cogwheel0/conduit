@@ -1588,7 +1588,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 isCompact: true,
               ),
               if (info.isFailed &&
-                  _isReasoningEffortRejection(info.lastError ?? ''))
+                  _isReasoningEffortRejection(
+                    info.lastError ?? '',
+                    _modelForQueuedRetry(),
+                  ))
                 ConduitButton(
                   onPressed: () => _retryQueuedWithoutReasoningEffort(info),
                   text: l10n.retryWithoutReasoningEffort,
@@ -1630,7 +1633,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void _retryQueuedWithoutReasoningEffort(QueuedCompletionInfo info) {
     unawaited(() async {
       try {
-        await clearReasoningEffortForRetry(ref, _modelForRegeneratedAnswer());
+        await clearReasoningEffortForRetry(ref, _modelForQueuedRetry());
         await ref
             .read(queuedCompletionActionsProvider)
             .retryWithoutReasoningEffort(info);
@@ -2344,18 +2347,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     caseSensitive: false,
   );
 
-  /// The model the retry will route this answer through: an ordinary
-  /// regeneration runs on the model selected now, while a comparison answer
-  /// regenerates with its own model. Null only when that model left the
-  /// model list — then just the chat-wide override can still be cleared.
-  Model? _modelForRegeneratedAnswer() {
+  /// Resolves [modelId] against the model list, or the model selected now
+  /// when the id is absent or already the selected one. Null when the id
+  /// names a model that left the list — then only the chat-wide override can
+  /// still be cleared.
+  Model? _modelByIdOrSelected(String? modelId) {
     final selected = ref.read(selectedModelProvider);
-    final group = _comparisonGroup;
-    if (group == null || !group.isComparison) return selected;
-    final message = widget.message is ChatMessage
-        ? widget.message as ChatMessage
-        : null;
-    final modelId = message?.model;
     if (modelId == null || modelId.isEmpty || selected?.id == modelId) {
       return selected;
     }
@@ -2364,6 +2361,29 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     }
     return null;
   }
+
+  String? get _answerModelId {
+    final message = widget.message is ChatMessage
+        ? widget.message as ChatMessage
+        : null;
+    return message?.model;
+  }
+
+  /// The model a live regeneration routes this answer through: ordinary
+  /// answers run on the model selected now, while a comparison answer
+  /// regenerates with its own model.
+  Model? _modelForRegeneratedAnswer() {
+    final group = _comparisonGroup;
+    if (group == null || !group.isComparison) {
+      return ref.read(selectedModelProvider);
+    }
+    return _modelByIdOrSelected(_answerModelId);
+  }
+
+  /// The model the queued completion replays under: always the one the
+  /// answer (the queued op's placeholder) carries, never whichever model is
+  /// selected now — a parked turn re-drains with its stored model.
+  Model? _modelForQueuedRetry() => _modelByIdOrSelected(_answerModelId);
 
   /// The chat's own saved `reasoning_effort` — the override that outranks the
   /// picker and opts an undeclared model into sending the parameter.
@@ -2375,17 +2395,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         value.trim().toLowerCase() != kAutomaticReasoningEffort;
   }
 
-  bool _isReasoningEffortRejection(String errorText) {
+  bool _isReasoningEffortRejection(String errorText, Model? retryModel) {
     if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
     // Either opt-in can put the parameter on the wire for a model that does
-    // not advertise support: the picker's pick for that very model, or the
-    // chat's saved override (which outlives any model and outranks even an
-    // advertised one when the provider rejects the value).
-    final model = _modelForRegeneratedAnswer();
+    // not advertise support: the picker's pick for the very model the retry
+    // will use, or the chat's saved override (which outlives any model and
+    // outranks even an advertised one when the provider rejects the value).
     final pickerOptIn =
-        model != null &&
-        !model.advertisesReasoningEffort &&
-        reasoningEffortForModel(ref.read, model) != kAutomaticReasoningEffort;
+        retryModel != null &&
+        !retryModel.advertisesReasoningEffort &&
+        reasoningEffortForModel(ref.read, retryModel) !=
+            kAutomaticReasoningEffort;
     return pickerOptIn || _chatHasReasoningEffortOverride;
   }
 
@@ -2463,7 +2483,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final bool canRetryWithoutEffort =
         isErrorMessage &&
         canRegenerate &&
-        _isReasoningEffortRejection('${activeError ?? ''}\n$_displayedContent');
+        _isReasoningEffortRejection(
+          '${activeError ?? ''}\n$_displayedContent',
+          _modelForRegeneratedAnswer(),
+        );
 
     // Branch actions need a real message id. The providers below are what make
     // them exclusive to the user's own durable chat, so the widget adds no
