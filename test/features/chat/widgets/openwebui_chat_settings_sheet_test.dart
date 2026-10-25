@@ -12,6 +12,11 @@ import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
+    show
+        LocalReasoningEfforts,
+        localReasoningEffortForModel,
+        localReasoningEffortsProvider;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
@@ -37,6 +42,30 @@ class _SeededActive extends ActiveConversationNotifier {
 
   @override
   Conversation? build() => initial;
+}
+
+class _SwitchableModel extends SelectedModel {
+  _SwitchableModel(this.initial);
+
+  final Model initial;
+
+  @override
+  Model? build() => initial;
+
+  void select(Model model) => state = model;
+}
+
+/// The picker's per-model picks, kept in memory so no test inherits picks an
+/// earlier file saved to the shared preference store.
+class _MemoryEfforts extends LocalReasoningEfforts {
+  @override
+  Map<String, String> build() => const {};
+
+  @override
+  Future<void> set(String key, String? effort) async {
+    final updated = Map<String, String>.of(state)..remove(key);
+    state = {...updated, key: ?effort};
+  }
 }
 
 class _NoDrainEngine extends SyncEngine {
@@ -134,6 +163,7 @@ void main() {
     Conversation? active,
     OpenWebUiChatSettingsAccess access = OpenWebUiChatSettingsAccess.all,
     Model model = _model,
+    _SwitchableModel? selection,
     bool advanced = true,
     bool native = false,
     Future<void> Function()? accessGate,
@@ -161,8 +191,12 @@ void main() {
         appDatabaseProvider.overrideWith((ref) => db),
         apiServiceProvider.overrideWithValue(_api('sheet')),
         reviewerModeProvider.overrideWithValue(false),
-        selectedModelProvider.overrideWithValue(model),
+        if (selection != null)
+          selectedModelProvider.overrideWith(() => selection)
+        else
+          selectedModelProvider.overrideWithValue(model),
         activeConversationProvider.overrideWith(() => _SeededActive(active)),
+        localReasoningEffortsProvider.overrideWith(_MemoryEfforts.new),
         syncEngineProvider.overrideWith(_NoDrainEngine.new),
         currentUserProvider2.overrideWithValue(
           const User(
@@ -542,6 +576,38 @@ void main() {
       );
     });
 
+    testWidgets('a saved effort is the own pick of the model it was made for', (
+      tester,
+    ) async {
+      // A model that does not advertise reasoning effort is sent only its own
+      // pick (issue #611), so an effort saved here must count as that pick,
+      // for the model the sheet opened with.
+      await tester.runAsync(() => seed('c1', {}));
+      final selection = _SwitchableModel(_plainModel);
+      final container = await openSheet(
+        tester,
+        active: _conversation('c1'),
+        selection: selection,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('chat-setting-reasoning_effort-high')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('chat-setting-reasoning_effort-high')),
+      );
+      await tester.pump();
+      // Another model is picked while the sheet is still open.
+      selection.select(_model);
+      await tester.pump();
+      await tester.tap(saveButton());
+      await settle(tester);
+
+      expect((await stored(tester, 'c1'))!['reasoning_effort'], 'high');
+      expect(localReasoningEffortForModel(container.read, _plainModel), 'high');
+      expect(localReasoningEffortForModel(container.read, _model), isNull);
+    });
+
     testWidgets('a model that refuses reasoning has no effort control', (
       tester,
     ) async {
@@ -793,6 +859,7 @@ void main() {
           activeConversationProvider.overrideWith(
             () => _SeededActive(_conversation('c1', chatParams: params)),
           ),
+          localReasoningEffortsProvider.overrideWith(_MemoryEfforts.new),
           syncEngineProvider.overrideWith(_NoDrainEngine.new),
           currentUserProvider2.overrideWithValue(
             const User(

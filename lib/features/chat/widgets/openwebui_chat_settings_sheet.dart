@@ -89,6 +89,9 @@ class _OpenWebUiChatSettingsSheetState
   // the user navigates meanwhile. Core re-checks the account before writing.
   late final Conversation? _conversation;
   late final ChatMutationOwnerToken _owner;
+  // The model whose choices the effort field offers; a saved effort becomes
+  // its own pick too.
+  late final Model? _model;
   late final ChatSettingsForm _form;
   late final Map<String, dynamic> _saved;
   final Map<String, TextEditingController> _controllers = {};
@@ -108,7 +111,7 @@ class _OpenWebUiChatSettingsSheetState
     _saved = _conversation == null
         ? ref.read(pendingOpenWebUiChatSettingsProvider)
         : _conversation.chatParams;
-    final model = ref.read(selectedModelProvider);
+    final model = _model = ref.read(selectedModelProvider);
     final policy = reasoningEffortPolicyForModel(ref.read, model);
     _form = ChatSettingsForm(
       saved: _saved,
@@ -208,6 +211,7 @@ class _OpenWebUiChatSettingsSheetState
       _saving = true;
       _failure = null;
     });
+    final container = ProviderScope.containerOf(context, listen: false);
     try {
       await saveOpenWebUiChatSettings(
         ref,
@@ -216,6 +220,7 @@ class _OpenWebUiChatSettingsSheetState
         set: patch.set,
         remove: patch.remove,
       );
+      await _recordReasoningPick(container, patch);
       if (!mounted) return;
       Navigator.of(context).pop();
       ConduitHaptics.success();
@@ -242,6 +247,32 @@ class _OpenWebUiChatSettingsSheetState
         _saving = false;
         _failure = l10n.errorMessage;
       });
+    }
+  }
+
+  /// A model that does not advertise reasoning effort is sent only its own
+  /// pick (issue #611), so an effort saved here is recorded as that pick too,
+  /// as a pick in the model selector is saved on the chat.
+  Future<void> _recordReasoningPick(
+    ProviderContainer container,
+    ChatParamsPatch patch,
+  ) async {
+    final model = _model;
+    if (model == null ||
+        !(patch.set.containsKey(kChatParamReasoningEffort) ||
+            patch.remove.contains(kChatParamReasoningEffort))) {
+      return;
+    }
+    final effort = patch.set[kChatParamReasoningEffort];
+    try {
+      await setReasoningEffortForModel(
+        container.read,
+        model,
+        effort is String ? effort : kAutomaticReasoningEffort,
+      );
+    } catch (_) {
+      // The chat keeps the saved value; the pick is best effort, as the
+      // chat write behind a model-selector pick is.
     }
   }
 
