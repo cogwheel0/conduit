@@ -2406,6 +2406,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   bool _isReasoningEffortRejection(String errorText, Model? retryModel) {
     if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
+    // An explicitly refusing model never takes the parameter: the request
+    // boundary strips it whatever the opt-ins say (issue #779, round 1). A
+    // retry through such a model therefore cannot fail on the value, and
+    // offering recovery would discard the user's pick and the chat-wide
+    // override on an error that cannot be about the never-sent parameter
+    // (issue #779, review round 5). A model that left the list is unknown,
+    // not refusing — recovery stays available for it.
+    if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
     // Either opt-in can put the parameter on the wire for a model that does
     // not advertise support: the picker's pick for the very model the retry
     // will use, or the chat's saved override (which outlives any model and
@@ -2425,15 +2433,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// (issue #779, review round 4). The error text alone never qualifies —
   /// unrelated failures can mention the parameter — and a raw snapshot value
   /// alone never qualifies either, because the request boundary strips it
-  /// for models that explicitly refuse reasoning effort.
+  /// for models that explicitly refuse reasoning effort; that guard lives
+  /// in [_isReasoningEffortRejection] and is applied to the frozen value
+  /// here as well.
   bool _isQueuedReasoningEffortRejection(QueuedCompletionInfo info) {
     final errorText = info.lastError ?? '';
     if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
     final retryModel = _modelForQueuedRetry();
     if (_isReasoningEffortRejection(errorText, retryModel)) return true;
-    final frozen = info.frozenReasoningEffort;
-    return frozen != null &&
-        !(retryModel?.explicitlyRejectsReasoningEffort ?? false);
+    if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
+    return info.frozenReasoningEffort != null;
   }
 
   Future<void> _retryWithoutReasoningEffort() async {

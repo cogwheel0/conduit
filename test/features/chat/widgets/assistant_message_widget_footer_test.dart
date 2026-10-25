@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/message_voice.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
@@ -25,6 +27,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 class _TestTextToSpeechController extends TextToSpeechController {
@@ -1640,6 +1643,7 @@ void main() {
     WidgetTester tester, {
     required String lastError,
     String? frozenReasoningEffort,
+    Iterable<Override> modelOverrides = const <Override>[],
   }) async {
     final message = ChatMessage(
       id: 'frozen-assistant',
@@ -1654,6 +1658,7 @@ void main() {
           textToSpeechControllerProvider.overrideWith(
             _TestTextToSpeechController.new,
           ),
+          ...modelOverrides,
           queuedCompletionInfoForMessageProvider('frozen-assistant')
               .overrideWith(
                 (ref) => Stream<QueuedCompletionInfo?>.value(
@@ -1711,4 +1716,44 @@ void main() {
     );
     expect(find.text('Retry without reasoning effort'), findsNothing);
   });
+
+  testWidgets('an explicitly refusing model hides queued recovery even with '
+      'a frozen value (issue #779, review round 5)', (tester) async {
+    await pumpFailedQueued(
+      tester,
+      lastError: 'Upstream rejected reasoning_effort',
+      frozenReasoningEffort: 'high',
+      modelOverrides: [
+        selectedModelProvider.overrideWith(_RefusingSelectedModel.new),
+      ],
+    );
+    expect(find.text('Retry without reasoning effort'), findsNothing);
+  });
+
+  testWidgets('a non-refusing selected model still offers recovery from the '
+      'frozen value', (tester) async {
+    await pumpFailedQueued(
+      tester,
+      lastError: 'Upstream rejected reasoning_effort',
+      frozenReasoningEffort: 'high',
+      modelOverrides: [
+        selectedModelProvider.overrideWith(_AdvertisingSelectedModel.new),
+      ],
+    );
+    expect(find.text('Retry without reasoning effort'), findsOneWidget);
+  });
+}
+
+final class _RefusingSelectedModel extends SelectedModel {
+  @override
+  Model? build() => const Model(
+    id: 'refusing-model',
+    name: 'Refusing',
+    capabilities: {'reasoning_effort': false},
+  );
+}
+
+final class _AdvertisingSelectedModel extends SelectedModel {
+  @override
+  Model? build() => const Model(id: 'gpt-5', name: 'GPT-5');
 }
