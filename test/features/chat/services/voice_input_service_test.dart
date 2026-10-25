@@ -550,6 +550,44 @@ void main() {
       check(service.isListening).isTrue();
     });
 
+    test('still restarts a listen that is running', () async {
+      var firstDone = false;
+      (await service.startListening()).listen(
+        (_) {},
+        onDone: () => firstDone = true,
+      );
+      await pumpEventQueue();
+
+      // The start's own stop of the running listen must not cancel it.
+      var secondDone = false;
+      (await service.startListening()).listen(
+        (_) {},
+        onDone: () => secondDone = true,
+      );
+      await pumpEventQueue();
+
+      check(firstDone).isTrue();
+      check(secondDone).isFalse();
+      check(service.isListening).isTrue();
+    });
+
+    test('still hands a held call recorder over to the device', () async {
+      (await service.beginListeningEvents()).listen((_) {});
+      await pumpEventQueue();
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+      reply.complete(const {'text': 'over to you'});
+      await pumpEventQueue();
+      check(service.isHoldingServerRecorderForResponse).isTrue();
+
+      // Releasing the held recorder is the start's own stop.
+      service.updatePreference(SttPreference.deviceOnly);
+      await service.startListening();
+
+      check(service.isHoldingServerRecorderForResponse).isFalse();
+      check(service.isUsingNativeLocalStt).isTrue();
+    });
+
     test('ends a call without waiting for a transcript it left', () async {
       final events = await service.beginListeningEvents();
       final subscription = events.listen((_) {});
