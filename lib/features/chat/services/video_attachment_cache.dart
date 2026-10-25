@@ -245,9 +245,10 @@ class VideoAttachmentCache {
       throw StateError('Video source unavailable');
     }
     final dir = await _cacheDirectory();
+    // The sequence keeps exports started in the same millisecond apart.
     final target = File(
       '${dir.path}/export_'
-      '${DateTime.now().millisecondsSinceEpoch}.$extension',
+      '${DateTime.now().millisecondsSinceEpoch}_${_scratchSeq++}.$extension',
     );
     await target.parent.create(recursive: true);
     // Disposed during the awaits above: a transfer started now could never

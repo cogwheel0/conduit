@@ -160,7 +160,7 @@ void main() {
       check(adapter.requests).deepEquals([_clipA, _clipA]);
     });
 
-    test('a stale attempt neither joins nor drops the newer transfer', () async {
+    test('a stale attempt neither joins nor drops a newer transfer', () async {
       final staleDirectory = Completer<Directory>();
       var lookups = 0;
       final cache = VideoAttachmentCache(
@@ -222,7 +222,7 @@ void main() {
   });
 
   group('exports', () {
-    test('an export holds the playback file after its player lets go', () async {
+    test('an export holds the playback file after its player goes', () async {
       final cache = VideoAttachmentCache(
         cacheDirectory: () async => dir,
         maxCacheBytes: 0,
@@ -274,6 +274,32 @@ void main() {
 
       await cache.prune();
       check(played.existsSync()).isFalse();
+    });
+
+    test('exports started together get their own scratch files', () async {
+      final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
+      Future<VideoExportFile> open() => cache.openForExport(
+        cachedPath: null,
+        url: _clipA,
+        extension: 'mp4',
+        transport: transport,
+        token: CancelToken(),
+        isCurrent: () => true,
+      );
+
+      final first = open();
+      final second = open();
+      await _until(() => adapter.bodies.length == 2);
+      adapter
+        ..finish(0)
+        ..finish(1);
+      final exports = await Future.wait([first, second]);
+
+      check(exports[1].file.path).not((it) => it.equals(exports[0].file.path));
+      for (final export in exports) {
+        check(export.file.readAsBytesSync()).deepEquals(_bytes);
+        await export.close();
+      }
     });
 
     test('an export with no playback file downloads a scratch copy', () async {
