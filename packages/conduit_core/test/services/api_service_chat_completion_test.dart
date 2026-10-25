@@ -544,9 +544,11 @@ void main() {
 
     test('the user-level default is not leaked to an undeclared model', () async {
       // Issue #613 stays fixed: without an explicit pick the parameter is
-      // still withheld from models that do not advertise support.
+      // still withheld from models that do not advertise support. A real
+      // send passes the picker's "automatic", never null.
       final body = await sentBody(
         model: 'plain-chat-model',
+        reasoningEffort: 'automatic',
         userSettings: {
           'ui': {
             'params': {'reasoning_effort': 'high'},

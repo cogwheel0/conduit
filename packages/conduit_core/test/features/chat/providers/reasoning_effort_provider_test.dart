@@ -260,6 +260,49 @@ void main() {
     check(reasoningEffortForModel(container.read, model)).equals('medium');
   });
 
+  // Issue #611: the request sends a model that does not advertise support only
+  // the picker's value, so the user's default must never stand in for a pick.
+  group('the user default reaches only advertising models', () {
+    const undeclared = Model(id: 'gpt-4o', name: 'GPT-4o');
+    const advertised = Model(id: 'gpt-5', name: 'GPT-5');
+
+    Future<ProviderContainer> containerFor(Model model) async {
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(buildApi('server-a')),
+          personalizationSettingsProvider.overrideWith(
+            () => _FixedPersonalizationSettings(
+              const ServerUserSettings(reasoningEffort: 'high'),
+            ),
+          ),
+          selectedModelProvider.overrideWith(() => _FixedSelectedModel(model)),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(personalizationSettingsProvider.future);
+      return container;
+    }
+
+    test('in the value a send passes for the model', () async {
+      final plain = await containerFor(undeclared);
+      check(reasoningEffortForModel(plain.read, undeclared))
+          .equals('automatic');
+
+      final reasoner = await containerFor(advertised);
+      check(reasoningEffortForModel(reasoner.read, advertised))
+          .equals('high');
+    });
+
+    test('in the value the picker shows for the selected model', () async {
+      final plain = await containerFor(undeclared);
+      check(plain.read(configuredReasoningEffortProvider)).isNull();
+      check(plain.read(reasoningEffortProvider)).equals('automatic');
+
+      final reasoner = await containerFor(advertised);
+      check(reasoner.read(configuredReasoningEffortProvider)).equals('high');
+    });
+  });
+
   test('server model picks are namespaced by server id', () async {
     const model = Model(id: 'gpt-5', name: 'GPT-5');
     final serverA = ProviderContainer(
