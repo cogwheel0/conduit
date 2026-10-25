@@ -503,6 +503,31 @@ void main() {
       check(service.isListening).isTrue();
     });
 
+    test('drops a restart that a later stop overtook', () async {
+      (await service.startListening()).listen((_) {});
+      await pumpEventQueue();
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+
+      final cancelled = service.startListening();
+      await pumpEventQueue();
+      final firstStop = service.stopListening();
+      await pumpEventQueue();
+      final restarted = service.startListening();
+      await pumpEventQueue();
+      // The screen that asked for the restart leaves before it opens.
+      final secondStop = service.stopListening();
+      await pumpEventQueue();
+      reply.complete(const {'text': 'first take'});
+      await cancelled;
+      await firstStop;
+      final stream = await restarted;
+      await secondStop;
+
+      check(await stream.isEmpty).isTrue();
+      check(service.isListening).isFalse();
+    });
+
     test('keeps a listen started after a stop that is waiting', () async {
       (await service.startListening()).listen((_) {});
       await pumpEventQueue();

@@ -87,9 +87,12 @@ class VoiceInputService implements VoiceModeInput {
   Future<void>? _startingLocalStt;
   Future<Stream<String>>? _startListeningInFlight;
 
-  /// The generation a start waiting for earlier stops queued at; a stop
-  /// since then has cancelled it.
-  int? _queuedStartGeneration;
+  /// Counts stops asked for through [stopListening]. A start asked for
+  /// before the latest of them is cancelled rather than opened.
+  int _stopRequests = 0;
+
+  /// [_stopRequests] when the start in flight was asked for.
+  int _startListeningInFlightStopRequests = 0;
 
   /// Stops still ending a listen, server transcription included.
   final Set<Future<void>> _stopsInFlight = <Future<void>>{};
@@ -627,28 +630,26 @@ class VoiceInputService implements VoiceModeInput {
     bool nativeAccumulateResults = true,
     bool holdServerRecorderForResponseWait = false,
   }) async {
-    final inFlight = _startListeningInFlight;
-    if (inFlight != null) {
-      final queuedAt = _queuedStartGeneration;
-      if (queuedAt == null || queuedAt == _listenGeneration) {
+    final stopRequests = _stopRequests;
+    var inFlight = _startListeningInFlight;
+    while (inFlight != null) {
+      if (_startListeningInFlightStopRequests == stopRequests) {
         return inFlight;
       }
       // A stop has cancelled that start, so it will come back empty; start
-      // again once it has.
+      // afresh once it has.
       await inFlight;
-      return startListening(
-        iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
-        nativeAccumulateResults: nativeAccumulateResults,
-        holdServerRecorderForResponseWait: holdServerRecorderForResponseWait,
-      );
+      inFlight = _startListeningInFlight;
     }
 
     final startFuture = _startListeningInternal(
       iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
       nativeAccumulateResults: nativeAccumulateResults,
       holdServerRecorderForResponseWait: holdServerRecorderForResponseWait,
+      stopRequests: stopRequests,
     );
     _startListeningInFlight = startFuture;
+    _startListeningInFlightStopRequests = stopRequests;
     try {
       return await startFuture;
     } finally {
@@ -662,6 +663,7 @@ class VoiceInputService implements VoiceModeInput {
     required bool iosAudioSessionManagedExternally,
     required bool nativeAccumulateResults,
     required bool holdServerRecorderForResponseWait,
+    required int stopRequests,
   }) async {
     if (!_isInitialized) {
       throw Exception('Voice input not initialized');
@@ -686,26 +688,25 @@ class VoiceInputService implements VoiceModeInput {
         (prefersServerOnly || (!shouldUseLocal && !prefersDeviceOnly));
 
     if (_isListening) {
-      await stopListening();
+      await _stopListening();
     }
     // A stop still waiting for the server writes its transcript to the
     // streams and then closes them; let it finish before this listen opens
-    // new ones. A stop asked for in the meantime cancels this start.
+    // new ones.
     if (_stopsInFlight.isNotEmpty) {
-      final generation = _queuedStartGeneration = _listenGeneration;
       await Future.wait(_stopsInFlight.toList());
-      _queuedStartGeneration = null;
-      if (generation != _listenGeneration) {
-        return const Stream<String>.empty();
-      }
     }
     final resumeHeldServerRecorder =
         shouldUseServer && isHoldingServerRecorderForResponse;
     if (!resumeHeldServerRecorder && isHoldingServerRecorderForResponse) {
-      await stopListening();
+      await _stopListening();
     }
     if (!shouldUseLocal && _nativeCaptureDetachedForResponseWait) {
       await _stopNativeLocalStt();
+    }
+    // A stop asked for while this start waited cancels it.
+    if (stopRequests != _stopRequests) {
+      return const Stream<String>.empty();
     }
     final listenGeneration = ++_listenGeneration;
 
@@ -841,6 +842,7 @@ class VoiceInputService implements VoiceModeInput {
 
   @override
   Future<void> stopListening() async {
+    ++_stopRequests;
     await _stopListening();
   }
 
