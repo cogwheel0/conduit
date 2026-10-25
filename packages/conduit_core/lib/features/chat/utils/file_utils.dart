@@ -47,18 +47,25 @@ String inferFileTypeFromUrl(String url) {
 }
 
 /// Returns true when a file entry is explicitly or implicitly a video.
-/// Prefers server-declared `content_type`/`type`; falls back to extension
-/// inference only when neither declares an image kind.
+/// A server-declared `content_type` (top-level or `meta.content_type`) wins;
+/// otherwise `type: 'video'` or a video extension in the URL or filename
+/// marks a video. The extension overrides `type: 'image'` because tool
+/// output saved before videos had their own type was always labelled image.
 bool isVideoFile(dynamic file) {
   if (file is! Map) return false;
 
-  final contentType = file['content_type']?.toString().toLowerCase() ?? '';
-  if (contentType.startsWith('video/')) return true;
-  if (contentType.startsWith('image/')) return false;
+  final meta = file['meta'];
+  for (final declared in [
+    file['content_type'],
+    if (meta is Map) meta['content_type'],
+  ]) {
+    final contentType = declared?.toString().toLowerCase() ?? '';
+    if (contentType.startsWith('video/')) return true;
+    if (contentType.startsWith('image/')) return false;
+  }
 
   final type = file['type']?.toString().toLowerCase() ?? '';
   if (type == 'video') return true;
-  if (type == 'image') return false;
 
   final url = file['url'];
   if (url is String && url.isNotEmpty && !url.startsWith('data:')) {

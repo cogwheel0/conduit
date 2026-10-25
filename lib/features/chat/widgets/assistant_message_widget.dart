@@ -2029,6 +2029,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             filenameHint:
                 file['filename'] as String? ?? file['name'] as String?,
             contentType: file['content_type'] as String?,
+            sizeBytes: switch (file['size']) {
+              final num size => size.toInt(),
+              _ => null,
+            },
           ),
         );
       }).toList(),

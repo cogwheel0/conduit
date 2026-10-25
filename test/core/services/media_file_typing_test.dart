@@ -36,6 +36,47 @@ void main() {
       check(isVideoFile(file)).isFalse();
     });
 
+    test('video extension overrides a saved image type', () {
+      final byUrl = {'type': 'image', 'url': 'https://x/out/clip.mp4'};
+      check(isVideoFile(byUrl)).isTrue();
+      check(isImageFile(byUrl)).isFalse();
+
+      final byName = {
+        'type': 'image',
+        'url': '/api/v1/files/abc/content',
+        'filename': 'clip.webm',
+      };
+      check(isVideoFile(byName)).isTrue();
+      check(isImageFile(byName)).isFalse();
+    });
+
+    test('image content type wins over a video extension', () {
+      final topLevel = {
+        'type': 'image',
+        'url': 'https://x/out/clip.mp4',
+        'content_type': 'image/png',
+      };
+      check(isVideoFile(topLevel)).isFalse();
+      check(isImageFile(topLevel)).isTrue();
+
+      final fromMeta = {
+        'type': 'image',
+        'url': 'https://x/out/clip.mp4',
+        'meta': {'content_type': 'image/jpeg'},
+      };
+      check(isVideoFile(fromMeta)).isFalse();
+      check(isImageFile(fromMeta)).isTrue();
+    });
+
+    test('meta content_type marks a video', () {
+      final file = {
+        'id': 'abc',
+        'filename': 'upload',
+        'meta': {'content_type': 'video/mp4'},
+      };
+      check(isVideoFile(file)).isTrue();
+    });
+
     test('filename extension marks video when content_type missing', () {
       final file = {
         'url': 'https://ai.fingaz.info/api/v1/files/abc/content',

@@ -176,6 +176,8 @@ dev_dependencies:
   # Used only in tests to mock the microphone permission platform channel.
   permission_handler_platform_interface: ^4.3.0
   plugin_platform_interface: ^2.1.8
+  # Used only in tests to fake the video player platform.
+  video_player_platform_interface: ^6.9.0
 
 flutter:
   config:
