@@ -21,6 +21,7 @@ dependencies:
   http_parser: ^4.0.2
   ollama_dart: ^2.4.0
   web_socket_channel: ^3.0.3
+  clock: ^1.1.2
   collection: ^1.19.1
   hive_ce: ^2.14.0
   intl: ^0.20.2

@@ -4752,7 +4752,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _scheduleStreamingContentFrame(reason: reason);
       return;
     }
-    final elapsed = DateTime.now().difference(lastFlushAt);
+    // `clock` rather than `DateTime.now()`, so under fake time the window
+    // closes on the same clock that runs the timer below.
+    final elapsed = clock.now().difference(lastFlushAt);
     final remaining = streamingContentUpdateInterval - elapsed;
     if (remaining <= Duration.zero) {
       _scheduleStreamingContentFrame(reason: reason);
@@ -4822,7 +4824,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       _streamingCoalescedUpdateCount += coalescedUpdates;
       return;
     }
-    _lastStreamingContentFlushAt = DateTime.now();
+    _lastStreamingContentFlushAt = clock.now();
     _lastFlushedStreamingBufferVersion = _streamingBufferVersion;
     _streamingVisibleFlushCount += 1;
     _streamingCoalescedUpdateCount += coalescedUpdates;
