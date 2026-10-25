@@ -21,6 +21,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 
 import '../core/services/media_upload_controller.dart';
 import '../core/services/native_sheet_bridge.dart';
+import '../features/navigation/providers/sidebar_providers.dart';
 
 import 'package:path/path.dart' as path;
 
@@ -439,8 +440,11 @@ Future<bool> fenceTerminalNativeSharePayloadUntilAcknowledgedForTest({
 ///
 /// On iOS, Settings and the other menus are native sheets presented over the
 /// chat, so the route can already be `/chat` while a sheet still covers it.
+/// The phone sidebar is not a route either, and Settings opens from it, so
+/// it would still cover the chat once the sheet closes.
 @visibleForTesting
-Future<bool> revealChatForIncomingShare({
+Future<bool> revealChatForIncomingShare(
+  dynamic ref, {
   Future<bool> Function()? dismissNativeSheet,
 }) async {
   await (dismissNativeSheet ?? NativeSheetBridge.instance.dismiss)();
@@ -448,6 +452,9 @@ Future<bool> revealChatForIncomingShare({
     await NavigationService.navigateToChat();
     await Future<void>.delayed(const Duration(milliseconds: 75));
   }
+  // Ask after navigating: the sidebar's listener only hears requests made
+  // once the chat shell is built.
+  ref.read(sidebarOverlayDismissRequestProvider.notifier).request();
   return NavigationService.currentRoute == Routes.chat;
 }
 
@@ -845,7 +852,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
       return;
     }
 
-    if (await revealChatForIncomingShare()) {
+    if (await revealChatForIncomingShare(ref)) {
       startNewChat(ref);
       if (importId != null) {
         preparedShareImportIds.add(importId);
@@ -908,7 +915,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
         return;
       }
 
-      if (!await revealChatForIncomingShare()) {
+      if (!await revealChatForIncomingShare(ref)) {
         scheduleProcessPending();
         return;
       }

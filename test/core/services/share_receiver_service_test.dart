@@ -15,6 +15,7 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:path/path.dart' as p;
 import 'package:drift/native.dart';
 
+import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/platform/share_receiver_service.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/share_staging_cleanup.dart';
@@ -228,29 +229,44 @@ void main() {
       return router;
     }
 
-    test('dismisses a native sheet that covers the chat', () async {
-      // iOS presents Settings as a native sheet over /chat, so the route
-      // alone never showed the share.
+    test('dismisses a native sheet, then the sidebar over the chat', () async {
+      // iOS presents Settings as a native sheet over /chat, opened from the
+      // phone sidebar, so the route alone never showed the share.
       attachRouter(Routes.chat);
-      var dismissals = 0;
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final steps = <String>[];
+      container.listen(
+        sidebarOverlayDismissRequestProvider,
+        (_, _) => steps.add('sidebar'),
+      );
 
       final revealed = await revealChatForIncomingShare(
+        container,
         dismissNativeSheet: () async {
-          dismissals += 1;
+          steps.add('sheet');
           return true;
         },
       );
 
       expect(revealed, isTrue);
-      expect(dismissals, 1);
+      expect(steps, ['sheet', 'sidebar']);
       expect(NavigationService.currentRoute, Routes.chat);
     });
 
-    test('navigates to the chat from a Flutter route', () async {
+    test('asks the sidebar to close once a Flutter route is left', () async {
       attachRouter(Routes.profile);
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
       var dismissals = 0;
+      final routesAtSidebarRequest = <String?>[];
+      container.listen(
+        sidebarOverlayDismissRequestProvider,
+        (_, _) => routesAtSidebarRequest.add(NavigationService.currentRoute),
+      );
 
       final revealed = await revealChatForIncomingShare(
+        container,
         dismissNativeSheet: () async {
           dismissals += 1;
           return false;
@@ -259,7 +275,9 @@ void main() {
 
       expect(revealed, isTrue);
       expect(dismissals, 1);
-      expect(NavigationService.currentRoute, Routes.chat);
+      // The sidebar's listener lives in the chat shell, so a request made
+      // before the chat is showing would go unheard.
+      expect(routesAtSidebarRequest, [Routes.chat]);
     });
   });
 
