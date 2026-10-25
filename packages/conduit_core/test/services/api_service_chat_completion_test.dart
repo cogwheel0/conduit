@@ -458,13 +458,46 @@ void main() {
     });
 
     test(
-      'a saved reasoning effort is sent to an undeclared model (opt-in)',
+      'a saved reasoning effort is not sent to an undeclared model',
       () async {
-        // Issue #779: a value the user saved on the chat is a deliberate
-        // override and outranks the missing advertisement.
+        // Issue #611: the chat's value may have been picked for another
+        // model. A model that does not advertise support gets only its own
+        // pick, and here the picker holds none.
         final body = await sentBody(
           model: 'plain-chat-model',
           chatParams: {'reasoning_effort': 'low'},
+          reasoningEffort: 'automatic',
+        );
+
+        check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+      },
+    );
+
+    for (final saved in <Object?>[null, '']) {
+      test(
+        'a saved ${saved == null ? 'null' : 'empty'} effort sends nothing '
+        'to an undeclared model',
+        () async {
+          // Picking Automatic saves null on the chat.
+          final body = await sentBody(
+            model: 'plain-chat-model',
+            chatParams: {'reasoning_effort': saved, 'temperature': 0.5},
+            reasoningEffort: 'automatic',
+          );
+
+          check(paramsOf(body)).deepEquals({'temperature': 0.5});
+        },
+      );
+    }
+
+    test(
+      'an undeclared model gets its own pick over the saved value',
+      () async {
+        // The request matches what the model's picker shows.
+        final body = await sentBody(
+          model: 'plain-chat-model',
+          chatParams: {'reasoning_effort': 'high'},
+          reasoningEffort: 'low',
         );
 
         check(paramsOf(body)['reasoning_effort']).equals('low');

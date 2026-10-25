@@ -1717,23 +1717,26 @@ abstract class _ApiServiceBase {
             (openAiModel is Map ? openAiModel['id'] : null),
       },
     );
-    // Fail closed only for implicit values (issue #613). The picker hands a
-    // value to an undeclared model only when the user picked one for that
-    // model, and a chat's own `reasoning_effort` is a deliberate override;
-    // either counts as an opt-in that outranks the missing advertisement
-    // (issue #779). An explicit refusal outranks both: the server said this
-    // model cannot take the parameter, so sending it would only fail the
-    // turn — no opt-in, saved or picked, overrides that refusal.
-    final chatEffortOverride = chatParams?[kChatParamReasoningEffort];
-    final explicitOptIn =
-        reasoningEffort != null ||
-        (chatEffortOverride is String && chatEffortOverride.trim().isNotEmpty);
+    // An explicit refusal wins over everything: the server said this model
+    // cannot take the parameter. A model that does not advertise support gets
+    // only its own pick, the value its picker shows (issue #779); a chat-saved
+    // or global value, which may have been chosen for another model, never
+    // reaches it (issue #611).
     final refusesEffort = modelExplicitlyRejectsReasoningEffort(
       _coerceJsonMap(modelItem?['capabilities']),
     );
-    if (isAutomaticEffort ||
-        refusesEffort ||
-        (!advertisesEffort && !explicitOptIn)) {
+    final pick = reasoningEffort?.trim();
+    final hasOwnPick =
+        pick != null && pick.isNotEmpty && pick.toLowerCase() != 'automatic';
+    if (refusesEffort) {
+      params.remove('reasoning_effort');
+    } else if (!advertisesEffort) {
+      if (hasOwnPick) {
+        params['reasoning_effort'] = reasoningEffort;
+      } else {
+        params.remove('reasoning_effort');
+      }
+    } else if (isAutomaticEffort) {
       params.remove('reasoning_effort');
     }
     data['params'] = params;
