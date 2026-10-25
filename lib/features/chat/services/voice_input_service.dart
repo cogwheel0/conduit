@@ -87,6 +87,10 @@ class VoiceInputService implements VoiceModeInput {
   Future<void>? _startingLocalStt;
   Future<Stream<String>>? _startListeningInFlight;
 
+  /// The generation a start waiting for earlier stops queued at; a stop
+  /// since then has cancelled it.
+  int? _queuedStartGeneration;
+
   /// Stops still ending a listen, server transcription included.
   final Set<Future<void>> _stopsInFlight = <Future<void>>{};
   StreamController<String>? _textStreamController;
@@ -625,7 +629,18 @@ class VoiceInputService implements VoiceModeInput {
   }) async {
     final inFlight = _startListeningInFlight;
     if (inFlight != null) {
-      return inFlight;
+      final queuedAt = _queuedStartGeneration;
+      if (queuedAt == null || queuedAt == _listenGeneration) {
+        return inFlight;
+      }
+      // A stop has cancelled that start, so it will come back empty; start
+      // again once it has.
+      await inFlight;
+      return startListening(
+        iosAudioSessionManagedExternally: iosAudioSessionManagedExternally,
+        nativeAccumulateResults: nativeAccumulateResults,
+        holdServerRecorderForResponseWait: holdServerRecorderForResponseWait,
+      );
     }
 
     final startFuture = _startListeningInternal(
@@ -677,8 +692,9 @@ class VoiceInputService implements VoiceModeInput {
     // streams and then closes them; let it finish before this listen opens
     // new ones. A stop asked for in the meantime cancels this start.
     if (_stopsInFlight.isNotEmpty) {
-      final generation = _listenGeneration;
+      final generation = _queuedStartGeneration = _listenGeneration;
       await Future.wait(_stopsInFlight.toList());
+      _queuedStartGeneration = null;
       if (generation != _listenGeneration) {
         return const Stream<String>.empty();
       }

@@ -478,6 +478,31 @@ void main() {
       check(service.isListening).isFalse();
     });
 
+    test('starts again after a stop cancelled a waiting start', () async {
+      (await service.startListening()).listen((_) {});
+      await pumpEventQueue();
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+
+      final cancelled = service.startListening();
+      await pumpEventQueue();
+      final stopped = service.stopListening();
+      await pumpEventQueue();
+      var secondDone = false;
+      final restarted = service.startListening().then(
+        (stream) => stream.listen((_) {}, onDone: () => secondDone = true),
+      );
+      await pumpEventQueue();
+      reply.complete(const {'text': 'first take'});
+      check(await (await cancelled).isEmpty).isTrue();
+      await stopped;
+      await restarted;
+      await pumpEventQueue();
+
+      check(secondDone).isFalse();
+      check(service.isListening).isTrue();
+    });
+
     test('keeps a listen started after a stop that is waiting', () async {
       (await service.startListening()).listen((_) {});
       await pumpEventQueue();
