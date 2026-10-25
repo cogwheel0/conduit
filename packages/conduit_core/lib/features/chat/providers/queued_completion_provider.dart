@@ -60,6 +60,7 @@ class QueuedCompletionInfo {
     this.lastError,
     this.nextAttemptAt,
     this.frozenReasoningEffort,
+    this.frozenPickedReasoningEffort,
   }) : _databaseOwner = databaseOwner,
        _ownership = null;
 
@@ -74,6 +75,7 @@ class QueuedCompletionInfo {
     this.lastError,
     this.nextAttemptAt,
     this.frozenReasoningEffort,
+    this.frozenPickedReasoningEffort,
   }) : _databaseOwner = ownership.session.database!,
        _ownership = ownership;
 
@@ -94,6 +96,10 @@ class QueuedCompletionInfo {
   /// explicit effort (or only the automatic one, e.g. after a prior
   /// without-effort recovery froze it).
   final String? frozenReasoningEffort;
+
+  /// The picker's non-automatic value frozen in the snapshot: the only effort
+  /// a replay sends a model that does not advertise support (issue #611).
+  final String? frozenPickedReasoningEffort;
 
   bool get isFailed => phase == QueuedCompletionPhase.failed;
 
@@ -121,7 +127,8 @@ class QueuedCompletionInfo {
           isOffline == other.isOffline &&
           lastError == other.lastError &&
           nextAttemptAt == other.nextAttemptAt &&
-          frozenReasoningEffort == other.frozenReasoningEffort;
+          frozenReasoningEffort == other.frozenReasoningEffort &&
+          frozenPickedReasoningEffort == other.frozenPickedReasoningEffort;
 
   @override
   int get hashCode => Object.hash(
@@ -135,6 +142,8 @@ class QueuedCompletionInfo {
     isOffline,
     lastError,
     nextAttemptAt,
+    frozenReasoningEffort,
+    frozenPickedReasoningEffort,
   );
 }
 
@@ -263,6 +272,9 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
         }
       }
 
+      final frozen = phase == QueuedCompletionPhase.failed
+          ? _frozenReasoningEffortsFromPayload(op.payload)
+          : null;
       infos[id] = QueuedCompletionInfo._owned(
         ownership: ownership,
         seq: op.seq,
@@ -273,9 +285,8 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
         isOffline: offline,
         lastError: op.lastError,
         nextAttemptAt: op.nextAttemptAt,
-        frozenReasoningEffort: phase == QueuedCompletionPhase.failed
-            ? _frozenReasoningEffortFromPayload(op.payload)
-            : null,
+        frozenReasoningEffort: frozen?.chat ?? frozen?.picked,
+        frozenPickedReasoningEffort: frozen?.picked,
       );
     }
     return Map<String, QueuedCompletionInfo>.unmodifiable(infos);
@@ -502,11 +513,20 @@ String? _assistantMessageIdFromPayload(String rawPayload) {
   return null;
 }
 
-/// The non-automatic `reasoning_effort` frozen in the op's settings snapshot
-/// — what a manual replay puts on the wire whatever the picker and the chat
-/// override hold now (issue #779). Null when the snapshot carries no explicit
-/// effort, including after a without-effort recovery froze `automatic`.
-String? _frozenReasoningEffortFromPayload(String rawPayload) {
+/// The non-automatic `reasoning_effort` values frozen in the op's settings
+/// snapshot, [chat] saved on the chat and [picked] the picker's admitted one:
+/// what a manual replay can put on the wire whatever the picker and the chat
+/// hold now (issue #779). Both are null after a without-effort recovery froze
+/// `automatic`.
+({String? chat, String? picked})? _frozenReasoningEffortsFromPayload(
+  String rawPayload,
+) {
+  String? explicit(Object? value) =>
+      value is String &&
+          value.trim().isNotEmpty &&
+          value.trim().toLowerCase() != kAutomaticReasoningEffort
+      ? value
+      : null;
   try {
     final decoded = jsonDecode(rawPayload);
     if (decoded is! Map) return null;
@@ -514,18 +534,10 @@ String? _frozenReasoningEffortFromPayload(String rawPayload) {
       decoded['chatSettings'],
     );
     if (settings == null) return null;
-    // The chat's saved override outranks the admitted picker value, but
-    // either one being explicit and non-automatic means the replay sends it.
-    for (final value in <Object?>[
-      settings.params[kChatParamReasoningEffort],
-      settings.reasoningEffort,
-    ]) {
-      if (value is String &&
-          value.trim().isNotEmpty &&
-          value.trim().toLowerCase() != kAutomaticReasoningEffort) {
-        return value;
-      }
-    }
+    return (
+      chat: explicit(settings.params[kChatParamReasoningEffort]),
+      picked: explicit(settings.reasoningEffort),
+    );
   } catch (_) {}
   return null;
 }

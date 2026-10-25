@@ -617,8 +617,11 @@ Future<void> persistOpenWebUiReasoningPick(
 }
 
 /// "Retry without reasoning effort" (issue #779 recovery): clears the picker's
-/// pick on [model] and, for an Open WebUI chat, the chat's saved override, and
-/// reports whether every clear is confirmed. The retry that follows must not
+/// pick on [model] and, for an Open WebUI model that advertises reasoning
+/// effort, the chat's saved override, and reports whether every clear is
+/// confirmed. A model that does not advertise support was sent only its own
+/// pick (issue #611), so the chat's value, which may be right for other
+/// models, stays. The retry that follows must not
 /// resend the value the provider rejected, so unlike
 /// [persistOpenWebUiReasoningPick] — which lets a picker keep its local pick
 /// when the chat write fails — this writes the override itself and checks the
@@ -670,8 +673,12 @@ Future<bool> clearReasoningEffortForRetry(dynamic ref, Model? model) async {
       cleared = false;
     }
     // Direct, Apple and Hermes models carry a device-local pick only; the
-    // chat write exists solely for Open WebUI models.
-    if (!_reasoningPickIsSavedOnChat(ref, model)) return cleared;
+    // chat write exists solely for Open WebUI models that were sent the
+    // chat's value.
+    if (!_reasoningPickIsSavedOnChat(ref, model) ||
+        !model.advertisesReasoningEffort) {
+      return cleared;
+    }
   }
   try {
     final saved = await saveOpenWebUiChatSettings(

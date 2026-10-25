@@ -1653,6 +1653,7 @@ void main() {
     WidgetTester tester, {
     required String lastError,
     String? frozenReasoningEffort,
+    String? frozenPickedReasoningEffort,
     Iterable<Override> modelOverrides = const <Override>[],
   }) async {
     final message = ChatMessage(
@@ -1682,6 +1683,7 @@ void main() {
                     isOffline: false,
                     lastError: lastError,
                     frozenReasoningEffort: frozenReasoningEffort,
+                    frozenPickedReasoningEffort: frozenPickedReasoningEffort,
                   ),
                 ),
               ),
@@ -1753,6 +1755,33 @@ void main() {
     expect(find.text('Retry without reasoning effort'), findsOneWidget);
   });
 
+  // A model that does not advertise reasoning effort was sent only the
+  // picker's frozen value, never the chat's (issue #611).
+  for (final (picked, offered) in [(null, false), ('high', true)]) {
+    testWidgets('queued recovery for an undeclared model follows its frozen '
+        'pick ($picked)', (tester) async {
+      await pumpFailedQueued(
+        tester,
+        lastError: 'Upstream rejected reasoning_effort',
+        frozenReasoningEffort: 'high',
+        frozenPickedReasoningEffort: picked,
+        modelOverrides: [
+          // Signed out: the model holds no pick of its own.
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(
+            () => _SelectedAs(
+              const Model(id: 'plain-chat-model', name: 'Plain'),
+            ),
+          ),
+        ],
+      );
+      expect(
+        find.text('Retry without reasoning effort'),
+        offered ? findsOneWidget : findsNothing,
+      );
+    });
+  }
+
   group('retry without reasoning effort on a live answer', () {
     const plain = Model(id: 'plain-chat-model', name: 'Plain');
     final failed = ChatMessage(
@@ -1796,11 +1825,19 @@ void main() {
             (ref) async => OpenWebUiChatSettingsAccess.all,
           ),
           selectedModelProvider.overrideWith(() => _SelectedAs(selected)),
+          // A live answer, not a queued one.
+          queuedCompletionInfoForMessageProvider(
+            failed.id,
+          ).overrideWith((ref) => Stream<QueuedCompletionInfo?>.value(null)),
           localReasoningEffortsProvider.overrideWith(
             () => _PickedEfforts({
               for (final MapEntry(:key, :value) in picks.entries)
                 'openwebui:live:$key': value,
             }, writesFail: pickWritesFail),
+          ),
+          // Branching is not under test.
+          chatForkAvailabilityProvider.overrideWithValue(
+            ChatForkAvailability.hidden,
           ),
           if (chatParams != null)
             activeConversationProvider.overrideWith(
@@ -1850,6 +1887,29 @@ void main() {
     ) async {
       await pumpFailed(tester, selected: plain);
       expect(retryWithoutEffort, findsNothing);
+    });
+
+    testWidgets('is not offered for a chat value the model was not sent', (
+      tester,
+    ) async {
+      // A model that does not advertise support is sent only its own pick.
+      await pumpFailed(
+        tester,
+        selected: plain,
+        chatParams: const {'reasoning_effort': 'high'},
+      );
+      expect(retryWithoutEffort, findsNothing);
+    });
+
+    testWidgets('is offered for the chat value a reasoning model was sent', (
+      tester,
+    ) async {
+      await pumpFailed(
+        tester,
+        selected: const Model(id: 'gpt-5', name: 'GPT-5'),
+        chatParams: const {'reasoning_effort': 'high'},
+      );
+      expect(retryWithoutEffort, findsOneWidget);
     });
 
     testWidgets('clears the pick, then regenerates', (tester) async {

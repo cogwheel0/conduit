@@ -635,15 +635,34 @@ void main() {
         // confirmed, so the helper must report the saved params it saw.
         await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
         final c = container(active: _conversation('c1'));
+        const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
+        await selectReasoningEffortForModel(c, reasoner, 'high');
+
+        final cleared = await clearReasoningEffortForRetry(c, reasoner);
+
+        check(cleared).isTrue();
+        check(localReasoningEffortForModel(c.read, reasoner))
+            .equals(kAutomaticReasoningEffort);
+        check((await stored('c1'))['reasoning_effort']).isNull();
+      },
+    );
+
+    test(
+      'retry-clearing leaves the chat value an undeclared model was not sent',
+      () async {
+        // A model that does not advertise support is sent only its own pick
+        // (issue #611); the chat's value may be right for other models.
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        final c = container(active: _conversation('c1'));
         const plain = Model(id: 'plain-chat-model', name: 'Plain');
-        await selectReasoningEffortForModel(c, plain, 'high');
+        await setReasoningEffortForModel(c.read, plain, 'low');
 
         final cleared = await clearReasoningEffortForRetry(c, plain);
 
         check(cleared).isTrue();
         check(localReasoningEffortForModel(c.read, plain))
             .equals(kAutomaticReasoningEffort);
-        check((await stored('c1'))['reasoning_effort']).isNull();
+        check(await stored('c1')).deepEquals({'reasoning_effort': 'high'});
       },
     );
 
@@ -661,7 +680,8 @@ void main() {
           ),
         );
 
-        final cleared = await clearReasoningEffortForRetry(c, model);
+        const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
+        final cleared = await clearReasoningEffortForRetry(c, reasoner);
 
         check(cleared).isFalse();
         check(await stored('c1')).deepEquals({'reasoning_effort': 'high'});
@@ -696,7 +716,8 @@ void main() {
           ],
         );
 
-        final clear = clearReasoningEffortForRetry(c, model);
+        const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
+        final clear = clearReasoningEffortForRetry(c, reasoner);
         // Preference storage is slow; the user opens another chat meanwhile.
         c.read(activeConversationProvider.notifier).set(_conversation('c2'));
         gate.complete();
@@ -723,13 +744,13 @@ void main() {
             canEditParameters: false,
           ),
         );
-        const plain = Model(id: 'plain-chat-model', name: 'Plain');
-        await selectReasoningEffortForModel(c, plain, 'high');
+        const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
+        await selectReasoningEffortForModel(c, reasoner, 'high');
 
-        final cleared = await clearReasoningEffortForRetry(c, plain);
+        final cleared = await clearReasoningEffortForRetry(c, reasoner);
 
         check(cleared).isTrue();
-        check(localReasoningEffortForModel(c.read, plain))
+        check(localReasoningEffortForModel(c.read, reasoner))
             .equals(kAutomaticReasoningEffort);
         check(await stored('c1')).isEmpty();
       },

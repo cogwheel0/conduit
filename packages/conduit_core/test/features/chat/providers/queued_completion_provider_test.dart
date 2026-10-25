@@ -682,6 +682,45 @@ void main() {
           .isNotNull()
           .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
           .equals('high');
+      // The chat's value never reaches a model that does not advertise
+      // support (issue #611).
+      check(info)
+          .isNotNull()
+          .has(
+            (i) => i.frozenPickedReasoningEffort,
+            'frozenPickedReasoningEffort',
+          )
+          .isNull();
+    });
+
+    test('the picker value is kept apart for an undeclared model', () async {
+      // A model that does not advertise support is sent only the picker's
+      // value, while one that does is sent the chat's over it.
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(
+          params: const {'reasoning_effort': 'high'},
+          reasoningEffort: 'low',
+        ),
+      );
+      await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+      final info = await firstInfo(
+        makeContainer(online: true, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+          .equals('high');
+      check(info)
+          .isNotNull()
+          .has(
+            (i) => i.frozenPickedReasoningEffort,
+            'frozenPickedReasoningEffort',
+          )
+          .equals('low');
     });
 
     test(

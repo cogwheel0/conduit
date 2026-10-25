@@ -2394,8 +2394,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// selected now — a parked turn re-drains with its stored model.
   Model? _modelForQueuedRetry() => _modelByIdOrSelected(_answerModelId);
 
-  /// The chat's own saved `reasoning_effort` — the override that outranks the
-  /// picker and opts an undeclared model into sending the parameter.
+  /// The chat's own saved `reasoning_effort`, which a model that advertises
+  /// support is sent over the picker's value.
   bool get _chatHasReasoningEffortOverride {
     final params = ref.read(activeConversationProvider)?.chatParams;
     final value = params == null ? null : params[kChatParamReasoningEffort];
@@ -2414,16 +2414,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // (issue #779, review round 5). A model that left the list is unknown,
     // not refusing — recovery stays available for it.
     if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
-    // Either opt-in can put the parameter on the wire for a model that does
-    // not advertise support: the picker's pick for the very model the retry
-    // will use, or the chat's saved override (which outlives any model and
-    // outranks even an advertised one when the provider rejects the value).
+    // A model that does not advertise support is sent only its own pick
+    // (issue #611); one that does is sent the chat's saved value over the
+    // picker's. A model that left the list may have been sent either.
     final pickerOptIn =
         retryModel != null &&
         !retryModel.advertisesReasoningEffort &&
         reasoningEffortForModel(ref.read, retryModel) !=
             kAutomaticReasoningEffort;
-    return pickerOptIn || _chatHasReasoningEffortOverride;
+    final chatOptIn =
+        (retryModel == null || retryModel.advertisesReasoningEffort) &&
+        _chatHasReasoningEffortOverride;
+    return pickerOptIn || chatOptIn;
   }
 
   /// Like [_isReasoningEffortRejection] for a parked queued completion,
@@ -2442,13 +2444,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final retryModel = _modelForQueuedRetry();
     if (_isReasoningEffortRejection(errorText, retryModel)) return true;
     if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
-    return info.frozenReasoningEffort != null;
+    // As above: a model that does not advertise support was sent only the
+    // picker's frozen value, never the chat's.
+    final frozen = retryModel == null || retryModel.advertisesReasoningEffort
+        ? info.frozenReasoningEffort
+        : info.frozenPickedReasoningEffort;
+    return frozen != null;
   }
 
   Future<void> _retryWithoutReasoningEffort() async {
-    // "Automatic" clears the local pick and the chat's saved override. The
-    // retry may only start once both clears are confirmed: regenerating with
-    // a swallowed persistence failure would resend the rejected value.
+    // "Automatic" clears the local pick and, for a model that was sent it,
+    // the chat's saved override. The retry may only start once the clears
+    // are confirmed: regenerating with a swallowed persistence failure would
+    // resend the rejected value.
     final cleared = await clearReasoningEffortForRetry(
       ref,
       _modelForRegeneratedAnswer(),
