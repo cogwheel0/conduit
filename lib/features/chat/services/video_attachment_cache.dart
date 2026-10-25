@@ -88,7 +88,9 @@ class VideoAttachmentCache {
   final Map<String, _SharedVideoDownload> _sharedDownloads = {};
   final Map<String, int> _cacheRefs = {};
   bool _pruning = false;
-  int _scratchSeq = 0;
+  // Process-wide, so scratch names stay unique even when more than one cache
+  // shares the directory.
+  static int _scratchSeq = 0;
 
   /// Keeps [path] from pruning until a matching [releaseCachePath].
   void retainCachePath(String? path) {

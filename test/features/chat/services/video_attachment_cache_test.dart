@@ -278,24 +278,26 @@ void main() {
 
     test('exports started together get their own scratch files', () async {
       final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
-      Future<VideoExportFile> open() => cache.openForExport(
-        cachedPath: null,
-        url: _clipA,
-        extension: 'mp4',
-        transport: transport,
-        token: CancelToken(),
-        isCurrent: () => true,
-      );
+      // A second cache on the same directory, as after a provider rebuild.
+      final other = VideoAttachmentCache(cacheDirectory: () async => dir);
+      Future<VideoExportFile> open(VideoAttachmentCache from) =>
+          from.openForExport(
+            cachedPath: null,
+            url: _clipA,
+            extension: 'mp4',
+            transport: transport,
+            token: CancelToken(),
+            isCurrent: () => true,
+          );
 
-      final first = open();
-      final second = open();
-      await _until(() => adapter.bodies.length == 2);
-      adapter
-        ..finish(0)
-        ..finish(1);
-      final exports = await Future.wait([first, second]);
+      final opening = [open(cache), open(cache), open(other)];
+      await _until(() => adapter.bodies.length == 3);
+      for (var i = 0; i < 3; i++) {
+        adapter.finish(i);
+      }
+      final exports = await Future.wait(opening);
 
-      check(exports[1].file.path).not((it) => it.equals(exports[0].file.path));
+      check(exports.map((export) => export.file.path).toSet()).length.equals(3);
       for (final export in exports) {
         check(export.file.readAsBytesSync()).deepEquals(_bytes);
         await export.close();
