@@ -104,4 +104,42 @@ void main() {
       expect(container.read(serverIncompatibleProvider), isFalse);
     });
   });
+
+  group('chatMarkUnreadSupportedProvider', () {
+    test('hides mark-unread on a server older than 0.11.0', () async {
+      final container = await _container(
+        activeServer: _server('A'),
+        config: const BackendConfig(version: '0.10.2', serverId: 'A'),
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(chatMarkUnreadSupportedProvider), isFalse);
+    });
+
+    test('offers mark-unread from 0.11.0', () async {
+      final container = await _container(
+        activeServer: _server('A'),
+        config: const BackendConfig(version: '0.11.0', serverId: 'A'),
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(chatMarkUnreadSupportedProvider), isTrue);
+    });
+
+    test('fails open on another server\'s config or no version', () async {
+      final stale = await _container(
+        activeServer: _server('B'),
+        config: const BackendConfig(version: '0.10.2', serverId: 'A'),
+      );
+      addTearDown(stale.dispose);
+      final unknown = await _container(
+        activeServer: _server('A'),
+        config: const BackendConfig(serverId: 'A'),
+      );
+      addTearDown(unknown.dispose);
+
+      expect(stale.read(chatMarkUnreadSupportedProvider), isTrue);
+      expect(unknown.read(chatMarkUnreadSupportedProvider), isTrue);
+    });
+  });
 }

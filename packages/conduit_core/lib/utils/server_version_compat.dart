@@ -37,6 +37,21 @@ class ServerVersionCompat {
   /// Convenience inverse of [isSupported] for readable call sites.
   static bool isUnsupported(String? rawVersion) => !isSupported(rawVersion);
 
+  /// The first Open WebUI release that can mark a chat unread.
+  static const String markChatUnreadVersion = '0.11.0';
+
+  /// Whether [rawVersion] is [minimum] or newer.
+  ///
+  /// Fails open like [isSupported]: a `null`, empty, or unparseable version
+  /// counts as new enough, so a feature is hidden only on a server we can
+  /// confidently tell is older.
+  static bool isAtLeast(String? rawVersion, String minimum) {
+    final parsed = _parse(rawVersion);
+    final required = _parse(minimum);
+    if (parsed == null || required == null) return true;
+    return _compare(parsed, required) >= 0;
+  }
+
   /// Parses a semantic-ish version string into up to three numeric components.
   ///
   /// Tolerates a leading `v`/`V` and drops any pre-release or build metadata

@@ -536,7 +536,7 @@ void main() {
     });
   });
 
-  group('lastReadAt is never lowered', () {
+  group('lastReadAt is never lowered by an older read', () {
     test('upsertServerChat merges max(local, server)', () async {
       final fixture = loadChatBlobFixtures().first;
 
@@ -611,6 +611,177 @@ void main() {
         lastReadAt: 150,
       );
       check((await db.chatsDao.getChat('st'))!.lastReadAt).equals(150);
+    });
+  });
+
+  group('explicit unread', () {
+    test('a server unread (0) lowers a newer local read', () async {
+      final fixture = loadChatBlobFixtures().first;
+
+      await db.chatsDao.upsertServerChat(
+        rows: rowsFromFixture(fixture),
+        listLastReadAt: 100,
+      );
+      await db.chatsDao.upsertServerChat(
+        rows: rowsFromFixture(fixture),
+        listLastReadAt: 0,
+      );
+      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt).equals(0);
+
+      // A list row without read state keeps the unread.
+      await db.chatsDao.upsertServerChat(rows: rowsFromFixture(fixture));
+      check((await db.chatsDao.getChat(fixture.chatId))!.lastReadAt).equals(0);
+
+      // Reading it again anywhere moves it forward as before.
+      await db.chatsDao.upsertServerChat(
+        rows: rowsFromFixture(fixture),
+        listLastReadAt: 120,
+      );
+      check(
+        (await db.chatsDao.getChat(fixture.chatId))!.lastReadAt,
+      ).equals(120);
+    });
+
+    test('upsertEnvelopeStub takes a server unread', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'st',
+        title: 'Stub',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'st',
+        title: 'Stub',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 0,
+      );
+      check((await db.chatsDao.getChat('st'))!.lastReadAt).equals(0);
+    });
+
+    test('markUnread stores 0 and returns the replaced value', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'mu',
+        title: 'Mark',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+
+      check(await db.chatsDao.markUnread('mu')).equals(100);
+      check((await db.chatsDao.getChat('mu'))!.lastReadAt).equals(0);
+      check(await db.chatsDao.markUnread('missing')).isNull();
+    });
+
+    test('a refused unread restores only an unread still in place', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'refused',
+        title: 'Refused',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+
+      final previous = await db.chatsDao.markUnread('refused');
+      await db.chatsDao.finishUnread(
+        'refused',
+        refused: true,
+        previous: previous,
+      );
+      check((await db.chatsDao.getChat('refused'))!.lastReadAt).equals(100);
+
+      await db.chatsDao.markUnread('refused');
+      await db.chatsDao.setLastReadAt('refused', 300);
+      await db.chatsDao.finishUnread('refused', refused: true, previous: 100);
+      check((await db.chatsDao.getChat('refused'))!.lastReadAt).equals(300);
+
+      await db.chatsDao.markUnread('refused');
+      await db.chatsDao.finishUnread('refused', refused: false, previous: 300);
+      check((await db.chatsDao.getChat('refused'))!.lastReadAt).equals(0);
+    });
+
+    test('a listed read state never undoes a later change here', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'listed',
+        title: 'Listed',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+
+      // A read after the list was requested.
+      var since = db.chatsDao.localReadStateClock;
+      await db.chatsDao.setLastReadAt('listed', 200);
+      check(
+        await db.chatsDao.applyListedLastReadAt('listed', 0, since: since),
+      ).isFalse();
+      check((await db.chatsDao.getChat('listed'))!.lastReadAt).equals(200);
+
+      // An unread whose request is still out, then one that settled after
+      // the list was requested.
+      await db.chatsDao.markUnread('listed');
+      since = db.chatsDao.localReadStateClock;
+      check(
+        await db.chatsDao.applyListedLastReadAt('listed', 200, since: since),
+      ).isFalse();
+      await db.chatsDao.finishUnread('listed', refused: false, previous: 200);
+      check(
+        await db.chatsDao.applyListedLastReadAt('listed', 200, since: since),
+      ).isFalse();
+      check((await db.chatsDao.getChat('listed'))!.lastReadAt).equals(0);
+
+      // A list requested after both applies.
+      since = db.chatsDao.localReadStateClock;
+      check(
+        await db.chatsDao.applyListedLastReadAt('listed', 400, since: since),
+      ).isTrue();
+      check((await db.chatsDao.getChat('listed'))!.lastReadAt).equals(400);
+    });
+
+    test('a listed stub never undoes a read made after the list', () async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'archived',
+        title: 'Archived',
+        createdAt: 1,
+        updatedAt: 1,
+        lastReadAt: 100,
+      );
+      final since = db.chatsDao.localReadStateClock;
+      await db.chatsDao.setLastReadAt('archived', 200);
+
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'archived',
+        title: 'Archived',
+        createdAt: 1,
+        updatedAt: 1,
+        archived: true,
+        lastReadAt: 0,
+        readStateSince: since,
+      );
+
+      final row = (await db.chatsDao.getChat('archived'))!;
+      check(row.lastReadAt).equals(200);
+      check(row.archived).isTrue();
+    });
+
+    test('serverChatLastReadAts skips local and tombstoned chats', () async {
+      for (final id in ['server-chat', 'local:draft', 'gone']) {
+        await db.chatsDao.upsertEnvelopeStub(
+          id: id,
+          title: id,
+          createdAt: 1,
+          updatedAt: 1,
+          lastReadAt: 7,
+        );
+      }
+      await (db.update(db.chats)..where((t) => t.id.equals('gone'))).write(
+        const ChatsCompanion(deleted: Value(true)),
+      );
+
+      check(
+        await db.chatsDao.serverChatLastReadAts(),
+      ).deepEquals({'server-chat': 7});
     });
   });
 

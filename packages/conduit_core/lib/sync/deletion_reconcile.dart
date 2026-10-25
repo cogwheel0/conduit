@@ -13,6 +13,7 @@ import 'package:conduit_core/sync/clock.dart';
 
 import 'package:conduit_core/sync/pull_sync.dart'
     show kOpenWebUiChatListPageSize;
+import 'package:conduit_core/sync/read_state_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 
 /// Why a reconcile was requested (CDT-RFC-001 §7.5 throttle).
@@ -115,12 +116,18 @@ class DeletionReconcile {
       }
     }
 
+    // Before any list page is requested; see applyServerReadStates.
+    final readStateSince = _db.chatsDao.localReadStateClock;
+
     // 1. Enumerate the COMPLETE server id set: both the main list (pinned +
     //    folders + root, archived excluded server-side) and the archived list,
     //    each paged to EXHAUSTION with NO updated_at cutoff.
     final Map<String, String> completeServerChats;
+    final serverReadStates = <String, int>{};
     try {
-      completeServerChats = await _enumerateCompleteServerChats();
+      completeServerChats = await _enumerateCompleteServerChats(
+        serverReadStates,
+      );
     } catch (error, stackTrace) {
       // A list-page failure makes the id set incomplete; purging against it
       // would false-delete. Abort WITHOUT advancing the throttle so the next
@@ -145,6 +152,14 @@ class DeletionReconcile {
       completeServerChats,
       localServerChats,
     );
+    // Reads and unreads on another device also leave `updated_at` alone.
+    final reconciledReadStates = await applyServerReadStates(
+      db: _db,
+      locks: _locks,
+      serverLastReadAts: serverReadStates,
+      since: readStateSince,
+      scope: 'sync/reconcile',
+    );
     final candidates = [
       for (final chat in localServerChats)
         if (!completeServerChats.containsKey(chat.id)) chat.id,
@@ -160,6 +175,7 @@ class DeletionReconcile {
           'purged': 0,
           'skipped': 0,
           'titles': reconciledTitles,
+          'readStates': reconciledReadStates,
         },
       );
       return const ReconcileResult(ran: true);
@@ -300,6 +316,7 @@ class DeletionReconcile {
         'purged': purged,
         'skipped': skipped,
         'titles': reconciledTitles,
+        'readStates': reconciledReadStates,
       },
     );
     return ReconcileResult(
@@ -312,17 +329,21 @@ class DeletionReconcile {
 
   /// Pages BOTH the main and archived lists to exhaustion (page until a page
   /// returns fewer than [kOpenWebUiChatListPageSize] items), unioning every
-  /// id. NO `updated_at` early-stop — every page is read.
-  Future<Map<String, String>> _enumerateCompleteServerChats() async {
+  /// id. NO `updated_at` early-stop — every page is read. Rows that carry a
+  /// `last_read_at` also land in [readStates].
+  Future<Map<String, String>> _enumerateCompleteServerChats(
+    Map<String, int> readStates,
+  ) async {
     final chats = <String, String>{};
-    await _pageToExhaustion(_client.getChatListPage, chats);
-    await _pageToExhaustion(_client.getArchivedChatListPage, chats);
+    await _pageToExhaustion(_client.getChatListPage, chats, readStates);
+    await _pageToExhaustion(_client.getArchivedChatListPage, chats, readStates);
     return chats;
   }
 
   Future<void> _pageToExhaustion(
     Future<List<Map<String, dynamic>>> Function(int page) fetch,
     Map<String, String> into,
+    Map<String, int> readStates,
   ) async {
     var page = 1;
     while (true) {
@@ -331,8 +352,12 @@ class DeletionReconcile {
       for (final item in items) {
         final id = item['id'];
         final title = item['title'];
+        final lastReadAt = item['last_read_at'];
         if (id is String && id.isNotEmpty) {
           into.putIfAbsent(id, () => title is String ? title : '');
+          if (lastReadAt is num) {
+            readStates.putIfAbsent(id, () => lastReadAt.toInt());
+          }
         }
       }
       if (items.length < kOpenWebUiChatListPageSize) break;

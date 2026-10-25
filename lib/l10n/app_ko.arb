@@ -303,6 +303,8 @@
   "enterChatName": "채팅 이름 입력",
   "failedToRenameChat": "채팅 이름 변경 실패",
   "failedToUpdateArchive": "보관 업데이트 실패",
+  "markAsUnread": "읽지 않음으로 표시",
+  "failedToMarkChatUnread": "채팅을 읽지 않음으로 표시하지 못했습니다",
   "unarchive": "보관 해제",
   "archive": "보관",
   "pin": "고정",

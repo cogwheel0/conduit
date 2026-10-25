@@ -204,6 +204,8 @@
   "enterChatName": "Chatnaam invoeren",
   "failedToRenameChat": "Kan chat niet hernoemen",
   "failedToUpdateArchive": "Kan archief niet bijwerken",
+  "markAsUnread": "Markeren als ongelezen",
+  "failedToMarkChatUnread": "Kan chat niet als ongelezen markeren",
   "unarchive": "Uit archief halen",
   "archive": "Archiveren",
   "pin": "Vastpinnen",

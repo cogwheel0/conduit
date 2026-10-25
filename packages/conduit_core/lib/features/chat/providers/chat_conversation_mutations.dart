@@ -179,6 +179,73 @@ Future<void> pinConversation(
   }
 }
 
+/// Marks an Open WebUI chat unread, as the web sidebar's "Mark as unread"
+/// does. The dot shows at once; if the server refuses, the earlier read time
+/// comes back unless the chat was read again meanwhile.
+Future<void> markConversationUnread(dynamic ref, String conversationId) async {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final rawId = identity.rawId;
+  final localConversation = _listedConversationForSelection(
+    ref,
+    conversationId,
+  );
+  if (identity.storage == ChatStorageKind.directLocal ||
+      isDirectLocalConversation(localConversation)) {
+    throw StateError('On-device chats have no server read state.');
+  }
+  final api = _readProvider(ref, apiServiceProvider);
+  if (api == null) throw Exception('No API service available');
+  // Held for the whole request: a late answer must settle the account the
+  // chat was marked in, not whichever one is active by then. The lease keeps
+  // that database open through an account switch until it has.
+  final db = _readProvider(ref, appDatabaseProvider);
+  if (db == null) throw StateError('No chat database for this account.');
+  // Read before the first await: the caller's ref may be disposed by then.
+  final conversations = _readProvider(ref, conversationsProvider.notifier);
+  final lease = _readProvider(
+    ref,
+    databaseManagerProvider,
+  ).tryAcquireLease(db);
+  try {
+    final previous = await db.chatsDao.markUnread(rawId);
+    // Every stored mark reaches finishUnread, or later lists stay blocked
+    // from this chat's read state.
+    var refused = true;
+    try {
+      conversations
+        ..showConversationUnread(conversationId)
+        ..refreshFolderConversations();
+      await api.markConversationUnread(rawId);
+      refused = false;
+    } catch (e) {
+      DebugLogger.log(
+        'Error marking conversation unread: $e',
+        scope: 'chat/providers',
+      );
+      rethrow;
+    } finally {
+      try {
+        await db.chatsDao.finishUnread(
+          rawId,
+          refused: refused,
+          previous: previous,
+        );
+        if (refused) conversations.refreshFolderConversations();
+      } catch (error, stackTrace) {
+        DebugLogger.error(
+          'unread-finish-failed',
+          scope: 'chat/providers',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'id': rawId},
+        );
+      }
+    }
+  } finally {
+    await lease?.release();
+  }
+}
+
 // Archive/Unarchive conversation
 Future<void> archiveConversation(
   dynamic ref,

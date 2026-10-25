@@ -204,6 +204,8 @@
   "enterChatName": "輸入對話名稱",
   "failedToRenameChat": "無法重命名對話",
   "failedToUpdateArchive": "無法更新存檔",
+  "markAsUnread": "標記為未讀",
+  "failedToMarkChatUnread": "無法將對話標記為未讀",
   "unarchive": "取消存檔",
   "archive": "存檔",
   "pin": "置頂",

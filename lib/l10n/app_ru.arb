@@ -210,6 +210,8 @@
   "enterChatName": "Введите имя чата",
   "failedToRenameChat": "Не удалось переименовать чат",
   "failedToUpdateArchive": "Не удалось обновить архив",
+  "markAsUnread": "Отметить как непрочитанный",
+  "failedToMarkChatUnread": "Не удалось отметить чат как непрочитанный",
   "unarchive": "Разархивировать",
   "archive": "Архивировать",
   "pin": "Закрепить",

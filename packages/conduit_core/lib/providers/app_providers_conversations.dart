@@ -536,6 +536,29 @@ class Conversations extends _$Conversations {
     );
   }
 
+  /// Re-reads the drawer's folder listings, which load their rows once
+  /// rather than following the list stream, after a caller's database write.
+  void refreshFolderConversations() {
+    if (!ref.mounted) return;
+    ref.read(_folderConversationRefreshTickProvider.notifier).bumpIfMounted();
+  }
+
+  /// Shows the chat [id] as unread at once. The database row, written by the
+  /// caller, takes over when the list stream next emits.
+  void showConversationUnread(String id) {
+    if (!ref.mounted) return;
+    final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    if (index < 0) return;
+    final updated = <Conversation>[...current!]
+      ..[index] = current[index].copyWith(
+        lastReadAt: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+    _replaceState(updated);
+  }
+
   /// Applies a server-confirmed conversation summary mutation.
   void updateConversationFromRemote(
     String id,

@@ -1,8 +1,8 @@
 /// Characterization tests for the conversation-mutation block of
 /// `lib/features/chat/providers/chat_providers.dart`:
 /// `renameDirectLocalConversation`, `deleteDirectLocalConversation`,
-/// `pinConversation`, `archiveConversation`, `shareConversation`,
-/// `deleteSharedConversation` and `cloneConversation`.
+/// `pinConversation`, `markConversationUnread`, `archiveConversation`,
+/// `shareConversation`, `deleteSharedConversation` and `cloneConversation`.
 ///
 /// These tests pin CURRENT OBSERVED behaviour so the block can be moved
 /// verbatim into a `part` file and proven unchanged. Nothing here asserts
@@ -28,9 +28,11 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -69,6 +71,43 @@ final class _RecordingSyncEngine extends SyncEngine {
   }
 }
 
+/// A widget's ref, which stops working once the widget is disposed.
+final class _DisposableRef {
+  _DisposableRef(this._container);
+
+  final ProviderContainer _container;
+  bool disposed = false;
+
+  T read<T>(ProviderListenable<T> provider) {
+    if (disposed) {
+      throw StateError('Cannot use "ref" after the widget was disposed.');
+    }
+    return _container.read(provider);
+  }
+}
+
+final class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
+  @override
+  OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
+}
+
+/// The Open WebUI database of the signed-in account, switchable mid-test.
+final class _ActiveDatabase extends Notifier<AppDatabase> {
+  _ActiveDatabase(this.initial);
+
+  final AppDatabase initial;
+
+  @override
+  AppDatabase build() => initial;
+
+  void set(AppDatabase database) => state = database;
+}
+
+final _activeDatabaseProvider =
+    NotifierProvider<_ActiveDatabase, AppDatabase>(
+      () => throw UnimplementedError('override per test'),
+    );
+
 final class _ApiState extends Notifier<ApiService?> {
   _ApiState(this.initial);
 
@@ -98,6 +137,7 @@ final class _MutationApi extends ApiService {
   final String label;
   final List<_ToggleCall> pinCalls = <_ToggleCall>[];
   final List<_ToggleCall> archiveCalls = <_ToggleCall>[];
+  final List<String> unreadCalls = <String>[];
   final List<String> shareCalls = <String>[];
   final List<String> deleteShareCalls = <String>[];
   final List<String> cloneCalls = <String>[];
@@ -136,6 +176,12 @@ final class _MutationApi extends ApiService {
   }
 
   @override
+  Future<void> markConversationUnread(String id) async {
+    unreadCalls.add(id);
+    await _admit();
+  }
+
+  @override
   Future<String?> shareConversation(String id) async {
     shareCalls.add(id);
     await _admit();
@@ -164,6 +210,7 @@ ChatRows _rows(
   required int updatedAt,
   bool pinned = false,
   bool archived = false,
+  String? folderId,
 }) {
   return ChatBlobMapper.blobToRows(
     chatId: id,
@@ -184,6 +231,7 @@ ChatRows _rows(
       },
     },
     title: title,
+    folderId: folderId,
     pinned: pinned,
     archived: archived,
     createdAt: updatedAt,
@@ -264,10 +312,12 @@ void main() {
   ProviderContainer containerWith({
     required List<String> pulls,
     Override? apiOverride,
+    List<Override>? storageOverrides,
   }) {
     final container = ProviderContainer(
       overrides: [
-        ...openWebUiStorageOpenOverrides(database: serverDb),
+        ...storageOverrides ??
+            openWebUiStorageOpenOverrides(database: serverDb),
         directLocalDatabaseProvider.overrideWithValue(directDb),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
         isAuthenticatedProvider2.overrideWithValue(true),
@@ -677,6 +727,243 @@ void main() {
         );
         expect(listed(container).single.pinned, isFalse);
       });
+    });
+  });
+
+  group('markConversationUnread', () {
+    int? listedReadSeconds(ProviderContainer container, String scopedId) {
+      final readAt = listedFor(container, scopedId).lastReadAt;
+      return readAt == null ? null : readAt.millisecondsSinceEpoch ~/ 1000;
+    }
+
+    Future<int?> storedReadAt(String id) async =>
+        (await serverDb.chatsDao.getChat(id))!.lastReadAt;
+
+    Future<ProviderContainer> readServerChat(_MutationApi api) async {
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      await seedServer('chat-s', title: 'Server');
+      await serverDb.chatsDao.setLastReadAt('chat-s', 200);
+      await container.read(conversationsProvider.future);
+      await waitUntil(
+        () => listedReadSeconds(container, _openWebUiScoped('chat-s')) == 200,
+      );
+      return container;
+    }
+
+    test('shows the chat unread and stores the server unread', () async {
+      final api = _MutationApi();
+      final container = await readServerChat(api);
+
+      await markConversationUnread(container, _openWebUiScoped('chat-s'));
+
+      expect(api.unreadCalls, ['chat-s']);
+      expect(await storedReadAt('chat-s'), 0);
+      expect(listedReadSeconds(container, _openWebUiScoped('chat-s')), 0);
+    });
+
+    test('a refused request restores the earlier read time', () async {
+      final api = _MutationApi()..failure = Exception('offline');
+      final container = await readServerChat(api);
+
+      await expectLater(
+        markConversationUnread(container, _openWebUiScoped('chat-s')),
+        throwsException,
+      );
+
+      expect(await storedReadAt('chat-s'), 200);
+      await waitUntil(
+        () => listedReadSeconds(container, _openWebUiScoped('chat-s')) == 200,
+      );
+    });
+
+    test('a late refusal settles the account it was marked in', () async {
+      // The same chat id, already unread in the account switched to.
+      final otherDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(otherDb.close);
+      await otherDb.chatsDao.upsertServerChat(
+        rows: _rows('chat-s', title: 'Other account', updatedAt: 100),
+        listLastReadAt: 0,
+      );
+      final api = _MutationApi()
+        ..gate = Completer<void>()
+        ..callStarted = Completer<void>();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+        storageOverrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          _activeDatabaseProvider.overrideWith(() => _ActiveDatabase(serverDb)),
+          appDatabaseProvider.overrideWith(
+            (ref) => ref.watch(_activeDatabaseProvider),
+          ),
+        ],
+      );
+      await seedServer('chat-s', title: 'Server');
+      await serverDb.chatsDao.setLastReadAt('chat-s', 200);
+      await container.read(conversationsProvider.future);
+
+      final marking = markConversationUnread(
+        container,
+        _openWebUiScoped('chat-s'),
+      );
+      await api.callStarted!.future;
+      container.read(_activeDatabaseProvider.notifier).set(otherDb);
+      api.failure = Exception('offline');
+      api.gate!.complete();
+
+      await expectLater(marking, throwsException);
+      expect(await storedReadAt('chat-s'), 200);
+      expect((await otherDb.chatsDao.getChat('chat-s'))!.lastReadAt, 0);
+    });
+
+    test('a refusal after switching accounts still reaches the account '
+        'the chat was marked in', () async {
+      final tempDir = Directory.systemTemp.createTempSync('conduit_unread');
+      final manager = DatabaseManager(
+        databaseDirectory: () async => tempDir,
+        openDatabase: (fileName) => AppDatabase(
+          NativeDatabase(File('${tempDir.path}/$fileName.sqlite')),
+        ),
+      );
+      addTearDown(() async {
+        await manager.closeActive();
+        tempDir.deleteSync(recursive: true);
+      });
+      final accountA = manager.openForServerId('account-a');
+      await accountA.chatsDao.upsertServerChat(
+        rows: _rows('chat-s', title: 'Server', updatedAt: 100),
+        listLastReadAt: 200,
+      );
+      final api = _MutationApi()
+        ..gate = Completer<void>()
+        ..callStarted = Completer<void>();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+        storageOverrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          appDatabaseProvider.overrideWithValue(accountA),
+          databaseManagerProvider.overrideWithValue(manager),
+        ],
+      );
+      await container.read(conversationsProvider.future);
+
+      final marking = markConversationUnread(
+        container,
+        _openWebUiScoped('chat-s'),
+      );
+      await api.callStarted!.future;
+      // Signing in to another account retires account A's database.
+      manager.openForServerId('account-b');
+      api.failure = Exception('offline');
+      api.gate!.complete();
+      await expectLater(marking, throwsException);
+
+      late AppDatabase reopened;
+      await waitUntil(() {
+        try {
+          reopened = manager.openForServerId('account-a');
+          return true;
+        } on StateError {
+          return false;
+        }
+      });
+      expect((await reopened.chatsDao.getChat('chat-s'))!.lastReadAt, 200);
+    });
+
+    test('settles the mark when the drawer closes right away', () async {
+      final api = _MutationApi();
+      final container = await readServerChat(api);
+      final drawerRef = _DisposableRef(container);
+
+      final marking = markConversationUnread(
+        drawerRef,
+        _openWebUiScoped('chat-s'),
+      );
+      drawerRef.disposed = true;
+      await marking;
+
+      expect(api.unreadCalls, ['chat-s']);
+      expect(await storedReadAt('chat-s'), 0);
+      // Settled, so a list requested from now on applies again.
+      final since = serverDb.chatsDao.localReadStateClock;
+      expect(
+        await serverDb.chatsDao.applyListedLastReadAt(
+          'chat-s',
+          500,
+          since: since,
+        ),
+        isTrue,
+      );
+    });
+
+    test('updates the drawer listing of the chat\'s folder', () async {
+      final api = _MutationApi();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      await serverDb.chatsDao.upsertServerChat(
+        rows: _rows('chat-f', title: 'Filed', updatedAt: 100, folderId: 'f-1'),
+        listLastReadAt: 200,
+      );
+      await container.read(conversationsProvider.future);
+      final folder = folderConversationSummariesProvider('f-1');
+      final subscription = container.listen(folder, (_, _) {});
+      addTearDown(subscription.close);
+      // Every other input of the listing settles first, so only the unread
+      // write can make it read the database again.
+      final foldersSubscription = container.listen(foldersProvider, (_, _) {});
+      addTearDown(foldersSubscription.close);
+      await container.read(foldersProvider.future);
+      await pumpEventQueue();
+      Future<int?> folderReadMs() async => (await container.read(
+        folder.future,
+      )).single.lastReadAt?.millisecondsSinceEpoch;
+      expect(await folderReadMs(), 200 * 1000);
+
+      await markConversationUnread(container, _openWebUiScoped('chat-f'));
+
+      await waitUntil(() async => await folderReadMs() == 0);
+    });
+
+    test('a refused request keeps a read made while it was in flight', () async {
+      final api = _MutationApi()
+        ..gate = Completer<void>()
+        ..callStarted = Completer<void>();
+      final container = await readServerChat(api);
+
+      final marking = markConversationUnread(
+        container,
+        _openWebUiScoped('chat-s'),
+      );
+      await api.callStarted!.future;
+      expect(await storedReadAt('chat-s'), 0);
+      await serverDb.chatsDao.setLastReadAt('chat-s', 300);
+      api.failure = Exception('offline');
+      api.gate!.complete();
+
+      await expectLater(marking, throwsException);
+      expect(await storedReadAt('chat-s'), 300);
+    });
+
+    test('rejects an on-device chat without calling the API', () async {
+      final api = _MutationApi();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      await seedDirect('chat-a', title: 'Direct');
+      await container.read(conversationsProvider.future);
+
+      await expectLater(
+        markConversationUnread(container, _directScoped('chat-a')),
+        throwsStateError,
+      );
+      expect(api.unreadCalls, isEmpty);
     });
   });
 

@@ -55,6 +55,38 @@ class _ChecklistClient extends FakeSyncApiClient {
   }
 }
 
+/// Runs [whileListLoads] after the server answers the first main list page
+/// and before the pull sees it, like a read made on this device meanwhile.
+class _ListHookClient extends FakeSyncApiClient {
+  _ListHookClient(super.server);
+
+  Future<void> Function()? whileListLoads;
+
+  @override
+  Future<List<Map<String, dynamic>>> getChatListPage(int page) async {
+    final items = await super.getChatListPage(page);
+    final hook = whileListLoads;
+    whileListLoads = null;
+    await hook?.call();
+    return items;
+  }
+}
+
+/// Runs [whileChatLoads] after the server answers a chat download and before
+/// the pull merges it, like a read made on this device meanwhile.
+class _ChatHookClient extends FakeSyncApiClient {
+  _ChatHookClient(super.server);
+
+  Future<void> Function(String id)? whileChatLoads;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    final raw = await super.getChatRaw(id);
+    await whileChatLoads?.call(id);
+    return raw;
+  }
+}
+
 class _MalformedFullMainListClient extends FakeSyncApiClient {
   _MalformedFullMainListClient(super.server);
 
@@ -1398,6 +1430,171 @@ void main() {
       await memoPull.run();
       check(client.chatFetchStarts.where((id) => id == 'dirtied').length)
           .equals(fetchesBefore + 1);
+    });
+
+    test('a server unread re-fetches a chat the memo would skip', () async {
+      server.seedChat(
+        id: 'unread-elsewhere',
+        blob: blobFor('unread-elsewhere'),
+        createdAt: 100,
+        updatedAt: 200,
+      );
+      await memoPull.run();
+      advancePastConfirmSpacing();
+      await memoPull.run();
+      await db.chatsDao.setLastReadAt('unread-elsewhere', 250);
+
+      // Marking unread leaves updated_at alone, so only last_read_at moved.
+      server.markChatUnread('unread-elsewhere');
+      advancePastConfirmSpacing();
+      await memoPull.run();
+
+      check(
+        client.chatFetchStarts.where((id) => id == 'unread-elsewhere').length,
+      ).equals(3);
+      check(
+        (await db.chatsDao.getChat('unread-elsewhere'))!.lastReadAt,
+      ).equals(0);
+    });
+  });
+
+  group('read state on list rows', () {
+    // 'older' sits below the watermark after the first cycle, so later
+    // cycles see it on the list page without fetching it.
+    Future<void> seedOlderAndNewer() async {
+      server.seedChat(
+        id: 'older',
+        blob: blobFor('older'),
+        createdAt: 100,
+        updatedAt: 100,
+      );
+      server.seedChat(
+        id: 'newer',
+        blob: blobFor('newer'),
+        createdAt: 500,
+        updatedAt: 500,
+      );
+      await pull.run();
+      await db.chatsDao.setLastReadAt('older', 300);
+      client.chatFetchStarts.clear();
+    }
+
+    test('a chat marked unread elsewhere shows unread after a pull', () async {
+      await seedOlderAndNewer();
+
+      server.markChatUnread('older');
+      await pull.run();
+
+      check(client.chatFetchStarts).not((it) => it.contains('older'));
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(0);
+    });
+
+    test('a chat read elsewhere moves its read time forward', () async {
+      await seedOlderAndNewer();
+
+      final previous = await db.chatsDao.markUnread('older');
+      await db.chatsDao.finishUnread(
+        'older',
+        refused: false,
+        previous: previous,
+      );
+      server.seedChat(
+        id: 'older',
+        blob: blobFor('older'),
+        createdAt: 100,
+        updatedAt: 100,
+        lastReadAt: 400,
+      );
+      await pull.run();
+
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(400);
+    });
+
+    test('a read made here while the list loads is kept', () async {
+      final hookClient = _ListHookClient(server);
+      pull = PullSync(client: hookClient, db: db, locks: locks);
+      await seedOlderAndNewer();
+
+      server.markChatUnread('older');
+      hookClient.whileListLoads = () => db.chatsDao.setLastReadAt('older', 600);
+      await pull.run();
+
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(600);
+    });
+
+    test('an unread whose request lands after the list is kept', () async {
+      final hookClient = _ListHookClient(server);
+      pull = PullSync(client: hookClient, db: db, locks: locks);
+      server.seedChat(
+        id: 'older',
+        blob: blobFor('older'),
+        createdAt: 100,
+        updatedAt: 100,
+        lastReadAt: 300,
+      );
+      server.seedChat(
+        id: 'newer',
+        blob: blobFor('newer'),
+        createdAt: 500,
+        updatedAt: 500,
+        lastReadAt: 500,
+      );
+      await pull.run();
+
+      // Both marked unread here; the list is read before the server stores
+      // either, and both requests succeed before the pull applies it.
+      final olderBefore = await db.chatsDao.markUnread('older');
+      final newerBefore = await db.chatsDao.markUnread('newer');
+      hookClient.whileListLoads = () async {
+        server
+          ..markChatUnread('older')
+          ..markChatUnread('newer');
+        await db.chatsDao.finishUnread(
+          'older',
+          refused: false,
+          previous: olderBefore,
+        );
+        await db.chatsDao.finishUnread(
+          'newer',
+          refused: false,
+          previous: newerBefore,
+        );
+      };
+      await pull.run();
+
+      // 'newer' sits in the overlap window, so it went through the merge.
+      check(hookClient.chatFetchStarts.where((id) => id == 'newer').length)
+          .equals(2);
+      check((await db.chatsDao.getChat('older'))!.lastReadAt).equals(0);
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(0);
+    });
+
+    test('a chat whose download fails still takes its read state', () async {
+      await seedOlderAndNewer();
+      await db.chatsDao.setLastReadAt('newer', 600);
+
+      // 'newer' is in the overlap window, so the pull downloads it.
+      server.markChatUnread('newer');
+      client.failChatIds.add('newer');
+      final result = await pull.run();
+
+      check(result.success).isFalse();
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(0);
+    });
+
+    test('a read made here while a chat downloads is kept', () async {
+      final hookClient = _ChatHookClient(server);
+      pull = PullSync(client: hookClient, db: db, locks: locks);
+      await seedOlderAndNewer();
+
+      server.markChatUnread('newer');
+      hookClient.whileChatLoads = (id) async {
+        if (id == 'newer') await db.chatsDao.setLastReadAt('newer', 700);
+      };
+      await pull.run();
+
+      check(hookClient.chatFetchStarts).contains('newer');
+      check((await db.chatsDao.getChat('newer'))!.lastReadAt).equals(700);
     });
   });
 

@@ -3,6 +3,20 @@ import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('ServerVersionCompat.isAtLeast', () {
+    test('compares against the minimum', () {
+      check(ServerVersionCompat.isAtLeast('0.11.0', '0.11.0')).isTrue();
+      check(ServerVersionCompat.isAtLeast('v0.12.3', '0.11.0')).isTrue();
+      check(ServerVersionCompat.isAtLeast('0.10.9', '0.11.0')).isFalse();
+    });
+
+    test('fails open on an unknown version', () {
+      check(ServerVersionCompat.isAtLeast(null, '0.11.0')).isTrue();
+      check(ServerVersionCompat.isAtLeast('', '0.11.0')).isTrue();
+      check(ServerVersionCompat.isAtLeast('main', '0.11.0')).isTrue();
+    });
+  });
+
   group('ServerVersionCompat.isSupported', () {
     test('the max supported version itself is supported', () {
       check(ServerVersionCompat.isSupported('0.12.3')).isTrue();

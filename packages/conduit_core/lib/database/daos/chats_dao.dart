@@ -184,6 +184,24 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// A fetch uses this token to avoid overwriting events received while it ran.
   int taskEventVersion(String chatId) => _taskEventVersions[chatId] ?? 0;
 
+  int _readStateClock = 0;
+  final _readStateTouchedAt = <String, int>{};
+  final _unreadMarksInFlight = <String, int>{};
+
+  /// Advances on every read or unread made on this device. Capture it before
+  /// requesting a chat list and pass it as `readStateSince`: the list's
+  /// `last_read_at` then never undoes a read or unread made after the request,
+  /// nor one whose own request has not reached the server yet.
+  int get localReadStateClock => _readStateClock;
+
+  bool _readStateChangedSince(String chatId, int since) =>
+      _unreadMarksInFlight.containsKey(chatId) ||
+      (_readStateTouchedAt[chatId] ?? 0) > since;
+
+  void _touchReadState(String chatId) {
+    _readStateTouchedAt[chatId] = ++_readStateClock;
+  }
+
   /// NARROW projection (REQ §10.2): selectOnly() with exactly the
   /// [ChatListEntry] columns — payload/rawExtra/blobMeta/meta MUST NOT appear
   /// in the SQL. WHERE deleted = false; ORDER BY updatedAt DESC, id ASC.
@@ -384,6 +402,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     Map<String, dynamic>? meta,
     int? listLastReadAt,
 
+    /// [localReadStateClock] when the list carrying [listLastReadAt] was
+    /// requested; null when the caller has no list.
+    int? readStateSince,
+
     /// Apply the server's copy to a clean row even when its `updated_at`
     /// matches the base. For explicit single-chat pulls, made right after a
     /// change: Open WebUI's timestamps are whole seconds, and a model that
@@ -397,6 +419,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     final serverChat = server.chat;
     return transaction(() async {
       final existing = await getChat(serverChat.id);
+      // The list may predate a read or unread made here since.
+      final listedReadAt =
+          readStateSince != null &&
+              _readStateChangedSince(serverChat.id, readStateSince)
+          ? null
+          : listLastReadAt;
       // Null is omitted metadata; an explicit empty map clears server tags.
       final resolvedMeta = meta ?? _decodeMeta(existing?.meta ?? '{}');
 
@@ -440,7 +468,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             shareId: shareId,
             userId: userId,
             meta: resolvedMeta,
-            listLastReadAt: listLastReadAt,
+            listLastReadAt: listedReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
             chatDirty: true,
@@ -459,7 +487,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           shareId: shareId,
           userId: userId,
           meta: resolvedMeta,
-          listLastReadAt: listLastReadAt,
+          listLastReadAt: listedReadAt,
           existingLastReadAt: existing?.lastReadAt,
           serverUpdatedAt: serverChat.updatedAt,
           chatDirty: false,
@@ -513,7 +541,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           shareId: shareId,
           userId: userId,
           meta: resolvedMeta,
-          listLastReadAt: listLastReadAt,
+          listLastReadAt: listedReadAt,
           existingLastReadAt: existing.lastReadAt,
           serverUpdatedAt: base,
           chatDirty: false,
@@ -527,12 +555,17 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       switch (result.outcome) {
         case MergeOutcome.noRemoteChange:
           // Rows untouched; only re-assert push below when needed. Except
-          // `meta` and the share id: Open WebUI writes a chat's tags and its
-          // share link to those columns alone, without moving `updated_at`,
-          // so either change looks like no change at all. Without this a
-          // tag or a share made anywhere never reached a chat that had
-          // already been pulled once.
-          await _refreshEnvelopeIfChanged(existing, resolvedMeta, shareId);
+          // `meta`, the share id and `last_read_at`: Open WebUI writes a
+          // chat's tags, its share link and its read state to those columns
+          // alone, without moving `updated_at`, so each change looks like no
+          // change at all. Without this a tag, a share or a read made
+          // anywhere never reached a chat that had already been pulled once.
+          await _refreshEnvelopeIfChanged(
+            existing,
+            resolvedMeta,
+            shareId,
+            listLastReadAt: listedReadAt,
+          );
           return _mergeResultWithUpdateOpIfMissing(
             serverChat.id,
             ChatMergeWriteResult(
@@ -546,7 +579,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             shareId: shareId,
             userId: userId,
             meta: resolvedMeta,
-            listLastReadAt: listLastReadAt,
+            listLastReadAt: listedReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
             chatDirty: false,
@@ -564,7 +597,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             shareId: shareId,
             userId: userId,
             meta: resolvedMeta,
-            listLastReadAt: listLastReadAt,
+            listLastReadAt: listedReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
             chatDirty: true,
@@ -613,8 +646,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   Future<void> _refreshEnvelopeIfChanged(
     ChatRow existing,
     Map<String, dynamic> meta,
-    String? shareId,
-  ) async {
+    String? shareId, {
+    int? listLastReadAt,
+  }) async {
     Object? stored;
     try {
       stored = jsonDecode(existing.meta);
@@ -626,11 +660,17 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     // every pull of every chat.
     final metaChanged = !const DeepCollectionEquality().equals(stored, meta);
     final shareChanged = shareId != existing.shareId;
-    if (!metaChanged && !shareChanged) return;
+    final lastReadAt = mergeServerLastReadAt(
+      existing.lastReadAt,
+      listLastReadAt,
+    );
+    final readChanged = lastReadAt != existing.lastReadAt;
+    if (!metaChanged && !shareChanged && !readChanged) return;
     await (update(chats)..where((t) => t.id.equals(existing.id))).write(
       ChatsCompanion(
         meta: metaChanged ? Value(jsonEncode(meta)) : const Value.absent(),
         shareId: shareChanged ? Value(shareId) : const Value.absent(),
+        lastReadAt: readChanged ? Value(lastReadAt) : const Value.absent(),
       ),
     );
   }
@@ -677,7 +717,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     Set<String> dirtyMessageIds = const {},
   }) async {
     final chat = rows.chat;
-    final mergedLastReadAt = _maxLastReadAt(existingLastReadAt, listLastReadAt);
+    final mergedLastReadAt = mergeServerLastReadAt(
+      existingLastReadAt,
+      listLastReadAt,
+    );
 
     await into(chats).insertOnConflictUpdate(
       ChatsCompanion.insert(
@@ -866,8 +909,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// Envelope-only stub for archived metadata (Q-03 default) and summary
   /// upserts. One tx; insert (bodySynced=false, blobMeta='{}') when absent;
   /// when present, update ONLY title/updatedAt/createdAt, provided
-  /// pinned/archived/folderId, and lastReadAt=max(...); NEVER touches messages,
-  /// bodySynced, blobMeta, rawExtra.
+  /// pinned/archived/folderId, and lastReadAt by [mergeServerLastReadAt];
+  /// NEVER touches messages, bodySynced, blobMeta, rawExtra.
   Future<void> upsertEnvelopeStub({
     required String id,
     required String title,
@@ -877,6 +920,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     bool? archived,
     Value<String?> folderId = const Value.absent(),
     int? lastReadAt,
+
+    /// [localReadStateClock] when the list carrying [lastReadAt] was
+    /// requested; null when [lastReadAt] is not from a list.
+    int? readStateSince,
   }) {
     return transaction(() async {
       final existing = await getChat(id);
@@ -905,7 +952,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           pinned: pinned == null ? const Value.absent() : Value(pinned),
           archived: archived == null ? const Value.absent() : Value(archived),
           folderId: folderId,
-          lastReadAt: Value(_maxLastReadAt(existing.lastReadAt, lastReadAt)),
+          lastReadAt:
+              readStateSince != null &&
+                  _readStateChangedSince(id, readStateSince)
+              ? const Value.absent()
+              : Value(mergeServerLastReadAt(existing.lastReadAt, lastReadAt)),
         ),
       );
     });
@@ -1892,6 +1943,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// `UPDATE ... SET last_read_at = max(coalesce(last_read_at, 0), ?)` —
   /// never lowered.
   Future<void> setLastReadAt(String chatId, int epochSeconds) {
+    _touchReadState(chatId);
     return customUpdate(
       'UPDATE chats SET last_read_at = max(coalesce(last_read_at, 0), ?) '
       'WHERE id = ?',
@@ -1899,6 +1951,91 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       updates: {chats},
       updateKind: UpdateKind.update,
     );
+  }
+
+  /// Stores Open WebUI's explicit unread (`last_read_at = 0`) while its
+  /// request is sent, and returns the value it replaced. Every call must be
+  /// followed by [finishUnread]; until then no chat list overrides it.
+  Future<int?> markUnread(String chatId) async {
+    _unreadMarksInFlight.update(chatId, (n) => n + 1, ifAbsent: () => 1);
+    _touchReadState(chatId);
+    try {
+      return await transaction(() async {
+        final existing = await getChat(chatId);
+        if (existing == null) return null;
+        await (update(chats)..where((t) => t.id.equals(chatId))).write(
+          const ChatsCompanion(lastReadAt: Value(0)),
+        );
+        return existing.lastReadAt;
+      });
+    } catch (_) {
+      _endUnreadMark(chatId);
+      rethrow;
+    }
+  }
+
+  /// Ends [markUnread]. When the server [refused], [previous] comes back
+  /// unless the chat was read again meanwhile.
+  Future<void> finishUnread(
+    String chatId, {
+    required bool refused,
+    required int? previous,
+  }) async {
+    try {
+      if (!refused) return;
+      await customUpdate(
+        'UPDATE chats SET last_read_at = ? '
+        'WHERE id = ? AND last_read_at = 0',
+        variables: [Variable<int>(previous), Variable.withString(chatId)],
+        updates: {chats},
+        updateKind: UpdateKind.update,
+      );
+    } finally {
+      _endUnreadMark(chatId);
+    }
+  }
+
+  void _endUnreadMark(String chatId) {
+    final remaining = (_unreadMarksInFlight[chatId] ?? 1) - 1;
+    if (remaining > 0) {
+      _unreadMarksInFlight[chatId] = remaining;
+    } else {
+      _unreadMarksInFlight.remove(chatId);
+    }
+    _touchReadState(chatId);
+  }
+
+  /// Applies a `last_read_at` from a chat list requested at [since]
+  /// ([localReadStateClock]) by [mergeServerLastReadAt]. Returns whether the
+  /// row changed.
+  Future<bool> applyListedLastReadAt(
+    String chatId,
+    int lastReadAt, {
+    required int since,
+  }) {
+    return transaction(() async {
+      final existing = await getChat(chatId);
+      if (existing == null || existing.deleted) return false;
+      if (_readStateChangedSince(chatId, since)) return false;
+      final merged = mergeServerLastReadAt(existing.lastReadAt, lastReadAt);
+      if (merged == existing.lastReadAt) return false;
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(lastReadAt: Value(merged)),
+      );
+      return true;
+    });
+  }
+
+  /// `last_read_at` of every non-tombstoned chat with a server id; lets a
+  /// caller skip [applyListedLastReadAt] for rows a list would not change.
+  Future<Map<String, int?>> serverChatLastReadAts() async {
+    final query = selectOnly(chats)
+      ..addColumns([chats.id, chats.lastReadAt])
+      ..where(chats.deleted.equals(false) & chats.id.like('local:%').not());
+    final rows = await query.get();
+    return {
+      for (final row in rows) row.read(chats.id)!: row.read(chats.lastReadAt),
+    };
   }
 
   /// Row delete; FK cascades messages; one tx.
@@ -1928,7 +2065,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     'unmappableMessageOrder': rows.unmappableMessageOrder,
   };
 
-  static int? _maxLastReadAt(int? local, int? server) {
+  /// Read-state merge for a `last_read_at` the server reported. Open WebUI's
+  /// "Mark as unread" stores exactly 0 and nothing else does, so 0 is an
+  /// explicit unread and wins. Any other value only moves the read time
+  /// forward: a list fetched before a local read reached the server must not
+  /// undo that read.
+  static int? mergeServerLastReadAt(int? local, int? server) {
+    if (server == 0) return 0;
     if (local == null && server == null) return null;
     return math.max(local ?? 0, server ?? 0);
   }

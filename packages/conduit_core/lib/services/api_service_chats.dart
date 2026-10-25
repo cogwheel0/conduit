@@ -243,6 +243,14 @@ mixin _ChatsApi on _ApiServiceBase {
     );
   }
 
+  /// POST `/api/v1/chats/{id}/unread` (Open WebUI 0.11+) stores
+  /// `last_read_at = 0`, which every client shows as unread until the chat is
+  /// opened again.
+  Future<void> markConversationUnread(String id) async {
+    _traceApi('Marking conversation unread: $id');
+    await _dio.post('/api/v1/chats/$id/unread');
+  }
+
   // Archive/Unarchive conversation
   Future<void> archiveConversation(String id, bool archived) async {
     _traceApi('${archived ? 'Archiving' : 'Unarchiving'} conversation: $id');

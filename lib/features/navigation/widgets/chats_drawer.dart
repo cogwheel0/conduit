@@ -1849,6 +1849,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               conversation: conversation,
               foldersEnabled: foldersEnabled,
               folders: folders,
+              // Search results are a server snapshot that would keep showing
+              // the chat read, and leaving the open chat marks it read again.
+              canMarkUnread: _query.isEmpty && !unread && !isActive,
             ),
       previewBuilder: buildConversationTileContextPreview,
       child: tileWidget,

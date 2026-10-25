@@ -206,6 +206,8 @@
   "enterChatName": "Chat-Namen eingeben",
   "failedToRenameChat": "Chat konnte nicht umbenannt werden",
   "failedToUpdateArchive": "Archiv konnte nicht aktualisiert werden",
+  "markAsUnread": "Als ungelesen markieren",
+  "failedToMarkChatUnread": "Chat konnte nicht als ungelesen markiert werden",
   "unarchive": "Archivierung aufheben",
   "archive": "Archivieren",
   "pin": "Anheften",
