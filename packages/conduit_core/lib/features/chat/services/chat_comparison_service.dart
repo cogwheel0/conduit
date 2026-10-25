@@ -9,12 +9,17 @@ import 'package:conduit_core/services/chat_completion_transport.dart';
 final class ComparisonModelProfile {
   const ComparisonModelProfile({
     required this.modelId,
+    required this.advertisesReasoningEffort,
     required this.supportsReasoningEffort,
     required this.pickerReasoningEffort,
     required this.acceptsReasoningEffort,
   });
 
   final String modelId;
+
+  /// Whether the model advertises `reasoning_effort`. One that does not is
+  /// sent only its own pick, never a value saved on the chat.
+  final bool advertisesReasoningEffort;
 
   /// Whether the model takes `reasoning_effort` at all.
   final bool supportsReasoningEffort;
@@ -61,13 +66,14 @@ bool _isAutomaticEffort(Object? value) =>
 /// Whether the group can be sent with the chat's own settings and the picker's
 /// values, or what stops it.
 ///
-/// An override saved on the chat applies to every answer, and it is itself
-/// the explicit opt-in issue #779 gives the group: each selected model must
-/// be able to read the value (a model that explicitly refuses the parameter,
-/// or whose scale does not contain it, blocks). With no override, the
-/// picker's per-model values must wire the same way for every model, because
-/// the server sends the one value to all of them. Slot order never decides
-/// which model's value wins, and nothing is dropped silently.
+/// An override saved on the chat applies to every answer: each selected model
+/// must accept the value (a model that explicitly refuses the parameter, or
+/// whose scale does not contain it, blocks), and a model that does not
+/// advertise support must have picked that same value itself, since it is
+/// sent nothing else (issue #611). With no override, the picker's per-model
+/// values must wire the same way for every model, because the server sends
+/// the one value to all of them. Slot order never decides which model's value
+/// wins, and nothing is dropped silently.
 ComparisonSettingsConflict? findComparisonSettingsConflict({
   required Map<String, dynamic> chatParams,
   required List<ComparisonModelProfile> models,
@@ -76,14 +82,13 @@ ComparisonSettingsConflict? findComparisonSettingsConflict({
   if (chatParams.containsKey(kComparisonReasoningEffortParam) &&
       !_isAutomaticEffort(override)) {
     final value = override.toString().trim();
-    // The saved chat value is a deliberate override, so it carries the
-    // parameter to models that never advertised it. Only a model that cannot
-    // read the value blocks: a missing advertisement is not a refusal, while
-    // the value-acceptance check is where an explicit refusal lands (its
-    // policy accepts no wire value at all).
     final blocked = [
       for (final model in models)
-        if (!model.acceptsReasoningEffort(value)) model.modelId,
+        if (!model.acceptsReasoningEffort(value) ||
+            (!model.advertisesReasoningEffort &&
+                model.pickerReasoningEffort?.trim().toLowerCase() !=
+                    value.toLowerCase()))
+          model.modelId,
     ];
     return blocked.isEmpty
         ? null

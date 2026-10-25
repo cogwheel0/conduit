@@ -119,6 +119,7 @@ ComparisonModelProfile _comparisonProfileFor(dynamic ref, Model model) {
   final hasExplicitEffort = picker != kAutomaticReasoningEffort;
   return ComparisonModelProfile(
     modelId: model.id,
+    advertisesReasoningEffort: model.advertisesReasoningEffort,
     supportsReasoningEffort:
         model.advertisesReasoningEffort || hasExplicitEffort,
     pickerReasoningEffort: hasExplicitEffort ? picker : null,
