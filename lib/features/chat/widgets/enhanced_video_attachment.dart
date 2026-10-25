@@ -251,8 +251,12 @@ class _EnhancedVideoAttachmentState
         _playbackFailed = false;
         _openUrl = openUrl;
       });
-      // The user pressed Play to get here.
-      controller.play();
+      // The user pressed Play to get here, but the app may have left the
+      // foreground while the video loaded; it then waits for another tap.
+      final appState = WidgetsBinding.instance.lifecycleState;
+      if (appState == null || appState == AppLifecycleState.resumed) {
+        controller.play();
+      }
     } catch (error) {
       if (controller != null) {
         unawaited(controller.dispose());

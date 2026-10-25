@@ -43,6 +43,20 @@ final class _HeldAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// A file that exists but cannot be read.
+final class _UnreadableFile extends Fake implements File {
+  _UnreadableFile(this.path);
+
+  @override
+  final String path;
+
+  @override
+  Future<bool> exists() async => true;
+
+  @override
+  Future<int> length() async => throw FileSystemException('unreadable', path);
+}
+
 /// Waits for IO and transfer callbacks that land on later event-loop turns.
 Future<void> _until(bool Function() condition) async {
   for (var i = 0; i < 500 && !condition(); i++) {
@@ -233,6 +247,31 @@ void main() {
       check(played.existsSync()).isTrue();
 
       await export.close();
+      await cache.prune();
+      check(played.existsSync()).isFalse();
+    });
+
+    test('an export that cannot read the playback file lets it go', () async {
+      final cache = VideoAttachmentCache(
+        cacheDirectory: () async => dir,
+        maxCacheBytes: 0,
+      );
+      final played = write('video_clip.mp4', DateTime(2026, 1, 1));
+
+      await IOOverrides.runZoned(
+        () => check(
+          cache.openForExport(
+            cachedPath: played.path,
+            url: _clipA,
+            extension: 'mp4',
+            transport: transport,
+            token: CancelToken(),
+            isCurrent: () => true,
+          ),
+        ).throws<FileSystemException>(),
+        createFile: _UnreadableFile.new,
+      );
+
       await cache.prune();
       check(played.existsSync()).isFalse();
     });

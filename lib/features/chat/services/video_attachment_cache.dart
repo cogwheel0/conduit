@@ -228,10 +228,18 @@ class VideoAttachmentCache {
       // file from pruning until the save has copied it.
       retainCachePath(cachedPath);
       final cachedFile = File(cachedPath);
-      if (await cachedFile.exists() && await cachedFile.length() > 0) {
+      var complete = false;
+      try {
+        complete = await cachedFile.exists() && await cachedFile.length() > 0;
+      } finally {
+        // A missing or unreadable file gives the hold back.
+        if (!complete) {
+          releaseCachePath(cachedPath);
+        }
+      }
+      if (complete) {
         return VideoExportFile._(this, cachedFile, scratch: false);
       }
-      releaseCachePath(cachedPath);
     }
     if (url == null || url.isEmpty) {
       throw StateError('Video source unavailable');
