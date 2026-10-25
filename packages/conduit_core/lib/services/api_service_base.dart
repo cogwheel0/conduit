@@ -1633,7 +1633,10 @@ abstract class _ApiServiceBase {
     void addRequestFiles(Iterable<Map<String, dynamic>> requestFiles) {
       for (final file in requestFiles) {
         final normalizedFile = Map<String, dynamic>.from(file);
-        if (isImageFile(normalizedFile)) {
+        // Generated videos are tool output like generated images, which
+        // were all typed `image` until videos got their own type. Uploaded
+        // videos are typed `file` and are still sent.
+        if (isImageFile(normalizedFile) || normalizedFile['type'] == 'video') {
           continue;
         }
 

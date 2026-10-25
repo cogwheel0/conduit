@@ -1656,6 +1656,56 @@ void main() {
       ]);
     });
 
+    test('keeps generated videos out of request files', () {
+      final api = _buildApiServiceForTest(_FakeAdapter.json({}));
+
+      final payload = api.buildChatCompletionPayloadForTest(
+        messages: const [
+          {
+            'role': 'user',
+            'content': 'Animate this clip',
+            'files': [
+              {
+                'type': 'file',
+                'id': 'upload-1',
+                'url': 'upload-1',
+                'name': 'holiday.mp4',
+                'content_type': 'video/mp4',
+              },
+            ],
+          },
+          {
+            'role': 'assistant',
+            'content': 'Here it is.',
+            'files': [
+              {
+                'type': 'video',
+                'url': '/api/v1/files/generated-1/content',
+                'content_type': 'video/mp4',
+                'filename': 'render.mp4',
+              },
+              {'type': 'video', 'url': 'https://cdn.example.com/clip.webm'},
+              {'type': 'image', 'url': 'https://cdn.example.com/still.png'},
+            ],
+          },
+          {'role': 'user', 'content': 'Make it longer'},
+        ],
+        model: 'gpt-4',
+        messageId: 'msg-generated-video',
+        sessionId: 'sess-generated-video',
+      );
+
+      check(payload['files']).isA<List<dynamic>>().deepEquals(const [
+        {
+          'type': 'file',
+          'id': 'upload-1',
+          'url': 'upload-1',
+          'name': 'holiday.mp4',
+          'content_type': 'video/mp4',
+        },
+      ]);
+    });
+
     test('preserves output items on outbound messages', () {
       final api = _buildApiServiceForTest(_FakeAdapter.json({}));
 
