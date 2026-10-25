@@ -69,7 +69,7 @@ bool _isOpenAiReasoningEffortModel(String value) {
 
 /// Whether a model advertises support for the OpenAI `reasoning_effort`
 /// request parameter, either through its catalog metadata or through a model
-/// name that follows the OpenAI reasoning naming scheme. Ad absence is not a
+/// name that follows the OpenAI reasoning naming scheme. Absence is not a
 /// refusal: see [modelExplicitlyRejectsReasoningEffort] for that.
 bool modelAdvertisesReasoningEffort({
   required String modelId,

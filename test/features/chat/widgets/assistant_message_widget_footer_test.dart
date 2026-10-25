@@ -1711,7 +1711,7 @@ void main() {
   }
 
   testWidgets('frozen snapshot effort offers recovery without current '
-      'opt-ins (issue #779, review round 4)', (tester) async {
+      'opt-ins (issue #779)', (tester) async {
     await pumpFailedQueued(
       tester,
       lastError: 'Upstream rejected reasoning_effort',
@@ -1730,7 +1730,7 @@ void main() {
   });
 
   testWidgets('an explicitly refusing model hides queued recovery even with '
-      'a frozen value (issue #779, review round 5)', (tester) async {
+      'a frozen value (issue #779)', (tester) async {
     await pumpFailedQueued(
       tester,
       lastError: 'Upstream rejected reasoning_effort',

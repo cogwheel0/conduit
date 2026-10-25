@@ -2407,12 +2407,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   bool _isReasoningEffortRejection(String errorText, Model? retryModel) {
     if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
     // An explicitly refusing model never takes the parameter: the request
-    // boundary strips it whatever the opt-ins say (issue #779, round 1). A
-    // retry through such a model therefore cannot fail on the value, and
-    // offering recovery would discard the user's pick and the chat-wide
-    // override on an error that cannot be about the never-sent parameter
-    // (issue #779, review round 5). A model that left the list is unknown,
-    // not refusing — recovery stays available for it.
+    // boundary strips it whatever the opt-ins say. A retry through such a
+    // model therefore cannot fail on the value, and offering recovery would
+    // discard the user's pick and the chat-wide override on an error that
+    // cannot be about the never-sent parameter (issue #779). A model that
+    // left the list is unknown, not refusing — recovery stays available.
     if (retryModel?.explicitlyRejectsReasoningEffort ?? false) return false;
     // A model that does not advertise support is sent only its own pick
     // (issue #611); one that does is sent the chat's saved value over the
@@ -2432,7 +2431,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// additionally qualified from the request itself: the replay sends the
   /// snapshot frozen at enqueue time, so the rejected value can still be on
   /// the wire after the picker and the chat override went back to automatic
-  /// (issue #779, review round 4). The error text alone never qualifies —
+  /// (issue #779). The error text alone never qualifies —
   /// unrelated failures can mention the parameter — and a raw snapshot value
   /// alone never qualifies either, because the request boundary strips it
   /// for models that explicitly refuse reasoning effort; that guard lives
