@@ -1020,7 +1020,14 @@ class _VideoBusyIndicator extends StatelessWidget {
       child: Center(
         child: SizedBox.square(
           dimension: 16,
-          child: AdaptiveProgressIndicator(strokeWidth: 2, color: color),
+          child: Semantics(
+            liveRegion: true,
+            child: AdaptiveProgressIndicator(
+              strokeWidth: 2,
+              color: color,
+              semanticLabel: AppLocalizations.of(context)!.loadingShort,
+            ),
+          ),
         ),
       ),
     );

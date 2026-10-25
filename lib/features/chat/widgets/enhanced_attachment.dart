@@ -116,10 +116,7 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
 
   bool _isVideoFile(Map<String, dynamic>? info) {
     if (info == null) return false;
-    return isVideoFile({
-      'content_type': _contentTypeOf(info),
-      'filename': info['filename'] ?? info['name'],
-    });
+    return isVideoFile({...info, 'content_type': _contentTypeOf(info)});
   }
 
   int? _sizeOf(Map<String, dynamic>? info) {
@@ -268,8 +265,9 @@ class _EnhancedAttachmentState extends ConsumerState<EnhancedAttachment> {
       );
     }
 
-    // Image: delegate to existing image widget for consistency
-    if (_isImageFile(_fileInfo)) {
+    // Image: delegate to existing image widget for consistency. A declared
+    // video type wins over an image extension.
+    if (_isImageFile(_fileInfo) && !_isVideoFile(_fileInfo)) {
       return EnhancedImageAttachment(
         attachmentId: widget.attachmentId,
         isMarkdownFormat: widget.isMarkdownFormat,

@@ -134,12 +134,15 @@ void main() {
     expect(find.text('clip.mp4'), findsOneWidget);
     expect(find.text('3.0 MB'), findsOneWidget);
 
+    final semantics = tester.ensureSemantics();
     await tester.tap(find.byTooltip('Play'));
     await tester.pump();
 
     check(cache.fetches).deepEquals([clip]);
     // Loading replaces the Play button; another tap starts nothing.
     expect(find.byTooltip('Play'), findsNothing);
+    expect(find.bySemanticsLabel('Loading'), findsOneWidget);
+    semantics.dispose();
     await tester.tap(find.text('clip.mp4'));
     await tester.pump();
     check(cache.fetches).deepEquals([clip]);
