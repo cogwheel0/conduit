@@ -5131,6 +5131,7 @@
   "reasoningEffortNone": "Žiadna",
   "customReasoningEffort": "Vlastná úroveň",
   "retryWithoutReasoningEffort": "Opakovať bez úrovne uvažovania",
+  "reasoningEffortClearIncomplete": "Nastavenia úrovne uvažovania sa nepodarilo úplne vymazať – tento pokus pokračuje bez nej.",
   "customReasoningEffortHint": "Zadajte úroveň podporovanú poskytovateľom",
   "proxyServerVerificationFailed": "Server Open WebUI sa nepodarilo overiť. Relácia proxy mohla vypršať alebo je neplatná. Skúste to znova.",
   "proxyManualSignInRequired": "Overenie zlyhalo. Skúste sa prihlásiť manuálne.",

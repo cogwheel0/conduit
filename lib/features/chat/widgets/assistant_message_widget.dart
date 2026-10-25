@@ -1587,11 +1587,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                 icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
                 isCompact: true,
               ),
-              if (info.isFailed &&
-                  _isReasoningEffortRejection(
-                    info.lastError ?? '',
-                    _modelForQueuedRetry(),
-                  ))
+              if (info.isFailed && _isQueuedReasoningEffortRejection(info))
                 ConduitButton(
                   onPressed: () => _retryQueuedWithoutReasoningEffort(info),
                   text: l10n.retryWithoutReasoningEffort,
@@ -1629,11 +1625,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// `reasoning_effort`: clear the opt-ins for later turns and re-arm the op
   /// with the parameter stripped from its stored settings snapshot. The
   /// clearing is best effort here — the replay itself is fixed by the strip,
-  /// so a failed clear must not block the retry.
+  /// so a failed clear must not block the retry. It is still said out loud:
+  /// an unconfirmed clear can leave an opt-in effective for later sends, and
+  /// which half failed (model pick, chat override) the boolean cannot say.
   void _retryQueuedWithoutReasoningEffort(QueuedCompletionInfo info) {
     unawaited(() async {
       try {
-        await clearReasoningEffortForRetry(ref, _modelForQueuedRetry());
+        final cleared = await clearReasoningEffortForRetry(
+          ref,
+          _modelForQueuedRetry(),
+        );
+        if (!mounted) return;
+        if (!cleared) {
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!.reasoningEffortClearIncomplete,
+            type: AdaptiveSnackBarType.warning,
+          );
+        }
         await ref
             .read(queuedCompletionActionsProvider)
             .retryWithoutReasoningEffort(info);
@@ -2407,6 +2416,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         reasoningEffortForModel(ref.read, retryModel) !=
             kAutomaticReasoningEffort;
     return pickerOptIn || _chatHasReasoningEffortOverride;
+  }
+
+  /// Like [_isReasoningEffortRejection] for a parked queued completion,
+  /// additionally qualified from the request itself: the replay sends the
+  /// snapshot frozen at enqueue time, so the rejected value can still be on
+  /// the wire after the picker and the chat override went back to automatic
+  /// (issue #779, review round 4). The error text alone never qualifies —
+  /// unrelated failures can mention the parameter — and a raw snapshot value
+  /// alone never qualifies either, because the request boundary strips it
+  /// for models that explicitly refuse reasoning effort.
+  bool _isQueuedReasoningEffortRejection(QueuedCompletionInfo info) {
+    final errorText = info.lastError ?? '';
+    if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
+    final retryModel = _modelForQueuedRetry();
+    if (_isReasoningEffortRejection(errorText, retryModel)) return true;
+    final frozen = info.frozenReasoningEffort;
+    return frozen != null &&
+        !(retryModel?.explicitlyRejectsReasoningEffort ?? false);
   }
 
   Future<void> _retryWithoutReasoningEffort() async {

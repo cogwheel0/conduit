@@ -11,6 +11,7 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -638,5 +639,114 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     check(container.read(queuedCompletionActionsProvider)).identicalTo(actions);
+  });
+
+  Future<int> enqueueCompletionWithSnapshot(
+    String chatId,
+    String assistantMessageId,
+    OpenWebUiChatSettingsSnapshot snapshot,
+  ) {
+    return db.transaction(
+      () => db.outboxDao.enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: chatId,
+        payload: {
+          'assistantMessageId': assistantMessageId,
+          'model': 'm',
+          'toolIds': <String>[],
+          'filterIds': null,
+          'systemPrompt': null,
+          'sessionIdOverride': null,
+          'chatSettings': snapshot.toJson(),
+        },
+      ),
+    );
+  }
+
+  group('surfaced info carries the snapshot-frozen reasoning effort (#779)', () {
+    test('a parked completion exposes the effort frozen in its snapshot', () async {
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(
+          params: const {'reasoning_effort': 'high'},
+        ),
+      );
+      await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+      final info = await firstInfo(
+        makeContainer(online: true, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+          .equals('high');
+    });
+
+    test(
+      'a frozen automatic effort — as left by a prior without-effort '
+      'recovery — exposes nothing',
+      () async {
+        final seq = await enqueueCompletionWithSnapshot(
+          'c1',
+          'a1',
+          OpenWebUiChatSettingsSnapshot(
+            params: const {'temperature': 0.5, 'reasoning_effort': 'automatic'},
+          ),
+        );
+        await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+        final info = await firstInfo(
+          makeContainer(online: true, chatId: 'c1'),
+          'a1',
+        );
+        check(info)
+            .isNotNull()
+            .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+            .isNull();
+      },
+    );
+
+    test('the admitted picker value counts when the chat params hold none', () async {
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(reasoningEffort: 'minimal'),
+      );      await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+      final info = await firstInfo(
+        makeContainer(online: true, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+          .equals('minimal');
+    });
+
+    test('a pending completion exposes no frozen effort', () async {
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(
+          params: const {'reasoning_effort': 'high'},
+        ),
+      );
+      await db.outboxDao.markOfflineDeferred(seq, nextAttemptAt: 0);
+
+      final info = await firstInfo(
+        makeContainer(online: false, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has((i) => i.phase, 'phase')
+          .equals(QueuedCompletionPhase.pending);
+      check(info)
+          .isNotNull()
+          .has((i) => i.frozenReasoningEffort, 'frozenReasoningEffort')
+          .isNull();
+    });
   });
 }

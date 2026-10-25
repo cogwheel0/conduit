@@ -3222,6 +3222,7 @@
   "reasoningEffortNone": "无",
   "customReasoningEffort": "Custom effort",
   "retryWithoutReasoningEffort": "不使用 Effort 重试",
+  "reasoningEffortClearIncomplete": "无法完全清除 Effort 设置——此次重试将在不使用它的情况下继续。",
   "customReasoningEffortHint": "Enter a provider-supported effort",
   "proxyServerVerificationFailed": "Could not verify the Open WebUI server. The proxy session may have expired or be invalid. Please try again.",
   "proxyManualSignInRequired": "Authentication failed. Please try signing in manually.",

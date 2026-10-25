@@ -301,6 +301,7 @@
   "@retryWithoutReasoningEffort": {
     "description": "Action on a failed response that clears the model's reasoning effort and retries."
   },
+  "reasoningEffortClearIncomplete": "Nie udało się całkowicie wyczyścić nakładu rozumowania — ponowienie próby przebiegnie bez niego.",
   "customReasoningEffortHint": "Wpisz nakład obsługiwany przez dostawcę",
   "@customReasoningEffortHint": {
     "description": "Hint for a provider-specific reasoning effort value."

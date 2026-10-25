@@ -20,8 +20,11 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
+
 import 'chat_providers.dart'
     show chatMessagesProvider, conversationUsesOpenWebUiStorage;
+import 'reasoning_effort_provider.dart' show kAutomaticReasoningEffort;
 
 part 'queued_completion_provider.g.dart';
 
@@ -56,6 +59,7 @@ class QueuedCompletionInfo {
     required this.isOffline,
     this.lastError,
     this.nextAttemptAt,
+    this.frozenReasoningEffort,
   }) : _databaseOwner = databaseOwner,
        _ownership = null;
 
@@ -69,6 +73,7 @@ class QueuedCompletionInfo {
     required this.isOffline,
     this.lastError,
     this.nextAttemptAt,
+    this.frozenReasoningEffort,
   }) : _databaseOwner = ownership.session.database!,
        _ownership = ownership;
 
@@ -82,6 +87,13 @@ class QueuedCompletionInfo {
   final bool isOffline;
   final String? lastError;
   final int? nextAttemptAt;
+
+  /// The non-automatic `reasoning_effort` frozen in the op's settings
+  /// snapshot — the value a manual replay would still send even after the
+  /// picker and the chat override moved on. Null when the snapshot holds no
+  /// explicit effort (or only the automatic one, e.g. after a prior
+  /// without-effort recovery froze it).
+  final String? frozenReasoningEffort;
 
   bool get isFailed => phase == QueuedCompletionPhase.failed;
 
@@ -108,7 +120,8 @@ class QueuedCompletionInfo {
           phase == other.phase &&
           isOffline == other.isOffline &&
           lastError == other.lastError &&
-          nextAttemptAt == other.nextAttemptAt;
+          nextAttemptAt == other.nextAttemptAt &&
+          frozenReasoningEffort == other.frozenReasoningEffort;
 
   @override
   int get hashCode => Object.hash(
@@ -260,6 +273,9 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
         isOffline: offline,
         lastError: op.lastError,
         nextAttemptAt: op.nextAttemptAt,
+        frozenReasoningEffort: phase == QueuedCompletionPhase.failed
+            ? _frozenReasoningEffortFromPayload(op.payload)
+            : null,
       );
     }
     return Map<String, QueuedCompletionInfo>.unmodifiable(infos);
@@ -481,6 +497,34 @@ String? _assistantMessageIdFromPayload(String rawPayload) {
     if (decoded is Map && decoded['assistantMessageId'] is String) {
       final id = decoded['assistantMessageId'] as String;
       return id.isEmpty ? null : id;
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// The non-automatic `reasoning_effort` frozen in the op's settings snapshot
+/// — what a manual replay puts on the wire whatever the picker and the chat
+/// override hold now (issue #779). Null when the snapshot carries no explicit
+/// effort, including after a without-effort recovery froze `automatic`.
+String? _frozenReasoningEffortFromPayload(String rawPayload) {
+  try {
+    final decoded = jsonDecode(rawPayload);
+    if (decoded is! Map) return null;
+    final settings = OpenWebUiChatSettingsSnapshot.tryFromJson(
+      decoded['chatSettings'],
+    );
+    if (settings == null) return null;
+    // The chat's saved override outranks the admitted picker value, but
+    // either one being explicit and non-automatic means the replay sends it.
+    for (final value in <Object?>[
+      settings.params[kChatParamReasoningEffort],
+      settings.reasoningEffort,
+    ]) {
+      if (value is String &&
+          value.trim().isNotEmpty &&
+          value.trim().toLowerCase() != kAutomaticReasoningEffort) {
+        return value;
+      }
     }
   } catch (_) {}
   return null;

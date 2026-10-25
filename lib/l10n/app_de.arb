@@ -3222,6 +3222,7 @@
   "reasoningEffortNone": "Keine",
   "customReasoningEffort": "Benutzerdefinierter Denkaufwand",
   "retryWithoutReasoningEffort": "Ohne Denkaufwand erneut versuchen",
+  "reasoningEffortClearIncomplete": "Der Denkaufwand konnte nicht vollständig entfernt werden – dieser Versuch läuft ohne ihn weiter.",
   "customReasoningEffortHint": "Vom Anbieter unterstützten Denkaufwand eingeben",
   "proxyServerVerificationFailed": "Der Open-WebUI-Server konnte nicht überprüft werden. Die Proxy-Sitzung ist möglicherweise abgelaufen oder ungültig. Bitte versuche es erneut.",
   "proxyManualSignInRequired": "Authentifizierung fehlgeschlagen. Bitte versuche, dich manuell anzumelden.",

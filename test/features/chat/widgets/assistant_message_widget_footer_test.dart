@@ -1635,4 +1635,80 @@ void main() {
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
   });
+
+  Future<void> pumpFailedQueued(
+    WidgetTester tester, {
+    required String lastError,
+    String? frozenReasoningEffort,
+  }) async {
+    final message = ChatMessage(
+      id: 'frozen-assistant',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          queuedCompletionInfoForMessageProvider('frozen-assistant')
+              .overrideWith(
+                (ref) => Stream<QueuedCompletionInfo?>.value(
+                  QueuedCompletionInfo(
+                    databaseOwner: Object(),
+                    seq: 45,
+                    chatId: 'chat-1',
+                    scopedChatId: 'chat-1',
+                    assistantMessageId: 'frozen-assistant',
+                    phase: QueuedCompletionPhase.failed,
+                    isOffline: false,
+                    lastError: lastError,
+                    frozenReasoningEffort: frozenReasoningEffort,
+                  ),
+                ),
+              ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AssistantMessageWidget(
+              message: message,
+              isStreaming: true,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: message.model,
+              onCopy: () {},
+              onRegenerate: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets('frozen snapshot effort offers recovery without current '
+      'opt-ins (issue #779, review round 4)', (tester) async {
+    await pumpFailedQueued(
+      tester,
+      lastError: 'Upstream rejected reasoning_effort',
+      frozenReasoningEffort: 'high',
+    );
+    expect(find.text('Retry without reasoning effort'), findsOneWidget);
+  });
+
+  testWidgets('an error merely naming the parameter does not offer recovery',
+      (tester) async {
+    await pumpFailedQueued(
+      tester,
+      lastError: 'Upstream rejected reasoning_effort',
+    );
+    expect(find.text('Retry without reasoning effort'), findsNothing);
+  });
 }
