@@ -73,9 +73,27 @@ class DrawerShellPage extends ConsumerWidget {
         } catch (_) {}
       },
       drawer: const SidebarPage(),
-      layoutBuilder: (layout) => MacDesktopShortcuts(child: layout),
+      layoutBuilder: (layout) => SidebarOverlayDismissListener(
+        child: MacDesktopShortcuts(child: layout),
+      ),
       child: child,
     );
+  }
+}
+
+/// Closes the overlay sidebar when [sidebarOverlayDismissRequestProvider]
+/// asks. It sits under the drawer, where the drawer's controller is in scope.
+class SidebarOverlayDismissListener extends ConsumerWidget {
+  const SidebarOverlayDismissListener({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(sidebarOverlayDismissRequestProvider, (_, _) {
+      closeSidebarDrawerIfOverlay(context);
+    });
+    return child;
   }
 }
 

@@ -47,3 +47,17 @@ final sidebarNavigationSnapshotProvider = Provider<SidebarNavigationSnapshot>((
     ),
   );
 });
+
+/// Asks an overlay sidebar to close, for code with no context under the
+/// drawer, such as the Android assistant opening a new chat.
+final sidebarOverlayDismissRequestProvider =
+    NotifierProvider<SidebarOverlayDismissRequest, int>(
+      SidebarOverlayDismissRequest.new,
+    );
+
+class SidebarOverlayDismissRequest extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void request() => state++;
+}

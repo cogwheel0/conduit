@@ -47,10 +47,10 @@ class ConduitVoiceInteractionSession(context: Context) : VoiceInteractionSession
             launchAppWithScreenshot()
         }
 
-        // Input area (opens text input)
+        // Input area: a new chat, ready to type in
         val inputArea = view.findViewById<android.view.View>(app.cogwheel.conduit.R.id.input_area)
         inputArea?.setOnClickListener {
-            launchApp()
+            launchAppForNewChat(focusComposer = true)
         }
 
         // Voice button - opens voice call directly
@@ -103,22 +103,6 @@ class ConduitVoiceInteractionSession(context: Context) : VoiceInteractionSession
         android.util.Log.d("ConduitVoiceSession", "Screenshot received via onHandleScreenshot: ${screenshot != null}")
     }
 
-    private fun launchApp() {
-        try {
-            android.util.Log.d("ConduitVoiceSession", "Attempting to launch app")
-            val intent = Intent(context, MainActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-
-            context.startActivity(intent)
-            android.util.Log.d("ConduitVoiceSession", "App launch requested")
-            finish() // Close the overlay
-        } catch (e: Exception) {
-            android.util.Log.e("ConduitVoiceSession", "Failed to launch app", e)
-        }
-    }
-
     private fun launchAppWithContext(includeScreenshot: Boolean) {
         try {
             android.util.Log.d("ConduitVoiceSession", "Attempting to launch app with context")
@@ -128,7 +112,7 @@ class ConduitVoiceInteractionSession(context: Context) : VoiceInteractionSession
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
             if (capturedContext != null) {
-                intent.putExtra("screen_context", capturedContext)
+                intent.putExtra(AssistantLaunchAction.EXTRA_SCREEN_CONTEXT, capturedContext)
                 android.util.Log.d("ConduitVoiceSession", "Context attached: ${capturedContext?.take(50)}...")
             } else {
                 android.util.Log.d("ConduitVoiceSession", "No context captured")
@@ -159,7 +143,7 @@ class ConduitVoiceInteractionSession(context: Context) : VoiceInteractionSession
                     outputStream.flush()
                     outputStream.close()
 
-                    intent.putExtra("screenshot_path", file.absolutePath)
+                    intent.putExtra(AssistantLaunchAction.EXTRA_SCREENSHOT_PATH, file.absolutePath)
                     android.util.Log.d("ConduitVoiceSession", "Screenshot saved to: ${file.absolutePath}")
                 } catch (e: Exception) {
                     android.util.Log.e("ConduitVoiceSession", "Failed to save screenshot", e)
@@ -176,7 +160,7 @@ class ConduitVoiceInteractionSession(context: Context) : VoiceInteractionSession
         }
     }
 
-    private fun launchAppForNewChat() {
+    private fun launchAppForNewChat(focusComposer: Boolean = false) {
         try {
             android.util.Log.d("ConduitVoiceSession", "Attempting to launch app for new chat")
             val intent = Intent(context, MainActivity::class.java)
@@ -184,7 +168,8 @@ class ConduitVoiceInteractionSession(context: Context) : VoiceInteractionSession
             intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
-            intent.putExtra("start_new_chat", true)
+            intent.putExtra(AssistantLaunchAction.EXTRA_START_NEW_CHAT, true)
+            intent.putExtra(AssistantLaunchAction.EXTRA_FOCUS_COMPOSER, focusComposer)
             android.util.Log.d("ConduitVoiceSession", "New chat flag attached")
 
             context.startActivity(intent)
@@ -203,7 +188,7 @@ class ConduitVoiceInteractionSession(context: Context) : VoiceInteractionSession
             intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
-            intent.putExtra("start_voice_call", true)
+            intent.putExtra(AssistantLaunchAction.EXTRA_START_VOICE_CALL, true)
             android.util.Log.d("ConduitVoiceSession", "Voice call flag attached")
 
             context.startActivity(intent)
