@@ -2017,6 +2017,308 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(nativeShareFileIsArchivedObject(at: svgURL))
   }
 
+  func testShareLoneLinkIsASingleWebAddressWithoutAPageTitle() throws {
+    let imageURL = try XCTUnwrap(URL(string: "https://example.com/a.png"))
+    func link() -> NSItemProvider {
+      NSItemProvider(item: imageURL as NSURL, typeIdentifier: "public.url")
+    }
+    func item(
+      _ providers: [NSItemProvider],
+      contentText: String? = nil
+    ) -> NSExtensionItem {
+      let item = NSExtensionItem()
+      item.attachments = providers
+      item.attributedContentText = contentText.map(NSAttributedString.init)
+      return item
+    }
+
+    // Safari's long-press Share on an image.
+    let safariImage = link()
+    XCTAssertTrue(
+      nativeShareLoneLinkProvider(in: [item([safariImage])]) === safariImage
+    )
+    XCTAssertNotNil(
+      nativeShareLoneLinkProvider(in: [item([link()], contentText: " \n")])
+    )
+    // A page share carries the page title next to its address.
+    XCTAssertNil(nativeShareLoneLinkProvider(
+      in: [item([link()], contentText: "Safari share test")]
+    ))
+    let titled = item([link()])
+    titled.attributedTitle = NSAttributedString(string: "Photos")
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [titled]))
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [item([link(), link()])]))
+    XCTAssertNil(nativeShareLoneLinkProvider(
+      in: [item([link()]), item([link()])]
+    ))
+    XCTAssertNil(nativeShareLoneLinkProvider(in: []))
+
+    let withText = link()
+    withText.registerItem(forTypeIdentifier: "public.plain-text") {
+      completion, _, _ in
+      completion?("A caption" as NSString, nil)
+    }
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [item([withText])]))
+    let file = NSItemProvider(
+      item: URL(fileURLWithPath: "/tmp/a.png") as NSURL,
+      typeIdentifier: "public.file-url"
+    )
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [item([file])]))
+    let image = NSItemProvider(
+      item: Data() as NSData,
+      typeIdentifier: UTType.png.identifier
+    )
+    XCTAssertNil(nativeShareLoneLinkProvider(in: [item([image])]))
+  }
+
+  func testShareLinkedImageQualifiesOnlyHttpsAddressesOfImageFiles() {
+    func qualifies(_ address: String) -> Bool {
+      URL(string: address).map(nativeShareLinkedImageQualifies) ?? false
+    }
+
+    XCTAssertTrue(qualifies("https://upload.wikimedia.org/a/b/Photo.png"))
+    XCTAssertTrue(qualifies("https://example.com/photo.JPG?w=800#top"))
+    XCTAssertTrue(qualifies("https://example.com/photo.jpeg"))
+    XCTAssertTrue(qualifies("https://example.com/loop.gif"))
+    XCTAssertTrue(qualifies("https://example.com/photo.webp"))
+    XCTAssertTrue(qualifies("HTTPS://example.com/IMG_0001.HEIC"))
+
+    XCTAssertFalse(qualifies("http://example.com/photo.png"))
+    XCTAssertFalse(qualifies("https://example.com/index.html"))
+    XCTAssertFalse(qualifies("https://example.com/image"))
+    XCTAssertFalse(qualifies("https://example.com/logo.svg"))
+    XCTAssertFalse(qualifies("https://example.com/photo.png.html"))
+    // Only the path counts, not the query.
+    XCTAssertFalse(qualifies("https://example.com/view?file=photo.png"))
+    XCTAssertFalse(qualifies("https:///photo.png"))
+    XCTAssertFalse(qualifies("file:///tmp/photo.png"))
+    XCTAssertFalse(qualifies("data:image/png;base64,iVBORw0KGgo="))
+  }
+
+  func testShareLinkedImageRedirectsStayOnHttpsAndStopAfterFive() {
+    let https = URL(string: "https://cdn.example.com/photo.png")
+    let http = URL(string: "http://cdn.example.com/photo.png")
+
+    XCTAssertTrue(
+      nativeShareLinkedImageRedirectAllowed(to: https, redirectCount: 1)
+    )
+    XCTAssertTrue(
+      nativeShareLinkedImageRedirectAllowed(to: https, redirectCount: 5)
+    )
+    XCTAssertFalse(
+      nativeShareLinkedImageRedirectAllowed(to: https, redirectCount: 6)
+    )
+    XCTAssertFalse(
+      nativeShareLinkedImageRedirectAllowed(to: http, redirectCount: 1)
+    )
+    XCTAssertFalse(
+      nativeShareLinkedImageRedirectAllowed(to: nil, redirectCount: 1)
+    )
+  }
+
+  func testShareLinkedImageFitsTheImageAllowance() {
+    let limit: Int64 = 20 * 1024 * 1024
+
+    // No Content-Length: the bytes are counted as they arrive.
+    XCTAssertTrue(
+      nativeShareLinkedImageFits(byteCount: -1, allowedBytes: limit)
+    )
+    XCTAssertTrue(
+      nativeShareLinkedImageFits(byteCount: limit, allowedBytes: limit)
+    )
+    XCTAssertFalse(
+      nativeShareLinkedImageFits(byteCount: limit + 1, allowedBytes: limit)
+    )
+    XCTAssertFalse(nativeShareLinkedImageFits(byteCount: 1, allowedBytes: 0))
+  }
+
+  func testShareLinkedImageResponseNeedsSuccessAndAnImageType() {
+    XCTAssertTrue(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 200,
+      mimeType: "image/png"
+    ))
+    XCTAssertTrue(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 203,
+      mimeType: "IMAGE/WEBP"
+    ))
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 302,
+      mimeType: "image/png"
+    ))
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 403,
+      mimeType: "image/png"
+    ))
+    // A /wiki/File:Photo.png page.
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 200,
+      mimeType: "text/html"
+    ))
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 200,
+      mimeType: "application/octet-stream"
+    ))
+    XCTAssertFalse(nativeShareLinkedImageResponseAcceptable(
+      statusCode: 200,
+      mimeType: nil
+    ))
+  }
+
+  func testShareDownloadedImageTypeComesFromTheBytes() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "native-share-linked-type-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let image = linkedImageTestImage()
+    let png = directory.appendingPathComponent("png")
+    try XCTUnwrap(image.pngData()).write(to: png)
+    let jpeg = directory.appendingPathComponent("jpeg")
+    try XCTUnwrap(image.jpegData(compressionQuality: 0.8)).write(to: jpeg)
+    let html = directory.appendingPathComponent("File:Photo.png")
+    try Data("<!doctype html><title>File:Photo.png</title>".utf8)
+      .write(to: html)
+    let empty = directory.appendingPathComponent("empty")
+    try Data().write(to: empty)
+
+    XCTAssertEqual(nativeShareDownloadedImageType(at: png), .png)
+    XCTAssertEqual(nativeShareDownloadedImageType(at: jpeg), .jpeg)
+    XCTAssertNil(nativeShareDownloadedImageType(at: html))
+    XCTAssertNil(nativeShareDownloadedImageType(at: empty))
+    XCTAssertNil(nativeShareDownloadedImageType(
+      at: directory.appendingPathComponent("missing")
+    ))
+  }
+
+  func testShareLinkedImageSessionKeepsNoCookiesCacheOrCredentials() {
+    let configuration = NativeShareLinkedImageDownload.sessionConfiguration()
+
+    XCTAssertNil(configuration.httpCookieStorage)
+    XCTAssertFalse(configuration.httpShouldSetCookies)
+    XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
+    XCTAssertNil(configuration.urlCredentialStorage)
+    XCTAssertNil(configuration.urlCache)
+    XCTAssertEqual(configuration.timeoutIntervalForRequest, 10)
+    XCTAssertEqual(configuration.timeoutIntervalForResource, 15)
+  }
+
+  func testShareLinkedImageDownloadKeepsOnlyARealImage() throws {
+    let png = try XCTUnwrap(linkedImageTestImage().pngData())
+    let photo = "https://images.example.com/photo.png"
+    LinkedImageStubProtocol.replies = [
+      photo: .init(mimeType: "image/png", body: png),
+      "http://images.example.com/photo.png": .init(
+        mimeType: "image/png",
+        body: png
+      ),
+      "https://example.com/moved.png": .init(redirect: photo),
+      "https://example.com/insecure.png": .init(
+        redirect: "http://images.example.com/photo.png"
+      ),
+      "https://example.com/untyped.png": .init(
+        mimeType: "application/octet-stream",
+        body: png
+      ),
+      "https://example.com/wiki/File:Photo.png": .init(
+        mimeType: "text/html",
+        body: Data("<!doctype html>".utf8)
+      ),
+      "https://example.com/mislabelled.png": .init(
+        mimeType: "image/png",
+        body: Data("<!doctype html>".utf8)
+      ),
+      "https://example.com/gone.png": .init(
+        status: 404,
+        mimeType: "image/png",
+        body: png
+      ),
+    ]
+    for hop in 1...6 {
+      LinkedImageStubProtocol.replies["https://example.com/hop\(hop).png"] =
+        .init(
+          redirect: hop == 1 ? photo : "https://example.com/hop\(hop - 1).png"
+        )
+    }
+
+    let result = try XCTUnwrap(linkedImageDownload(photo))
+    XCTAssertEqual(result.type, .png)
+    XCTAssertEqual(try Data(contentsOf: result.fileURL), png)
+    XCTAssertNotNil(linkedImageDownload("https://example.com/moved.png"))
+    XCTAssertNotNil(linkedImageDownload("https://example.com/hop5.png"))
+
+    XCTAssertNil(linkedImageDownload("https://example.com/hop6.png"))
+    XCTAssertNil(linkedImageDownload("https://example.com/insecure.png"))
+    XCTAssertNil(linkedImageDownload("https://example.com/untyped.png"))
+    XCTAssertNil(
+      linkedImageDownload("https://example.com/wiki/File:Photo.png")
+    )
+    XCTAssertNil(linkedImageDownload("https://example.com/mislabelled.png"))
+    XCTAssertNil(linkedImageDownload("https://example.com/gone.png"))
+  }
+
+  func testShareLinkedImageDownloadStopsAtTheSizeLimit() throws {
+    let png = try XCTUnwrap(linkedImageTestImage().pngData())
+    let allowance = Int64(png.count)
+    let declared = "https://example.com/declared.png"
+    let oversized = "https://example.com/oversized.png"
+    let undeclared = "https://example.com/undeclared.png"
+    LinkedImageStubProtocol.replies = [
+      declared: .init(mimeType: "image/png", body: png, length: allowance),
+      // Refused on the Content-Length alone, before any of the body.
+      oversized: .init(
+        mimeType: "image/png",
+        body: png,
+        length: allowance + 1
+      ),
+      undeclared: .init(mimeType: "image/png", body: png),
+    ]
+
+    XCTAssertNotNil(linkedImageDownload(declared, allowedBytes: allowance))
+    XCTAssertNotNil(linkedImageDownload(undeclared, allowedBytes: allowance))
+    XCTAssertNil(linkedImageDownload(oversized, allowedBytes: allowance))
+    // Without a Content-Length, the bytes are counted as they arrive.
+    XCTAssertNil(linkedImageDownload(undeclared, allowedBytes: allowance - 1))
+  }
+
+  private func linkedImageTestImage() -> UIImage {
+    UIGraphicsImageRenderer(
+      size: CGSize(width: 24, height: 16)
+    ).image { context in
+      UIColor.blue.setFill()
+      context.fill(CGRect(x: 0, y: 0, width: 24, height: 16))
+    }
+  }
+
+  private func linkedImageDownload(
+    _ address: String,
+    allowedBytes: Int64 = 20 * 1024 * 1024
+  ) -> NativeShareLinkedImageDownload.Result? {
+    guard let url = URL(string: address) else { return nil }
+    let configuration = NativeShareLinkedImageDownload.sessionConfiguration()
+    configuration.protocolClasses = [LinkedImageStubProtocol.self]
+    let download = NativeShareLinkedImageDownload(
+      url: url,
+      allowedBytes: allowedBytes,
+      configuration: configuration
+    )
+    let finished = expectation(description: "download \(address)")
+    var result: NativeShareLinkedImageDownload.Result?
+    download.start { value in
+      result = value
+      finished.fulfill()
+    }
+    wait(for: [finished], timeout: 10)
+    if let result {
+      addTeardownBlock { download.removeFile() }
+      XCTAssertTrue(FileManager.default.fileExists(atPath: result.fileURL.path))
+    }
+    return result
+  }
+
   func testShareEnvelopeRejectsAStagedFileFromAnotherImportId() throws {
     let container = FileManager.default.temporaryDirectory.appendingPathComponent(
       "native-share-cross-import-file-\(UUID().uuidString)",
@@ -3868,4 +4170,64 @@ private final class TestLockedCounter {
     lock.unlock()
     return result
   }
+}
+
+/// Serves canned replies to the linked image download, keyed by address.
+private final class LinkedImageStubProtocol: URLProtocol {
+  struct Reply {
+    var status = 200
+    var mimeType: String?
+    var body = Data()
+    var length: Int64?
+    var redirect: String?
+  }
+
+  static var replies: [String: Reply] = [:]
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+    request
+  }
+
+  override func startLoading() {
+    guard let url = request.url,
+          let reply = Self.replies[url.absoluteString]
+    else {
+      client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+      return
+    }
+    if let redirect = reply.redirect, let target = URL(string: redirect) {
+      let response = HTTPURLResponse(
+        url: url,
+        statusCode: 302,
+        httpVersion: "HTTP/1.1",
+        headerFields: ["Location": redirect]
+      )!
+      client?.urlProtocol(
+        self,
+        wasRedirectedTo: URLRequest(url: target),
+        redirectResponse: response
+      )
+      return
+    }
+    var headers: [String: String] = [:]
+    headers["Content-Type"] = reply.mimeType
+    headers["Content-Length"] = reply.length.map { "\($0)" }
+    let response = HTTPURLResponse(
+      url: url,
+      statusCode: reply.status,
+      httpVersion: "HTTP/1.1",
+      headerFields: headers
+    )!
+    client?.urlProtocol(
+      self,
+      didReceive: response,
+      cacheStoragePolicy: .notAllowed
+    )
+    client?.urlProtocol(self, didLoad: reply.body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {}
 }

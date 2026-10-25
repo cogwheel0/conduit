@@ -41,6 +41,7 @@
 		D2A0B2262F5E4D6C7B8A9012 /* CarPlay.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D2A0B2212F5E4D6C7B8A9012 /* CarPlay.framework */; };
 		D2A0B2312F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2302F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift */; };
 		D2A0B2332F5E4D6C7B8A9012 /* NativeShareItemTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2322F5E4D6C7B8A9012 /* NativeShareItemTypes.swift */; };
+		D2A0B2352F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2342F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift */; };
 		D2A0B2412F5E4D6C7B8A9012 /* PccBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */; };
 		D2A0B2512F5E4D6C7B8A9012 /* DisplayBoostBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */; };
 		E6C41A0C2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */; };
@@ -151,6 +152,7 @@
 		D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitCarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		D2A0B2302F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ShareExtension/NativeShareEnvelopeStore.swift; sourceTree = "<group>"; };
 		D2A0B2322F5E4D6C7B8A9012 /* NativeShareItemTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ShareExtension/NativeShareItemTypes.swift; sourceTree = "<group>"; };
+		D2A0B2342F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ShareExtension/NativeShareLinkedImage.swift; sourceTree = "<group>"; };
 		D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PccBridge.swift; sourceTree = "<group>"; };
 		D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayBoostBridge.swift; sourceTree = "<group>"; };
 		D2A0B3012F5E4D6C7B8A9012 /* ConduitWidget.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ConduitWidget/ConduitWidget.xcconfig; sourceTree = "<group>"; };
@@ -394,6 +396,7 @@
 				D2A0B2232F5E4D6C7B8A9012 /* ConduitCarPlaySceneDelegate.swift */,
 				D2A0B2302F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift */,
 				D2A0B2322F5E4D6C7B8A9012 /* NativeShareItemTypes.swift */,
+				D2A0B2342F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -693,6 +696,7 @@
 				D2A0B1C42F5E4D6C7B8A9012 /* NativePasteBridge.swift in Sources */,
 				D2A0B2312F5E4D6C7B8A9012 /* NativeShareEnvelopeStore.swift in Sources */,
 				D2A0B2332F5E4D6C7B8A9012 /* NativeShareItemTypes.swift in Sources */,
+				D2A0B2352F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				C07FFD404BC56A760606B800 /* PlatformEnvironmentBridge.swift in Sources */,
 				C07CD0FC676C9F75CE320600 /* FlutterConduitBridgeHost.swift in Sources */,
