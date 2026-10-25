@@ -13,6 +13,7 @@ import 'package:dio/dio.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/network/external_link.dart';
+import 'package:conduit_core/network/upload_timeout.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';

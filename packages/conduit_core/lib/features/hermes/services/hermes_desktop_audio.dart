@@ -23,14 +23,14 @@ extension _HermesDesktopAudio on HermesDesktopApiService {
     Uint8List audio, {
     required String mimeType,
   }) async {
+    final dataUrl = 'data:$mimeType;base64,${base64Encode(audio)}';
     final result = _object(
       await _requestJson(
         'POST',
         '/api/audio/transcribe',
-        body: {
-          'data_url': 'data:$mimeType;base64,${base64Encode(audio)}',
-          'mime_type': mimeType,
-        },
+        body: {'data_url': dataUrl, 'mime_type': mimeType},
+        // A stalled upload would hold the listen waiting for it.
+        sendTimeout: uploadTimeoutForBytes(dataUrl.length),
       ),
     );
     final transcript = result['transcript'];

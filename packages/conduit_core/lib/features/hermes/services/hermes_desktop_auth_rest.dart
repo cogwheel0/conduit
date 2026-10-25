@@ -231,6 +231,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     Object? body,
     Map<String, dynamic>? query,
     CancelToken? cancelToken,
+    Duration? sendTimeout,
     int nativeRetry = 0,
     int dashboardRetry = 0,
   }) async {
@@ -258,6 +259,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
           method: method,
           headers: await _headers(authenticated: authenticated),
           responseType: ResponseType.bytes,
+          sendTimeout: sendTimeout,
         ),
       );
       final bytes = response.data ?? const <int>[];
@@ -293,6 +295,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
               body: body,
               query: query,
               cancelToken: cancelToken,
+              sendTimeout: sendTimeout,
               nativeRetry: 1,
             );
           }

@@ -75,7 +75,12 @@ mixin _MediaRetrievalApi on _ApiServiceBase {
     final response = await _dio.post(
       '/api/v1/audio/transcriptions',
       data: formData,
-      options: Options(headers: const {'accept': 'application/json'}),
+      // The client sets no send timeout, so a stalled upload would hold the
+      // listen waiting for it; give up on one as file uploads do.
+      options: Options(
+        headers: const {'accept': 'application/json'},
+        sendTimeout: uploadTimeoutForBytes(audioBytes.length),
+      ),
     );
 
     final data = response.data;

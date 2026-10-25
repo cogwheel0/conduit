@@ -277,7 +277,7 @@ mixin _FilesApi on _ApiServiceBase {
         throw Exception('File does not exist: $filePath');
       }
       final fileSize = await file.length();
-      final uploadTimeout = _fileUploadTimeoutForBytes(fileSize);
+      final uploadTimeout = uploadTimeoutForBytes(fileSize);
 
       // Determine content type from file extension if not provided
       final mimeType = contentType ?? _getMimeType(fileName);
