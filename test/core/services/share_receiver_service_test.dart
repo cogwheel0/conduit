@@ -254,16 +254,11 @@ void main() {
       expect(NavigationService.currentRoute, Routes.chat);
     });
 
-    test('asks the sidebar to close once a Flutter route is left', () async {
+    test('navigates to the chat from a Flutter route', () async {
       attachRouter(Routes.profile);
       final container = ProviderContainer();
       addTearDown(container.dispose);
       var dismissals = 0;
-      final routesAtSidebarRequest = <String?>[];
-      container.listen(
-        sidebarOverlayDismissRequestProvider,
-        (_, _) => routesAtSidebarRequest.add(NavigationService.currentRoute),
-      );
 
       final revealed = await revealChatForIncomingShare(
         container,
@@ -275,9 +270,8 @@ void main() {
 
       expect(revealed, isTrue);
       expect(dismissals, 1);
-      // The sidebar's listener lives in the chat shell, so a request made
-      // before the chat is showing would go unheard.
-      expect(routesAtSidebarRequest, [Routes.chat]);
+      expect(NavigationService.currentRoute, Routes.chat);
+      expect(container.read(sidebarOverlayDismissRequestProvider), 1);
     });
   });
 

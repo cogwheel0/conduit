@@ -452,8 +452,9 @@ Future<bool> revealChatForIncomingShare(
     await NavigationService.navigateToChat();
     await Future<void>.delayed(const Duration(milliseconds: 75));
   }
-  // Ask after navigating: the sidebar's listener only hears requests made
-  // once the chat shell is built.
+  // A chat shell that stayed mounted under the previous route hears this
+  // and closes its sidebar. One built by this navigation may not be
+  // listening yet, but its sidebar starts closed.
   ref.read(sidebarOverlayDismissRequestProvider.notifier).request();
   return NavigationService.currentRoute == Routes.chat;
 }
