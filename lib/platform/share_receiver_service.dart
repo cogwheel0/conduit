@@ -20,6 +20,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import '../core/services/media_upload_controller.dart';
+import '../core/services/native_sheet_bridge.dart';
 
 import 'package:path/path.dart' as path;
 
@@ -433,6 +434,23 @@ Future<bool> fenceTerminalNativeSharePayloadUntilAcknowledgedForTest({
   return acknowledged;
 }
 
+/// Brings the chat in front of an incoming share and reports whether it is
+/// the current route.
+///
+/// On iOS, Settings and the other menus are native sheets presented over the
+/// chat, so the route can already be `/chat` while a sheet still covers it.
+@visibleForTesting
+Future<bool> revealChatForIncomingShare({
+  Future<bool> Function()? dismissNativeSheet,
+}) async {
+  await (dismissNativeSheet ?? NativeSheetBridge.instance.dismiss)();
+  if (NavigationService.currentRoute != Routes.chat) {
+    await NavigationService.navigateToChat();
+    await Future<void>.delayed(const Duration(milliseconds: 75));
+  }
+  return NavigationService.currentRoute == Routes.chat;
+}
+
 /// Holds a pending shared payload until the app is ready (e.g., authed + model loaded)
 final pendingSharedPayloadProvider =
     NotifierProvider<PendingSharedPayloadNotifier, SharedPayload?>(
@@ -827,12 +845,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
       return;
     }
 
-    if (NavigationService.currentRoute != Routes.chat) {
-      await NavigationService.navigateToChat();
-      await Future<void>.delayed(const Duration(milliseconds: 75));
-    }
-
-    if (NavigationService.currentRoute == Routes.chat) {
+    if (await revealChatForIncomingShare()) {
       startNewChat(ref);
       if (importId != null) {
         preparedShareImportIds.add(importId);
@@ -895,12 +908,7 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
         return;
       }
 
-      if (NavigationService.currentRoute != Routes.chat) {
-        await NavigationService.navigateToChat();
-        await Future<void>.delayed(const Duration(milliseconds: 75));
-      }
-
-      if (NavigationService.currentRoute != Routes.chat) {
+      if (!await revealChatForIncomingShare()) {
         scheduleProcessPending();
         return;
       }

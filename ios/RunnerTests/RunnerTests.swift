@@ -3,6 +3,7 @@ import Darwin
 import Flutter
 import ImageIO
 import UIKit
+import UniformTypeIdentifiers
 import XCTest
 @testable import Runner
 
@@ -1789,6 +1790,231 @@ class RunnerTests: XCTestCase {
     XCTAssertGreaterThan(maximumWorkload, oneFile)
     XCTAssertLessThanOrEqual(maximumWorkload, 120)
     XCTAssertEqual(untrustedCounts, maximumWorkload)
+  }
+
+  func testShareContentTypeSkipsFileURLStandInsForTheFilesOwnType() {
+    // Files registers the document's type next to its URL. Loading the URL
+    // type as a file staged a "file URL.dat" plist instead of the PDF.
+    XCTAssertEqual(
+      nativeShareContentTypeIdentifier(
+        registeredTypeIdentifiers: [
+          "com.adobe.pdf",
+          "public.file-url",
+          "public.url",
+        ],
+        conformingTo: .data
+      ),
+      "com.adobe.pdf"
+    )
+    XCTAssertNil(nativeShareContentTypeIdentifier(
+      registeredTypeIdentifiers: ["public.file-url", "public.url"],
+      conformingTo: .data
+    ))
+    // `com.apple.uikit.image` is the object, not an image format.
+    XCTAssertEqual(
+      nativeShareContentTypeIdentifier(
+        registeredTypeIdentifiers: [
+          "com.apple.uikit.image",
+          "public.heic",
+          "public.png",
+        ],
+        conformingTo: .image
+      ),
+      "public.heic"
+    )
+    XCTAssertNil(nativeShareContentTypeIdentifier(
+      registeredTypeIdentifiers: ["com.adobe.pdf"],
+      conformingTo: .image
+    ))
+  }
+
+  func testShareContentTypeLoadsTheDocumentBytesAndName() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "native-share-pdf-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pdfURL = directory.appendingPathComponent("Report.pdf")
+    let pdf = UIGraphicsPDFRenderer(
+      bounds: CGRect(x: 0, y: 0, width: 100, height: 100)
+    ).pdfData { context in context.beginPage() }
+    try pdf.write(to: pdfURL)
+    let provider = try XCTUnwrap(NSItemProvider(contentsOf: pdfURL))
+
+    let identifier = try XCTUnwrap(nativeShareContentTypeIdentifier(
+      registeredTypeIdentifiers: provider.registeredTypeIdentifiers,
+      conformingTo: .data
+    ))
+    let loaded = expectation(description: "file representation")
+    var loadedName: String?
+    var loadedBytes: Data?
+    provider.loadFileRepresentation(forTypeIdentifier: identifier) { url, _ in
+      loadedName = url?.lastPathComponent
+      loadedBytes = url.flatMap { try? Data(contentsOf: $0) }
+      loaded.fulfill()
+    }
+    let referenced = expectation(description: "file URL")
+    var referencedName: String?
+    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+      referencedName = url?.lastPathComponent
+      referenced.fulfill()
+    }
+    wait(for: [loaded, referenced], timeout: 10)
+
+    XCTAssertEqual(loadedBytes, pdf)
+    XCTAssertNil(nativeShareImageType(of: pdf))
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: try XCTUnwrap(loadedName),
+        preferredName: referencedName
+      ),
+      "Report.pdf"
+    )
+  }
+
+  func testShareSourceFileNameKeepsTheSendersNameWithTheLoadedExtension() {
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "PDF document.pdf",
+        preferredName: "Report.PDF"
+      ),
+      "Report.PDF"
+    )
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "PDF document.pdf",
+        preferredName: nil
+      ),
+      "PDF document.pdf"
+    )
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "HEIF Image.heic",
+        preferredName: "IMG_0001"
+      ),
+      "IMG_0001.heic"
+    )
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "JPEG image.jpeg",
+        preferredName: "photo.jpg"
+      ),
+      "photo.jpg"
+    )
+    // The name must describe the bytes that were loaded, not the original.
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "JPEG image.jpeg",
+        preferredName: "photo.HEIC"
+      ),
+      "photo.HEIC.jpeg"
+    )
+    XCTAssertEqual(
+      nativeShareSourceFileName(
+        loadedName: "PNG image.png",
+        preferredName: "Screenshot at 10.16.42"
+      ),
+      "Screenshot at 10.16.42.png"
+    )
+  }
+
+  func testShareEncodesOnlyInMemoryImagesWithinThePixelBudget() {
+    // The largest iPad screenshot, landscape.
+    XCTAssertTrue(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 2752,
+      pixelHeight: 2064
+    ))
+    XCTAssertTrue(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 4096,
+      pixelHeight: 4096
+    ))
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 4097,
+      pixelHeight: 4096
+    ))
+    // A 48 MP photo would need about 195 MB of decoded pixels.
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 8064,
+      pixelHeight: 6048
+    ))
+    XCTAssertFalse(nativeShareImageFitsEncodingBudget(
+      pixelWidth: 0,
+      pixelHeight: 4096
+    ))
+  }
+
+  func testShareDetectsAnArchivedInMemoryImageAndEncodesTheObject() throws {
+    let image = UIGraphicsImageRenderer(
+      size: CGSize(width: 40, height: 30)
+    ).image { context in
+      UIColor.red.setFill()
+      context.fill(CGRect(x: 0, y: 0, width: 40, height: 30))
+    }
+    // The screenshot editor shares a UIImage object under an image type.
+    let provider = NSItemProvider(
+      item: image,
+      typeIdentifier: UTType.png.identifier
+    )
+
+    let loaded = expectation(description: "file representation")
+    var loadedName: String?
+    var loadedIsArchive = false
+    provider.loadFileRepresentation(
+      forTypeIdentifier: UTType.png.identifier
+    ) { url, _ in
+      loadedName = url?.lastPathComponent
+      loadedIsArchive = url.map(nativeShareFileIsArchivedObject(at:)) ?? false
+      loaded.fulfill()
+    }
+    let item = expectation(description: "item")
+    var loadedItem: NSSecureCoding?
+    provider.loadItem(forTypeIdentifier: UTType.png.identifier) { value, _ in
+      loadedItem = value
+      item.fulfill()
+    }
+    wait(for: [loaded, item], timeout: 10)
+
+    XCTAssertEqual(
+      (try XCTUnwrap(loadedName) as NSString).pathExtension,
+      "png"
+    )
+    XCTAssertTrue(loadedIsArchive)
+    let object = try XCTUnwrap(loadedItem as? UIImage)
+    let png = try XCTUnwrap(nativeShareEncodedImage(
+      object,
+      typeIdentifier: UTType.png.identifier
+    ))
+    XCTAssertEqual(png.fileExtension, "png")
+    XCTAssertEqual(nativeShareImageType(of: png.data), .png)
+    let jpeg = try XCTUnwrap(nativeShareEncodedImage(
+      object,
+      typeIdentifier: UTType.jpeg.identifier
+    ))
+    XCTAssertEqual(jpeg.fileExtension, "jpg")
+    XCTAssertEqual(nativeShareImageType(of: jpeg.data), .jpeg)
+    XCTAssertNil(nativeShareImageType(of: Data("not an image".utf8)))
+
+    // Real files stay on the file path, including formats ImageIO can't read.
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "native-share-archive-\(UUID().uuidString)",
+      isDirectory: true
+    )
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pngURL = directory.appendingPathComponent("photo.png")
+    try png.data.write(to: pngURL)
+    let svgURL = directory.appendingPathComponent("logo.svg")
+    try Data("<svg xmlns=\"http://www.w3.org/2000/svg\"/>".utf8)
+      .write(to: svgURL)
+    XCTAssertFalse(nativeShareFileIsArchivedObject(at: pngURL))
+    XCTAssertFalse(nativeShareFileIsArchivedObject(at: svgURL))
   }
 
   func testShareEnvelopeRejectsAStagedFileFromAnotherImportId() throws {
