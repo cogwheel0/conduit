@@ -673,6 +673,12 @@ class VoiceInputService implements VoiceModeInput {
     if (_isListening) {
       await stopListening();
     }
+    // A stop still waiting for the server writes its transcript to the
+    // streams and then closes them; let it finish before this listen opens
+    // new ones.
+    if (_stopsInFlight.isNotEmpty) {
+      await Future.wait(_stopsInFlight.toList());
+    }
     final resumeHeldServerRecorder =
         shouldUseServer && isHoldingServerRecorderForResponse;
     if (!resumeHeldServerRecorder && isHoldingServerRecorderForResponse) {

@@ -434,6 +434,31 @@ void main() {
       check(texts).deepEquals(['quick tap']);
     });
 
+    test('leaves a listen started meanwhile to its own speech', () async {
+      final firstTexts = <String>[];
+      (await service.startListening()).listen(firstTexts.add);
+      await pumpEventQueue();
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+      check(service.transcribing.value).isTrue();
+
+      final secondTexts = <String>[];
+      var secondDone = false;
+      final started = service.startListening().then(
+        (stream) =>
+            stream.listen(secondTexts.add, onDone: () => secondDone = true),
+      );
+      await pumpEventQueue();
+      reply.complete(const {'text': 'first take'});
+      await started;
+      await pumpEventQueue();
+
+      check(firstTexts).deepEquals(['first take']);
+      check(secondTexts).isEmpty();
+      check(secondDone).isFalse();
+      check(service.isListening).isTrue();
+    });
+
     test('ends a call without waiting for a transcript it left', () async {
       final events = await service.beginListeningEvents();
       final subscription = events.listen((_) {});
