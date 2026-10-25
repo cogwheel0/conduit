@@ -42,6 +42,7 @@ import 'package:conduit_core/features/notifications/models/notification_target.d
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/network/same_origin_redirect_interceptor.dart';
+import 'package:conduit_core/network/upload_timeout.dart';
 export 'package:conduit_core/network/same_origin_redirect_interceptor.dart'
     show isCredentialSafeRedirectTarget, nextSameOriginRedirectRequest;
 
@@ -113,8 +114,6 @@ part 'api_service_workspace_knowledge.dart';
 const bool _traceApiLogs = false;
 const int _conversationWorkerByteThreshold = 50 * 1024;
 const int _conversationSummaryWorkerItemThreshold = 24;
-const int _fileUploadTimeoutBytesPerSecondFloor = 128 * 1024;
-const Duration _minimumFileUploadTimeout = Duration(minutes: 5);
 
 Future<void> _cancelPublicHealthResponse(Response<dynamic>? response) async {
   final body = response?.data;
@@ -222,15 +221,6 @@ void _traceApi(String message) {
     return;
   }
   DebugLogger.log(message, scope: 'api/trace');
-}
-
-Duration _fileUploadTimeoutForBytes(int bytes) {
-  final estimatedUploadSeconds =
-      (bytes / _fileUploadTimeoutBytesPerSecondFloor).ceil() + 120;
-  final timeout = Duration(seconds: estimatedUploadSeconds);
-  return timeout < _minimumFileUploadTimeout
-      ? _minimumFileUploadTimeout
-      : timeout;
 }
 
 @visibleForTesting

@@ -5,6 +5,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:dio/dio.dart';
 import 'package:test/test.dart';
 
 final class _AudioBridge implements HermesDashboardBridge {
@@ -33,6 +34,27 @@ final class _AudioBridge implements HermesDashboardBridge {
 
   @override
   Future<void> close() async {}
+}
+
+/// A gateway reached over HTTP with a session token, recording each request.
+final class _GatewayAdapter implements HttpClientAdapter {
+  final requests = <RequestOptions>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    final reply = options.uri.path == '/api/status'
+        ? {'auth_required': false}
+        : {'ok': true, 'transcript': 'hello'};
+    return ResponseBody.fromString(jsonEncode(reply), 200);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 HermesDesktopApiService _service(_AudioBridge bridge) {
@@ -69,6 +91,34 @@ void main() {
       'data_url': 'data:audio/wav;base64,${base64Encode(audio)}',
       'mime_type': 'audio/wav',
     });
+  });
+
+  // A stop waiting for this transcript, and any start queued behind it,
+  // would otherwise wait on an upload that has stalled.
+  test('a stalled upload is given up in time for the data URL', () async {
+    final adapter = _GatewayAdapter();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.legacyToken,
+        desktopProfile: 'work',
+        desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+      ),
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    addTearDown(service.close);
+    // 18 MiB of audio is 24 MiB as base64, which is what is sent: 193 s at
+    // 128 KiB/s, past the five-minute floor.
+    final audio = Uint8List(18 * 1024 * 1024);
+
+    await service.transcribeAudio(audio, mimeType: 'audio/wav');
+
+    final upload = adapter.requests.singleWhere(
+      (request) => request.uri.path == '/api/audio/transcribe',
+    );
+    check(upload.sendTimeout).equals(const Duration(seconds: 313));
   });
 
   test('no speech heard is an empty transcript', () async {

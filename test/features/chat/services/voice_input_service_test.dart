@@ -9,6 +9,8 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/chat/services/native_stt_service.dart';
 import 'package:conduit_core/features/chat/services/server_vad_recorder.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
+import 'package:dio/dio.dart'
+    show DioException, DioExceptionType, RequestOptions;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -546,6 +548,40 @@ void main() {
       await started;
       await pumpEventQueue();
 
+      check(secondDone).isFalse();
+      check(service.isListening).isTrue();
+    });
+
+    test('ends on an upload timeout and frees a waiting start', () async {
+      final errors = <Object>[];
+      var firstDone = false;
+      (await service.startListening()).listen(
+        (_) {},
+        onError: errors.add,
+        onDone: () => firstDone = true,
+      );
+      await pumpEventQueue();
+      vad.endSpeech(speech);
+      await pumpEventQueue();
+
+      var secondDone = false;
+      final started = service.startListening().then(
+        (stream) => stream.listen((_) {}, onDone: () => secondDone = true),
+      );
+      await pumpEventQueue();
+      reply.completeError(
+        DioException(
+          requestOptions: RequestOptions(path: '/api/v1/audio/transcriptions'),
+          type: DioExceptionType.sendTimeout,
+        ),
+      );
+      await started;
+      await pumpEventQueue();
+
+      // The failure reaches the listener, which ends "Transcribing…".
+      check(errors).length.equals(1);
+      check(firstDone).isTrue();
+      check(service.transcribing.value).isFalse();
       check(secondDone).isFalse();
       check(service.isListening).isTrue();
     });
