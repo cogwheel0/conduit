@@ -11,6 +11,7 @@ import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -262,6 +263,55 @@ void main() {
       );
     },
   );
+
+  test('opening another chat makes back open the chat list', () async {
+    final summary = _conversation(
+      'older',
+      storage: ChatStorageKind.directLocal,
+    );
+    final full = _conversation(
+      'older',
+      storage: ChatStorageKind.directLocal,
+      body: 'Older body',
+    );
+    final container = await _createContainer(
+      extraOverrides: [
+        loadConversationProvider(conversationScopedId(summary))
+            .overrideWith((ref) async => full),
+      ],
+    );
+    expect(container.read(chatBackOpensListProvider), isFalse);
+
+    final result = await container
+        .read(conversationSelectionProvider.notifier)
+        .select(summary);
+
+    expect(result.disposition, ConversationSelectionDisposition.committed);
+    expect(container.read(activeConversationProvider)?.id, 'older');
+    expect(container.read(chatBackOpensListProvider), isTrue);
+  });
+
+  test('reopening the chat on screen keeps its back behaviour', () async {
+    final active = _conversation(
+      'launch',
+      storage: ChatStorageKind.directLocal,
+      body: 'Launch body',
+    );
+    final container = await _createContainer(
+      activeConversation: active,
+      extraOverrides: [
+        loadConversationProvider(conversationScopedId(active))
+            .overrideWith((ref) async => active),
+      ],
+    );
+
+    final result = await container
+        .read(conversationSelectionProvider.notifier)
+        .select(active);
+
+    expect(result.disposition, ConversationSelectionDisposition.committed);
+    expect(container.read(chatBackOpensListProvider), isFalse);
+  });
 
   test(
     'transient OpenWebUI certification resumes pending selection and commits',

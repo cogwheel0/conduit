@@ -40,7 +40,9 @@ import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/features/chat/widgets/model_selector_sheet.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
+import 'package:conduit/features/navigation/utils/chat_list_back.dart';
 import 'package:conduit/features/navigation/views/folder_page.dart';
+import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit/features/navigation/widgets/folder_project_settings_sheet.dart';
@@ -57,7 +59,7 @@ import 'package:drift/native.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
-import 'package:flutter/services.dart' show MethodChannel;
+import 'package:flutter/services.dart' show MethodChannel, SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -510,6 +512,77 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
+  });
+
+  group('back on a folder page (#852)', () {
+    Future<
+      ({GlobalKey<ResponsiveDrawerLayoutState> chatList, List<String> exits})
+    >
+    mountUnderList(WidgetTester tester, {required bool android}) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      debugChatBackIsAndroidOverride = android;
+      addTearDown(() => debugChatBackIsAndroidOverride = null);
+      final exits = <String>[];
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'SystemNavigator.pop') exits.add('exit');
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+
+      final container = _createContainer(
+        folders: const [Folder(id: 'work', name: 'Work')],
+      );
+      addTearDown(container.dispose);
+      final chatList = GlobalKey<ResponsiveDrawerLayoutState>();
+      await tester.pumpWidget(
+        _buildHarnessFromContainer(container, chatList: chatList),
+      );
+      await tester.pumpAndSettle();
+      return (chatList: chatList, exits: exits);
+    }
+
+    Future<void> back(WidgetTester tester) async {
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+    }
+
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    testWidgets('opens the chat list, then asks to close', (tester) async {
+      final rig = await mountUnderList(tester, android: true);
+
+      await back(tester);
+      expect(rig.chatList.currentState!.isOpen, isTrue);
+      expect(find.text(l10n.endYourSession), findsNothing);
+
+      await back(tester);
+      expect(find.text(l10n.endYourSession), findsOneWidget);
+      expect(rig.chatList.currentState!.isOpen, isTrue);
+      await tester.tap(find.text(l10n.confirm));
+      await tester.pumpAndSettle();
+      expect(rig.exits, ['exit']);
+    });
+
+    testWidgets('is left alone without a system back button', (tester) async {
+      final rig = await mountUnderList(tester, android: false);
+
+      await back(tester);
+
+      expect(rig.chatList.currentState!.isOpen, isFalse);
+      expect(find.text(l10n.endYourSession), findsNothing);
+    });
   });
 
   testWidgets('opening a folder page primes a fresh folder draft', (
@@ -2455,24 +2528,41 @@ ProviderContainer _createContainer({
 Widget _buildHarnessFromContainer(
   ProviderContainer container, {
   Listenable? routerRefreshListenable,
+  // Puts the folder under the chat list, as the app's shell route does.
+  GlobalKey<ResponsiveDrawerLayoutState>? chatList,
 }) {
+  final shellRoutes = <RouteBase>[
+    GoRoute(
+      path: '/folder/:id',
+      name: RouteNames.folder,
+      builder: (context, state) {
+        final folderId = state.pathParameters['id']!;
+        return FolderPage(folderId: folderId);
+      },
+    ),
+    GoRoute(
+      path: '/chat',
+      name: RouteNames.chat,
+      builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
+    ),
+  ];
   final router = GoRouter(
     initialLocation: '/folder/work',
     refreshListenable: routerRefreshListenable,
     routes: [
-      GoRoute(
-        path: '/folder/:id',
-        name: RouteNames.folder,
-        builder: (context, state) {
-          final folderId = state.pathParameters['id']!;
-          return FolderPage(folderId: folderId);
-        },
-      ),
-      GoRoute(
-        path: '/chat',
-        name: RouteNames.chat,
-        builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
-      ),
+      if (chatList == null)
+        ...shellRoutes
+      else
+        ShellRoute(
+          builder: (context, state, child) => ResponsiveDrawerLayout(
+            key: chatList,
+            maxFraction: 1.0,
+            edgeFraction: 1.0,
+            drawer: const Text('Chat list'),
+            child: child,
+          ),
+          routes: shellRoutes,
+        ),
       GoRoute(
         path: '/elsewhere',
         builder: (context, state) => const Scaffold(body: SizedBox.shrink()),

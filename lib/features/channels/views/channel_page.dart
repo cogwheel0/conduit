@@ -38,6 +38,7 @@ import '../../../shared/widgets/themed_sheets.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
+import '../../navigation/utils/chat_list_back.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_app_replies.dart';
 import 'package:conduit_core/features/channels/providers/channel_members_providers.dart';
@@ -1247,7 +1248,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       _scheduleChannelReloadForOwnerChange();
     }
     final theme = context.conduitTheme;
-    return _buildScaffold(context, theme);
+    return ChatListBackScope(child: _buildScaffold(context, theme));
   }
 
   // Equal side insets keep the icon and name centered in the title pill.

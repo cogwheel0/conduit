@@ -66,6 +66,8 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../../navigation/providers/chat_back_provider.dart';
+import '../../navigation/utils/chat_list_back.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -366,35 +368,6 @@ List<String>? chatLocalFilePickerExtensions(
   desktopHermes: desktopHermes,
   hermesResponsesFiles: hermesResponsesFiles,
 );
-
-@visibleForTesting
-Future<void> handleChatBackNavigation({
-  required bool hasInputFocus,
-  required VoidCallback dismissInputFocus,
-  required bool Function() canNavigateBack,
-  required VoidCallback navigateBack,
-  required Future<bool> Function() confirmExit,
-  required bool Function() isMounted,
-  required bool isAndroid,
-  required VoidCallback exitApplication,
-}) async {
-  if (hasInputFocus) {
-    dismissInputFocus();
-    return;
-  }
-
-  if (!isMounted()) return;
-  if (canNavigateBack()) {
-    navigateBack();
-    return;
-  }
-
-  final shouldExit = await confirmExit();
-  if (!shouldExit || !isMounted()) return;
-  if (isAndroid) {
-    exitApplication();
-  }
-}
 
 /// Refreshes only an unchanged OpenWebUI-owned active conversation.
 ///
@@ -4061,25 +4034,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
         // First, if any input has focus, clear focus and consume back press.
         // Also covers native platform inputs which don't participate in
-        // Flutter's focus tree (composerHasFocusProvider tracks them).
+        // Flutter's focus tree (composerHasFocusProvider tracks them). The
+        // scope left holding focus once an input clears is not an input:
+        // counting it swallowed back once per enclosing scope, then for good.
         final hasNativeFocus = ref.read(composerHasFocusProvider);
         final currentFocus = FocusManager.instance.primaryFocus;
         await handleChatBackNavigation(
           hasInputFocus:
-              hasNativeFocus || (currentFocus != null && currentFocus.hasFocus),
+              hasNativeFocus ||
+              (currentFocus != null &&
+                  currentFocus is! FocusScopeNode &&
+                  currentFocus.hasFocus),
           dismissInputFocus: _dismissComposerFocus,
           canNavigateBack: () => Navigator.of(context).canPop(),
           navigateBack: () => Navigator.of(context).pop(),
-          confirmExit: () => ThemedDialogs.confirm(
-            context,
-            title: l10n.appTitle,
-            message: l10n.endYourSession,
-            confirmText: l10n.confirm,
-            cancelText: l10n.cancel,
-            isDestructive: Platform.isAndroid,
-          ),
+          openChatList: () =>
+              ref.read(chatBackOpensListProvider) &&
+              openChatListForBack(context),
+          confirmExit: () => confirmAppExit(context),
           isMounted: () => context.mounted,
-          isAndroid: Platform.isAndroid,
+          isAndroid: chatBackIsAndroid,
           exitApplication: SystemNavigator.pop,
         );
       },

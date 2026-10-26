@@ -10,6 +10,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 
 import '../../../core/providers/app_startup_providers.dart';
 
+import 'chat_back_provider.dart';
+
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -529,6 +531,7 @@ class ConversationSelection extends _$ConversationSelection {
         ? full.copyWith(lastReadAt: selectedReadAt)
         : full;
     ref.read(pendingFolderIdProvider.notifier).clear();
+    ref.read(chatBackOpensListProvider.notifier).switchTo(selected);
     ref.read(activeConversationProvider.notifier).set(selected);
   }
 
