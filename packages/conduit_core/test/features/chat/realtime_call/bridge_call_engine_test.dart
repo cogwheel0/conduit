@@ -413,9 +413,9 @@ void main() {
     say('item-1', 'Tell me a story');
     await _settle();
     replyStarts('resp-1', {'input_item_id': 'item-1'});
-    // Two more segments are heard during the reply, and the second is
-    // transcribed first.
-    for (final itemId in ['item-2', 'item-3']) {
+    // Three more segments are heard during the reply, and the third is
+    // transcribed before the second.
+    for (final itemId in ['item-2', 'item-3', 'item-4']) {
       transport.receive({
         'type': 'input_audio_buffer.speech_started',
         'item_id': itemId,
@@ -425,26 +425,27 @@ void main() {
         'item_id': itemId,
       });
     }
-    transport.receive({
-      'type': 'conversation.item.input_audio_transcription.completed',
-      'item_id': 'item-3',
-      'transcript': 'about a dragon.',
-    });
-    transport.receive({
-      'type': 'conversation.item.input_audio_transcription.completed',
-      'item_id': 'item-2',
-      'transcript': 'A short one',
-    });
+    for (final (itemId, transcript) in [
+      ('item-2', 'A short one'),
+      ('item-4', 'and a knight.'),
+      ('item-3', 'about a dragon'),
+    ]) {
+      transport.receive({
+        'type': 'conversation.item.input_audio_transcription.completed',
+        'item_id': itemId,
+        'transcript': transcript,
+      });
+    }
     await replyEnds('resp-1');
 
     check(transport.sent.last)
-        .deepEquals({'type': 'bridge.respond', 'item_id': 'item-2'});
-    replyStarts('resp-2', {'input_item_id': 'item-2'});
+        .deepEquals({'type': 'bridge.respond', 'item_id': 'item-3'});
+    replyStarts('resp-2', {'input_item_id': 'item-3'});
     speaks('resp-2', 'speech-2', 'Once upon a time.');
     await replyEnds('resp-2');
 
     check(host.exchanges.single.userText)
-        .equals('A short one about a dragon.');
+        .equals('A short one about a dragon and a knight.');
   });
 
   test(

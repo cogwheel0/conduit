@@ -250,14 +250,12 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       // two is answered once. The words they held are saved with this one,
       // in the order they were said.
       final input = _inputs[command['item_id']];
-      final said = [
-        for (final queued in _commands) ?_inputs[queued['item_id']],
-      ];
-      if (input != null && said.isNotEmpty) {
-        said
-          ..add(input)
-          ..sort((a, b) => a.spokenAt.compareTo(b.spokenAt));
-        input.text = [for (final words in said) words.text].join(' ');
+      if (input != null) {
+        for (final queued in _commands) {
+          if (_inputs[queued['item_id']] case final earlier?) {
+            input.takeOver(earlier);
+          }
+        }
       }
       // Answering the user comes before speaking statuses and results.
       _commands
@@ -924,16 +922,27 @@ final class _Response {
 
 /// The user's transcribed words.
 final class _Input {
-  _Input(this.itemId, this.text, this.spokenAt);
+  _Input(this.itemId, String text, int spokenAt)
+    : _segments = [(spokenAt: spokenAt, text: text)];
 
   final String itemId;
 
-  /// Orders inputs as they were said; see [BridgeCallEngine._spokenAt].
-  final int spokenAt;
+  /// Each segment's words with when it began (see
+  /// [BridgeCallEngine._spokenAt]), in that order: this input's own, and
+  /// those of earlier inputs the reply to this one also answers. They stay
+  /// apart so that segments taken on later still fall into place.
+  final List<({int spokenAt, String text})> _segments;
 
-  /// What was said, with the words of earlier inputs a reply to this one
-  /// replaced.
-  String text;
+  /// What was said, in the order it was said.
+  String get text => [for (final segment in _segments) segment.text].join(' ');
+
+  /// Takes on the words of [earlier], which is not answered on its own: the
+  /// reply to this input answers them too.
+  void takeOver(_Input earlier) {
+    _segments
+      ..addAll(earlier._segments)
+      ..sort((a, b) => a.spokenAt.compareTo(b.spokenAt));
+  }
 
   /// Saved into the chat, or handed to it as a turn.
   var persisted = false;
