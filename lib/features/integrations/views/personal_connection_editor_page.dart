@@ -12,8 +12,10 @@ import 'package:conduit_core/features/integrations/personal_connection_drafts.da
 import 'package:conduit_core/features/integrations/personal_connection_edits.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import '../../../core/services/haptic_service.dart';
+import '../../../core/utils/account_display.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -595,7 +597,10 @@ class _PersonalConnectionEditorPageState
     final readOnly = _readOnly;
     final storedOn = l10n.personalConnectionsStoredOn(
       owner.accountName,
-      owner.api.serverConfig.name,
+      configServerDisplayName(
+        owner.api.serverConfig,
+        ref.watch(openWebUiAccountsProvider).value,
+      ),
     );
     return DiscardChangesScope(
       dirty: _dirty,

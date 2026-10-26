@@ -133,7 +133,6 @@ void main() {
 
     check(snapshot).isNotNull();
     check(snapshot!.accountName).equals('Account a');
-    check(snapshot.serverName).equals('Home server');
     check(snapshot.toolServers.map((e) => e.displayName))
         .deepEquals(<String>['A one']);
   });

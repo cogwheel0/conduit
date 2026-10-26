@@ -5,10 +5,13 @@ import 'package:conduit/features/integrations/views/personal_connections_page.da
 import 'package:conduit/shared/widgets/connection_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -126,10 +129,15 @@ void main() {
 
   /// Opens [home] above a root route, the way the router pushes these pages,
   /// so a page that pops itself after saving has somewhere to return to.
+  ///
+  /// The account list files [api]'s account under a server named as its
+  /// config is and reached at [addresses], by default only the one the
+  /// config is on.
   Future<ProviderContainer> pumpPage(
     WidgetTester tester,
     Widget home, {
     bool advanced = true,
+    List<String>? addresses,
     PersonalConnectionsAccess access =
         const PersonalConnectionsAccess.allowed(),
   }) async {
@@ -147,6 +155,29 @@ void main() {
             AppSettings(advancedFeaturesEnabled: advanced),
           ),
           personalConnectionsAccessProvider.overrideWithValue(access),
+          openWebUiAccountsProvider.overrideWith(
+            (ref) async => [
+              OpenWebUiAccountEntry(
+                account: OpenWebUiAccount(
+                  id: api.serverConfig.id,
+                  serverId: 'saved',
+                  isActive: true,
+                ),
+                server: OpenWebUiServer(
+                  id: 'saved',
+                  name: api.serverConfig.name,
+                  endpoints: [
+                    for (final (index, url)
+                        in (addresses ?? [api.serverConfig.url]).indexed)
+                      OpenWebUiEndpoint(id: 'route-$index', url: url),
+                  ],
+                ),
+                summary: const OpenWebUiAccountSummary(),
+                isActive: true,
+                hasSession: true,
+              ),
+            ],
+          ),
           personalConnectionsSessionProvider.overrideWithValue(
             access.available
                 ? PersonalConnectionsSession(
@@ -244,6 +275,61 @@ void main() {
       expect(find.text('Alpha tools'), findsOneWidget);
       expect(find.text('Build box'), findsOneWidget);
     });
+
+    // Connecting names a server after the host it reached. With its address
+    // edited to another, the list and the form still named it after the host
+    // it had left.
+    for (final (what, page) in [
+      ('the list', const PersonalConnectionsPage()),
+      (
+        'the form',
+        const PersonalConnectionEditorPage(
+          kind: PersonalConnectionKind.toolServer,
+          identity: personalConnectionNewRouteValue,
+        ),
+      ),
+    ]) {
+      testWidgets('$what names a server whose address was edited by the new '
+          'host', (tester) async {
+        api = ApiService(
+          serverConfig: const ServerConfig(
+            id: 'server-1',
+            name: 'old.example',
+            url: 'https://owui.example',
+          ),
+          workerManager: WorkerManager(),
+          authToken: 'token-a',
+        );
+        api.dio.httpClientAdapter = server;
+
+        await pumpPage(tester, page);
+
+        expect(find.text('Saved to Alex on owui.example'), findsOneWidget);
+        expect(find.textContaining('old.example'), findsNothing);
+      });
+
+      testWidgets('$what names a server reached at another of its addresses '
+          'as the account list does', (tester) async {
+        api = ApiService(
+          serverConfig: const ServerConfig(
+            id: 'server-1',
+            name: 'lan.example',
+            url: 'https://owui.example',
+          ),
+          workerManager: WorkerManager(),
+          authToken: 'token-a',
+        );
+        api.dio.httpClientAdapter = server;
+
+        await pumpPage(
+          tester,
+          page,
+          addresses: ['http://lan.example', 'https://owui.example'],
+        );
+
+        expect(find.text('Saved to Alex on lan.example'), findsOneWidget);
+      });
+    }
 
     testWidgets('switching a tool server off changes only its enable flag', (
       tester,
