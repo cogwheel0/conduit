@@ -94,11 +94,17 @@ void main() {
       await tester.pumpAndSettle();
       check(tester.takeException()).isNull();
       check(find.text('Copy').evaluate()).isNotEmpty();
+      // Hit testing ignores paint spilling past the capped preview, so check
+      // that the clip itself keeps the message off the actions.
+      final previewClip = tester.getRect(
+        find.ancestor(of: bubble.last, matching: find.byType(ClipRect)).first,
+      );
       for (final label in ['Edit', 'Copy', 'Delete']) {
         check(find.text(label).hitTestable().evaluate()).isNotEmpty();
         final actionRect = tester.getRect(find.text(label));
         check(actionRect.top).isGreaterOrEqual(44);
         check(actionRect.bottom).isLessOrEqual(scenario.size.height - 34);
+        check(previewClip.overlaps(actionRect)).isFalse();
       }
       await tester.tap(find.text('Copy'));
       await tester.pumpAndSettle();
