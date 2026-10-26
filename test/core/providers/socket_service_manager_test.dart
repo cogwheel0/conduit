@@ -285,7 +285,7 @@ void main() {
       final container = harness.createContainer(
         handoffCoordinator: ChatHandoffCoordinator(
           claimActiveChat: (chatId) => chatId == 'chat-1' ? () => true : null,
-          findModel: (modelId) => openWebUiHandoffModel(const [
+          findModel: (modelId) async => openWebUiHandoffModel(const [
             Model(id: 'coder', name: 'Coder'),
           ], modelId),
           confirm: (modelName) async {

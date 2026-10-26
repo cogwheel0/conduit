@@ -166,7 +166,7 @@ Future<ProviderContainer> _pumpChat(
                 ref.read(activeConversationProvider)?.id == chatId
                 ? () => true
                 : null,
-            findModel: (modelId) =>
+            findModel: (modelId) async =>
                 openWebUiHandoffModel(const [_general, _coder], modelId),
             confirm: (modelName) =>
                 confirmChatHandoff(const FlutterUiRequests(), modelName),

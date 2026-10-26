@@ -8,7 +8,9 @@ import 'package:conduit_core/features/direct_connections/direct_connections.dart
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/models/chat_handoff.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 
 /// Asks the user whether to carry on in a new chat with the model named
 /// [modelName]. Resolves false when declined or when nobody can be asked.
@@ -34,14 +36,25 @@ final chatHandoffCoordinatorProvider = Provider<ChatHandoffCoordinator>(
     claimActiveChat: (chatId) {
       // Captured once, so a check made later also fails for another account.
       final owner = captureOpenWebUiCompletionOwner(ref, chatId: chatId);
+      // The chat stays open behind a note or settings; it has to be in front.
       bool stillActive() =>
+          ref.read(routeNavigatorProvider).currentRoute == Routes.chat &&
           activeOpenWebUiChatIdForMutation(ref, owner) != null;
       return stillActive() ? stillActive : null;
     },
-    findModel: (modelId) => openWebUiHandoffModel(
-      ref.read(modelsProvider).value ?? const <Model>[],
-      modelId,
-    ),
+    findModel: (modelId) async {
+      final listed = ref.read(modelsProvider).value ?? const <Model>[];
+      final model = openWebUiHandoffModel(listed, modelId);
+      final api = ref.read(apiServiceProvider);
+      if (model != null || api == null) return model;
+      // The picker's list leaves hidden models out, though a chat may still
+      // use one, as the web client's `/?models=` link may.
+      final all = await api.getModels(
+        includeHidden: true,
+        authSnapshot: api.captureAuthSnapshot(),
+      );
+      return openWebUiHandoffModel(all, modelId);
+    },
     confirm: ref.watch(chatHandoffPromptProvider),
     open: ref.watch(chatHandoffOpenerProvider),
   ),
@@ -80,7 +93,7 @@ typedef ChatHandoffChatClaim = bool Function()? Function(String chatId);
 class ChatHandoffCoordinator {
   ChatHandoffCoordinator({
     required ChatHandoffChatClaim claimActiveChat,
-    required Model? Function(String modelId) findModel,
+    required Future<Model?> Function(String modelId) findModel,
     required ChatHandoffPrompt? confirm,
     required void Function(Model model, String prompt) open,
   }) : _claimActiveChat = claimActiveChat,
@@ -92,7 +105,7 @@ class ChatHandoffCoordinator {
   static const int maxRememberedHandoffs = 32;
 
   final ChatHandoffChatClaim _claimActiveChat;
-  final Model? Function(String modelId) _findModel;
+  final Future<Model?> Function(String modelId) _findModel;
   final ChatHandoffPrompt? _confirm;
   final void Function(Model model, String prompt) _open;
   final LinkedHashSet<String> _seen = LinkedHashSet<String>();
@@ -124,18 +137,20 @@ class ChatHandoffCoordinator {
     _seen.add(key);
     if (_seen.length > maxRememberedHandoffs) _seen.remove(_seen.first);
 
-    final model = _findModel(request.modelId);
-    if (model == null) return ChatHandoffRefusal.modelUnavailable.reply;
     _asking = true;
     try {
+      final model = await _findModel(request.modelId);
+      if (model == null) return ChatHandoffRefusal.modelUnavailable.reply;
+      // Finding it may have asked the server, and the user decides in their
+      // own time: either way they may have left the chat, or the account.
+      if (!stillActive()) return ChatHandoffRefusal.notActiveChat.reply;
       final name = model.name.isEmpty ? model.id : model.name;
       if (!await confirm(name)) return ChatHandoffRefusal.declined.reply;
+      if (!stillActive()) return ChatHandoffRefusal.notActiveChat.reply;
+      _open(model, request.prompt);
+      return chatHandoffHandledReply;
     } finally {
       _asking = false;
     }
-    // The user may have left the chat, or the account, while deciding.
-    if (!stillActive()) return ChatHandoffRefusal.notActiveChat.reply;
-    _open(model, request.prompt);
-    return chatHandoffHandledReply;
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -12,6 +13,9 @@ import 'package:conduit_core/models/chat_handoff.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/navigation/routes.dart';
+import 'package:conduit_core/ports/route_navigator_port.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -33,13 +37,17 @@ class _Rig {
   final asked = <String>[];
   final opened = <(Model, String)>[];
   Future<bool> Function() answer = () async => true;
+  Future<void> Function() lookUp = () async {};
 
   ChatHandoffCoordinator coordinator({bool canAsk = true}) =>
       ChatHandoffCoordinator(
         claimActiveChat: (chatId) => chatId == activeChatId
             ? () => chatId == activeChatId
             : null,
-        findModel: (modelId) => openWebUiHandoffModel(models, modelId),
+        findModel: (modelId) async {
+          await lookUp();
+          return openWebUiHandoffModel(models, modelId);
+        },
         confirm: canAsk
             ? (modelName) {
                 asked.add(modelName);
@@ -93,6 +101,13 @@ final class _Models extends Models {
   Future<List<Model>> build() async => const [_general, _coder];
 }
 
+const _specialist = Model(
+  id: 'specialist',
+  name: 'Specialist',
+  metadata: {'hidden': true},
+);
+
+/// The server: [_specialist] is listed only when hidden models are asked for.
 final class _Api extends ApiService {
   _Api()
     : super(
@@ -103,6 +118,25 @@ final class _Api extends ApiService {
         ),
         workerManager: WorkerManager(),
       );
+
+  final listings = <bool>[];
+
+  @override
+  Future<List<Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    listings.add(includeHidden);
+    return [_general, _coder, if (includeHidden) _specialist];
+  }
+}
+
+final class _Navigator implements RouteNavigatorPort {
+  @override
+  String? currentRoute = Routes.chat;
+
+  @override
+  void go(String location) => currentRoute = location;
 }
 
 void main() {
@@ -270,6 +304,27 @@ void main() {
       check(rig.opened).isEmpty();
     });
 
+    test('is dropped when the user leaves while the model is found', () async {
+      final rig = _Rig();
+      final found = Completer<void>();
+      rig.lookUp = () => found.future;
+      final coordinator = rig.coordinator();
+
+      final reply = _handoff(coordinator);
+      await Future<void>.delayed(Duration.zero);
+      check(
+        await _handoff(coordinator, messageId: 'message-2'),
+      ).deepEquals({'handled': false, 'reason': 'busy'});
+      rig.activeChatId = 'chat-2';
+      found.complete();
+
+      check(
+        await reply,
+      ).deepEquals({'handled': false, 'reason': 'not_active_chat'});
+      check(rig.asked).isEmpty();
+      check(rig.opened).isEmpty();
+    });
+
     test('is acted on once when it arrives twice', () async {
       final rig = _Rig();
       final coordinator = rig.coordinator();
@@ -372,18 +427,24 @@ void main() {
   });
 
   group('the app coordinator', () {
+    late _Api api;
+    late _Navigator navigator;
+
     Future<(ProviderContainer, List<String>)> appWith(
       Conversation active, {
       void Function(ProviderContainer container)? whileAsking,
     }) async {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
+      api = _Api();
+      navigator = _Navigator();
       final asked = <String>[];
       late final ProviderContainer container;
       container = ProviderContainer(
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
-          apiServiceProvider.overrideWithValue(_Api()),
+          apiServiceProvider.overrideWithValue(api),
+          routeNavigatorProvider.overrideWithValue(navigator),
           socketServiceProvider.overrideWithValue(null),
           openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
           activeConversationProvider.overrideWith(() => _ActiveChat(active)),
@@ -481,6 +542,82 @@ void main() {
       check(container.read(activeConversationProvider)?.id).equals('chat-2');
       check(container.read(selectedModelProvider)).equals(_general);
       check(container.read(prefilledInputTextProvider)).isNull();
+    });
+
+    test('finds a hidden model on the server, and only asks for it', () async {
+      Future<(ProviderContainer, List<String>, Map<String, dynamic>)> handoff(
+        String modelId,
+      ) async {
+        final (container, asked) = await appWith(
+          withChatStorageProvenance(chat('chat-1'), ChatStorageKind.openWebUi),
+        );
+        final reply = await container
+            .read(chatHandoffCoordinatorProvider)
+            .handle(
+              chatId: 'chat-1',
+              messageId: 'message-1',
+              data: {'model_id': modelId},
+            );
+        return (container, asked, reply);
+      }
+
+      final (hidden, askedHidden, hiddenReply) = await handoff('specialist');
+      check(hiddenReply).deepEquals({'handled': true});
+      check(askedHidden).deepEquals(['Specialist']);
+      check(hidden.read(selectedModelProvider)).equals(_specialist);
+      check(api.listings).deepEquals([true]);
+
+      final (_, askedMissing, missingReply) = await handoff('missing');
+      check(
+        missingReply,
+      ).deepEquals({'handled': false, 'reason': 'model_unavailable'});
+      check(askedMissing).isEmpty();
+      check(api.listings).deepEquals([true]);
+
+      // A model the picker lists needs no request.
+      final (_, _, listedReply) = await handoff('coder');
+      check(listedReply).deepEquals({'handled': true});
+      check(api.listings).isEmpty();
+    });
+
+    test('ignores one while the chat is not on screen', () async {
+      final (container, asked) = await appWith(
+        withChatStorageProvenance(chat('chat-1'), ChatStorageKind.openWebUi),
+      );
+      navigator.currentRoute = Routes.notes;
+      final reply = await container
+          .read(chatHandoffCoordinatorProvider)
+          .handle(
+            chatId: 'chat-1',
+            messageId: 'message-1',
+            data: const {'model_id': 'coder'},
+          );
+
+      check(
+        reply,
+      ).deepEquals({'handled': false, 'reason': 'not_active_chat'});
+      check(asked).isEmpty();
+      check(container.read(selectedModelProvider)).equals(_general);
+    });
+
+    test('drops one whose chat left the screen while deciding', () async {
+      final (container, asked) = await appWith(
+        withChatStorageProvenance(chat('chat-1'), ChatStorageKind.openWebUi),
+        whileAsking: (_) => navigator.currentRoute = Routes.notes,
+      );
+      final reply = await container
+          .read(chatHandoffCoordinatorProvider)
+          .handle(
+            chatId: 'chat-1',
+            messageId: 'message-1',
+            data: const {'model_id': 'coder'},
+          );
+
+      check(
+        reply,
+      ).deepEquals({'handled': false, 'reason': 'not_active_chat'});
+      check(asked).length.equals(1);
+      check(container.read(selectedModelProvider)).equals(_general);
     });
   });
 }

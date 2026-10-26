@@ -43,15 +43,17 @@ reply = await __event_call__({
 
 ### What Conduit does
 
-1. Ignores the event unless it is for the chat open in Conduit. Open WebUI
-   adds the `chat_id` of the request your function is running for.
+1. Ignores the event unless it is for the chat open on screen in Conduit, not
+   one left open behind a note or settings. Open WebUI adds the `chat_id` of
+   the request your function is running for.
 2. Looks for `model_id` among the user's Open WebUI models. Hidden models
    count, as in the web client's `/?models=` link. Models that live only on the
    device, such as Direct connections and Hermes, never match.
 3. Asks the user with a native dialog that names the model, for example
    "Switch to Code Assistant?", with **Start new chat** and **Stay here**.
-4. If they agree, opens a new chat with that model selected and puts `prompt`
-   in the composer.
+4. If they agree, and are still in that chat, opens a new chat with that
+   model selected and puts `prompt` in the composer. Attachments the user had
+   picked in the old composer stay behind.
 
 Conduit **never**:
 
@@ -69,7 +71,7 @@ Only an `__event_call__` gets a reply:
 | `{"handled": true}` | The user agreed and the new chat is open. |
 | `{"handled": false, "reason": "declined"}` | The user chose to stay. |
 | `{"handled": false, "reason": "model_unavailable"}` | The user has no Open WebUI model with that id. |
-| `{"handled": false, "reason": "not_active_chat"}` | The event was for a chat that isn't open in Conduit. |
+| `{"handled": false, "reason": "not_active_chat"}` | The event was for a chat that isn't on screen in Conduit, or the user left it before agreeing. |
 | `{"handled": false, "reason": "duplicate"}` | The same handoff for the same message already arrived. |
 | `{"handled": false, "reason": "busy"}` | The user is still answering another handoff. |
 | `{"handled": false, "reason": "invalid"}` | `model_id` is missing or not a string, or `prompt` is not a string. |
