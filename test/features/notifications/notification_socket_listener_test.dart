@@ -303,6 +303,18 @@ void main() {
       container.read(notificationSocketListenerProvider);
     });
 
+    void attachRouterAt(String location) {
+      final router = GoRouter(
+        initialLocation: location,
+        routes: [
+          GoRoute(path: '/chat', builder: (_, _) => const SizedBox()),
+          GoRoute(path: '/channel/:id', builder: (_, _) => const SizedBox()),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+    }
+
     Future<void> tapChat(bool Function() done) async {
       taps.tap(
         const NotificationTap(
@@ -316,24 +328,18 @@ void main() {
     }
 
     test('makes back open the chat list', () async {
+      attachRouterAt('/channel/general');
       check(container.read(chatBackOpensListProvider)).isFalse();
 
       await tapChat(() => container.read(activeConversationProvider) != null);
 
+      check(NavigationService.currentRoute).equals('/chat');
       check(container.read(activeConversationProvider)?.id).equals('chat-1');
       check(container.read(chatBackOpensListProvider)).isTrue();
     });
 
     test('for the active chat, tapped on a channel, does too', () async {
-      final router = GoRouter(
-        initialLocation: '/channel/general',
-        routes: [
-          GoRoute(path: '/chat', builder: (_, _) => const SizedBox()),
-          GoRoute(path: '/channel/:id', builder: (_, _) => const SizedBox()),
-        ],
-      );
-      addTearDown(router.dispose);
-      NavigationService.attachRouter(router);
+      attachRouterAt('/channel/general');
       final active = await loadLocalConversation(container, 'chat-1');
       container.read(activeConversationProvider.notifier).set(active);
 
