@@ -1105,6 +1105,8 @@ ProviderContainer _container({
   Model model = const Model(id: 'model-1', name: 'Model 1'),
   String? terminalId,
   bool webSearchAvailable = false,
+  PersonalConnectionsAccess personalConnections =
+      const PersonalConnectionsAccess.allowed(),
 }) {
   final container = ProviderContainer(
     overrides: [
@@ -1124,6 +1126,7 @@ ProviderContainer _container({
       selectedFilterIdsProvider.overrideWithValue(const <String>[]),
       selectedTerminalIdProvider.overrideWithValue(terminalId),
       syncEngineProvider.overrideWith(() => syncEngine),
+      personalConnectionsAccessProvider.overrideWithValue(personalConnections),
     ],
   );
   container.read(chatMessagesProvider.notifier).setMessages(messages);
@@ -1175,6 +1178,8 @@ void main() {
       List<String> toolIds = const <String>[],
       SocketService? socket,
       void Function()? onSend,
+      PersonalConnectionsAccess personalConnections =
+          const PersonalConnectionsAccess.allowed(),
     }) async {
       const chatId = 'personal-connections-chat';
       const assistantId = 'personal-connections-assistant';
@@ -1193,6 +1198,7 @@ void main() {
         api: api,
         syncEngine: _PersistingSyncEngine(db, api),
         socket: socket,
+        personalConnections: personalConnections,
       );
       addTearDown(container.dispose);
       final runnerProvider = Provider<RequestCompletionRunner>(
@@ -1241,6 +1247,72 @@ void main() {
         check(alpha.authorizations).isEmpty();
       },
     );
+
+    test('nothing is sent or read while the server keeps them off', () async {
+      // Open WebUI 0.12.4 ignores personal servers while Direct Integrations
+      // is off, and Conduit would not run their tools.
+      final servers = <dynamic>[toolServer('alpha', alpha, key: 'alpha-key')];
+      final api = await runCompletion(
+        settings: <String, dynamic>{
+          'ui': <String, dynamic>{
+            'toolServers': servers,
+            'terminalServers': <dynamic>[
+              <String, dynamic>{
+                'url': beta.url,
+                'key': 'terminal-key',
+                'path': '/openapi.json',
+                'auth_type': 'bearer',
+                'enabled': true,
+                'config': <String, dynamic>{},
+              },
+            ],
+          },
+        },
+        toolIds: <String>[personalToolServerSelectionId(servers, 0)],
+        personalConnections: const PersonalConnectionsAccess.blocked(
+          PersonalConnectionsBlock.serverDisabled,
+        ),
+      );
+
+      check(api.submittedToolServers).isNull();
+      check(alpha.authorizations).isEmpty();
+      check(beta.authorizations).isEmpty();
+    });
+
+    test('a typed message leaves them out and keeps the selection', () async {
+      const chatId = 'personal-connections-off-chat';
+      const assistantId = 'personal-connections-off-assistant';
+      await _seedChat(db, chatId, assistantId: assistantId);
+      final servers = <dynamic>[toolServer('alpha', alpha, key: 'alpha-key')];
+      final api = _GatedCompletionApi(Completer<void>()..complete())
+        ..settings = <String, dynamic>{
+          'ui': <String, dynamic>{'toolServers': servers},
+        };
+      final messages = <ChatMessage>[
+        _user('personal-connections-off-user', 'use my tools'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+        personalConnections: const PersonalConnectionsAccess.blocked(
+          PersonalConnectionsBlock.serverDisabled,
+        ),
+      );
+      addTearDown(container.dispose);
+      final selection = <String>[personalToolServerSelectionId(servers, 0)];
+      container.read(selectedToolIdsProvider.notifier).set(selection);
+
+      await sendMessageWithContainer(container, 'hello', null, selection);
+
+      check(api.submittedToolServers).isNull();
+      check(alpha.authorizations).isEmpty();
+      // It applies again once the server offers personal connections.
+      check(container.read(selectedToolIdsProvider)).deepEquals(selection);
+    });
 
     test('a selection of a server that is gone sends no server', () async {
       final before = <dynamic>[
@@ -1944,6 +2016,9 @@ void main() {
         selectedFilterIdsProvider.overrideWithValue(const <String>[]),
         selectedTerminalIdProvider.overrideWithValue(null),
         syncEngineProvider.overrideWith(() => syncEngineA),
+        personalConnectionsAccessProvider.overrideWithValue(
+          const PersonalConnectionsAccess.allowed(),
+        ),
       ]);
       final bSnapshot = _snapshot(bMessages);
       container

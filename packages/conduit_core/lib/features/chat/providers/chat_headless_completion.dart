@@ -155,6 +155,7 @@ Future<void> runQueuedCompletion(
       api: api,
       userSettings: userSettingsData,
       selectedToolIds: toolIds,
+      personalConnectionsAvailable: _personalConnectionsAvailable(ref),
       admitted: admittedToolServers,
     );
   } catch (_) {}
@@ -460,6 +461,7 @@ Future<void> runHeadlessCompletion(
       api: api,
       userSettings: userSettingsData,
       selectedToolIds: toolIds,
+      personalConnectionsAvailable: _personalConnectionsAvailable(ref),
       admitted: admittedToolServers,
     );
   } catch (_) {}

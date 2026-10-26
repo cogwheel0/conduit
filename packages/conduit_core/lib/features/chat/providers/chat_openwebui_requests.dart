@@ -500,13 +500,26 @@ void _clearUnresolvedPersonalToolSelections(
       .add(unresolvedIds.map(personalToolSelectionLabel));
 }
 
+/// Whether the account's personal tool servers and terminals may join a
+/// request: the same check that lets Conduit run their tools. Open WebUI
+/// 0.12.4 ignores them while Direct Integrations is off, as its web client
+/// no longer sends them then.
+bool _personalConnectionsAvailable(dynamic ref) {
+  final access = ref.read(personalConnectionsAccessProvider);
+  return access is PersonalConnectionsAccess && access.available;
+}
+
 Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({
   required dynamic api,
   required Map<String, dynamic>? userSettings,
   required List<String> selectedToolIds,
+  required bool personalConnectionsAvailable,
   void Function(List<String> unresolvedIds)? onUnresolvedSelections,
   List<PersonalToolAdmission>? admitted,
 }) async {
+  // Their specs are not fetched either: an unreachable server would only
+  // hold the request up.
+  if (!personalConnectionsAvailable) return null;
   final configuredToolServers = _extractConfiguredToolServers(userSettings);
   final unresolved = resolvePersonalToolSelections(
     configuredToolServers,
