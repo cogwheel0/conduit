@@ -7,6 +7,7 @@ import 'package:conduit/features/profile/views/chat_data_controls_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
@@ -15,6 +16,7 @@ import 'package:conduit_core/features/chat/services/chat_backup.dart'
     show kMaxChatImportBytes;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -256,8 +258,13 @@ void main() {
     driftRuntimeOptions.dontWarnAboutMultipleDatabases = previousWarning;
   });
 
+  /// Opens the page for an account on [server], which the account list
+  /// files under a server named as [server] is and reached at [addresses],
+  /// by default only the one [server] is on.
   Future<_Session> pumpPage(
     WidgetTester tester, {
+    ServerConfig server = _server,
+    List<String>? addresses,
     AppSettings settings = const AppSettings(advancedFeaturesEnabled: true),
     Map<String, dynamic> permissions = const {},
     String role = 'user',
@@ -273,7 +280,7 @@ void main() {
     final wire = _Wire();
     final files = _Files();
     final api = ApiService(
-      serverConfig: _server,
+      serverConfig: server,
       workerManager: WorkerManager(),
       authToken: 'token-a',
     );
@@ -289,6 +296,29 @@ void main() {
         ...openWebUiStorageOpenOverrides(database: db),
         appSettingsProvider.overrideWith(() => _Settings(settings)),
         apiServiceProvider.overrideWithValue(api),
+        openWebUiAccountsProvider.overrideWith(
+          (ref) async => [
+            OpenWebUiAccountEntry(
+              account: OpenWebUiAccount(
+                id: server.id,
+                serverId: 'saved',
+                isActive: true,
+              ),
+              server: OpenWebUiServer(
+                id: 'saved',
+                name: server.name,
+                endpoints: [
+                  for (final (index, url)
+                      in (addresses ?? [server.url]).indexed)
+                    OpenWebUiEndpoint(id: 'route-$index', url: url),
+                ],
+              ),
+              summary: const OpenWebUiAccountSummary(),
+              isActive: true,
+              hasSession: true,
+            ),
+          ],
+        ),
         currentUserProvider2.overrideWith((ref) => session.user),
         isAuthenticatedProvider2.overrideWithValue(true),
         reviewerModeProvider.overrideWithValue(false),
@@ -402,6 +432,53 @@ void main() {
       );
       expect(find.text('2 chats are only on this device'), findsOneWidget);
       expect(row('chat-data-controls-unsynced'), findsOneWidget);
+    });
+
+    // Connecting names a server after the host it reached. With its address
+    // edited to another, the page still named it after the host it had left,
+    // even when asking to delete every chat on it.
+    testWidgets('names a server whose address was edited by the new host', (
+      tester,
+    ) async {
+      await pumpPage(
+        tester,
+        server: _server.copyWith(
+          name: '100.64.0.3',
+          url: 'http://100.64.0.7:8080',
+        ),
+        seed: (db) => seedServerChat(db, 's1'),
+      );
+
+      expect(find.text('Chats of Ava on 100.64.0.7'), findsOneWidget);
+      expect(
+        find.text(
+          'Removes every chat of Ava from 100.64.0.7. '
+          'Chats only on this device are kept.',
+        ),
+        findsOneWidget,
+      );
+
+      await tapRow(tester, 'chat-data-delete-all');
+
+      expect(
+        find.textContaining('Delete all chats of Ava on 100.64.0.7?'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('100.64.0.3'), findsNothing);
+    });
+
+    testWidgets('names a server reached at another of its addresses as the '
+        'account list does', (tester) async {
+      await pumpPage(
+        tester,
+        server: _server.copyWith(
+          name: 'lan.example',
+          url: 'http://100.64.0.7:8080',
+        ),
+        addresses: ['http://lan.example', 'http://100.64.0.7:8080'],
+      );
+
+      expect(find.text('Chats of Ava on lan.example'), findsOneWidget);
     });
 
     testWidgets('puts the delete action in its own group naming its reach', (

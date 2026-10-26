@@ -131,7 +131,6 @@ class PersonalConnectionsSnapshot {
   const PersonalConnectionsSnapshot({
     required this.session,
     required this.serverId,
-    required this.serverName,
     required this.accountName,
     required this.toolServers,
     required this.terminals,
@@ -141,7 +140,6 @@ class PersonalConnectionsSnapshot {
   /// shows them keeps this as the owner of everything it later does.
   final PersonalConnectionsSession session;
   final String serverId;
-  final String serverName;
   final String accountName;
   final List<PersonalConnectionEntry> toolServers;
   final List<PersonalConnectionEntry> terminals;
@@ -186,7 +184,6 @@ PersonalConnectionsSnapshot _snapshot(
 ) => PersonalConnectionsSnapshot(
   session: session,
   serverId: session.api.serverConfig.id,
-  serverName: session.api.serverConfig.name,
   accountName: session.accountName,
   toolServers: _entries(
     PersonalConnectionKind.toolServer,

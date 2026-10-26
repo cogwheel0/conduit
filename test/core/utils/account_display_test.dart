@@ -1,6 +1,9 @@
 import 'package:checks/checks.dart';
 import 'package:conduit/core/utils/account_display.dart';
+import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// What a saved Open WebUI server is called wherever its accounts are listed.
@@ -50,5 +53,43 @@ void main() {
         .equals('Home Lab');
     check(serverDisplayName(server('Home', ['http://10.0.0.2:3000'])))
         .equals('Home');
+  });
+
+  group('the server an account config reaches', () {
+    ServerConfig config(String name, String url) =>
+        ServerConfig(id: 'account', name: name, url: url);
+    List<OpenWebUiAccountEntry> listing(OpenWebUiServer saved) => [
+      OpenWebUiAccountEntry(
+        account: OpenWebUiAccount(id: 'account', serverId: saved.id),
+        server: saved,
+        summary: const OpenWebUiAccountSummary(),
+        isActive: true,
+        hasSession: true,
+      ),
+    ];
+
+    // A config carries only the route in use. Whether the name connecting
+    // gave the server is still the host of one of its routes takes the rest.
+    test('is called what the account list calls its server', () {
+      final saved = server('lan.example', [
+        'http://lan.example',
+        'http://100.64.0.7:8080',
+      ]);
+      check(
+        configServerDisplayName(
+          config('lan.example', 'http://100.64.0.7:8080'),
+          listing(saved),
+        ),
+      ).equals('lan.example');
+    });
+
+    test('goes by the address it reaches until the account is listed', () {
+      final edited = config('100.64.0.3', 'http://100.64.0.7:8080');
+      check(configServerDisplayName(edited, null)).equals('100.64.0.7');
+      check(configServerDisplayName(edited, const [])).equals('100.64.0.7');
+      check(
+        configServerDisplayName(config('Home Lab', 'http://10.0.0.2'), null),
+      ).equals('Home Lab');
+    });
   });
 }

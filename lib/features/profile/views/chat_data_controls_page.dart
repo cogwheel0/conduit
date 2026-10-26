@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/core/utils/account_display.dart';
 import 'package:conduit/features/chat/services/chat_backup_files.dart';
 import 'package:conduit/shared/utils/ui_utils.dart';
 import 'package:conduit/shared/widgets/advanced_required_state.dart';
@@ -82,6 +83,13 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
 
   ChatDataControlsService _service(ChatDataControlsOwner owner) =>
       chatDataControlsServiceForOwner(_container, owner);
+
+  /// What the page calls [owner]'s server: what the account list calls it,
+  /// so an edited address is not named after the host it left.
+  String _serverName(ChatDataControlsOwner owner) => configServerDisplayName(
+    owner.api.serverConfig,
+    ref.read(openWebUiAccountsProvider).value,
+  );
 
   bool get _busy => _activity != _Activity.idle;
 
@@ -186,7 +194,7 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
           context,
           title: l10n.chatDataControlsExportConfirmTitle,
           message:
-              '${l10n.chatDataControlsExportConfirmMessage(owner.accountName, owner.serverName)}\n\n'
+              '${l10n.chatDataControlsExportConfirmMessage(owner.accountName, _serverName(owner))}\n\n'
               '${l10n.chatDataControlsUnsyncedNote}',
           confirmText: l10n.chatDataControlsExportAction,
         );
@@ -303,7 +311,7 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
       title: l10n.chatDataControlsImportConfirmTitle,
       message: l10n.chatDataControlsImportConfirmMessage(
         owner.accountName,
-        owner.serverName,
+        _serverName(owner),
         preview.chats,
         preview.messages,
       ),
@@ -389,7 +397,7 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
           _Bulk.unarchive => l10n.chatDataControlsUnarchiveAllMessage,
           _Bulk.unshare => l10n.chatDataControlsUnshareAllMessage,
           _Bulk.delete =>
-            '${l10n.chatDataControlsDeleteAllMessage(owner.accountName, owner.serverName)}'
+            '${l10n.chatDataControlsDeleteAllMessage(owner.accountName, _serverName(owner))}'
                 '${discard ? '\n\n${l10n.chatDataControlsDeleteUnsentMessage(scope.unsyncedEdits, scope.queuedResponses)}' : ''}',
         },
         // Each button names what it does; only deleting is destructive, since
@@ -459,6 +467,8 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
     ref.watch(apiServiceProvider);
     ref.watch(currentUserProvider2);
     ref.watch(openWebUiAuthSessionEpochProvider);
+    // And when the account list, which names the server, is read.
+    ref.watch(openWebUiAccountsProvider);
     final owner = _owner;
     if (!advanced) {
       return UtilityPageScaffold.settings(
@@ -515,7 +525,10 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
           child: Text(
-            l10n.chatDataControlsStoredOn(owner.accountName, owner.serverName),
+            l10n.chatDataControlsStoredOn(
+              owner.accountName,
+              _serverName(owner),
+            ),
             key: const Key('chat-data-controls-account'),
             style: AppTypography.bodyMediumStyle.copyWith(
               color: theme.textSecondary,
@@ -691,7 +704,7 @@ class _ChatDataControlsPageState extends ConsumerState<ChatDataControlsPage> {
             key: const Key('chat-data-delete-group'),
             footer: l10n.chatDataControlsDeleteFooter(
               owner.accountName,
-              owner.serverName,
+              _serverName(owner),
             ),
             children: [
               _actionRow(

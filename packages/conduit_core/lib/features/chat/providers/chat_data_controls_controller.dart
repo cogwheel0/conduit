@@ -79,7 +79,6 @@ final class ChatDataControlsOwner {
     required this.auth,
     required this.database,
     required this.accountId,
-    required this.serverName,
     required this.accountName,
     required this.authSessionEpoch,
   });
@@ -91,8 +90,8 @@ final class ChatDataControlsOwner {
   /// The signed-in account's server user id.
   final String? accountId;
 
-  /// What the user sees as the target: the server and the account on it.
-  final String serverName;
+  /// What the user sees as the target, with the server the account list
+  /// names for [api]'s account.
   final String accountName;
   final Object? authSessionEpoch;
 }
@@ -103,7 +102,6 @@ ChatDataControlsOwner? captureChatDataControlsOwner(dynamic ref) {
   final database = _readAppDatabaseOrNull(ref);
   final user = ref.read(currentUserProvider2) as User?;
   if (api is! ApiService || database == null || user == null) return null;
-  final server = api.serverConfig;
   final name = user.name?.trim() ?? '';
   final account = name.isNotEmpty
       ? name
@@ -113,7 +111,6 @@ ChatDataControlsOwner? captureChatDataControlsOwner(dynamic ref) {
     auth: api.captureAuthSnapshot(),
     database: database,
     accountId: user.id.trim().isEmpty ? null : user.id.trim(),
-    serverName: server.name.trim().isNotEmpty ? server.name : server.url,
     accountName: account,
     authSessionEpoch: _readOpenWebUiAuthSessionEpoch(ref),
   );
