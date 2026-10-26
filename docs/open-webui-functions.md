@@ -35,7 +35,7 @@ event instead:
 reply = await __event_call__({
     "type": "chat:handoff",
     "data": {
-        "model_id": "code-assistant",      # required: an Open WebUI model id
+        "model_id": "code-assistant",      # required: a non-empty model id
         "prompt": "Review this diff: ...",  # optional: goes in the composer
     },
 })
@@ -74,7 +74,7 @@ Only an `__event_call__` gets a reply:
 | `{"handled": false, "reason": "not_active_chat"}` | The event was for a chat that isn't on screen in Conduit, or the user left it before agreeing. |
 | `{"handled": false, "reason": "duplicate"}` | The same handoff for the same message already arrived. |
 | `{"handled": false, "reason": "busy"}` | The user is still answering another handoff. |
-| `{"handled": false, "reason": "invalid"}` | `model_id` is missing or not a string, or `prompt` is not a string. |
+| `{"handled": false, "reason": "invalid"}` | `model_id` is missing, empty or not a string, or `prompt` is not a string. |
 | `{"handled": false, "reason": "unsupported"}` | This Conduit cannot ask the user. |
 | `{"handled": false, "reason": "failed"}` | Something went wrong in Conduit. |
 
