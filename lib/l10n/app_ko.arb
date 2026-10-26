@@ -4024,5 +4024,9 @@
   "accountsRemoveAddressMessage": "Conduit이 더 이상 이 주소를 시도하지 않습니다. 계정은 로그인 상태로 유지됩니다.",
   "accountsAddressConfirmTitle": "이 주소를 확인할까요?",
   "accountsAddressConfirmMessage": "{host}이(가) 이 서버인지 확인하기 위해 Conduit이 이 기기에 저장된 계정의 세션을 해당 주소로 보냅니다. 이 주소를 신뢰하는 경우에만 계속하세요.",
-  "accountsAddressConfirmAction": "주소 확인"
+  "accountsAddressConfirmAction": "주소 확인",
+  "chatHandoffPromptTitle": "{model}(으)로 전환할까요?",
+  "chatHandoffPromptMessage": "서버가 {model}와(과) 새 채팅에서 계속할 것을 제안합니다. 제안된 메시지는 보낼 때까지 입력창에 남아 있습니다.",
+  "chatHandoffStartNewChat": "새 채팅 시작",
+  "chatHandoffStayHere": "여기 머무르기"
 }

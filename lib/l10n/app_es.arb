@@ -4252,5 +4252,9 @@
   "accountsRemoveAddressMessage": "Conduit dejará de probar esta dirección. Tus cuentas seguirán con la sesión iniciada.",
   "accountsAddressConfirmTitle": "¿Comprobar esta dirección?",
   "accountsAddressConfirmMessage": "Para asegurarse de que {host} es este servidor, Conduit le envía la sesión de una cuenta guardada aquí. Continúa solo si confías en esta dirección.",
-  "accountsAddressConfirmAction": "Comprobar dirección"
+  "accountsAddressConfirmAction": "Comprobar dirección",
+  "chatHandoffPromptTitle": "¿Cambiar a {model}?",
+  "chatHandoffPromptMessage": "Tu servidor sugiere continuar en una nueva conversación con {model}. Cualquier mensaje sugerido esperará en el cuadro de texto hasta que lo envíes.",
+  "chatHandoffStartNewChat": "Iniciar nueva conversación",
+  "chatHandoffStayHere": "Quedarme aquí"
 }

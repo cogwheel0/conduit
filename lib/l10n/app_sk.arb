@@ -6167,5 +6167,9 @@
   "accountsRemoveAddressMessage": "Conduit prestane skúšať túto adresu. Vaše účty zostanú prihlásené.",
   "accountsAddressConfirmTitle": "Overiť túto adresu?",
   "accountsAddressConfirmMessage": "Aby Conduit overil, že {host} je tento server, pošle mu reláciu účtu uloženého v tomto zariadení. Pokračujte, len ak tejto adrese dôverujete.",
-  "accountsAddressConfirmAction": "Overiť adresu"
+  "accountsAddressConfirmAction": "Overiť adresu",
+  "chatHandoffPromptTitle": "Prepnúť na {model}?",
+  "chatHandoffPromptMessage": "Váš server navrhuje pokračovať v novom chate s modelom {model}. Navrhnutá správa počká v poli na písanie, kým ju neodošlete.",
+  "chatHandoffStartNewChat": "Začať nový chat",
+  "chatHandoffStayHere": "Zostať tu"
 }

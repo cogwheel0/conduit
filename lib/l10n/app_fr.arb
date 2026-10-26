@@ -4252,5 +4252,9 @@
   "accountsRemoveAddressMessage": "Conduit n'essaiera plus cette adresse. Vos comptes restent connectés.",
   "accountsAddressConfirmTitle": "Vérifier cette adresse ?",
   "accountsAddressConfirmMessage": "Pour s'assurer que {host} est bien ce serveur, Conduit lui envoie la session d'un compte enregistré ici. Ne continuez que si vous faites confiance à cette adresse.",
-  "accountsAddressConfirmAction": "Vérifier l'adresse"
+  "accountsAddressConfirmAction": "Vérifier l'adresse",
+  "chatHandoffPromptTitle": "Passer à {model} ?",
+  "chatHandoffPromptMessage": "Votre serveur propose de continuer dans un nouveau chat avec {model}. Tout message suggéré reste dans la zone de saisie jusqu'à ce que vous l'envoyiez.",
+  "chatHandoffStartNewChat": "Démarrer un nouveau chat",
+  "chatHandoffStayHere": "Rester ici"
 }
