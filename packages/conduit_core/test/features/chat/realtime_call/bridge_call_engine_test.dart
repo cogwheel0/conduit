@@ -368,6 +368,47 @@ void main() {
         .deepEquals({'type': 'bridge.respond', 'item_id': 'item-2'});
   });
 
+  test('a sentence a pause split in two is answered once, in full', () async {
+    // The second half starts before the first is transcribed, so both wait.
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'item-1',
+    });
+    transport.receive({
+      'type': 'input_audio_buffer.speech_stopped',
+      'item_id': 'item-1',
+    });
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'item-2',
+    });
+    transport.receive({
+      'type': 'conversation.item.input_audio_transcription.completed',
+      'item_id': 'item-1',
+      'transcript': 'What is the weather',
+    });
+    transport.receive({
+      'type': 'input_audio_buffer.speech_stopped',
+      'item_id': 'item-2',
+    });
+    transport.receive({
+      'type': 'conversation.item.input_audio_transcription.completed',
+      'item_id': 'item-2',
+      'transcript': 'in Oslo today?',
+    });
+    await _settle();
+
+    replyStarts('resp-1', {'input_item_id': 'item-2'});
+    speaks('resp-1', 'speech-1', 'Sunny and mild.');
+    await replyEnds('resp-1');
+
+    check(transport.sent.where((c) => c['type'] == 'bridge.respond')).single
+        .deepEquals({'type': 'bridge.respond', 'item_id': 'item-2'});
+    final exchange = host.exchanges.single;
+    check(exchange.userText).equals('What is the weather in Oslo today?');
+    check(exchange.replyText).equals('Sunny and mild.');
+  });
+
   test(
     'a delegated request runs in the chat and its answer is spoken',
     () async {

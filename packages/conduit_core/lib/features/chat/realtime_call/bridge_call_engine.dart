@@ -239,11 +239,21 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       return;
     }
     if (command['type'] == 'bridge.respond' && command.containsKey('item_id')) {
+      // The newest reply hears every transcript, so older unsent ones are
+      // redundant, as in the web client: a sentence a short pause split in
+      // two is answered once. The words they held are saved with this one.
+      final input = _inputs[command['item_id']];
+      final waiting = [
+        for (final queued in _commands)
+          if (_inputs[queued['item_id']] case final earlier?) earlier.text,
+      ];
+      if (input != null && waiting.isNotEmpty) {
+        input.text = [...waiting, input.text].join(' ');
+      }
       // Answering the user comes before speaking statuses and results.
-      final index = _commands.indexWhere(
-        (queued) => !queued.containsKey('item_id'),
-      );
-      _commands.insert(index < 0 ? _commands.length : index, command);
+      _commands
+        ..removeWhere((queued) => queued.containsKey('item_id'))
+        ..insert(0, command);
     } else {
       _commands.add(command);
     }
@@ -906,7 +916,10 @@ final class _Input {
   _Input(this.itemId, this.text);
 
   final String itemId;
-  final String text;
+
+  /// What was said, with the words of earlier inputs a reply to this one
+  /// replaced.
+  String text;
 
   /// Saved into the chat, or handed to it as a turn.
   var persisted = false;
