@@ -2323,10 +2323,9 @@ packages:
   vad:
     dependency: "direct main"
     description:
-      name: vad
-      sha256: "0a0ad600e3dbbfdc241b3f1404c9b3926be3cd8dc1ca51ae5d2fdb311ab8bb7e"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/vad"
+      relative: true
+    source: path
     version: "0.0.8"
   vector_graphics:
     dependency: transitive

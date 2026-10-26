@@ -46,12 +46,24 @@ class VoiceInputService implements VoiceModeInput {
       (_vadFrameSamples * 1000);
   static const int _vadPreSpeechPadFrames = 16;
   static const int _vadMinSpeechFrames = 8;
-  static const int _vadEndSpeechPadFrames = 6;
+  // About half a second of audio after the last frame scored as speech, so
+  // words trailing off quietly stay in the recording.
+  static const int _vadEndSpeechPadFrames = 16;
   static const double _vadPositiveSpeechThreshold = 0.6;
   static const double _vadNegativeSpeechThreshold = 0.35;
   static const Duration _localeFetchTimeout = Duration(seconds: 2);
   static const Duration _vadDisposeCooldown = Duration(milliseconds: 140);
   static const Duration _localRecognitionMaxDuration = Duration(minutes: 5);
+
+  /// How long a server listen waits without hearing speech before it ends.
+  static const Duration _defaultServerNoSpeechTimeout = Duration(seconds: 90);
+
+  /// The longest server recording. It bounds the audio held in memory, and
+  /// ten minutes of 16 kHz WAV still fits Open WebUI's 20 MiB upload. What
+  /// was said by then is transcribed, not dropped.
+  static const Duration _defaultServerRecordingMaxDuration = Duration(
+    minutes: 10,
+  );
   static const Duration _nativeDictationFinalSettleDelay = Duration(
     milliseconds: 900,
   );
@@ -63,6 +75,8 @@ class VoiceInputService implements VoiceModeInput {
   final Ref? _ref;
   final AudioCapturePort Function() _serverVadRecorderFactory;
   final VadHandler Function() _vadHandlerFactory;
+  final Duration _serverNoSpeechTimeout;
+  final Duration _serverRecordingMaxDuration;
   bool _isInitialized = false;
   bool _didAttemptLocalInitialization = false;
   bool _isListening = false;
@@ -120,6 +134,11 @@ class VoiceInputService implements VoiceModeInput {
       _transcriptEventController?.stream ??
       const Stream<VoiceTranscriptEvent>.empty();
   Timer? _autoStopTimer;
+
+  /// Ends a server listen that has heard no speech for
+  /// [_serverNoSpeechTimeout]; see [_armNoSpeechTimer].
+  Timer? _noSpeechTimer;
+  final Stopwatch _sinceServerSpeech = Stopwatch();
   StreamSubscription<List<double>>? _vadSpeechEndSub;
   StreamSubscription<({double isSpeech, double notSpeech, List<double> frame})>?
   _vadFrameSub;
@@ -165,12 +184,18 @@ class VoiceInputService implements VoiceModeInput {
     NativeSttService? nativeStt,
     @visibleForTesting AudioCapturePort Function()? serverVadRecorderFactory,
     @visibleForTesting VadHandler Function()? vadHandlerFactory,
+    @visibleForTesting
+    Duration serverNoSpeechTimeout = _defaultServerNoSpeechTimeout,
+    @visibleForTesting
+    Duration serverRecordingMaxDuration = _defaultServerRecordingMaxDuration,
   }) : _serverSpeech = serverSpeech ?? _noServerSpeech,
        _ref = ref,
        _nativeStt = nativeStt ?? NativeSttService(),
        _serverVadRecorderFactory =
            serverVadRecorderFactory ?? AudioCapturePort.hostFactory,
-       _vadHandlerFactory = vadHandlerFactory ?? VadHandler.create;
+       _vadHandlerFactory = vadHandlerFactory ?? VadHandler.create,
+       _serverNoSpeechTimeout = serverNoSpeechTimeout,
+       _serverRecordingMaxDuration = serverRecordingMaxDuration;
 
   void updatePreference(SttPreference preference) {
     _preference = preference;
@@ -755,9 +780,16 @@ class VoiceInputService implements VoiceModeInput {
       _usingServerStt = true;
       _listeningSpeech = _serverSpeech();
       _autoStopTimer?.cancel();
-      _autoStopTimer = Timer(const Duration(seconds: 90), () {
+      // Speech still in progress at the cap is transcribed with the rest. A
+      // call holds its recorder, as it does when a pause ends speech.
+      _autoStopTimer = Timer(_serverRecordingMaxDuration, () {
         if (_isListening) {
-          unawaited(_stopListening());
+          unawaited(
+            _stopListening(
+              holdServerRecorderForResponseWait:
+                  _holdServerRecorderForResponseWait,
+            ),
+          );
         }
       });
       Future(() async {
@@ -1014,9 +1046,11 @@ class VoiceInputService implements VoiceModeInput {
     _vadPendingSamples = null;
     await _setupVadStreams(vad);
     if (lostOwnership()) return false;
-    return recorderSession.resumeForwarding(
+    final resumed = await recorderSession.resumeForwarding(
       connectVad: (audioStream) => _connectServerVad(vad, audioStream),
     );
+    if (resumed && !lostOwnership()) _armNoSpeechTimer(listenGeneration);
+    return resumed;
   }
 
   Future<void> _startServerRecording({
@@ -1072,6 +1106,7 @@ class VoiceInputService implements VoiceModeInput {
           unawaited(_stopListening());
         },
       );
+      if (!lostOwnership()) _armNoSpeechTimer(listenGeneration);
     } catch (error) {
       // If starting the audio stream fails (e.g. recorder disposed),
       // drop this handler so the next session gets a clean instance.
@@ -1147,9 +1182,13 @@ class VoiceInputService implements VoiceModeInput {
   Future<void> _setupVadStreams(VadHandler vad) async {
     await _vadSpeechEndSub?.cancel();
     _vadSpeechEndSub = vad.onSpeechEnd.listen((samples) {
-      if (!_isListening || !_usingServerStt) return;
+      if (!_usingServerStt) return;
       if (samples.isEmpty) return;
-      _vadPendingSamples = samples;
+      // Taken even once listening has stopped: stopping the VAD hands over
+      // the speech still in progress (submitUserSpeechOnPause), and that
+      // arrives after a stop has set _isListening to false (#752, #853).
+      final pending = _vadPendingSamples;
+      _vadPendingSamples = pending == null ? samples : [...pending, ...samples];
       if (_isListening) {
         unawaited(
           _stopListening(
@@ -1163,6 +1202,11 @@ class VoiceInputService implements VoiceModeInput {
     await _vadFrameSub?.cancel();
     _vadFrameSub = vad.onFrameProcessed.listen((frameData) {
       if (!_isListening) return;
+      // Measured against the threshold that keeps speech going, not the one
+      // that starts it, so quiet speakers are not taken for silence.
+      if (frameData.isSpeech >= _vadNegativeSpeechThreshold) {
+        _sinceServerSpeech.reset();
+      }
       final intensity = _intensityFromVadFrame(frameData.frame);
       _lastIntensity = intensity;
       try {
@@ -1179,7 +1223,42 @@ class VoiceInputService implements VoiceModeInput {
     });
   }
 
+  /// Waits [_serverNoSpeechTimeout] from now, restarted by every frame scored
+  /// as speech, and then ends the listen. It never cuts speech short: once
+  /// speech has started, the VAD's silence window ends it first.
+  void _armNoSpeechTimer(int listenGeneration) {
+    _sinceServerSpeech
+      ..reset()
+      ..start();
+    _scheduleNoSpeechCheck(_serverNoSpeechTimeout, listenGeneration);
+  }
+
+  void _scheduleNoSpeechCheck(Duration delay, int listenGeneration) {
+    _noSpeechTimer?.cancel();
+    _noSpeechTimer = Timer(delay, () {
+      final remaining = _serverNoSpeechTimeout - _sinceServerSpeech.elapsed;
+      if (remaining > Duration.zero) {
+        _scheduleNoSpeechCheck(remaining, listenGeneration);
+        return;
+      }
+      _noSpeechTimer = null;
+      if (!_isListening ||
+          !_usingServerStt ||
+          listenGeneration != _listenGeneration) {
+        return;
+      }
+      unawaited(_stopListening());
+    });
+  }
+
+  void _cancelNoSpeechTimer() {
+    _noSpeechTimer?.cancel();
+    _noSpeechTimer = null;
+    _sinceServerSpeech.stop();
+  }
+
   Future<void> _stopVadRecording({bool holdRecorderForResponse = false}) async {
+    _cancelNoSpeechTimer();
     final vad = _vadHandler;
     final recorderSession = _serverVadRecorderSession;
     var recorderHeld = false;
@@ -1193,6 +1272,9 @@ class VoiceInputService implements VoiceModeInput {
       } catch (_) {}
     }
     if (vad != null) {
+      // Let the VAD score the audio it was already handed, so the speech it
+      // hands over on stop runs to where the recording ended.
+      await Future<void>.delayed(Duration.zero);
       try {
         await vad.stopListening();
       } catch (_) {}
@@ -1442,6 +1524,7 @@ class VoiceInputService implements VoiceModeInput {
   Future<void> dispose() async {
     await stopListening();
     _cancelNativeDictationSettle();
+    _cancelNoSpeechTimer();
     await _disposeVadHandler();
     await _nativeSttSub?.cancel();
     _nativeSttSub = null;

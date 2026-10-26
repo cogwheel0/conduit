@@ -85,8 +85,9 @@ dependencies:
   stupid_simple_sheet: ^0.9.1+1
   
   # Platform Features
-  # Keep exact until VAD declares Record 7 support; see dependency_overrides.
-  vad: 0.0.8
+  # vad 0.0.8 with Silero v5's frame context restored; see its README.
+  vad:
+    path: third_party/vad
   record: ^7.1.1
   audio_session: ^0.2.2
   permission_handler: ^13.0.2

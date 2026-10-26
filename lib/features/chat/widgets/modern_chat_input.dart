@@ -4608,9 +4608,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       Platform.isIOS ? IconSize.small : IconSize.medium,
     );
 
-    // Don't allow sending until all uploads are complete
+    // Don't allow sending until all uploads are complete. While dictating,
+    // send stops and sends what was said, before its text has arrived.
     final enabled =
-        !isGenerating && hasText && widget.enabled && allUploadsComplete;
+        !isGenerating &&
+        (hasText || _isRecording) &&
+        widget.enabled &&
+        allUploadsComplete;
 
     // Generating -> STOP variant
     if (isGenerating) {
@@ -5338,12 +5342,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Future<void> _stopVoiceAndSend() async {
-    if (_controller.text.trim().isEmpty) {
-      await _stopVoice();
-      return;
-    }
+    // Server dictation has no text until it is transcribed. Stopping hands
+    // what was said to the server, and its text is in the composer by the
+    // time the stop finishes.
     await _stopVoiceListening();
     if (!mounted) return;
+    if (_controller.text.trim().isEmpty) {
+      ConduitHaptics.selectionClick();
+      return;
+    }
     ConduitHaptics.lightImpact();
     _sendMessage();
   }
