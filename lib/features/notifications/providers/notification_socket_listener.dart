@@ -105,6 +105,7 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
             !conversationMatchesScopedId(outgoing, tap.sourceId)) {
           clearSelectedFiltersForConversationBoundary(ref);
         }
+        final chatWasOnScreen = chatPageOnScreen();
         // DB-first open, mirroring the conversation-list selection flow.
         await NavigationService.navigateToChat();
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
@@ -115,7 +116,9 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
         );
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
         if (local != null) {
-          ref.read(chatBackOpensListProvider.notifier).switchTo(local);
+          ref
+              .read(chatBackOpensListProvider.notifier)
+              .switchTo(local, chatOnScreen: chatWasOnScreen);
           ref.read(activeConversationProvider.notifier).set(local);
         }
         schedulePullChatNow(ref, tap.sourceId, ownership: ownership);

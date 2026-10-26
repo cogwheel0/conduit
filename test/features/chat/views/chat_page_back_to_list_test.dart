@@ -92,7 +92,9 @@ class _Rig {
 
   /// Opens [chat] the way the list does.
   Future<void> switchTo(Conversation chat) async {
-    container.read(chatBackOpensListProvider.notifier).switchTo(chat);
+    container
+        .read(chatBackOpensListProvider.notifier)
+        .switchTo(chat, chatOnScreen: true);
     container.read(activeConversationProvider.notifier).set(chat);
     await settle();
   }

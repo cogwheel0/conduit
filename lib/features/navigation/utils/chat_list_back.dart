@@ -1,7 +1,9 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/services.dart' show SystemNavigator;
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:flutter/services.dart' show SystemChannels, SystemNavigator;
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
@@ -51,6 +53,18 @@ Future<void> handleChatBackNavigation({
   }
 }
 
+/// Whether back should only clear input focus: the composer's, which also
+/// holds while its attachment panel is open and covers native inputs outside
+/// Flutter's focus tree, or any other focused input.
+///
+/// The scope left holding focus once an input clears is not an input:
+/// counting it swallowed back once per enclosing scope, then for good.
+bool backClearsInputFocus({required bool composerHasFocus}) {
+  final focus = FocusManager.instance.primaryFocus;
+  return composerHasFocus ||
+      (focus != null && focus is! FocusScopeNode && focus.hasFocus);
+}
+
 /// Opens the chat list for back, and returns whether it did.
 ///
 /// Back with the list already showing returns false, so it asks to close the
@@ -80,21 +94,27 @@ Future<bool> confirmAppExit(BuildContext context) {
 /// folder: back opens the list, and back with the list showing asks to close
 /// the app (#852). Other platforms have no back button, so the page is left
 /// as it is.
-class ChatListBackScope extends StatelessWidget {
+class ChatListBackScope extends ConsumerWidget {
   const ChatListBackScope({super.key, required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (!chatBackIsAndroid) return child;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         await handleChatBackNavigation(
-          hasInputFocus: false,
-          dismissInputFocus: () {},
+          // The composer's attachment panel closes on this same back.
+          hasInputFocus: backClearsInputFocus(
+            composerHasFocus: ref.read(composerHasFocusProvider),
+          ),
+          dismissInputFocus: () {
+            FocusManager.instance.primaryFocus?.unfocus();
+            SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+          },
           canNavigateBack: () => Navigator.of(context).canPop(),
           navigateBack: () => Navigator.of(context).pop(),
           openChatList: () => openChatListForBack(context),

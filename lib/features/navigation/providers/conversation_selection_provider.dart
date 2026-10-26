@@ -531,7 +531,9 @@ class ConversationSelection extends _$ConversationSelection {
         ? full.copyWith(lastReadAt: selectedReadAt)
         : full;
     ref.read(pendingFolderIdProvider.notifier).clear();
-    ref.read(chatBackOpensListProvider.notifier).switchTo(selected);
+    ref
+        .read(chatBackOpensListProvider.notifier)
+        .switchTo(selected, chatOnScreen: chatPageOnScreen());
     ref.read(activeConversationProvider.notifier).set(selected);
   }
 

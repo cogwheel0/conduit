@@ -18,12 +18,16 @@ import 'package:conduit/features/notifications/services/local_notification_servi
 import 'package:conduit/features/notifications/services/notification_router.dart';
 import 'package:conduit/features/notifications/services/notification_sound_service.dart';
 import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/local_conversation_loader.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/testing.dart';
 import 'package:drift/native.dart';
+import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart' show SizedBox;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -248,9 +252,11 @@ void main() {
     return container;
   }
 
-  test(
-    'a tapped chat notification makes back open the chat list (#852)',
-    () async {
+  group('a tapped chat notification (#852)', () {
+    late ProviderContainer container;
+    late _TapSource taps;
+
+    setUp(() async {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       final server = FakeOpenWebUiServer()
@@ -282,8 +288,8 @@ void main() {
       );
       check((await pull.run()).success).isTrue();
 
-      final taps = _TapSource();
-      final container = ProviderContainer(
+      taps = _TapSource();
+      container = ProviderContainer(
         overrides: [
           ...openWebUiStorageOpenOverrides(database: db),
           isAuthenticatedProvider2.overrideWithValue(true),
@@ -295,23 +301,50 @@ void main() {
       );
       addTearDown(container.dispose);
       container.read(notificationSocketListenerProvider);
-      check(container.read(chatBackOpensListProvider)).isFalse();
+    });
 
+    Future<void> tapChat(bool Function() done) async {
       taps.tap(
         const NotificationTap(
           kind: NotificationKind.chatCompletion,
           sourceId: 'chat-1',
         ),
       );
-      for (var i = 0; i < 200; i++) {
-        if (container.read(activeConversationProvider) != null) break;
+      for (var i = 0; i < 200 && !done(); i++) {
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }
+    }
+
+    test('makes back open the chat list', () async {
+      check(container.read(chatBackOpensListProvider)).isFalse();
+
+      await tapChat(() => container.read(activeConversationProvider) != null);
 
       check(container.read(activeConversationProvider)?.id).equals('chat-1');
       check(container.read(chatBackOpensListProvider)).isTrue();
-    },
-  );
+    });
+
+    test('for the active chat, tapped on a channel, does too', () async {
+      final router = GoRouter(
+        initialLocation: '/channel/general',
+        routes: [
+          GoRoute(path: '/chat', builder: (_, _) => const SizedBox()),
+          GoRoute(path: '/channel/:id', builder: (_, _) => const SizedBox()),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      final active = await loadLocalConversation(container, 'chat-1');
+      container.read(activeConversationProvider.notifier).set(active);
+
+      // The tap goes to the chat page before it opens the chat, so whether
+      // the chat was on screen is read first.
+      await tapChat(() => container.read(chatBackOpensListProvider));
+
+      check(NavigationService.currentRoute).equals('/chat');
+      check(container.read(chatBackOpensListProvider)).isTrue();
+    });
+  });
 
   test('registers one wildcard chat + channel handler, requireFocus:false', () {
     final socket = _MockSocketService();

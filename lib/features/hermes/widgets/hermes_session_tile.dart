@@ -440,7 +440,9 @@ Future<void> openHermesSession(
       },
     ),
   );
-  ref.read(chatBackOpensListProvider.notifier).switchTo(conversation);
+  ref
+      .read(chatBackOpensListProvider.notifier)
+      .switchTo(conversation, chatOnScreen: chatPageOnScreen());
   ref.read(activeConversationProvider.notifier).set(conversation);
 
   if (context.mounted) {

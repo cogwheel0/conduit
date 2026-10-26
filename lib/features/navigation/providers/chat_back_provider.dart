@@ -3,6 +3,8 @@ import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
+import '../../../shared/services/navigation_service.dart';
+
 /// Whether Android back on the chat page opens the chat list (#852).
 ///
 /// A chat the user switched to, from the list, a folder, the calendar, a
@@ -22,11 +24,16 @@ class ChatBackOpensList extends Notifier<bool> {
     return false;
   }
 
-  /// Records that [next] is about to replace the chat on screen. Opening the
-  /// chat already on screen again is not a switch.
-  void switchTo(Conversation next) {
+  /// Records that [next] is about to replace what is on screen. Opening the
+  /// chat already on screen again is not a switch; [chatOnScreen] says
+  /// whether it is, as a chat left for a channel or folder stays active.
+  void switchTo(Conversation next, {required bool chatOnScreen}) {
     final current = ref.read(activeConversationProvider);
-    if (isSameStoredConversation(current, next)) return;
+    if (chatOnScreen && isSameStoredConversation(current, next)) return;
     state = true;
   }
 }
+
+/// Whether the chat page is the page on screen.
+bool chatPageOnScreen() =>
+    Uri.tryParse(NavigationService.currentRoute ?? '')?.path == Routes.chat;

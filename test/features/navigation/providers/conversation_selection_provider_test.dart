@@ -13,10 +13,13 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart' show SizedBox;
 
 const _server = ServerConfig(
   id: 'selection-test-server',
@@ -291,26 +294,45 @@ void main() {
     expect(container.read(chatBackOpensListProvider), isTrue);
   });
 
-  test('reopening the chat on screen keeps its back behaviour', () async {
-    final active = _conversation(
-      'launch',
-      storage: ChatStorageKind.directLocal,
-      body: 'Launch body',
-    );
-    final container = await _createContainer(
-      activeConversation: active,
-      extraOverrides: [
-        loadConversationProvider(conversationScopedId(active))
-            .overrideWith((ref) async => active),
-      ],
-    );
+  group('reopening the active chat', () {
+    Future<bool> reopenFrom(String location) async {
+      final router = GoRouter(
+        initialLocation: location,
+        routes: [
+          GoRoute(path: '/chat', builder: (_, _) => const SizedBox()),
+          GoRoute(path: '/channel/:id', builder: (_, _) => const SizedBox()),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      final active = _conversation(
+        'launch',
+        storage: ChatStorageKind.directLocal,
+        body: 'Launch body',
+      );
+      final container = await _createContainer(
+        activeConversation: active,
+        extraOverrides: [
+          loadConversationProvider(conversationScopedId(active))
+              .overrideWith((ref) async => active),
+        ],
+      );
 
-    final result = await container
-        .read(conversationSelectionProvider.notifier)
-        .select(active);
+      final result = await container
+          .read(conversationSelectionProvider.notifier)
+          .select(active);
 
-    expect(result.disposition, ConversationSelectionDisposition.committed);
-    expect(container.read(chatBackOpensListProvider), isFalse);
+      expect(result.disposition, ConversationSelectionDisposition.committed);
+      return container.read(chatBackOpensListProvider);
+    }
+
+    test('on screen keeps its back behaviour', () async {
+      expect(await reopenFrom('/chat'), isFalse);
+    });
+
+    test('from a channel makes back open the chat list', () async {
+      expect(await reopenFrom('/channel/general'), isTrue);
+    });
   });
 
   test(

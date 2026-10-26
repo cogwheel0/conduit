@@ -25,8 +25,10 @@ void main() {
 
   bool opensList() => container.read(chatBackOpensListProvider);
 
-  void open(Conversation chat) {
-    container.read(chatBackOpensListProvider.notifier).switchTo(chat);
+  void open(Conversation chat, {bool chatOnScreen = true}) {
+    container
+        .read(chatBackOpensListProvider.notifier)
+        .switchTo(chat, chatOnScreen: chatOnScreen);
     container.read(activeConversationProvider.notifier).set(chat);
   }
 
@@ -50,6 +52,15 @@ void main() {
     open(_chat('launch'));
 
     expect(opensList(), isFalse);
+  });
+
+  test('reopening a chat left for a channel or folder is a switch', () {
+    container.read(activeConversationProvider.notifier).set(_chat('launch'));
+
+    // The chat stays active behind the channel, but it is not on screen.
+    open(_chat('launch'), chatOnScreen: false);
+
+    expect(opensList(), isTrue);
   });
 
   test('a new chat is the top screen again', () {

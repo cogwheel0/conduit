@@ -38,6 +38,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/model_selector_sheet.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/navigation/utils/chat_list_back.dart';
@@ -573,6 +574,28 @@ void main() {
       await tester.tap(find.text(l10n.confirm));
       await tester.pumpAndSettle();
       expect(rig.exits, ['exit']);
+    });
+
+    testWidgets('closes the attachment panel before opening the list', (
+      tester,
+    ) async {
+      final rig = await mountUnderList(tester, android: true);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(ModernChatInput),
+          matching: find.byIcon(Icons.add),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposerAttachmentKeyboard), findsOneWidget);
+
+      await back(tester);
+      expect(find.byType(ComposerAttachmentKeyboard), findsNothing);
+      expect(rig.chatList.currentState!.isOpen, isFalse);
+      expect(find.text(l10n.endYourSession), findsNothing);
+
+      await back(tester);
+      expect(rig.chatList.currentState!.isOpen, isTrue);
     });
 
     testWidgets('is left alone without a system back button', (tester) async {

@@ -4033,18 +4033,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         if (didPop) return;
 
         // First, if any input has focus, clear focus and consume back press.
-        // Also covers native platform inputs which don't participate in
-        // Flutter's focus tree (composerHasFocusProvider tracks them). The
-        // scope left holding focus once an input clears is not an input:
-        // counting it swallowed back once per enclosing scope, then for good.
-        final hasNativeFocus = ref.read(composerHasFocusProvider);
-        final currentFocus = FocusManager.instance.primaryFocus;
         await handleChatBackNavigation(
-          hasInputFocus:
-              hasNativeFocus ||
-              (currentFocus != null &&
-                  currentFocus is! FocusScopeNode &&
-                  currentFocus.hasFocus),
+          hasInputFocus: backClearsInputFocus(
+            composerHasFocus: ref.read(composerHasFocusProvider),
+          ),
           dismissInputFocus: _dismissComposerFocus,
           canNavigateBack: () => Navigator.of(context).canPop(),
           navigateBack: () => Navigator.of(context).pop(),
