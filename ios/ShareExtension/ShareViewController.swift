@@ -14,6 +14,7 @@ private let maxSharedAggregateBytes: Int64 = 300 * 1024 * 1024
 private let maxSharedTextBytes = nativeShareMaximumTextBytes
 private let maxSharedUrlBytes = nativeShareMaximumURLBytes
 private let preferredFileNameTimeout: TimeInterval = 2
+private let linkedImageAddressTimeout: TimeInterval = 2
 final class ShareLoadDeadline {
   private let lock = NSLock()
   private var active = true
@@ -112,10 +113,20 @@ private struct SupportedShareType {
   let itemTypeIdentifier: String
 }
 
+/// A share that is only the address of an image, which is downloaded in
+/// place of the link.
+private struct SharedLinkedImage {
+  let provider: NSItemProvider
+  let url: URL
+  /// The address as the provider loaded it, sent as the link on failure.
+  let item: NSSecureCoding
+}
+
 private struct ShareLoadTask {
   let provider: NSItemProvider
   let supportedType: SupportedShareType
   let ordinal: Int
+  let linkedImage: SharedLinkedImage?
 }
 
 final class ShareViewController: UIViewController {
@@ -150,8 +161,10 @@ final class ShareViewController: UIViewController {
 
     guard !didBeginLoading else { return }
     didBeginLoading = true
-    loadSharedItems { [weak self] in
-      self?.completeShareLoading()
+    resolveLinkedImage { [weak self] linkedImage in
+      self?.loadSharedItems(linkedImage: linkedImage) { [weak self] in
+        self?.completeShareLoading()
+      }
     }
   }
 
@@ -187,7 +200,55 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  private func loadSharedItems(completion: @escaping () -> Void) {
+  /// Loads the address of a share that is a single web address, and keeps
+  /// it when it names an image to download instead of sending the link.
+  ///
+  /// This runs before the import is planned, so the download can be
+  /// counted as a pending file and the app can open straight away.
+  private func resolveLinkedImage(
+    completion: @escaping (SharedLinkedImage?) -> Void
+  ) {
+    let inputItems = extensionContext?.inputItems.compactMap {
+      $0 as? NSExtensionItem
+    } ?? []
+    guard let provider = nativeShareLoneLinkProvider(in: inputItems) else {
+      completion(nil)
+      return
+    }
+    // The sender already holds the address, so this is quick. A stalled
+    // provider falls through to the usual link path.
+    let lookup = ShareLoadDeadline()
+    provider.loadItem(
+      forTypeIdentifier: UTType.url.identifier
+    ) { item, _ in
+      guard lookup.finish() else { return }
+      var linkedImage: SharedLinkedImage?
+      if let item,
+         let url = (item as? URL)
+           ?? (item as? String).flatMap({ URL(string: $0) }),
+         nativeShareLinkedImageQualifies(url) {
+        linkedImage = SharedLinkedImage(
+          provider: provider,
+          url: url,
+          item: item
+        )
+      }
+      DispatchQueue.main.async {
+        completion(linkedImage)
+      }
+    }
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + linkedImageAddressTimeout
+    ) {
+      guard lookup.finish() else { return }
+      completion(nil)
+    }
+  }
+
+  private func loadSharedItems(
+    linkedImage: SharedLinkedImage?,
+    completion: @escaping () -> Void
+  ) {
     let inputItems = extensionContext?.inputItems.compactMap {
       $0 as? NSExtensionItem
     } ?? []
@@ -199,7 +260,13 @@ final class ShareViewController: UIViewController {
 
     for item in inputItems {
       for attachment in item.attachments ?? [] {
-        guard let supportedType = supportedType(for: attachment) else { continue }
+        let attachmentImage = linkedImage?.provider === attachment
+          ? linkedImage
+          : nil
+        guard let supportedType = supportedType(
+          for: attachment,
+          linkedImage: attachmentImage
+        ) else { continue }
         guard loadTasks.count < maxSharedItemCount else {
           skippedForItemLimit = true
           continue
@@ -216,7 +283,8 @@ final class ShareViewController: UIViewController {
         loadTasks.append(ShareLoadTask(
           provider: attachment,
           supportedType: supportedType,
-          ordinal: currentOrdinal
+          ordinal: currentOrdinal,
+          linkedImage: attachmentImage
         ))
       }
     }
@@ -290,6 +358,11 @@ final class ShareViewController: UIViewController {
     let done: () -> Void = { [weak self] in
       guard let self else { return }
       self.loadTask(tasks, at: index + 1, completion: completion)
+    }
+
+    if let linkedImage = task.linkedImage {
+      loadLinkedImage(linkedImage, task: task, completion: done)
+      return
     }
 
     if task.supportedType.mediaType.isFileBacked {
@@ -422,6 +495,45 @@ final class ShareViewController: UIViewController {
     }
   }
 
+  private func loadLinkedImage(
+    _ linkedImage: SharedLinkedImage,
+    task: ShareLoadTask,
+    completion: @escaping () -> Void
+  ) {
+    let download = NativeShareLinkedImageDownload(
+      url: linkedImage.url,
+      allowedBytes: min(maxSharedImageBytes, remainingAggregateBytes())
+    )
+    download.start { [weak self] result in
+      defer {
+        download.removeFile()
+        completion()
+      }
+      guard let self else { return }
+      guard loadDeadline.isActive else { return }
+      guard let result else {
+        // Anything that isn't a readable image arrives as the link, as it
+        // did before images were downloaded.
+        handleLoadedItem(
+          linkedImage.item,
+          type: .url,
+          ordinal: task.ordinal
+        )
+        return
+      }
+      let fileExtension = result.type.preferredFilenameExtension ?? "png"
+      stageFile(
+        at: result.fileURL,
+        originalName: nativeShareSourceFileName(
+          loadedName: "Image.\(fileExtension)",
+          preferredName: linkedImage.url.lastPathComponent
+        ),
+        type: .image,
+        ordinal: task.ordinal
+      )
+    }
+  }
+
   private func stageLoadedFile(
     at url: URL,
     task: ShareLoadTask,
@@ -545,6 +657,21 @@ final class ShareViewController: UIViewController {
         ordinal: task.ordinal
       )
     }
+  }
+
+  private func supportedType(
+    for attachment: NSItemProvider,
+    linkedImage: SharedLinkedImage?
+  ) -> SupportedShareType? {
+    guard linkedImage == nil else {
+      // Counted as a pending image, so the app opens with a placeholder
+      // while it downloads.
+      return SupportedShareType(
+        mediaType: .image,
+        itemTypeIdentifier: UTType.url.identifier
+      )
+    }
+    return supportedType(for: attachment)
   }
 
   private func supportedType(for attachment: NSItemProvider) -> SupportedShareType? {
