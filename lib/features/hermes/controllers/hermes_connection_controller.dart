@@ -127,6 +127,7 @@ final class HermesConnectionController extends ChangeNotifier {
                ? HermesConnectionNameSource.derived
                : HermesConnectionNameSource.user),
        url = TextEditingController(text: initialConfig.baseUrl),
+       _previousUrl = initialConfig.baseUrl,
        _mode = initialConfig.mode,
        _desktopAuthKind = initialConfig.desktopAuthKind,
        _desktopProfile = initialConfig.desktopProfile,
@@ -140,6 +141,9 @@ final class HermesConnectionController extends ChangeNotifier {
   final TextEditingController name;
   HermesConnectionNameSource _nameSource;
   final TextEditingController url;
+
+  /// The server URL before its latest edit: a name it gave follows the edit.
+  String _previousUrl;
   final TextEditingController apiKey = TextEditingController();
   final TextEditingController sessionKey = TextEditingController();
   final TextEditingController desktopLegacyToken = TextEditingController();
@@ -252,7 +256,19 @@ final class HermesConnectionController extends ChangeNotifier {
     _markDraftChanged(nameDirty: true);
   }
 
-  void markUrlChanged() => _markDraftChanged();
+  void markUrlChanged() {
+    // Saving names the connection after its new host when the old one gave
+    // its name, so the name shown follows the URL as it is edited.
+    if (HermesConnectionProfile.nameFollowsUrl(
+      name.text,
+      _nameSource,
+      _previousUrl,
+    )) {
+      name.text = HermesConnectionProfile.deriveName(url.text);
+    }
+    _previousUrl = url.text;
+    _markDraftChanged();
+  }
 
   void markApiKeyChanged() => _markDraftChanged(apiKeyDirty: true);
 
