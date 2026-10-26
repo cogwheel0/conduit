@@ -598,6 +598,25 @@ void main() {
       expect(rig.chatList.currentState!.isOpen, isTrue);
     });
 
+    testWidgets('right after typing clears the composer for good', (
+      tester,
+    ) async {
+      final rig = await mountUnderList(tester, android: true);
+      final composer = find.descendant(
+        of: find.byType(ModernChatInput),
+        matching: find.byType(EditableText),
+      );
+      await tester.showKeyboard(composer);
+      await tester.enterText(composer, 'Draft');
+
+      await back(tester);
+      expect(tester.widget<EditableText>(composer).focusNode.hasFocus, isFalse);
+      expect(rig.chatList.currentState!.isOpen, isFalse);
+
+      await back(tester);
+      expect(rig.chatList.currentState!.isOpen, isTrue);
+    });
+
     testWidgets('is left alone without a system back button', (tester) async {
       final rig = await mountUnderList(tester, android: false);
 

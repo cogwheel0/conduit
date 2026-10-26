@@ -112,6 +112,8 @@ class ChatListBackScope extends ConsumerWidget {
             composerHasFocus: ref.read(composerHasFocusProvider),
           ),
           dismissInputFocus: () {
+            // Typing just before would otherwise focus the composer again.
+            ref.read(composerAutofocusEnabledProvider.notifier).set(false);
             FocusManager.instance.primaryFocus?.unfocus();
             SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
           },
