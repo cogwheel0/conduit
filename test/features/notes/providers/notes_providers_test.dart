@@ -104,6 +104,10 @@ class _RecordingVoiceInputService extends VoiceInputService {
   /// new wrapper over the current controller.
   StreamController<String>? activeRun;
 
+  /// What the server makes of the speech a stop hands over. Like the real
+  /// service, the stop delivers it and ends the run before it returns.
+  String? transcriptOnStop;
+
   @override
   Stream<String> get textStream =>
       activeRun?.stream ?? const Stream<String>.empty();
@@ -136,6 +140,11 @@ class _RecordingVoiceInputService extends VoiceInputService {
   @override
   Future<void> stopListening() async {
     stopCalls++;
+    final transcript = transcriptOnStop;
+    final run = activeRun;
+    if (transcript == null || run == null) return;
+    run.add(transcript);
+    await run.close();
   }
 
   @override
@@ -454,6 +463,47 @@ void main() {
         },
       );
     }
+
+    testWidgets('stopping dictation keeps what was being said', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final originalOnError = FlutterError.onError;
+      addTearDown(() => FlutterError.onError = originalOnError);
+      FlutterError.onError = (details) {
+        if (details.exceptionAsString().contains(
+          'ListTile background color or ink splashes may be invisible',
+        )) {
+          return;
+        }
+        originalOnError?.call(details);
+      };
+      final voice = _RecordingVoiceInputService()
+        ..updatePreference(SttPreference.serverOnly);
+      await tester.pumpWidget(
+        _noteEditorHarness(
+          db: db,
+          syncEngine: _NoDrainSyncEngine(),
+          noteJson: _deletedNoteJson(),
+          extraOverrides: [voiceInputServiceProvider.overrideWithValue(voice)],
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.mic_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Dictation'));
+      await tester.pumpAndSettle();
+
+      // Server dictation has no text until the stop sends it (#752).
+      voice.transcriptOnStop = 'call the plumber';
+      await tester.tap(find.byIcon(Icons.stop_rounded));
+      await tester.pumpAndSettle();
+
+      check(voice.stopCalls).equals(1);
+      final editor = tester.widget<FleatherEditor>(find.byType(FleatherEditor));
+      check(
+        editor.controller.document.toPlainText(),
+      ).contains('call the plumber');
+    });
 
     testWidgets('checkbox toggles autosave canonical markdown', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));

@@ -643,6 +643,212 @@ void main() {
     });
   });
 
+  // Issues #752 and #853: stopping, the recording cap and the wait for
+  // speech must never drop what the user is still saying.
+  group('VoiceInputService keeps speech in progress', () {
+    late _FakeServerVadRecorder recorder;
+    late _FakeVadHandler vad;
+    late _MockApiService api;
+    late List<Uint8List> uploads;
+    VoiceInputService? service;
+    final firstWords = List<double>.filled(1600, 0.25);
+    final moreWords = List<double>.filled(3200, 0.5);
+
+    setUpAll(() => registerFallbackValue(Uint8List(0)));
+
+    setUp(() {
+      recorder = _FakeServerVadRecorder();
+      vad = _FakeVadHandler();
+      api = _MockApiService();
+      uploads = <Uint8List>[];
+      when(
+        () => api.transcribeSpeech(
+          audioBytes: any(named: 'audioBytes'),
+          fileName: any(named: 'fileName'),
+          mimeType: any(named: 'mimeType'),
+          language: any(named: 'language'),
+        ),
+      ).thenAnswer((invocation) async {
+        uploads.add(invocation.namedArguments[#audioBytes] as Uint8List);
+        return const {'text': 'still talking'};
+      });
+    });
+
+    tearDown(() async {
+      await service?.dispose();
+      service = null;
+      await recorder.close();
+    });
+
+    Future<VoiceInputService> start({
+      Ref? ref,
+      Duration noSpeech = const Duration(seconds: 90),
+      Duration cap = const Duration(minutes: 10),
+    }) async {
+      final started = _SupportedVoiceInputService(
+        ref: ref,
+        nativeStt: _FakeNativeSttService(),
+        serverSpeech: () => OpenWebUiServerSpeech(api),
+        serverVadRecorderFactory: () => recorder,
+        vadHandlerFactory: () => vad,
+        serverNoSpeechTimeout: noSpeech,
+        serverRecordingMaxDuration: cap,
+      )..updatePreference(SttPreference.serverOnly);
+      await started.initialize();
+      return service = started;
+    }
+
+    /// The samples of an uploaded 16-bit mono WAV, after its 44-byte header.
+    List<int> samplesOf(Uint8List wav) =>
+        Int16List.fromList(Int16List.sublistView(wav, 44)).toList();
+
+    int pcm(double sample) => (sample * 32767).round();
+
+    test('transcribes what is being said when stop is tapped', () async {
+      final voice = await start();
+      final texts = <String>[];
+      var done = false;
+      (await voice.startListening()).listen(
+        texts.add,
+        onDone: () => done = true,
+      );
+      await pumpEventQueue();
+      check(recorder.calls).contains('start-stream');
+
+      // No pause has ended the speech yet.
+      vad.speaking = List.of(moreWords);
+      await voice.stopListening();
+
+      check(uploads).length.equals(1);
+      check(samplesOf(uploads.single)).deepEquals([
+        for (final sample in moreWords) pcm(sample),
+      ]);
+      check(texts).deepEquals(['still talking']);
+      check(done).isTrue();
+    });
+
+    test('scores the audio it was already handed before stopping', () async {
+      final voice = await start();
+      (await voice.startListening()).listen((_) {});
+      await pumpEventQueue();
+
+      vad.speaking = <double>[];
+      final words = Int16List.fromList([for (var i = 0; i < 1600; i++) i]);
+      recorder.audio.add(Uint8List.sublistView(words));
+      // The VAD has the audio and is part-way through scoring it.
+      await vad.heardAudio;
+      await voice.stopListening();
+
+      check(samplesOf(uploads.single)).deepEquals([
+        for (final sample in words) pcm(sample / 32768),
+      ]);
+    });
+
+    test('sends the words after a pause along with those before', () async {
+      final voice = await start();
+      (await voice.startListening()).listen((_) {});
+      await pumpEventQueue();
+
+      // A pause ends the first words while more are already coming in.
+      vad.speaking = List.of(moreWords);
+      vad.endSpeech(firstWords);
+      await pumpEventQueue();
+
+      check(uploads).length.equals(1);
+      check(samplesOf(uploads.single)).deepEquals([
+        for (final sample in [...firstWords, ...moreWords]) pcm(sample),
+      ]);
+    });
+
+    test('transcribes what was said when the recording cap ends it', () async {
+      final voice = await start(cap: const Duration(milliseconds: 100));
+      final texts = <String>[];
+      (await voice.startListening()).listen(texts.add);
+      await pumpEventQueue();
+      vad.speaking = List.of(moreWords);
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await pumpEventQueue();
+
+      check(voice.isListening).isFalse();
+      check(samplesOf(uploads.single)).length.equals(moreWords.length);
+      check(texts).deepEquals(['still talking']);
+    });
+
+    test('a call keeps its recorder when the cap ends a turn', () async {
+      final voice = await start(cap: const Duration(milliseconds: 100));
+      final events = <VoiceTranscriptEvent>[];
+      (await voice.beginListeningEvents()).listen(events.add);
+      await pumpEventQueue();
+      vad.speaking = List.of(moreWords);
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await pumpEventQueue();
+
+      check(
+        events.map((event) => (event.text, event.isFinal)),
+      ).deepEquals([('still talking', true)]);
+      check(voice.isHoldingServerRecorderForResponse).isTrue();
+      check(recorder.calls).not((calls) => calls.contains('stop'));
+    });
+
+    test('waits for speech from the last frame scored as speech', () async {
+      final voice = await start(noSpeech: const Duration(milliseconds: 300));
+      var done = false;
+      (await voice.startListening()).listen((_) {}, onDone: () => done = true);
+      await pumpEventQueue();
+
+      // Quiet speech scores above the 0.35 that keeps speech going but
+      // below the 0.6 that starts it.
+      for (var i = 0; i < 12; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        vad.frame(isSpeech: 0.4);
+      }
+      check(voice.isListening).isTrue();
+
+      // Frames scored as silence do not hold it open.
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        vad.frame(isSpeech: 0.3);
+      }
+      await pumpEventQueue();
+
+      check(voice.isListening).isFalse();
+      check(done).isTrue();
+      check(uploads).isEmpty();
+    });
+
+    test('keeps half a second after speech at a 4 s pause setting', () async {
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(
+            () => _VoiceLocaleSettingsNotifier(
+              const AppSettings(voiceSilenceDuration: 4000),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final voiceProvider = Provider<Future<VoiceInputService>>(
+        (ref) => start(ref: ref),
+      );
+      final voice = await container.read(voiceProvider);
+      (await voice.startListening()).listen((_) {});
+      await pumpEventQueue();
+
+      check(vad.startArgs).isNotNull()
+        ..has((args) => args[#redemptionFrames], 'redemptionFrames').equals(125)
+        ..has(
+          (args) => args[#endSpeechPadFrames],
+          'endSpeechPadFrames',
+        ).equals(16)
+        ..has(
+          (args) => args[#submitUserSpeechOnPause],
+          'submitUserSpeechOnPause',
+        ).equals(true);
+    });
+  });
+
   group('ServerVadRecorderSession', () {
     test(
       'rejects denied permission without connecting VAD or recording',
@@ -1110,9 +1316,40 @@ class _FakeVadHandler extends Fake implements VadHandler {
         ({double isSpeech, double notSpeech, List<double> frame})
       >.broadcast();
   final _errors = StreamController<String>.broadcast();
+  final _heard = Completer<void>();
   StreamSubscription<Uint8List>? _audio;
 
+  /// What the service passed to `startListening`.
+  Map<Symbol, dynamic>? startArgs;
+
+  /// Speech under way and not yet ended by a pause. Audio the VAD scores
+  /// joins it, and [stopListening] hands it over, as the real handler does
+  /// with `submitUserSpeechOnPause`.
+  List<double>? speaking;
+
+  /// Completes when the first audio reaches the VAD.
+  Future<void> get heardAudio => _heard.future;
+
   void endSpeech(List<double> samples) => _speechEnd.add(samples);
+
+  void frame({required double isSpeech}) => _frames.add((
+    isSpeech: isSpeech,
+    notSpeech: 1 - isSpeech,
+    frame: const <double>[],
+  ));
+
+  /// Scores [bytes] a frame at a time, yielding between frames like the real
+  /// VAD's model loop.
+  Future<void> _score(Uint8List bytes) async {
+    if (!_heard.isCompleted) _heard.complete();
+    final pcm = Int16List.sublistView(bytes);
+    for (var start = 0; start < pcm.length; start += 64) {
+      await Future<void>.value();
+      speaking?.addAll([
+        for (final sample in pcm.skip(start).take(64)) sample / 32768,
+      ]);
+    }
+  }
 
   @override
   Stream<List<double>> get onSpeechEnd => _speechEnd.stream;
@@ -1126,6 +1363,11 @@ class _FakeVadHandler extends Fake implements VadHandler {
 
   @override
   Future<void> stopListening() async {
+    final inProgress = speaking;
+    speaking = null;
+    if (inProgress != null && inProgress.isNotEmpty) {
+      _speechEnd.add(inProgress);
+    }
     await _audio?.cancel();
     _audio = null;
   }
@@ -1136,8 +1378,9 @@ class _FakeVadHandler extends Fake implements VadHandler {
   @override
   dynamic noSuchMethod(Invocation invocation) {
     if (invocation.memberName == #startListening) {
+      startArgs = invocation.namedArguments;
       final audio = invocation.namedArguments[#audioStream];
-      _audio = (audio as Stream<Uint8List>?)?.listen((_) {});
+      _audio = (audio as Stream<Uint8List>?)?.listen(_score);
       return Future<void>.value();
     }
     return super.noSuchMethod(invocation);
@@ -1147,9 +1390,12 @@ class _FakeVadHandler extends Fake implements VadHandler {
 class _SupportedVoiceInputService extends VoiceInputService {
   _SupportedVoiceInputService({
     required super.nativeStt,
+    super.ref,
     super.serverSpeech,
     super.serverVadRecorderFactory,
     super.vadHandlerFactory,
+    super.serverNoSpeechTimeout,
+    super.serverRecordingMaxDuration,
     this.deviceLocaleTag = 'en-US',
     this.usesAutomaticNativeLanguage = true,
     this.supportsNativeResponseWaitCapture = false,
