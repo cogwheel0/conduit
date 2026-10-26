@@ -7921,5 +7921,33 @@
         "example": "gpt-realtime-2.1-mini"
       }
     }
+  },
+  "chatHandoffPromptTitle": "Przełączyć na „{model}”?",
+  "@chatHandoffPromptTitle": {
+    "description": "Title of the dialog asking whether to follow the Open WebUI server's suggestion to continue in a new chat with another model.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "Code Assistant"
+      }
+    }
+  },
+  "chatHandoffPromptMessage": "Twój serwer proponuje kontynuowanie w nowym czacie z modelem „{model}”. Proponowana wiadomość poczeka w polu wpisywania, aż ją wyślesz.",
+  "@chatHandoffPromptMessage": {
+    "description": "Message of the dialog asking whether to continue in a new chat with the model the Open WebUI server suggested. Nothing is sent until the user sends it.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "Code Assistant"
+      }
+    }
+  },
+  "chatHandoffStartNewChat": "Rozpocznij nowy czat",
+  "@chatHandoffStartNewChat": {
+    "description": "Confirm button that opens a new chat with the model the Open WebUI server suggested."
+  },
+  "chatHandoffStayHere": "Zostań tutaj",
+  "@chatHandoffStayHere": {
+    "description": "Cancel button that keeps the user in the current chat instead of following the Open WebUI server's suggestion."
   }
 }

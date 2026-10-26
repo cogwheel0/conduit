@@ -8843,5 +8843,33 @@
   "accountsAddressConfirmAction": "Check address",
   "@accountsAddressConfirmAction": {
     "description": "Confirms sending a saved account's session to a new address of an Open WebUI server, to check that it reaches the same server."
+  },
+  "chatHandoffPromptTitle": "Switch to {model}?",
+  "@chatHandoffPromptTitle": {
+    "description": "Title of the dialog asking whether to follow the Open WebUI server's suggestion to continue in a new chat with another model.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "Code Assistant"
+      }
+    }
+  },
+  "chatHandoffPromptMessage": "Your server suggests continuing in a new chat with {model}. Any suggested message waits in the composer until you send it.",
+  "@chatHandoffPromptMessage": {
+    "description": "Message of the dialog asking whether to continue in a new chat with the model the Open WebUI server suggested. Nothing is sent until the user sends it.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "Code Assistant"
+      }
+    }
+  },
+  "chatHandoffStartNewChat": "Start new chat",
+  "@chatHandoffStartNewChat": {
+    "description": "Confirm button that opens a new chat with the model the Open WebUI server suggested."
+  },
+  "chatHandoffStayHere": "Stay here",
+  "@chatHandoffStayHere": {
+    "description": "Cancel button that keeps the user in the current chat instead of following the Open WebUI server's suggestion."
   }
 }

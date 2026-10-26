@@ -128,6 +128,17 @@ class SocketServiceManager extends _$SocketServiceManager {
               isActive: isActive,
             );
           };
+      // A function can ask to carry on in a new chat on another model, which
+      // happens only once the user agrees.
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) {
+            if (!ref.mounted || !identical(_service, service)) {
+              return Future.value(ChatHandoffRefusal.unsupported.reply);
+            }
+            return ref
+                .read(chatHandoffCoordinatorProvider)
+                .handle(chatId: chatId, messageId: messageId, data: data);
+          };
       _serviceToken = token;
       _scheduleConnect(_service!);
     }
@@ -218,6 +229,7 @@ class SocketServiceManager extends _$SocketServiceManager {
     _serviceToken = null;
     if (_service == null) return;
     _service!.toolExecutionHandler = null;
+    _service!.chatHandoffHandler = null;
     try {
       _service!.dispose();
     } catch (_) {}

@@ -4252,5 +4252,9 @@
   "accountsRemoveAddressMessage": "Conduit probeert dit adres niet meer. Je accounts blijven ingelogd.",
   "accountsAddressConfirmTitle": "Dit adres controleren?",
   "accountsAddressConfirmMessage": "Om zeker te weten dat {host} deze server is, stuurt Conduit er de sessie van een hier opgeslagen account naartoe. Ga alleen verder als je dit adres vertrouwt.",
-  "accountsAddressConfirmAction": "Adres controleren"
+  "accountsAddressConfirmAction": "Adres controleren",
+  "chatHandoffPromptTitle": "Overschakelen naar {model}?",
+  "chatHandoffPromptMessage": "Je server stelt voor om verder te gaan in een nieuwe chat met {model}. Een voorgesteld bericht blijft in het invoerveld staan tot je het verstuurt.",
+  "chatHandoffStartNewChat": "Nieuwe chat starten",
+  "chatHandoffStayHere": "Hier blijven"
 }

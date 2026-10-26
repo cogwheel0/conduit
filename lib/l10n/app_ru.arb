@@ -4290,5 +4290,9 @@
   "accountsRemoveAddressMessage": "Conduit перестанет пробовать этот адрес. Вход в ваши аккаунты сохранится.",
   "accountsAddressConfirmTitle": "Проверить этот адрес?",
   "accountsAddressConfirmMessage": "Чтобы убедиться, что {host} — это тот же сервер, Conduit отправит туда сеанс аккаунта, сохранённого на этом устройстве. Продолжайте, только если доверяете этому адресу.",
-  "accountsAddressConfirmAction": "Проверить адрес"
+  "accountsAddressConfirmAction": "Проверить адрес",
+  "chatHandoffPromptTitle": "Переключиться на {model}?",
+  "chatHandoffPromptMessage": "Сервер предлагает продолжить в новом чате с {model}. Предложенное сообщение останется в поле ввода, пока вы его не отправите.",
+  "chatHandoffStartNewChat": "Начать новый чат",
+  "chatHandoffStayHere": "Остаться здесь"
 }

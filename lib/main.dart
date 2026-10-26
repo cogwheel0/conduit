@@ -164,6 +164,8 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
+import 'features/chat/services/chat_handoff_host.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show openWebUiRouteResolverProvider;
@@ -480,6 +482,17 @@ void main() {
                   ref.read(uiRequestPortProvider),
                   name,
                 ),
+          ),
+          chatHandoffPromptProvider.overrideWith(
+            (ref) =>
+                (modelName) => confirmChatHandoff(
+                  ref.read(uiRequestPortProvider),
+                  modelName,
+                ),
+          ),
+          chatHandoffOpenerProvider.overrideWith(
+            (ref) =>
+                (model, prompt) => openChatHandoffInApp(ref, model, prompt),
           ),
           routeNavigatorProvider.overrideWithValue(const GoRouterNavigator()),
           openExternalUrlProvider.overrideWithValue(

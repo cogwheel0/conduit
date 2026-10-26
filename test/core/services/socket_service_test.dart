@@ -132,6 +132,171 @@ void main() {
     expect(delivered, 0);
   });
 
+  test('the execute reply names Conduit and what it does instead', () async {
+    final factory = _RecordingSocketFactory();
+    final service = SocketService(
+      serverConfig: _serverConfig,
+      socketFactory: factory.create,
+    );
+    addTearDown(service.dispose);
+    await service.connect();
+    final replies = <dynamic>[];
+
+    service.debugHandleChatEvent({
+      'chat_id': 'chat-1',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'execute',
+        'data': {'code': 'return true'},
+      },
+    }, replies.add);
+
+    // The error is unchanged for functions that already read it.
+    expect(replies, [
+      {
+        'error':
+            'Conduit does not support client-side JavaScript execution. '
+            'Use a server-side tool or the Open WebUI browser client.',
+        'client': 'conduit',
+        'capabilities': ['chat:handoff'],
+      },
+    ]);
+  });
+
+  group('a chat handoff', () {
+    Map<String, dynamic> handoff({String? session}) => {
+      'chat_id': 'chat-1',
+      'message_id': 'assistant',
+      'data': {
+        'type': 'chat:handoff',
+        'data': {
+          'model_id': 'coder',
+          'prompt': 'Review this diff',
+          'session_id': ?session,
+        },
+      },
+    };
+
+    Future<(SocketService, io.Socket)> connected() async {
+      final factory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        socketFactory: factory.create,
+      );
+      addTearDown(service.dispose);
+      await service.connect();
+      return (service, factory.sockets.single);
+    }
+
+    test('is answered with the handler reply, and only there', () async {
+      final (service, _) = await connected();
+      final calls = <(String?, String?, Object?)>[];
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) async {
+            calls.add((chatId, messageId, data));
+            return {'handled': true};
+          };
+      var delivered = 0;
+      service.addChatEventHandler(
+        conversationId: 'chat-1',
+        handler: (_, _) => delivered += 1,
+      );
+      final replies = <dynamic>[];
+
+      service.debugHandleChatEvent(handoff(), replies.add);
+      await _flushMicrotasks(3);
+
+      expect(calls, hasLength(1));
+      expect(calls.single.$1, 'chat-1');
+      expect(calls.single.$2, 'assistant');
+      expect(calls.single.$3, {
+        'model_id': 'coder',
+        'prompt': 'Review this diff',
+      });
+      expect(replies, [
+        {'handled': true},
+      ]);
+      expect(delivered, 0);
+      expect(service.debugBufferedScopeCount, 0);
+    });
+
+    test('sent without waiting for a reply is still decided', () async {
+      final (service, _) = await connected();
+      var calls = 0;
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) async {
+            calls += 1;
+            return {'handled': true};
+          };
+
+      service.debugHandleChatEvent(handoff());
+      await _flushMicrotasks(3);
+
+      expect(calls, 1);
+    });
+
+    test('is refused as unsupported without a handler', () async {
+      final (service, _) = await connected();
+      final replies = <dynamic>[];
+
+      service.debugHandleChatEvent(handoff(), replies.add);
+      await _flushMicrotasks(3);
+
+      expect(replies, [
+        {'handled': false, 'reason': 'unsupported'},
+      ]);
+    });
+
+    test('is refused as failed when the handler throws', () async {
+      final (service, _) = await connected();
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) =>
+              Future.error(StateError('boom'));
+      final replies = <dynamic>[];
+
+      service.debugHandleChatEvent(handoff(), replies.add);
+      await _flushMicrotasks(3);
+
+      expect(replies, [
+        {'handled': false, 'reason': 'failed'},
+      ]);
+    });
+
+    test('for another session is ignored', () async {
+      final (service, socket) = await connected();
+      socket.id = 'local-session';
+      var calls = 0;
+      service.chatHandoffHandler =
+          ({required chatId, required messageId, required data}) async {
+            calls += 1;
+            return {'handled': true};
+          };
+      var delivered = 0;
+      service.addChatEventHandler(
+        conversationId: 'chat-1',
+        handler: (_, _) => delivered += 1,
+      );
+      final replies = <dynamic>[];
+
+      service.debugHandleChatEvent(
+        handoff(session: 'other-session'),
+        replies.add,
+      );
+      await _flushMicrotasks(3);
+      expect(calls, 0);
+      expect(replies, isEmpty);
+      expect(delivered, 0);
+
+      service.debugHandleChatEvent(
+        handoff(session: 'local-session'),
+        replies.add,
+      );
+      await _flushMicrotasks(3);
+      expect(calls, 1);
+      expect(replies, hasLength(1));
+    });
+  });
+
   group('a direct tool call is always answered once', () {
     const admission = PersonalToolAdmission(
       kind: PersonalConnectionKind.toolServer,

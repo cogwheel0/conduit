@@ -189,6 +189,10 @@ settings navigation. Sections you don't have permission for simply don't appear.
 Server-dependent features (channels, notes, web search, image generation,
 toggle filters, terminal) appear only when your deployment exposes them.
 
+Writing Open WebUI filters or tools? Conduit never runs their JavaScript, but
+a filter can move the user to a new chat on another model with a documented
+event: see [Open WebUI functions in Conduit](docs/open-webui-functions.md).
+
 ## Built for self-hosted reality
 
 Most mobile clients assume a plain login form. Real deployments rarely look like

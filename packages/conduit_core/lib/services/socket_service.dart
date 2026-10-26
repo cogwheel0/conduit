@@ -11,6 +11,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'package:conduit_core/features/integrations/personal_tool_admissions.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
+import 'package:conduit_core/models/chat_handoff.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/socket_health.dart';
 
@@ -55,6 +56,14 @@ typedef SocketToolExecutionHandler = Future<Object?> Function(
   Map<String, dynamic> call, {
   required List<PersonalToolAdmission> admitted,
   required bool Function() isActive,
+});
+
+/// Decides a `chat:handoff` event that arrived for [chatId] and [messageId]
+/// carrying [data], and returns the reply to acknowledge it with.
+typedef SocketChatHandoffHandler = Future<Map<String, dynamic>> Function({
+  required String? chatId,
+  required String? messageId,
+  required Object? data,
 });
 
 typedef SocketFactory = io.Socket Function(
@@ -588,6 +597,14 @@ class SocketService {
   /// an account, and cleared with it.
   set toolExecutionHandler(SocketToolExecutionHandler? handler) =>
       _toolExecutionHandler = handler;
+
+  SocketChatHandoffHandler? _chatHandoffHandler;
+
+  /// Who answers `chat:handoff` events for this service, or null for nobody;
+  /// a call then gets an `unsupported` reply. Set by the owner that ties the
+  /// service to an account, and cleared with it.
+  set chatHandoffHandler(SocketChatHandoffHandler? handler) =>
+      _chatHandoffHandler = handler;
 
   /// Records the personal connections the chat request for [messageId] in
   /// [chatId] sent over [sessionId], which is what lets Open WebUI's
@@ -1514,10 +1531,14 @@ class SocketService {
     final event = map['data'];
     final type = event is Map ? event['type'] : null;
     final unsupported = switch (type) {
+      // Names Conduit and what it does instead, so a function can stop
+      // waiting on a browser (docs/open-webui-functions.md).
       'execute' => const <String, dynamic>{
         'error':
             'Conduit does not support client-side JavaScript execution. '
             'Use a server-side tool or the Open WebUI browser client.',
+        'client': conduitClientName,
+        'capabilities': conduitEventCapabilities,
       },
       'execute:python' => const <String, dynamic>{
         'stdout': '',
@@ -1553,6 +1574,14 @@ class SocketService {
     // blocks until this session answers, whichever chat is open.
     if (type == 'execute:tool') {
       _handleExecuteTool(event as Map, chatId, messageId, ackFn);
+      return;
+    }
+
+    // So is a handoff, so that a replay cannot ask the user twice.
+    if (type == chatHandoffEventType) {
+      if (sessionId == null || sessionId == this.sessionId) {
+        _handleChatHandoff(chatId, messageId, (event as Map)['data'], ackFn);
+      }
       return;
     }
 
@@ -1603,6 +1632,28 @@ class SocketService {
     if (bufferScope != null) {
       _bufferChatEvent(bufferScope, map, ackFn);
     }
+  }
+
+  /// Passes a `chat:handoff` event to [chatHandoffHandler] and answers a call
+  /// with its reply: always exactly once, and as unsupported or failed when
+  /// there is no handler or it throws.
+  void _handleChatHandoff(
+    String? chatId,
+    String? messageId,
+    Object? data,
+    void Function(dynamic response)? ack,
+  ) {
+    final handler = _chatHandoffHandler;
+    Future<Map<String, dynamic>> run() async {
+      if (handler == null) return ChatHandoffRefusal.unsupported.reply;
+      try {
+        return await handler(chatId: chatId, messageId: messageId, data: data);
+      } catch (_) {
+        return ChatHandoffRefusal.failed.reply;
+      }
+    }
+
+    unawaited(run().then((reply) => ack?.call(reply)));
   }
 
   /// Answers an `execute:tool` call for a direct tool server.

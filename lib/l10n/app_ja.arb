@@ -5861,5 +5861,9 @@
   "accountsRemoveAddressMessage": "Conduit はこのアドレスを試さなくなります。アカウントはサインインしたままです。",
   "accountsAddressConfirmTitle": "このアドレスを確認しますか？",
   "accountsAddressConfirmMessage": "{host} がこのサーバーであることを確かめるため、Conduit はこのデバイスに保存されたアカウントのセッションをそこへ送信します。このアドレスを信頼できる場合のみ続行してください。",
-  "accountsAddressConfirmAction": "アドレスを確認"
+  "accountsAddressConfirmAction": "アドレスを確認",
+  "chatHandoffPromptTitle": "{model} に切り替えますか？",
+  "chatHandoffPromptMessage": "サーバーが {model} との新しいチャットで続けることを提案しています。提案されたメッセージは、送信するまで入力欄に残ります。",
+  "chatHandoffStartNewChat": "新しいチャットを開始",
+  "chatHandoffStayHere": "このままにする"
 }

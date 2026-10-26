@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/socket_transport_availability.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
@@ -273,6 +275,49 @@ void main() {
 
       check(service.disposeCalls).equals(1);
     });
+
+    test('hands chat handoffs to the coordinator while it owns them', () async {
+      final asked = <String>[];
+      final harness = _SocketManagerHarness(
+        initialServer: Future<ServerConfig?>.value(serverA),
+        initialAuth: (authenticated: true, token: 'token-a', epoch: Object()),
+      );
+      final container = harness.createContainer(
+        handoffCoordinator: ChatHandoffCoordinator(
+          claimActiveChat: (chatId) => chatId == 'chat-1' ? () => true : null,
+          findModel: (modelId) async => openWebUiHandoffModel(const [
+            Model(id: 'coder', name: 'Coder'),
+          ], modelId),
+          confirm: (modelName) async {
+            asked.add(modelName);
+            return false;
+          },
+          open: (_, _) {},
+        ),
+      );
+      final subscription = container.listen(
+        socketServiceManagerProvider,
+        (_, _) {},
+        fireImmediately: true,
+      );
+      final service = await container.read(
+        socketServiceManagerProvider.future,
+      ) as _TestSocketService;
+
+      final reply = await service.handoffHandler!(
+        chatId: 'chat-1',
+        messageId: 'message-1',
+        data: const {'model_id': 'coder'},
+      );
+      check(reply).deepEquals({'handled': false, 'reason': 'declined'});
+      check(asked).deepEquals(['Coder']);
+
+      container.dispose();
+      await _flushMicrotasks();
+      subscription.close();
+
+      check(service.handoffHandler).isNull();
+    });
   });
 }
 
@@ -293,9 +338,13 @@ final class _SocketManagerHarness {
   serverProvider;
   final List<_TestSocketService> services = <_TestSocketService>[];
 
-  ProviderContainer createContainer() {
+  ProviderContainer createContainer({
+    ChatHandoffCoordinator? handoffCoordinator,
+  }) {
     return ProviderContainer(
       overrides: [
+        if (handoffCoordinator != null)
+          chatHandoffCoordinatorProvider.overrideWithValue(handoffCoordinator),
         reviewerModeProvider.overrideWithValue(false),
         isAuthenticatedProvider2.overrideWith(
           (ref) => ref.watch(authProvider).authenticated,
@@ -382,6 +431,11 @@ final class _TestSocketService implements SocketService {
 
   int connectCalls = 0;
   int disposeCalls = 0;
+  SocketChatHandoffHandler? handoffHandler;
+
+  @override
+  set chatHandoffHandler(SocketChatHandoffHandler? handler) =>
+      handoffHandler = handler;
 
   @override
   Future<void> connect({bool force = false}) async {
