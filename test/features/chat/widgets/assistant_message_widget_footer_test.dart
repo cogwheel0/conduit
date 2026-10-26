@@ -36,6 +36,7 @@ import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
@@ -136,6 +137,8 @@ Widget _buildAssistantHarness(
   bool? isChatStreaming,
   bool disableAnimations = false,
   bool showActionBar = true,
+  bool readOnly = false,
+  String Function()? resolveGroupedResponseText,
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
   FutureOr<void> Function(String suggestion)? onFollowUpSelected,
@@ -166,6 +169,8 @@ Widget _buildAssistantHarness(
           isStreaming: isStreaming,
           showFollowUps: showFollowUps,
           showActionBar: showActionBar,
+          readOnly: readOnly,
+          resolveGroupedResponseText: resolveGroupedResponseText,
           animateOnMount: false,
           modelName: message.model,
           onCopy: onCopy ?? () {},
@@ -210,6 +215,192 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+  group('response sharing', () {
+    const channel = MethodChannel('dev.fluttercommunity.plus/share');
+    final calls = <MethodCall>[];
+    var failShare = false;
+    const text = '## Garden plan\n\n- Plant basil.\n- Water gently.\n\n`done`';
+    final message = ChatMessage(
+      id: 'share-response',
+      role: 'assistant',
+      content: text,
+      timestamp: DateTime.utc(2026, 1, 1),
+      versions: [
+        ChatMessageVersion(
+          id: 'earlier-response',
+          content: 'Earlier garden plan.',
+          timestamp: DateTime.utc(2025, 12, 31),
+        ),
+      ],
+    );
+
+    setUp(() {
+      calls.clear();
+      failShare = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            if (failShare) throw PlatformException(code: 'share-failed');
+            return 'dev.fluttercommunity.plus/share/dismissed';
+          });
+    });
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    Future<void> share(WidgetTester tester) async {
+      await tester.tap(
+        find.byKey(const ValueKey('assistant-response-overflow-button')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Share...'));
+      await tester.pumpAndSettle();
+    }
+
+    for (final readOnly in [false, true]) {
+      testWidgets('shares only response text; readOnly=$readOnly', (
+        tester,
+      ) async {
+        await tester.binding.setSurfaceSize(const Size(1024, 768));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(
+          _buildAssistantHarness(message, readOnly: readOnly),
+        );
+        await tester.pumpAndSettle();
+
+        check(find.byIcon(Icons.share_outlined).evaluate()).isEmpty();
+        final origin = tester.getRect(
+          find.byKey(const ValueKey('assistant-response-overflow-button')),
+        );
+        await share(tester);
+
+        check(calls).length.equals(1);
+        check(calls.single.method).equals('share');
+        final args = calls.single.arguments as Map;
+        check(args['text']).equals(text);
+        check(args['paths']).isNull();
+        check(args['originX']).equals(origin.left);
+        check(args['originY']).equals(origin.top);
+        check(args['originWidth']).equals(origin.width);
+        check(args['originHeight']).equals(origin.height);
+        check(find.text('Something went wrong. Please try again.').evaluate())
+            .isEmpty();
+      });
+    }
+
+    testWidgets('shares a whole grouped answer or the previewed version', (
+      tester,
+    ) async {
+      const grouped = 'First part.\n\nLast part.';
+      await tester.pumpWidget(
+        _buildAssistantHarness(
+          message,
+          resolveGroupedResponseText: () => grouped,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await share(tester);
+      check((calls.single.arguments as Map)['text']).equals(grouped);
+
+      await _tapVersionControl(
+        tester,
+        visibleIcon: Icons.chevron_left,
+        overflowLabel: 'Prev',
+      );
+      await share(tester);
+      check((calls.last.arguments as Map)['text'])
+          .equals('Earlier garden plan.');
+    });
+
+    testWidgets('omits internal tool markup using the clipboard text rules', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildAssistantHarness(
+          message.copyWith(
+            content:
+                'Visible &amp; useful.\n\n'
+                '<details type="tool_calls">Synthetic tool payload</details>',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await share(tester);
+      check((calls.single.arguments as Map)['text'])
+          .equals('Visible & useful.');
+    });
+
+    testWidgets('shares grouped text when the final row has no text', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildAssistantHarness(
+          message.copyWith(content: '', metadata: const {'responseDone': true}),
+          resolveGroupedResponseText: () => text,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await share(tester);
+      check((calls.single.arguments as Map)['text']).equals(text);
+    });
+
+    for (final grouped in [false, true]) {
+      testWidgets('does not offer Share when only reasoning remains; '
+          'grouped=$grouped', (tester) async {
+        const reasoning =
+            '<details type="reasoning" done="true" duration="2">\n'
+            '<summary>Thought for 2 seconds</summary>\n'
+            '&gt; Weighing the garden plan.\n'
+            '</details>';
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message.copyWith(content: reasoning),
+            resolveGroupedResponseText: grouped
+                ? () => '$reasoning\n\n$reasoning'
+                : null,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('assistant-response-overflow-button')),
+        );
+        await tester.pumpAndSettle();
+        check(find.text('Delete').evaluate()).isNotEmpty();
+        check(find.text('Share...').evaluate()).isEmpty();
+      });
+    }
+
+    testWidgets('does not offer Share while the response is streaming', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildAssistantHarness(
+          message.copyWith(isStreaming: true),
+          isStreaming: true,
+          isChatStreaming: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      check(
+        find
+            .byKey(const ValueKey('assistant-response-overflow-button'))
+            .evaluate(),
+      ).isEmpty();
+      check(calls).isEmpty();
+    });
+
+    testWidgets('reports a platform share failure', (tester) async {
+      failShare = true;
+      await tester.pumpWidget(_buildAssistantHarness(message));
+      await tester.pumpAndSettle();
+      await share(tester);
+      check(find.text('Something went wrong. Please try again.').evaluate())
+          .isNotEmpty();
+      check(tester.takeException()).isNull();
+    });
+  });
 
   testWidgets('streaming content rebuilds only the assistant body', (
     tester,

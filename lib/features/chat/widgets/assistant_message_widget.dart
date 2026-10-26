@@ -5,6 +5,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -104,7 +105,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final bool isStreaming;
   final bool showFollowUps;
 
-  /// Another user's chat (shared folder): only copy/listen/version browsing.
+  /// Another user's chat: only copy/share/listen/version browsing.
   final bool readOnly;
   final bool animateOnMount;
   final String? modelName;
@@ -124,10 +125,11 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   /// row when this is false — only the buttons move.
   final bool showActionBar;
 
-  /// Supplies the full text of the grouped response for read-aloud.
+  /// Supplies the full text of the grouped response for read-aloud and sharing.
   ///
-  /// Called at tap time, not during build, so a row never has to observe its
-  /// siblings. Null means this row speaks its own content.
+  /// It reads rather than watches, so a row never has to observe its siblings.
+  /// Called at tap time, and when a settled footer checks there is anything
+  /// to share. Null means this row speaks its own content.
   final String Function()? resolveGroupedResponseText;
   final List<String?> versionModelNames;
   final List<String?> versionModelIconUrls;
@@ -177,6 +179,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 
 class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  final _overflowButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
   late CurvedAnimation _streamingContentFade;
@@ -2196,10 +2199,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? _buildFooterActions()
         : const <_AssistantFooterAction>[];
     final forcedOverflowActions = actions
-        .where((action) => action.id == 'delete')
+        .where((action) => action.id == 'share' || action.id == 'delete')
         .toList(growable: false);
     final inlineCandidateActions = actions
-        .where((action) => action.id != 'delete')
+        .where((action) => action.id != 'share' && action.id != 'delete')
         .toList(growable: false);
     final visibleActions = inlineCandidateActions
         .take(maxInlineActions)
@@ -2736,6 +2739,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           ),
           sfSymbol: 'arrow.triangle.branch',
         ),
+      if (_shareableResponseText().isNotEmpty)
+        _AssistantFooterAction(
+          id: 'share',
+          icon: Platform.isIOS ? CupertinoIcons.share : Icons.share_outlined,
+          label: l10n.shareSystemSheet,
+          onTap: _responseCompleted ? () => unawaited(_shareResponse()) : null,
+          sfSymbol: 'square.and.arrow.up',
+        ),
       if (!widget.readOnly)
         _AssistantFooterAction(
           id: 'delete',
@@ -2747,6 +2758,49 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     ];
 
     return actions;
+  }
+
+  // Share is offered only when the text it would send is not empty: a reply
+  // stopped mid-thought holds nothing but its reasoning block. The clipboard
+  // rules are several full-content passes and the footer rebuilds far more
+  // often than the content changes, so memoize by content.
+  String? _shareTextSource;
+  String _shareTextResult = '';
+
+  /// The version on screen, or the whole grouped answer, cleaned the way Copy
+  /// cleans it.
+  String _shareableResponseText() {
+    final rawText = _activeVersionIndex >= 0
+        ? _displayedContent
+        : widget.resolveGroupedResponseText?.call() ?? _displayedContent;
+    if (rawText != _shareTextSource) {
+      _shareTextSource = rawText;
+      _shareTextResult = ConduitMarkdownPreprocessor.sanitizeForClipboard(
+        rawText,
+      );
+    }
+    return _shareTextResult;
+  }
+
+  Future<void> _shareResponse() async {
+    final text = _shareableResponseText();
+    if (!_responseCompleted || text.isEmpty) return;
+    final renderObject = _overflowButtonKey.currentContext?.findRenderObject();
+    final origin = renderObject is RenderBox && renderObject.hasSize
+        ? renderObject.localToGlobal(Offset.zero) & renderObject.size
+        : null;
+    try {
+      await SharePlus.instance.share(
+        ShareParams(text: text, sharePositionOrigin: origin),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.errorMessage,
+        type: AdaptiveSnackBarType.error,
+      );
+    }
   }
 
   Widget _buildActionButton({
@@ -2806,6 +2860,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final theme = context.conduitTheme;
 
     return AdaptiveTooltip(
+      key: _overflowButtonKey,
       message: l10n.more,
       waitDuration: const Duration(milliseconds: 600),
       child: Semantics(
