@@ -1,8 +1,8 @@
 # vad 0.0.8, patched
 
 A copy of [`vad` 0.0.8](https://pub.dev/packages/vad/versions/0.0.8)
-(keyur2maru/vad, MIT, see `LICENSE`) with one fix. The upstream README is
-`UPSTREAM_README.md`.
+(keyur2maru/vad, MIT, see `LICENSE`) with a few fixes, listed below. The
+upstream README is `UPSTREAM_README.md`.
 
 ## What changed
 
@@ -17,7 +17,8 @@ Smaller changes:
   listening). `SileroV5Model.process` and `SileroV4Model.process` now
   release the output tensors `OrtSession.run` hands them, after copying
   their values, and `run` frees the name strings it allocates, in a
-  `finally`.
+  `finally`. Memory still grows by about 260 B per frame for a reason not
+  yet found (cogwheel0/conduit#895).
 - `VadIterator._combineFrames` and `VadHandler`'s speech-end and chunk
   events convert audio straight into typed lists (`Int16List`,
   `Float64List`) instead of through boxed lists, which for a ten-minute
