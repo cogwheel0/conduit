@@ -77,6 +77,18 @@ final class HermesConnectionProfile {
     return host.isEmpty ? kHermesDefaultConnectionName : _boundName(host);
   }
 
+  /// Whether a connection's [name] from [source] follows its URL when that is
+  /// edited: it is the one [baseUrl] gave, and nobody chose it. A connection
+  /// carried over from before saved connections keeps the name it always
+  /// had, which no URL gave.
+  static bool nameFollowsUrl(
+    String name,
+    HermesConnectionNameSource source,
+    String baseUrl,
+  ) =>
+      source == HermesConnectionNameSource.derived &&
+      name == deriveName(baseUrl);
+
   /// Trims and bounds a user- or server-supplied name. Returns null when
   /// nothing printable remains.
   static String? sanitizeName(String? value) {

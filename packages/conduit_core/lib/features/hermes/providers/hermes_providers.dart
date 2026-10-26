@@ -627,7 +627,8 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// another became active first. Editing an inactive connection never
   /// touches the runtime. Returns the id of the saved connection.
   ///
-  /// A null [name] keeps the saved name; an empty one derives it from the URL.
+  /// A null [name] keeps the saved name, unless the saved URL gave it: then it
+  /// follows [baseUrl]. An empty one derives it from the URL.
   Future<String> saveConnection({
     String? connectionId,
     required String baseUrl,
@@ -867,7 +868,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
       nextName = chosenName;
       nextNameSource = nameSource ?? HermesConnectionNameSource.user;
     } else if (name == null && previousProfile != null) {
-      nextName = previousProfile.name;
+      final followsUrl = HermesConnectionProfile.nameFollowsUrl(
+        previousProfile.name,
+        previousProfile.nameSource,
+        previousProfile.baseUrl,
+      );
+      nextName = followsUrl
+          ? HermesConnectionProfile.deriveName(trimmedUrl)
+          : previousProfile.name;
       nextNameSource = previousProfile.nameSource;
     } else {
       nextName = HermesConnectionProfile.deriveName(trimmedUrl);

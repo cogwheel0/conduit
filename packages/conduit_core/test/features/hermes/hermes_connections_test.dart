@@ -1199,6 +1199,99 @@ void main() {
     });
   });
 
+  // A connection saved without a name is named after its host. Editing only
+  // its URL kept that host as its name, still marked as derived.
+  group('a name the URL gave', () {
+    HermesConnectionProfile saved(ProviderContainer container, String id) =>
+        container
+            .read(hermesConnectionsProvider)
+            .singleWhere((profile) => profile.id == id);
+
+    test('follows an inactive connection to its new host', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'alpha-key'}),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final created = await controller.createConnection(
+        baseUrl: 'https://beta.example',
+        apiKey: 'beta-key',
+      );
+      check(saved(container, created).name).equals('beta.example');
+
+      await controller.saveConnection(
+        connectionId: created,
+        baseUrl: 'https://gamma.example',
+      );
+
+      check(saved(container, created))
+        ..has((it) => it.name, 'name').equals('gamma.example')
+        ..has(
+          (it) => it.nameSource,
+          'nameSource',
+        ).equals(HermesConnectionNameSource.derived);
+    });
+
+    test('follows the active connection to its new host', () async {
+      PreferencesStore.debugOverride(InMemoryKeyValueStore());
+      final container = await _ready(_Secrets());
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      await controller.saveConnection(
+        baseUrl: 'https://first.example',
+        apiKeyChanged: true,
+        apiKey: 'first-key',
+      );
+      check(container.read(hermesConfigProvider).name).equals('first.example');
+
+      await controller.saveConnection(baseUrl: 'https://second.example/v1');
+
+      check(container.read(hermesConfigProvider).name).equals('second.example');
+    });
+
+    test('a name no URL gave stays when the URL is edited', () async {
+      _seedConnections([
+        // Typed, though it is a host.
+        _profile(_a, 'alpha.example', 'https://alpha.example'),
+        _profile(
+          _b,
+          'research-agent',
+          'https://beta.example',
+        ).copyWith(nameSource: HermesConnectionNameSource.server),
+        // A connection carried over from before saved connections kept the
+        // name it always had, marked as derived.
+        _profile(
+          _c,
+          kHermesDefaultConnectionName,
+          'https://gamma.example',
+        ).copyWith(nameSource: HermesConnectionNameSource.derived),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'alpha-key'}),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+
+      for (final id in [_a, _b, _c]) {
+        await controller.saveConnection(
+          connectionId: id,
+          baseUrl: 'https://moved.example',
+        );
+      }
+
+      check([
+        for (final id in [_a, _b, _c]) saved(container, id).name,
+      ]).deepEquals([
+        'alpha.example',
+        'research-agent',
+        kHermesDefaultConnectionName,
+      ]);
+    });
+  });
+
   test(
     'a name lookup after a test keeps the sign-in the test refreshed',
     () async {
