@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -526,14 +527,9 @@ void main() {
   });
 
   group('a folder the user opens or closes is kept on the server', () {
-    Future<bool> tap(String id, bool isExpanded) =>
-        folderLocks.runExclusive(
-          id,
-          () => db.foldersDao.setFolderExpandedWithOutbox(
-            id: id,
-            isExpanded: isExpanded,
-          ),
-        );
+    // As the sidebar saves it: at once, without the folder lock.
+    Future<bool> tap(String id, bool isExpanded) => db.foldersDao
+        .setFolderExpandedWithOutbox(id: id, isExpanded: isExpanded);
 
     Future<bool> expandedHere(String id) async =>
         folderFromRow((await db.foldersDao.getFolder(id))!).isExpanded;
@@ -546,13 +542,36 @@ void main() {
       await db.outboxDao.markDone(op.seq);
     }
 
+    OutboxDrainer drainer(
+      AppDatabase database,
+      PushSync databasePush, {
+      bool Function()? isOnline,
+    }) => OutboxDrainer(
+      db: database,
+      clock: clock,
+      backoff: Backoff(jitter: () => 0.0),
+      isOnline: isOnline ?? () => true,
+      completion: _NoCompletion(),
+      adapters: [
+        ChatAdapter(
+          pull: PullSync(
+            client: client,
+            db: database,
+            locks: ConversationLocks(),
+          ),
+          push: databasePush,
+        ),
+      ],
+    );
+
     test('a tap is kept on the row and queued with only that choice', () async {
       await seedServerFolderRow(db, id: 'f');
 
       check(await tap('f', true)).isTrue();
 
-      final row = await db.foldersDao.getFolder('f');
-      check(row!.dirty).isTrue();
+      // Not dirty: that would hold back the folder's other server changes,
+      // its project defaults among them, until the push lands.
+      check((await db.foldersDao.getFolder('f'))!.dirty).isFalse();
       check(await expandedHere('f')).isTrue();
       final op = (await db.outboxDao.pendingForChat('f')).single;
       check(op.kind).equals(OutboxKind.folderUpsert.name);
@@ -577,20 +596,64 @@ void main() {
 
       check(client.updateFolderExpandedStarts).deepEquals(['f']);
       check(server.getFolders().single['is_expanded']).equals(true);
-      check((await db.foldersDao.getFolder('f'))!.dirty).isFalse();
     });
 
-    test('a pull does not undo a tap still to be sent', () async {
+    test('a pull does not undo a tap still to be sent, and brings the rest',
+        () async {
       server.seedFolderRaw(rawFolder('f')..['is_expanded'] = false);
       await db.foldersDao.replaceServerFolders(server.getFolders());
       await tap('f', true);
+      server.updateFolder('f', name: 'Renamed on the web');
 
       await db.foldersDao.replaceServerFolders(server.getFolders());
       check(await expandedHere('f')).isTrue();
+      check((await db.foldersDao.getFolder('f'))!.name)
+          .equals('Renamed on the web');
 
       await drainOnce('f');
       await db.foldersDao.replaceServerFolders(server.getFolders());
       check(await expandedHere('f')).isTrue();
+    });
+
+    test('nor does a server copy of the folder saved after another edit',
+        () async {
+      await seedServerFolderRow(db, id: 'f');
+      await tap('f', true);
+
+      await db.foldersDao.upsertServerFolder(
+        rawFolder('f', name: 'Renamed')..['is_expanded'] = false,
+      );
+
+      check(await expandedHere('f')).isTrue();
+      check((await db.foldersDao.getFolder('f'))!.name).equals('Renamed');
+    });
+
+    // A push holds the folder lock until its request ends; a tap made then
+    // waited behind it, and was lost if the app was closed meanwhile.
+    test('a tap made while the last one is sent is kept, then sent after it',
+        () async {
+      server.seedFolderRaw(rawFolder('f')..['is_expanded'] = false);
+      await db.foldersDao.replaceServerFolders(server.getFolders());
+      final gate = Completer<void>();
+      client.updateFolderExpandedGate = gate.future;
+      await tap('f', true);
+      final sending = drainer(db, push);
+      final drained = sending.drain();
+      final starts = client.updateFolderExpandedStarts;
+      for (var i = 0; i < 100 && starts.isEmpty; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(starts).deepEquals(['f']);
+
+      check(await tap('f', false)).isTrue();
+      check(await expandedHere('f')).isFalse();
+
+      gate.complete();
+      await drained;
+      await sending.drain();
+      check(starts).deepEquals(['f', 'f']);
+      check(server.getFolders().single['is_expanded']).equals(false);
+      check(await db.outboxDao.pendingForChat('f')).isEmpty();
     });
 
     test('a folder gone from the server is dropped, as for its other edits',
@@ -613,8 +676,6 @@ void main() {
 
       check(await tap('s', true)).isFalse();
 
-      final row = await db.foldersDao.getFolder('s');
-      check(row!.dirty).isFalse();
       check(await expandedHere('s')).isFalse();
       check(await db.outboxDao.pendingForChat('s')).isEmpty();
     });
@@ -643,6 +704,7 @@ void main() {
       var online = false;
       server.seedFolderRaw(rawFolder('f')..['is_expanded'] = false);
 
+      // A launch of the app: the same database file, opened afresh.
       Future<void> drainFresh() async {
         final database = AppDatabase(NativeDatabase(file));
         final drainRemapper = IdRemapper(database);
@@ -655,24 +717,7 @@ void main() {
           remapper: drainRemapper,
         );
         try {
-          await OutboxDrainer(
-            db: database,
-            clock: clock,
-            backoff: Backoff(jitter: () => 0.0),
-            isOnline: () => online,
-            completion: _NoCompletion(),
-            adapters: [
-              ChatAdapter(
-                pull: PullSync(
-                  client: client,
-                  db: database,
-                  locks: ConversationLocks(),
-                  remapper: drainRemapper,
-                ),
-                push: drainPush,
-              ),
-            ],
-          ).drain();
+          await drainer(database, drainPush, isOnline: () => online).drain();
         } finally {
           await drainRemapper.dispose();
           await database.close();
@@ -681,12 +726,9 @@ void main() {
 
       final before = AppDatabase(NativeDatabase(file));
       await before.foldersDao.replaceServerFolders(server.getFolders());
-      await FolderLocks().runExclusive(
-        'f',
-        () => before.foldersDao.setFolderExpandedWithOutbox(
-          id: 'f',
-          isExpanded: true,
-        ),
+      await before.foldersDao.setFolderExpandedWithOutbox(
+        id: 'f',
+        isExpanded: true,
       );
       await before.close();
 
@@ -709,7 +751,6 @@ void main() {
       final after = AppDatabase(NativeDatabase(file));
       addTearDown(after.close);
       check(await after.outboxDao.pendingForChat('f')).isEmpty();
-      check((await after.foldersDao.getFolder('f'))!.dirty).isFalse();
     });
   });
 }

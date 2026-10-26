@@ -570,5 +570,50 @@ void main() {
       check(await db.outboxDao.pendingForChat('shared')).isEmpty();
       check(engine.drained).isEmpty();
     });
+
+    // A send holds the folder lock until its request ends; a tap made then
+    // waited behind it, and was lost if the app was closed meanwhile.
+    test('is saved at once while a send holds the folder lock', () async {
+      final sending = Completer<void>();
+      final held = container
+          .read(folderLocksProvider)
+          .runExclusive('p', () => sending.future);
+      addTearDown(() async {
+        if (!sending.isCompleted) sending.complete();
+        await held;
+      });
+
+      await container
+          .read(foldersProvider.notifier)
+          .saveFolderExpanded('p', false)
+          .timeout(const Duration(seconds: 2));
+
+      check(await db.outboxDao.pendingForChat('p')).length.equals(1);
+    });
+
+    // Opening a folder marked its row as having unsent edits, which skips the
+    // read of its project, so a chat started there took the default model.
+    test('leaves its project to load before it is sent', () async {
+      final folders = container.read(foldersProvider.notifier);
+      await folders.saveFolderExpanded('p', true);
+      api.detail = {
+        'id': 'p',
+        'name': 'Project',
+        'created_at': 1,
+        'updated_at': 3,
+        'data': {
+          'system_prompt': 'Be brief',
+          'model_ids': ['m-a'],
+        },
+      };
+
+      final folder = await folders.refreshProjectData(
+        folders.captureProjectOwner()!,
+        'p',
+      );
+
+      check(folder!.projectModelIds).deepEquals(['m-a']);
+      check(folder.isExpanded).isTrue();
+    });
   });
 }

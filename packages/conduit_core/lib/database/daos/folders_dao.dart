@@ -58,7 +58,9 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
   ///     folderDelete) is SKIPPED — never resurrected; the drainer purges on
   ///     confirm.
   ///   * a server folder NOT covered by a dirty/deleted local row is
-  ///     upserted server-origin (`dirty=false, deleted=false`).
+  ///     upserted server-origin (`dirty=false, deleted=false`), keeping the
+  ///     local `is_expanded` while the server has yet to confirm the user
+  ///     opening or closing it.
   ///   * a local row ABSENT from the payload is purged ONLY when it is neither
   ///     dirty nor deleted (a dirty/absent row is a local-create not yet
   ///     pushed and must survive).
@@ -69,6 +71,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
       final localById = {
         for (final row in await select(folders).get()) row.id: row,
       };
+      final expandedEdits = await _outboxDao.folderIdsWithUnsentExpandedEdit();
 
       final serverIds = <String>{};
       for (final raw in rawFolders) {
@@ -80,8 +83,13 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
           // Local pending edit/create/tombstone wins; leave the row untouched.
           continue;
         }
-        await into(folders)
-            .insertOnConflictUpdate(_companionFromRaw(raw, local));
+        await into(folders).insertOnConflictUpdate(
+          _companionFromRaw(
+            raw,
+            local,
+            keepExpanded: expandedEdits.contains(id),
+          ),
+        );
       }
 
       // Purge server-absent rows EXCEPT local pending ones (dirty/deleted).
@@ -98,8 +106,13 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
     return transaction(() async {
       final id = rawFolder['id'];
       if (id is! String || id.isEmpty) return;
+      final expandedEdits = await _outboxDao.folderIdsWithUnsentExpandedEdit();
       await into(folders).insertOnConflictUpdate(
-        _companionFromRaw(rawFolder, await getFolder(id)),
+        _companionFromRaw(
+          rawFolder,
+          await getFolder(id),
+          keepExpanded: expandedEdits.contains(id),
+        ),
       );
     });
   }
@@ -251,16 +264,26 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
   }
 
   /// The user opened or closed a folder in the sidebar: keeps [isExpanded] on
-  /// the row as `is_expanded`, marks it dirty and queues a `folderUpsert` that
-  /// carries only that choice, in one transaction. Until the push confirms, a
-  /// pull leaves the row as it is, and another tap coalesces into the queued
-  /// op, so the last one is what the server keeps.
+  /// the row as `is_expanded` and queues a `folderUpsert` that carries only
+  /// that choice, in one transaction. Until the server confirms it, a pull
+  /// keeps the row's `is_expanded` (see [replaceServerFolders]), and another
+  /// tap coalesces into the queued op, so the last one is what it keeps.
+  ///
+  /// The row is not marked dirty: that would hold back every other server
+  /// change to the folder, its project defaults included, for a choice only
+  /// this key carries.
+  ///
+  /// Unlike the other local edits, this needs no folder lock, and the caller
+  /// takes none: a push holds it for as long as its request takes, and a tap
+  /// made meanwhile must be saved at once. Nothing here needs it. Only this
+  /// key of the row is written, in a transaction, and an op being sent is left
+  /// alone, so the tap is sent after it. A `local:` folder, which a remap
+  /// could rename meanwhile, is refused.
   ///
   /// Returns false, writing nothing, for a folder the server would not keep
   /// it for: one gone or deleted here, one shared with this account (the
   /// server keeps only its owner's choice, and answers anyone else's without
-  /// saving it), or a `local:` folder it has not created yet. Caller holds
-  /// the folder lock.
+  /// saving it), or a `local:` folder it has not created yet.
   Future<bool> setFolderExpandedWithOutbox({
     required String id,
     required bool isExpanded,
@@ -276,10 +299,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
       final extra = decodeJsonMap(existing.rawExtra);
       extra['is_expanded'] = isExpanded;
       await (update(folders)..where((t) => t.id.equals(id))).write(
-        FoldersCompanion(
-          rawExtra: Value(jsonEncode(extra)),
-          dirty: const Value(true),
-        ),
+        FoldersCompanion(rawExtra: Value(jsonEncode(extra))),
       );
 
       await _outboxDao.enqueue(
@@ -288,7 +308,7 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
         payload: <String, dynamic>{
           'folderId': id,
           'createIfAbsent': false,
-          'isExpanded': isExpanded,
+          kFolderExpandedKey: isExpanded,
         },
       );
       return true;
@@ -411,11 +431,14 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
   /// The server's folder list is lean: it has no `data` key at all. A raw
   /// folder without one keeps the `data` already cached on [existing] (the
   /// project defaults a read by id or a save put there); an explicit `data`,
-  /// null included, replaces it.
+  /// null included, replaces it. With [keepExpanded], [existing] keeps its
+  /// `is_expanded` too: the user opened or closed it, and the server has not
+  /// confirmed that yet.
   FoldersCompanion _companionFromRaw(
-    Map<String, dynamic> raw, [
-    FolderRow? existing,
-  ]) {
+    Map<String, dynamic> raw,
+    FolderRow? existing, {
+    bool keepExpanded = false,
+  }) {
     final createdAt = raw['created_at'];
     final updatedAt = raw['updated_at'];
     final name = raw['name'];
@@ -424,9 +447,14 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
       for (final entry in raw.entries)
         if (!_typedFolderKeys.contains(entry.key)) entry.key: entry.value,
     };
-    if (existing != null && !raw.containsKey('data')) {
+    if (existing != null) {
       final cached = decodeJsonMap(existing.rawExtra);
-      if (cached.containsKey('data')) rawExtra['data'] = cached['data'];
+      if (!raw.containsKey('data') && cached.containsKey('data')) {
+        rawExtra['data'] = cached['data'];
+      }
+      if (keepExpanded && cached.containsKey('is_expanded')) {
+        rawExtra['is_expanded'] = cached['is_expanded'];
+      }
     }
     final updatedAtSeconds = updatedAt is int ? updatedAt : 0;
     return FoldersCompanion.insert(

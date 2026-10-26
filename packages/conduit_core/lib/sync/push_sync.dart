@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart'
+    show kFolderExpandedKey;
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 
@@ -467,7 +469,7 @@ class PushSync {
           return;
         }
       }
-      final isExpanded = payload['isExpanded'];
+      final isExpanded = payload[kFolderExpandedKey];
       if (isExpanded is bool) {
         final expandedUpdated = await _client.updateFolderExpanded(
           folderId,
