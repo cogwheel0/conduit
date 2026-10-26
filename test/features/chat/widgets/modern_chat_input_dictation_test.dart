@@ -4,6 +4,7 @@ import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
@@ -29,41 +30,46 @@ void main() {
 
   late List<String> sends;
   late _DictatingVoiceInput voice;
+  late ProviderContainer container;
 
   Future<void> pump(WidgetTester tester) async {
     sends = [];
     voice = _DictatingVoiceInput();
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          voiceInputServiceProvider.overrideWithValue(voice),
-          voiceInputAvailableProvider.overrideWith((ref) async => true),
-          selectedModelProvider.overrideWith(() => _Selected(model)),
-          activeConversationProvider.overrideWith(_NoConversation.new),
-          modelsProvider.overrideWith(() => _Models(const [model])),
-          chatMessagesProvider.overrideWith(_Messages.new),
-          reviewerModeProvider.overrideWithValue(false),
-          isOnlineProvider.overrideWithValue(true),
-          temporaryChatEnabledProvider.overrideWith(_NotTemporary.new),
-          webSearchEnabledProvider.overrideWith(_WebSearchOff.new),
-          imageGenerationEnabledProvider.overrideWith(_ImageGenerationOff.new),
-          authTokenProvider3.overrideWithValue('token'),
-          isAuthenticatedProvider2.overrideWithValue(true),
-          appSettingsProvider.overrideWith(_Settings.new),
-          isChatStreamingProvider.overrideWithValue(false),
-          webSearchAvailableProvider.overrideWithValue(false),
-          imageGenerationAvailableProvider.overrideWithValue(false),
-          personalizationSettingsProvider.overrideWith(_Personalization.new),
-          directConnectionProfilesProvider.overrideWith(_NoProfiles.new),
-          currentUserProvider2.overrideWithValue(
-            const User(
-              id: 'me',
-              username: 'me',
-              email: 'me@example.test',
-              role: 'user',
-            ),
+    container = ProviderContainer(
+      overrides: [
+        voiceInputServiceProvider.overrideWithValue(voice),
+        voiceInputAvailableProvider.overrideWith((ref) async => true),
+        selectedModelProvider.overrideWith(() => _Selected(model)),
+        activeConversationProvider.overrideWith(() => _Active('chat-a')),
+        modelsProvider.overrideWith(() => _Models(const [model])),
+        chatMessagesProvider.overrideWith(_Messages.new),
+        reviewerModeProvider.overrideWithValue(false),
+        isOnlineProvider.overrideWithValue(true),
+        temporaryChatEnabledProvider.overrideWith(_NotTemporary.new),
+        webSearchEnabledProvider.overrideWith(_WebSearchOff.new),
+        imageGenerationEnabledProvider.overrideWith(_ImageGenerationOff.new),
+        authTokenProvider3.overrideWithValue('token'),
+        isAuthenticatedProvider2.overrideWithValue(true),
+        appSettingsProvider.overrideWith(_Settings.new),
+        isChatStreamingProvider.overrideWithValue(false),
+        webSearchAvailableProvider.overrideWithValue(false),
+        imageGenerationAvailableProvider.overrideWithValue(false),
+        personalizationSettingsProvider.overrideWith(_Personalization.new),
+        directConnectionProfilesProvider.overrideWith(_NoProfiles.new),
+        currentUserProvider2.overrideWithValue(
+          const User(
+            id: 'me',
+            username: 'me',
+            email: 'me@example.test',
+            role: 'user',
           ),
-        ],
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
@@ -110,6 +116,26 @@ void main() {
     expect(sends, isEmpty);
   });
 
+  testWidgets('send keeps the text when the chat changed meanwhile', (
+    tester,
+  ) async {
+    await pump(tester);
+    await startDictation(tester);
+
+    voice
+      ..transcriptOnStop = 'book the table for eight'
+      ..stopGate = Completer<void>();
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.pump();
+    // The user opens another chat while the server transcribes.
+    container.read(activeConversationProvider.notifier).set(_stored('chat-b'));
+    voice.stopGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(sends, isEmpty);
+    expect(composerText(tester), 'book the table for eight');
+  });
+
   testWidgets('send with nothing said sends nothing', (tester) async {
     await pump(tester);
     await startDictation(tester);
@@ -129,6 +155,9 @@ class _DictatingVoiceInput extends VoiceInputService {
   StreamController<String>? _run;
   String? transcriptOnStop;
   int stopCalls = 0;
+
+  /// Holds the stop open, like a transcription still on its way.
+  Completer<void>? stopGate;
 
   bool get listening => _run != null;
 
@@ -155,6 +184,7 @@ class _DictatingVoiceInput extends VoiceInputService {
     final run = _run;
     _run = null;
     if (run == null) return;
+    await stopGate?.future;
     final transcript = transcriptOnStop;
     if (transcript != null) run.add(transcript);
     await run.close();
@@ -173,9 +203,23 @@ final class _Selected extends SelectedModel {
   Model build() => model;
 }
 
-final class _NoConversation extends ActiveConversationNotifier {
+Conversation _stored(String id) => withChatStorageProvenance(
+  Conversation(
+    id: id,
+    title: id,
+    createdAt: DateTime.utc(2026),
+    updatedAt: DateTime.utc(2026),
+  ),
+  ChatStorageKind.openWebUi,
+);
+
+final class _Active extends ActiveConversationNotifier {
+  _Active(this.id);
+
+  final String id;
+
   @override
-  Conversation? build() => null;
+  Conversation? build() => _stored(id);
 }
 
 final class _Messages extends ChatMessagesNotifier {

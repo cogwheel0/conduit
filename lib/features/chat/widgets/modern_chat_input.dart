@@ -453,7 +453,7 @@ const double _cupertinoComposerOverflowIconExtent = IconSize.large;
 const double _materialComposerOverflowIconExtent = 28;
 
 /// The account and the chat a comparison send was started in.
-typedef _ComparisonOwner = ({
+typedef _ComposerOwner = ({
   Object? api,
   Object? epoch,
   ChatMutationOwnerToken chat,
@@ -908,7 +908,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // admit a comparison sends the message the ordinary way.
     final saved = ref.read(folderDraftComparisonModelsProvider);
     if (saved != null && widget.onCompareSend != null) {
-      unawaited(_sendComparison(saved, _captureComparisonOwner()));
+      unawaited(_sendComparison(saved, _captureComposerOwner()));
       return;
     }
 
@@ -1336,14 +1336,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     await _hideNativeKeyboardAttachmentPanel();
     if (!mounted || _isDeactivated) return;
-    final owner = _captureComparisonOwner();
+    final owner = _captureComposerOwner();
     final models = await showComparisonSetupSheet(context, ref);
     await _sendComparison(models, owner);
   }
 
   /// The account and the chat this composer is showing, named before anything
   /// awaits. A new chat has no conversation yet.
-  _ComparisonOwner _captureComparisonOwner() => (
+  _ComposerOwner _captureComposerOwner() => (
     api: ref.read(apiServiceProvider),
     epoch: ref.read(openWebUiAuthSessionEpochProvider),
     chat: captureChatMutationOwner(ref, ref.read(activeConversationProvider)),
@@ -1355,7 +1355,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// models both send through here.
   Future<void> _sendComparison(
     List<Model>? models,
-    _ComparisonOwner owner,
+    _ComposerOwner owner,
   ) async {
     bool sameAccount() =>
         mounted &&
@@ -5344,10 +5344,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Future<void> _stopVoiceAndSend() async {
     // Server dictation has no text until it is transcribed. Stopping hands
     // what was said to the server, and its text is in the composer by the
-    // time the stop finishes.
+    // time the stop finishes. A message goes to whichever chat is active when
+    // it is sent, so it is sent only if the user is still in the account and
+    // chat they spoke in; otherwise it stays in the composer.
+    final owner = _captureComposerOwner();
     await _stopVoiceListening();
-    if (!mounted) return;
-    if (_controller.text.trim().isEmpty) {
+    if (!mounted || _isDeactivated) return;
+    final sameChat =
+        identical(ref.read(apiServiceProvider), owner.api) &&
+        identical(ref.read(openWebUiAuthSessionEpochProvider), owner.epoch) &&
+        chatMutationTokenStillActive(ref, owner.chat);
+    if (_controller.text.trim().isEmpty || !sameChat) {
       ConduitHaptics.selectionClick();
       return;
     }
