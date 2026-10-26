@@ -333,6 +333,32 @@ void main() {
       check((calls.single.arguments as Map)['text']).equals(text);
     });
 
+    for (final grouped in [false, true]) {
+      testWidgets('does not offer Share when only reasoning remains; '
+          'grouped=$grouped', (tester) async {
+        const reasoning =
+            '<details type="reasoning" done="true" duration="2">\n'
+            '<summary>Thought for 2 seconds</summary>\n'
+            '&gt; Weighing the garden plan.\n'
+            '</details>';
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message.copyWith(content: reasoning),
+            resolveGroupedResponseText: grouped
+                ? () => '$reasoning\n\n$reasoning'
+                : null,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('assistant-response-overflow-button')),
+        );
+        await tester.pumpAndSettle();
+        check(find.text('Delete').evaluate()).isNotEmpty();
+        check(find.text('Share...').evaluate()).isEmpty();
+      });
+    }
+
     testWidgets('does not offer Share while the response is streaming', (
       tester,
     ) async {
@@ -791,7 +817,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   });
 
-  testWidgets('a voice reply names itself in the app language', (tester) async {
+  testWidgets('a voice reply names itself in the app language', (
+    tester,
+  ) async {
     final message = ChatMessage(
       id: 'voice-reply',
       role: 'assistant',

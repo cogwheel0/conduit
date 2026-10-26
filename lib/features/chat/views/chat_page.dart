@@ -3481,7 +3481,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// Current text of every row in a grouped response, in display order.
   ///
-  /// Read at tap time rather than cached with the layout metadata, whose
+  /// Read on demand rather than cached with the layout metadata, whose
   /// signature deliberately ignores message content.
   String _joinGroupedResponseText(WidgetRef rowRef, List<String> groupIds) {
     final parts = <String>[];

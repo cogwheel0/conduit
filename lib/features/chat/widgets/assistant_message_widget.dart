@@ -121,8 +121,9 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 
   /// Supplies the full text of the grouped response for read-aloud and sharing.
   ///
-  /// Called at tap time, not during build, so a row never has to observe its
-  /// siblings. Null means this row speaks its own content.
+  /// It reads rather than watches, so a row never has to observe its siblings.
+  /// Called at tap time, and when a settled footer checks there is anything
+  /// to share. Null means this row speaks its own content.
   final String Function()? resolveGroupedResponseText;
   final List<String?> versionModelNames;
   final List<String?> versionModelIconUrls;
@@ -2540,8 +2541,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           ),
           sfSymbol: 'arrow.triangle.branch',
         ),
-      if (_displayedContent.trim().isNotEmpty ||
-          widget.resolveGroupedResponseText != null)
+      if (_shareableResponseText().isNotEmpty)
         _AssistantFooterAction(
           id: 'share',
           icon: Platform.isIOS ? CupertinoIcons.share : Icons.share_outlined,
@@ -2562,12 +2562,31 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return actions;
   }
 
-  Future<void> _shareResponse() async {
+  // Share is offered only when the text it would send is not empty: a reply
+  // stopped mid-thought holds nothing but its reasoning block. The clipboard
+  // rules are several full-content passes and the footer rebuilds far more
+  // often than the content changes, so memoize by content.
+  String? _shareTextSource;
+  String _shareTextResult = '';
+
+  /// The version on screen, or the whole grouped answer, cleaned the way Copy
+  /// cleans it.
+  String _shareableResponseText() {
     final rawText = _activeVersionIndex >= 0
         ? _displayedContent
         : widget.resolveGroupedResponseText?.call() ?? _displayedContent;
-    final text = ConduitMarkdownPreprocessor.sanitizeForClipboard(rawText);
-    if (!_responseCompleted || text.trim().isEmpty) return;
+    if (rawText != _shareTextSource) {
+      _shareTextSource = rawText;
+      _shareTextResult = ConduitMarkdownPreprocessor.sanitizeForClipboard(
+        rawText,
+      );
+    }
+    return _shareTextResult;
+  }
+
+  Future<void> _shareResponse() async {
+    final text = _shareableResponseText();
+    if (!_responseCompleted || text.isEmpty) return;
     final renderObject = _overflowButtonKey.currentContext?.findRenderObject();
     final origin = renderObject is RenderBox && renderObject.hasSize
         ? renderObject.localToGlobal(Offset.zero) & renderObject.size
