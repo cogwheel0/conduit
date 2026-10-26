@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit/core/utils/account_display.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -410,6 +411,39 @@ void main() {
       route.id: {'Cookie': 'proxy=1'},
     });
     check(_Routes.reasons).deepEquals(['routes-edited']);
+  });
+
+  // Connecting names a server after the host it reached; edited to another
+  // address, the server was still listed under the host it had left.
+  test('an edited address renames the server listed under its old host',
+      () async {
+    await storage.saveServerConfigs([
+      const ServerConfig(
+        id: 'a',
+        name: '100.64.0.3',
+        url: 'http://100.64.0.3:8080',
+      ),
+    ]);
+    await storage.setActiveServerId('a');
+    final server = (await storage.getOpenWebUiRegistryStrict()).servers.single;
+
+    check(
+      await saveCheckedAddress(
+        container,
+        serverId: server.id,
+        route: OpenWebUiEndpoint(
+          id: server.endpoints.single.id,
+          url: 'http://100.64.0.7:8080',
+        ),
+        adding: false,
+        cookieOwner: null,
+        headers: const {},
+        sessionRevision: storage.sessionRevocationRevision,
+      ),
+    ).isTrue();
+
+    final listed = await container.read(openWebUiAccountsProvider.future);
+    check(serverDisplayName(listed.single.server)).equals('100.64.0.7');
   });
 
   // A new client ends the reply arriving through it: an edit of an address
