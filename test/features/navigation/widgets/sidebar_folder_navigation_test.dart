@@ -447,6 +447,77 @@ void main() {
     expect(find.text('Child Folder'), findsOneWidget);
   });
 
+  // The server kept the state the folder was last left in on the web; a tap
+  // here only lasted until the app was closed.
+  testWidgets('a folder the user opens or closes is kept on the server', (
+    tester,
+  ) async {
+    final controllers = SidebarTestSidebarHarnessControllers();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    final arrow = find.byKey(
+      const ValueKey<String>('folder-expand-parent-folder'),
+    );
+
+    await tester.tap(arrow);
+    await tester.pumpAndSettle();
+    await tester.tap(arrow);
+    await tester.pumpAndSettle();
+
+    expect(controllers.savedFolderExpansions, [
+      ('parent-folder', true),
+      ('parent-folder', false),
+    ]);
+  });
+
+  // As on the web, a folder opened for the user is not a choice to keep.
+  testWidgets('a folder opened to add a subfolder is only opened here', (
+    tester,
+  ) async {
+    final controllers = SidebarTestSidebarHarnessControllers();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        folders: const [
+          Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
+          Folder(
+            id: 'child-folder',
+            name: 'Child Folder',
+            parentId: 'parent-folder',
+            isExpanded: false,
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    final menu = tester.widget<ConduitContextMenu>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey<String>('folder-open-parent-folder')),
+            matching: find.byType(ConduitContextMenu),
+          )
+          .first,
+    );
+
+    final newFolder = AppLocalizationsEn().newFolder;
+    unawaited(
+      menu.actions
+          .singleWhere((action) => action.label == newFolder)
+          .onSelected(),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Child Folder'), findsOneWidget);
+    expect(controllers.savedFolderExpansions, isEmpty);
+  });
+
   testWidgets('folders with missing parents fall back to the root level', (
     tester,
   ) async {

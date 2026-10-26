@@ -285,6 +285,26 @@ class FakeSyncApiClient implements SyncApiClient {
     return true;
   }
 
+  /// Ids in the order [updateFolderExpanded] calls STARTED.
+  final List<String> updateFolderExpandedStarts = <String>[];
+
+  /// When set, every [updateFolderExpanded] awaits this future before it
+  /// reaches the server, holding its op in flight.
+  Future<void>? updateFolderExpandedGate;
+
+  @override
+  Future<bool> updateFolderExpanded(String id, bool isExpanded) async {
+    updateFolderExpandedStarts.add(id);
+    await Future<void>.delayed(Duration.zero);
+    final gate = updateFolderExpandedGate;
+    if (gate != null) await gate;
+    _maybeThrow(id);
+    final exists = server.getFolders().any((folder) => folder['id'] == id);
+    if (!exists) return false;
+    server.updateFolderExpanded(id, isExpanded);
+    return true;
+  }
+
   @override
   Future<bool> deleteFolder(String id, {bool deleteContents = false}) async {
     return server.deleteFolder(id, deleteContents: deleteContents);

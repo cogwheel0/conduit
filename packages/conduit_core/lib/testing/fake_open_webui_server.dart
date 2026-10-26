@@ -508,6 +508,15 @@ class FakeOpenWebUiServer {
     folder['updated_at'] = _now();
   }
 
+  /// Mirrors `POST /api/v1/folders/{id}/update/expanded`
+  /// (`update_folder_is_expanded_by_id_and_user_id`). No-op on a missing id.
+  void updateFolderExpanded(String id, bool isExpanded) {
+    final folder = _folders[id];
+    if (folder == null) return;
+    folder['is_expanded'] = isExpanded;
+    folder['updated_at'] = _now();
+  }
+
   /// Mirrors `DELETE /api/v1/folders/{id}?delete_contents=<flag>`
   /// (`delete_folder_by_id`): removes the folder. When [deleteContents] is
   /// true, contained chats are deleted; when false, they are re-parented to

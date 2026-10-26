@@ -177,6 +177,10 @@ const Set<String> kUpdateChatEditFlagKeys = <String>{
   kUpdateChatBranchEditKey,
 };
 
+/// Payload key of a `folderUpsert` op that opens or closes the folder in the
+/// sidebar (see [OutboxDao.folderIdsWithUnsentExpandedEdit]).
+const String kFolderExpandedKey = 'isExpanded';
+
 class OutboxStatus {
   OutboxStatus._();
 
@@ -721,6 +725,21 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
             ))
             .get();
     return ops.any((op) => _decodePayload(op.payload)[flag] == true);
+  }
+
+  /// The folders whose opening or closing in the sidebar the server has not
+  /// confirmed yet: a `folderUpsert` carrying `isExpanded` that is pending, in
+  /// flight or parked. A pull keeps such a folder's local `is_expanded`.
+  Future<Set<String>> folderIdsWithUnsentExpandedEdit() async {
+    final ops = await (select(
+      outboxOps,
+    )..where((t) => t.kind.equals(OutboxKind.folderUpsert.name))).get();
+    return {
+      for (final op in ops)
+        if (op.chatId != null &&
+            _decodePayload(op.payload).containsKey(kFolderExpandedKey))
+          op.chatId!,
+    };
   }
 
   /// All still-owned ops for [chatId] (pending|inFlight, seq ASC).

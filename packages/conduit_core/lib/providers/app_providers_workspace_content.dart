@@ -316,6 +316,45 @@ class Folders extends _$Folders {
     );
   }
 
+  /// Keeps the user's choice to open or close [folderId] in the sidebar on
+  /// the server, as the web client does, so it is there on the next launch
+  /// and in other clients.
+  ///
+  /// The write is local and durable first, so it also works offline; the
+  /// outbox sends it. It does not wait for the folder lock, which a push of
+  /// the previous tap holds until its request ends: the latest tap is saved at
+  /// once, and sent after it. A folder shared with this account, or not on the
+  /// server yet, keeps its state on this device only (see
+  /// [FoldersDao.setFolderExpandedWithOutbox]). A failure is only logged: the
+  /// folder still opens and closes here.
+  Future<void> saveFolderExpanded(String folderId, bool isExpanded) async {
+    final database = ref.read(appDatabaseProvider);
+    if (database == null) return;
+    final bool queued;
+    try {
+      queued = await database.foldersDao.setFolderExpandedWithOutbox(
+        id: folderId,
+        isExpanded: isExpanded,
+      );
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'expanded-save-failed',
+        scope: 'folders',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'id': folderId},
+      );
+      return;
+    }
+    if (!queued || !ref.mounted) return;
+    unawaited(
+      ref
+          .read(syncEngineProvider.notifier)
+          .drainNowForDatabase(database)
+          .catchError((Object _) {}),
+    );
+  }
+
   void removeFolder(String id) {
     final current = state.asData?.value;
     if (current != null) {
