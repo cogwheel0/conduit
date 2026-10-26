@@ -12,6 +12,11 @@ import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
+    show
+        LocalReasoningEfforts,
+        localReasoningEffortForModel,
+        localReasoningEffortsProvider;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
@@ -37,6 +42,34 @@ class _SeededActive extends ActiveConversationNotifier {
 
   @override
   Conversation? build() => initial;
+}
+
+class _SwitchableModel extends SelectedModel {
+  _SwitchableModel(this.initial);
+
+  final Model initial;
+
+  @override
+  Model? build() => initial;
+
+  void select(Model model) => state = model;
+}
+
+/// The picker's per-model picks, kept in memory so no test inherits picks an
+/// earlier file saved to the shared preference store.
+class _MemoryEfforts extends LocalReasoningEfforts {
+  _MemoryEfforts([this.initial = const {}]);
+
+  final Map<String, String> initial;
+
+  @override
+  Map<String, String> build() => initial;
+
+  @override
+  Future<void> set(String key, String? effort) async {
+    final updated = Map<String, String>.of(state)..remove(key);
+    state = {...updated, key: ?effort};
+  }
 }
 
 class _NoDrainEngine extends SyncEngine {
@@ -134,6 +167,8 @@ void main() {
     Conversation? active,
     OpenWebUiChatSettingsAccess access = OpenWebUiChatSettingsAccess.all,
     Model model = _model,
+    _SwitchableModel? selection,
+    Map<String, String> picks = const {},
     bool advanced = true,
     bool native = false,
     Future<void> Function()? accessGate,
@@ -161,8 +196,12 @@ void main() {
         appDatabaseProvider.overrideWith((ref) => db),
         apiServiceProvider.overrideWithValue(_api('sheet')),
         reviewerModeProvider.overrideWithValue(false),
-        selectedModelProvider.overrideWithValue(model),
+        if (selection != null)
+          selectedModelProvider.overrideWith(() => selection)
+        else
+          selectedModelProvider.overrideWithValue(model),
         activeConversationProvider.overrideWith(() => _SeededActive(active)),
+        localReasoningEffortsProvider.overrideWith(() => _MemoryEfforts(picks)),
         syncEngineProvider.overrideWith(_NoDrainEngine.new),
         currentUserProvider2.overrideWithValue(
           const User(
@@ -524,19 +563,156 @@ void main() {
       expect(saved['function_calling'], 'native');
     });
 
-    testWidgets('a model without reasoning support has no effort control', (
+    testWidgets('an undeclared model still offers the effort control', (
       tester,
     ) async {
+      // Issue #779: the picker is offered for every model that does not
+      // explicitly refuse the parameter.
       await tester.runAsync(() => seed('c1', {}));
       await openSheet(tester, active: _conversation('c1'), model: _plainModel);
 
       expect(
         find.byKey(const ValueKey('chat-setting-reasoning_effort-high')),
-        findsNothing,
+        findsOneWidget,
       );
       expect(
         find.byKey(const ValueKey('chat-setting-function_calling-native')),
         findsOneWidget,
+      );
+    });
+
+    testWidgets('a saved effort is the own pick of the model it was made for', (
+      tester,
+    ) async {
+      // A model that does not advertise reasoning effort is sent only its own
+      // pick (issue #611), so an effort saved here must count as that pick,
+      // for the model the sheet opened with.
+      await tester.runAsync(() => seed('c1', {}));
+      final selection = _SwitchableModel(_plainModel);
+      final container = await openSheet(
+        tester,
+        active: _conversation('c1'),
+        selection: selection,
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('chat-setting-reasoning_effort-high')),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('chat-setting-reasoning_effort-high')),
+      );
+      await tester.pump();
+      // Another model is picked while the sheet is still open.
+      selection.select(_model);
+      await tester.pump();
+      await tester.tap(saveButton());
+      await settle(tester);
+
+      expect((await stored(tester, 'c1'))!['reasoning_effort'], 'high');
+      expect(localReasoningEffortForModel(container.read, _plainModel), 'high');
+      expect(localReasoningEffortForModel(container.read, _model), isNull);
+    });
+
+    // The model's own pick follows the field: "Your default" removes it, so
+    // the user's default applies again, and Automatic is recorded as such.
+    for (final (chip, ownPick) in [
+      ('inherit', null),
+      ('default', 'automatic'),
+    ]) {
+      testWidgets('choosing $chip leaves the model\'s own pick at $ownPick', (
+        tester,
+      ) async {
+        final params = {'reasoning_effort': 'high'};
+        await tester.runAsync(() => seed('c1', params));
+        final container = await openSheet(
+          tester,
+          active: _conversation('c1', chatParams: params),
+          picks: const {'openwebui:sheet:gpt-5': 'high'},
+        );
+
+        final finder = find.byKey(
+          ValueKey('chat-setting-reasoning_effort-$chip'),
+        );
+        await tester.ensureVisible(finder);
+        await tester.tap(finder);
+        await tester.pump();
+        await tester.tap(saveButton());
+        await settle(tester);
+
+        final saved = (await stored(tester, 'c1'))!;
+        expect(saved.containsKey('reasoning_effort'), chip == 'default');
+        expect(localReasoningEffortForModel(container.read, _model), ownPick);
+      });
+    }
+
+    testWidgets('a pick saved as the server changes stays off the new one', (
+      tester,
+    ) async {
+      // The pick's key names the model on the server the sheet was opened
+      // on; the same model id on the server switched to keeps its own pick.
+      await tester.runAsync(() => seed('c1', {}));
+      final c = await openSheet(tester, active: _conversation('c1'));
+
+      final high = find.byKey(
+        const ValueKey('chat-setting-reasoning_effort-high'),
+      );
+      await tester.ensureVisible(high);
+      await tester.tap(high);
+      await tester.pump();
+      // The chat write waits on the database, past the save's owner checks,
+      // while the other server becomes active.
+      final writeGate = Completer<void>();
+      final holding = db.transaction(() => writeGate.future);
+      await tester.tap(saveButton());
+      await tester.pump();
+      c.updateOverrides([
+        appDatabaseProvider.overrideWith((ref) => db),
+        apiServiceProvider.overrideWithValue(_api('another-server')),
+        reviewerModeProvider.overrideWithValue(false),
+        selectedModelProvider.overrideWithValue(_model),
+        activeConversationProvider.overrideWith(
+          () => _SeededActive(_conversation('c1')),
+        ),
+        localReasoningEffortsProvider.overrideWith(() => _MemoryEfforts()),
+        syncEngineProvider.overrideWith(_NoDrainEngine.new),
+        currentUserProvider2.overrideWithValue(
+          const User(
+            id: 'me',
+            username: 'me',
+            email: 'me@example.test',
+            role: 'user',
+          ),
+        ),
+        openWebUiChatSettingsAccessProvider.overrideWith(
+          (ref) async => OpenWebUiChatSettingsAccess.all,
+        ),
+        appSettingsProvider.overrideWith(() => settings),
+      ]);
+      writeGate.complete();
+      await tester.runAsync(() => holding);
+      await settle(tester);
+
+      expect((await stored(tester, 'c1'))!['reasoning_effort'], 'high');
+      expect(c.read(localReasoningEffortsProvider), isEmpty);
+    });
+
+    testWidgets('a model that refuses reasoning has no effort control', (
+      tester,
+    ) async {
+      await tester.runAsync(() => seed('c1', {}));
+      await openSheet(
+        tester,
+        active: _conversation('c1'),
+        model: const Model(
+          id: 'denied-chat-model',
+          name: 'Denied',
+          capabilities: <String, dynamic>{'reasoning_effort': false},
+        ),
+      );
+
+      expect(
+        find.byKey(const ValueKey('chat-setting-reasoning_effort-high')),
+        findsNothing,
       );
     });
 
@@ -771,6 +947,7 @@ void main() {
           activeConversationProvider.overrideWith(
             () => _SeededActive(_conversation('c1', chatParams: params)),
           ),
+          localReasoningEffortsProvider.overrideWith(() => _MemoryEfforts()),
           syncEngineProvider.overrideWith(_NoDrainEngine.new),
           currentUserProvider2.overrideWithValue(
             const User(

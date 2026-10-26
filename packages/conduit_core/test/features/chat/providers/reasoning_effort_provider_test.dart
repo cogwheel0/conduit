@@ -260,6 +260,49 @@ void main() {
     check(reasoningEffortForModel(container.read, model)).equals('medium');
   });
 
+  // Issue #611: the request sends a model that does not advertise support only
+  // the picker's value, so the user's default must never stand in for a pick.
+  group('the user default reaches only advertising models', () {
+    const undeclared = Model(id: 'gpt-4o', name: 'GPT-4o');
+    const advertised = Model(id: 'gpt-5', name: 'GPT-5');
+
+    Future<ProviderContainer> containerFor(Model model) async {
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(buildApi('server-a')),
+          personalizationSettingsProvider.overrideWith(
+            () => _FixedPersonalizationSettings(
+              const ServerUserSettings(reasoningEffort: 'high'),
+            ),
+          ),
+          selectedModelProvider.overrideWith(() => _FixedSelectedModel(model)),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(personalizationSettingsProvider.future);
+      return container;
+    }
+
+    test('in the value a send passes for the model', () async {
+      final plain = await containerFor(undeclared);
+      check(reasoningEffortForModel(plain.read, undeclared))
+          .equals('automatic');
+
+      final reasoner = await containerFor(advertised);
+      check(reasoningEffortForModel(reasoner.read, advertised))
+          .equals('high');
+    });
+
+    test('in the value the picker shows for the selected model', () async {
+      final plain = await containerFor(undeclared);
+      check(plain.read(configuredReasoningEffortProvider)).isNull();
+      check(plain.read(reasoningEffortProvider)).equals('automatic');
+
+      final reasoner = await containerFor(advertised);
+      check(reasoner.read(configuredReasoningEffortProvider)).equals('high');
+    });
+  });
+
   test('server model picks are namespaced by server id', () async {
     const model = Model(id: 'gpt-5', name: 'GPT-5');
     final serverA = ProviderContainer(
@@ -463,27 +506,34 @@ void main() {
     check(container.read(reasoningEffortProvider)).equals('automatic');
   });
 
-  test('server policy only exposes effort for supported models', () {
-    const unsupported = Model(id: 'gpt-4o', name: 'GPT-4o');
-    const explicitlyUnsupported = Model(
+  test('server policy offers effort unless the model refuses it', () {
+    // Issue #779: an undeclared model shows the picker; only an explicit
+    // refusal hides it.
+    const undeclared = Model(id: 'gpt-4o', name: 'GPT-4o');
+    const emptyEfforts = Model(
       id: 'catalog-model',
       name: 'Catalog model',
       capabilities: <String, dynamic>{
         'reasoning': <String, dynamic>{'supported_efforts': <String>[]},
       },
     );
+    const denied = Model(
+      id: 'denied-model',
+      name: 'Denied model',
+      capabilities: <String, dynamic>{'reasoning_effort': false},
+    );
     const supported = Model(id: 'gpt-5', name: 'GPT-5');
     final hermes = hermesSyntheticModel();
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
-    check(reasoningEffortPolicyForModel(container.read, unsupported).visible)
-        .isFalse();
+    check(reasoningEffortPolicyForModel(container.read, undeclared).visible)
+        .isTrue();
     check(
-      reasoningEffortPolicyForModel(
-        container.read,
-        explicitlyUnsupported,
-      ).visible,
+      reasoningEffortPolicyForModel(container.read, emptyEfforts).visible,
+    ).isFalse();
+    check(
+      reasoningEffortPolicyForModel(container.read, denied).visible,
     ).isFalse();
     check(reasoningEffortPolicyForModel(container.read, supported).visible)
         .isTrue();
@@ -491,7 +541,9 @@ void main() {
         .isTrue();
   });
 
-  test('chat payload omits effort for unsupported server models', () {
+  test(
+    'chat payload omits the implicit effort for undeclared server models',
+    () {
     final api = ApiService(
       serverConfig: const ServerConfig(
         id: 'reasoning-test',
@@ -566,13 +618,10 @@ void main() {
     check(params('gpt-5', null)['reasoning_effort']).equals('low');
     check(params('gpt-5', 'automatic').containsKey('reasoning_effort'))
         .isFalse();
-    check(
-      params(
-        'gpt-4o',
-        'high',
-        configured: false,
-      ).containsKey('reasoning_effort'),
-    ).isFalse();
+    // Issue #779: a picker pick for an undeclared model is an explicit
+    // opt-in and reaches the wire.
+    check(params('gpt-4o', 'high', configured: false)['reasoning_effort'])
+        .equals('high');
   });
 
   test('custom OpenWebUI model metadata retains supported effort', () {

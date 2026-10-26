@@ -198,14 +198,18 @@ nativeHydratedServerReasoningEffort({
   String? localEffort,
 }) {
   final modelEffort = detail.value ?? modelConfiguredReasoningEffort(model);
-  final policy = model.supportsReasoningEffort || modelEffort != null
-      ? ReasoningEffortPolicy.generic
-      : ReasoningEffortPolicy.unsupported;
+  // Offer the picker for every server model that does not explicitly refuse
+  // the parameter (issue #779). The user-level fallback stays restricted to
+  // advertising models, mirroring configuredReasoningEffortProvider.
+  final policy = model.explicitlyRejectsReasoningEffort
+      ? ReasoningEffortPolicy.unsupported
+      : ReasoningEffortPolicy.generic;
+  final fallback = model.advertisesReasoningEffort ? personalizationEffort : null;
   return (
     policy: policy,
     value:
         policy.effectiveConfiguredEffort(
-          localEffort ?? modelEffort ?? personalizationEffort,
+          localEffort ?? modelEffort ?? fallback,
         ) ??
         kAutomaticReasoningEffort,
   );

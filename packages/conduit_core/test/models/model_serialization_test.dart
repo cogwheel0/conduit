@@ -131,7 +131,19 @@ void main() {
           .deepEquals(<String, dynamic>{
             'supported_efforts': ['low', 'vendor_ultra'],
           });
-      check(model.supportsReasoningEffort).isTrue();
+      check(model.advertisesReasoningEffort).isTrue();
+      check(model.explicitlyRejectsReasoningEffort).isFalse();
+    });
+
+    test('an explicit false capability refuses reasoning effort', () {
+      final model = Model.fromJson({
+        'id': 'no-effort-model',
+        'name': 'No effort model',
+        'capabilities': {'reasoning_effort': false},
+      });
+
+      check(model.explicitlyRejectsReasoningEffort).isTrue();
+      check(model.advertisesReasoningEffort).isFalse();
     });
 
     test('name defaults to id when blank', () {

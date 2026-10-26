@@ -259,13 +259,18 @@ void main() {
       String? reasoningEffort,
       List<String>? toolIds,
       String model = 'gpt-5',
+      Map<String, dynamic>? modelItemExtra,
     }) async {
       final adapter = _FakeAdapter.json({'task_id': 'task-1', 'status': true});
       final api = _buildApiServiceForTest(adapter);
       await api.sendMessageSession(
         messages: _minimalMessages,
         model: model,
-        modelItem: {'id': model, 'name': model},
+        modelItem: <String, dynamic>{
+          'id': model,
+          'name': model,
+          ...?modelItemExtra,
+        },
         userSettings: userSettings,
         chatParams: chatParams,
         reasoningEffort: reasoningEffort,
@@ -453,23 +458,138 @@ void main() {
     });
 
     test(
-      'a saved reasoning effort keeps the unsupported-model translation',
+      'a saved reasoning effort is not sent to an undeclared model',
       () async {
-        // A model that cannot take an effort never receives one, saved or not.
+        // Issue #611: the chat's value may have been picked for another
+        // model. A model that does not advertise support gets only its own
+        // pick, and here the picker holds none.
         final body = await sentBody(
           model: 'plain-chat-model',
           chatParams: {'reasoning_effort': 'low'},
+          reasoningEffort: 'automatic',
         );
 
         check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
       },
     );
 
+    for (final saved in <Object?>[null, '']) {
+      test(
+        'a saved ${saved == null ? 'null' : 'empty'} effort sends nothing '
+        'to an undeclared model',
+        () async {
+          // Picking Automatic saves null on the chat.
+          final body = await sentBody(
+            model: 'plain-chat-model',
+            chatParams: {'reasoning_effort': saved, 'temperature': 0.5},
+            reasoningEffort: 'automatic',
+          );
+
+          check(paramsOf(body)).deepEquals({'temperature': 0.5});
+        },
+      );
+    }
+
+    for (final saved in <Object?>[null, 'automatic']) {
+      test(
+        'a saved default ($saved) outranks an undeclared model\'s own pick',
+        () async {
+          // A comparison is admitted on the chat's default and sends this
+          // one request's value to every answer, so the first model's pick
+          // must not ride along.
+          final body = await sentBody(
+            model: 'plain-chat-model',
+            chatParams: {'reasoning_effort': saved, 'temperature': 0.5},
+            reasoningEffort: 'high',
+          );
+
+          check(paramsOf(body)).deepEquals({'temperature': 0.5});
+        },
+      );
+    }
+
+    test(
+      'an undeclared model gets its own pick over the saved value',
+      () async {
+        // The request matches what the model's picker shows.
+        final body = await sentBody(
+          model: 'plain-chat-model',
+          chatParams: {'reasoning_effort': 'high'},
+          reasoningEffort: 'low',
+        );
+
+        check(paramsOf(body)['reasoning_effort']).equals('low');
+      },
+    );
+
+    test('an explicit picker pick is sent to an undeclared model (opt-in)', () async {
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        reasoningEffort: 'minimal',
+      );
+
+      check(paramsOf(body)['reasoning_effort']).equals('minimal');
+    });
+
+    test('a saved or picked effort is stripped for an explicitly refusing model', () async {
+      // The server said this model cannot take the parameter: not even a
+      // chat-saved override or a stale picker value may send it (#779).
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        chatParams: {'reasoning_effort': 'high'},
+        reasoningEffort: 'high',
+        modelItemExtra: {
+          'capabilities': {'reasoning_effort': false},
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+    });
+
+    test('a declared empty supported_efforts set refuses the effort too', () async {
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        chatParams: {'reasoning_effort': 'high'},
+        modelItemExtra: {
+          'capabilities': {
+            'reasoning': {'supported_efforts': <String>[]},
+          },
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+    });
+
+    test('the user-level default is not leaked to an undeclared model', () async {
+      // Issue #613 stays fixed: without an explicit pick the parameter is
+      // still withheld from models that do not advertise support. A real
+      // send passes the picker's "automatic", never null.
+      final body = await sentBody(
+        model: 'plain-chat-model',
+        reasoningEffort: 'automatic',
+        userSettings: {
+          'ui': {
+            'params': {'reasoning_effort': 'high'},
+          },
+        },
+      );
+
+      check(paramsOf(body).containsKey('reasoning_effort')).isFalse();
+    });
+
     test(
       'a saved "automatic" effort is dropped, as the picker value is',
       () async {
+        // An explicit automatic outranks the global default too (normalized
+        // "automatic" is what a queued retry-without-effort freezes into the
+        // settings snapshot for its replay).
         final body = await sentBody(
           chatParams: {'reasoning_effort': 'automatic', 'temperature': 0.5},
+          userSettings: {
+            'ui': {
+              'params': {'reasoning_effort': 'medium'},
+            },
+          },
         );
 
         check(paramsOf(body)).deepEquals({'temperature': 0.5});

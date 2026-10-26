@@ -615,3 +615,103 @@ Future<void> persistOpenWebUiReasoningPick(
     );
   }
 }
+
+/// "Retry without reasoning effort" (issue #779 recovery): clears the picker's
+/// pick on [model] and, for an Open WebUI model that advertises reasoning
+/// effort, the chat's saved override, and reports whether every clear is
+/// confirmed. A model that does not advertise support was sent only its own
+/// pick (issue #611), so the chat's value, which may be right for other
+/// models, stays. The retry that follows must not
+/// resend the value the provider rejected, so unlike
+/// [persistOpenWebUiReasoningPick] — which lets a picker keep its local pick
+/// when the chat write fails — this writes the override itself and checks the
+/// params that came back saved. A null [model] (the failing turn's model left
+/// the model list) clears only the chat's override, the one opt-in that
+/// outlives a model.
+Future<bool> clearReasoningEffortForRetry(dynamic ref, Model? model) async {
+  // The chat and account are decided before the first await: opening another
+  // chat while the local write is in flight must not send the clear to the
+  // newly opened one (same rule selectReasoningEffortForModel follows).
+  final pickTarget = captureOpenWebUiReasoningPickTarget(ref);
+  bool overrideSaved(Map<String, dynamic>? params) {
+    final value = params?[kChatParamReasoningEffort];
+    return value is String &&
+        value.trim().isNotEmpty &&
+        value.trim().toLowerCase() != kAutomaticReasoningEffort;
+  }
+
+  Future<bool> chatHoldsOverride() async {
+    // The retry reads the chat's stored params, so that is where a still
+    // effective override is looked for; the draft and the on-screen copy
+    // stand in when there is no row to read.
+    final conversation = pickTarget._conversation;
+    if (conversation == null) {
+      return overrideSaved(
+        ref.read(pendingOpenWebUiChatSettingsProvider) as Map<String, dynamic>,
+      );
+    }
+    Map<String, dynamic>? stored;
+    try {
+      stored = await _readAppDatabaseOrNull(
+        ref,
+      )?.chatsDao.getChatParams(conversation.id);
+    } catch (_) {
+      stored = null;
+    }
+    return overrideSaved(stored ?? conversation.chatParams);
+  }
+
+  var cleared = true;
+  if (model != null) {
+    try {
+      await setReasoningEffortForModel(
+        ref.read,
+        model,
+        kAutomaticReasoningEffort,
+      );
+    } catch (_) {
+      cleared = false;
+    }
+    // Direct, Apple and Hermes models carry a device-local pick only; the
+    // chat write exists solely for Open WebUI models that were sent the
+    // chat's value.
+    if (!_reasoningPickIsSavedOnChat(ref, model) ||
+        !model.advertisesReasoningEffort) {
+      return cleared;
+    }
+  }
+  try {
+    final saved = await saveOpenWebUiChatSettings(
+      ref,
+      conversation: pickTarget._conversation,
+      owner: pickTarget._owner,
+      set: <String, dynamic>{kChatParamReasoningEffort: null},
+    );
+    final value = saved[kChatParamReasoningEffort];
+    cleared =
+        cleared &&
+        (value == null ||
+            (value is String &&
+                (value.trim().isEmpty ||
+                    value.trim().toLowerCase() ==
+                        kAutomaticReasoningEffort)));
+  } on OpenWebUiChatSettingsException catch (error) {
+    // A user without parameter rights cannot clear what the chat never
+    // saved. With no override in place the denial leaves nothing a retry
+    // could resend — only the local pick opted in, and that is already
+    // cleared — so the retry is safe. A real override keeps the retry
+    // blocked: it would ride out again on the next request.
+    cleared =
+        cleared &&
+        error.reason == OpenWebUiChatSettingsFailure.permissionDenied &&
+        !await chatHoldsOverride();
+  } catch (error) {
+    DebugLogger.warning(
+      'reasoning-effort-retry-clear-failed',
+      scope: 'chat/settings',
+      data: {'error': error.runtimeType.toString()},
+    );
+    cleared = false;
+  }
+  return cleared;
+}

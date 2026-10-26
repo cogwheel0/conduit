@@ -113,10 +113,16 @@ CodeInterpreterBlock? _codeInterpreterBlockForModel(dynamic ref, Model model) {
 ComparisonModelProfile _comparisonProfileFor(dynamic ref, Model model) {
   final policy = reasoningEffortPolicyForModel(ref.read, model);
   final picker = reasoningEffortForModel(ref.read, model);
+  // A model that does not advertise support still carries the parameter when
+  // the user picked an explicit effort for it (issue #779); only automatic
+  // sends nothing.
+  final hasExplicitEffort = picker != kAutomaticReasoningEffort;
   return ComparisonModelProfile(
     modelId: model.id,
-    supportsReasoningEffort: model.supportsReasoningEffort,
-    pickerReasoningEffort: picker == kAutomaticReasoningEffort ? null : picker,
+    advertisesReasoningEffort: model.advertisesReasoningEffort,
+    supportsReasoningEffort:
+        model.advertisesReasoningEffort || hasExplicitEffort,
+    pickerReasoningEffort: hasExplicitEffort ? picker : null,
     acceptsReasoningEffort: (effort) =>
         policy.effectiveConfiguredEffort(effort) == effort,
   );

@@ -587,15 +587,35 @@ void main() {
       },
     );
 
-    test('a value the model rejects is neither recorded nor saved', () async {
+    test(
+      'a user pick on an undeclared model is recorded and saved (opt-in)',
+      () async {
+        // Issue #779: the model does not advertise support; choosing an
+        // effort for it is the explicit opt-in.
+        await _seed(db, 'c1');
+        final c = container(active: _conversation('c1'));
+        const plain = Model(id: 'plain-chat-model', name: 'Plain');
+
+        await selectReasoningEffortForModel(c, plain, 'high');
+
+        check(localReasoningEffortForModel(c.read, plain)).equals('high');
+        check(await stored('c1')).deepEquals({'reasoning_effort': 'high'});
+      },
+    );
+
+    test('a value for a model that refuses reasoning effort is not recorded', () async {
       await _seed(db, 'c1');
       final c = container(active: _conversation('c1'));
-      const plain = Model(id: 'plain-chat-model', name: 'Plain');
+      const denied = Model(
+        id: 'denied-chat-model',
+        name: 'Denied',
+        capabilities: <String, dynamic>{'reasoning_effort': false},
+      );
 
-      await check(selectReasoningEffortForModel(c, plain, 'high'))
+      await check(selectReasoningEffortForModel(c, denied, 'high'))
           .throws<FormatException>();
 
-      check(localReasoningEffortForModel(c.read, plain)).isNull();
+      check(localReasoningEffortForModel(c.read, denied)).isNull();
       check(await stored('c1')).isEmpty();
     });
 
@@ -607,6 +627,134 @@ void main() {
 
       check(await stored('c1')).isEmpty();
     });
+
+    test(
+      'retry-clearing removes the pick and confirms the chat override',
+      () async {
+        // Issue #779 recovery: the retry only starts when both clears are
+        // confirmed, so the helper must report the saved params it saw.
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        final c = container(active: _conversation('c1'));
+        const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
+        await selectReasoningEffortForModel(c, reasoner, 'high');
+
+        final cleared = await clearReasoningEffortForRetry(c, reasoner);
+
+        check(cleared).isTrue();
+        check(localReasoningEffortForModel(c.read, reasoner))
+            .equals(kAutomaticReasoningEffort);
+        check((await stored('c1'))['reasoning_effort']).isNull();
+      },
+    );
+
+    test(
+      'retry-clearing leaves the chat value an undeclared model was not sent',
+      () async {
+        // A model that does not advertise support is sent only its own pick
+        // (issue #611); the chat's value may be right for other models.
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        final c = container(active: _conversation('c1'));
+        const plain = Model(id: 'plain-chat-model', name: 'Plain');
+        await setReasoningEffortForModel(c.read, plain, 'low');
+
+        final cleared = await clearReasoningEffortForRetry(c, plain);
+
+        check(cleared).isTrue();
+        check(localReasoningEffortForModel(c.read, plain))
+            .equals(kAutomaticReasoningEffort);
+        check(await stored('c1')).deepEquals({'reasoning_effort': 'high'});
+      },
+    );
+
+    test(
+      'retry-clearing reports failure when the chat write is denied',
+      () async {
+        // A swallowed permission denial must not let the retry resend the
+        // rejected value: the helper says "not cleared" instead.
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        final c = container(
+          active: _conversation('c1'),
+          access: const OpenWebUiChatSettingsAccess(
+            canEditSystemPrompt: true,
+            canEditParameters: false,
+          ),
+        );
+
+        const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
+        final cleared = await clearReasoningEffortForRetry(c, reasoner);
+
+        check(cleared).isFalse();
+        check(await stored('c1')).deepEquals({'reasoning_effort': 'high'});
+      },
+    );
+
+    test(
+      'retry-clearing without a resolvable model still clears the chat',
+      () async {
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        final c = container(active: _conversation('c1'));
+
+        final cleared = await clearReasoningEffortForRetry(c, null);
+
+        check(cleared).isTrue();
+        check((await stored('c1'))['reasoning_effort']).isNull();
+      },
+    );
+
+    test(
+      'retry-clearing lands on the chat it started in, not the one opened since',
+      () async {
+        await _seed(db, 'c1', params: {'reasoning_effort': 'high'});
+        await _seed(db, 'c2', params: {'reasoning_effort': 'low'});
+        final gate = Completer<void>();
+        final c = container(
+          active: _conversation('c1'),
+          extraOverrides: [
+            localReasoningEffortsProvider.overrideWith(
+              () => _SlowEfforts(gate),
+            ),
+          ],
+        );
+
+        const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
+        final clear = clearReasoningEffortForRetry(c, reasoner);
+        // Preference storage is slow; the user opens another chat meanwhile.
+        c.read(activeConversationProvider.notifier).set(_conversation('c2'));
+        gate.complete();
+        final cleared = await clear;
+
+        check(cleared).isTrue();
+        check((await stored('c1'))['reasoning_effort']).isNull();
+        check(await stored('c2')).deepEquals({'reasoning_effort': 'low'});
+      },
+    );
+
+    test(
+      'a denied chat write is still cleared when no override was ever saved',
+      () async {
+        // The picker keeps local picks when the chat write is denied, so a
+        // user without rights can be opted in locally with nothing saved.
+        // With nothing on the chat to resend, clearing must not block a
+        // retry that is already safe.
+        await _seed(db, 'c1');
+        final c = container(
+          active: _conversation('c1'),
+          access: const OpenWebUiChatSettingsAccess(
+            canEditSystemPrompt: true,
+            canEditParameters: false,
+          ),
+        );
+        const reasoner = Model(id: 'gpt-5', name: 'GPT-5');
+        await selectReasoningEffortForModel(c, reasoner, 'high');
+
+        final cleared = await clearReasoningEffortForRetry(c, reasoner);
+
+        check(cleared).isTrue();
+        check(localReasoningEffortForModel(c.read, reasoner))
+            .equals(kAutomaticReasoningEffort);
+        check(await stored('c1')).isEmpty();
+      },
+    );
 
     group('while the pick is still being recorded locally', () {
       const reasoner = Model(id: 'gpt-5', name: 'GPT-5');

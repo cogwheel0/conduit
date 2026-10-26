@@ -297,6 +297,14 @@
   "@customReasoningEffort": {
     "description": "Action for entering a provider-specific reasoning effort."
   },
+  "retryWithoutReasoningEffort": "Retry without reasoning effort",
+  "@retryWithoutReasoningEffort": {
+    "description": "Action on a failed response that clears the model's reasoning effort and retries."
+  },
+  "reasoningEffortClearIncomplete": "Could not fully clear the reasoning effort settings — this retry continues without it.",
+  "@reasoningEffortClearIncomplete": {
+    "description": "Warning shown when a without-effort retry continues although clearing the saved reasoning effort was not confirmed."
+  },
   "customReasoningEffortHint": "Enter a provider-supported effort",
   "@customReasoningEffortHint": {
     "description": "Hint for a provider-specific reasoning effort value."

@@ -42,6 +42,8 @@ import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
+    show LocalReasoningEfforts, localReasoningEffortsProvider;
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
@@ -5303,6 +5305,7 @@ void main() {
     open({
       List<Model> available = const [duplicate],
       Map<String, dynamic>? storedParams,
+      Map<String, String> picks = const {},
       bool socketConnected = true,
       bool trackSignIn = false,
       _QuietSyncEngine Function(AppDatabase, _FanOutApi)? engine,
@@ -5338,6 +5341,13 @@ void main() {
         webSearchAvailable: webSearchAvailable,
         extraOverrides: [
           modelsProvider.overrideWith(() => _ListedModels(available)),
+          // The picker's own pick per model id, on the fan-out server.
+          localReasoningEffortsProvider.overrideWith(
+            () => _FixedEfforts({
+              for (final MapEntry(:key, :value) in picks.entries)
+                'openwebui:fan-out:$key': value,
+            }),
+          ),
           if (account != null) ..._signedInAs(account),
           if (trackSignIn)
             openWebUiAuthSessionEpochProvider.overrideWith(
@@ -6189,20 +6199,33 @@ void main() {
       ).isA<String>().contains('cannot compare');
     });
 
-    test('mixed reasoning-effort support is refused in either slot order '
-        'until the override is removed', () async {
+    test('a saved effort joins only the models that would be sent '
+        'it', () async {
+      // A model that does not advertise reasoning effort is sent only its own
+      // pick (issue #611), and the group shares one value, so it joins a
+      // saved effort only when it picked that same value. A model that
+      // explicitly refuses the parameter blocks the group in either order.
       const reasoning = Model(
         id: 'reasoner',
         name: 'Reasoner',
         supportedParameters: ['reasoning_effort'],
       );
       const plain = Model(id: 'plain', name: 'Plain');
+      const picked = Model(id: 'picked', name: 'Picked');
+      const refuser = Model(
+        id: 'refuser',
+        name: 'Refuser',
+        capabilities: <String, dynamic>{'reasoning_effort': false},
+      );
       final (:api, :socket, :container) = await open(
-        available: const [reasoning, plain],
+        available: const [reasoning, plain, picked, refuser],
         storedParams: {'reasoning_effort': 'high'},
+        picks: const {'picked': 'high'},
       );
 
       for (final order in [
+        const [reasoning, refuser],
+        const [refuser, reasoning],
         const [reasoning, plain],
         const [plain, reasoning],
       ]) {
@@ -6220,24 +6243,60 @@ void main() {
       check(container.read(chatMessagesProvider)).length.equals(1);
       check(api.requests).isEmpty();
 
-      await db.chatsDao.patchChatParamsWithOutbox(
-        chatId,
-        remove: const ['reasoning_effort'],
-        updatedAt: 9,
-      );
-      await db.delete(db.outboxDao.outboxOps).go();
-
-      await durableCompareSend(
+      // With its own matching pick the undeclared model is admitted, and the
+      // one shared request carries the saved value for both answers.
+      final handles = await durableCompareSend(
         container,
         'compare',
         null,
-        models: const [plain, reasoning],
+        models: const [picked, reasoning],
       );
       await replay(container);
       check(api.requests).length.equals(1);
-      check(api.requests.single.chatParams).isNotNull().not(
-        (it) => it.containsKey('reasoning_effort'),
+      final params = api.requests.single.chatParams;
+      check(params).isNotNull();
+      check(params!['reasoning_effort']).equals('high');
+      check(handles).length.equals(2);
+    });
+
+    test('an undeclared model\'s own pick counts among the picker '
+        'values', () async {
+      // With nothing saved on the chat the picker's values must wire the
+      // same way for every answer. An undeclared model sends its own pick,
+      // so it agrees with a reasoning model that picked the same value and
+      // conflicts with a model left on Automatic.
+      const reasoning = Model(
+        id: 'reasoner',
+        name: 'Reasoner',
+        supportedParameters: ['reasoning_effort'],
       );
+      const plain = Model(id: 'plain', name: 'Plain');
+      const picked = Model(id: 'picked', name: 'Picked');
+      final (:api, :socket, :container) = await open(
+        available: const [reasoning, plain, picked],
+        picks: const {'reasoner': 'high', 'picked': 'high'},
+      );
+
+      await check(
+        durableCompareSend(
+          container,
+          'compare',
+          null,
+          models: const [picked, plain],
+        ),
+      ).throws<ComparisonAdmissionException>(
+        (it) => it
+            .has((e) => e.reason, 'reason')
+            .equals(ComparisonAdmissionFailure.settingsConflict),
+      );
+
+      final handles = await durableCompareSend(
+        container,
+        'compare',
+        null,
+        models: const [picked, reasoning],
+      );
+      check(handles).length.equals(2);
     });
 
     test('a chat that is not on screen is driven headlessly: one request, '
@@ -8557,6 +8616,15 @@ class _ListedModels extends Models {
 
   @override
   Future<List<Model>> build() async => listed;
+}
+
+class _FixedEfforts extends LocalReasoningEfforts {
+  _FixedEfforts(this.efforts);
+
+  final Map<String, String> efforts;
+
+  @override
+  Map<String, String> build() => efforts;
 }
 
 /// An engine whose pull lands only the listed answers, as a server that has

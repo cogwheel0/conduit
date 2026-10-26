@@ -566,6 +566,48 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         );
   }
 
+  /// Manual "retry without reasoning effort" (issue #779 recovery): freezes
+  /// an explicit `automatic` into the queued `requestCompletion`'s settings
+  /// snapshot so the replay goes out without the parameter the provider
+  /// rejected. Freezing rather than deleting is deliberate: a replay that
+  /// finds no saved value falls back to the admitted global defaults, which
+  /// a model that advertises support still receives — while an explicit
+  /// automatic is dropped at the request boundary whatever the model or the
+  /// globals say. Returns false when [seq] is not a completion op. With no
+  /// readable snapshot the replay would read the chat's live params, so the
+  /// frozen copy is seeded from those.
+  Future<bool> freezeAutomaticReasoningEffortOnCompletion(int seq) async {
+    final op =
+        await (select(outboxOps)..where((t) => t.seq.equals(seq)))
+            .getSingleOrNull();
+    if (op == null || op.kind != OutboxKind.requestCompletion.name) {
+      return false;
+    }
+    final payload = _decodePayload(op.payload);
+    final existing = OpenWebUiChatSettingsSnapshot.tryFromJson(
+      payload['chatSettings'],
+    );
+    final liveParams = existing != null || op.chatId == null || op.chatId!.isEmpty
+        ? null
+        : await attachedDatabase.chatsDao.getChatParams(op.chatId!);
+    final frozen = OpenWebUiChatSettingsSnapshot(
+      params: <String, dynamic>{
+        ...?existing?.params,
+        ...?liveParams,
+        'reasoning_effort': 'automatic',
+      },
+      // The picker's admitted value goes too; the explicit automatic above
+      // already outranks it at the request boundary.
+      reasoningEffort: null,
+      baseline: existing?.baseline,
+    );
+    payload['chatSettings'] = frozen.toJson();
+    await (update(outboxOps)..where((t) => t.seq.equals(seq))).write(
+      OutboxOpsCompanion(payload: Value(jsonEncode(payload))),
+    );
+    return true;
+  }
+
   /// Connectivity-regained backoff reset (A6/A7): re-arms every pending op for
   /// an immediate attempt. attempts/lastError are left intact.
   Future<void> resetBackoffForPending({required int nowEpochSeconds}) {

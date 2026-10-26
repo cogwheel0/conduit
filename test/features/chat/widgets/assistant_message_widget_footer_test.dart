@@ -2,12 +2,24 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/message_voice.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart'
+    show OpenWebUiChatSettingsAccess;
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
+import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
+    show
+        LocalReasoningEfforts,
+        localReasoningEffortForModel,
+        localReasoningEffortsProvider;
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/features/chat/widgets/enhanced_attachment.dart';
@@ -25,6 +37,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 class _TestTextToSpeechController extends TextToSpeechController {
@@ -1635,4 +1648,369 @@ void main() {
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
   });
+
+  Future<void> pumpFailedQueued(
+    WidgetTester tester, {
+    required String lastError,
+    String? frozenReasoningEffort,
+    String? frozenPickedReasoningEffort,
+    Iterable<Override> modelOverrides = const <Override>[],
+  }) async {
+    final message = ChatMessage(
+      id: 'frozen-assistant',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      isStreaming: true,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          ...modelOverrides,
+          queuedCompletionInfoForMessageProvider('frozen-assistant')
+              .overrideWith(
+                (ref) => Stream<QueuedCompletionInfo?>.value(
+                  QueuedCompletionInfo(
+                    databaseOwner: Object(),
+                    seq: 45,
+                    chatId: 'chat-1',
+                    scopedChatId: 'chat-1',
+                    assistantMessageId: 'frozen-assistant',
+                    phase: QueuedCompletionPhase.failed,
+                    isOffline: false,
+                    lastError: lastError,
+                    frozenReasoningEffort: frozenReasoningEffort,
+                    frozenPickedReasoningEffort: frozenPickedReasoningEffort,
+                  ),
+                ),
+              ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: AssistantMessageWidget(
+              message: message,
+              isStreaming: true,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: message.model,
+              onCopy: () {},
+              onRegenerate: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets('frozen snapshot effort offers recovery without current '
+      'opt-ins (issue #779)', (tester) async {
+    await pumpFailedQueued(
+      tester,
+      lastError: 'Upstream rejected reasoning_effort',
+      frozenReasoningEffort: 'high',
+    );
+    expect(find.text('Retry without reasoning effort'), findsOneWidget);
+  });
+
+  testWidgets('an error merely naming the parameter does not offer recovery',
+      (tester) async {
+    await pumpFailedQueued(
+      tester,
+      lastError: 'Upstream rejected reasoning_effort',
+    );
+    expect(find.text('Retry without reasoning effort'), findsNothing);
+  });
+
+  testWidgets('an explicitly refusing model hides queued recovery even with '
+      'a frozen value (issue #779)', (tester) async {
+    await pumpFailedQueued(
+      tester,
+      lastError: 'Upstream rejected reasoning_effort',
+      frozenReasoningEffort: 'high',
+      modelOverrides: [
+        selectedModelProvider.overrideWith(_RefusingSelectedModel.new),
+      ],
+    );
+    expect(find.text('Retry without reasoning effort'), findsNothing);
+  });
+
+  testWidgets('a non-refusing selected model still offers recovery from the '
+      'frozen value', (tester) async {
+    await pumpFailedQueued(
+      tester,
+      lastError: 'Upstream rejected reasoning_effort',
+      frozenReasoningEffort: 'high',
+      modelOverrides: [
+        selectedModelProvider.overrideWith(_AdvertisingSelectedModel.new),
+      ],
+    );
+    expect(find.text('Retry without reasoning effort'), findsOneWidget);
+  });
+
+  // A model that does not advertise reasoning effort was sent only the
+  // picker's frozen value, never the chat's (issue #611).
+  for (final (picked, offered) in [(null, false), ('high', true)]) {
+    testWidgets('queued recovery for an undeclared model follows its frozen '
+        'pick ($picked)', (tester) async {
+      await pumpFailedQueued(
+        tester,
+        lastError: 'Upstream rejected reasoning_effort',
+        frozenReasoningEffort: 'high',
+        frozenPickedReasoningEffort: picked,
+        modelOverrides: [
+          // Signed out: the model holds no pick of its own.
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(
+            () => _SelectedAs(
+              const Model(id: 'plain-chat-model', name: 'Plain'),
+            ),
+          ),
+        ],
+      );
+      expect(
+        find.text('Retry without reasoning effort'),
+        offered ? findsOneWidget : findsNothing,
+      );
+    });
+  }
+
+  group('retry without reasoning effort on a live answer', () {
+    const plain = Model(id: 'plain-chat-model', name: 'Plain');
+    final failed = ChatMessage(
+      id: 'live-assistant',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2024, 1, 1),
+      error: const ChatMessageError(
+        content: 'Unrecognized request argument supplied: reasoning_effort',
+      ),
+    );
+    final retryWithoutEffort = find.byIcon(Icons.highlight_off);
+
+    /// [picks] are the picker's own picks by model id, on the `live` server.
+    Future<ProviderContainer> pumpFailed(
+      WidgetTester tester, {
+      required Model selected,
+      Map<String, String> picks = const {},
+      Map<String, dynamic>? chatParams,
+      bool pickWritesFail = false,
+      VoidCallback? onRegenerate,
+    }) async {
+      final container = ProviderContainer(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _TestTextToSpeechController.new,
+          ),
+          streamingHapticsEnabledProvider.overrideWithValue(false),
+          isChatStreamingProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(
+            ApiService(
+              serverConfig: const ServerConfig(
+                id: 'live',
+                name: 'Live',
+                url: 'https://live.example.test',
+              ),
+              workerManager: WorkerManager(),
+            ),
+          ),
+          openWebUiChatSettingsAccessProvider.overrideWith(
+            (ref) async => OpenWebUiChatSettingsAccess.all,
+          ),
+          selectedModelProvider.overrideWith(() => _SelectedAs(selected)),
+          // A live answer, not a queued one.
+          queuedCompletionInfoForMessageProvider(
+            failed.id,
+          ).overrideWith((ref) => Stream<QueuedCompletionInfo?>.value(null)),
+          localReasoningEffortsProvider.overrideWith(
+            () => _PickedEfforts({
+              for (final MapEntry(:key, :value) in picks.entries)
+                'openwebui:live:$key': value,
+            }, writesFail: pickWritesFail),
+          ),
+          // Branching is not under test.
+          chatForkAvailabilityProvider.overrideWithValue(
+            ChatForkAvailability.hidden,
+          ),
+          if (chatParams != null)
+            activeConversationProvider.overrideWith(
+              () => _ActiveAs(
+                Conversation(
+                  id: 'chat-1',
+                  title: 'Chat',
+                  createdAt: DateTime(2024, 1, 1),
+                  updatedAt: DateTime(2024, 1, 1),
+                  chatParams: chatParams,
+                ),
+              ),
+            ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _buildHarness(
+            AssistantMessageWidget(
+              message: failed,
+              isStreaming: false,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: failed.model,
+              onCopy: () {},
+              onRegenerate: onRegenerate ?? () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    testWidgets('is offered when the model was sent its own pick', (
+      tester,
+    ) async {
+      await pumpFailed(tester, selected: plain, picks: {plain.id: 'high'});
+      expect(retryWithoutEffort, findsOneWidget);
+    });
+
+    testWidgets('is not offered when the model was sent no effort', (
+      tester,
+    ) async {
+      await pumpFailed(tester, selected: plain);
+      expect(retryWithoutEffort, findsNothing);
+    });
+
+    testWidgets('is not offered for a chat value the model was not sent', (
+      tester,
+    ) async {
+      // A model that does not advertise support is sent only its own pick.
+      await pumpFailed(
+        tester,
+        selected: plain,
+        chatParams: const {'reasoning_effort': 'high'},
+      );
+      expect(retryWithoutEffort, findsNothing);
+    });
+
+    testWidgets('is not offered when the chat saved Automatic', (
+      tester,
+    ) async {
+      // A default saved on the chat outranks the model's own pick.
+      await pumpFailed(
+        tester,
+        selected: plain,
+        picks: {plain.id: 'high'},
+        chatParams: const {'reasoning_effort': null},
+      );
+      expect(retryWithoutEffort, findsNothing);
+    });
+
+    testWidgets('is offered for the chat value a reasoning model was sent', (
+      tester,
+    ) async {
+      await pumpFailed(
+        tester,
+        selected: const Model(id: 'gpt-5', name: 'GPT-5'),
+        chatParams: const {'reasoning_effort': 'high'},
+      );
+      expect(retryWithoutEffort, findsOneWidget);
+    });
+
+    testWidgets('clears the pick, then regenerates', (tester) async {
+      var regenerations = 0;
+      final container = await pumpFailed(
+        tester,
+        selected: plain,
+        picks: {plain.id: 'high'},
+        onRegenerate: () => regenerations += 1,
+      );
+
+      await tester.tap(retryWithoutEffort);
+      await tester.pumpAndSettle();
+
+      expect(regenerations, 1);
+      expect(localReasoningEffortForModel(container.read, plain), 'automatic');
+    });
+
+    testWidgets('does not regenerate when the pick could not be cleared', (
+      tester,
+    ) async {
+      var regenerations = 0;
+      await pumpFailed(
+        tester,
+        selected: plain,
+        picks: {plain.id: 'high'},
+        pickWritesFail: true,
+        onRegenerate: () => regenerations += 1,
+      );
+
+      await tester.tap(retryWithoutEffort);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      // Regenerating now would send the rejected value again.
+      expect(regenerations, 0);
+    });
+  });
+}
+
+final class _RefusingSelectedModel extends SelectedModel {
+  @override
+  Model? build() => const Model(
+    id: 'refusing-model',
+    name: 'Refusing',
+    capabilities: {'reasoning_effort': false},
+  );
+}
+
+final class _AdvertisingSelectedModel extends SelectedModel {
+  @override
+  Model? build() => const Model(id: 'gpt-5', name: 'GPT-5');
+}
+
+final class _SelectedAs extends SelectedModel {
+  _SelectedAs(this.model);
+
+  final Model model;
+
+  @override
+  Model? build() => model;
+}
+
+final class _ActiveAs extends ActiveConversationNotifier {
+  _ActiveAs(this.conversation);
+
+  final Conversation conversation;
+
+  @override
+  Conversation? build() => conversation;
+}
+
+/// The picker's per-model picks, held in memory. With [writesFail] every
+/// write throws, as preference storage that cannot be written does.
+final class _PickedEfforts extends LocalReasoningEfforts {
+  _PickedEfforts(this.picks, {this.writesFail = false});
+
+  final Map<String, String> picks;
+  final bool writesFail;
+
+  @override
+  Map<String, String> build() => picks;
+
+  @override
+  Future<void> set(String key, String? effort) async {
+    if (writesFail) throw StateError('Preferences are unavailable.');
+    final updated = Map<String, String>.of(state)..remove(key);
+    state = {...updated, key: ?effort};
+  }
 }
