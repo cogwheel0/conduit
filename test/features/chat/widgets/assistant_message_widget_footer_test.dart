@@ -1901,6 +1901,19 @@ void main() {
       expect(retryWithoutEffort, findsNothing);
     });
 
+    testWidgets('is not offered when the chat saved Automatic', (
+      tester,
+    ) async {
+      // A default saved on the chat outranks the model's own pick.
+      await pumpFailed(
+        tester,
+        selected: plain,
+        picks: {plain.id: 'high'},
+        chatParams: const {'reasoning_effort': null},
+      );
+      expect(retryWithoutEffort, findsNothing);
+    });
+
     testWidgets('is offered for the chat value a reasoning model was sent', (
       tester,
     ) async {

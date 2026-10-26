@@ -747,6 +747,32 @@ void main() {
       },
     );
 
+    test('a default saved on the chat outranks the admitted pick', () async {
+      // Picking Automatic saves null on the chat; no model is then sent the
+      // picker's value, so nothing frozen can be what the provider rejected.
+      final seq = await enqueueCompletionWithSnapshot(
+        'c1',
+        'a1',
+        OpenWebUiChatSettingsSnapshot(
+          params: const {'reasoning_effort': null},
+          reasoningEffort: 'high',
+        ),
+      );
+      await db.outboxDao.markParked(seq, error: 'rejected reasoning_effort');
+
+      final info = await firstInfo(
+        makeContainer(online: true, chatId: 'c1'),
+        'a1',
+      );
+      check(info)
+          .isNotNull()
+          .has(
+            (i) => i.frozenPickedReasoningEffort,
+            'frozenPickedReasoningEffort',
+          )
+          .isNull();
+    });
+
     test('the admitted picker value counts when the chat params hold none', () async {
       final seq = await enqueueCompletionWithSnapshot(
         'c1',

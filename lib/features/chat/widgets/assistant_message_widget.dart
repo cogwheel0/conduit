@@ -2404,6 +2404,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         value.trim().toLowerCase() != kAutomaticReasoningEffort;
   }
 
+  /// Whether the chat saved a default (Automatic) for `reasoning_effort`,
+  /// which outranks every model's own pick.
+  bool get _chatSavedReasoningEffortDefault {
+    final params = ref.read(activeConversationProvider)?.chatParams;
+    return params != null &&
+        params.containsKey(kChatParamReasoningEffort) &&
+        !_chatHasReasoningEffortOverride;
+  }
+
   bool _isReasoningEffortRejection(String errorText, Model? retryModel) {
     if (!_reasoningEffortRejectionPattern.hasMatch(errorText)) return false;
     // An explicitly refusing model never takes the parameter: the request
@@ -2419,6 +2428,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final pickerOptIn =
         retryModel != null &&
         !retryModel.advertisesReasoningEffort &&
+        !_chatSavedReasoningEffortDefault &&
         reasoningEffortForModel(ref.read, retryModel) !=
             kAutomaticReasoningEffort;
     final chatOptIn =

@@ -490,6 +490,24 @@ void main() {
       );
     }
 
+    for (final saved in <Object?>[null, 'automatic']) {
+      test(
+        'a saved default ($saved) outranks an undeclared model\'s own pick',
+        () async {
+          // A comparison is admitted on the chat's default and sends this
+          // one request's value to every answer, so the first model's pick
+          // must not ride along.
+          final body = await sentBody(
+            model: 'plain-chat-model',
+            chatParams: {'reasoning_effort': saved, 'temperature': 0.5},
+            reasoningEffort: 'high',
+          );
+
+          check(paramsOf(body)).deepEquals({'temperature': 0.5});
+        },
+      );
+    }
+
     test(
       'an undeclared model gets its own pick over the saved value',
       () async {

@@ -516,8 +516,9 @@ String? _assistantMessageIdFromPayload(String rawPayload) {
 /// The non-automatic `reasoning_effort` values frozen in the op's settings
 /// snapshot, [chat] saved on the chat and [picked] the picker's admitted one:
 /// what a manual replay can put on the wire whatever the picker and the chat
-/// hold now (issue #779). Both are null after a without-effort recovery froze
-/// `automatic`.
+/// hold now (issue #779). A default saved on the chat outranks the pick, so
+/// [picked] is null then too. Both are null after a without-effort recovery
+/// froze `automatic`.
 ({String? chat, String? picked})? _frozenReasoningEffortsFromPayload(
   String rawPayload,
 ) {
@@ -534,9 +535,12 @@ String? _assistantMessageIdFromPayload(String rawPayload) {
       decoded['chatSettings'],
     );
     if (settings == null) return null;
+    final chat = explicit(settings.params[kChatParamReasoningEffort]);
+    final chatSavedDefault =
+        settings.params.containsKey(kChatParamReasoningEffort) && chat == null;
     return (
-      chat: explicit(settings.params[kChatParamReasoningEffort]),
-      picked: explicit(settings.reasoningEffort),
+      chat: chat,
+      picked: chatSavedDefault ? null : explicit(settings.reasoningEffort),
     );
   } catch (_) {}
   return null;
