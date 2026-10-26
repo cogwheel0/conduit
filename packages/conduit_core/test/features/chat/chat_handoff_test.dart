@@ -36,7 +36,9 @@ class _Rig {
 
   ChatHandoffCoordinator coordinator({bool canAsk = true}) =>
       ChatHandoffCoordinator(
-        isActiveChat: (chatId) => chatId == activeChatId,
+        claimActiveChat: (chatId) => chatId == activeChatId
+            ? () => chatId == activeChatId
+            : null,
         findModel: (modelId) => openWebUiHandoffModel(models, modelId),
         confirm: canAsk
             ? (modelName) {
@@ -82,6 +84,8 @@ final class _ActiveChat extends ActiveConversationNotifier {
 
   @override
   Conversation? build() => _initial;
+
+  void put(Conversation? next) => state = next;
 }
 
 final class _Models extends Models {
@@ -250,6 +254,22 @@ void main() {
       check(rig.opened).isEmpty();
     });
 
+    test('is dropped when the user leaves the chat while deciding', () async {
+      final rig = _Rig();
+      final answer = Completer<bool>();
+      rig.answer = () => answer.future;
+
+      final reply = _handoff(rig.coordinator());
+      await Future<void>.delayed(Duration.zero);
+      rig.activeChatId = 'chat-2';
+      answer.complete(true);
+
+      check(
+        await reply,
+      ).deepEquals({'handled': false, 'reason': 'not_active_chat'});
+      check(rig.opened).isEmpty();
+    });
+
     test('is acted on once when it arrives twice', () async {
       final rig = _Rig();
       final coordinator = rig.coordinator();
@@ -353,12 +373,14 @@ void main() {
 
   group('the app coordinator', () {
     Future<(ProviderContainer, List<String>)> appWith(
-      Conversation active,
-    ) async {
+      Conversation active, {
+      void Function(ProviderContainer container)? whileAsking,
+    }) async {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       final asked = <String>[];
-      final container = ProviderContainer(
+      late final ProviderContainer container;
+      container = ProviderContainer(
         overrides: [
           appDatabaseProvider.overrideWithValue(db),
           apiServiceProvider.overrideWithValue(_Api()),
@@ -371,6 +393,7 @@ void main() {
           temporaryChatEnforcedProvider.overrideWithValue(false),
           chatHandoffPromptProvider.overrideWithValue((modelName) async {
             asked.add(modelName);
+            whileAsking?.call(container);
             return true;
           }),
         ],
@@ -433,6 +456,31 @@ void main() {
         check(asked).isEmpty();
         check(container.read(selectedModelProvider)).equals(_general);
       }
+    });
+
+    test('drops one whose chat was left while the user decided', () async {
+      final (container, asked) = await appWith(
+        withChatStorageProvenance(chat('chat-1'), ChatStorageKind.openWebUi),
+        whileAsking: (container) =>
+            (container.read(activeConversationProvider.notifier)
+                    as _ActiveChat)
+                .put(chat('chat-2')),
+      );
+      final reply = await container
+          .read(chatHandoffCoordinatorProvider)
+          .handle(
+            chatId: 'chat-1',
+            messageId: 'message-1',
+            data: const {'model_id': 'coder', 'prompt': 'Review this diff'},
+          );
+
+      check(
+        reply,
+      ).deepEquals({'handled': false, 'reason': 'not_active_chat'});
+      check(asked).deepEquals(['Code Assistant']);
+      check(container.read(activeConversationProvider)?.id).equals('chat-2');
+      check(container.read(selectedModelProvider)).equals(_general);
+      check(container.read(prefilledInputTextProvider)).isNull();
     });
   });
 }

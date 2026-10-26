@@ -19,22 +19,31 @@ typedef ChatHandoffPrompt = Future<bool> Function(String modelName);
 /// is refused as unsupported, since nobody could agree to it.
 final chatHandoffPromptProvider = Provider<ChatHandoffPrompt?>((ref) => null);
 
+/// Opens the new chat for a handoff the user agreed to: [openChatHandoff] by
+/// default. The app binds one that also retires the old composer's
+/// attachments, which only it can do.
+final chatHandoffOpenerProvider =
+    Provider<void Function(Model model, String prompt)>(
+      (ref) => (model, prompt) => openChatHandoff(ref, model, prompt),
+    );
+
 /// Answers the `chat:handoff` events of the signed-in account's socket. Kept
 /// alive so a repeat is still recognised after the socket is replaced.
 final chatHandoffCoordinatorProvider = Provider<ChatHandoffCoordinator>(
   (ref) => ChatHandoffCoordinator(
-    isActiveChat: (chatId) =>
-        activeOpenWebUiChatIdForMutation(
-          ref,
-          captureOpenWebUiCompletionOwner(ref, chatId: chatId),
-        ) !=
-        null,
+    claimActiveChat: (chatId) {
+      // Captured once, so a check made later also fails for another account.
+      final owner = captureOpenWebUiCompletionOwner(ref, chatId: chatId);
+      bool stillActive() =>
+          activeOpenWebUiChatIdForMutation(ref, owner) != null;
+      return stillActive() ? stillActive : null;
+    },
     findModel: (modelId) => openWebUiHandoffModel(
       ref.read(modelsProvider).value ?? const <Model>[],
       modelId,
     ),
     confirm: ref.watch(chatHandoffPromptProvider),
-    open: (model, prompt) => openChatHandoff(ref, model, prompt),
+    open: ref.watch(chatHandoffOpenerProvider),
   ),
 );
 
@@ -60,17 +69,21 @@ void openChatHandoff(dynamic ref, Model model, String prompt) {
   }
 }
 
+/// Returns null when [chatId] is not the chat open in Conduit, and otherwise a
+/// check that it still is, on the same account.
+typedef ChatHandoffChatClaim = bool Function()? Function(String chatId);
+
 /// Decides what a server's `chat:handoff` may do, which is never more than
 /// this: once the user agrees, open a new chat on one of their own models
 /// with the suggested prompt in the composer. It never sends a message, runs
 /// code, or changes a chat on the server.
 class ChatHandoffCoordinator {
   ChatHandoffCoordinator({
-    required bool Function(String chatId) isActiveChat,
+    required ChatHandoffChatClaim claimActiveChat,
     required Model? Function(String modelId) findModel,
     required ChatHandoffPrompt? confirm,
     required void Function(Model model, String prompt) open,
-  }) : _isActiveChat = isActiveChat,
+  }) : _claimActiveChat = claimActiveChat,
        _findModel = findModel,
        _confirm = confirm,
        _open = open;
@@ -78,7 +91,7 @@ class ChatHandoffCoordinator {
   /// Handoffs remembered to refuse a repeat, oldest dropped first.
   static const int maxRememberedHandoffs = 32;
 
-  final bool Function(String chatId) _isActiveChat;
+  final ChatHandoffChatClaim _claimActiveChat;
   final Model? Function(String modelId) _findModel;
   final ChatHandoffPrompt? _confirm;
   final void Function(Model model, String prompt) _open;
@@ -103,9 +116,10 @@ class ChatHandoffCoordinator {
       request.prompt,
     ]);
     if (_seen.contains(key)) return ChatHandoffRefusal.duplicate.reply;
-    if (chatId == null || chatId.isEmpty || !_isActiveChat(chatId)) {
-      return ChatHandoffRefusal.notActiveChat.reply;
-    }
+    final stillActive = chatId == null || chatId.isEmpty
+        ? null
+        : _claimActiveChat(chatId);
+    if (stillActive == null) return ChatHandoffRefusal.notActiveChat.reply;
     if (_asking) return ChatHandoffRefusal.busy.reply;
     _seen.add(key);
     if (_seen.length > maxRememberedHandoffs) _seen.remove(_seen.first);
@@ -119,6 +133,8 @@ class ChatHandoffCoordinator {
     } finally {
       _asking = false;
     }
+    // The user may have left the chat, or the account, while deciding.
+    if (!stillActive()) return ChatHandoffRefusal.notActiveChat.reply;
     _open(model, request.prompt);
     return chatHandoffHandledReply;
   }

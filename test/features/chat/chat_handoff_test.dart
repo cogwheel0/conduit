@@ -1,4 +1,4 @@
-import 'package:conduit/features/chat/services/chat_handoff_prompt.dart';
+import 'package:conduit/features/chat/services/chat_handoff_host.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -7,9 +7,11 @@ import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -73,6 +75,7 @@ void main() {
   ) async {
     final sent = <String>[];
     final container = await _pumpChat(tester, onSend: sent.add);
+    container.read(attachedFilesProvider.notifier).addRemoteFile(_report);
     final reply = container
         .read(chatHandoffCoordinatorProvider)
         .handle(
@@ -91,6 +94,8 @@ void main() {
     expect(container.read(activeConversationProvider), isNull);
     expect(container.read(chatMessagesProvider), isEmpty);
     expect(container.read(selectedModelProvider), _coder);
+    // What the old composer held doesn't follow into the new chat.
+    expect(container.read(attachedFilesProvider), isEmpty);
   });
 
   testWidgets('declining leaves the chat and composer as they were', (
@@ -98,6 +103,7 @@ void main() {
   ) async {
     final sent = <String>[];
     final container = await _pumpChat(tester, onSend: sent.add);
+    container.read(attachedFilesProvider.notifier).addRemoteFile(_report);
     await tester.enterText(find.byType(TextField), 'My own draft');
     final reply = container
         .read(chatHandoffCoordinatorProvider)
@@ -116,8 +122,19 @@ void main() {
     expect(sent, isEmpty);
     expect(container.read(activeConversationProvider)?.id, 'chat-1');
     expect(container.read(selectedModelProvider), _general);
+    expect(container.read(attachedFilesProvider), hasLength(1));
   });
 }
+
+final _report = FileInfo(
+  id: 'file-1',
+  filename: 'report.pdf',
+  originalFilename: 'report.pdf',
+  size: 1024,
+  mimeType: 'application/pdf',
+  createdAt: DateTime(2026),
+  updatedAt: DateTime(2026),
+);
 
 String _composerText(WidgetTester tester) =>
     tester.widget<TextField>(find.byType(TextField)).controller!.text;
@@ -145,13 +162,15 @@ Future<ProviderContainer> _pumpChat(
         userPermissionsProvider.overrideWith((ref) async => const {}),
         chatHandoffCoordinatorProvider.overrideWith(
           (ref) => ChatHandoffCoordinator(
-            isActiveChat: (chatId) =>
-                ref.read(activeConversationProvider)?.id == chatId,
+            claimActiveChat: (chatId) =>
+                ref.read(activeConversationProvider)?.id == chatId
+                ? () => true
+                : null,
             findModel: (modelId) =>
                 openWebUiHandoffModel(const [_general, _coder], modelId),
             confirm: (modelName) =>
                 confirmChatHandoff(const FlutterUiRequests(), modelName),
-            open: (model, prompt) => openChatHandoff(ref, model, prompt),
+            open: (model, prompt) => openChatHandoffInApp(ref, model, prompt),
           ),
         ),
       ],
