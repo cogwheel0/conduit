@@ -11,11 +11,15 @@ import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
+import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart' show SizedBox;
 
 const _server = ServerConfig(
   id: 'selection-test-server',
@@ -262,6 +266,74 @@ void main() {
       );
     },
   );
+
+  test('opening another chat makes back open the chat list', () async {
+    final summary = _conversation(
+      'older',
+      storage: ChatStorageKind.directLocal,
+    );
+    final full = _conversation(
+      'older',
+      storage: ChatStorageKind.directLocal,
+      body: 'Older body',
+    );
+    final container = await _createContainer(
+      extraOverrides: [
+        loadConversationProvider(conversationScopedId(summary))
+            .overrideWith((ref) async => full),
+      ],
+    );
+    expect(container.read(chatBackOpensListProvider), isFalse);
+
+    final result = await container
+        .read(conversationSelectionProvider.notifier)
+        .select(summary);
+
+    expect(result.disposition, ConversationSelectionDisposition.committed);
+    expect(container.read(activeConversationProvider)?.id, 'older');
+    expect(container.read(chatBackOpensListProvider), isTrue);
+  });
+
+  group('reopening the active chat', () {
+    Future<bool> reopenFrom(String location) async {
+      final router = GoRouter(
+        initialLocation: location,
+        routes: [
+          GoRoute(path: '/chat', builder: (_, _) => const SizedBox()),
+          GoRoute(path: '/channel/:id', builder: (_, _) => const SizedBox()),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      final active = _conversation(
+        'launch',
+        storage: ChatStorageKind.directLocal,
+        body: 'Launch body',
+      );
+      final container = await _createContainer(
+        activeConversation: active,
+        extraOverrides: [
+          loadConversationProvider(conversationScopedId(active))
+              .overrideWith((ref) async => active),
+        ],
+      );
+
+      final result = await container
+          .read(conversationSelectionProvider.notifier)
+          .select(active);
+
+      expect(result.disposition, ConversationSelectionDisposition.committed);
+      return container.read(chatBackOpensListProvider);
+    }
+
+    test('on screen keeps its back behaviour', () async {
+      expect(await reopenFrom('/chat'), isFalse);
+    });
+
+    test('from a channel makes back open the chat list', () async {
+      expect(await reopenFrom('/channel/general'), isTrue);
+    });
+  });
 
   test(
     'transient OpenWebUI certification resumes pending selection and commits',

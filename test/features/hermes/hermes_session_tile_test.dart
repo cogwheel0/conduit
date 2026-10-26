@@ -19,6 +19,7 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_serv
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
+import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:dio/dio.dart';
@@ -147,6 +148,64 @@ void main() {
         forgedOpenWebUiConversation,
       ),
     ).isTrue();
+  });
+
+  testWidgets('opening a session makes back open the chat list (#852)', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      retry: (retryCount, error) => null,
+      overrides: [
+        secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+        hermesApiServiceProvider.overrideWithValue(_FakeHermesApiService()),
+        modelsProvider.overrideWith(_FailingModels.new),
+        authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+        reviewerModeProvider.overrideWithValue(false),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    late BuildContext actionContext;
+    late WidgetRef widgetRef;
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
+        ),
+        GoRoute(
+          path: Routes.chat,
+          builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: Consumer(
+          builder: (context, ref, child) {
+            actionContext = context;
+            widgetRef = ref;
+            return MaterialApp.router(routerConfig: router);
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(container.read(chatBackOpensListProvider)).isFalse();
+
+    await openHermesSession(
+      actionContext,
+      widgetRef,
+      const HermesSessionSummary(id: 'older', title: 'Older session'),
+    );
+    await tester.pumpAndSettle();
+
+    check(container.read(activeConversationProvider)?.id)
+        .equals('local:hermes_older');
+    check(container.read(chatBackOpensListProvider)).isTrue();
   });
 
   testWidgets(

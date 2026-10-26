@@ -20,6 +20,7 @@ import '../../../shared/widgets/themed_dialogs.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show isChatStreamingProvider;
 
+import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/widgets/conversation_tile.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -439,6 +440,9 @@ Future<void> openHermesSession(
       },
     ),
   );
+  ref
+      .read(chatBackOpensListProvider.notifier)
+      .switchTo(conversation, chatOnScreen: chatPageOnScreen());
   ref.read(activeConversationProvider.notifier).set(conversation);
 
   if (context.mounted) {

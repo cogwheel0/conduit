@@ -13,6 +13,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 
 import '../../../core/utils/current_localizations.dart';
+import '../../navigation/providers/chat_back_provider.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -104,6 +105,7 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
             !conversationMatchesScopedId(outgoing, tap.sourceId)) {
           clearSelectedFiltersForConversationBoundary(ref);
         }
+        final chatWasOnScreen = chatPageOnScreen();
         // DB-first open, mirroring the conversation-list selection flow.
         await NavigationService.navigateToChat();
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
@@ -114,6 +116,9 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
         );
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
         if (local != null) {
+          ref
+              .read(chatBackOpensListProvider.notifier)
+              .switchTo(local, chatOnScreen: chatWasOnScreen);
           ref.read(activeConversationProvider.notifier).set(local);
         }
         schedulePullChatNow(ref, tap.sourceId, ownership: ownership);

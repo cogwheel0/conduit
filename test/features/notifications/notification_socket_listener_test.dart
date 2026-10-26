@@ -17,6 +17,17 @@ import 'package:conduit_core/features/notifications/services/active_view_tracker
 import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/features/notifications/services/notification_router.dart';
 import 'package:conduit/features/notifications/services/notification_sound_service.dart';
+import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/local_conversation_loader.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/testing.dart';
+import 'package:drift/native.dart';
+import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart' show SizedBox;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -77,6 +88,20 @@ class _MockSocketService implements SocketService {
 }
 
 /// Channels list whose `refresh` is counted (reconnect reconciliation).
+/// Delivers notification taps without the platform plugin.
+class _TapSource extends LocalNotificationService {
+  final StreamController<NotificationTap> _taps =
+      StreamController<NotificationTap>.broadcast();
+
+  @override
+  Stream<NotificationTap> get taps => _taps.stream;
+
+  @override
+  Future<void> initialize() async {}
+
+  void tap(NotificationTap tap) => _taps.add(tap);
+}
+
 class _FakeChannelsList extends ChannelsList {
   _FakeChannelsList([
     this.initial = const [Channel(id: 'chan-1', name: 'general')],
@@ -226,6 +251,106 @@ void main() {
     addTearDown(container.dispose);
     return container;
   }
+
+  group('a tapped chat notification (#852)', () {
+    late ProviderContainer container;
+    late _TapSource taps;
+
+    setUp(() async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final server = FakeOpenWebUiServer()
+        ..seedChat(
+          id: 'chat-1',
+          blob: {
+            'title': 'Greeting',
+            'history': {
+              'messages': {
+                'm1': {
+                  'id': 'm1',
+                  'parentId': null,
+                  'childrenIds': <String>[],
+                  'role': 'user',
+                  'content': 'hello',
+                  'timestamp': 100,
+                },
+              },
+              'currentId': 'm1',
+            },
+          },
+          createdAt: 100,
+          updatedAt: 100,
+        );
+      final pull = PullSync(
+        client: FakeSyncApiClient(server),
+        db: db,
+        locks: ConversationLocks(),
+      );
+      check((await pull.run()).success).isTrue();
+
+      taps = _TapSource();
+      container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(database: db),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          reviewerModeProvider.overrideWithValue(false),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          localNotificationServiceProvider.overrideWithValue(taps),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(notificationSocketListenerProvider);
+    });
+
+    void attachRouterAt(String location) {
+      final router = GoRouter(
+        initialLocation: location,
+        routes: [
+          GoRoute(path: '/chat', builder: (_, _) => const SizedBox()),
+          GoRoute(path: '/channel/:id', builder: (_, _) => const SizedBox()),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+    }
+
+    Future<void> tapChat(bool Function() done) async {
+      taps.tap(
+        const NotificationTap(
+          kind: NotificationKind.chatCompletion,
+          sourceId: 'chat-1',
+        ),
+      );
+      for (var i = 0; i < 200 && !done(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    test('makes back open the chat list', () async {
+      attachRouterAt('/channel/general');
+      check(container.read(chatBackOpensListProvider)).isFalse();
+
+      await tapChat(() => container.read(activeConversationProvider) != null);
+
+      check(NavigationService.currentRoute).equals('/chat');
+      check(container.read(activeConversationProvider)?.id).equals('chat-1');
+      check(container.read(chatBackOpensListProvider)).isTrue();
+    });
+
+    test('for the active chat, tapped on a channel, does too', () async {
+      attachRouterAt('/channel/general');
+      final active = await loadLocalConversation(container, 'chat-1');
+      container.read(activeConversationProvider.notifier).set(active);
+
+      // The tap goes to the chat page before it opens the chat, so whether
+      // the chat was on screen is read first.
+      await tapChat(() => container.read(chatBackOpensListProvider));
+
+      check(NavigationService.currentRoute).equals('/chat');
+      check(container.read(chatBackOpensListProvider)).isTrue();
+    });
+  });
 
   test('registers one wildcard chat + channel handler, requireFocus:false', () {
     final socket = _MockSocketService();

@@ -19,6 +19,8 @@ import 'package:conduit/features/channels/views/channel_page.dart';
 import 'package:conduit/features/channels/widgets/channel_app_content.dart';
 import 'package:conduit/features/channels/widgets/thread_panel.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
+import 'package:conduit/features/navigation/utils/chat_list_back.dart';
+import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -26,6 +28,7 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
 
 final _channelApiOwnerProvider =
@@ -587,6 +590,61 @@ void main() {
 
     expect(find.text('Helper App'), findsOneWidget);
     expect(find.text('Search App'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('back on a channel opens the chat list, then asks to close '
+      '(#852)', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    debugChatBackIsAndroidOverride = true;
+    addTearDown(() => debugChatBackIsAndroidOverride = null);
+    final exits = <String>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'SystemNavigator.pop') exits.add('exit');
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    final container = _appRigContainer(_ChannelApi());
+    addTearDown(container.dispose);
+    final chatList = GlobalKey<ResponsiveDrawerLayoutState>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ResponsiveDrawerLayout(
+            key: chatList,
+            maxFraction: 1.0,
+            edgeFraction: 1.0,
+            drawer: const Text('Chat list'),
+            child: const ChannelPage(channelId: 'channel-1'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    check(chatList.currentState!.isOpen).isTrue();
+    expect(find.text(l10n.endYourSession), findsNothing);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text(l10n.endYourSession), findsOneWidget);
+    await tester.tap(find.text(l10n.confirm));
+    await tester.pumpAndSettle();
+    check(exits).deepEquals(['exit']);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 1));

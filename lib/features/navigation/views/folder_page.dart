@@ -74,6 +74,7 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../providers/conversation_selection_provider.dart';
+import '../utils/chat_list_back.dart';
 import '../widgets/conversation_tile.dart';
 import '../widgets/folder_icon.dart';
 import '../widgets/folder_project_settings_sheet.dart';
@@ -1507,11 +1508,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       UiUtils.showMessage(context, l10n.folderProjectComparisonFallbackNotice);
     });
 
-    return AdaptiveRouteShell(
-      backgroundColor: context.conduitTheme.surfaceBackground,
-      extendBodyBehindAppBar: true,
-      appBar: _buildAdaptiveAppBar(context, l10n, folder),
-      body: _buildBody(context, foldersAsync),
+    return ChatListBackScope(
+      child: AdaptiveRouteShell(
+        backgroundColor: context.conduitTheme.surfaceBackground,
+        extendBodyBehindAppBar: true,
+        appBar: _buildAdaptiveAppBar(context, l10n, folder),
+        body: _buildBody(context, foldersAsync),
+      ),
     );
   }
 
