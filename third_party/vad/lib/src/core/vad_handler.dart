@@ -95,8 +95,7 @@ class VadHandler {
         break;
       case VadEventType.end:
         if (event.audioData != null) {
-          final int16List = event.audioData!.buffer.asInt16List();
-          final floatSamples = int16List.map((e) => e / 32768.0).toList();
+          final floatSamples = _toFloatSamples(event.audioData!);
           _onSpeechEndController.add(floatSamples);
         }
         break;
@@ -117,13 +116,23 @@ class VadHandler {
         break;
       case VadEventType.chunk:
         if (event.audioData != null) {
-          final int16List = event.audioData!.buffer.asInt16List();
-          final floatSamples = int16List.map((e) => e / 32768.0).toList();
+          final floatSamples = _toFloatSamples(event.audioData!);
           _onEmitChunkController
               .add((samples: floatSamples, isFinal: event.isFinal ?? false));
         }
         break;
     }
+  }
+
+  /// PCM16 [audio] as samples in [-1, 1], in a typed list: a boxed list of
+  /// doubles costs hundreds of MB for a long recording.
+  static Float64List _toFloatSamples(Uint8List audio) {
+    final int16List = audio.buffer.asInt16List();
+    final floatSamples = Float64List(int16List.length);
+    for (var i = 0; i < int16List.length; i++) {
+      floatSamples[i] = int16List[i] / 32768.0;
+    }
+    return floatSamples;
   }
 
   /// Start or resume listening for speech events with configurable parameters

@@ -11,6 +11,15 @@ the previous frame in front of each 512-sample frame, and `resetState`
 forgets them. The new `SileroV5Context` in
 `lib/src/platform/native/inference/silero_v5_context.dart` holds them.
 
+Two smaller changes:
+
+- `VadIterator._combineFrames` and `VadHandler`'s speech-end and chunk
+  events convert audio straight into typed lists (`Int16List`,
+  `Float64List`) instead of through boxed lists, which for a ten-minute
+  recording cost hundreds of MB at once.
+- `pubspec.yaml` declares `record: ^7.1.1`, the version Conduit builds
+  against, so the app no longer needs a `record` override.
+
 ## Why
 
 Silero v5 expects that context: the reference implementation

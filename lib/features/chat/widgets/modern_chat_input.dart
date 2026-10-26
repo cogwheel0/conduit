@@ -588,6 +588,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   Widget? _cachedComposerGlassBackdrop;
   bool _pendingFocus = false;
   bool _isRecording = false;
+
+  /// The account and chat the current dictation was started in. Send while
+  /// dictating sends only there.
+  _ComposerOwner? _dictationOwner;
   // Server STT transcribes after the recording stops (manually or by voice
   // activity detection); show that instead of leaving the composer stuck on
   // "Recording…" (issue #707). Mirrors VoiceInputService.transcribing.
@@ -5265,6 +5269,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   Future<void> _startVoice() async {
     if (!widget.enabled) return;
+    _dictationOwner = _captureComposerOwner();
     try {
       final ok = await _voiceInputService.initialize();
       if (!mounted) return;
@@ -5345,9 +5350,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // Server dictation has no text until it is transcribed. Stopping hands
     // what was said to the server, and its text is in the composer by the
     // time the stop finishes. A message goes to whichever chat is active when
-    // it is sent, so it is sent only if the user is still in the account and
-    // chat they spoke in; otherwise it stays in the composer.
-    final owner = _captureComposerOwner();
+    // it is sent, and the composer stays up across a chat switch, so it is
+    // sent only if the user is still in the account and chat the dictation
+    // started in; otherwise it stays in the composer.
+    final owner = _dictationOwner ?? _captureComposerOwner();
     await _stopVoiceListening();
     if (!mounted || _isDeactivated) return;
     final sameChat =

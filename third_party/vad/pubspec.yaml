@@ -27,7 +27,7 @@ dependencies:
   flutter:
     sdk: flutter
   ffi: ^2.1.4
-  record: ^6.1.2
+  record: ^7.1.1
   web: ^1.1.1
 
 dev_dependencies:

@@ -1188,7 +1188,11 @@ class VoiceInputService implements VoiceModeInput {
       // the speech still in progress (submitUserSpeechOnPause), and that
       // arrives after a stop has set _isListening to false (#752, #853).
       final pending = _vadPendingSamples;
-      _vadPendingSamples = pending == null ? samples : [...pending, ...samples];
+      _vadPendingSamples = pending == null
+          ? samples
+          : (Float64List(pending.length + samples.length)
+              ..setAll(0, pending)
+              ..setAll(pending.length, samples));
       if (_isListening) {
         unawaited(
           _stopListening(

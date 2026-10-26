@@ -416,14 +416,15 @@ class VadIterator {
   /// Combines a list of audio frames into a single Uint8List audio buffer
   Uint8List _combineFrames(List<Float32List> frames) {
     final int totalLength = frames.fold(0, (sum, frame) => sum + frame.length);
-    final Float32List combined = Float32List(totalLength);
+    // Written straight into the typed list: a boxed intermediate list costs
+    // hundreds of MB for a long recording.
+    final int16Data = Int16List(totalLength);
     int offset = 0;
-    for (var frame in frames) {
-      combined.setRange(offset, offset + frame.length, frame);
-      offset += frame.length;
+    for (final frame in frames) {
+      for (final sample in frame) {
+        int16Data[offset++] = (sample * 32767).clamp(-32768, 32767).toInt();
+      }
     }
-    final int16Data = Int16List.fromList(
-        combined.map((e) => (e * 32767).clamp(-32768, 32767).toInt()).toList());
     final Uint8List audioData = Uint8List.view(int16Data.buffer);
     return audioData;
   }

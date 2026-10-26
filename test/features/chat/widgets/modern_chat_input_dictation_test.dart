@@ -136,6 +136,22 @@ void main() {
     expect(composerText(tester), 'book the table for eight');
   });
 
+  testWidgets('send keeps the text when another chat was opened while '
+      'recording', (tester) async {
+    await pump(tester);
+    await startDictation(tester);
+
+    // The composer stays up across a chat switch, and so does the dictation.
+    container.read(activeConversationProvider.notifier).set(_stored('chat-b'));
+    await tester.pumpAndSettle();
+    voice.transcriptOnStop = 'book the table for eight';
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.pumpAndSettle();
+
+    expect(sends, isEmpty);
+    expect(composerText(tester), 'book the table for eight');
+  });
+
   testWidgets('send with nothing said sends nothing', (tester) async {
     await pump(tester);
     await startDictation(tester);
