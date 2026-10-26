@@ -74,7 +74,7 @@ Only an `__event_call__` gets a reply:
 | `{"handled": false, "reason": "not_active_chat"}` | The event was for a chat that isn't on screen in Conduit, or the user left it before agreeing. |
 | `{"handled": false, "reason": "duplicate"}` | The same handoff for the same message already arrived. |
 | `{"handled": false, "reason": "busy"}` | The user is still answering another handoff. |
-| `{"handled": false, "reason": "invalid"}` | `model_id` is missing, empty or not a string, or `prompt` is not a string. |
+| `{"handled": false, "reason": "invalid"}` | `model_id` is missing, empty or not a string, or `prompt` is neither a string nor `null`. |
 | `{"handled": false, "reason": "unsupported"}` | This Conduit cannot ask the user. |
 | `{"handled": false, "reason": "failed"}` | Something went wrong in Conduit. |
 

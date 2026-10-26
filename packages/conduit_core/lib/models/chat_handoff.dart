@@ -17,8 +17,8 @@ const List<String> conduitEventCapabilities = <String>[chatHandoffEventType];
 
 /// Why Conduit did not carry on in a new chat, sent as the reply's `reason`.
 enum ChatHandoffRefusal {
-  /// `model_id` is missing, empty or not a string, or `prompt` is not a
-  /// string.
+  /// `model_id` is missing, empty or not a string, or `prompt` is present and
+  /// is neither a string nor `null`.
   invalid('invalid'),
 
   /// The event is for a chat other than the one open in Conduit.
