@@ -446,6 +446,27 @@ void main() {
         late List<ShareParams> shared;
         late _Watched adapter;
 
+        /// The export reaches the adapter, and the adapter stages the file,
+        /// through real file I/O: each step completes on the real event loop,
+        /// and the export only takes the next one when a frame is pumped. The
+        /// two take turns until [done], however slow the disk is (the bound
+        /// only stops a broken export from hanging the test), then the page
+        /// shows where it got to.
+        Future<void> pumpUntil(
+          WidgetTester tester,
+          bool Function() done, {
+          required String reason,
+        }) async {
+          for (var i = 0; i < 1000 && !done(); i++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 5)),
+            );
+            await tester.pump(const Duration(milliseconds: 25));
+          }
+          expect(done(), isTrue, reason: reason);
+          await tester.pumpAndSettle();
+        }
+
         Future<void> startExport(WidgetTester tester) async {
           staged = (await tester.runAsync(
             () => Directory.systemTemp.createTemp('conduit-export-owner-'),
@@ -467,26 +488,20 @@ void main() {
           await tester.tap(find.text(_en.chatExportAction));
           await tester.pumpAndSettle();
           await tester.tap(find.byKey(Key(key)));
-          await settle(tester);
-          expect(adapter.started, isTrue, reason: 'the export reached staging');
+          await pumpUntil(
+            tester,
+            () => adapter.started,
+            reason: 'the export never reached staging',
+          );
           expect(shared, isEmpty);
         }
 
-        /// Staging is real file I/O: each step completes on the real event
-        /// loop, and the export only takes the next one when a frame is
-        /// pumped. The two take turns until the adapter has shared or refused
-        /// the file, however slow the disk is (the bound only stops a broken
-        /// export from hanging the test), then the page shows the outcome.
-        Future<void> finishStaging(WidgetTester tester) async {
-          for (var i = 0; i < 1000 && !adapter.finished; i++) {
-            await tester.runAsync(
-              () => Future<void>.delayed(const Duration(milliseconds: 5)),
-            );
-            await tester.pump(const Duration(milliseconds: 25));
-          }
-          expect(adapter.finished, isTrue, reason: 'staging never finished');
-          await tester.pumpAndSettle();
-        }
+        /// Lets the adapter share or refuse the file.
+        Future<void> finishStaging(WidgetTester tester) => pumpUntil(
+          tester,
+          () => adapter.finished,
+          reason: 'staging never finished',
+        );
 
         Future<List<String>> stagedNames(WidgetTester tester) async =>
             (await tester.runAsync(() async {
