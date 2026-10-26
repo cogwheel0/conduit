@@ -2668,7 +2668,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             : Icons.content_copy_outlined,
         label: l10n.copy,
         onTap: _responseCompleted && widget.onCopy != null
-            ? _copyResponse
+            ? () => unawaited(_copyResponse())
             : null,
         sfSymbol: 'doc.on.doc',
       ),
@@ -2787,12 +2787,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   /// The parent copies the stored answer. A version being previewed exists
   /// only on screen, so copy it here, as the text Share would send.
-  void _copyResponse() {
+  Future<void> _copyResponse() async {
     if (_activeVersionIndex < 0) {
       widget.onCopy?.call();
       return;
     }
-    unawaited(Clipboard.setData(ClipboardData(text: _shareableResponseText())));
+    try {
+      await Clipboard.setData(ClipboardData(text: _shareableResponseText()));
+    } catch (_) {
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.errorMessage,
+        type: AdaptiveSnackBarType.error,
+      );
+    }
   }
 
   Future<void> _shareResponse() async {
