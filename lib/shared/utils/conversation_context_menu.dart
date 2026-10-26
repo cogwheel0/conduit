@@ -137,10 +137,23 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
         final size = widget.stabilizePreviewSize ? _childSize : null;
         Widget preview = previewChild;
         if (animation.value > 0 && size != null) {
+          final mediaQuery = MediaQuery.of(context);
+          // Only constrain the open preview, keeping the source layout stable.
+          final maxHeight =
+              animation.value > CupertinoContextMenu.animationOpensAt
+              ? (mediaQuery.size.height - mediaQuery.padding.vertical) / 2
+              : size.height;
           preview = SizedBox(
             width: size.width,
-            height: size.height,
-            child: previewChild,
+            height: size.height.clamp(0.0, maxHeight),
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.topCenter,
+                minHeight: size.height,
+                maxHeight: size.height,
+                child: previewChild,
+              ),
+            ),
           );
         }
 
