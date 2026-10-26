@@ -212,6 +212,12 @@ class _OpenWebUiChatSettingsSheetState
       _failure = null;
     });
     final container = ProviderScope.containerOf(context, listen: false);
+    // Decided before the save awaits: the key names the model on the server
+    // the sheet was opened on, not one switched to meanwhile.
+    final model = _model;
+    final pickKey = model == null
+        ? null
+        : localReasoningEffortKeyForModel(ref.read, model);
     try {
       await saveOpenWebUiChatSettings(
         ref,
@@ -220,7 +226,7 @@ class _OpenWebUiChatSettingsSheetState
         set: patch.set,
         remove: patch.remove,
       );
-      await _recordReasoningPick(container, patch);
+      await _recordReasoningPick(container, patch, pickKey);
       if (!mounted) return;
       Navigator.of(context).pop();
       ConduitHaptics.success();
@@ -258,22 +264,23 @@ class _OpenWebUiChatSettingsSheetState
   Future<void> _recordReasoningPick(
     ProviderContainer container,
     ChatParamsPatch patch,
+    String? pickKey,
   ) async {
     final model = _model;
     final inherits = patch.remove.contains(kChatParamReasoningEffort);
     if (model == null ||
-        !(inherits || patch.set.containsKey(kChatParamReasoningEffort))) {
+        pickKey == null ||
+        !(inherits || patch.set.containsKey(kChatParamReasoningEffort)) ||
+        // Another server became active during the save.
+        localReasoningEffortKeyForModel(container.read, model) != pickKey) {
       return;
     }
     final effort = patch.set[kChatParamReasoningEffort];
     try {
       if (inherits) {
-        final key = localReasoningEffortKeyForModel(container.read, model);
-        if (key != null) {
-          await container
-              .read(localReasoningEffortsProvider.notifier)
-              .set(key, null);
-        }
+        await container
+            .read(localReasoningEffortsProvider.notifier)
+            .set(pickKey, null);
         return;
       }
       await setReasoningEffortForModel(

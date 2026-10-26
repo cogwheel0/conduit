@@ -645,6 +645,57 @@ void main() {
       });
     }
 
+    testWidgets('a pick saved as the server changes stays off the new one', (
+      tester,
+    ) async {
+      // The pick's key names the model on the server the sheet was opened
+      // on; the same model id on the server switched to keeps its own pick.
+      await tester.runAsync(() => seed('c1', {}));
+      final c = await openSheet(tester, active: _conversation('c1'));
+
+      final high = find.byKey(
+        const ValueKey('chat-setting-reasoning_effort-high'),
+      );
+      await tester.ensureVisible(high);
+      await tester.tap(high);
+      await tester.pump();
+      // The chat write waits on the database, past the save's owner checks,
+      // while the other server becomes active.
+      final writeGate = Completer<void>();
+      final holding = db.transaction(() => writeGate.future);
+      await tester.tap(saveButton());
+      await tester.pump();
+      c.updateOverrides([
+        appDatabaseProvider.overrideWith((ref) => db),
+        apiServiceProvider.overrideWithValue(_api('another-server')),
+        reviewerModeProvider.overrideWithValue(false),
+        selectedModelProvider.overrideWithValue(_model),
+        activeConversationProvider.overrideWith(
+          () => _SeededActive(_conversation('c1')),
+        ),
+        localReasoningEffortsProvider.overrideWith(() => _MemoryEfforts()),
+        syncEngineProvider.overrideWith(_NoDrainEngine.new),
+        currentUserProvider2.overrideWithValue(
+          const User(
+            id: 'me',
+            username: 'me',
+            email: 'me@example.test',
+            role: 'user',
+          ),
+        ),
+        openWebUiChatSettingsAccessProvider.overrideWith(
+          (ref) async => OpenWebUiChatSettingsAccess.all,
+        ),
+        appSettingsProvider.overrideWith(() => settings),
+      ]);
+      writeGate.complete();
+      await tester.runAsync(() => holding);
+      await settle(tester);
+
+      expect((await stored(tester, 'c1'))!['reasoning_effort'], 'high');
+      expect(c.read(localReasoningEffortsProvider), isEmpty);
+    });
+
     testWidgets('a model that refuses reasoning has no effort control', (
       tester,
     ) async {
