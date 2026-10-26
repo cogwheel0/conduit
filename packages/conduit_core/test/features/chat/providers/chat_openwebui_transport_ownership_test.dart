@@ -272,6 +272,18 @@ class _FetchedConfig extends BackendConfigNotifier {
       (await api.getBackendConfig())?.copyWith(serverId: api.serverConfig.id);
 }
 
+/// A server config that has loaded.
+class _LoadedConfig extends BackendConfigNotifier {
+  @override
+  Future<BackendConfig?> build() async => const BackendConfig();
+}
+
+/// A server config that is still being fetched.
+class _LoadingConfig extends BackendConfigNotifier {
+  @override
+  Future<BackendConfig?> build() => Completer<BackendConfig?>().future;
+}
+
 /// A real [ApiService] whose HTTP layer is an in-memory server: it serves the
 /// user's settings document, answers `/api/chat/completions` with a finished
 /// completion and keeps the request bodies it was sent. Nothing between the
@@ -1180,6 +1192,7 @@ void main() {
       void Function()? onSend,
       PersonalConnectionsAccess personalConnections =
           const PersonalConnectionsAccess.allowed(),
+      BackendConfigNotifier Function()? config,
     }) async {
       const chatId = 'personal-connections-chat';
       const assistantId = 'personal-connections-assistant';
@@ -1199,8 +1212,16 @@ void main() {
         syncEngine: _PersistingSyncEngine(db, api),
         socket: socket,
         personalConnections: personalConnections,
+        extraOverrides: [
+          if (config != null) backendConfigProvider.overrideWith(config),
+        ],
       );
       addTearDown(container.dispose);
+      if (config != null) {
+        // The app reads the config at sign-in, long before a turn runs.
+        container.read(backendConfigProvider);
+        await Future<void>.delayed(Duration.zero);
+      }
       final runnerProvider = Provider<RequestCompletionRunner>(
         (ref) => ChatRequestCompletionRunner(ref),
       );
@@ -1272,11 +1293,31 @@ void main() {
         personalConnections: const PersonalConnectionsAccess.blocked(
           PersonalConnectionsBlock.serverDisabled,
         ),
+        config: _LoadedConfig.new,
       );
 
       check(api.submittedToolServers).isNull();
       check(alpha.authorizations).isEmpty();
       check(beta.authorizations).isEmpty();
+    });
+
+    test('a turn run before the config loads still sends them', () async {
+      // A queued turn replayed at launch can run before the config is in, so
+      // the refusal it reads then has not been decided.
+      final servers = <dynamic>[toolServer('alpha', alpha, key: 'alpha-key')];
+      final api = await runCompletion(
+        settings: <String, dynamic>{
+          'ui': <String, dynamic>{'toolServers': servers},
+        },
+        toolIds: <String>[personalToolServerSelectionId(servers, 0)],
+        personalConnections: const PersonalConnectionsAccess.blocked(
+          PersonalConnectionsBlock.serverDisabled,
+        ),
+        config: _LoadingConfig.new,
+      );
+
+      check(api.submittedToolServers!.single['url']).equals(alpha.url);
+      check(alpha.authorizations).deepEquals(<String?>['Bearer alpha-key']);
     });
 
     test('a typed message leaves them out and keeps the selection', () async {
@@ -1301,8 +1342,10 @@ void main() {
         personalConnections: const PersonalConnectionsAccess.blocked(
           PersonalConnectionsBlock.serverDisabled,
         ),
+        extraOverrides: [backendConfigProvider.overrideWith(_LoadedConfig.new)],
       );
       addTearDown(container.dispose);
+      await container.read(backendConfigProvider.future);
       final selection = <String>[personalToolServerSelectionId(servers, 0)];
       container.read(selectedToolIdsProvider.notifier).set(selection);
 

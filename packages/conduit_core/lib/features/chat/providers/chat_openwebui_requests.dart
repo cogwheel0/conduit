@@ -504,9 +504,24 @@ void _clearUnresolvedPersonalToolSelections(
 /// request: the same check that lets Conduit run their tools. Open WebUI
 /// 0.12.4 ignores them while Direct Integrations is off, as its web client
 /// no longer sends them then.
+///
+/// That check refuses while the server's config or the account's permissions
+/// are still loading, as when a queued turn is replayed at launch. A refusal
+/// nothing has decided yet leaves them in, as before.
 bool _personalConnectionsAvailable(dynamic ref) {
   final access = ref.read(personalConnectionsAccessProvider);
-  return access is PersonalConnectionsAccess && access.available;
+  if (access is! PersonalConnectionsAccess) return true;
+  bool loading(Object? value) => value is AsyncValue && value.isLoading;
+  return switch (access.block) {
+    null => true,
+    PersonalConnectionsBlock.serverDisabled => loading(
+      ref.read(backendConfigProvider),
+    ),
+    PersonalConnectionsBlock.noPermission => loading(
+      ref.read(userPermissionsProvider),
+    ),
+    PersonalConnectionsBlock.noAccount => false,
+  };
 }
 
 Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({

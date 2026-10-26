@@ -155,6 +155,7 @@ import 'package:conduit_core/features/integrations/personal_connection_settings.
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
     show
         PersonalConnectionsAccess,
+        PersonalConnectionsBlock,
         personalConnectionsAccessProvider,
         personalSelectionNoticeProvider;
 import 'package:conduit_core/utils/system_prompt.dart';
