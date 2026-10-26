@@ -93,6 +93,12 @@ final class BridgeCallEngine implements RealtimeCallEngine {
   final _animationCalls = <String>{};
   final _responses = <String, _Response>{};
   final _inputs = <String, _Input>{};
+
+  /// When each segment of speech began, as a count, until it is transcribed:
+  /// transcripts can arrive out of that order.
+  final _spokenAt = <String, int>{};
+  var _spoken = 0;
+
   final _calls = <String, _Turn>{};
   _Turn? _pending;
 
@@ -241,14 +247,17 @@ final class BridgeCallEngine implements RealtimeCallEngine {
     if (command['type'] == 'bridge.respond' && command.containsKey('item_id')) {
       // The newest reply hears every transcript, so older unsent ones are
       // redundant, as in the web client: a sentence a short pause split in
-      // two is answered once. The words they held are saved with this one.
+      // two is answered once. The words they held are saved with this one,
+      // in the order they were said.
       final input = _inputs[command['item_id']];
-      final waiting = [
-        for (final queued in _commands)
-          if (_inputs[queued['item_id']] case final earlier?) earlier.text,
+      final said = [
+        for (final queued in _commands) ?_inputs[queued['item_id']],
       ];
-      if (input != null && waiting.isNotEmpty) {
-        input.text = [...waiting, input.text].join(' ');
+      if (input != null && said.isNotEmpty) {
+        said
+          ..add(input)
+          ..sort((a, b) => a.spokenAt.compareTo(b.spokenAt));
+        input.text = [for (final words in said) words.text].join(' ');
       }
       // Answering the user comes before speaking statuses and results.
       _commands
@@ -326,6 +335,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       case 'input_audio_buffer.speech_started':
         if (_state.muted) return;
         _receivingSpeech = _string(event['item_id']);
+        _spokenAt.putIfAbsent(_receivingSpeech, () => _spoken++);
         _update(_state.copyWith(userSpeaking: true));
         // Detected speech may be only noise: hold the voice, and stop it
         // once the words are transcribed.
@@ -408,6 +418,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       _update(_state.copyWith(userSpeaking: false));
     }
     if (_inputs.containsKey(itemId)) return;
+    final spokenAt = _spokenAt.remove(itemId) ?? _spoken++;
     final failed =
         event['type'] == 'conversation.item.input_audio_transcription.failed';
     final transcript = event['transcript'];
@@ -422,7 +433,7 @@ final class BridgeCallEngine implements RealtimeCallEngine {
       _flush();
       return;
     }
-    _inputs[itemId] = _Input(itemId, text);
+    _inputs[itemId] = _Input(itemId, text, spokenAt);
     _update(_state.copyWith(userCaption: text));
     _enqueue(BridgeCommands.respondToInput(itemId));
   }
@@ -913,9 +924,12 @@ final class _Response {
 
 /// The user's transcribed words.
 final class _Input {
-  _Input(this.itemId, this.text);
+  _Input(this.itemId, this.text, this.spokenAt);
 
   final String itemId;
+
+  /// Orders inputs as they were said; see [BridgeCallEngine._spokenAt].
+  final int spokenAt;
 
   /// What was said, with the words of earlier inputs a reply to this one
   /// replaced.
