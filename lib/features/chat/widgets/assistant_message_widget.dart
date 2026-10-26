@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -2666,7 +2667,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             ? CupertinoIcons.doc_on_doc
             : Icons.content_copy_outlined,
         label: l10n.copy,
-        onTap: _responseCompleted ? widget.onCopy : null,
+        onTap: _responseCompleted && widget.onCopy != null
+            ? _copyResponse
+            : null,
         sfSymbol: 'doc.on.doc',
       ),
       if (shouldShowTtsButton)
@@ -2780,6 +2783,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       );
     }
     return _shareTextResult;
+  }
+
+  /// The parent copies the stored answer. A version being previewed exists
+  /// only on screen, so copy it here, as the text Share would send.
+  void _copyResponse() {
+    if (_activeVersionIndex < 0) {
+      widget.onCopy?.call();
+      return;
+    }
+    unawaited(Clipboard.setData(ClipboardData(text: _shareableResponseText())));
   }
 
   Future<void> _shareResponse() async {

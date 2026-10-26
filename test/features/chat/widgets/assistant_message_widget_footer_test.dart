@@ -402,6 +402,56 @@ void main() {
     });
   });
 
+  testWidgets('copies the version on screen, not the latest answer', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final copied = <Object?>[];
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied.add((call.arguments as Map)['text']);
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    var parentCopies = 0;
+    final message = ChatMessage(
+      id: 'copy-version',
+      role: 'assistant',
+      content: 'Latest garden plan.',
+      timestamp: DateTime.utc(2026, 1, 1),
+      versions: [
+        ChatMessageVersion(
+          id: 'earlier-response',
+          content: 'Earlier &amp; gentler plan.',
+          timestamp: DateTime.utc(2025, 12, 31),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, onCopy: () => parentCopies++),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.content_copy_outlined));
+    await tester.pump();
+    check(parentCopies).equals(1);
+    check(copied).isEmpty();
+
+    await _tapVersionControl(
+      tester,
+      visibleIcon: Icons.chevron_left,
+      overflowLabel: 'Prev',
+    );
+    await tester.tap(find.byIcon(Icons.content_copy_outlined));
+    await tester.pump();
+    check(parentCopies).equals(1);
+    check(copied).deepEquals(['Earlier & gentler plan.']);
+  });
+
   testWidgets('streaming content rebuilds only the assistant body', (
     tester,
   ) async {
