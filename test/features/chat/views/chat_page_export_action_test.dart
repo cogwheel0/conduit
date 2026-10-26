@@ -116,6 +116,46 @@ final class _Files implements ChatBackupFiles {
   Future<PickedChatFile?> pickImportFile() => throw UnimplementedError();
 }
 
+/// The real file adapter, noting when the export hands it a file and when it
+/// is done with it: shared, or refused and removed.
+final class _Watched implements ChatBackupFiles {
+  _Watched(this._files);
+
+  final ChatBackupFiles _files;
+  var started = false;
+  var finished = false;
+
+  @override
+  Future<ChatBackupFile> create(String filename) => _files.create(filename);
+
+  @override
+  Future<void> deliver(ChatBackupFile file, {Rect? origin}) =>
+      _files.deliver(file, origin: origin);
+
+  @override
+  Future<void> deliverText(
+    String filename,
+    String text, {
+    required String mimeType,
+    Rect? origin,
+    void Function()? checkpoint,
+  }) {
+    started = true;
+    return _files
+        .deliverText(
+          filename,
+          text,
+          mimeType: mimeType,
+          origin: origin,
+          checkpoint: checkpoint,
+        )
+        .whenComplete(() => finished = true);
+  }
+
+  @override
+  Future<PickedChatFile?> pickImportFile() => _files.pickImportFile();
+}
+
 ApiService _api() => ApiService(
   serverConfig: const ServerConfig(
     id: 'page',
@@ -404,6 +444,7 @@ void main() {
         late Directory staged;
         late Completer<Directory> directory;
         late List<ShareParams> shared;
+        late _Watched adapter;
 
         Future<void> startExport(WidgetTester tester) async {
           staged = (await tester.runAsync(
@@ -412,10 +453,8 @@ void main() {
           addTearDown(() => staged.delete(recursive: true));
           directory = Completer<Directory>();
           shared = [];
-          await mountPage(
-            tester,
-            active: _chat(),
-            backupFiles: PlatformChatBackupFiles(
+          adapter = _Watched(
+            PlatformChatBackupFiles(
               tempDirectory: () => directory.future,
               share: (params) async {
                 shared.add(params);
@@ -423,12 +462,30 @@ void main() {
               },
             ),
           );
+          await mountPage(tester, active: _chat(), backupFiles: adapter);
           await openOverflow(tester);
           await tester.tap(find.text(_en.chatExportAction));
           await tester.pumpAndSettle();
           await tester.tap(find.byKey(Key(key)));
           await settle(tester);
+          expect(adapter.started, isTrue, reason: 'the export reached staging');
           expect(shared, isEmpty);
+        }
+
+        /// Staging is real file I/O: each step completes on the real event
+        /// loop, and the export only takes the next one when a frame is
+        /// pumped. The two take turns until the adapter has shared or refused
+        /// the file, however slow the disk is (the bound only stops a broken
+        /// export from hanging the test), then the page shows the outcome.
+        Future<void> finishStaging(WidgetTester tester) async {
+          for (var i = 0; i < 1000 && !adapter.finished; i++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 5)),
+            );
+            await tester.pump(const Duration(milliseconds: 25));
+          }
+          expect(adapter.finished, isTrue, reason: 'staging never finished');
+          await tester.pumpAndSettle();
         }
 
         Future<List<String>> stagedNames(WidgetTester tester) async =>
@@ -448,7 +505,7 @@ void main() {
           epoch = Object();
           pageContainer.invalidate(openWebUiAuthSessionEpochProvider);
           directory.complete(staged);
-          await settle(tester);
+          await finishStaging(tester);
 
           expect(shared, isEmpty);
           expect(await stagedNames(tester), isEmpty);
@@ -462,7 +519,7 @@ void main() {
 
           pageContainer.read(activeConversationProvider.notifier).set(null);
           directory.complete(staged);
-          await settle(tester);
+          await finishStaging(tester);
 
           // The chat the user chose to export is the one that is exported,
           // wherever they navigated meanwhile.
