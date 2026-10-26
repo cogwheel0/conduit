@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Novedades",
+      "intro": "¡Hola! Open WebUI 0.12.4 funciona, y puedes compartir respuestas, marcar chats como no leídos y reproducir vídeos en el chat con un toque. El dictado en el servidor conserva cada palabra, compartir con Conduit en iOS trae el archivo real y, en Android, atrás vuelve a la lista de chats.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: la app funciona sin aviso de compatibilidad, y una frase dividida por una pausa en una llamada en tiempo real se responde una sola vez. Las carpetas se quedan abiertas o cerradas como las dejaste, aquí y en la web. Marca un chat como no leído desde la lista de chats, y los chats marcados como no leídos en la web aparecen así también aquí. Los filtros que empiezan activados en chats nuevos vienen activados, las imágenes de herramientas MCP cargan, todos los modelos ofrecen el selector de Effort y una función puede pedir pasar el chat a otro modelo.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chats: los vídeos muestran una tarjeta y se cargan al tocar Reproducir. «Compartir…» en el menú ⋯ de una respuesta comparte su texto, y Copiar y Compartir usan la versión que ves en pantalla. En iOS, al mantener pulsado un mensaje largo, Editar, Copiar y Eliminar siguen a la vista, y un mensaje largo de un canal ya no saca de la pantalla las respuestas de su hilo.",
+          "icon": "direct"
+        },
+        {
+          "text": "Compartir y dictado: en iOS, las capturas de pantalla, los documentos de Archivos y las imágenes de Safari llegan como el archivo real, y el chat aparece aunque Ajustes estuviera abierto. El dictado en el servidor conserva todo lo que dijiste, hasta la última palabra, aunque toques detener antes de tiempo o hables más de 90 segundos.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android y cuentas: atrás vuelve a la lista de chats, y el asistente abre un chat nuevo listo y sigue funcionando tras reiniciar. Un servidor o una conexión de Hermes editados toman el nombre de su nueva dirección, y los proveedores Direct siguen a mano junto a Hermes.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

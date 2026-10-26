@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Nouveautés",
+      "intro": "Salut ! Open WebUI 0.12.4 fonctionne, et vous pouvez partager des réponses, marquer des chats comme non lus et lire les vidéos du chat d'un toucher. La dictée par le serveur garde chaque mot, le partage vers Conduit sur iOS apporte le vrai fichier, et le retour sur Android mène à la liste des chats.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4 : l'app fonctionne sans avertissement de compatibilité, et une phrase coupée par une pause pendant un appel en temps réel n'obtient qu'une seule réponse. Les dossiers restent ouverts ou fermés comme vous les avez laissés, ici et sur le web. Marquez un chat comme non lu depuis la liste des chats, et les chats marqués non lus sur le web le sont aussi ici. Les filtres prévus pour démarrer activés le sont dans les nouveaux chats, les images des outils MCP se chargent, chaque modèle propose le sélecteur d'effort de raisonnement, et une fonction peut proposer de passer le chat à un autre modèle.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chats : les vidéos affichent une carte et ne se chargent que lorsque vous touchez Lire. « Partager… » dans le menu ⋯ d'une réponse partage son texte, et Copier comme Partager prennent la version affichée. Sur iOS, un appui long sur un long message garde Modifier, Copier et Supprimer visibles, et un long message de canal ne repousse plus les réponses de son fil hors de l'écran.",
+          "icon": "direct"
+        },
+        {
+          "text": "Partage et dictée : sur iOS, les captures d'écran, les documents de Fichiers et les images de Safari arrivent comme le vrai fichier, et le chat s'affiche même si les Réglages étaient ouverts. La dictée par le serveur garde tout ce que vous avez dit, jusqu'au dernier mot, même si vous touchez Arrêter tôt ou parlez plus de 90 secondes.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android et comptes : le retour mène à la liste des chats, et l'assistant ouvre un nouveau chat prêt et continue de fonctionner après un redémarrage. Un serveur ou une connexion Hermes modifiés prennent le nom de leur nouvelle adresse, et les fournisseurs Direct restent accessibles à côté de Hermes.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

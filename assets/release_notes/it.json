@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Novità",
+      "intro": "Ciao! Open WebUI 0.12.4 funziona, e puoi condividere le risposte, segnare le chat come non lette e riprodurre i video nella chat con un tocco. La dettatura sul server conserva ogni parola, la condivisione verso Conduit su iOS porta il file vero e, su Android, Indietro torna all'elenco delle chat.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: l'app funziona senza avviso di compatibilità, e una frase divisa da una pausa in una chiamata in tempo reale riceve una sola risposta. Le cartelle restano aperte o chiuse come le hai lasciate, qui e sul web. Segna una chat come non letta dall'elenco delle chat, e le chat segnate come non lette sul web lo sono anche qui. I filtri che partono attivi nelle nuove chat sono attivi, le immagini degli strumenti MCP si caricano, ogni modello offre il selettore Effort e una funzione può proporre di spostare la chat su un altro modello.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chat: i video mostrano una scheda e si caricano quando tocchi Riproduci. «Condividi…» nel menu ⋯ di una risposta ne condivide il testo, e Copia e Condividi usano entrambi la versione sullo schermo. Su iOS, tenendo premuto un messaggio lungo, Modifica, Copia ed Elimina restano visibili, e un messaggio lungo in un canale non spinge più fuori dallo schermo le risposte del thread.",
+          "icon": "direct"
+        },
+        {
+          "text": "Condivisione e dettatura: su iOS, screenshot, documenti di File e immagini da Safari arrivano come il file vero, e la chat appare anche se le Impostazioni erano aperte. La dettatura sul server conserva tutto quello che hai detto, fino all'ultima parola, anche se tocchi stop in anticipo o parli per più di 90 secondi.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android e account: Indietro torna all'elenco delle chat, e l'assistente apre una nuova chat pronta e continua a funzionare dopo un riavvio. Un server o una connessione Hermes modificati prendono il nome del nuovo indirizzo, e i provider Direct restano a portata di mano accanto a Hermes.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

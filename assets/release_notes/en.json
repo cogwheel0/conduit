@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI 0.12.4 works, and you can share answers, mark chats unread, and tap to play videos in chat. Server dictation keeps every word, sharing to Conduit on iOS brings the real file, and back on Android goes to the chat list.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: the app works without a compatibility warning, and a sentence split by a pause in a realtime call is answered once. Folders stay open or closed as you left them, here and on the web. Mark a chat unread from the chat list, and chats marked unread on the web show unread here. Filters set to start enabled are on in new chats, images from MCP tools load, every model offers the Effort picker, and a function can ask to move the chat to another model.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chats: videos show a card and load when you tap Play. Share… in a response's ⋯ menu sends its text, and Copy and Share both take the version on screen. On iOS, long-pressing a long message keeps Edit, Copy and Delete in view, and a long channel message no longer pushes its thread replies off screen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sharing and dictation: on iOS, screenshots, Files documents and images from Safari arrive as the real file, and the chat shows even if Settings was open. Server dictation keeps everything you said, to the last word, even if you tap stop early or talk for longer than 90 seconds.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android and accounts: back goes to the chat list, and the assistant opens on a ready new chat and keeps working after a reboot. An edited server or Hermes connection is named after its new address, and Direct providers stay in reach next to Hermes.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

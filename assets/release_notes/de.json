@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Open WebUI 0.12.4 funktioniert, und du kannst Antworten teilen, Chats als ungelesen markieren und Videos im Chat per Tipp abspielen. Das Diktieren über den Server behält jedes Wort, Teilen an Conduit unter iOS bringt die echte Datei, und Zurück führt unter Android zur Chatliste.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: Die App funktioniert ohne Kompatibilitätswarnung, und ein Satz, den eine Pause in einem Echtzeitanruf teilt, wird nur einmal beantwortet. Ordner bleiben geöffnet oder geschlossen, wie du sie verlassen hast, hier und im Web. Markiere einen Chat in der Chatliste als ungelesen, und im Web als ungelesen markierte Chats erscheinen auch hier ungelesen. Filter, die in neuen Chats aktiviert starten, sind eingeschaltet, Bilder von MCP-Tools laden, jedes Modell bietet die Auswahl „Denkaufwand“, und eine Funktion kann anbieten, den Chat zu einem anderen Modell zu verschieben.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chats: Videos zeigen eine Karte und laden erst, wenn du auf Abspielen tippst. „Teilen…“ im ⋯-Menü einer Antwort teilt ihren Text, und Kopieren und Teilen nehmen beide die angezeigte Version. Unter iOS bleiben Bearbeiten, Kopieren und Löschen sichtbar, wenn du lange auf eine lange Nachricht drückst, und eine lange Kanalnachricht schiebt die Antworten im Thread nicht mehr aus dem Bild.",
+          "icon": "direct"
+        },
+        {
+          "text": "Teilen und Diktieren: Unter iOS kommen Bildschirmfotos, Dokumente aus der Dateien-App und Bilder aus Safari als echte Datei an, und der Chat erscheint, auch wenn die Einstellungen offen waren. Das Diktieren über den Server behält alles, was du gesagt hast, bis zum letzten Wort, auch wenn du früh auf Stopp tippst oder länger als 90 Sekunden sprichst.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android und Konten: Zurück führt zur Chatliste, und der Assistent öffnet einen bereiten neuen Chat und funktioniert auch nach einem Neustart. Ein bearbeiteter Server oder eine bearbeitete Hermes-Verbindung wird nach der neuen Adresse benannt, und Direct-Anbieter bleiben neben Hermes erreichbar.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

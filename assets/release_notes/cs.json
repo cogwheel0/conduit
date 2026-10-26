@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Novinky",
+      "intro": "Ahoj! Open WebUI 0.12.4 funguje a odpovědi můžeš sdílet, chaty označit jako nepřečtené a videa v chatu přehrát klepnutím. Diktování přes server si nechá každé slovo, sdílení do Conduitu na iOS přinese skutečný soubor a zpět na Androidu vede na seznam chatů.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: aplikace funguje bez upozornění na kompatibilitu a větu rozdělenou pauzou v hovoru v reálném čase zodpoví jen jednou. Složky zůstanou otevřené nebo zavřené tak, jak jsi je nechal, tady i na webu. Označ chat jako nepřečtený ze seznamu chatů a chaty označené jako nepřečtené na webu se tak zobrazí i tady. Filtry nastavené, aby začínaly zapnuté, jsou v nových chatech zapnuté, obrázky z nástrojů MCP se načtou, každý model nabízí volbu Effort a funkce může navrhnout přesun chatu na jiný model.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chaty: videa ukazují kartu a načtou se, až klepneš na Přehrát. „Sdílet…“ v nabídce ⋯ u odpovědi sdílí její text a Kopírovat i Sdílet berou verzi na obrazovce. Na iOS po podržení dlouhé zprávy zůstanou Upravit, Kopírovat a Smazat vidět a dlouhá zpráva v kanálu už nevytlačí odpovědi ve vlákně z obrazovky.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sdílení a diktování: na iOS přijdou snímky obrazovky, dokumenty ze Souborů a obrázky ze Safari jako skutečný soubor a chat se ukáže, i když bylo otevřené Nastavení. Diktování přes server si nechá všechno, co jsi řekl, do posledního slova, i když klepneš na stop brzy nebo mluvíš déle než 90 sekund.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android a účty: zpět vede na seznam chatů a asistent otevře připravený nový chat a funguje i po restartu. Upravený server nebo připojení Hermes dostane jméno podle nové adresy a poskytovatelé Direct zůstanou po ruce vedle Hermesu.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

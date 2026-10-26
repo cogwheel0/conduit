@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Nieuw",
+      "intro": "Hoi! Open WebUI 0.12.4 werkt, en je kunt antwoorden delen, chats als ongelezen markeren en video's in de chat met een tik afspelen. Dicteren via de server houdt elk woord, delen naar Conduit op iOS brengt het echte bestand, en terug op Android gaat naar de chatlijst.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: de app werkt zonder compatibiliteitswaarschuwing, en een zin die een pauze in een realtime gesprek opsplitst, krijgt maar één antwoord. Mappen blijven open of dicht zoals je ze achterliet, hier en op het web. Markeer een chat als ongelezen vanuit de chatlijst, en chats die op het web als ongelezen zijn gemarkeerd, staan hier ook ongelezen. Filters die in nieuwe chats ingeschakeld starten, staan aan, afbeeldingen van MCP-tools laden, elk model biedt de keuze voor het redeneerniveau, en een functie kan voorstellen de chat naar een ander model te verplaatsen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chats: video's tonen een kaart en laden pas als je op Afspelen tikt. ‘Delen…’ in het ⋯-menu van een antwoord deelt de tekst, en Kopiëren en Delen nemen allebei de versie op het scherm. Op iOS blijven Wijzigen, Kopiëren en Verwijderen in beeld als je een lang bericht lang indrukt, en een lang kanaalbericht duwt de antwoorden in de thread niet meer van het scherm.",
+          "icon": "direct"
+        },
+        {
+          "text": "Delen en dicteren: op iOS komen schermafbeeldingen, documenten uit Bestanden en afbeeldingen uit Safari aan als het echte bestand, en de chat verschijnt ook als Instellingen open stond. Dicteren via de server houdt alles wat je zei, tot het laatste woord, ook als je vroeg op stop tikt of langer dan 90 seconden praat.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android en accounts: terug gaat naar de chatlijst, en de assistent opent een klaarstaande nieuwe chat en blijft werken na een herstart. Een bewerkte server of Hermes-verbinding krijgt de naam van het nieuwe adres, en Direct-providers blijven bereikbaar naast Hermes.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

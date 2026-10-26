@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Co nowego",
+      "intro": "Cześć! Open WebUI 0.12.4 działa, a odpowiedzi możesz udostępniać, czaty oznaczać jako nieprzeczytane, a filmy w czacie odtwarzać jednym dotknięciem. Dyktowanie na serwerze zachowuje każde słowo, udostępnianie do Conduit na iOS przynosi prawdziwy plik, a wstecz na Androidzie prowadzi do listy czatów.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: aplikacja działa bez ostrzeżenia o zgodności, a zdanie przerwane pauzą podczas rozmowy w czasie rzeczywistym dostaje jedną odpowiedź. Foldery zostają otwarte lub zamknięte tak, jak je zostawiłeś, tutaj i w przeglądarce. Oznacz czat jako nieprzeczytany z listy czatów, a czaty oznaczone tak w przeglądarce są nieprzeczytane także tutaj. Filtry, które mają startować włączone, są włączone w nowych czatach, obrazy z narzędzi MCP się ładują, każdy model oferuje wybór nakładu rozumowania, a funkcja może zaproponować przeniesienie czatu do innego modelu.",
+          "icon": "direct"
+        },
+        {
+          "text": "Czaty: filmy pokazują kartę i ładują się dopiero po dotknięciu Odtwórz. „Udostępnij…” w menu ⋯ odpowiedzi udostępnia jej tekst, a Kopiuj i Udostępnij biorą wersję widoczną na ekranie. Na iOS po przytrzymaniu długiej wiadomości Edytuj, Kopiuj i Usuń pozostają widoczne, a długa wiadomość na kanale nie wypycha już odpowiedzi w wątku poza ekran.",
+          "icon": "direct"
+        },
+        {
+          "text": "Udostępnianie i dyktowanie: na iOS zrzuty ekranu, dokumenty z Plików i obrazy z Safari przychodzą jako prawdziwy plik, a czat pojawia się, nawet gdy były otwarte Ustawienia. Dyktowanie na serwerze zachowuje wszystko, co powiedziałeś, do ostatniego słowa, nawet gdy wcześnie dotkniesz stop albo mówisz dłużej niż 90 sekund.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android i konta: wstecz prowadzi do listy czatów, a asystent otwiera gotowy nowy czat i działa dalej po ponownym uruchomieniu. Edytowany serwer lub połączenie Hermes dostaje nazwę od nowego adresu, a dostawcy Direct zostają pod ręką obok Hermes.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

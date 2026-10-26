@@ -224,6 +224,29 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.2.2",
+      "title": "Novinky",
+      "intro": "Ahoj! Open WebUI 0.12.4 funguje a odpovede môžeš zdieľať, chaty označiť ako neprečítané a videá v chate prehrať ťuknutím. Diktovanie cez server si nechá každé slovo, zdieľanie do Conduitu na iOS prinesie skutočný súbor a späť na Androide vedie na zoznam chatov.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.12.4: aplikácia funguje bez upozornenia na kompatibilitu a vetu rozdelenú pauzou v hovore v reálnom čase zodpovie len raz. Priečinky zostanú otvorené alebo zatvorené tak, ako si ich nechal, tu aj na webe. Označ chat ako neprečítaný zo zoznamu chatov a chaty označené ako neprečítané na webe sa tak zobrazia aj tu. Filtre nastavené, aby začínali zapnuté, sú v nových chatoch zapnuté, obrázky z nástrojov MCP sa načítajú, každý model ponúka voľbu úrovne uvažovania a funkcia môže navrhnúť presun chatu na iný model.",
+          "icon": "direct"
+        },
+        {
+          "text": "Chaty: videá ukazujú kartu a načítajú sa, až keď ťukneš na Prehrať. „Zdieľať…“ v ponuke ⋯ pri odpovedi zdieľa jej text a Kopírovať aj Zdieľať berú verziu na obrazovke. Na iOS po podržaní dlhej správy zostanú Upraviť, Kopírovať a Odstrániť viditeľné a dlhá správa v kanáli už nevytlačí odpovede vo vlákne z obrazovky.",
+          "icon": "direct"
+        },
+        {
+          "text": "Zdieľanie a diktovanie: na iOS prídu snímky obrazovky, dokumenty zo Súborov a obrázky zo Safari ako skutočný súbor a chat sa ukáže, aj keď boli otvorené Nastavenia. Diktovanie cez server si nechá všetko, čo si povedal, do posledného slova, aj keď ťukneš na stop skoro alebo hovoríš dlhšie ako 90 sekúnd.",
+          "icon": "polish"
+        },
+        {
+          "text": "Android a účty: späť vedie na zoznam chatov a asistent otvorí pripravený nový chat a funguje aj po reštarte. Upravený server alebo pripojenie Hermes dostane názov podľa novej adresy a poskytovatelia Direct zostanú poruke vedľa Hermesu.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
