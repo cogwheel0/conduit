@@ -58,8 +58,12 @@ class _SwitchableModel extends SelectedModel {
 /// The picker's per-model picks, kept in memory so no test inherits picks an
 /// earlier file saved to the shared preference store.
 class _MemoryEfforts extends LocalReasoningEfforts {
+  _MemoryEfforts([this.initial = const {}]);
+
+  final Map<String, String> initial;
+
   @override
-  Map<String, String> build() => const {};
+  Map<String, String> build() => initial;
 
   @override
   Future<void> set(String key, String? effort) async {
@@ -164,6 +168,7 @@ void main() {
     OpenWebUiChatSettingsAccess access = OpenWebUiChatSettingsAccess.all,
     Model model = _model,
     _SwitchableModel? selection,
+    Map<String, String> picks = const {},
     bool advanced = true,
     bool native = false,
     Future<void> Function()? accessGate,
@@ -196,7 +201,7 @@ void main() {
         else
           selectedModelProvider.overrideWithValue(model),
         activeConversationProvider.overrideWith(() => _SeededActive(active)),
-        localReasoningEffortsProvider.overrideWith(_MemoryEfforts.new),
+        localReasoningEffortsProvider.overrideWith(() => _MemoryEfforts(picks)),
         syncEngineProvider.overrideWith(_NoDrainEngine.new),
         currentUserProvider2.overrideWithValue(
           const User(
@@ -608,6 +613,38 @@ void main() {
       expect(localReasoningEffortForModel(container.read, _model), isNull);
     });
 
+    // The model's own pick follows the field: "Your default" removes it, so
+    // the user's default applies again, and Automatic is recorded as such.
+    for (final (chip, ownPick) in [
+      ('inherit', null),
+      ('default', 'automatic'),
+    ]) {
+      testWidgets('choosing $chip leaves the model\'s own pick at $ownPick', (
+        tester,
+      ) async {
+        final params = {'reasoning_effort': 'high'};
+        await tester.runAsync(() => seed('c1', params));
+        final container = await openSheet(
+          tester,
+          active: _conversation('c1', chatParams: params),
+          picks: const {'openwebui:sheet:gpt-5': 'high'},
+        );
+
+        final finder = find.byKey(
+          ValueKey('chat-setting-reasoning_effort-$chip'),
+        );
+        await tester.ensureVisible(finder);
+        await tester.tap(finder);
+        await tester.pump();
+        await tester.tap(saveButton());
+        await settle(tester);
+
+        final saved = (await stored(tester, 'c1'))!;
+        expect(saved.containsKey('reasoning_effort'), chip == 'default');
+        expect(localReasoningEffortForModel(container.read, _model), ownPick);
+      });
+    }
+
     testWidgets('a model that refuses reasoning has no effort control', (
       tester,
     ) async {
@@ -859,7 +896,7 @@ void main() {
           activeConversationProvider.overrideWith(
             () => _SeededActive(_conversation('c1', chatParams: params)),
           ),
-          localReasoningEffortsProvider.overrideWith(_MemoryEfforts.new),
+          localReasoningEffortsProvider.overrideWith(() => _MemoryEfforts()),
           syncEngineProvider.overrideWith(_NoDrainEngine.new),
           currentUserProvider2.overrideWithValue(
             const User(

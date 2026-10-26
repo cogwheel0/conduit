@@ -252,19 +252,30 @@ class _OpenWebUiChatSettingsSheetState
 
   /// A model that does not advertise reasoning effort is sent only its own
   /// pick (issue #611), so an effort saved here is recorded as that pick too,
-  /// as a pick in the model selector is saved on the chat.
+  /// as a pick in the model selector is saved on the chat. Going back to the
+  /// user's default removes the pick, so that default applies again; only
+  /// an explicit Automatic is recorded as one.
   Future<void> _recordReasoningPick(
     ProviderContainer container,
     ChatParamsPatch patch,
   ) async {
     final model = _model;
+    final inherits = patch.remove.contains(kChatParamReasoningEffort);
     if (model == null ||
-        !(patch.set.containsKey(kChatParamReasoningEffort) ||
-            patch.remove.contains(kChatParamReasoningEffort))) {
+        !(inherits || patch.set.containsKey(kChatParamReasoningEffort))) {
       return;
     }
     final effort = patch.set[kChatParamReasoningEffort];
     try {
+      if (inherits) {
+        final key = localReasoningEffortKeyForModel(container.read, model);
+        if (key != null) {
+          await container
+              .read(localReasoningEffortsProvider.notifier)
+              .set(key, null);
+        }
+        return;
+      }
       await setReasoningEffortForModel(
         container.read,
         model,
