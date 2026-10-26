@@ -120,6 +120,9 @@ class SileroV4Model implements VadModel {
         outputs[outputIdx] == null ||
         outputs[hIdx] == null ||
         outputs[cIdx] == null) {
+      for (final output in outputs) {
+        output?.release();
+      }
       throw Exception(
           'Invalid model outputs: expected 3 outputs but got ${outputs.length}');
     }
@@ -146,7 +149,11 @@ class SileroV4Model implements VadModel {
       ),
     );
 
-    // Don't release outputs - they're already released in the isolate
+    // run() leaves its outputs to the caller, and nothing else releases
+    // them; their values were copied above.
+    for (final output in outputs) {
+      output?.release();
+    }
 
     return SpeechProbabilities(
       isSpeech: speechProb,

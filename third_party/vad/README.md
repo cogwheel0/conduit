@@ -11,8 +11,13 @@ the previous frame in front of each 512-sample frame, and `resetState`
 forgets them. The new `SileroV5Context` in
 `lib/src/platform/native/inference/silero_v5_context.dart` holds them.
 
-Two smaller changes:
+Smaller changes:
 
+- Native memory leaked on every frame (about 2.2 KB, or 4 MB per minute of
+  listening). `SileroV5Model.process` and `SileroV4Model.process` now
+  release the output tensors `OrtSession.run` hands them, after copying
+  their values, and `run` frees the name strings it allocates, in a
+  `finally`.
 - `VadIterator._combineFrames` and `VadHandler`'s speech-end and chunk
   events convert audio straight into typed lists (`Int16List`,
   `Float64List`) instead of through boxed lists, which for a ten-minute
