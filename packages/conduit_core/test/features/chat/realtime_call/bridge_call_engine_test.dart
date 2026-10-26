@@ -368,6 +368,86 @@ void main() {
         .deepEquals({'type': 'bridge.respond', 'item_id': 'item-2'});
   });
 
+  test('a sentence a pause split in two is answered once, in full', () async {
+    // The second half starts before the first is transcribed, so both wait.
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'item-1',
+    });
+    transport.receive({
+      'type': 'input_audio_buffer.speech_stopped',
+      'item_id': 'item-1',
+    });
+    transport.receive({
+      'type': 'input_audio_buffer.speech_started',
+      'item_id': 'item-2',
+    });
+    transport.receive({
+      'type': 'conversation.item.input_audio_transcription.completed',
+      'item_id': 'item-1',
+      'transcript': 'What is the weather',
+    });
+    transport.receive({
+      'type': 'input_audio_buffer.speech_stopped',
+      'item_id': 'item-2',
+    });
+    transport.receive({
+      'type': 'conversation.item.input_audio_transcription.completed',
+      'item_id': 'item-2',
+      'transcript': 'in Oslo today?',
+    });
+    await _settle();
+
+    replyStarts('resp-1', {'input_item_id': 'item-2'});
+    speaks('resp-1', 'speech-1', 'Sunny and mild.');
+    await replyEnds('resp-1');
+
+    check(transport.sent.where((c) => c['type'] == 'bridge.respond')).single
+        .deepEquals({'type': 'bridge.respond', 'item_id': 'item-2'});
+    final exchange = host.exchanges.single;
+    check(exchange.userText).equals('What is the weather in Oslo today?');
+    check(exchange.replyText).equals('Sunny and mild.');
+  });
+
+  test('words transcribed out of order are saved as they were said', () async {
+    say('item-1', 'Tell me a story');
+    await _settle();
+    replyStarts('resp-1', {'input_item_id': 'item-1'});
+    // Three more segments are heard during the reply, and the third is
+    // transcribed before the second.
+    for (final itemId in ['item-2', 'item-3', 'item-4']) {
+      transport.receive({
+        'type': 'input_audio_buffer.speech_started',
+        'item_id': itemId,
+      });
+      transport.receive({
+        'type': 'input_audio_buffer.speech_stopped',
+        'item_id': itemId,
+      });
+    }
+    for (final (itemId, transcript) in [
+      ('item-2', 'A short one'),
+      ('item-4', 'and a knight.'),
+      ('item-3', 'about a dragon'),
+    ]) {
+      transport.receive({
+        'type': 'conversation.item.input_audio_transcription.completed',
+        'item_id': itemId,
+        'transcript': transcript,
+      });
+    }
+    await replyEnds('resp-1');
+
+    check(transport.sent.last)
+        .deepEquals({'type': 'bridge.respond', 'item_id': 'item-3'});
+    replyStarts('resp-2', {'input_item_id': 'item-3'});
+    speaks('resp-2', 'speech-2', 'Once upon a time.');
+    await replyEnds('resp-2');
+
+    check(host.exchanges.single.userText)
+        .equals('A short one about a dragon and a knight.');
+  });
+
   test(
     'a delegated request runs in the chat and its answer is spoken',
     () async {

@@ -1278,6 +1278,7 @@ Future<void> _sendMessageInternal(
         api: api,
         userSettings: userSettingsData,
         selectedToolIds: selectedToolIds,
+        personalConnectionsAvailable: _personalConnectionsAvailable(ref),
         onUnresolvedSelections: (ids) =>
             _clearUnresolvedPersonalToolSelections(ref, ids),
         admitted: admittedToolServers,

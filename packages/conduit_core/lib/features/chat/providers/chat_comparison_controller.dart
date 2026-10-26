@@ -849,6 +849,7 @@ Future<void> runComparisonCompletion(
       api: api,
       userSettings: userSettingsData,
       selectedToolIds: toolIds,
+      personalConnectionsAvailable: _personalConnectionsAvailable(ref),
       admitted: admittedToolServers,
     );
   } catch (_) {}
