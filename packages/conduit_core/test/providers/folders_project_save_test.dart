@@ -547,4 +547,28 @@ void main() {
       check(await folders.projectFileExists(owner, 'gone')).isNull();
     });
   });
+
+  group('opening or closing a folder', () {
+    test('is queued for the signed-in account and drained', () async {
+      await container
+          .read(foldersProvider.notifier)
+          .saveFolderExpanded('p', true);
+
+      final op = (await db.outboxDao.pendingForChat('p')).single;
+      check(
+        (jsonDecode(op.payload) as Map<String, dynamic>)['isExpanded'],
+      ).equals(true);
+      check(engine.drained).deepEquals([db]);
+    });
+
+    test('a folder shared with this account is neither queued nor drained',
+        () async {
+      await container
+          .read(foldersProvider.notifier)
+          .saveFolderExpanded('shared', true);
+
+      check(await db.outboxDao.pendingForChat('shared')).isEmpty();
+      check(engine.drained).isEmpty();
+    });
+  });
 }

@@ -250,6 +250,51 @@ class FoldersDao extends DatabaseAccessor<AppDatabase> with _$FoldersDaoMixin {
     });
   }
 
+  /// The user opened or closed a folder in the sidebar: keeps [isExpanded] on
+  /// the row as `is_expanded`, marks it dirty and queues a `folderUpsert` that
+  /// carries only that choice, in one transaction. Until the push confirms, a
+  /// pull leaves the row as it is, and another tap coalesces into the queued
+  /// op, so the last one is what the server keeps.
+  ///
+  /// Returns false, writing nothing, for a folder the server would not keep
+  /// it for: one gone or deleted here, one shared with this account (the
+  /// server keeps only its owner's choice, and answers anyone else's without
+  /// saving it), or a `local:` folder it has not created yet. Caller holds
+  /// the folder lock.
+  Future<bool> setFolderExpandedWithOutbox({
+    required String id,
+    required bool isExpanded,
+  }) {
+    return transaction(() async {
+      final existing = await getFolder(id);
+      if (existing == null ||
+          existing.deleted ||
+          id.startsWith('local:') ||
+          folderFromRow(existing).shared) {
+        return false;
+      }
+      final extra = decodeJsonMap(existing.rawExtra);
+      extra['is_expanded'] = isExpanded;
+      await (update(folders)..where((t) => t.id.equals(id))).write(
+        FoldersCompanion(
+          rawExtra: Value(jsonEncode(extra)),
+          dirty: const Value(true),
+        ),
+      );
+
+      await _outboxDao.enqueue(
+        kind: OutboxKind.folderUpsert,
+        chatId: id,
+        payload: <String, dynamic>{
+          'folderId': id,
+          'createIfAbsent': false,
+          'isExpanded': isExpanded,
+        },
+      );
+      return true;
+    });
+  }
+
   /// Notes the server's verdict on this account's write access, read from the
   /// folder's own detail, in the row's `rawExtra` so [patchFolderDataWithOutbox]
   /// judges the next edit by it. A cached `write` grant that the server says no

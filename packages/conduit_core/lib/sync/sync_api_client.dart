@@ -140,6 +140,10 @@ abstract interface class SyncApiClient {
   /// POST `/api/v1/folders/{id}/update/parent`; false on 404.
   Future<bool> updateFolderParent(String id, String? parentId);
 
+  /// POST `/api/v1/folders/{id}/update/expanded` with `is_expanded`; false on
+  /// 404. 401/403 throws [SyncTerminalException].
+  Future<bool> updateFolderExpanded(String id, bool isExpanded);
+
   /// DELETE `/api/v1/folders/{id}?delete_contents=false`. `true` on success;
   /// 404 (already-gone) -> `false` WITHOUT throwing. 401/403 throws
   /// [SyncTerminalException].
@@ -407,6 +411,24 @@ class ApiSyncApiClient implements SyncApiClient {
         throw SyncTerminalException(
           statusCode: code,
           message: 'updateFolderParent $id forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> updateFolderExpanded(String id, bool isExpanded) async {
+    try {
+      await api.updateFolderExpanded(id, isExpanded);
+      return true;
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return false;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'updateFolderExpanded $id forbidden',
         );
       }
       rethrow;

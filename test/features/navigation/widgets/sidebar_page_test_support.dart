@@ -231,7 +231,12 @@ Widget sidebarTestBuildHarness({
       // ignore: scoped_providers_should_specify_dependencies
       modelsProvider.overrideWith(SidebarTestTestModels.new),
       // ignore: scoped_providers_should_specify_dependencies
-      foldersProvider.overrideWith(() => SidebarTestTestFolders(folders)),
+      foldersProvider.overrideWith(
+        () => SidebarTestTestFolders(
+          folders,
+          savedExpansions: controllers.savedFolderExpansions,
+        ),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       notesListProvider.overrideWith(
         () => SidebarTestTestNotesList(
@@ -444,6 +449,10 @@ class SidebarTestSidebarHarnessControllers {
   final SidebarTestTestSidebarActiveTab activeTabNotifier;
   int chatRefreshCalls = 0;
   int noteRefreshCalls = 0;
+
+  /// Folders the user opened or closed, with the choice, in the order the
+  /// sidebar asked for them to be kept on the server.
+  final savedFolderExpansions = <(String, bool)>[];
   Completer<void>? _pendingChatRefresh;
   Completer<void>? _pendingNoteRefresh;
 
@@ -722,12 +731,18 @@ class SidebarTestTestModels extends Models {
 }
 
 class SidebarTestTestFolders extends Folders {
-  SidebarTestTestFolders(this.folders);
+  SidebarTestTestFolders(this.folders, {required this.savedExpansions});
 
   final List<Folder> folders;
+  final List<(String, bool)> savedExpansions;
 
   @override
   Future<List<Folder>> build() async => folders;
+
+  @override
+  Future<void> saveFolderExpanded(String folderId, bool isExpanded) async {
+    savedExpansions.add((folderId, isExpanded));
+  }
 }
 
 class SidebarTestTestNotesList extends NotesList {

@@ -364,8 +364,8 @@ class PushSync {
   // ---- folderUpsert / folderDelete (§7.6) ----
 
   /// Pushes a folder create-or-update. A `local:` folder with
-  /// `createIfAbsent` is created server-side then remapped; otherwise the name
-  /// and parent deltas are pushed. Clears `folders.dirty` on success.
+  /// `createIfAbsent` is created server-side then remapped; otherwise the name,
+  /// parent and expanded deltas are pushed. Clears `folders.dirty` on success.
   Future<void> pushFolderUpsert(Map<String, dynamic> payload) async {
     final folderId = payload['folderId'];
     if (folderId is! String || folderId.isEmpty) {
@@ -458,6 +458,22 @@ class PushSync {
           parentId,
         );
         if (!parentUpdated) {
+          DebugLogger.warning(
+            'folder-update-404',
+            scope: 'sync/push',
+            data: {'folderId': folderId},
+          );
+          await _db.foldersDao.purgeReconciledFolder(folderId);
+          return;
+        }
+      }
+      final isExpanded = payload['isExpanded'];
+      if (isExpanded is bool) {
+        final expandedUpdated = await _client.updateFolderExpanded(
+          folderId,
+          isExpanded,
+        );
+        if (!expandedUpdated) {
           DebugLogger.warning(
             'folder-update-404',
             scope: 'sync/push',
