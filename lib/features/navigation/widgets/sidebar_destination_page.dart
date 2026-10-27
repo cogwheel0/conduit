@@ -15,6 +15,27 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../providers/sidebar_providers.dart';
 import 'sidebar_tab_registry.dart';
 
+/// Keeps retained destination bodies informed of the visible route.
+class SidebarDestinationScope extends InheritedWidget {
+  const SidebarDestinationScope({
+    super.key,
+    required this.destination,
+    required super.child,
+  });
+
+  final SidebarTabId destination;
+
+  static bool isActive(BuildContext context, SidebarTabId destination) =>
+      context
+          .dependOnInheritedWidgetOfExactType<SidebarDestinationScope>()
+          ?.destination ==
+      destination;
+
+  @override
+  bool updateShouldNotify(SidebarDestinationScope oldWidget) =>
+      destination != oldWidget.destination;
+}
+
 /// A full main-pane destination, independent of the chat-history sidebar.
 class SidebarDestinationPage extends ConsumerStatefulWidget {
   const SidebarDestinationPage({super.key, required this.destination});
@@ -54,10 +75,16 @@ class _SidebarDestinationPageState
   @override
   Widget build(BuildContext context) {
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
+    final active = SidebarDestinationScope.isActive(
+      context,
+      widget.destination,
+    );
     if (!navigation.tabs.contains(widget.destination)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) NavigationService.router.go(Routes.chat);
-      });
+      if (active) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) NavigationService.router.go(Routes.chat);
+        });
+      }
       return const SizedBox.shrink();
     }
     final tab = sidebarTabDescriptor(widget.destination);
@@ -120,7 +147,7 @@ class _SidebarDestinationPageState
         bottomNavigationVisible: false,
         child: tab.bodyBuilder(
           showBottomNavigation: false,
-          active: true,
+          active: active,
           searchController: _searchController,
         ),
       ),

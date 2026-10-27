@@ -28,6 +28,35 @@ Widget _chat() => Builder(
 );
 
 void main() {
+  testWidgets(
+    'destination switching retains Terminal state and deactivates it',
+    (tester) async {
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          shellChat: _chat(),
+          initialLocation: Routes.terminal,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final terminal = find.byType(TerminalTab, skipOffstage: false);
+      final originalState = tester.state(terminal);
+      expect(tester.widget<TerminalTab>(terminal).isActive, isTrue);
+
+      await sidebarTestSelectDestination(tester, 'Chats');
+      await tester.pumpAndSettle();
+      expect(terminal, findsOneWidget);
+      expect(tester.state(terminal), same(originalState));
+      expect(tester.widget<TerminalTab>(terminal).isActive, isFalse);
+
+      await sidebarTestSelectDestination(tester, 'Terminal');
+      await tester.pumpAndSettle();
+      expect(tester.state(terminal), same(originalState));
+      expect(tester.widget<TerminalTab>(terminal).isActive, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('iOS destination search stays inside the navigation bar', (
     tester,
   ) async {
@@ -63,6 +92,27 @@ void main() {
         1,
       ),
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('hiding a retained destination leaves the visible route alone', (
+    tester,
+  ) async {
+    final controllers = SidebarTestSidebarHarnessControllers();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        shellChat: _chat(),
+        initialLocation: Routes.notes,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await sidebarTestSelectDestination(tester, 'Terminal');
+    await tester.pumpAndSettle();
+    controllers.notesNotifier.setEnabled(false);
+    await tester.pumpAndSettle();
+    expect(NavigationService.currentRoute, Routes.terminal);
+    expect(find.byType(TerminalTab), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

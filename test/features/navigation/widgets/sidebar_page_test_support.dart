@@ -148,28 +148,41 @@ Widget sidebarTestBuildHarness({
         sidebarTabDescriptor(controllers.activeTabNotifier.initialValue)
             .location,
     routes: [
-      ShellRoute(
-        builder: (context, state, child) =>
-            shellChat != null || state.uri.path != '/chat'
-            ? DrawerShellPage(child: child)
-            : child,
-        routes: [
-          GoRoute(
-            path: '/chat',
-            name: RouteNames.chat,
-            builder: (context, state) =>
-                shellChat ?? const Scaffold(body: SidebarPage()),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          final content = SidebarDestinationScope(
+            destination: sidebarTabForLocation(state.uri.path),
+            child: navigationShell,
+          );
+          return shellChat != null || state.uri.path != '/chat'
+              ? DrawerShellPage(child: content)
+              : content;
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/chat',
+                name: RouteNames.chat,
+                builder: (context, state) =>
+                    shellChat ?? const Scaffold(body: SidebarPage()),
+              ),
+            ],
           ),
           for (final tab in sidebarTabRegistry.where(
             (tab) => tab.id != SidebarTabId.chats,
           ))
-            GoRoute(
-              path: tab.location,
-              name: tab.id == SidebarTabId.hermes
-                  ? RouteNames.hermesSessions
-                  : tab.id.name,
-              builder: (context, state) =>
-                  SidebarDestinationPage(destination: tab.id),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: tab.location,
+                  name: tab.id == SidebarTabId.hermes
+                      ? RouteNames.hermesSessions
+                      : tab.id.name,
+                  builder: (context, state) =>
+                      SidebarDestinationPage(destination: tab.id),
+                ),
+              ],
             ),
         ],
       ),
