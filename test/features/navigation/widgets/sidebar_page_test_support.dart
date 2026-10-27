@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui' show Tristate;
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -46,10 +45,11 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:conduit_core/testing.dart';
 
-/// Label within [NavigationBar] built by Conduit platform UI from
-/// [AdaptiveBottomNavigationBar.items].
-Finder sidebarTestBottomNavTabLabel(String label) =>
-    find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
+/// Label in the sidebar destination list.
+Finder sidebarTestDestinationLabel(String label) => find.descendant(
+  of: find.byKey(const ValueKey<String>('sidebar-destinations')),
+  matching: find.text(label),
+);
 
 enum SidebarTestSidebarTabLayer { chats, terminal, notes, channels }
 

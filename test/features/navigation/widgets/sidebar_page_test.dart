@@ -186,7 +186,7 @@ void main() {
     check(progress.semanticsLabel).equals('Syncing chats');
     check(progress.semanticsValue).equals('38%');
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
+    await tester.tap(sidebarTestDestinationLabel('Notes'));
     await tester.pump();
     expect(
       find.byKey(const ValueKey<String>('sidebar-sync-progress')),
@@ -220,9 +220,9 @@ void main() {
     );
     await tester.pump();
 
-    expect(sidebarTestBottomNavTabLabel('Notes'), findsNothing);
-    expect(sidebarTestBottomNavTabLabel('Terminal'), findsNothing);
-    expect(sidebarTestBottomNavTabLabel('Channels'), findsNothing);
+    expect(sidebarTestDestinationLabel('Notes'), findsNothing);
+    expect(sidebarTestDestinationLabel('Terminal'), findsNothing);
+    expect(sidebarTestDestinationLabel('Channels'), findsNothing);
   });
 
   testWidgets(
@@ -234,7 +234,7 @@ void main() {
         sidebarTestBuildHarness(controllers: controllers),
       );
 
-      await tester.tap(sidebarTestBottomNavTabLabel('Terminal'));
+      await tester.tap(sidebarTestDestinationLabel('Terminal'));
       await tester.pump();
 
       final terminalLayer = tester.widget<Opacity>(
@@ -261,12 +261,12 @@ void main() {
       tester.element(find.byType(SidebarPage)),
     );
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Terminal'));
+    await tester.tap(sidebarTestDestinationLabel('Terminal'));
     await tester.pump();
     check(container.read(terminalSidebarPanelProvider))
         .equals(TerminalSidebarPanel.files);
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
+    await tester.tap(sidebarTestDestinationLabel('Notes'));
     await tester.pump();
     check(container.read(terminalSidebarPanelProvider))
         .equals(TerminalSidebarPanel.console);
@@ -307,7 +307,7 @@ void main() {
     );
     check(notesLayer.opacity).equals(1);
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
+    await tester.tap(sidebarTestDestinationLabel('Notes'));
     await tester.pump();
 
     check(controllers.activeTabNotifier.currentValue)
@@ -332,7 +332,7 @@ void main() {
       );
 
       expect(chatsLayer.opacity, 1);
-      expect(sidebarTestBottomNavTabLabel('Notes'), findsNothing);
+      expect(sidebarTestDestinationLabel('Notes'), findsNothing);
       expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
     },
   );
@@ -355,7 +355,7 @@ void main() {
 
     expect(chatsLayer.opacity, 1);
     expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
-    expect(sidebarTestBottomNavTabLabel('Notes'), findsNothing);
+    expect(sidebarTestDestinationLabel('Notes'), findsNothing);
 
     controllers.notesNotifier.setEnabled(true);
     await tester.pump();
@@ -412,26 +412,33 @@ void main() {
     expect(inactiveSemantics.excluding, isTrue);
   });
 
-  testWidgets('renders adaptive bottom tab bar instead of TabBar', (
+  testWidgets('shows branded vertical navigation above the retained lists', (
     tester,
   ) async {
-    final controllers = SidebarTestSidebarHarnessControllers();
-    await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
-
-    expect(find.byType(TabBar), findsNothing);
-    expect(find.byType(NavigationBar), findsOneWidget);
-    final navigationBar = tester.widget<NavigationBar>(
-      find.byType(NavigationBar),
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+      ),
     );
-    expect(navigationBar.height, 56);
+    await tester.pumpAndSettle();
+    expect(find.text('Conduit'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    final navigation = find.byKey(
+      const ValueKey<String>('sidebar-destinations'),
+    );
     expect(
-      navigationBar.labelBehavior,
-      NavigationDestinationLabelBehavior.alwaysShow,
+      tester.getBottomLeft(navigation).dy,
+      lessThanOrEqualTo(
+        tester
+            .getTopLeft(
+              sidebarTestLayerRootFinder(SidebarTestSidebarTabLayer.chats),
+            )
+            .dy,
+      ),
     );
-    expect(sidebarTestBottomNavTabLabel('Chats'), findsOneWidget);
-    expect(sidebarTestBottomNavTabLabel('Terminal'), findsOneWidget);
-    expect(sidebarTestBottomNavTabLabel('Notes'), findsOneWidget);
-    expect(sidebarTestBottomNavTabLabel('Channels'), findsOneWidget);
+    for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
+      expect(sidebarTestDestinationLabel(label), findsOneWidget);
+    }
   });
 
   testWidgets('reselecting a tab uses a static scroll under reduced motion', (
@@ -465,14 +472,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.offset, greaterThan(0));
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Chats'));
+    await tester.tap(sidebarTestDestinationLabel('Chats'));
     await tester.pump();
 
     expect(controller.offset, 0);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('persistent tablet uses bottom navigation with all five tabs', (
+  testWidgets('persistent tablet uses vertical navigation with all five tabs', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
@@ -489,18 +496,12 @@ void main() {
       find.byKey(const ValueKey<String>('sidebar-tablet-navigation')),
       findsNothing,
     );
-    expect(find.byType(NavigationBar), findsOneWidget);
-    expect(
-      tester.getSize(find.byType(NavigationBar)).width,
-      tester
-          .getSize(find.byKey(const ValueKey<String>('sidebar-page-surface')))
-          .width,
-    );
+    expect(find.byType(NavigationBar), findsNothing);
     for (final label in ['Chats', 'Hermes', 'Notes', 'Terminal', 'Channels']) {
-      expect(sidebarTestBottomNavTabLabel(label), findsOneWidget);
+      expect(sidebarTestDestinationLabel(label), findsOneWidget);
     }
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
+    await tester.tap(sidebarTestDestinationLabel('Notes'));
     await tester.pumpAndSettle();
 
     expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
@@ -514,7 +515,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
+    await tester.tap(sidebarTestDestinationLabel('Channels'));
     await tester.pumpAndSettle();
 
     expect(controllers.activeTabNotifier.currentValue, SidebarTabId.channels);
@@ -529,69 +530,39 @@ void main() {
     );
   });
 
-  testWidgets('persistent iOS 26 sidebar requests a full-width native bar', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-
-    final controllers = SidebarTestSidebarHarnessControllers();
-    await tester.pumpWidget(
-      sidebarTestBuildHarness(
-        controllers: controllers,
-        hermesEnabled: true,
-        persistentTabletSidebar: true,
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 500));
-
-    expect(find.byType(CNTabBar), findsNothing);
-    final tabBar = tester.widget<CupertinoTabBar>(find.byType(CupertinoTabBar));
-    expect(tabBar.items, hasLength(5));
-    expect(tabBar.items[1].icon, isA<ImageIcon>());
-    expect((tabBar.items[1].icon as ImageIcon).image, kHermesTabIcon);
-    expect(
-      tester.getSize(find.byType(CupertinoTabBar)).width,
-      tester.getSize(find.byType(SidebarPage)).width,
-    );
-  });
-
-  testWidgets('iOS 26 native overlay keeps the Hermes logo and tab labels', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-
-    final controllers = SidebarTestSidebarHarnessControllers();
-    await tester.pumpWidget(
-      sidebarTestBuildHarness(controllers: controllers, hermesEnabled: true),
-    );
-    await tester.pump(const Duration(milliseconds: 500));
-
-    final tabBar = tester.widget<CNTabBar>(find.byType(CNTabBar));
-    expect(tabBar.items, hasLength(5));
-    expect(tabBar.iconSize, isNull);
-    expect(tabBar.items.map((item) => item.label), [
-      'Chats',
-      'Hermes',
-      'Notes',
-      'Terminal',
-      'Channels',
-    ]);
-    expect(tabBar.items[1].icon, isNull);
-    expect(tabBar.items[1].imageAsset?.size, 26);
-    expect(tabBar.items[0].icon?.size, kCupertinoNativeControlSymbolExtent);
-    expect(tabBar.items[2].icon?.size, kCupertinoNativeControlSymbolExtent);
-    expect(tabBar.items[4].icon?.size, kCupertinoNativeControlSymbolExtent);
-    expect(
-      tabBar.items[1].imageAsset?.assetPath,
-      'assets/icons/hermes_agent_tab.svg',
-    );
-  });
+  testWidgets(
+    'iOS 26 keeps destinations in the pane without a native tab overlay',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          hermesEnabled: true,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(CNTabBar), findsNothing);
+      expect(find.byType(CupertinoTabBar), findsNothing);
+      for (final label in [
+        'Chats',
+        'Hermes',
+        'Notes',
+        'Terminal',
+        'Channels',
+      ]) {
+        expect(sidebarTestDestinationLabel(label), findsOneWidget);
+      }
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is ImageIcon && w.image == kHermesTabIcon,
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 
   test('native Hermes artwork fills its requested tab icon canvas', () async {
     final svg = await rootBundle.loadString(
@@ -620,13 +591,13 @@ void main() {
       find.byKey(const ValueKey<String>('sidebar-tablet-navigation')),
       findsNothing,
     );
-    expect(find.byType(NavigationBar), findsOneWidget);
-    await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.tap(sidebarTestDestinationLabel('Notes'));
     await tester.pumpAndSettle();
     expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
   });
 
-  testWidgets('Hermes bottom tab follows dark navigation icon colors', (
+  testWidgets('Hermes destination follows dark navigation icon colors', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
@@ -656,13 +627,10 @@ void main() {
       kHermesTabIconSize,
     );
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Hermes'));
+    await tester.tap(sidebarTestDestinationLabel('Hermes'));
     await tester.pumpAndSettle();
 
-    expect(
-      tester.widget<Image>(hermesImage()).color,
-      conduitTheme.buttonPrimary,
-    );
+    expect(tester.widget<Image>(hermesImage()).color, conduitTheme.textPrimary);
   });
 
   testWidgets('hides bottom navigation when Hermes is the only sidebar tab', (
@@ -743,7 +711,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(sidebarTestBottomNavTabLabel('Terminal'), findsNothing);
+    expect(sidebarTestDestinationLabel('Terminal'), findsNothing);
     expect(find.byType(TerminalTab), findsNothing);
   });
 
@@ -759,7 +727,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(sidebarTestBottomNavTabLabel('Terminal'), findsOneWidget);
+    expect(sidebarTestDestinationLabel('Terminal'), findsOneWidget);
     expect(find.byType(TerminalTab), findsOneWidget);
   });
 
@@ -777,8 +745,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(sidebarTestBottomNavTabLabel('Terminal'), findsNothing);
-    expect(sidebarTestBottomNavTabLabel('Channels'), findsOneWidget);
+    expect(sidebarTestDestinationLabel('Terminal'), findsNothing);
+    expect(sidebarTestDestinationLabel('Channels'), findsOneWidget);
     expect(find.byIcon(Icons.add), findsWidgets);
 
     await tester.tap(find.byIcon(Icons.search));
@@ -790,13 +758,11 @@ void main() {
     expect(find.text(l10n.searchFiles), findsNothing);
   });
 
-  testWidgets('adaptive bottom bar tapping switches active tab', (
-    tester,
-  ) async {
+  testWidgets('destination tapping switches active tab', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
     await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
+    await tester.tap(sidebarTestDestinationLabel('Channels'));
     await tester.pumpAndSettle();
 
     final channelsLayer = tester.widget<Opacity>(
@@ -810,11 +776,11 @@ void main() {
     expect(chatsLayer.opacity, 0);
   });
 
-  testWidgets('adaptive bottom bar provides tab semantics', (tester) async {
+  testWidgets('destinations expose selection semantics', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
     await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
 
-    final barScope = find.byType(NavigationBar);
+    final barScope = find.byKey(const ValueKey<String>('sidebar-destinations'));
 
     final chatsSemantics = tester.getSemantics(
       find.descendant(of: barScope, matching: find.text('Chats')).first,

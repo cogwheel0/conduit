@@ -417,28 +417,30 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final refreshLabel = MaterialLocalizations.of(context)
         .refreshIndicatorSemanticLabel;
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(Spacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              message,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textSecondary,
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                message,
+                style: AppTypography.bodyMediumStyle.copyWith(
+                  color: theme.textSecondary,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: Spacing.md),
-            ConduitButton(
-              text: refreshLabel,
-              icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-              onPressed: () => unawaited(_refreshEmptyStateChats()),
-              isSecondary: true,
-              isCompact: true,
-              isLoading: _isRefreshingEmptyState,
-            ),
-          ],
+              const SizedBox(height: Spacing.md),
+              ConduitButton(
+                text: refreshLabel,
+                icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+                onPressed: () => unawaited(_refreshEmptyStateChats()),
+                isSecondary: true,
+                isCompact: true,
+                isLoading: _isRefreshingEmptyState,
+              ),
+            ],
+          ),
         ),
       ),
     );

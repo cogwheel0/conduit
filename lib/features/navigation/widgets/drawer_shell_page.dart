@@ -45,7 +45,7 @@ class DrawerShellPage extends ConsumerWidget {
         : context.colorTokens.scrimStrong;
 
     return ResponsiveDrawerLayout(
-      maxFraction: isTablet ? 0.42 : 1.0,
+      maxFraction: isTablet ? 0.42 : 0.84,
       edgeFraction: isTablet ? 0.36 : 1.0,
       settleFraction: 0.06,
       scrimColor: scrim,

@@ -170,10 +170,7 @@ void main() {
     container.read(temporaryChatEnabledProvider.notifier).set(false);
 
     await tester.tap(
-      find.descendant(
-        of: find.byType(AppBar),
-        matching: find.byIcon(Icons.add),
-      ),
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
     );
     await tester.pumpAndSettle();
 

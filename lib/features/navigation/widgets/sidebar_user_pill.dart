@@ -26,8 +26,10 @@ import 'package:conduit_core/services/api_service.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
+
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
     show directConnectionProfilesProvider;
+
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
@@ -56,6 +58,7 @@ import '../../hermes/widgets/hermes_connection_switcher.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
+import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 
@@ -358,7 +361,9 @@ Widget buildSidebarProfileButton({
 
 /// Profile button used as the sidebar adaptive app bar leading widget.
 class SidebarProfileAppBarLeading extends ConsumerWidget {
-  const SidebarProfileAppBarLeading({super.key});
+  const SidebarProfileAppBarLeading({super.key, this.showLabel = false});
+
+  final bool showLabel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -399,7 +404,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ? AdaptiveButtonStyle.plain
         : AdaptiveButtonStyle.glass;
     final inlineAvatarBytes = _decodeDataImage(avatarUrl);
-    final supportsNativeGlass = conduitSupportsNativeGlass();
+    final supportsNativeGlass = !showLabel && conduitSupportsNativeGlass();
     final rawNativeAvatarBytes = !supportsNativeGlass
         ? null
         : hermesOnly
@@ -536,6 +541,31 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           ),
         );
       }
+    }
+
+    if (showLabel) {
+      return AdaptiveButton.child(
+        key: const ValueKey<String>('sidebar-settings-button'),
+        onPressed: openProfile,
+        style: AdaptiveButtonStyle.plain,
+        padding: const EdgeInsets.symmetric(
+          horizontal: Spacing.md,
+          vertical: Spacing.sm,
+        ),
+        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
+        child: Row(
+          children: [
+            Icon(UiUtils.settingsIcon, color: iconColor, size: 22),
+            const SizedBox(width: Spacing.md),
+            Expanded(
+              child: Text(
+                l10n.settingsTitle,
+                style: TextStyle(color: iconColor),
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     // Exclude the native glass button's own node so VoiceOver announces one

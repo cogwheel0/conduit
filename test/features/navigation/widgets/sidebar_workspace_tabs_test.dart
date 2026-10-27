@@ -106,7 +106,7 @@ void main() {
       find.descendant(of: noteRow, matching: find.text('Flat Note')),
     );
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Chats'));
+    await tester.tap(sidebarTestDestinationLabel('Chats'));
     await tester.pumpAndSettle();
     final chatRect = tester.getRect(
       find.byKey(
@@ -120,7 +120,7 @@ void main() {
     expect(noteTitle.style?.fontSize, AppTypography.sidebarTitleStyle.fontSize);
     expect(noteTitle.style?.fontSize, chatTitle.style?.fontSize);
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
+    await tester.tap(sidebarTestDestinationLabel('Channels'));
     await tester.pumpAndSettle();
     final channelRow = find.byKey(
       const ValueKey<String>('channel-sidebar-row-flat-channel'),
@@ -231,10 +231,10 @@ void main() {
           ),
         )
         .actions;
-    expect(
-      actions.take(2).map((action) => action.label),
-      ['All messages', 'Mentions only'],
-    );
+    expect(actions.take(2).map((action) => action.label), [
+      'All messages',
+      'Mentions only',
+    ]);
     // The current choice carries the check.
     expect(actions[1].materialIcon, Icons.check_rounded);
     expect(actions[0].materialIcon, isNot(Icons.check_rounded));
@@ -351,17 +351,17 @@ void main() {
 
     expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Terminal'));
+    await tester.tap(sidebarTestDestinationLabel('Terminal'));
     await tester.pumpAndSettle();
 
     expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
+    await tester.tap(sidebarTestDestinationLabel('Notes'));
     await tester.pumpAndSettle();
 
     expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
+    await tester.tap(sidebarTestDestinationLabel('Channels'));
     await tester.pumpAndSettle();
 
     expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
@@ -924,7 +924,7 @@ void main() {
     expect(find.text('Settings destination'), findsOneWidget);
   });
 
-  testWidgets('sidebar material app bar uses the compact toolbar height', (
+  testWidgets('sidebar header keeps branding above its navigation', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
@@ -940,9 +940,10 @@ void main() {
       sidebarTestBuildHarness(controllers: controllers, currentUser: user),
     );
 
-    final appBar = tester.widget<AppBar>(find.byType(AppBar));
-
-    expect(appBar.toolbarHeight, kTextTabBarHeight);
+    expect(
+      tester.getBottomLeft(find.text('Conduit')).dy,
+      lessThan(tester.getTopLeft(sidebarTestDestinationLabel('Chats')).dy),
+    );
   });
 
   testWidgets('closing expanded search clears the active filter', (
