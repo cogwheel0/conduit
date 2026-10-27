@@ -118,6 +118,7 @@ Widget sidebarTestBuildHarness({
   bool showArchived = false,
   List<Folder> folders = const [],
   List<TerminalServerInfo>? terminalServers,
+  Future<List<TerminalServerInfo>> Function()? loadTerminalServers,
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
   bool hermesOnly = false,
@@ -323,11 +324,12 @@ Widget sidebarTestBuildHarness({
       ),
       // ignore: scoped_providers_should_specify_dependencies
       terminalAvailableServersProvider.overrideWith((ref) async {
+        ref.watch(terminalSessionScopeIdProvider);
         final error = terminalServersError;
         if (error != null) {
           throw error;
         }
-        return availableTerminalServers;
+        return loadTerminalServers?.call() ?? availableTerminalServers;
       }),
     ],
     child: MaterialApp.router(

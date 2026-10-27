@@ -13,7 +13,8 @@ import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
-import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import '../providers/sidebar_providers.dart';
 import '../utils/chat_list_back.dart';
@@ -96,16 +97,32 @@ class SidebarOverlayDismissListener extends ConsumerWidget {
     ref.listen(sidebarOverlayDismissRequestProvider, (_, _) {
       closeSidebarDrawerIfOverlay(context);
     });
-    ref.listen(terminalDisplayFileProvider, (_, request) {
-      if (request == null) return;
-      final navigation = ref.read(sidebarNavigationSnapshotProvider);
-      if (!navigation.isVisible(SidebarTabId.terminal)) {
+    void displayRequestedFile() {
+      if (ref.read(terminalDisplayFileProvider) == null) return;
+      final hasBackend =
+          !ref.read(hermesOnlyModeProvider) &&
+          ref.read(openWebUiAccountAvailableProvider);
+      final servers = ref.read(terminalAvailableServersProvider);
+      if (hasBackend && (servers.isLoading || servers.hasError)) return;
+      if (!hasBackend || servers.requireValue.isEmpty) {
         ref.read(terminalDisplayFileProvider.notifier).clear();
         return;
       }
-      NavigationService.router.go(Routes.terminal);
+      if (NavigationService.currentRoute != Routes.terminal) {
+        NavigationService.router.go(Routes.terminal);
+      }
       closeSidebarDrawerIfOverlay(context);
-    });
+    }
+
+    ref.listen(terminalDisplayFileProvider, (_, _) => displayRequestedFile());
+    ref.listen(
+      terminalAvailableServersProvider,
+      (_, _) => displayRequestedFile(),
+    );
+    ref.listen(
+      sidebarNavigationSnapshotProvider,
+      (_, _) => displayRequestedFile(),
+    );
     return child;
   }
 }

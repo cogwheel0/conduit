@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
@@ -17,6 +19,7 @@ import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/note.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
@@ -146,6 +149,9 @@ void main() {
             hasApiService: !hermesOnly,
             isAuthenticated: !hermesOnly,
             terminalServers: servers,
+            loadTerminalServers: hermesOnly
+                ? () => Completer<List<TerminalServerInfo>>().future
+                : null,
           ),
         );
         await tester.pumpAndSettle();
@@ -172,6 +178,68 @@ void main() {
           expect(NavigationService.currentRoute, location);
           expect(container.read(terminalDisplayFileProvider), isNull);
         }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final terminalEnabled in [false, true]) {
+    testWidgets(
+      'file display waits for new chat discovery (enabled: $terminalEnabled)',
+      (tester) async {
+        final discovery = Completer<List<TerminalServerInfo>>();
+        var probes = 0;
+        await tester.pumpWidget(
+          sidebarTestBuildHarness(
+            controllers: SidebarTestSidebarHarnessControllers(),
+            shellChat: _chat(),
+            initialLocation: Routes.notes,
+            loadTerminalServers: () async => ++probes == 1
+                ? sidebarTestDefaultTerminalServers()
+                : discovery.future,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(SidebarDestinationPage)),
+          listen: false,
+        );
+        final date = DateTime(2026, 1, 1);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              Conversation(
+                id: 'paper-draft',
+                title: 'Paper draft',
+                createdAt: date,
+                updatedAt: date,
+              ),
+            );
+        await tester.pumpAndSettle();
+        expect(
+          container.read(terminalAvailableServersProvider).isLoading,
+          isTrue,
+        );
+        container
+            .read(terminalDisplayFileProvider.notifier)
+            .show('/demo/report.txt');
+        final request = container.read(terminalDisplayFileProvider);
+        await tester.pumpAndSettle();
+        expect(NavigationService.currentRoute, Routes.notes);
+        expect(request, isNotNull);
+        expect(container.read(terminalDisplayFileProvider), same(request));
+        discovery.complete(
+          terminalEnabled ? sidebarTestDefaultTerminalServers() : [],
+        );
+        await tester.pumpAndSettle();
+        expect(
+          NavigationService.currentRoute,
+          terminalEnabled ? Routes.terminal : Routes.notes,
+        );
+        expect(
+          container.read(terminalDisplayFileProvider),
+          terminalEnabled ? same(request) : isNull,
+        );
         expect(tester.takeException(), isNull);
       },
     );
