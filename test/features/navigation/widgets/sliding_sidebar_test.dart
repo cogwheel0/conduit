@@ -199,7 +199,9 @@ void main() {
   );
 
   for (final size in [const Size(320, 568), const Size(844, 390)]) {
-    testWidgets('navigation stays usable at 2x text in $size', (tester) async {
+    testWidgets('sidebar controls stay reachable at 2x text in $size', (
+      tester,
+    ) async {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
@@ -214,8 +216,10 @@ void main() {
       );
       await tester.pumpAndSettle();
       for (final label in ['Notes', 'Terminal', 'Channels', 'Chats']) {
-        await sidebarTestSelectDestination(tester, label);
+        final destination = sidebarTestDestinationLabel(label);
+        await tester.ensureVisible(destination);
         await tester.pumpAndSettle();
+        expect(destination.hitTestable(), findsOneWidget);
         expect(tester.takeException(), isNull);
       }
       expect(

@@ -28,7 +28,7 @@ Widget _chat() => Builder(
 );
 
 void main() {
-  testWidgets('iOS destination search clears the system and navigation bars', (
+  testWidgets('iOS destination search stays inside the navigation bar', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -43,18 +43,24 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.byType(ConduitGlassSearchField), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('destination-search-button')),
+    );
+    await tester.pumpAndSettle();
     final search = find.descendant(
       of: find.byType(SidebarDestinationPage),
       matching: find.byType(ConduitGlassSearchField),
     );
     expect(
-      tester.getTopLeft(search).dy,
-      greaterThanOrEqualTo(
+      tester.getCenter(search).dy,
+      closeTo(
         tester
-            .getBottomLeft(
+            .getCenter(
               find.byKey(const ValueKey<String>('destination-menu-button')),
             )
             .dy,
+        1,
       ),
     );
     expect(tester.takeException(), isNull);
@@ -172,6 +178,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.byType(ConduitGlassSearchField), findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('destination-search-button')),
+    );
+    await tester.pumpAndSettle();
     final mainSearch = find.descendant(
       of: find.byType(SidebarDestinationPage),
       matching: find.byType(TextField),
@@ -201,6 +212,12 @@ void main() {
     await tester.tapAt(const Offset(380, 420));
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(mainSearch).controller!.text, 'unmatched');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('destination-search-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(mainSearch, findsNothing);
+    expect(find.text('Workshop supplies'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

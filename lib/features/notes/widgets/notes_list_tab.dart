@@ -146,36 +146,34 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     final refreshLabel = MaterialLocalizations.of(context)
         .refreshIndicatorSemanticLabel;
     return Center(
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.lg),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                message,
-                style: AppTypography.sidebarSupportingStyle.copyWith(
-                  color: theme.textSecondary,
-                ),
-                textAlign: TextAlign.center,
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              message,
+              style: AppTypography.sidebarSupportingStyle.copyWith(
+                color: theme.textSecondary,
               ),
-              const SizedBox(height: Spacing.md),
-              ConduitButton(
-                text: message == AppLocalizations.of(context)!.noNotesYet
-                    ? AppLocalizations.of(context)!.createNote
-                    : refreshLabel,
-                icon: message == AppLocalizations.of(context)!.noNotesYet
-                    ? (Platform.isIOS ? CupertinoIcons.add : Icons.add)
-                    : (Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh),
-                onPressed: message == AppLocalizations.of(context)!.noNotesYet
-                    ? () => unawaited(noteSidebarCreateAction.run(context, ref))
-                    : () => unawaited(_refreshEmptyStateNotes()),
-                isSecondary: true,
-                isCompact: true,
-                isLoading: _isRefreshingEmptyState,
-              ),
-            ],
-          ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: Spacing.md),
+            ConduitButton(
+              text: message == AppLocalizations.of(context)!.noNotesYet
+                  ? AppLocalizations.of(context)!.createNote
+                  : refreshLabel,
+              icon: message == AppLocalizations.of(context)!.noNotesYet
+                  ? (Platform.isIOS ? CupertinoIcons.add : Icons.add)
+                  : (Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh),
+              onPressed: message == AppLocalizations.of(context)!.noNotesYet
+                  ? () => unawaited(noteSidebarCreateAction.run(context, ref))
+                  : () => unawaited(_refreshEmptyStateNotes()),
+              isSecondary: true,
+              isCompact: true,
+              isLoading: _isRefreshingEmptyState,
+            ),
+          ],
         ),
       ),
     );
@@ -192,7 +190,8 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
       actions: _buildNoteActions(note),
       ownerName: noteSharedOwner(note, accountId: accountId)?.name?.trim(),
       readOnly:
-          noteWriteAccess(note, accountId: accountId) == NoteWriteAccess.denied,
+          noteWriteAccess(note, accountId: accountId) ==
+          NoteWriteAccess.denied,
     );
   }
 

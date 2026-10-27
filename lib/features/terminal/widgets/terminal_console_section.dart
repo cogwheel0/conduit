@@ -67,37 +67,25 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
     // scaffold that does resize removes the inset from its body's media
     // query, so this reads zero there and nothing is lifted twice.
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        child: SizedBox(
-          // Keep a usable console when navigation or the keyboard leaves a
-          // short viewport; the outer view scrolls instead of overflowing.
-          height: math.max(
-            constraints.maxHeight,
-            280 * MediaQuery.textScalerOf(context).scale(14) / 14,
-          ),
-          child: Padding(
-            padding: EdgeInsets.only(
-              top: sidebarTabContentTopPadding(context),
-              bottom: math.max(
-                sidebarTabContentBottomPadding(context),
-                keyboardInset + Spacing.sm,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: _buildTerminalPane(l10n)),
-                const SizedBox(height: Spacing.md),
-                _buildPortsToggleHeader(l10n),
-                if (!_portsCollapsed) ...[
-                  const SizedBox(height: Spacing.xs),
-                  _buildPortsSection(l10n),
-                ],
-              ],
-            ),
-          ),
+    return Padding(
+      padding: EdgeInsets.only(
+        top: sidebarTabContentTopPadding(context),
+        bottom: math.max(
+          sidebarTabContentBottomPadding(context),
+          keyboardInset + Spacing.sm,
         ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: _buildTerminalPane(l10n)),
+          const SizedBox(height: Spacing.md),
+          _buildPortsToggleHeader(l10n),
+          if (!_portsCollapsed) ...[
+            const SizedBox(height: Spacing.xs),
+            _buildPortsSection(l10n),
+          ],
+        ],
       ),
     );
   }
@@ -118,20 +106,20 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
               Spacing.md,
               Spacing.md,
             ),
-            child: Wrap(
-              spacing: Spacing.xs,
-              runSpacing: Spacing.xs,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            child: Row(
               children: [
-                Text(
-                  l10n.terminal,
-                  style: AppTypography.labelStyle.copyWith(
-                    color: theme.textSecondary,
-                    fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Text(
+                    l10n.terminal,
+                    style: AppTypography.labelStyle.copyWith(
+                      color: theme.textSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 TerminalConnectionBadge(state: connectionState),
                 if (selectedServer != null) ...[
+                  const SizedBox(width: Spacing.xs),
                   if (connectionState.isConnected ||
                       connectionState.isConnecting)
                     TerminalIconActionButton(
@@ -149,6 +137,7 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
                       compact: true,
                       onPressed: widget.onConnect,
                     ),
+                  const SizedBox(width: Spacing.xs),
                   TerminalIconActionButton(
                     tooltip: l10n.terminalExpandAction,
                     iosIcon: CupertinoIcons.fullscreen,
@@ -251,9 +240,7 @@ class _TerminalConsoleSectionState extends State<TerminalConsoleSection> {
                 color: theme.iconSecondary,
               ),
               const SizedBox(width: Spacing.xs),
-              Flexible(
-                child: Text(l10n.terminalPortsToggle, style: labelStyle),
-              ),
+              Text(l10n.terminalPortsToggle, style: labelStyle),
               if (widget.ports.isNotEmpty) ...[
                 const SizedBox(width: Spacing.xs),
                 Text(
