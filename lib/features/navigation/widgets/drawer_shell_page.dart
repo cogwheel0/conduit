@@ -13,6 +13,7 @@ import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 
 import '../providers/sidebar_providers.dart';
 import '../utils/chat_list_back.dart';
@@ -97,6 +98,11 @@ class SidebarOverlayDismissListener extends ConsumerWidget {
     });
     ref.listen(terminalDisplayFileProvider, (_, request) {
       if (request == null) return;
+      final navigation = ref.read(sidebarNavigationSnapshotProvider);
+      if (!navigation.isVisible(SidebarTabId.terminal)) {
+        ref.read(terminalDisplayFileProvider.notifier).clear();
+        return;
+      }
       NavigationService.router.go(Routes.terminal);
       closeSidebarDrawerIfOverlay(context);
     });

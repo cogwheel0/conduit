@@ -8,6 +8,7 @@ import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
+import 'package:conduit/features/terminal/models/terminal_models.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -125,6 +126,55 @@ void main() {
       expect(drawer.isOpen, size.shortestSide >= 600);
       expect(tester.takeException(), isNull);
     });
+  }
+
+  for (final hermesOnly in [false, true]) {
+    testWidgets(
+      'unavailable file display is ignored (Hermes-only: $hermesOnly)',
+      (tester) async {
+        final servers = hermesOnly
+            ? sidebarTestDefaultTerminalServers()
+            : <TerminalServerInfo>[];
+        final location = hermesOnly ? Routes.hermesSessions : Routes.notes;
+        await tester.pumpWidget(
+          sidebarTestBuildHarness(
+            controllers: SidebarTestSidebarHarnessControllers(),
+            shellChat: _chat(),
+            initialLocation: location,
+            hermesOnly: hermesOnly,
+            hermesEnabled: hermesOnly,
+            hasApiService: !hermesOnly,
+            isAuthenticated: !hermesOnly,
+            terminalServers: servers,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(SidebarDestinationPage)),
+          listen: false,
+        );
+        final drawer = tester.state<ResponsiveDrawerLayoutState>(
+          find.byType(ResponsiveDrawerLayout),
+        );
+        drawer.open();
+        await tester.pumpAndSettle();
+        container
+            .read(terminalDisplayFileProvider.notifier)
+            .show('/demo/report.txt');
+        await tester.pumpAndSettle();
+        expect(NavigationService.currentRoute, location);
+        expect(drawer.isOpen, isTrue);
+        expect(container.read(terminalDisplayFileProvider), isNull);
+        if (!hermesOnly) {
+          servers.addAll(sidebarTestDefaultTerminalServers());
+          container.invalidate(terminalAvailableServersProvider);
+          await tester.pumpAndSettle();
+          expect(NavigationService.currentRoute, location);
+          expect(container.read(terminalDisplayFileProvider), isNull);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   for (final detail in [
