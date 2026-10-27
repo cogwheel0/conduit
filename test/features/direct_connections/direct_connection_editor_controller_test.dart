@@ -11,6 +11,73 @@ import 'package:conduit_core/features/direct_connections/services/direct_connect
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'MiniMax regional presets round-trip and clear new default models on exit',
+    () {
+      final editor = _EditorHarness();
+      addTearDown(editor.dispose);
+      editor.form.hydrate(null);
+      for (final preset in [kMiniMaxProviderPreset, kMiniMaxCnProviderPreset]) {
+        editor.form.selectProviderPreset(
+          preset,
+          ollamaDefaultName: 'Ollama Cloud',
+          openRouterDefaultName: 'OpenRouter',
+        );
+        editor.form.apiKey.text = 'test-key';
+        final result = editor.form.buildDraft(
+          validateFields: true,
+          openWebUiFallbackName: 'Connection',
+        );
+        expect(result.errors.hasAny, isFalse);
+        final profile = result.profile!;
+        expect(profile.adapterKey, kOpenAiCompatibleAdapterKey);
+        expect(profile.openAiApiMode, DirectOpenAiApiMode.chatCompletions);
+        expect(
+          profile.baseUrl,
+          preset == kMiniMaxProviderPreset
+              ? kMiniMaxApiBaseUrl
+              : kMiniMaxCnApiBaseUrl,
+        );
+        expect(profile.manualModelIds, kMiniMaxModelIds);
+        editor.form.hydrate(profile);
+        expect(editor.form.providerPreset, preset);
+      }
+      editor.form.selectProviderPreset(
+        kOpenAiCompatibleAdapterKey,
+        ollamaDefaultName: 'Ollama Cloud',
+        openRouterDefaultName: 'OpenRouter',
+      );
+      expect(editor.form.models.text, isEmpty);
+    },
+  );
+
+  test('MiniMax region changes preserve saved legacy and custom model IDs', () {
+    final editor = _EditorHarness(isNew: false);
+    addTearDown(editor.dispose);
+    editor.form.hydrate(
+      DirectConnectionProfile(
+        id: 'saved',
+        name: 'My MiniMax',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: '$kMiniMaxApiBaseUrl/',
+        manualModelIds: ['MiniMax-M2.7', 'my-custom-model'],
+      ),
+    );
+    expect(editor.form.providerPreset, kMiniMaxProviderPreset);
+    for (final preset in [
+      kMiniMaxCnProviderPreset,
+      kMiniMaxProviderPreset,
+      kOpenAiCompatibleAdapterKey,
+    ]) {
+      editor.form.selectProviderPreset(
+        preset,
+        ollamaDefaultName: 'Ollama Cloud',
+        openRouterDefaultName: 'OpenRouter',
+      );
+      expect(editor.form.models.text, 'MiniMax-M2.7\nmy-custom-model');
+    }
+  });
+
   test('form owns provider transitions and profile creation', () {
     final editor = _EditorHarness();
     addTearDown(editor.dispose);
