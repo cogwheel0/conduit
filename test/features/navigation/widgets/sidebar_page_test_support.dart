@@ -154,7 +154,7 @@ Widget sidebarTestBuildHarness({
             destination: sidebarTabForLocation(state.uri.path),
             child: navigationShell,
           );
-          return shellChat != null || state.uri.path != '/chat'
+          return shellChat != null || navigationShell.currentIndex != 0
               ? DrawerShellPage(child: content)
               : content;
         },
@@ -166,6 +166,24 @@ Widget sidebarTestBuildHarness({
                 name: RouteNames.chat,
                 builder: (context, state) =>
                     shellChat ?? const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.folder,
+                name: RouteNames.folder,
+                builder: (context, state) =>
+                    const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.noteEditor,
+                name: RouteNames.noteEditor,
+                builder: (context, state) =>
+                    const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.channel,
+                name: RouteNames.channel,
+                builder: (context, state) =>
+                    const Scaffold(body: SidebarPage()),
               ),
             ],
           ),
@@ -185,21 +203,6 @@ Widget sidebarTestBuildHarness({
               ],
             ),
         ],
-      ),
-      GoRoute(
-        path: '/folder/:id',
-        name: RouteNames.folder,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
-      ),
-      GoRoute(
-        path: '/notes/:id',
-        name: RouteNames.noteEditor,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
-      ),
-      GoRoute(
-        path: '/channel/:id',
-        name: RouteNames.channel,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
       ),
     ],
   );

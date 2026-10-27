@@ -2,9 +2,13 @@ import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dar
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
+import 'package:conduit/features/navigation/utils/chat_list_back.dart';
+import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
+import 'package:conduit/features/terminal/providers/terminal_providers.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -13,6 +17,7 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'sidebar_page_test_support.dart';
@@ -28,6 +33,150 @@ Widget _chat() => Builder(
 );
 
 void main() {
+  for (final destination in [Routes.notes, Routes.terminal, Routes.channels]) {
+    testWidgets('Android Back opens the menu then asks to exit $destination', (
+      tester,
+    ) async {
+      debugChatBackIsAndroidOverride = true;
+      addTearDown(() => debugChatBackIsAndroidOverride = null);
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          shellChat: _chat(),
+          initialLocation: destination,
+        ),
+      );
+      await tester.pumpAndSettle();
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      final drawer = tester.state<ResponsiveDrawerLayoutState>(
+        find.byType(ResponsiveDrawerLayout),
+      );
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SidebarDestinationPage)),
+      )!;
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(drawer.isOpen, isTrue);
+      expect(find.text(l10n.endYourSession), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.endYourSession), findsOneWidget);
+      await tester.tap(find.text(l10n.cancel));
+      await tester.pumpAndSettle();
+      expect(NavigationService.currentRoute, destination);
+      expect(drawer.isOpen, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('destination selection preserves a docked tablet sidebar', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: _chat(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final drawer = tester.state<ResponsiveDrawerLayoutState>(
+      find.byType(ResponsiveDrawerLayout),
+    );
+    for (final label in ['Notes', 'Notes', 'Terminal', 'Channels', 'Chats']) {
+      await sidebarTestSelectDestination(tester, label);
+      expect(drawer.isOpen, isTrue);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final size in [const Size(390, 844), const Size(1024, 768)]) {
+    testWidgets('file display preserves the sidebar presentation in $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          shellChat: _chat(),
+          initialLocation: Routes.notes,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final page = tester.element(find.byType(SidebarDestinationPage));
+      final drawer = tester.state<ResponsiveDrawerLayoutState>(
+        find.byType(ResponsiveDrawerLayout),
+      );
+      drawer.open();
+      await tester.pumpAndSettle();
+      ProviderScope.containerOf(page)
+          .read(terminalDisplayFileProvider.notifier)
+          .show('/demo/report.txt');
+      await tester.pumpAndSettle();
+      expect(NavigationService.currentRoute, Routes.terminal);
+      expect(drawer.isOpen, size.shortestSide >= 600);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final detail in [
+    '/folder/paper',
+    '/notes/supplies',
+    '/channel/workshop',
+  ]) {
+    testWidgets('detail route $detail retains the shell and Terminal state', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          shellChat: _chat(),
+          initialLocation: Routes.terminal,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final terminal = find.byType(TerminalTab, skipOffstage: false);
+      final state = tester.state(terminal);
+      NavigationService.router.go(detail);
+      await tester.pumpAndSettle();
+      expect(find.byType(DrawerShellPage), findsOneWidget);
+      expect(tester.state(terminal), same(state));
+      NavigationService.router.go(Routes.terminal);
+      await tester.pumpAndSettle();
+      expect(tester.state(terminal), same(state));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('Terminal controls have a localized accessibility label', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          initialLocation: Routes.terminal,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final label = MaterialLocalizations.of(
+        tester.element(find.byType(SidebarDestinationPage)),
+      ).moreButtonTooltip;
+      expect(find.bySemanticsLabel(label), findsOneWidget);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
   testWidgets(
     'destination switching retains Terminal state and deactivates it',
     (tester) async {

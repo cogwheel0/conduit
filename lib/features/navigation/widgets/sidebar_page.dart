@@ -44,7 +44,7 @@ void selectSidebarTab(BuildContext context, WidgetRef ref, int index) {
   ref.read(sidebarActiveTabProvider.notifier).set(selected.id);
   closeSidebarSearch(ref);
   NavigationService.router.go(selected.location);
-  SidebarDrawerControllerScope.maybeOf(context)?.close();
+  closeSidebarDrawerIfOverlay(context);
 }
 
 class _SidebarSyncProgressBar extends StatelessWidget {

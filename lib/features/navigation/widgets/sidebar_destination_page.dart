@@ -13,6 +13,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../providers/sidebar_providers.dart';
+import '../utils/chat_list_back.dart';
 import 'sidebar_tab_registry.dart';
 
 /// Keeps retained destination bodies informed of the visible route.
@@ -90,7 +91,7 @@ class _SidebarDestinationPageState
     final tab = sidebarTabDescriptor(widget.destination);
     final l10n = AppLocalizations.of(context)!;
     final color = context.conduitTheme.textPrimary;
-    return AdaptiveRouteShell(
+    final page = AdaptiveRouteShell(
       backgroundColor: context.conduitTheme.surfaceBackground,
       appBar: buildConduitCenteredAdaptiveAppBar(
         context: context,
@@ -129,6 +130,7 @@ class _SidebarDestinationPageState
                 icon: action.icon ?? Icons.more_horiz,
                 iosSymbol: action.iosSymbol,
                 iconColor: color,
+                semanticLabel: action.title,
                 onPressed: action.onPressed,
               ),
             if (tab.createAction case final action?)
@@ -152,5 +154,6 @@ class _SidebarDestinationPageState
         ),
       ),
     );
+    return ChatListBackScope(child: page);
   }
 }

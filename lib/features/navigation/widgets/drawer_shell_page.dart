@@ -98,7 +98,7 @@ class SidebarOverlayDismissListener extends ConsumerWidget {
     ref.listen(terminalDisplayFileProvider, (_, request) {
       if (request == null) return;
       NavigationService.router.go(Routes.terminal);
-      SidebarDrawerControllerScope.maybeOf(context)?.close();
+      closeSidebarDrawerIfOverlay(context);
     });
     return child;
   }
