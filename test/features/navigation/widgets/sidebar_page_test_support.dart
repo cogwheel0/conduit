@@ -26,6 +26,8 @@ import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_tab_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
@@ -54,23 +56,12 @@ Finder sidebarTestDestinationLabel(String label) => find.descendant(
 enum SidebarTestSidebarTabLayer { chats, terminal, notes, channels }
 
 Finder sidebarTestLayerRootFinder(SidebarTestSidebarTabLayer layer) =>
-    find.byKey(ValueKey<String>('sidebar-tab-layer-${layer.name}'));
-
-Finder sidebarTestLayerOpacityFinder(SidebarTestSidebarTabLayer layer) {
-  final childType = switch (layer) {
-    SidebarTestSidebarTabLayer.chats => ChatsDrawer,
-    SidebarTestSidebarTabLayer.terminal => TerminalTab,
-    SidebarTestSidebarTabLayer.notes => NotesListTab,
-    SidebarTestSidebarTabLayer.channels => ChannelListTab,
-  };
-
-  return find.descendant(
-    of: sidebarTestLayerRootFinder(layer),
-    matching: find.byWidgetPredicate(
-      (widget) => widget is Opacity && widget.child.runtimeType == childType,
-    ),
-  );
-}
+    switch (layer) {
+      SidebarTestSidebarTabLayer.chats => find.byType(ChatsDrawer),
+      SidebarTestSidebarTabLayer.notes => find.byType(NotesListTab),
+      SidebarTestSidebarTabLayer.channels => find.byType(ChannelListTab),
+      SidebarTestSidebarTabLayer.terminal => find.byType(TerminalTab),
+    };
 
 Finder sidebarTestCheckEmptyStateRefreshButtonBelow(
   WidgetTester tester, {
@@ -147,29 +138,41 @@ Widget sidebarTestBuildHarness({
   // Builds the app's shell around [shellChat] instead, with the sidebar as
   // its drawer.
   Widget? shellChat,
+  String? initialLocation,
 }) {
   final availableTerminalServers =
       terminalServers ?? sidebarTestDefaultTerminalServers();
   final router = GoRouter(
-    initialLocation: '/chat',
+    initialLocation:
+        initialLocation ??
+        sidebarTabDescriptor(controllers.activeTabNotifier.initialValue)
+            .location,
     routes: [
-      if (shellChat != null)
-        ShellRoute(
-          builder: (context, state, child) => DrawerShellPage(child: child),
-          routes: [
+      ShellRoute(
+        builder: (context, state, child) =>
+            shellChat != null || state.uri.path != '/chat'
+            ? DrawerShellPage(child: child)
+            : child,
+        routes: [
+          GoRoute(
+            path: '/chat',
+            name: RouteNames.chat,
+            builder: (context, state) =>
+                shellChat ?? const Scaffold(body: SidebarPage()),
+          ),
+          for (final tab in sidebarTabRegistry.where(
+            (tab) => tab.id != SidebarTabId.chats,
+          ))
             GoRoute(
-              path: '/chat',
-              name: RouteNames.chat,
-              builder: (context, state) => shellChat,
+              path: tab.location,
+              name: tab.id == SidebarTabId.hermes
+                  ? RouteNames.hermesSessions
+                  : tab.id.name,
+              builder: (context, state) =>
+                  SidebarDestinationPage(destination: tab.id),
             ),
-          ],
-        )
-      else
-        GoRoute(
-          path: '/chat',
-          name: RouteNames.chat,
-          builder: (context, state) => const Scaffold(body: SidebarPage()),
-        ),
+        ],
+      ),
       GoRoute(
         path: '/folder/:id',
         name: RouteNames.folder,
@@ -831,4 +834,23 @@ class SidebarTestTestShowArchivedNotifier extends ShowArchivedNotifier {
 
   @override
   bool build() => initialValue;
+}
+
+Future<void> sidebarTestSelectDestination(
+  WidgetTester tester,
+  String label,
+) async {
+  if (sidebarTestDestinationLabel(label).hitTestable().evaluate().isEmpty &&
+      find
+          .byKey(const ValueKey<String>('destination-menu-button'))
+          .evaluate()
+          .isNotEmpty) {
+    await tester.tap(
+      find.byKey(const ValueKey<String>('destination-menu-button')),
+    );
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(sidebarTestDestinationLabel(label));
+  await tester.tap(sidebarTestDestinationLabel(label));
+  await tester.pumpAndSettle();
 }

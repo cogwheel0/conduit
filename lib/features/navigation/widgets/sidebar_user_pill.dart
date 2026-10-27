@@ -59,6 +59,7 @@ import '../../hermes/widgets/hermes_connection_switcher.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 
@@ -66,7 +67,6 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
-import 'sidebar_tab_registry.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -291,12 +291,6 @@ String sidebarProfileFallbackRouteName({
   required bool hasOpenWebUiUser,
 }) => RouteNames.profile;
 
-/// Localized search hint for the active sidebar tab.
-String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
-  final selectedTab = ref.watch(sidebarNavigationSnapshotProvider).selectedTab;
-  return sidebarTabDescriptor(selectedTab).searchHint(l10n);
-}
-
 /// Builds one stable native glass avatar button on iOS 26 and Flutter
 /// platform-family fallbacks everywhere else.
 @visibleForTesting
@@ -361,9 +355,9 @@ Widget buildSidebarProfileButton({
 
 /// Profile button used as the sidebar adaptive app bar leading widget.
 class SidebarProfileAppBarLeading extends ConsumerWidget {
-  const SidebarProfileAppBarLeading({super.key, this.showLabel = false});
+  const SidebarProfileAppBarLeading({super.key, this.showSettingsIcon = false});
 
-  final bool showLabel;
+  final bool showSettingsIcon;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -404,7 +398,8 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         ? AdaptiveButtonStyle.plain
         : AdaptiveButtonStyle.glass;
     final inlineAvatarBytes = _decodeDataImage(avatarUrl);
-    final supportsNativeGlass = !showLabel && conduitSupportsNativeGlass();
+    final supportsNativeGlass =
+        !showSettingsIcon && conduitSupportsNativeGlass();
     final rawNativeAvatarBytes = !supportsNativeGlass
         ? null
         : hermesOnly
@@ -543,28 +538,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       }
     }
 
-    if (showLabel) {
-      return AdaptiveButton.child(
+    if (showSettingsIcon) {
+      return ConduitAdaptiveAppBarIconButton(
         key: const ValueKey<String>('sidebar-settings-button'),
+        icon: UiUtils.settingsIcon,
+        iosSymbol: 'gearshape',
+        semanticLabel: l10n.settingsTitle,
         onPressed: openProfile,
-        style: AdaptiveButtonStyle.plain,
-        padding: const EdgeInsets.symmetric(
-          horizontal: Spacing.md,
-          vertical: Spacing.sm,
-        ),
-        minSize: const Size(TouchTarget.minimum, TouchTarget.minimum),
-        child: Row(
-          children: [
-            Icon(UiUtils.settingsIcon, color: iconColor, size: 22),
-            const SizedBox(width: Spacing.md),
-            Expanded(
-              child: Text(
-                l10n.settingsTitle,
-                style: TextStyle(color: iconColor),
-              ),
-            ),
-          ],
-        ),
+        iconColor: iconColor,
       );
     }
 

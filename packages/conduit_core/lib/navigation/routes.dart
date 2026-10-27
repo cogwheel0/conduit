@@ -53,6 +53,9 @@ class Routes {
   static const String hermesMcp = '/profile/hermes/mcp';
   static const String about = '/profile/about';
   static const String notes = '/notes';
+  static const String terminal = '/terminal';
+  static const String channels = '/channels';
+  static const String hermesSessions = '/sessions';
   static const String noteEditor = '/notes/:id';
   static const String channel = '/channel/:id';
   static const String workspace = '/workspace';
@@ -108,6 +111,8 @@ class RouteNames {
   static const String hermesMcp = 'hermes-mcp';
   static const String about = 'about';
   static const String notes = 'notes';
+  static const String channels = 'channels';
+  static const String hermesSessions = 'hermes-sessions';
   static const String noteEditor = 'note-editor';
   static const String channel = 'channel';
   static const String workspace = 'workspace';

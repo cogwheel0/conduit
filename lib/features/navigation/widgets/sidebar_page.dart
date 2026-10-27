@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -7,12 +8,19 @@ import 'package:conduit_core/sync/sync_engine.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../providers/sidebar_providers.dart';
-import '../providers/sidebar_tab_scroll_registry.dart';
+import '../utils/sidebar_create_action.dart';
+import '../../../shared/services/navigation_service.dart';
+
+import 'package:go_router/go_router.dart';
+
+import 'chats_drawer.dart';
+import '../../hermes/widgets/hermes_sessions_tab.dart';
 import 'sidebar_user_pill.dart';
 import 'sidebar_tab_registry.dart';
 
@@ -27,74 +35,16 @@ double resolveSidebarWindowedLeadingInset({
 void selectSidebarTab(BuildContext context, WidgetRef ref, int index) {
   final navigation = ref.read(sidebarNavigationSnapshotProvider);
   if (index < 0 || index >= navigation.tabs.length) return;
-
-  final selectedTab = sidebarTabDescriptor(navigation.tabs[index]);
-  if (selectedTab.id == navigation.selectedTab) {
-    if (navigation.isLegacySelection) {
-      ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
-    }
-    unawaited(
-      ref
-          .read(sidebarTabScrollRegistryProvider)
-          .scrollToTop(
-            selectedTab.id,
-            duration: context.motionDuration(AnimationDuration.fast),
-          ),
-    );
-    return;
+  final selected = sidebarTabDescriptor(navigation.tabs[index]);
+  final current = sidebarTabForLocation(NavigationService.currentRoute ?? '');
+  if (current != selected.id) {
+    sidebarTabDescriptor(current).behavior.onDeselected(ref);
+    selected.behavior.onSelected(ref);
   }
-
-  sidebarTabDescriptor(navigation.selectedTab).behavior.onDeselected(ref);
-  ref.read(sidebarActiveTabProvider.notifier).set(selectedTab.id);
-  selectedTab.behavior.onSelected(ref);
-}
-
-/// Keeps all sidebar tab subtrees mounted and only toggles which one is active.
-///
-/// This preserves scroll position and local widget state across tab switches on
-/// every platform, including the iOS 26 native-tab workaround.
-class _SidebarTabStack extends StatelessWidget {
-  const _SidebarTabStack({
-    required this.tabs,
-    required this.activeIndex,
-    required this.showBottomNavigation,
-  });
-
-  final List<SidebarTabDescriptor> tabs;
-  final int activeIndex;
-  final bool showBottomNavigation;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        for (var index = 0; index < tabs.length; index++)
-          KeyedSubtree(
-            key: tabs[index].layerKey,
-            child: IgnorePointer(
-              ignoring: index != activeIndex,
-              child: TickerMode(
-                enabled: index == activeIndex,
-                child: ExcludeFocus(
-                  excluding: index != activeIndex,
-                  child: ExcludeSemantics(
-                    excluding: index != activeIndex,
-                    child: Opacity(
-                      opacity: index == activeIndex ? 1 : 0,
-                      child: tabs[index].bodyBuilder(
-                        showBottomNavigation: showBottomNavigation,
-                        active: index == activeIndex,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
+  ref.read(sidebarActiveTabProvider.notifier).set(selected.id);
+  closeSidebarSearch(ref);
+  NavigationService.router.go(selected.location);
+  SidebarDrawerControllerScope.maybeOf(context)?.close();
 }
 
 class _SidebarSyncProgressBar extends StatelessWidget {
@@ -145,7 +95,14 @@ class SidebarPage extends ConsumerWidget {
     final theme = context.conduitTheme;
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
     final tabs = [for (final id in navigation.tabs) sidebarTabDescriptor(id)];
-    final activeTab = sidebarTabDescriptor(navigation.selectedTab);
+    final routeTab = sidebarTabForLocation(GoRouterState.of(context).uri.path);
+    final chatTab = tabs.firstWhere(
+      (tab) => tab.id == SidebarTabId.chats,
+      orElse: () => sidebarTabDescriptor(SidebarTabId.hermes),
+    );
+    final selectedTab = navigation.tabs.contains(routeTab)
+        ? routeTab
+        : chatTab.id;
     final isSearching = ref.watch(sidebarHeaderSearchExpandedProvider);
     final composeChrome = DrawerChromeCompositionScope.shouldCompose(context);
     final display = View.of(context).display.size;
@@ -179,10 +136,7 @@ class SidebarPage extends ConsumerWidget {
                     Expanded(
                       child: isSearching
                           ? SidebarSearchAppBarLeading(
-                              hintText: sidebarSearchHintForActiveTab(
-                                ref,
-                                l10n,
-                              ),
+                              hintText: l10n.searchConversations,
                               maxWidth:
                                   constraints.maxWidth - TouchTarget.minimum,
                             )
@@ -201,36 +155,15 @@ class SidebarPage extends ConsumerWidget {
                       ConduitAdaptiveAppBarIconButton(
                         key: const ValueKey<String>('sidebar-search-button'),
                         icon: isSearching ? UiUtils.closeIcon : Icons.search,
+                        iosSymbol: isSearching ? 'xmark' : 'magnifyingglass',
                         semanticLabel: isSearching
                             ? l10n.close
-                            : sidebarSearchHintForActiveTab(ref, l10n),
+                            : l10n.searchConversations,
                         onPressed: () => isSearching
                             ? closeSidebarSearch(ref)
                             : openSidebarSearch(ref),
                         iconColor: theme.textPrimary,
                       ),
-                      if (!isSearching) ...[
-                        for (final action
-                            in activeTab.behavior.contextualActions(
-                              context,
-                              theme.textPrimary,
-                            ))
-                          ConduitAdaptiveAppBarIconButton(
-                            icon: action.icon ?? Icons.more_horiz,
-                            onPressed: action.onPressed,
-                            iconColor: theme.textPrimary,
-                          ),
-                        if (activeTab.createAction case final action?)
-                          ConduitAdaptiveAppBarIconButton(
-                            key: const ValueKey<String>(
-                              'sidebar-create-button',
-                            ),
-                            icon: action.icon,
-                            iosSymbol: action.sfSymbol,
-                            onPressed: () => action.run(context, ref),
-                            iconColor: theme.textPrimary,
-                          ),
-                      ],
                     ],
                   ],
                 ),
@@ -241,7 +174,7 @@ class SidebarPage extends ConsumerWidget {
                 builder: (context, constraints) => Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (tabs.length > 1)
+                    if (tabs.isNotEmpty)
                       ConstrainedBox(
                         constraints: BoxConstraints(
                           maxHeight: constraints.maxHeight * 0.5,
@@ -262,7 +195,7 @@ class SidebarPage extends ConsumerWidget {
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
-                                  selected: index == navigation.selectedIndex,
+                                  selected: tabs[index].id == selectedTab,
                                   tileColor: Colors.transparent,
                                   selectedTileColor: theme.textPrimary
                                       .withValues(alpha: 0.08),
@@ -296,10 +229,15 @@ class SidebarPage extends ConsumerWidget {
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            _SidebarTabStack(
-                              tabs: tabs,
-                              activeIndex: navigation.selectedIndex,
-                              showBottomNavigation: false,
+                            KeyedSubtree(
+                              key: const ValueKey<String>(
+                                'sidebar-chat-history',
+                              ),
+                              child: chatTab.id == SidebarTabId.chats
+                                  ? const ChatsDrawer()
+                                  : const HermesSessionsTab(
+                                      showBottomNavigationBar: false,
+                                    ),
                             ),
                             Positioned(
                               top: 0,
@@ -321,13 +259,108 @@ class SidebarPage extends ConsumerWidget {
               ),
             ),
             const Divider(height: 1, indent: Spacing.md, endIndent: Spacing.md),
-            const Padding(
-              padding: EdgeInsets.all(Spacing.sm),
-              child: SidebarProfileAppBarLeading(showLabel: true),
+            Padding(
+              padding: const EdgeInsets.all(Spacing.md),
+              child: composeChrome
+                  ? Row(
+                      children: [
+                        Expanded(
+                          child: Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 220),
+                              child: _SidebarCreateButton(
+                                action: chatTab.createAction!,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: Spacing.sm),
+                        const SidebarProfileAppBarLeading(
+                          showSettingsIcon: true,
+                        ),
+                      ],
+                    )
+                  : SizedBox(height: conduitScaledControlExtent(context)),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Uses the native labelled glass control on iOS and an adaptive pill elsewhere.
+class _SidebarCreateButton extends ConsumerWidget {
+  const _SidebarCreateButton({required this.action});
+
+  final SidebarCreateAction action;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = context.conduitTheme;
+    final label = action.label(AppLocalizations.of(context)!);
+    final extent = conduitScaledControlExtent(context);
+    void create() => unawaited(action.run(context, ref));
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = resolveConduitAdaptiveTextPillWidth(
+          context: context,
+          label: label,
+          textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          maxWidth: constraints.maxWidth,
+          minWidth: extent,
+          horizontalPadding: Spacing.md * 2,
+          leadingWidth: 22 + Spacing.sm,
+        );
+        return SizedBox(
+          width: width,
+          key: const ValueKey<String>('sidebar-create-button'),
+          height: extent,
+          child: conduitSupportsNativeGlass()
+              ? CNButton(
+                  label: label,
+                  icon: CNSymbol(action.sfSymbol, size: 20),
+                  onPressed: create,
+                  tint: theme.sidebarPrimary,
+                  config: CNButtonConfig(
+                    minHeight: extent,
+                    width: width,
+                    style: CNButtonStyle.prominentGlass,
+                    imagePadding: Spacing.sm,
+                  ),
+                )
+              : AdaptiveButton.child(
+                  onPressed: create,
+                  semanticLabel: label,
+                  style: AdaptiveButtonStyle.filled,
+                  color: theme.sidebarPrimary,
+                  borderRadius: BorderRadius.circular(extent / 2),
+                  minSize: Size(0, extent),
+                  padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        action.icon,
+                        size: 22,
+                        color: theme.sidebarPrimaryText,
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: theme.sidebarPrimaryText),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+        );
+      },
     );
   }
 }

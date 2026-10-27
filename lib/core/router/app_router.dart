@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -23,6 +24,8 @@ import '../../features/navigation/views/folder_page.dart';
 import '../../features/navigation/widgets/drawer_shell_page.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
+import '../../features/navigation/widgets/sidebar_destination_page.dart';
+import '../../features/navigation/widgets/sidebar_tab_registry.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
 import '../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../features/channels/views/channel_page.dart';
@@ -136,6 +139,19 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     ShellRoute(
       builder: (context, state, child) => DrawerShellPage(child: child),
       routes: [
+        for (final tab in sidebarTabRegistry.where(
+          (tab) => tab.id != SidebarTabId.chats,
+        ))
+          GoRoute(
+            path: tab.location,
+            name: tab.id == SidebarTabId.hermes
+                ? RouteNames.hermesSessions
+                : tab.id.name,
+            pageBuilder: (context, state) => _buildNoTransitionPage(
+              state: state,
+              child: SidebarDestinationPage(destination: tab.id),
+            ),
+          ),
         GoRoute(
           path: Routes.chat,
           name: RouteNames.chat,
@@ -543,12 +559,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           _buildPlatformPage(state: state, child: const AboutPage()),
     ),
     ..._workspaceRoutes(),
-    GoRoute(
-      path: Routes.notes,
-      name: RouteNames.notes,
-      pageBuilder: (context, state) =>
-          _buildNoTransitionPage(state: state, child: const NotesListPage()),
-    ),
   ];
 
   final router = GoRouter(

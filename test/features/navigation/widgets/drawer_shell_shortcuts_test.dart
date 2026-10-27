@@ -1,4 +1,6 @@
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:go_router/go_router.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -135,6 +137,20 @@ void main() {
     PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
     final activeTab = SidebarTestTestSidebarActiveTab(SidebarTabId.chats);
 
+    final router = GoRouter(
+      initialLocation: Routes.chat,
+      routes: [
+        for (final path in [Routes.chat, Routes.notes])
+          GoRoute(
+            path: path,
+            builder: (context, state) => const MacDesktopShortcuts(
+              child: Focus(autofocus: true, child: Text('Content')),
+            ),
+          ),
+      ],
+    );
+    NavigationService.attachRouter(router);
+    addTearDown(router.dispose);
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -146,11 +162,7 @@ void main() {
           ),
           sidebarActiveTabProvider.overrideWith(() => activeTab),
         ],
-        child: const MaterialApp(
-          home: MacDesktopShortcuts(
-            child: Focus(autofocus: true, child: Text('Content')),
-          ),
-        ),
+        child: MaterialApp.router(routerConfig: router),
       ),
     );
 
@@ -160,6 +172,7 @@ void main() {
     await tester.pump();
 
     expect(activeTab.currentValue, SidebarTabId.notes);
+    expect(router.routeInformationProvider.value.uri.path, Routes.notes);
   });
 
   testWidgets('non-Mac iOS does not install desktop shortcuts', (tester) async {

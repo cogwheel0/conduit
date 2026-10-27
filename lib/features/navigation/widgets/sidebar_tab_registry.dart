@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../channels/widgets/channel_list_tab.dart';
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 import '../../notes/widgets/notes_list_tab.dart';
@@ -28,6 +29,7 @@ typedef SidebarTabLabelBuilder = String Function(AppLocalizations l10n);
 typedef SidebarTabBodyBuilder = Widget Function({
   required bool showBottomNavigation,
   required bool active,
+  TextEditingController? searchController,
 });
 typedef SidebarTabVisibilityPredicate = bool Function(
   SidebarTabAvailability availability,
@@ -70,6 +72,14 @@ final class SidebarTabDescriptor {
   final SidebarCreateAction? createAction;
   final SidebarTabBehavior behavior;
 
+  String get location => switch (id) {
+    SidebarTabId.chats => Routes.chat,
+    SidebarTabId.hermes => Routes.hermesSessions,
+    SidebarTabId.notes => Routes.notes,
+    SidebarTabId.terminal => Routes.terminal,
+    SidebarTabId.channels => Routes.channels,
+  };
+
   String label(AppLocalizations l10n) => labelBuilder(l10n);
   String searchHint(AppLocalizations l10n) => searchHintBuilder(l10n);
 
@@ -88,26 +98,35 @@ String _notesSearchHint(AppLocalizations l10n) => l10n.searchNotes;
 String _terminalSearchHint(AppLocalizations l10n) => l10n.searchFiles;
 String _channelsSearchHint(AppLocalizations l10n) => l10n.searchChannels;
 
-Widget _chatsBody({required bool showBottomNavigation, required bool active}) =>
-    const ChatsDrawer();
+Widget _chatsBody({
+  required bool showBottomNavigation,
+  required bool active,
+  TextEditingController? searchController,
+}) => const ChatsDrawer();
 
 Widget _hermesBody({
   required bool showBottomNavigation,
   required bool active,
+  TextEditingController? searchController,
 }) => HermesSessionsTab(showBottomNavigationBar: showBottomNavigation);
 
-Widget _notesBody({required bool showBottomNavigation, required bool active}) =>
-    const NotesListTab();
+Widget _notesBody({
+  required bool showBottomNavigation,
+  required bool active,
+  TextEditingController? searchController,
+}) => NotesListTab(searchController: searchController);
 
 Widget _terminalBody({
   required bool showBottomNavigation,
   required bool active,
-}) => TerminalTab(isActive: active);
+  TextEditingController? searchController,
+}) => TerminalTab(isActive: active, searchController: searchController);
 
 Widget _channelsBody({
   required bool showBottomNavigation,
   required bool active,
-}) => const ChannelListTab();
+  TextEditingController? searchController,
+}) => ChannelListTab(searchController: searchController);
 
 bool _chatsVisible(SidebarTabAvailability availability) =>
     !availability.hermesOnly;
@@ -205,3 +224,21 @@ List<SidebarTabId> visibleSidebarTabIds(SidebarTabAvailability availability) =>
       for (final descriptor in sidebarTabRegistry)
         if (descriptor.isVisible(availability)) descriptor.id,
     ];
+
+/// Maps collection and detail routes to their navigation destination.
+SidebarTabId sidebarTabForLocation(String location) {
+  final path = Uri.tryParse(location)?.path ?? location;
+  if (path == Routes.notes || path.startsWith('${Routes.notes}/')) {
+    return SidebarTabId.notes;
+  }
+  if (path == Routes.terminal) {
+    return SidebarTabId.terminal;
+  }
+  if (path == Routes.channels || path.startsWith('/channel/')) {
+    return SidebarTabId.channels;
+  }
+  if (path == Routes.hermesSessions) {
+    return SidebarTabId.hermes;
+  }
+  return SidebarTabId.chats;
+}

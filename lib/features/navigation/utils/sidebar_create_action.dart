@@ -34,11 +34,13 @@ final class SidebarCreateAction {
   const SidebarCreateAction({
     required SidebarCreateActionIconBuilder iconBuilder,
     required this.sfSymbol,
+    required this.label,
     required SidebarCreateActionHandler handler,
   }) : _iconBuilder = iconBuilder,
        _handler = handler;
 
   final String sfSymbol;
+  final String Function(AppLocalizations l10n) label;
   final SidebarCreateActionIconBuilder _iconBuilder;
   final SidebarCreateActionHandler _handler;
 
@@ -48,6 +50,10 @@ final class SidebarCreateAction {
       _handler(context, ref);
 }
 
+String _newChatLabel(AppLocalizations l10n) => l10n.newChat;
+String _newNoteLabel(AppLocalizations l10n) => l10n.createNote;
+String _newChannelLabel(AppLocalizations l10n) => l10n.channelCreateTitle;
+
 IconData _newChatIcon() => UiUtils.newChatIcon;
 IconData _newNoteIcon() => UiUtils.newNoteIcon;
 IconData _newChannelIcon() => UiUtils.newChannelIcon;
@@ -55,24 +61,28 @@ IconData _newChannelIcon() => UiUtils.newChannelIcon;
 const chatSidebarCreateAction = SidebarCreateAction(
   iconBuilder: _newChatIcon,
   sfSymbol: 'square.and.pencil',
+  label: _newChatLabel,
   handler: _startNewChat,
 );
 
 const hermesChatSidebarCreateAction = SidebarCreateAction(
   iconBuilder: _newChatIcon,
   sfSymbol: 'square.and.pencil',
+  label: _newChatLabel,
   handler: _startNewHermesChat,
 );
 
 const noteSidebarCreateAction = SidebarCreateAction(
   iconBuilder: _newNoteIcon,
   sfSymbol: 'doc.badge.plus',
+  label: _newNoteLabel,
   handler: _createNote,
 );
 
 const channelSidebarCreateAction = SidebarCreateAction(
   iconBuilder: _newChannelIcon,
   sfSymbol: 'number',
+  label: _newChannelLabel,
   handler: _createChannel,
 );
 

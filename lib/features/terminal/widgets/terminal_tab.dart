@@ -25,7 +25,9 @@ import 'terminal_files_section.dart';
 import 'terminal_fullscreen_page.dart';
 
 class TerminalTab extends ConsumerStatefulWidget {
-  const TerminalTab({super.key, this.isActive = true});
+  const TerminalTab({super.key, this.isActive = true, this.searchController});
+
+  final TextEditingController? searchController;
 
   final bool isActive;
 
@@ -259,7 +261,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
     final currentPath = ref.watch(terminalCurrentPathProvider);
     final entries = ref.watch(terminalEntriesProvider);
     final ports = ref.watch(terminalListeningPortsProvider);
-    final searchController = ref.watch(sidebarSearchFieldControllerProvider);
+    final TextEditingController searchController =
+        widget.searchController ??
+        ref.watch(sidebarSearchFieldControllerProvider);
 
     final selectedServer = selectedServerAsync.asData?.value;
     final noServersConfigured =

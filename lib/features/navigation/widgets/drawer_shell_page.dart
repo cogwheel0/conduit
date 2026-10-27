@@ -20,6 +20,7 @@ import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'sidebar_page.dart';
 import 'sidebar_tab_registry.dart';
+import '../../terminal/providers/terminal_providers.dart';
 
 /// Shell widget that wraps child routes with a persistent
 /// [ResponsiveDrawerLayout] + [SidebarPage] drawer.
@@ -94,6 +95,11 @@ class SidebarOverlayDismissListener extends ConsumerWidget {
     ref.listen(sidebarOverlayDismissRequestProvider, (_, _) {
       closeSidebarDrawerIfOverlay(context);
     });
+    ref.listen(terminalDisplayFileProvider, (_, request) {
+      if (request == null) return;
+      NavigationService.router.go(Routes.terminal);
+      SidebarDrawerControllerScope.maybeOf(context)?.close();
+    });
     return child;
   }
 }
@@ -108,8 +114,10 @@ class MacDesktopShortcuts extends ConsumerWidget {
     if (!PlatformInfo.isIOSAppOnMac) return child;
 
     void createForActiveTab() {
-      final navigation = ref.read(sidebarNavigationSnapshotProvider);
-      final action = sidebarTabDescriptor(navigation.selectedTab).createAction;
+      final destination = sidebarTabForLocation(
+        NavigationService.currentRoute ?? '',
+      );
+      final action = sidebarTabDescriptor(destination).createAction;
       if (action != null) unawaited(action.run(context, ref));
     }
 
