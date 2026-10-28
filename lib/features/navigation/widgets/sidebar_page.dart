@@ -23,6 +23,7 @@ import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import 'sidebar_user_pill.dart';
@@ -917,6 +918,26 @@ class _SidebarBackendPicker extends StatelessWidget {
         tab.id == SidebarTabId.chats ? 'Open WebUI' : tab.label(l10n);
     final selected = tabs.firstWhere((tab) => tab.id == selectedTab);
     final canSwitch = tabs.length > 1;
+    if (canSwitch && PlatformUiCapabilities.usesNativeIOS26) {
+      final height = conduitScaledControlExtent(context);
+      return ThemedSheets.hideNativeChromeWhileCovered(
+        replacement: SizedBox(height: height),
+        child: NativeGlassMenuButton(
+          label: label(selected),
+          assetName: selectedTab == SidebarTabId.chats
+              ? 'assets/icons/open_webui.png'
+              : selected.assetName!,
+          options: [for (final tab in tabs) label(tab)],
+          selectedIndex: tabs.indexOf(selected),
+          onSelected: (index) => onSelected(tabs[index].id),
+          foregroundColor: theme.textPrimary,
+          imageTint: selectedTab == SidebarTabId.chats
+              ? null
+              : theme.textPrimary,
+          height: height,
+        ),
+      );
+    }
     final content = SizedBox(
       height: conduitScaledControlExtent(context),
       child: Padding(

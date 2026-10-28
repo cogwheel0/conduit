@@ -7,6 +7,100 @@ import 'package:flutter/services.dart';
 import 'adaptive_controls.dart';
 import 'platform_ui_capabilities.dart';
 
+/// Image-and-label variant of the package's native popup menu control.
+///
+/// Its UIKit view supports both, while the package's Flutter constructors
+/// currently expose separate label-only and image-only variants.
+class NativeGlassMenuButton extends StatefulWidget {
+  const NativeGlassMenuButton({
+    super.key,
+    required this.label,
+    required this.assetName,
+    required this.options,
+    required this.selectedIndex,
+    required this.onSelected,
+    required this.foregroundColor,
+    required this.height,
+    this.imageTint,
+  });
+
+  final String label;
+  final String assetName;
+  final List<String> options;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final Color foregroundColor;
+  final Color? imageTint;
+  final double height;
+
+  @override
+  State<NativeGlassMenuButton> createState() => _NativeGlassMenuButtonState();
+}
+
+class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
+  MethodChannel? _channel;
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    return SizedBox(
+      height: widget.height,
+      child: UiKitView(
+        key: ValueKey((
+          widget.label,
+          widget.assetName,
+          widget.options.join('\u0000'),
+          widget.selectedIndex,
+          widget.foregroundColor,
+          widget.imageTint,
+          isDark,
+        )),
+        viewType: 'CupertinoNativePopupMenuButton',
+        creationParams: <String, Object?>{
+          'buttonTitle': widget.label,
+          'buttonAssetPath': widget.assetName,
+          'buttonIconSize': 24.0,
+          if (widget.imageTint != null)
+            'buttonIconColor': widget.imageTint!.toARGB32(),
+          'buttonStyle': CNButtonStyle.glass.name,
+          'labels': widget.options,
+          'checked': [
+            for (var i = 0; i < widget.options.length; i++)
+              i == widget.selectedIndex,
+          ],
+          'isDark': isDark,
+          'style': {'tint': widget.foregroundColor.toARGB32()},
+          'preserveTopToBottomOrder': true,
+        },
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: _onPlatformViewCreated,
+        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+          Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
+        },
+      ),
+    );
+  }
+
+  void _onPlatformViewCreated(int id) {
+    _channel?.setMethodCallHandler(null);
+    final channel = MethodChannel('CupertinoNativePopupMenuButton_$id');
+    _channel = channel;
+    channel.setMethodCallHandler((call) async {
+      if (!mounted || call.method != 'itemSelected') return;
+      final index = ((call.arguments as Map?)?['index'] as num?)?.toInt();
+      if (index != null && index >= 0 && index < widget.options.length) {
+        widget.onSelected(index);
+      }
+    });
+  }
+}
+
 /// An icon-only native glass button whose system halo may paint beyond its
 /// layout bounds while retaining a bounded hit target.
 class NativeGlassIconButton extends StatefulWidget {

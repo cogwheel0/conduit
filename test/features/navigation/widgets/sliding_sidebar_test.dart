@@ -2,10 +2,14 @@ import 'dart:ui' show SemanticsAction;
 
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
+import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -235,7 +239,7 @@ void main() {
   });
 
   for (final native in [false, true]) {
-    testWidgets('backend picker has a named button action (native: $native)', (
+    testWidgets('backend picker uses platform menus (native: $native)', (
       tester,
     ) async {
       final semantics = tester.ensureSemantics();
@@ -253,6 +257,30 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        if (native) {
+          final picker = find.byType(NativeGlassMenuButton);
+          final view = tester.widget<UiKitView>(
+            find.descendant(of: picker, matching: find.byType(UiKitView)),
+          );
+          expect(view.viewType, 'CupertinoNativePopupMenuButton');
+          expect((view.creationParams as Map)['buttonTitle'], 'Open WebUI');
+          view.onPlatformViewCreated!(4242);
+          await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+            'CupertinoNativePopupMenuButton_4242',
+            const StandardMethodCodec().encodeMethodCall(
+              const MethodCall('itemSelected', {'index': 1}),
+            ),
+            (_) {},
+          );
+          await tester.pumpAndSettle();
+          final container = ProviderScope.containerOf(tester.element(picker));
+          expect(
+            container.read(sidebarHistoryTabProvider),
+            SidebarTabId.hermes,
+          );
+          expect(tester.widget<NativeGlassMenuButton>(picker).label, 'Hermes');
+          return;
+        }
         final button = find.bySemanticsLabel('Open WebUI');
         expect(button, findsOneWidget);
         final data = tester.getSemantics(button).getSemanticsData();
