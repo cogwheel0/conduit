@@ -42,11 +42,7 @@ List<String> selectedFilterIdsForModel(dynamic ref, Model model) {
 }
 
 // Start a new chat (unified function for both "New Chat" button and home screen)
-void startNewChat(
-  dynamic ref, {
-  Model? modelForNewConversation,
-  bool restoreDefault = true,
-}) {
+void startNewChat(dynamic ref, {Model? modelForNewConversation}) {
   resetHermesForNewChat(ref);
   resetDirectRunsForNewChat(ref);
   clearSelectedFiltersForConversationBoundary(ref);
@@ -64,19 +60,16 @@ void startNewChat(
   ref.read(pendingFolderIdProvider.notifier).clear();
 
   if (modelForNewConversation != null) {
-    // Backend-specific startup admits a concrete model before this reset. Keep
-    // it pinned so the asynchronous default restore cannot switch transports.
+    // Voice startup admits a concrete transport before this reset. Keep that
+    // exact model pinned so the asynchronous default restore cannot switch the
+    // first voice turn to a different, potentially unauthenticated backend.
     ref.read(isManualModelSelectionProvider.notifier).set(true);
     ref
         .read(selectedModelProvider.notifier)
         .set(modelForNewConversation, allowHidden: true);
-  } else if (restoreDefault) {
+  } else {
     // Reset to default model for new conversations (fixes #296)
     restoreDefaultModel(ref);
-  } else {
-    // A backend-specific draft with no available model must stay unselected.
-    ref.read(isManualModelSelectionProvider.notifier).set(true);
-    ref.read(selectedModelProvider.notifier).clear();
   }
 
   ref.read(temporaryChatEnabledProvider.notifier).startNewChat();

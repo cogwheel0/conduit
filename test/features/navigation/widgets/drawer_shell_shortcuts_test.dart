@@ -257,6 +257,7 @@ void main() {
             listen: false,
           );
           container.read(selectedModelProvider.notifier).set(hermes);
+          container.read(pendingFolderIdProvider.notifier).set('demo-folder');
           if (shortcut) {
             await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
             await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
@@ -269,7 +270,11 @@ void main() {
           await tester.pumpAndSettle();
           expect(
             container.read(selectedModelProvider)?.id,
-            available ? serverModel.id : null,
+            available ? serverModel.id : hermes.id,
+          );
+          expect(
+            container.read(pendingFolderIdProvider),
+            available ? null : 'demo-folder',
           );
           expect(container.read(appSettingsProvider).defaultModel, hermes.id);
         },

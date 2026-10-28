@@ -16,6 +16,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../providers/sidebar_providers.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
@@ -112,11 +113,14 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
     final model =
         candidates.where((model) => model.id == defaultId).firstOrNull ??
         candidates.firstOrNull;
-    chat.startNewChat(
-      ref,
-      modelForNewConversation: model,
-      restoreDefault: false,
-    );
+    if (model == null) {
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.noModelsAvailable,
+      );
+      return;
+    }
+    chat.startNewChat(ref, modelForNewConversation: model);
   } else {
     chat.startNewChat(ref);
   }
