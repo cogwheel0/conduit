@@ -9,6 +9,8 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -250,6 +252,13 @@ void main() {
         PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
         PlatformUiCapabilities.debugNativeIOS26Override = native;
         addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        if (native) {
+          debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform_views,
+            (_) async => null,
+          );
+        }
         await tester.pumpWidget(
           sidebarTestBuildHarness(
             controllers: SidebarTestSidebarHarnessControllers(),
@@ -259,11 +268,27 @@ void main() {
         await tester.pumpAndSettle();
         if (native) {
           final picker = find.byType(NativeGlassMenuButton);
+          final imageLoader = tester.widget<FutureBuilder<Uint8List>>(
+            find.descendant(
+              of: picker,
+              matching: find.byType(FutureBuilder<Uint8List>),
+            ),
+          );
+          await tester.runAsync(() => imageLoader.future!);
+          await tester.pumpAndSettle();
           final view = tester.widget<UiKitView>(
             find.descendant(of: picker, matching: find.byType(UiKitView)),
           );
           expect(view.viewType, 'CupertinoNativePopupMenuButton');
           expect((view.creationParams as Map)['buttonTitle'], 'Open WebUI');
+          final params = view.creationParams as Map;
+          final image = params['buttonImageData'] as Uint8List;
+          final pixels =
+              (24 * MediaQuery.devicePixelRatioOf(tester.element(picker)))
+                  .round();
+          final png = ByteData.sublistView(image);
+          expect(png.getUint32(16), pixels);
+          expect(png.getUint32(20), pixels);
           view.onPlatformViewCreated!(4242);
           await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
             'CupertinoNativePopupMenuButton_4242',
@@ -287,6 +312,15 @@ void main() {
         expect(data.flagsCollection.isButton, true);
         expect(data.hasAction(SemanticsAction.tap), true);
       } finally {
+        if (native) {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+          debugDefaultTargetPlatformOverride = null;
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform_views,
+            null,
+          );
+        }
         semantics.dispose();
       }
     });

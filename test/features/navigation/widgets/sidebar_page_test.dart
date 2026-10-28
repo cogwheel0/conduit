@@ -1,7 +1,6 @@
 import 'dart:ui' show Tristate;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:conduit/shared/widgets/adaptive_dropdown_field.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';

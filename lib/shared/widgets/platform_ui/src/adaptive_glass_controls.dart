@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
@@ -38,7 +40,54 @@ class NativeGlassMenuButton extends StatefulWidget {
 }
 
 class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
+  static const _iconSize = 24.0;
+
   MethodChannel? _channel;
+  AssetBundle? _bundle;
+  double? _imageScale;
+  late Future<Uint8List> _image;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bundle = DefaultAssetBundle.of(context);
+    final scale = MediaQuery.devicePixelRatioOf(context);
+    if (identical(bundle, _bundle) && scale == _imageScale) return;
+    _bundle = bundle;
+    _imageScale = scale;
+    _image = _loadImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant NativeGlassMenuButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.assetName != widget.assetName) _image = _loadImage();
+  }
+
+  Future<Uint8List> _loadImage() async {
+    final pixels = (_iconSize * _imageScale!).round();
+    final data = await _bundle!.load(widget.assetName);
+    // UIKit's asset-path loader does not resize raster images. Keep both their
+    // intrinsic 24-point size and original colors by supplying scaled pixels.
+    final codec = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      targetWidth: pixels,
+      targetHeight: pixels,
+    );
+    try {
+      final frame = await codec.getNextFrame();
+      try {
+        final png = await frame.image.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
+        return png!.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes);
+      } finally {
+        frame.image.dispose();
+      }
+    } finally {
+      codec.dispose();
+    }
+  }
 
   @override
   void dispose() {
@@ -48,6 +97,16 @@ class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
 
   @override
   Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: _image,
+      builder: (context, snapshot) =>
+          snapshot.connectionState == ConnectionState.done
+          ? _buildButton(context, snapshot.data)
+          : SizedBox(height: widget.height),
+    );
+  }
+
+  Widget _buildButton(BuildContext context, Uint8List? image) {
     final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
     return SizedBox(
       height: widget.height,
@@ -59,13 +118,15 @@ class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
           widget.selectedIndex,
           widget.foregroundColor,
           widget.imageTint,
+          _imageScale,
+          _bundle,
           isDark,
         )),
         viewType: 'CupertinoNativePopupMenuButton',
         creationParams: <String, Object?>{
           'buttonTitle': widget.label,
-          'buttonAssetPath': widget.assetName,
-          'buttonIconSize': 24.0,
+          'buttonImageData': ?image,
+          'buttonIconSize': _iconSize,
           if (widget.imageTint != null)
             'buttonIconColor': widget.imageTint!.toARGB32(),
           'buttonStyle': CNButtonStyle.glass.name,
