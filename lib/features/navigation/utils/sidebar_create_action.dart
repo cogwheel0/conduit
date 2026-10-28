@@ -94,8 +94,11 @@ const channelSidebarCreateAction = SidebarCreateAction(
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.selectionClick();
-  if (ref.read(appSettingsProvider).slidingSidebarEnabled &&
-      ref.read(openWebUiAccountAvailableProvider)) {
+  final sliding = ref.read(appSettingsProvider).slidingSidebarEnabled;
+  if (sliding) {
+    ref.read(conversationSelectionProvider.notifier).cancel();
+  }
+  if (sliding && ref.read(openWebUiAccountAvailableProvider)) {
     final epoch = ref.read(openWebUiAuthSessionEpochProvider);
     final api = ref.read(apiServiceProvider);
     final routeRevision = NavigationService.currentRouteRevision;
@@ -159,6 +162,9 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
 
 Future<void> _startNewHermesChat(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.selectionClick();
+  if (ref.read(appSettingsProvider).slidingSidebarEnabled) {
+    ref.read(conversationSelectionProvider.notifier).cancel();
+  }
   await chat.startNewHermesChat(ref);
   if (!context.mounted) return;
   NavigationService.router.go(Routes.chat);

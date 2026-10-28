@@ -5,6 +5,7 @@ import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
@@ -412,6 +413,79 @@ void main() {
     expect(container.read(pendingFolderIdProvider), 'demo-folder');
     expect(container.read(selectedModelProvider), isNull);
   });
+
+  for (final (hermes, delayedModels) in [
+    (false, false),
+    (false, true),
+    (true, false),
+  ]) {
+    testWidgets(
+      'New Chat supersedes an earlier selection (Hermes: $hermes, delayed models: $delayedModels)',
+      (tester) async {
+        tester.view.physicalSize = const Size(1024, 768);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final summary = withChatStorageProvenance(
+          Conversation(
+            id: 'pending-chat',
+            title: 'Pending chat',
+            createdAt: DateTime.utc(2026),
+            updatedAt: DateTime.utc(2026),
+          ),
+          ChatStorageKind.directLocal,
+        );
+        final loaded = Completer<Conversation>();
+        final models = Completer<List<Model>>();
+        const serverModel = Model(id: 'server-model', name: 'Server model');
+        await tester.pumpWidget(
+          sidebarTestBuildHarness(
+            controllers: SidebarTestSidebarHarnessControllers(),
+            hermesEnabled: true,
+            settings: const AppSettings(defaultModel: 'server-model'),
+            models: const [serverModel],
+            pendingModels: delayedModels ? models.future : null,
+            pendingLoadedConversations: {
+              conversationScopedId(summary): loaded.future,
+            },
+            shellChat: const Scaffold(body: Text('Chat content')),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(SidebarPage)),
+          listen: false,
+        );
+        if (hermes) {
+          container
+              .read(sidebarHistoryTabProvider.notifier)
+              .select(SidebarTabId.hermes);
+          await tester.pumpAndSettle();
+        }
+        final selection = container
+            .read(conversationSelectionProvider.notifier)
+            .select(summary);
+        await tester.pump();
+        expect(container.read(conversationSelectionProvider).isLoading, true);
+        await tester.tap(
+          find.byKey(const ValueKey<String>('sidebar-create-button')),
+        );
+        await tester.pumpAndSettle();
+        loaded.complete(summary);
+        await tester.pumpAndSettle();
+        expect(container.read(activeConversationProvider), isNull);
+        if (delayedModels) {
+          models.complete([serverModel]);
+          await tester.pumpAndSettle();
+        }
+        expect(
+          (await selection).disposition,
+          ConversationSelectionDisposition.canceled,
+        );
+        expect(container.read(activeConversationProvider), isNull);
+        expect(container.read(conversationSelectionProvider).isLoading, false);
+      },
+    );
+  }
 
   for (final manual in [false, true]) {
     testWidgets('pending creation respects manual model selection: $manual', (

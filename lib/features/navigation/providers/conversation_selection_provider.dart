@@ -87,6 +87,17 @@ class ConversationSelection extends _$ConversationSelection {
       _ownsGeneration(generation) &&
       openWebUiConversationSelectionOwnerIsCurrent(ref, owner);
 
+  /// Supersedes the pending selection without opening another conversation.
+  void cancel() {
+    final cancellation = _superseded;
+    _superseded = null;
+    state = ConversationSelectionState(generation: state.generation + 1);
+    ref.read(chat.isLoadingConversationProvider.notifier).set(false);
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
+  }
+
   ({Future<void> departed, bool Function() didDepart, void Function() close})
   _watchOwnerDeparture(OpenWebUiConversationSelectionOwner owner) {
     final departed = Completer<void>();
