@@ -93,30 +93,52 @@ const channelSidebarCreateAction = SidebarCreateAction(
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.selectionClick();
-  if (ref.read(appSettingsProvider).slidingSidebarEnabled) {
+  if (ref.read(appSettingsProvider).slidingSidebarEnabled &&
+      ref.read(openWebUiAccountAvailableProvider)) {
     final epoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final api = ref.read(apiServiceProvider);
     final routeRevision = NavigationService.currentRouteRevision;
     final selected = ref.read(selectedModelProvider);
+    final manual = ref.read(isManualModelSelectionProvider);
+    bool isCurrent() =>
+        ref.read(appSettingsProvider).slidingSidebarEnabled &&
+        ref.read(openWebUiAuthSessionEpochProvider) == epoch &&
+        identical(ref.read(apiServiceProvider), api) &&
+        NavigationService.currentRouteRevision == routeRevision &&
+        (!ref.read(isManualModelSelectionProvider) ||
+            (manual && identical(ref.read(selectedModelProvider), selected))) &&
+        ref.read(sidebarSelectedHistoryTabProvider) == SidebarTabId.chats;
     final models = await ref
         .read(modelsProvider.future)
         .catchError((Object _) => <Model>[]);
-    if (!context.mounted ||
-        !ref.read(appSettingsProvider).slidingSidebarEnabled ||
-        ref.read(openWebUiAuthSessionEpochProvider) != epoch ||
-        NavigationService.currentRouteRevision != routeRevision ||
-        !identical(ref.read(selectedModelProvider), selected) ||
-        ref.read(sidebarSelectedHistoryTabProvider) != SidebarTabId.chats) {
-      return;
-    }
+    if (!context.mounted || !isCurrent()) return;
     final candidates = chat.folderDefaultModelCandidates(models);
     final defaultId = ref.read(appSettingsProvider).defaultModel;
-    final model =
-        candidates.where((model) => model.id == defaultId).firstOrNull ??
-        candidates.firstOrNull;
+    var model = candidates.where((model) => model.id == defaultId).firstOrNull;
+    if (model == null && candidates.isNotEmpty) {
+      final cached = await ref
+          .read(optimizedStorageServiceProvider)
+          .getLocalDefaultModel()
+          .catchError((Object _) => null);
+      if (!context.mounted || !isCurrent()) return;
+      model = candidates.where((model) => model.id == cached?.id).firstOrNull;
+    }
+    if (model == null && candidates.isNotEmpty) {
+      final serverDefault = await api?.getDefaultModel().catchError(
+        (Object _) => null,
+      );
+      if (!context.mounted || !isCurrent()) return;
+      model =
+          candidates.where((model) => model.id == serverDefault).firstOrNull ??
+          candidates.where((model) => model.name == serverDefault).singleOrNull;
+    }
     if (model == null) {
+      final l10n = AppLocalizations.of(context)!;
       AdaptiveSnackBar.show(
         context,
-        message: AppLocalizations.of(context)!.noModelsAvailable,
+        message: candidates.isEmpty
+            ? l10n.noModelsAvailable
+            : l10n.failedToLoadModels,
       );
       return;
     }

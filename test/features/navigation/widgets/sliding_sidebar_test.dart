@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsAction;
+
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
@@ -231,6 +233,36 @@ void main() {
     expect(settings.config.style, CNButtonStyle.glass);
     expect(tester.takeException(), isNull);
   });
+
+  for (final native in [false, true]) {
+    testWidgets('backend picker has a named button action (native: $native)', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        PlatformUiCapabilities.debugPlatformOverride = native
+            ? TargetPlatform.iOS
+            : TargetPlatform.android;
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+        PlatformUiCapabilities.debugNativeIOS26Override = native;
+        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        await tester.pumpWidget(
+          sidebarTestBuildHarness(
+            controllers: SidebarTestSidebarHarnessControllers(),
+            hermesEnabled: true,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final button = find.bySemanticsLabel('Open WebUI');
+        expect(button, findsOneWidget);
+        final data = tester.getSemantics(button).getSemanticsData();
+        expect(data.flagsCollection.isButton, true);
+        expect(data.hasAction(SemanticsAction.tap), true);
+      } finally {
+        semantics.dispose();
+      }
+    });
+  }
 
   for (final size in [const Size(320, 568), const Size(844, 390)]) {
     testWidgets('sidebar controls stay reachable at 2x text in $size', (

@@ -6,6 +6,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
@@ -151,7 +152,11 @@ void main() {
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: controllers,
-        settings: const AppSettings(temporaryChatByDefault: true),
+        settings: const AppSettings(
+          temporaryChatByDefault: true,
+          defaultModel: 'demo-model',
+        ),
+        models: const [Model(id: 'demo-model', name: 'Demo model')],
         folders: const [
           Folder(id: 'parent-folder', name: 'Parent Folder', isExpanded: false),
         ],

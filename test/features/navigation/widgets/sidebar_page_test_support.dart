@@ -127,6 +127,9 @@ Widget sidebarTestBuildHarness({
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
   List<Model> models = const [],
+  Future<List<Model>>? pendingModels,
+  Model? cachedDefaultModel,
+  Future<String?> Function()? loadServerDefaultModel,
   AppSettingsNotifier? settingsNotifier,
   bool slidingSidebarEnabled = true,
   bool hermesOnly = false,
@@ -247,7 +250,11 @@ Widget sidebarTestBuildHarness({
         ),
       // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(
-        hasApiService ? SidebarTestSidebarApiService() : null,
+        hasApiService
+            ? SidebarTestSidebarApiService(
+                loadServerDefaultModel: loadServerDefaultModel,
+              )
+            : null,
       ),
       // The production auth provider is deliberately incomplete in this
       // narrow harness; keep its account-generation boundary deterministic.
@@ -287,7 +294,9 @@ Widget sidebarTestBuildHarness({
       for (final entry in pendingLoadedConversations.entries)
         loadConversationProvider(entry.key).overrideWith((ref) => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
-      modelsProvider.overrideWith(() => SidebarTestTestModels(models)),
+      modelsProvider.overrideWith(
+        () => SidebarTestTestModels(models, pendingModels),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       foldersProvider.overrideWith(
         () => SidebarTestTestFolders(
@@ -308,7 +317,7 @@ Widget sidebarTestBuildHarness({
       ),
       // ignore: scoped_providers_should_specify_dependencies
       optimizedStorageServiceProvider.overrideWithValue(
-        SidebarTestFakeOptimizedStorageService(),
+        SidebarTestFakeOptimizedStorageService(cachedDefaultModel),
       ),
       // ignore: scoped_providers_should_specify_dependencies
       showPinnedProvider.overrideWith(
@@ -376,6 +385,13 @@ Widget sidebarTestBuildHarness({
 }
 
 final class SidebarTestSidebarApiService extends Mock implements ApiService {
+  SidebarTestSidebarApiService({this.loadServerDefaultModel});
+
+  final Future<String?> Function()? loadServerDefaultModel;
+
+  @override
+  Future<String?> getDefaultModel() async => loadServerDefaultModel?.call();
+
   @override
   Future<List<Conversation>> searchConversations(String query) async =>
       const <Conversation>[];
@@ -785,12 +801,13 @@ class SidebarTestTestArchivedConversationPagination {
 }
 
 class SidebarTestTestModels extends Models {
-  SidebarTestTestModels([this.models = const []]);
+  SidebarTestTestModels([this.models = const [], this.pending]);
 
   final List<Model> models;
+  final Future<List<Model>>? pending;
 
   @override
-  Future<List<Model>> build() async => models;
+  Future<List<Model>> build() => pending ?? Future.value(models);
 }
 
 class SidebarTestTestFolders extends Folders {
@@ -834,6 +851,13 @@ class SidebarTestTestChannelsList extends ChannelsList {
 
 class SidebarTestFakeOptimizedStorageService extends Fake
     implements OptimizedStorageService {
+  SidebarTestFakeOptimizedStorageService([this.defaultModel]);
+
+  final Model? defaultModel;
+
+  @override
+  Future<Model?> getLocalDefaultModel() async => defaultModel;
+
   @override
   Future<void> saveLocalDefaultModel(Model? model) async {}
 }

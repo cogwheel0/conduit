@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -246,6 +248,7 @@ void main() {
               hermesEnabled: true,
               settings: AppSettings(defaultModel: hermes.id),
               models: [hermes, if (available) serverModel],
+              loadServerDefaultModel: () async => serverModel.id,
               shellChat: const Scaffold(
                 body: Focus(autofocus: true, child: Text('Chat content')),
               ),
@@ -281,6 +284,168 @@ void main() {
       );
     }
   }
+
+  for (final (appDefault, cachedDefault, serverDefault, expected, calls) in [
+    (null, null, 'server-b', 'server-b', 1),
+    (null, null, 'Server B', 'server-b', 1),
+    ('server-a', null, 'server-b', 'server-a', 0),
+    (kHermesDefaultModelId, null, 'server-b', 'server-b', 1),
+    (null, null, kHermesDefaultModelId, null, 1),
+    (null, 'server-b', 'server-a', 'server-b', 0),
+    (null, kHermesDefaultModelId, 'server-b', 'server-b', 1),
+    (null, null, null, null, 1),
+  ]) {
+    testWidgets(
+      'Open WebUI creation resolves defaults: $appDefault / $cachedDefault / $serverDefault',
+      (tester) async {
+        tester.view.physicalSize = const Size(1024, 768);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        var requests = 0;
+        await tester.pumpWidget(
+          sidebarTestBuildHarness(
+            controllers: SidebarTestSidebarHarnessControllers(),
+            hermesEnabled: true,
+            settings: AppSettings(defaultModel: appDefault),
+            cachedDefaultModel: cachedDefault == null
+                ? null
+                : Model(id: cachedDefault, name: 'Cached model'),
+            models: [
+              hermesSyntheticModel(),
+              const Model(id: 'server-a', name: 'Server A'),
+              const Model(id: 'server-b', name: 'Server B'),
+            ],
+            loadServerDefaultModel: () async {
+              requests++;
+              return serverDefault;
+            },
+            shellChat: const Scaffold(body: Text('Chat content')),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(SidebarPage)),
+          listen: false,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('sidebar-create-button')),
+        );
+        await tester.pumpAndSettle();
+        expect(container.read(selectedModelProvider)?.id, expected);
+        expect(requests, calls);
+      },
+    );
+  }
+
+  for (final manual in [false, true]) {
+    testWidgets('pending creation respects manual model selection: $manual', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final result = Completer<List<Model>>();
+      const preferred = Model(id: 'preferred', name: 'Preferred model');
+      const other = Model(id: 'other', name: 'Other model');
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          settings: const AppSettings(defaultModel: 'preferred'),
+          pendingModels: result.future,
+          shellChat: const Scaffold(body: Text('Chat content')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(SidebarPage)),
+        listen: false,
+      );
+      container.read(pendingFolderIdProvider.notifier).set('demo-folder');
+      await tester.tap(
+        find.byKey(const ValueKey<String>('sidebar-create-button')),
+      );
+      await tester.pump();
+      container.read(isManualModelSelectionProvider.notifier).set(manual);
+      container.read(selectedModelProvider.notifier).set(other);
+      result.complete([preferred, other]);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(selectedModelProvider)?.id,
+        manual ? other.id : preferred.id,
+      );
+      expect(
+        container.read(pendingFolderIdProvider),
+        manual ? 'demo-folder' : null,
+      );
+    });
+  }
+
+  testWidgets('a delayed server default cannot create after navigation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final result = Completer<String?>();
+    final hermes = hermesSyntheticModel();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        hermesEnabled: true,
+        models: [
+          hermes,
+          const Model(id: 'server-model', name: 'Server model'),
+        ],
+        loadServerDefaultModel: () => result.future,
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    container.read(selectedModelProvider.notifier).set(hermes);
+    container.read(pendingFolderIdProvider.notifier).set('demo-folder');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+    );
+    await tester.pump();
+    NavigationService.router.go(Routes.notes);
+    await tester.pumpAndSettle();
+    result.complete('server-model');
+    await tester.pumpAndSettle();
+    expect(NavigationService.currentRoute, Routes.notes);
+    expect(container.read(selectedModelProvider)?.id, hermes.id);
+    expect(container.read(pendingFolderIdProvider), 'demo-folder');
+  });
+
+  testWidgets('accountless New Chat keeps the generic creation path', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        hasApiService: false,
+        isAuthenticated: false,
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    container.read(pendingFolderIdProvider.notifier).set('demo-folder');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(pendingFolderIdProvider), isNull);
+  });
 
   for (final direct in [false, true]) {
     testWidgets('Hermes route selects its history (direct: $direct)', (
