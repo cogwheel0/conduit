@@ -415,33 +415,19 @@ void main() {
       for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
         expect(sidebarTestDestinationLabel(label), findsOneWidget);
       }
-      expect(
-        tester
-            .widget<AdaptiveSingleChoiceTrigger<SidebarTabId>>(
-              find.byType(AdaptiveSingleChoiceTrigger<SidebarTabId>),
-            )
-            .options
-            .map((option) => option.label),
-        ['Open WebUI', 'Hermes'],
-      );
       final picker = find.byKey(
         const ValueKey<String>('sidebar-backend-selector'),
       );
-      expect(
-        find.descendant(of: picker, matching: find.text('Open WebUI')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: picker, matching: find.text('Hermes')),
-        findsNothing,
-      );
-      expect(
+      final menu = tester.widget<NativeGlassMenuButton>(
         find.descendant(
           of: picker,
-          matching: find.byType(AdaptiveGlassBackdrop),
+          matching: find.byType(NativeGlassMenuButton),
         ),
-        findsOneWidget,
       );
+      expect(menu.options, ['Open WebUI', 'Hermes']);
+      expect(menu.label, 'Open WebUI');
+      expect(menu.assetName, 'assets/icons/open_webui.png');
+      expect(menu.selectedIndex, 0);
     },
   );
 
