@@ -18,6 +18,7 @@ import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../providers/sidebar_providers.dart';
+import '../providers/conversation_selection_provider.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 
@@ -98,6 +99,9 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
     final epoch = ref.read(openWebUiAuthSessionEpochProvider);
     final api = ref.read(apiServiceProvider);
     final routeRevision = NavigationService.currentRouteRevision;
+    final selectionGeneration = ref
+        .read(conversationSelectionProvider)
+        .generation;
     final selected = ref.read(selectedModelProvider);
     final manual = ref.read(isManualModelSelectionProvider);
     bool isCurrent() =>
@@ -105,6 +109,8 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
         ref.read(openWebUiAuthSessionEpochProvider) == epoch &&
         identical(ref.read(apiServiceProvider), api) &&
         NavigationService.currentRouteRevision == routeRevision &&
+        ref.read(conversationSelectionProvider).generation ==
+            selectionGeneration &&
         (!ref.read(isManualModelSelectionProvider) ||
             (manual && identical(ref.read(selectedModelProvider), selected))) &&
         ref.read(sidebarSelectedHistoryTabProvider) == SidebarTabId.chats;
@@ -132,14 +138,15 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
           candidates.where((model) => model.id == serverDefault).firstOrNull ??
           candidates.where((model) => model.name == serverDefault).singleOrNull;
     }
+    final current = ref.read(selectedModelProvider);
+    model ??=
+        candidates
+            .where((candidate) => candidate.id == current?.id)
+            .firstOrNull ??
+        candidates.firstOrNull;
     if (model == null) {
       final l10n = AppLocalizations.of(context)!;
-      AdaptiveSnackBar.show(
-        context,
-        message: candidates.isEmpty
-            ? l10n.noModelsAvailable
-            : l10n.failedToLoadModels,
-      );
+      AdaptiveSnackBar.show(context, message: l10n.noModelsAvailable);
       return;
     }
     chat.startNewChat(ref, modelForNewConversation: model);

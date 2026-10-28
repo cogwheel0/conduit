@@ -4,6 +4,8 @@ import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:go_router/go_router.dart';
@@ -290,10 +292,10 @@ void main() {
     (null, null, 'Server B', 'server-b', 1),
     ('server-a', null, 'server-b', 'server-a', 0),
     (kHermesDefaultModelId, null, 'server-b', 'server-b', 1),
-    (null, null, kHermesDefaultModelId, null, 1),
+    (null, null, kHermesDefaultModelId, 'server-a', 1),
     (null, 'server-b', 'server-a', 'server-b', 0),
     (null, kHermesDefaultModelId, 'server-b', 'server-b', 1),
-    (null, null, null, null, 1),
+    (null, null, null, 'server-a', 1),
   ]) {
     testWidgets(
       'Open WebUI creation resolves defaults: $appDefault / $cachedDefault / $serverDefault',
@@ -336,6 +338,80 @@ void main() {
       },
     );
   }
+
+  testWidgets('a failed default retains an eligible selected model', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const selected = Model(id: 'server-b', name: 'Server B');
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        models: const [
+          Model(id: 'server-a', name: 'Server A'),
+          selected,
+        ],
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    container.read(selectedModelProvider.notifier).set(selected);
+    container.read(pendingFolderIdProvider.notifier).set('demo-folder');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(selectedModelProvider)?.id, selected.id);
+    expect(container.read(pendingFolderIdProvider), isNull);
+  });
+
+  testWidgets('selecting a conversation cancels a delayed creation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final result = Completer<String?>();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        models: const [Model(id: 'server-model', name: 'Server model')],
+        loadServerDefaultModel: () => result.future,
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    container.read(pendingFolderIdProvider.notifier).set('demo-folder');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+    );
+    await tester.pump();
+    final selection = container
+        .read(conversationSelectionProvider.notifier)
+        .select(
+          Conversation(
+            id: 'other-chat',
+            title: 'Other chat',
+            createdAt: DateTime.utc(2026),
+            updatedAt: DateTime.utc(2026),
+          ),
+        );
+    result.complete('server-model');
+    await tester.pumpAndSettle();
+    await selection;
+    expect(container.read(pendingFolderIdProvider), 'demo-folder');
+    expect(container.read(selectedModelProvider), isNull);
+  });
 
   for (final manual in [false, true]) {
     testWidgets('pending creation respects manual model selection: $manual', (

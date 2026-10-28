@@ -544,6 +544,7 @@ class _ModelGroup extends ConsumerWidget {
               if (onPick != null) {
                 onPick(model);
               } else {
+                ref.read(isManualModelSelectionProvider.notifier).set(true);
                 ref.read(selectedModelProvider.notifier).set(model);
               }
               Navigator.of(context).pop();

@@ -4629,6 +4629,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               break;
             }
           }
+          if (selected != null) {
+            ref.read(isManualModelSelectionProvider.notifier).set(true);
+          }
           ref.read(selectedModelProvider.notifier).set(selected);
         }
         await restoreFocusIfNeeded();
