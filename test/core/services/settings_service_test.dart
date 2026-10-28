@@ -11,6 +11,39 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
+  group('Sliding sidebar preference', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test('defaults off and survives a new settings provider', () async {
+      check(const AppSettings().slidingSidebarEnabled).isFalse();
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+      final first = ProviderContainer();
+      await first
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(true);
+      first.dispose();
+      final reopened = ProviderContainer();
+      addTearDown(reopened.dispose);
+      check(reopened.read(appSettingsProvider).slidingSidebarEnabled).isTrue();
+      await reopened
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(false);
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+    });
+
+    test('copy and bulk save retain the preference', () async {
+      final enabled = const AppSettings().copyWith(slidingSidebarEnabled: true);
+      check(enabled == const AppSettings()).isFalse();
+      check(enabled.copyWith().slidingSidebarEnabled).isTrue();
+      await SettingsService.saveSettings(enabled);
+      check(await SettingsService.getSlidingSidebarEnabled()).isTrue();
+    });
+  });
+
   group('AppSettings', () {
     group('default constructor values', () {
       const settings = AppSettings();

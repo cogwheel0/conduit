@@ -9,7 +9,6 @@ import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
-import 'package:conduit/features/navigation/widgets/sidebar_tab_registry.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
@@ -424,10 +423,10 @@ void main() {
         expect(sidebarTestDestinationLabel(label), findsOneWidget);
       }
       expect(
-        find.byWidgetPredicate(
-          (w) => w is ImageIcon && w.image == kHermesTabIcon,
-        ),
-        findsOneWidget,
+        tester
+            .widget<CNSegmentedControl>(find.byType(CNSegmentedControl))
+            .labels,
+        ['Open WebUI', 'Hermes'],
       );
     },
   );
@@ -465,41 +464,29 @@ void main() {
     expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
   });
 
-  testWidgets('Hermes destination follows dark navigation icon colors', (
-    tester,
-  ) async {
-    final controllers = SidebarTestSidebarHarnessControllers();
-    await tester.pumpWidget(
-      sidebarTestBuildHarness(
-        controllers: controllers,
-        hermesEnabled: true,
-        theme: AppTheme.dark(TweakcnThemes.t3Chat),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final context = tester.element(find.byType(SidebarPage));
-    final conduitTheme = context.conduitTheme;
-    Finder hermesImage() => find.byWidgetPredicate(
-      (widget) => widget is Image && widget.image == kHermesTabIcon,
-    );
-    Finder hermesImageIcon() =>
-        find.ancestor(of: hermesImage(), matching: find.byType(ImageIcon));
-
-    expect(
-      tester.widget<Image>(hermesImage()).color,
-      conduitTheme.textSecondary,
-    );
-    expect(
-      tester.widget<ImageIcon>(hermesImageIcon()).size,
-      kHermesTabIconSize,
-    );
-
-    await sidebarTestSelectDestination(tester, 'Hermes');
-    await tester.pumpAndSettle();
-
-    expect(tester.widget<Image>(hermesImage()).color, conduitTheme.textPrimary);
-  });
+  testWidgets(
+    'Hermes bottom tab switches history without replacing the main pane',
+    (tester) async {
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          hermesEnabled: true,
+          theme: AppTheme.dark(TweakcnThemes.t3Chat),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await sidebarTestSelectDestination(tester, 'Notes');
+      expect(NavigationService.currentRoute, Routes.notes);
+      await sidebarTestSelectDestination(tester, 'Hermes');
+      expect(NavigationService.currentRoute, Routes.notes);
+      expect(find.byType(HermesSessionsTab).hitTestable(), findsOneWidget);
+      expect(find.byType(ChatsDrawer).hitTestable(), findsNothing);
+      await tester.tap(find.text('Open WebUI'));
+      await tester.pumpAndSettle();
+      expect(NavigationService.currentRoute, Routes.notes);
+      expect(find.byType(ChatsDrawer).hitTestable(), findsOneWidget);
+    },
+  );
 
   testWidgets('hides bottom navigation when Hermes is the only sidebar tab', (
     tester,

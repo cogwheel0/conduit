@@ -585,6 +585,7 @@ Uint8List? _dataUrlBytes(String? url) {
 
 /// Control id of the Advanced toggle in the native Chats page.
 const nativeAdvancedFeaturesId = 'advanced-features';
+const nativeSlidingSidebarId = 'sliding-sidebar';
 
 /// Control id of the "Show citation page titles" toggle in the native Chats
 /// page.

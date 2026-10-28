@@ -110,6 +110,8 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
+  "slidingSidebar": "Sliding sidebar",
+  "slidingSidebarDescription": "Open Notes, Terminal and Channels beside chat history.",
   "settingsAppearance": "Appearance",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."

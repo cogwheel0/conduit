@@ -386,7 +386,7 @@ void main() {
               .hitTestable(),
           findsOneWidget,
         );
-        expect(find.text('New Chat').hitTestable(), findsOneWidget);
+        expect(find.bySemanticsLabel('New Chat').hitTestable(), findsOneWidget);
       }
     },
   );

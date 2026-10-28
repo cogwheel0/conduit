@@ -49,7 +49,11 @@ import 'package:conduit_core/testing.dart';
 
 /// Label in the sidebar destination list.
 Finder sidebarTestDestinationLabel(String label) => find.descendant(
-  of: find.byKey(const ValueKey<String>('sidebar-destinations')),
+  of: find.byKey(
+    ValueKey<String>(
+      label == 'Hermes' ? 'sidebar-backend-selector' : 'sidebar-destinations',
+    ),
+  ),
   matching: find.text(label),
 );
 
@@ -121,6 +125,7 @@ Widget sidebarTestBuildHarness({
   Future<List<TerminalServerInfo>> Function()? loadTerminalServers,
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
+  bool slidingSidebarEnabled = true,
   bool hermesOnly = false,
   bool hermesEnabled = false,
   List<HermesJob> hermesJobs = const [],
@@ -222,7 +227,9 @@ Widget sidebarTestBuildHarness({
         SidebarTestNoopOpenWebUiAccountStorageIsolation.new,
       ),
       // ignore: scoped_providers_should_specify_dependencies
-      appSettingsProvider.overrideWithValue(settings),
+      appSettingsProvider.overrideWithValue(
+        settings.copyWith(slidingSidebarEnabled: slidingSidebarEnabled),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(
         hasApiService ? SidebarTestSidebarApiService() : null,

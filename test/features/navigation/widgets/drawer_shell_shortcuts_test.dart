@@ -1,6 +1,7 @@
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:go_router/go_router.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -130,50 +131,59 @@ void main() {
     expect(container.read(sidebarSearchFieldControllerProvider).text, isEmpty);
   });
 
-  testWidgets('number shortcuts select from the visible sidebar order', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
-    final activeTab = SidebarTestTestSidebarActiveTab(SidebarTabId.chats);
+  for (final sliding in [false, true]) {
+    testWidgets(
+      'number shortcuts respect the sidebar layout (sliding: $sliding)',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+        PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
+        final activeTab = SidebarTestTestSidebarActiveTab(SidebarTabId.chats);
 
-    final router = GoRouter(
-      initialLocation: Routes.chat,
-      routes: [
-        for (final path in [Routes.chat, Routes.notes])
-          GoRoute(
-            path: path,
-            builder: (context, state) => const MacDesktopShortcuts(
-              child: Focus(autofocus: true, child: Text('Content')),
-            ),
+        final router = GoRouter(
+          initialLocation: Routes.chat,
+          routes: [
+            for (final path in [Routes.chat, Routes.notes])
+              GoRoute(
+                path: path,
+                builder: (context, state) => const MacDesktopShortcuts(
+                  child: Focus(autofocus: true, child: Text('Content')),
+                ),
+              ),
+          ],
+        );
+        NavigationService.attachRouter(router);
+        addTearDown(router.dispose);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              appSettingsProvider.overrideWithValue(
+                AppSettings(slidingSidebarEnabled: sliding),
+              ),
+              sidebarNavigationSnapshotProvider.overrideWithValue(
+                SidebarNavigationSnapshot(
+                  tabs: const [SidebarTabId.chats, SidebarTabId.notes],
+                  selectedTab: SidebarTabId.chats,
+                ),
+              ),
+              sidebarActiveTabProvider.overrideWith(() => activeTab),
+            ],
+            child: MaterialApp.router(routerConfig: router),
           ),
-      ],
-    );
-    NavigationService.attachRouter(router);
-    addTearDown(router.dispose);
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          sidebarNavigationSnapshotProvider.overrideWithValue(
-            SidebarNavigationSnapshot(
-              tabs: const [SidebarTabId.chats, SidebarTabId.notes],
-              selectedTab: SidebarTabId.chats,
-            ),
-          ),
-          sidebarActiveTabProvider.overrideWith(() => activeTab),
-        ],
-        child: MaterialApp.router(routerConfig: router),
-      ),
-    );
+        );
 
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
-    await tester.pump();
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+        await tester.pump();
 
-    expect(activeTab.currentValue, SidebarTabId.notes);
-    expect(router.routeInformationProvider.value.uri.path, Routes.notes);
-  });
+        expect(activeTab.currentValue, SidebarTabId.notes);
+        expect(
+          router.routeInformationProvider.value.uri.path,
+          sliding ? Routes.notes : Routes.chat,
+        );
+      },
+    );
+  }
 
   testWidgets('non-Mac iOS does not install desktop shortcuts', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;

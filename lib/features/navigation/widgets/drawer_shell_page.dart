@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -41,6 +43,9 @@ class DrawerShellPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isTablet = usesPersistentTabletSidebar(context);
+    final sliding = ref.watch(
+      appSettingsProvider.select((s) => s.slidingSidebarEnabled),
+    );
     final tabletWidth = ref.watch(sidebarTabletWidthProvider);
     final localizations = AppLocalizations.of(context)!;
     final scrim = Platform.isIOS
@@ -48,7 +53,12 @@ class DrawerShellPage extends ConsumerWidget {
         : context.colorTokens.scrimStrong;
 
     return ResponsiveDrawerLayout(
-      maxFraction: isTablet ? 0.42 : 0.84,
+      maxFraction: isTablet
+          ? 0.42
+          : sliding
+          ? 0.84
+          : 1.0,
+      roundPushedContent: sliding,
       edgeFraction: isTablet ? 0.36 : 1.0,
       settleFraction: 0.06,
       scrimColor: scrim,
@@ -98,7 +108,10 @@ class SidebarOverlayDismissListener extends ConsumerWidget {
       closeSidebarDrawerIfOverlay(context);
     });
     void displayRequestedFile() {
-      if (ref.read(terminalDisplayFileProvider) == null) return;
+      if (!ref.read(appSettingsProvider).slidingSidebarEnabled ||
+          ref.read(terminalDisplayFileProvider) == null) {
+        return;
+      }
       final hasBackend =
           !ref.read(hermesOnlyModeProvider) &&
           ref.read(openWebUiAccountAvailableProvider);
@@ -137,9 +150,9 @@ class MacDesktopShortcuts extends ConsumerWidget {
     if (!PlatformInfo.isIOSAppOnMac) return child;
 
     void createForActiveTab() {
-      final destination = sidebarTabForLocation(
-        NavigationService.currentRoute ?? '',
-      );
+      final destination = ref.read(appSettingsProvider).slidingSidebarEnabled
+          ? sidebarTabForLocation(NavigationService.currentRoute ?? '')
+          : ref.read(sidebarNavigationSnapshotProvider).selectedTab;
       final action = sidebarTabDescriptor(destination).createAction;
       if (action != null) unawaited(action.run(context, ref));
     }

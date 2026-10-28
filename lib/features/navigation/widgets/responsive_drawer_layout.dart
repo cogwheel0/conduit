@@ -39,6 +39,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
   final double settleFraction; // threshold to settle open on release
   final Color? scrimColor;
   final bool pushContent;
+  final bool roundPushedContent;
   final double contentScaleDelta;
   final VoidCallback? onOpenStart;
   final double mobileBottomDragGestureExclusion;
@@ -66,6 +67,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
     this.settleFraction = 0.12,
     this.scrimColor,
     this.pushContent = true,
+    this.roundPushedContent = false,
     this.contentScaleDelta = 0.02,
     this.onOpenStart,
     this.mobileBottomDragGestureExclusion = 0.0,
@@ -812,13 +814,15 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                       excluding: t > 0,
                       child: ClipRSuperellipse(
                         borderRadius: BorderRadius.circular(
-                          widget.pushContent ? 36.0 * t : 0.0,
+                          widget.pushContent && widget.roundPushedContent
+                              ? 36.0 * t
+                              : 0.0,
                         ),
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
                             child!,
-                            if (widget.pushContent)
+                            if (widget.pushContent && widget.roundPushedContent)
                               IgnorePointer(
                                 child: ColoredBox(
                                   color: scrim.withValues(alpha: 0.6 * t),

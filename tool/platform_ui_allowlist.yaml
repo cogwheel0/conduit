@@ -2918,3 +2918,24 @@ exceptions:
     owner: shared-widgets
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
+
+  - path: lib/features/navigation/widgets/sidebar_page.dart
+    symbol: "AppBar"
+    count: 1
+    owner: navigation
+    reason: "Existing use awaiting migration to the platform UI seam"
+    removal: platform-ui-migration
+
+  - path: lib/features/navigation/widgets/sidebar_page.dart
+    symbol: "NavigationBar"
+    count: 1
+    owner: navigation
+    reason: "Existing use awaiting migration to the platform UI seam"
+    removal: platform-ui-migration
+
+  - path: lib/features/navigation/widgets/sidebar_page.dart
+    symbol: "NavigationDestination"
+    count: 1
+    owner: navigation
+    reason: "Existing use awaiting migration to the platform UI seam"
+    removal: platform-ui-migration
