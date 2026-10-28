@@ -3623,6 +3623,8 @@
   "settingsCategoryServer": "サーバー",
   "settingsCategorySupport": "サポート",
   "settingsDataAndConnection": "データと接続",
+  "slidingSidebar": "スライド式サイドバー",
+  "slidingSidebarDescription": "チャット履歴の横でノート、ターミナル、チャンネルを開きます。",
   "settingsAppearance": "外観",
   "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
   "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",

@@ -2016,6 +2016,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Support",
   "settingsDataAndConnection": "Daten & Verbindung",
+  "slidingSidebar": "Ausklappbare Seitenleiste",
+  "slidingSidebarDescription": "Notizen, Terminal und Kanäle neben dem Chatverlauf öffnen.",
   "settingsAppearance": "Erscheinungsbild",
   "settingsAppearanceSubtitle": "Design, Farbpalette und Sprache",
   "settingsChatSubtitle": "Chatverhalten, Schnellaktionen und erweiterte Prompts",

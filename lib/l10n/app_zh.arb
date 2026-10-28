@@ -2014,6 +2014,8 @@
   "settingsCategoryServer": "服务器",
   "settingsCategorySupport": "支持",
   "settingsDataAndConnection": "数据与连接",
+  "slidingSidebar": "滑动侧边栏",
+  "slidingSidebarDescription": "在聊天记录旁打开笔记、终端和频道。",
   "settingsAppearance": "外观",
   "settingsAppearanceSubtitle": "主题、调色板和语言",
   "settingsChatSubtitle": "聊天行为、快捷操作和高级提示词",

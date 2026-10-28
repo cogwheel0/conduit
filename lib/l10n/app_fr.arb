@@ -2014,6 +2014,8 @@
   "settingsCategoryServer": "Serveur",
   "settingsCategorySupport": "Assistance",
   "settingsDataAndConnection": "Données et connexion",
+  "slidingSidebar": "Barre latérale coulissante",
+  "slidingSidebarDescription": "Ouvrir Notes, Terminal et Canaux à côté de l’historique des discussions.",
   "settingsAppearance": "Apparence",
   "settingsAppearanceSubtitle": "Thème, palette de couleurs et langue",
   "settingsChatSubtitle": "Comportement du chat, actions rapides et prompts avancés",

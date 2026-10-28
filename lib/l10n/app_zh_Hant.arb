@@ -2014,6 +2014,8 @@
   "settingsCategoryServer": "伺服器",
   "settingsCategorySupport": "支援",
   "settingsDataAndConnection": "資料與連線",
+  "slidingSidebar": "滑動側邊欄",
+  "slidingSidebarDescription": "在聊天記錄旁開啟筆記、終端機和頻道。",
   "settingsAppearance": "外觀",
   "settingsAppearanceSubtitle": "主題、調色盤和語言",
   "settingsChatSubtitle": "聊天行為、快速操作和進階提示詞",

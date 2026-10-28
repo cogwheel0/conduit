@@ -111,7 +111,13 @@
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
   "slidingSidebar": "Sliding sidebar",
+  "@slidingSidebar": {
+    "description": "Appearance setting that opts into the sliding sidebar layout."
+  },
   "slidingSidebarDescription": "Open Notes, Terminal and Channels beside chat history.",
+  "@slidingSidebarDescription": {
+    "description": "Explains that sidebar destinations open beside chat history when the optional layout is enabled."
+  },
   "settingsAppearance": "Appearance",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
