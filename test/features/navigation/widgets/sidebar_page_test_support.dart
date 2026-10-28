@@ -125,6 +125,7 @@ Widget sidebarTestBuildHarness({
   Future<List<TerminalServerInfo>> Function()? loadTerminalServers,
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
+  AppSettingsNotifier? settingsNotifier,
   bool slidingSidebarEnabled = true,
   bool hermesOnly = false,
   bool hermesEnabled = false,
@@ -144,6 +145,7 @@ Widget sidebarTestBuildHarness({
   // Builds the app's shell around [shellChat] instead, with the sidebar as
   // its drawer.
   Widget? shellChat,
+  Widget? appearancePage,
   String? initialLocation,
 }) {
   final availableTerminalServers =
@@ -154,6 +156,11 @@ Widget sidebarTestBuildHarness({
         sidebarTabDescriptor(controllers.activeTabNotifier.initialValue)
             .location,
     routes: [
+      if (appearancePage != null)
+        GoRoute(
+          path: Routes.appearanceSettings,
+          builder: (_, _) => appearancePage,
+        ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           final content = SidebarDestinationScope(
@@ -227,9 +234,12 @@ Widget sidebarTestBuildHarness({
         SidebarTestNoopOpenWebUiAccountStorageIsolation.new,
       ),
       // ignore: scoped_providers_should_specify_dependencies
-      appSettingsProvider.overrideWithValue(
-        settings.copyWith(slidingSidebarEnabled: slidingSidebarEnabled),
-      ),
+      if (settingsNotifier != null)
+        appSettingsProvider.overrideWith(() => settingsNotifier)
+      else
+        appSettingsProvider.overrideWithValue(
+          settings.copyWith(slidingSidebarEnabled: slidingSidebarEnabled),
+        ),
       // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(
         hasApiService ? SidebarTestSidebarApiService() : null,

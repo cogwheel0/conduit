@@ -293,6 +293,7 @@ class SettingsService {
   /// Save all settings
   static Future<void> saveSettings(AppSettings settings) async {
     if (!PreferencesStore.isReady) return;
+    // The layout has its own setter so stale bulk snapshots cannot undo it.
     final updates = <String, Object?>{
       _reduceMotionKey: settings.reduceMotion,
       _animationSpeedKey: settings.animationSpeed,
@@ -300,7 +301,6 @@ class SettingsService {
       PreferenceKeys.citationShowTitles: settings.citationShowTitles,
       _highContrastKey: settings.highContrast,
       _darkModeKey: settings.darkMode,
-      PreferenceKeys.slidingSidebarEnabled: settings.slidingSidebarEnabled,
       _voiceHoldToTalkKey: settings.voiceHoldToTalk,
       _voiceAutoSendKey: settings.voiceAutoSendFinal,
       PreferenceKeys.voiceBargeInEnabled: settings.voiceBargeInEnabled,
@@ -1626,6 +1626,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> resetToDefaults() async {
     const defaultSettings = AppSettings();
     await SettingsService.saveSettings(defaultSettings);
+    await SettingsService.setSlidingSidebarEnabled(
+      defaultSettings.slidingSidebarEnabled,
+    );
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.directVoiceProvider,

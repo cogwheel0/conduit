@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,12 +37,49 @@ void main() {
       check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
     });
 
-    test('copy and bulk save retain the preference', () async {
+    test('a delayed bulk save cannot undo a newer sidebar toggle', () async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      var held = false;
+      PreferencesStore.debugOverride(
+        PreferencesStore.instance,
+        writeInterceptor: (_, key, value) async {
+          if (key == PreferenceKeys.reduceMotion && !held) {
+            held = true;
+            entered.complete();
+            await release.future;
+          }
+          return null;
+        },
+      );
+      final bulk = SettingsService.saveSettings(const AppSettings());
+      await entered.future;
+      await SettingsService.setSlidingSidebarEnabled(true);
+      release.complete();
+      await bulk;
+      check(await SettingsService.getSlidingSidebarEnabled()).isTrue();
+      final reopened = ProviderContainer();
+      addTearDown(reopened.dispose);
+      check(reopened.read(appSettingsProvider).slidingSidebarEnabled).isTrue();
+    });
+
+    test('reset restores the default sidebar after opting in', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(true);
+      await container.read(appSettingsProvider.notifier).resetToDefaults();
+      check(container.read(appSettingsProvider).slidingSidebarEnabled)
+          .isFalse();
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+    });
+
+    test('copy and equality retain the preference', () {
       final enabled = const AppSettings().copyWith(slidingSidebarEnabled: true);
       check(enabled == const AppSettings()).isFalse();
       check(enabled.copyWith().slidingSidebarEnabled).isTrue();
-      await SettingsService.saveSettings(enabled);
-      check(await SettingsService.getSlidingSidebarEnabled()).isTrue();
+      check(enabled == enabled.copyWith()).isTrue();
     });
   });
 

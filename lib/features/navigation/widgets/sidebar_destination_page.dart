@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -75,6 +77,17 @@ class _SidebarDestinationPageState
 
   @override
   Widget build(BuildContext context) {
+    // Settings may cover this retained branch while the layout changes.
+    ref.listen(appSettingsProvider.select((s) => s.slidingSidebarEnabled), (
+      previous,
+      enabled,
+    ) {
+      if (previous == true &&
+          !enabled &&
+          SidebarDestinationScope.isActive(context, widget.destination)) {
+        NavigationService.router.go(Routes.chat);
+      }
+    });
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
     final active = SidebarDestinationScope.isActive(
       context,

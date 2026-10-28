@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
@@ -37,6 +39,48 @@ Widget _chat() => Builder(
 );
 
 void main() {
+  testWidgets(
+    'disabling the layout from Settings restores Chat and a single active Terminal',
+    (tester) async {
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final settings = _MutableLayoutSettings();
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          settingsNotifier: settings,
+          shellChat: _chat(),
+          appearancePage: const Scaffold(body: Text('Appearance settings')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await sidebarTestSelectDestination(tester, 'Terminal');
+      expect(NavigationService.currentRoute, Routes.terminal);
+      unawaited(NavigationService.router.push(Routes.appearanceSettings));
+      await tester.pumpAndSettle();
+      await settings.setSlidingSidebarEnabled(false);
+      await tester.pumpAndSettle();
+      expect(NavigationService.currentRoute, Routes.chat);
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is TerminalTab && widget.isActive,
+          skipOffstage: false,
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationBar),
+          matching: find.text('Notes'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(NavigationService.currentRoute, Routes.chat);
+      expect(find.byType(NotesListTab).hitTestable(), findsOneWidget);
+    },
+  );
+
   for (final destination in [Routes.notes, Routes.terminal, Routes.channels]) {
     testWidgets('Android Back opens the menu then asks to exit $destination', (
       tester,
@@ -537,4 +581,9 @@ void main() {
     expect(find.text('Workshop supplies'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+class _MutableLayoutSettings extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings(slidingSidebarEnabled: true);
 }
