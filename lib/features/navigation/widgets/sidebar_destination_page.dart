@@ -1,6 +1,10 @@
 import 'dart:async';
 
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+
+import '../../terminal/providers/terminal_providers.dart';
 
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:flutter/widgets.dart';
@@ -77,7 +81,7 @@ class _SidebarDestinationPageState
 
   @override
   Widget build(BuildContext context) {
-    // Settings may cover this retained branch while the layout changes.
+    // The preference can change while Settings covers this branch.
     ref.listen(appSettingsProvider.select((s) => s.slidingSidebarEnabled), (
       previous,
       enabled,
@@ -88,15 +92,29 @@ class _SidebarDestinationPageState
         NavigationService.router.go(Routes.chat);
       }
     });
+    final enabled = ref.watch(
+      appSettingsProvider.select((s) => s.slidingSidebarEnabled),
+    );
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
     final active = SidebarDestinationScope.isActive(
       context,
       widget.destination,
     );
-    if (!navigation.tabs.contains(widget.destination)) {
+    final servers = ref.watch(terminalAvailableServersProvider);
+    final terminalDiscoveryPending =
+        widget.destination == SidebarTabId.terminal &&
+        !ref.watch(hermesOnlyModeProvider) &&
+        ref.watch(openWebUiAccountAvailableProvider) &&
+        (servers.isLoading || servers.hasError);
+    if (!enabled ||
+        (!navigation.tabs.contains(widget.destination) &&
+            !terminalDiscoveryPending)) {
       if (active) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) NavigationService.router.go(Routes.chat);
+          if (mounted &&
+              SidebarDestinationScope.isActive(context, widget.destination)) {
+            NavigationService.router.go(Routes.chat);
+          }
         });
       }
       return const SizedBox.shrink();

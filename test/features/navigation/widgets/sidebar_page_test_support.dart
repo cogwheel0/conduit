@@ -14,6 +14,7 @@ import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -146,6 +147,7 @@ Widget sidebarTestBuildHarness({
   // its drawer.
   Widget? shellChat,
   Widget? appearancePage,
+  Widget? noteEditor,
   String? initialLocation,
 }) {
   final availableTerminalServers =
@@ -164,7 +166,7 @@ Widget sidebarTestBuildHarness({
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
           final content = SidebarDestinationScope(
-            destination: sidebarTabForLocation(state.uri.path),
+            destination: sidebarTabRegistry[navigationShell.currentIndex].id,
             child: navigationShell,
           );
           return shellChat != null || navigationShell.currentIndex != 0
@@ -190,7 +192,7 @@ Widget sidebarTestBuildHarness({
                 path: Routes.noteEditor,
                 name: RouteNames.noteEditor,
                 builder: (context, state) =>
-                    const Scaffold(body: SidebarPage()),
+                    noteEditor ?? const Scaffold(body: SidebarPage()),
               ),
               GoRoute(
                 path: Routes.channel,
@@ -224,6 +226,8 @@ Widget sidebarTestBuildHarness({
   return ProviderScope(
     overrides: [
       ...openWebUiStorageOpenOverrides(open: openWebUiStorageOpen),
+      if (noteEditor != null)
+        connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
       if (syncStatus != null)
         syncEngineProvider.overrideWith(
           () => SidebarTestFixedSyncEngine(syncStatus),

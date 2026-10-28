@@ -646,19 +646,11 @@ void _selectSlidingSidebarTab(BuildContext context, WidgetRef ref, int index) {
 }
 
 /// Opt-in navigation with main-pane destinations and separate backend histories.
-class _SlidingSidebarPage extends ConsumerStatefulWidget {
+class _SlidingSidebarPage extends ConsumerWidget {
   const _SlidingSidebarPage();
 
   @override
-  ConsumerState<_SlidingSidebarPage> createState() =>
-      _SlidingSidebarPageState();
-}
-
-class _SlidingSidebarPageState extends ConsumerState<_SlidingSidebarPage> {
-  SidebarTabId _historyTab = SidebarTabId.chats;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
@@ -673,10 +665,8 @@ class _SlidingSidebarPageState extends ConsumerState<_SlidingSidebarPage> {
     final destinations = tabs
         .where((tab) => tab.id != SidebarTabId.hermes)
         .toList();
-    final chatTab = historyTabs.firstWhere(
-      (tab) => tab.id == _historyTab,
-      orElse: () => historyTabs.first,
-    );
+    final historyTab = ref.watch(sidebarSelectedHistoryTabProvider);
+    final chatTab = historyTabs.firstWhere((tab) => tab.id == historyTab);
     final selectedTab = navigation.tabs.contains(routeTab)
         ? routeTab
         : chatTab.id;
@@ -687,7 +677,8 @@ class _SlidingSidebarPageState extends ConsumerState<_SlidingSidebarPage> {
         MediaQuery.sizeOf(context) * MediaQuery.devicePixelRatioOf(context);
     final leadingInset = resolveSidebarWindowedLeadingInset(
       usesNativeIOS26Chrome: PlatformInfo.isIOS26OrHigher(),
-      isWindowed: display.longestSide != viewport.longestSide ||
+      isWindowed:
+          display.longestSide != viewport.longestSide ||
           display.shortestSide != viewport.shortestSide,
       isIOSAppOnMac: PlatformInfo.isIOSAppOnMac,
     );
@@ -886,9 +877,11 @@ class _SlidingSidebarPageState extends ConsumerState<_SlidingSidebarPage> {
                                   height: conduitScaledControlExtent(context),
                                   onValueChanged: (index) {
                                     closeSidebarSearch(ref);
-                                    setState(
-                                      () => _historyTab = historyTabs[index].id,
-                                    );
+                                    ref
+                                        .read(
+                                          sidebarHistoryTabProvider.notifier,
+                                        )
+                                        .select(historyTabs[index].id);
                                   },
                                 )
                               : Text(

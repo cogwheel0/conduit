@@ -1,4 +1,7 @@
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:go_router/go_router.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -184,6 +187,41 @@ void main() {
       },
     );
   }
+
+  testWidgets('Command-N uses the backend selected in the sidebar', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        hermesEnabled: true,
+        shellChat: const Scaffold(
+          body: Focus(autofocus: true, child: Text('Chat content')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(sidebarTestDestinationLabel('Hermes'));
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+    final model = container.read(selectedModelProvider);
+    expect(model, isNotNull);
+    expect(isHermesModel(model!), isTrue);
+  });
 
   testWidgets('non-Mac iOS does not install desktop shortcuts', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;

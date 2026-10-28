@@ -9,6 +9,7 @@ import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/utils/chat_list_back.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
+import 'package:conduit/features/notes/views/note_editor_page.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit/features/terminal/providers/terminal_providers.dart';
@@ -80,6 +81,133 @@ void main() {
       expect(find.byType(NotesListTab).hitTestable(), findsOneWidget);
     },
   );
+
+  testWidgets('disabled layout redirects an initial main-pane destination', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: _chat(),
+        slidingSidebarEnabled: false,
+        initialLocation: Routes.terminal,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(NavigationService.currentRoute, Routes.chat);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is TerminalTab && w.isActive,
+        skipOffstage: false,
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('disabling the layout preserves an open note detail', (
+    tester,
+  ) async {
+    final settings = _MutableLayoutSettings();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        settingsNotifier: settings,
+        shellChat: _chat(),
+        initialLocation: Routes.notes,
+        appearancePage: const Scaffold(body: Text('Appearance settings')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    NavigationService.router.go('/notes/supplies');
+    await tester.pumpAndSettle();
+    unawaited(NavigationService.router.push(Routes.appearanceSettings));
+    await tester.pumpAndSettle();
+    await settings.setSlidingSidebarEnabled(false);
+    await tester.pumpAndSettle();
+    expect(find.text('Appearance settings'), findsOneWidget);
+    expect(NavigationService.router.canPop(), isTrue);
+    NavigationService.router.pop();
+    await tester.pumpAndSettle();
+    expect(NavigationService.currentRoute, '/notes/supplies');
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final available in [false, true]) {
+    testWidgets('Terminal stays open during scope discovery ($available)', (
+      tester,
+    ) async {
+      final discovery = Completer<List<TerminalServerInfo>>();
+      var probes = 0;
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          shellChat: _chat(),
+          initialLocation: Routes.terminal,
+          loadTerminalServers: () async => ++probes == 1
+              ? sidebarTestDefaultTerminalServers()
+              : discovery.future,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final terminal = find.byType(TerminalTab, skipOffstage: false);
+      final originalState = tester.state(terminal);
+      final container = ProviderScope.containerOf(
+        tester.element(terminal),
+        listen: false,
+      );
+      final date = DateTime(2026, 1, 1);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            Conversation(
+              id: 'new-scope',
+              title: 'New scope',
+              createdAt: date,
+              updatedAt: date,
+            ),
+          );
+      await tester.pumpAndSettle();
+      expect(
+        container.read(terminalAvailableServersProvider).isLoading,
+        isTrue,
+      );
+      expect(NavigationService.currentRoute, Routes.terminal);
+      expect(tester.state(terminal), same(originalState));
+      discovery.complete(available ? sidebarTestDefaultTerminalServers() : []);
+      await tester.pumpAndSettle();
+      expect(
+        NavigationService.currentRoute,
+        available ? Routes.terminal : Routes.chat,
+      );
+      if (available) expect(tester.state(terminal), same(originalState));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final destination in [Routes.terminal, Routes.channels]) {
+    testWidgets('hidden note editor cannot redirect $destination', (
+      tester,
+    ) async {
+      final controllers = SidebarTestSidebarHarnessControllers();
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: controllers,
+          shellChat: _chat(),
+          initialLocation: '/notes/supplies',
+          noteEditor: const NoteEditorPage(noteId: 'supplies'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(NoteEditorPage), findsOneWidget);
+      NavigationService.router.go(destination);
+      await tester.pumpAndSettle();
+      expect(find.byType(NoteEditorPage, skipOffstage: false), findsOneWidget);
+      controllers.notesNotifier.setEnabled(false);
+      await tester.pumpAndSettle();
+      expect(NavigationService.currentRoute, destination);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final destination in [Routes.notes, Routes.terminal, Routes.channels]) {
     testWidgets('Android Back opens the menu then asks to exit $destination', (

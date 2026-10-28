@@ -137,7 +137,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) => DrawerShellPage(
         child: SidebarDestinationScope(
-          destination: sidebarTabForLocation(state.uri.path),
+          destination: sidebarTabRegistry[navigationShell.currentIndex].id,
           child: navigationShell,
         ),
       ),

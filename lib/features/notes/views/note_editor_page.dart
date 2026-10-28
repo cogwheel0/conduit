@@ -1174,12 +1174,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // The read-only banner names the note's owner once the account's lookup
     // exists; watching retries the lookup when it arrives.
     ref.watch(workspacePrincipalLookupProvider);
-    // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
-      // Redirect back to chat on next frame
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        // This editor can remain mounted in an inactive navigation branch.
+        if (mounted &&
+            GoRouter.of(context).routeInformationProvider.value.uri.path ==
+                '/notes/${widget.noteId}') {
           context.go('/chat');
         }
       });

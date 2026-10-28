@@ -151,7 +151,7 @@ class MacDesktopShortcuts extends ConsumerWidget {
 
     void createForActiveTab() {
       final destination = ref.read(appSettingsProvider).slidingSidebarEnabled
-          ? sidebarTabForLocation(NavigationService.currentRoute ?? '')
+          ? ref.read(sidebarSelectedHistoryTabProvider)
           : ref.read(sidebarNavigationSnapshotProvider).selectedTab;
       final action = sidebarTabDescriptor(destination).createAction;
       if (action != null) unawaited(action.run(context, ref));
