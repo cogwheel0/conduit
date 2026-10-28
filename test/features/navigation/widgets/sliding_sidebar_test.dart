@@ -131,7 +131,7 @@ void main() {
   });
 
   testWidgets(
-    'settings stay beside search and round creation stays at the bottom',
+    'backend, settings and creation stay at the bottom while history scrolls',
     (tester) async {
       final date = DateTime(2026, 1, 1);
       await tester.pumpWidget(
@@ -161,11 +161,19 @@ void main() {
         const ValueKey<String>('sidebar-search-button'),
       );
       expect(find.bySemanticsLabel('New Chat'), findsOneWidget);
+      expect(tester.getCenter(create).dy, tester.getCenter(settings).dy);
       expect(
-        tester.getTopLeft(create).dy,
-        greaterThan(tester.getBottomLeft(settings).dy),
+        tester.getCenter(settings).dy,
+        greaterThan(tester.getCenter(search).dy),
       );
-      expect(tester.getCenter(settings).dy, tester.getCenter(search).dy);
+      expect(
+        tester
+            .getCenter(
+              find.byKey(const ValueKey<String>('sidebar-backend-selector')),
+            )
+            .dy,
+        tester.getCenter(settings).dy,
+      );
       expect(
         tester.getCenter(search).dy,
         tester.getCenter(find.text('Conduit')).dy,

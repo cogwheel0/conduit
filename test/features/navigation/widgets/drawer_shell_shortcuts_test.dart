@@ -1,6 +1,7 @@
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:go_router/go_router.dart';
@@ -208,12 +209,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(sidebarTestDestinationLabel('Hermes'));
-    await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
       tester.element(find.byType(SidebarPage)),
       listen: false,
     );
+    container
+        .read(sidebarHistoryTabProvider.notifier)
+        .select(SidebarTabId.hermes);
+    await tester.pumpAndSettle();
     await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
@@ -222,6 +225,57 @@ void main() {
     expect(model, isNotNull);
     expect(isHermesModel(model!), isTrue);
   });
+
+  for (final available in [false, true]) {
+    for (final shortcut in [false, true]) {
+      testWidgets(
+        'Open WebUI New Chat overrides a Hermes default (shortcut: $shortcut, available: $available)',
+        (tester) async {
+          tester.view.physicalSize = const Size(1024, 768);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+          PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
+          PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+          PlatformUiCapabilities.debugNativeIOS26Override = false;
+          final hermes = hermesSyntheticModel();
+          const serverModel = Model(id: 'demo-model', name: 'Demo model');
+          await tester.pumpWidget(
+            sidebarTestBuildHarness(
+              controllers: SidebarTestSidebarHarnessControllers(),
+              hermesEnabled: true,
+              settings: AppSettings(defaultModel: hermes.id),
+              models: [hermes, if (available) serverModel],
+              shellChat: const Scaffold(
+                body: Focus(autofocus: true, child: Text('Chat content')),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final container = ProviderScope.containerOf(
+            tester.element(find.byType(SidebarPage)),
+            listen: false,
+          );
+          container.read(selectedModelProvider.notifier).set(hermes);
+          if (shortcut) {
+            await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+            await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+            await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+          } else {
+            await tester.tap(
+              find.byKey(const ValueKey<String>('sidebar-create-button')),
+            );
+          }
+          await tester.pumpAndSettle();
+          expect(
+            container.read(selectedModelProvider)?.id,
+            available ? serverModel.id : null,
+          );
+          expect(container.read(appSettingsProvider).defaultModel, hermes.id);
+        },
+      );
+    }
+  }
 
   for (final direct in [false, true]) {
     testWidgets('Hermes route selects its history (direct: $direct)', (

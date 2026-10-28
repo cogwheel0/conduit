@@ -46,6 +46,7 @@ import '../utils/note_context_actions.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
@@ -766,10 +767,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // not delete the note under another identity.
     if (confirmed && mounted && _isOpenSessionCurrent) {
       ConduitHaptics.mediumImpact();
+      final route = NavigationService.currentRoute;
+      final routeRevision = NavigationService.currentRouteRevision;
       final success = await ref
           .read(noteDeleterProvider.notifier)
           .deleteNote(note.id);
-      if (success && mounted) {
+      if (success &&
+          mounted &&
+          _isOpenSessionCurrent &&
+          NavigationService.currentRoute == route &&
+          NavigationService.currentRouteRevision == routeRevision) {
         context.go('/chat');
       }
     }

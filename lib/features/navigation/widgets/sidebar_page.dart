@@ -17,6 +17,8 @@ import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
+import '../../../shared/widgets/adaptive_dropdown_field.dart';
+import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
@@ -705,9 +707,7 @@ class _SlidingSidebarPage extends ConsumerWidget {
                           ? SidebarSearchAppBarLeading(
                               hintText: l10n.searchConversations,
                               maxWidth:
-                                  constraints.maxWidth -
-                                  2 * TouchTarget.minimum -
-                                  Spacing.sm,
+                                  constraints.maxWidth - TouchTarget.minimum,
                             )
                           : Text(
                               'Conduit',
@@ -721,9 +721,7 @@ class _SlidingSidebarPage extends ConsumerWidget {
                             ),
                     ),
                     if (!composeChrome)
-                      const SizedBox(
-                        width: 2 * TouchTarget.minimum + Spacing.sm,
-                      ),
+                      const SizedBox(width: TouchTarget.minimum),
                     if (composeChrome) ...[
                       ConduitAdaptiveAppBarIconButton(
                         key: const ValueKey<String>('sidebar-search-button'),
@@ -737,8 +735,6 @@ class _SlidingSidebarPage extends ConsumerWidget {
                             : openSidebarSearch(ref),
                         iconColor: theme.textPrimary,
                       ),
-                      const SizedBox(width: Spacing.sm),
-                      const SidebarProfileAppBarLeading(showSettingsIcon: true),
                     ],
                   ],
                 ),
@@ -855,40 +851,29 @@ class _SlidingSidebarPage extends ConsumerWidget {
                 ),
               ),
             ),
-            const Divider(height: 1, indent: Spacing.md, endIndent: Spacing.md),
             Padding(
               padding: const EdgeInsets.all(Spacing.md),
               child: composeChrome
                   ? Row(
                       children: [
                         Expanded(
-                          child: historyTabs.length > 1
-                              ? AdaptiveSegmentedControl(
-                                  key: const ValueKey<String>(
-                                    'sidebar-backend-selector',
-                                  ),
-                                  labels: [
-                                    for (final tab in historyTabs)
-                                      tab.id == SidebarTabId.chats
-                                          ? 'Open WebUI'
-                                          : tab.label(l10n),
-                                  ],
-                                  selectedIndex: historyTabs.indexOf(chatTab),
-                                  height: conduitScaledControlExtent(context),
-                                  onValueChanged: (index) {
-                                    closeSidebarSearch(ref);
-                                    ref
-                                        .read(
-                                          sidebarHistoryTabProvider.notifier,
-                                        )
-                                        .select(historyTabs[index].id);
-                                  },
-                                )
-                              : Text(
-                                  chatTab.id == SidebarTabId.chats
-                                      ? 'Open WebUI'
-                                      : chatTab.label(l10n),
-                                ),
+                          child: _SidebarBackendPicker(
+                            key: const ValueKey<String>(
+                              'sidebar-backend-selector',
+                            ),
+                            tabs: historyTabs,
+                            selectedTab: chatTab.id,
+                            onSelected: (tab) {
+                              closeSidebarSearch(ref);
+                              ref
+                                  .read(sidebarHistoryTabProvider.notifier)
+                                  .select(tab);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: Spacing.sm),
+                        const SidebarProfileAppBarLeading(
+                          showSettingsIcon: true,
                         ),
                         const SizedBox(width: Spacing.sm),
                         ConduitAdaptiveAppBarIconButton(
@@ -908,5 +893,97 @@ class _SlidingSidebarPage extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+/// A single backend label opens the platform's choice menu.
+class _SidebarBackendPicker extends StatelessWidget {
+  const _SidebarBackendPicker({
+    super.key,
+    required this.tabs,
+    required this.selectedTab,
+    required this.onSelected,
+  });
+
+  final List<SidebarTabDescriptor> tabs;
+  final SidebarTabId selectedTab;
+  final ValueChanged<SidebarTabId> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    String label(SidebarTabDescriptor tab) =>
+        tab.id == SidebarTabId.chats ? 'Open WebUI' : tab.label(l10n);
+    final selected = tabs.firstWhere((tab) => tab.id == selectedTab);
+    final canSwitch = tabs.length > 1;
+    final content = SizedBox(
+      height: conduitScaledControlExtent(context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+        child: Row(
+          children: [
+            if (selectedTab == SidebarTabId.chats)
+              Image.asset(
+                'assets/icons/open_webui.png',
+                width: 24,
+                height: 24,
+                excludeFromSemantics: true,
+              )
+            else
+              ImageIcon(
+                AssetImage(selected.assetName!),
+                size: 24,
+                color: theme.textPrimary,
+              ),
+            const SizedBox(width: Spacing.sm),
+            Expanded(
+              child: Text(
+                label(selected),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: theme.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (canSwitch) ...[
+              const SizedBox(width: Spacing.xs),
+              Icon(
+                Icons.expand_more_rounded,
+                size: 18,
+                color: theme.textSecondary,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+    final trigger = PlatformUiCapabilities.usesNativeIOS26
+        ? Stack(
+            children: [
+              Positioned.fill(
+                child: AdaptiveGlassBackdrop(
+                  borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+                ),
+              ),
+              content,
+            ],
+          )
+        : FloatingAppBarPill(child: content);
+    return canSwitch
+        ? AdaptiveSingleChoiceTrigger<SidebarTabId>(
+            value: selectedTab,
+            options: [
+              for (final tab in tabs)
+                AdaptiveDropdownOption(value: tab.id, label: label(tab)),
+            ],
+            onChanged: onSelected,
+            semanticLabel: label(selected),
+            child: ExcludeSemantics(child: trigger),
+          )
+        : trigger;
   }
 }

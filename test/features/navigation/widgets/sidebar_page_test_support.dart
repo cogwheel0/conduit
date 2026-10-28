@@ -126,6 +126,7 @@ Widget sidebarTestBuildHarness({
   Future<List<TerminalServerInfo>> Function()? loadTerminalServers,
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
+  List<Model> models = const [],
   AppSettingsNotifier? settingsNotifier,
   bool slidingSidebarEnabled = true,
   bool hermesOnly = false,
@@ -286,7 +287,7 @@ Widget sidebarTestBuildHarness({
       for (final entry in pendingLoadedConversations.entries)
         loadConversationProvider(entry.key).overrideWith((ref) => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
-      modelsProvider.overrideWith(SidebarTestTestModels.new),
+      modelsProvider.overrideWith(() => SidebarTestTestModels(models)),
       // ignore: scoped_providers_should_specify_dependencies
       foldersProvider.overrideWith(
         () => SidebarTestTestFolders(
@@ -784,8 +785,12 @@ class SidebarTestTestArchivedConversationPagination {
 }
 
 class SidebarTestTestModels extends Models {
+  SidebarTestTestModels([this.models = const []]);
+
+  final List<Model> models;
+
   @override
-  Future<List<Model>> build() async => const [];
+  Future<List<Model>> build() async => models;
 }
 
 class SidebarTestTestFolders extends Folders {
@@ -879,6 +884,15 @@ Future<void> sidebarTestSelectDestination(
   WidgetTester tester,
   String label,
 ) async {
+  if (label == 'Hermes' || label == 'Open WebUI') {
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-backend-selector')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(label).last);
+    await tester.pumpAndSettle();
+    return;
+  }
   if (sidebarTestDestinationLabel(label).hitTestable().evaluate().isEmpty &&
       find
           .byKey(const ValueKey<String>('destination-menu-button'))

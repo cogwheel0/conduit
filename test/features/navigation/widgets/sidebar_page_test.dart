@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/adaptive_dropdown_field.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -362,9 +363,7 @@ void main() {
     }
   });
 
-  testWidgets('persistent tablet uses vertical navigation with all five tabs', (
-    tester,
-  ) async {
+  testWidgets('tablet shows destinations and a backend picker', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
     await tester.pumpWidget(
       sidebarTestBuildHarness(
@@ -380,7 +379,7 @@ void main() {
       findsNothing,
     );
     expect(find.byType(NavigationBar), findsNothing);
-    for (final label in ['Chats', 'Hermes', 'Notes', 'Terminal', 'Channels']) {
+    for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
       expect(sidebarTestDestinationLabel(label), findsOneWidget);
     }
 
@@ -413,20 +412,35 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.byType(CNTabBar), findsNothing);
       expect(find.byType(CupertinoTabBar), findsNothing);
-      for (final label in [
-        'Chats',
-        'Hermes',
-        'Notes',
-        'Terminal',
-        'Channels',
-      ]) {
+      for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
         expect(sidebarTestDestinationLabel(label), findsOneWidget);
       }
       expect(
         tester
-            .widget<CNSegmentedControl>(find.byType(CNSegmentedControl))
-            .labels,
+            .widget<AdaptiveSingleChoiceTrigger<SidebarTabId>>(
+              find.byType(AdaptiveSingleChoiceTrigger<SidebarTabId>),
+            )
+            .options
+            .map((option) => option.label),
         ['Open WebUI', 'Hermes'],
+      );
+      final picker = find.byKey(
+        const ValueKey<String>('sidebar-backend-selector'),
+      );
+      expect(
+        find.descendant(of: picker, matching: find.text('Open WebUI')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: picker, matching: find.text('Hermes')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: picker,
+          matching: find.byType(AdaptiveGlassBackdrop),
+        ),
+        findsOneWidget,
       );
     },
   );
@@ -465,7 +479,7 @@ void main() {
   });
 
   testWidgets(
-    'Hermes bottom tab switches history without replacing the main pane',
+    'backend selection switches history without replacing the main pane',
     (tester) async {
       await tester.pumpWidget(
         sidebarTestBuildHarness(
@@ -479,10 +493,11 @@ void main() {
       expect(NavigationService.currentRoute, Routes.notes);
       await sidebarTestSelectDestination(tester, 'Hermes');
       expect(NavigationService.currentRoute, Routes.notes);
+      expect(find.text('Open WebUI'), findsNothing);
+      expect(find.text('Hermes'), findsOneWidget);
       expect(find.byType(HermesSessionsTab).hitTestable(), findsOneWidget);
       expect(find.byType(ChatsDrawer).hitTestable(), findsNothing);
-      await tester.tap(find.text('Open WebUI'));
-      await tester.pumpAndSettle();
+      await sidebarTestSelectDestination(tester, 'Open WebUI');
       expect(NavigationService.currentRoute, Routes.notes);
       expect(find.byType(ChatsDrawer).hitTestable(), findsOneWidget);
     },

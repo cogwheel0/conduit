@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import 'package:conduit_core/models/channel.dart';
+import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/services/navigation_service.dart';
@@ -13,6 +16,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
+import '../providers/sidebar_providers.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 
@@ -88,7 +92,34 @@ const channelSidebarCreateAction = SidebarCreateAction(
 
 Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
   ConduitHaptics.selectionClick();
-  chat.startNewChat(ref);
+  if (ref.read(appSettingsProvider).slidingSidebarEnabled) {
+    final epoch = ref.read(openWebUiAuthSessionEpochProvider);
+    final routeRevision = NavigationService.currentRouteRevision;
+    final selected = ref.read(selectedModelProvider);
+    final models = await ref
+        .read(modelsProvider.future)
+        .catchError((Object _) => <Model>[]);
+    if (!context.mounted ||
+        !ref.read(appSettingsProvider).slidingSidebarEnabled ||
+        ref.read(openWebUiAuthSessionEpochProvider) != epoch ||
+        NavigationService.currentRouteRevision != routeRevision ||
+        !identical(ref.read(selectedModelProvider), selected) ||
+        ref.read(sidebarSelectedHistoryTabProvider) != SidebarTabId.chats) {
+      return;
+    }
+    final candidates = chat.folderDefaultModelCandidates(models);
+    final defaultId = ref.read(appSettingsProvider).defaultModel;
+    final model =
+        candidates.where((model) => model.id == defaultId).firstOrNull ??
+        candidates.firstOrNull;
+    chat.startNewChat(
+      ref,
+      modelForNewConversation: model,
+      restoreDefault: false,
+    );
+  } else {
+    chat.startNewChat(ref);
+  }
   NavigationService.router.go(Routes.chat);
   _closeSidebarIfNeeded(context);
 }
