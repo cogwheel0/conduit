@@ -223,6 +223,49 @@ void main() {
     expect(isHermesModel(model!), isTrue);
   });
 
+  for (final direct in [false, true]) {
+    testWidgets('Hermes route selects its history (direct: $direct)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+      PlatformUiCapabilities.debugNativeIOS26Override = false;
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          hermesEnabled: true,
+          initialLocation: direct ? Routes.hermesSessions : Routes.chat,
+          shellChat: const Scaffold(
+            body: Focus(autofocus: true, child: Text('Chat content')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      if (!direct) {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+        await tester.pumpAndSettle();
+      }
+      expect(NavigationService.currentRoute, Routes.hermesSessions);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('sidebar-create-button')),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(SidebarPage)),
+        listen: false,
+      );
+      final model = container.read(selectedModelProvider);
+      expect(model, isNotNull);
+      expect(isHermesModel(model!), isTrue);
+    });
+  }
+
   testWidgets('non-Mac iOS does not install desktop shortcuts', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSAppOnMacOverride = false;

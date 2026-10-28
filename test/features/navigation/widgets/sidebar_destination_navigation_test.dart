@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit_core/services/settings_service.dart';
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 
 import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
@@ -100,8 +101,24 @@ void main() {
         (w) => w is TerminalTab && w.isActive,
         skipOffstage: false,
       ),
-      findsNothing,
+      findsOneWidget,
     );
+  });
+
+  testWidgets('legacy Notes links select the Notes tab', (tester) async {
+    final controllers = SidebarTestSidebarHarnessControllers();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        shellChat: _chat(),
+        slidingSidebarEnabled: false,
+        initialLocation: Routes.notes,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(NavigationService.currentRoute, Routes.chat);
+    expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
+    expect(find.byType(NotesListTab).hitTestable(), findsOneWidget);
   });
 
   testWidgets('disabling the layout preserves an open note detail', (

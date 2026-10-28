@@ -59,6 +59,27 @@ class _SidebarDestinationPageState
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
   bool _searchExpanded = false;
+  bool _wasActive = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final active = SidebarDestinationScope.isActive(
+      context,
+      widget.destination,
+    );
+    if (active && !_wasActive && widget.destination == SidebarTabId.hermes) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            SidebarDestinationScope.isActive(context, widget.destination)) {
+          ref
+              .read(sidebarHistoryTabProvider.notifier)
+              .select(SidebarTabId.hermes);
+        }
+      });
+    }
+    _wasActive = active;
+  }
 
   void _toggleSearch() {
     setState(() => _searchExpanded = !_searchExpanded);
@@ -113,6 +134,11 @@ class _SidebarDestinationPageState
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted &&
               SidebarDestinationScope.isActive(context, widget.destination)) {
+            if (!enabled && navigation.tabs.contains(widget.destination)) {
+              ref
+                  .read(sidebarActiveTabProvider.notifier)
+                  .set(widget.destination);
+            }
             NavigationService.router.go(Routes.chat);
           }
         });
