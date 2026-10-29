@@ -99,10 +99,10 @@ class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
   Widget build(BuildContext context) {
     return FutureBuilder<Uint8List>(
       future: _image,
-      builder: (context, snapshot) =>
-          snapshot.connectionState == ConnectionState.done
-          ? _buildButton(context, snapshot.data)
-          : SizedBox(height: widget.height),
+      builder: (context, snapshot) => _buildButton(
+        context,
+        snapshot.connectionState == ConnectionState.done ? snapshot.data : null,
+      ),
     );
   }
 
@@ -114,6 +114,7 @@ class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
         key: ValueKey((
           widget.label,
           widget.assetName,
+          image,
           widget.options.join('\u0000'),
           widget.selectedIndex,
           widget.foregroundColor,

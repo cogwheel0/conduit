@@ -268,6 +268,17 @@ void main() {
         await tester.pumpAndSettle();
         if (native) {
           final picker = find.byType(NativeGlassMenuButton);
+          final loadingView = tester.widget<UiKitView>(
+            find.descendant(of: picker, matching: find.byType(UiKitView)),
+          );
+          expect(
+            (loadingView.creationParams as Map)['buttonTitle'],
+            'Open WebUI',
+          );
+          expect(
+            (loadingView.creationParams as Map).containsKey('buttonImageData'),
+            isFalse,
+          );
           final imageLoader = tester.widget<FutureBuilder<Uint8List>>(
             find.descendant(
               of: picker,
@@ -279,6 +290,7 @@ void main() {
           final view = tester.widget<UiKitView>(
             find.descendant(of: picker, matching: find.byType(UiKitView)),
           );
+          expect(view.key, isNot(loadingView.key));
           expect(view.viewType, 'CupertinoNativePopupMenuButton');
           expect((view.creationParams as Map)['buttonTitle'], 'Open WebUI');
           final params = view.creationParams as Map;
