@@ -3929,6 +3929,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Podpora",
   "settingsDataAndConnection": "Data a připojení",
+  "slidingSidebar": "Vysouvací postranní panel",
+  "slidingSidebarDescription": "Otevírat Poznámky, Terminál a Kanály vedle historie chatů.",
   "settingsAppearance": "Vzhled",
   "settingsAppearanceSubtitle": "Motiv, paleta barev a jazyk",
   "settingsChatSubtitle": "Chování chatu, rychlé akce a pokročilé prompty",

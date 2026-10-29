@@ -46,6 +46,7 @@ import '../utils/note_context_actions.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
@@ -766,10 +767,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // not delete the note under another identity.
     if (confirmed && mounted && _isOpenSessionCurrent) {
       ConduitHaptics.mediumImpact();
+      final route = NavigationService.currentRoute;
+      final routeRevision = NavigationService.currentRouteRevision;
       final success = await ref
           .read(noteDeleterProvider.notifier)
           .deleteNote(note.id);
-      if (success && mounted) {
+      if (success &&
+          mounted &&
+          _isOpenSessionCurrent &&
+          NavigationService.currentRoute == route &&
+          NavigationService.currentRouteRevision == routeRevision) {
         context.go('/chat');
       }
     }
@@ -1174,12 +1181,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // The read-only banner names the note's owner once the account's lookup
     // exists; watching retries the lookup when it arrives.
     ref.watch(workspacePrincipalLookupProvider);
-    // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
-      // Redirect back to chat on next frame
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        // This editor can remain mounted in an inactive navigation branch.
+        if (mounted &&
+            GoRouter.of(context).routeInformationProvider.value.uri.path ==
+                '/notes/${widget.noteId}') {
           context.go('/chat');
         }
       });

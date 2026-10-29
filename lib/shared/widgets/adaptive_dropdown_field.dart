@@ -224,12 +224,15 @@ class AdaptiveSingleChoiceTrigger<T> extends StatelessWidget {
         }
       },
     );
+    final accessibleMenu = semanticLabel == null
+        ? menu
+        : Semantics(button: true, label: semanticLabel, child: menu);
     final replacement = fallbackReplacement;
     return replacement == null
-        ? menu
+        ? accessibleMenu
         : ThemedSheets.hideNativeChromeWhileCovered(
             replacement: replacement,
-            child: menu,
+            child: accessibleMenu,
           );
   }
 

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui' show Tristate;
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -15,6 +14,7 @@ import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -27,6 +27,8 @@ import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_tab_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
@@ -46,31 +48,25 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:conduit_core/testing.dart';
 
-/// Label within [NavigationBar] built by Conduit platform UI from
-/// [AdaptiveBottomNavigationBar.items].
-Finder sidebarTestBottomNavTabLabel(String label) =>
-    find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
+/// Label in the sidebar destination list.
+Finder sidebarTestDestinationLabel(String label) => find.descendant(
+  of: find.byKey(
+    ValueKey<String>(
+      label == 'Hermes' ? 'sidebar-backend-selector' : 'sidebar-destinations',
+    ),
+  ),
+  matching: find.text(label),
+);
 
 enum SidebarTestSidebarTabLayer { chats, terminal, notes, channels }
 
 Finder sidebarTestLayerRootFinder(SidebarTestSidebarTabLayer layer) =>
-    find.byKey(ValueKey<String>('sidebar-tab-layer-${layer.name}'));
-
-Finder sidebarTestLayerOpacityFinder(SidebarTestSidebarTabLayer layer) {
-  final childType = switch (layer) {
-    SidebarTestSidebarTabLayer.chats => ChatsDrawer,
-    SidebarTestSidebarTabLayer.terminal => TerminalTab,
-    SidebarTestSidebarTabLayer.notes => NotesListTab,
-    SidebarTestSidebarTabLayer.channels => ChannelListTab,
-  };
-
-  return find.descendant(
-    of: sidebarTestLayerRootFinder(layer),
-    matching: find.byWidgetPredicate(
-      (widget) => widget is Opacity && widget.child.runtimeType == childType,
-    ),
-  );
-}
+    switch (layer) {
+      SidebarTestSidebarTabLayer.chats => find.byType(ChatsDrawer),
+      SidebarTestSidebarTabLayer.notes => find.byType(NotesListTab),
+      SidebarTestSidebarTabLayer.channels => find.byType(ChannelListTab),
+      SidebarTestSidebarTabLayer.terminal => find.byType(TerminalTab),
+    };
 
 Finder sidebarTestCheckEmptyStateRefreshButtonBelow(
   WidgetTester tester, {
@@ -127,8 +123,15 @@ Widget sidebarTestBuildHarness({
   bool showArchived = false,
   List<Folder> folders = const [],
   List<TerminalServerInfo>? terminalServers,
+  Future<List<TerminalServerInfo>> Function()? loadTerminalServers,
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
+  List<Model> models = const [],
+  Future<List<Model>>? pendingModels,
+  Model? cachedDefaultModel,
+  Future<String?> Function()? loadServerDefaultModel,
+  AppSettingsNotifier? settingsNotifier,
+  bool slidingSidebarEnabled = true,
   bool hermesOnly = false,
   bool hermesEnabled = false,
   List<HermesJob> hermesJobs = const [],
@@ -147,43 +150,78 @@ Widget sidebarTestBuildHarness({
   // Builds the app's shell around [shellChat] instead, with the sidebar as
   // its drawer.
   Widget? shellChat,
+  Widget? appearancePage,
+  Widget? noteEditor,
+  String? initialLocation,
 }) {
   final availableTerminalServers =
       terminalServers ?? sidebarTestDefaultTerminalServers();
   final router = GoRouter(
-    initialLocation: '/chat',
+    initialLocation:
+        initialLocation ??
+        sidebarTabDescriptor(controllers.activeTabNotifier.initialValue)
+            .location,
     routes: [
-      if (shellChat != null)
-        ShellRoute(
-          builder: (context, state, child) => DrawerShellPage(child: child),
-          routes: [
-            GoRoute(
-              path: '/chat',
-              name: RouteNames.chat,
-              builder: (context, state) => shellChat,
-            ),
-          ],
-        )
-      else
+      if (appearancePage != null)
         GoRoute(
-          path: '/chat',
-          name: RouteNames.chat,
-          builder: (context, state) => const Scaffold(body: SidebarPage()),
+          path: Routes.appearanceSettings,
+          builder: (_, _) => appearancePage,
         ),
-      GoRoute(
-        path: '/folder/:id',
-        name: RouteNames.folder,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
-      ),
-      GoRoute(
-        path: '/notes/:id',
-        name: RouteNames.noteEditor,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
-      ),
-      GoRoute(
-        path: '/channel/:id',
-        name: RouteNames.channel,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          final content = SidebarDestinationScope(
+            destination: sidebarTabRegistry[navigationShell.currentIndex].id,
+            child: navigationShell,
+          );
+          return shellChat != null || navigationShell.currentIndex != 0
+              ? DrawerShellPage(child: content)
+              : content;
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/chat',
+                name: RouteNames.chat,
+                builder: (context, state) =>
+                    shellChat ?? const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.folder,
+                name: RouteNames.folder,
+                builder: (context, state) =>
+                    const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.noteEditor,
+                name: RouteNames.noteEditor,
+                builder: (context, state) =>
+                    noteEditor ?? const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.channel,
+                name: RouteNames.channel,
+                builder: (context, state) =>
+                    const Scaffold(body: SidebarPage()),
+              ),
+            ],
+          ),
+          for (final tab in sidebarTabRegistry.where(
+            (tab) => tab.id != SidebarTabId.chats,
+          ))
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: tab.location,
+                  name: tab.id == SidebarTabId.hermes
+                      ? RouteNames.hermesSessions
+                      : tab.id.name,
+                  builder: (context, state) =>
+                      SidebarDestinationPage(destination: tab.id),
+                ),
+              ],
+            ),
+        ],
       ),
     ],
   );
@@ -192,6 +230,8 @@ Widget sidebarTestBuildHarness({
   return ProviderScope(
     overrides: [
       ...openWebUiStorageOpenOverrides(open: openWebUiStorageOpen),
+      if (noteEditor != null)
+        connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
       if (syncStatus != null)
         syncEngineProvider.overrideWith(
           () => SidebarTestFixedSyncEngine(syncStatus),
@@ -202,10 +242,19 @@ Widget sidebarTestBuildHarness({
         SidebarTestNoopOpenWebUiAccountStorageIsolation.new,
       ),
       // ignore: scoped_providers_should_specify_dependencies
-      appSettingsProvider.overrideWithValue(settings),
+      if (settingsNotifier != null)
+        appSettingsProvider.overrideWith(() => settingsNotifier)
+      else
+        appSettingsProvider.overrideWithValue(
+          settings.copyWith(slidingSidebarEnabled: slidingSidebarEnabled),
+        ),
       // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(
-        hasApiService ? SidebarTestSidebarApiService() : null,
+        hasApiService
+            ? SidebarTestSidebarApiService(
+                loadServerDefaultModel: loadServerDefaultModel,
+              )
+            : null,
       ),
       // The production auth provider is deliberately incomplete in this
       // narrow harness; keep its account-generation boundary deterministic.
@@ -245,7 +294,9 @@ Widget sidebarTestBuildHarness({
       for (final entry in pendingLoadedConversations.entries)
         loadConversationProvider(entry.key).overrideWith((ref) => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
-      modelsProvider.overrideWith(SidebarTestTestModels.new),
+      modelsProvider.overrideWith(
+        () => SidebarTestTestModels(models, pendingModels),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       foldersProvider.overrideWith(
         () => SidebarTestTestFolders(
@@ -266,7 +317,7 @@ Widget sidebarTestBuildHarness({
       ),
       // ignore: scoped_providers_should_specify_dependencies
       optimizedStorageServiceProvider.overrideWithValue(
-        SidebarTestFakeOptimizedStorageService(),
+        SidebarTestFakeOptimizedStorageService(cachedDefaultModel),
       ),
       // ignore: scoped_providers_should_specify_dependencies
       showPinnedProvider.overrideWith(
@@ -304,11 +355,12 @@ Widget sidebarTestBuildHarness({
       ),
       // ignore: scoped_providers_should_specify_dependencies
       terminalAvailableServersProvider.overrideWith((ref) async {
+        ref.watch(terminalSessionScopeIdProvider);
         final error = terminalServersError;
         if (error != null) {
           throw error;
         }
-        return availableTerminalServers;
+        return loadTerminalServers?.call() ?? availableTerminalServers;
       }),
     ],
     child: MaterialApp.router(
@@ -333,6 +385,13 @@ Widget sidebarTestBuildHarness({
 }
 
 final class SidebarTestSidebarApiService extends Mock implements ApiService {
+  SidebarTestSidebarApiService({this.loadServerDefaultModel});
+
+  final Future<String?> Function()? loadServerDefaultModel;
+
+  @override
+  Future<String?> getDefaultModel() async => loadServerDefaultModel?.call();
+
   @override
   Future<List<Conversation>> searchConversations(String query) async =>
       const <Conversation>[];
@@ -742,8 +801,13 @@ class SidebarTestTestArchivedConversationPagination {
 }
 
 class SidebarTestTestModels extends Models {
+  SidebarTestTestModels([this.models = const [], this.pending]);
+
+  final List<Model> models;
+  final Future<List<Model>>? pending;
+
   @override
-  Future<List<Model>> build() async => const [];
+  Future<List<Model>> build() => pending ?? Future.value(models);
 }
 
 class SidebarTestTestFolders extends Folders {
@@ -787,6 +851,13 @@ class SidebarTestTestChannelsList extends ChannelsList {
 
 class SidebarTestFakeOptimizedStorageService extends Fake
     implements OptimizedStorageService {
+  SidebarTestFakeOptimizedStorageService([this.defaultModel]);
+
+  final Model? defaultModel;
+
+  @override
+  Future<Model?> getLocalDefaultModel() async => defaultModel;
+
   @override
   Future<void> saveLocalDefaultModel(Model? model) async {}
 }
@@ -831,4 +902,32 @@ class SidebarTestTestShowArchivedNotifier extends ShowArchivedNotifier {
 
   @override
   bool build() => initialValue;
+}
+
+Future<void> sidebarTestSelectDestination(
+  WidgetTester tester,
+  String label,
+) async {
+  if (label == 'Hermes' || label == 'Open WebUI') {
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-backend-selector')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(label).last);
+    await tester.pumpAndSettle();
+    return;
+  }
+  if (sidebarTestDestinationLabel(label).hitTestable().evaluate().isEmpty &&
+      find
+          .byKey(const ValueKey<String>('destination-menu-button'))
+          .evaluate()
+          .isNotEmpty) {
+    await tester.tap(
+      find.byKey(const ValueKey<String>('destination-menu-button')),
+    );
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(sidebarTestDestinationLabel(label));
+  await tester.tap(sidebarTestDestinationLabel(label));
+  await tester.pumpAndSettle();
 }

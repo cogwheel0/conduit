@@ -47,7 +47,9 @@ IconData _notesListDisclosureIcon(bool isExpanded) {
 
 /// Simplified notes list for the sidebar Notes tab.
 class NotesListTab extends ConsumerStatefulWidget {
-  const NotesListTab({super.key});
+  const NotesListTab({super.key, this.searchController});
+
+  final TextEditingController? searchController;
 
   @override
   ConsumerState<NotesListTab> createState() => _NotesListTabState();
@@ -330,7 +332,9 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     // account's permissions arrive or change.
     ref.watch(workspaceCapabilitiesProvider);
     final l10n = AppLocalizations.of(context)!;
-    final searchController = ref.watch(sidebarSearchFieldControllerProvider);
+    final TextEditingController searchController =
+        widget.searchController ??
+        ref.watch(sidebarSearchFieldControllerProvider);
 
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: searchController,

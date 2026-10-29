@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
@@ -6,6 +8,169 @@ import 'package:flutter/services.dart';
 
 import 'adaptive_controls.dart';
 import 'platform_ui_capabilities.dart';
+
+/// Image-and-label variant of the package's native popup menu control.
+///
+/// Its UIKit view supports both, while the package's Flutter constructors
+/// currently expose separate label-only and image-only variants.
+class NativeGlassMenuButton extends StatefulWidget {
+  const NativeGlassMenuButton({
+    super.key,
+    required this.label,
+    required this.assetName,
+    required this.options,
+    required this.selectedIndex,
+    required this.onSelected,
+    required this.foregroundColor,
+    required this.height,
+    this.imageTint,
+  });
+
+  final String label;
+  final String assetName;
+  final List<String> options;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final Color foregroundColor;
+  final Color? imageTint;
+  final double height;
+
+  @override
+  State<NativeGlassMenuButton> createState() => _NativeGlassMenuButtonState();
+}
+
+class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
+  static const _iconSize = 24.0;
+
+  MethodChannel? _channel;
+  AssetBundle? _bundle;
+  double? _imageScale;
+  late Future<Uint8List> _image;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bundle = DefaultAssetBundle.of(context);
+    final scale = MediaQuery.devicePixelRatioOf(context);
+    if (identical(bundle, _bundle) && scale == _imageScale) return;
+    _bundle = bundle;
+    _imageScale = scale;
+    _image = _loadImage();
+  }
+
+  @override
+  void didUpdateWidget(covariant NativeGlassMenuButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.assetName != widget.assetName) _image = _loadImage();
+  }
+
+  Future<Uint8List> _loadImage() async {
+    final pixels = (_iconSize * _imageScale!).round();
+    final data = await _bundle!.load(widget.assetName);
+    // UIKit's asset-path loader does not resize raster images. Keep both their
+    // intrinsic 24-point size and original colors by supplying scaled pixels.
+    final codec = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      targetWidth: pixels,
+      targetHeight: pixels,
+    );
+    try {
+      final frame = await codec.getNextFrame();
+      try {
+        final png = await frame.image.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
+        return png!.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes);
+      } finally {
+        frame.image.dispose();
+      }
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: _image,
+      builder: (context, snapshot) {
+        // Do not replace an open native menu when its logo finishes loading.
+        if (snapshot.connectionState != ConnectionState.done) {
+          return AdaptiveButton(
+            onPressed: null,
+            label: widget.label,
+            textColor: widget.foregroundColor,
+            style: AdaptiveButtonStyle.glass,
+            minSize: Size(0, widget.height),
+          );
+        }
+        return _buildButton(context, snapshot.data);
+      },
+    );
+  }
+
+  Widget _buildButton(BuildContext context, Uint8List? image) {
+    final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    return SizedBox(
+      height: widget.height,
+      child: UiKitView(
+        key: ValueKey((
+          widget.label,
+          widget.assetName,
+          image,
+          widget.options.join('\u0000'),
+          widget.selectedIndex,
+          widget.foregroundColor,
+          widget.imageTint,
+          _imageScale,
+          _bundle,
+          isDark,
+        )),
+        viewType: 'CupertinoNativePopupMenuButton',
+        creationParams: <String, Object?>{
+          'buttonTitle': widget.label,
+          'buttonImageData': ?image,
+          'buttonIconSize': _iconSize,
+          if (widget.imageTint != null)
+            'buttonIconColor': widget.imageTint!.toARGB32(),
+          'buttonStyle': CNButtonStyle.glass.name,
+          'labels': widget.options,
+          'checked': [
+            for (var i = 0; i < widget.options.length; i++)
+              i == widget.selectedIndex,
+          ],
+          'isDark': isDark,
+          'style': {'tint': widget.foregroundColor.toARGB32()},
+          'preserveTopToBottomOrder': true,
+        },
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: _onPlatformViewCreated,
+        gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+          Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
+        },
+      ),
+    );
+  }
+
+  void _onPlatformViewCreated(int id) {
+    _channel?.setMethodCallHandler(null);
+    final channel = MethodChannel('CupertinoNativePopupMenuButton_$id');
+    _channel = channel;
+    channel.setMethodCallHandler((call) async {
+      if (!mounted || call.method != 'itemSelected') return;
+      final index = ((call.arguments as Map?)?['index'] as num?)?.toInt();
+      if (index != null && index >= 0 && index < widget.options.length) {
+        widget.onSelected(index);
+      }
+    });
+  }
+}
 
 /// An icon-only native glass button whose system halo may paint beyond its
 /// layout bounds while retaining a bounded hit target.

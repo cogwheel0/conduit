@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:conduit_core/services/settings_service.dart';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +15,8 @@ import '../../../shared/widgets/sidebar_layout_constants.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 
 import '../providers/sidebar_providers.dart';
 import '../utils/chat_list_back.dart';
@@ -20,6 +24,7 @@ import 'responsive_drawer_layout.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'sidebar_page.dart';
 import 'sidebar_tab_registry.dart';
+import '../../terminal/providers/terminal_providers.dart';
 
 /// Shell widget that wraps child routes with a persistent
 /// [ResponsiveDrawerLayout] + [SidebarPage] drawer.
@@ -38,6 +43,9 @@ class DrawerShellPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isTablet = usesPersistentTabletSidebar(context);
+    final sliding = ref.watch(
+      appSettingsProvider.select((s) => s.slidingSidebarEnabled),
+    );
     final tabletWidth = ref.watch(sidebarTabletWidthProvider);
     final localizations = AppLocalizations.of(context)!;
     final scrim = Platform.isIOS
@@ -45,7 +53,12 @@ class DrawerShellPage extends ConsumerWidget {
         : context.colorTokens.scrimStrong;
 
     return ResponsiveDrawerLayout(
-      maxFraction: isTablet ? 0.42 : 1.0,
+      maxFraction: isTablet
+          ? 0.42
+          : sliding
+          ? 0.84
+          : 1.0,
+      roundPushedContent: sliding,
       edgeFraction: isTablet ? 0.36 : 1.0,
       settleFraction: 0.06,
       scrimColor: scrim,
@@ -94,6 +107,35 @@ class SidebarOverlayDismissListener extends ConsumerWidget {
     ref.listen(sidebarOverlayDismissRequestProvider, (_, _) {
       closeSidebarDrawerIfOverlay(context);
     });
+    void displayRequestedFile() {
+      if (!ref.read(appSettingsProvider).slidingSidebarEnabled ||
+          ref.read(terminalDisplayFileProvider) == null) {
+        return;
+      }
+      final hasBackend =
+          !ref.read(hermesOnlyModeProvider) &&
+          ref.read(openWebUiAccountAvailableProvider);
+      final servers = ref.read(terminalAvailableServersProvider);
+      if (hasBackend && (servers.isLoading || servers.hasError)) return;
+      if (!hasBackend || servers.requireValue.isEmpty) {
+        ref.read(terminalDisplayFileProvider.notifier).clear();
+        return;
+      }
+      if (NavigationService.currentRoute != Routes.terminal) {
+        NavigationService.router.go(Routes.terminal);
+      }
+      closeSidebarDrawerIfOverlay(context);
+    }
+
+    ref.listen(terminalDisplayFileProvider, (_, _) => displayRequestedFile());
+    ref.listen(
+      terminalAvailableServersProvider,
+      (_, _) => displayRequestedFile(),
+    );
+    ref.listen(
+      sidebarNavigationSnapshotProvider,
+      (_, _) => displayRequestedFile(),
+    );
     return child;
   }
 }
@@ -108,8 +150,10 @@ class MacDesktopShortcuts extends ConsumerWidget {
     if (!PlatformInfo.isIOSAppOnMac) return child;
 
     void createForActiveTab() {
-      final navigation = ref.read(sidebarNavigationSnapshotProvider);
-      final action = sidebarTabDescriptor(navigation.selectedTab).createAction;
+      final destination = ref.read(appSettingsProvider).slidingSidebarEnabled
+          ? ref.read(sidebarSelectedHistoryTabProvider)
+          : ref.read(sidebarNavigationSnapshotProvider).selectedTab;
+      final action = sidebarTabDescriptor(destination).createAction;
       if (action != null) unawaited(action.run(context, ref));
     }
 

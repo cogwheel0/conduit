@@ -1792,6 +1792,8 @@
   "settingsCategoryServer": "서버",
   "settingsCategorySupport": "지원",
   "settingsDataAndConnection": "데이터 및 연결",
+  "slidingSidebar": "슬라이딩 사이드바",
+  "slidingSidebarDescription": "채팅 기록 옆에서 메모, 터미널, 채널을 엽니다.",
   "settingsAppearance": "모양",
   "settingsAppearanceSubtitle": "테마, 색상 팔레트 및 언어",
   "settingsChatSubtitle": "채팅 동작, 빠른 작업 및 고급 프롬프트",

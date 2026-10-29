@@ -2014,6 +2014,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Ondersteuning",
   "settingsDataAndConnection": "Gegevens en verbinding",
+  "slidingSidebar": "Uitschuifbare zijbalk",
+  "slidingSidebarDescription": "Open Notities, Terminal en Kanalen naast de chatgeschiedenis.",
   "settingsAppearance": "Weergave",
   "settingsAppearanceSubtitle": "Thema, kleurenpalet en taal",
   "settingsChatSubtitle": "Chatgedrag, snelle acties en geavanceerde prompts",

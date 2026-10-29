@@ -9,6 +9,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
@@ -30,6 +31,7 @@ import 'package:drift/native.dart';
 import 'package:fleather/fleather.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../support/test_fonts.dart';
@@ -130,6 +132,17 @@ class _DetailApi extends ApiService {
   }
 }
 
+class _DelayedNoteDeleter extends NoteDeleter {
+  final result = Completer<bool>();
+  int calls = 0;
+
+  @override
+  Future<bool> deleteNote(String id) {
+    calls++;
+    return result.future;
+  }
+}
+
 Map<String, dynamic> _noteJson({
   required bool writeAccess,
   String owner = 'creator',
@@ -192,11 +205,13 @@ void main() {
     WidgetTester tester,
     _DetailApi api, {
     Map<String, String> userNames = const {},
+    NoteDeleter? deleter,
   }) async {
     final container = ProviderContainer(
       // A provider that errors would otherwise schedule a retry timer.
       retry: (_, _) => null,
       overrides: [
+        if (deleter != null) noteDeleterProvider.overrideWith(() => deleter),
         appDatabaseProvider.overrideWith((ref) => db),
         apiServiceProvider.overrideWithValue(api),
         isAuthenticatedProvider2.overrideWithValue(true),
@@ -542,6 +557,93 @@ void main() {
       contains('original'),
     );
   });
+
+  for (final navigation in ['stay', 'leave', 'return']) {
+    testWidgets('pending note deletion respects navigation: $navigation', (
+      tester,
+    ) async {
+      final deleter = _DelayedNoteDeleter();
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      final container = await pumpEditor(
+        tester,
+        _DetailApi(detail: note),
+        deleter: deleter,
+      );
+      final router = GoRouter(
+        initialLocation: '/notes/note-1',
+        routes: [
+          StatefulShellRoute.indexedStack(
+            builder: (_, _, shell) => shell,
+            branches: [
+              StatefulShellBranch(
+                initialLocation: '/notes/note-1',
+                routes: [
+                  GoRoute(
+                    path: '/notes/:id',
+                    builder: (_, _) => const NoteEditorPage(noteId: 'note-1'),
+                  ),
+                ],
+              ),
+              StatefulShellBranch(
+                routes: [
+                  GoRoute(
+                    path: '/other',
+                    builder: (_, _) => const Scaffold(body: Text('Other page')),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/chat',
+            builder: (_, _) => const Scaffold(body: Text('Chat')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final delete = l10n(tester).delete;
+      await tester.tap(find.byIcon(Icons.more_vert_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(delete));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(delete));
+      await tester.pumpAndSettle();
+      expect(deleter.calls, 1);
+      if (navigation != 'stay') {
+        router.go('/other');
+        await tester.pumpAndSettle();
+        if (navigation == 'return') {
+          router.go('/notes/note-1');
+          await tester.pumpAndSettle();
+        }
+      }
+      deleter.result.complete(true);
+      await tester.pumpAndSettle();
+      expect(
+        router.routeInformationProvider.value.uri.path,
+        navigation == 'stay'
+            ? '/chat'
+            : navigation == 'return'
+            ? '/notes/note-1'
+            : '/other',
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   group('note Share menu', () {
     Future<void> openOverflow(WidgetTester tester) async {

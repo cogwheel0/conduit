@@ -2028,6 +2028,8 @@
   "settingsCategoryServer": "Сервер",
   "settingsCategorySupport": "Поддержка",
   "settingsDataAndConnection": "Данные и подключение",
+  "slidingSidebar": "Выдвижная боковая панель",
+  "slidingSidebarDescription": "Открывать заметки, терминал и каналы рядом с историей чатов.",
   "settingsAppearance": "Оформление",
   "settingsAppearanceSubtitle": "Тема, цветовая палитра и язык",
   "settingsChatSubtitle": "Поведение чата, быстрые действия и расширенные промпты",

@@ -2014,6 +2014,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Supporto",
   "settingsDataAndConnection": "Dati e connessione",
+  "slidingSidebar": "Barra laterale scorrevole",
+  "slidingSidebarDescription": "Apri Note, Terminale e Canali accanto alla cronologia delle chat.",
   "settingsAppearance": "Aspetto",
   "settingsAppearanceSubtitle": "Tema, tavolozza colori e lingua",
   "settingsChatSubtitle": "Comportamento chat, azioni rapide e prompt avanzati",

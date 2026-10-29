@@ -26,8 +26,9 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
-import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
+import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
+import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,13 +44,24 @@ void main() {
     final controllers = SidebarTestSidebarHarnessControllers(
       initialTab: SidebarTabId.notes,
     );
-    await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        initialLocation: Routes.notes,
+      ),
+    );
     await tester.pumpAndSettle();
 
     final context = tester.element(find.byType(SidebarPage));
     final l10n = AppLocalizations.of(context)!;
     expect(find.text(l10n.noNotesYet), findsOneWidget);
-    expect(find.text(l10n.createNote), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(NotesListTab),
+        matching: find.text(l10n.createNote),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('notes and channels use flat chat-style sidebar rows', (
@@ -82,6 +94,7 @@ void main() {
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: controllers,
+        initialLocation: Routes.notes,
         conversations: [conversation],
         notes: const [note],
         channels: const [channel],
@@ -106,7 +119,7 @@ void main() {
       find.descendant(of: noteRow, matching: find.text('Flat Note')),
     );
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Chats'));
+    await sidebarTestSelectDestination(tester, 'Chats');
     await tester.pumpAndSettle();
     final chatRect = tester.getRect(
       find.byKey(
@@ -114,13 +127,11 @@ void main() {
       ),
     );
     final chatTitle = tester.widget<Text>(find.text('Flat Chat'));
-    expect(noteRect.left, chatRect.left);
-    expect(noteRect.right, chatRect.right);
     expect(noteRect.height, chatRect.height);
     expect(noteTitle.style?.fontSize, AppTypography.sidebarTitleStyle.fontSize);
     expect(noteTitle.style?.fontSize, chatTitle.style?.fontSize);
 
-    await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
+    await sidebarTestSelectDestination(tester, 'Channels');
     await tester.pumpAndSettle();
     final channelRow = find.byKey(
       const ValueKey<String>('channel-sidebar-row-flat-channel'),
@@ -138,8 +149,6 @@ void main() {
     final channelTitle = tester.widget<Text>(
       find.descendant(of: channelRow, matching: find.text('Flat Channel')),
     );
-    expect(channelRect.left, chatRect.left);
-    expect(channelRect.right, chatRect.right);
     expect(channelRect.height, chatRect.height);
     expect(
       channelTitle.style?.fontSize,
@@ -165,6 +174,7 @@ void main() {
       sidebarTestBuildHarness(
         controllers: controllers,
         channels: const [channel],
+        initialLocation: Routes.channels,
       ),
     );
     await tester.pumpAndSettle();
@@ -201,6 +211,7 @@ void main() {
       sidebarTestBuildHarness(
         controllers: controllers,
         channels: const [muted, loud],
+        initialLocation: Routes.channels,
       ),
     );
     await tester.pumpAndSettle();
@@ -231,10 +242,10 @@ void main() {
           ),
         )
         .actions;
-    expect(
-      actions.take(2).map((action) => action.label),
-      ['All messages', 'Mentions only'],
-    );
+    expect(actions.take(2).map((action) => action.label), [
+      'All messages',
+      'Mentions only',
+    ]);
     // The current choice carries the check.
     expect(actions[1].materialIcon, Icons.check_rounded);
     expect(actions[0].materialIcon, isNot(Icons.check_rounded));
@@ -257,7 +268,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      sidebarTestBuildHarness(controllers: controllers, notes: const [note]),
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        notes: const [note],
+        initialLocation: Routes.notes,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -313,7 +328,12 @@ void main() {
       initialTab: SidebarTabId.channels,
     );
 
-    await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        initialLocation: Routes.channels,
+      ),
+    );
 
     final initialChannelState = tester.state(find.byType(ChannelListTab));
 
@@ -333,39 +353,43 @@ void main() {
     expect(channelStateWithNotesAgain, same(initialChannelState));
   });
 
-  testWidgets('profile app bar leading stays visible across sidebar tabs', (
-    tester,
-  ) async {
-    final controllers = SidebarTestSidebarHarnessControllers();
-    const user = User(
-      id: 'user-1',
-      username: 'ava',
-      email: 'ava@example.com',
-      name: 'Ava',
-      role: 'user',
-    );
-
-    await tester.pumpWidget(
-      sidebarTestBuildHarness(controllers: controllers, currentUser: user),
-    );
-
-    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
-
-    await tester.tap(sidebarTestBottomNavTabLabel('Terminal'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
-
-    await tester.tap(sidebarTestBottomNavTabLabel('Notes'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
-
-    await tester.tap(sidebarTestBottomNavTabLabel('Channels'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SidebarProfileAppBarLeading), findsOneWidget);
-  });
+  testWidgets(
+    'settings are available whenever a destination reopens the sidebar',
+    (tester) async {
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          currentUser: const User(
+            id: 'demo',
+            username: 'demo',
+            name: 'Demo Account',
+            email: 'demo@example.test',
+            role: 'user',
+          ),
+        ),
+      );
+      for (final label in ['Terminal', 'Notes', 'Channels']) {
+        await sidebarTestSelectDestination(tester, label);
+        if (!tester
+            .state<ResponsiveDrawerLayoutState>(
+              find.byType(ResponsiveDrawerLayout),
+            )
+            .isOpen) {
+          await tester.tap(
+            find.byKey(const ValueKey<String>('destination-menu-button')),
+          );
+          await tester.pumpAndSettle();
+        }
+        expect(
+          find
+              .byKey(const ValueKey<String>('sidebar-settings-button'))
+              .hitTestable(),
+          findsOneWidget,
+        );
+        expect(find.bySemanticsLabel('New Chat').hitTestable(), findsOneWidget);
+      }
+    },
+  );
 
   testWidgets('Hermes-only profile entry renders without an OpenWebUI user', (
     tester,
@@ -924,7 +948,7 @@ void main() {
     expect(find.text('Settings destination'), findsOneWidget);
   });
 
-  testWidgets('sidebar material app bar uses the compact toolbar height', (
+  testWidgets('sidebar header keeps branding above its navigation', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
@@ -940,9 +964,10 @@ void main() {
       sidebarTestBuildHarness(controllers: controllers, currentUser: user),
     );
 
-    final appBar = tester.widget<AppBar>(find.byType(AppBar));
-
-    expect(appBar.toolbarHeight, kTextTabBarHeight);
+    expect(
+      tester.getBottomLeft(find.text('Conduit')).dy,
+      lessThan(tester.getTopLeft(sidebarTestDestinationLabel('Chats')).dy),
+    );
   });
 
   testWidgets('closing expanded search clears the active filter', (
@@ -995,7 +1020,9 @@ void main() {
     expect(find.text('Alpha Chat'), findsNothing);
     expect(find.text('Beta Chat'), findsNothing);
 
-    await tester.tap(find.byType(ConduitAdaptiveAppBarIconButton));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-search-button')),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Alpha Chat'), findsOneWidget);

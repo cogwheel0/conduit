@@ -99,6 +99,27 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
         _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
+        _sectionGap,
+        InsetGroupedList(
+          children: [
+            UtilityRow(
+              key: const Key('sliding-sidebar-setting'),
+              title: l10n.slidingSidebar,
+              subtitle: l10n.slidingSidebarDescription,
+              subtitleMaxLines: 2,
+              toggled: settings.slidingSidebarEnabled,
+              trailing: AdaptiveSwitch(
+                value: settings.slidingSidebarEnabled,
+                onChanged: (value) => ref
+                    .read(appSettingsProvider.notifier)
+                    .setSlidingSidebarEnabled(value),
+              ),
+              onTap: () => ref
+                  .read(appSettingsProvider.notifier)
+                  .setSlidingSidebarEnabled(!settings.slidingSidebarEnabled),
+            ),
+          ],
+        ),
       ],
       AppCustomizationSection.chat => <Widget>[
         if (hasOpenWebUiAccount) ...[

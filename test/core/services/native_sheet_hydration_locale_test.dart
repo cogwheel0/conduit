@@ -245,6 +245,10 @@ void main() {
     ];
     check(ids).containsEqualInOrder(['theme-light', 'theme-palette']);
     check(ids).contains('language');
+    final sidebar = appearance.single.sections
+        .expand((s) => s.items)
+        .singleWhere((item) => item.id == 'sliding-sidebar');
+    check(sidebar.value).equals(false);
     // The pages that do need the server show the error instead.
     check(patches.where((p) => p.detailId == 'chats')).isNotEmpty();
   });
