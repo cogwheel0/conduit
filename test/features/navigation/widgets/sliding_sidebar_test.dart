@@ -268,16 +268,23 @@ void main() {
         await tester.pumpAndSettle();
         if (native) {
           final picker = find.byType(NativeGlassMenuButton);
-          final loadingView = tester.widget<UiKitView>(
-            find.descendant(of: picker, matching: find.byType(UiKitView)),
+          final loadingButton = tester.widget<CNButton>(
+            find.descendant(of: picker, matching: find.byType(CNButton)),
           );
+          expect(loadingButton.label, 'Open WebUI');
+          expect(loadingButton.config.style, CNButtonStyle.glass);
+          expect(loadingButton.onPressed, isNull);
+          expect(loadingButton.enabled, isFalse);
           expect(
-            (loadingView.creationParams as Map)['buttonTitle'],
-            'Open WebUI',
-          );
-          expect(
-            (loadingView.creationParams as Map).containsKey('buttonImageData'),
-            isFalse,
+            find.descendant(
+              of: picker,
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is UiKitView &&
+                    widget.viewType == 'CupertinoNativePopupMenuButton',
+              ),
+            ),
+            findsNothing,
           );
           final imageLoader = tester.widget<FutureBuilder<Uint8List>>(
             find.descendant(
@@ -290,7 +297,6 @@ void main() {
           final view = tester.widget<UiKitView>(
             find.descendant(of: picker, matching: find.byType(UiKitView)),
           );
-          expect(view.key, isNot(loadingView.key));
           expect(view.viewType, 'CupertinoNativePopupMenuButton');
           expect((view.creationParams as Map)['buttonTitle'], 'Open WebUI');
           final params = view.creationParams as Map;

@@ -99,10 +99,19 @@ class _NativeGlassMenuButtonState extends State<NativeGlassMenuButton> {
   Widget build(BuildContext context) {
     return FutureBuilder<Uint8List>(
       future: _image,
-      builder: (context, snapshot) => _buildButton(
-        context,
-        snapshot.connectionState == ConnectionState.done ? snapshot.data : null,
-      ),
+      builder: (context, snapshot) {
+        // Do not replace an open native menu when its logo finishes loading.
+        if (snapshot.connectionState != ConnectionState.done) {
+          return AdaptiveButton(
+            onPressed: null,
+            label: widget.label,
+            textColor: widget.foregroundColor,
+            style: AdaptiveButtonStyle.glass,
+            minSize: Size(0, widget.height),
+          );
+        }
+        return _buildButton(context, snapshot.data);
+      },
     );
   }
 
