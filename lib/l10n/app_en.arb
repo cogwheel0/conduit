@@ -4028,8 +4028,6 @@
   "@liveConnectionDetailsTitle": {"description": "Title of the live-update connection details sheet."},
   "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
   "@liveConnectionDetailsMessage": {"description": "Explains a disconnected live-update connection without guessing its cause or exposing transport errors."},
-  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
-  "@liveConnectionRetry": {"description": "Live update socket connection recovery in the chat toolbar."},
   "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry.",
   "@liveConnectionRetryFailed": {"description": "Live update socket connection recovery in the chat toolbar."},
   "socketLatencyLabel": "Latency",

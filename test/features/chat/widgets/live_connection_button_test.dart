@@ -101,7 +101,7 @@ void main() {
     (tester) async {
       final socket = _Socket();
       addTearDown(socket.health.close);
-      await tester.pumpWidget(_harness(socket));
+      await tester.pumpWidget(_harness(socket, textScale: 2));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('live-connection-retry')), findsNothing);
       socket.changeHealth(false);
@@ -110,6 +110,8 @@ void main() {
         find.byKey(const ValueKey('live-connection-retry')),
         findsOneWidget,
       );
+      final controlSize = tester.getSize(find.byType(LiveConnectionButton));
+      expect(controlSize.width, greaterThan(44));
       socket.pending = Completer<bool>();
       await tester.tap(find.byKey(const ValueKey('live-connection-retry')));
       await tester.pumpAndSettle();
@@ -121,6 +123,7 @@ void main() {
       await tester.tap(find.text('Retry'));
       await tester.pump();
       expect(socket.attempts, 1);
+      expect(tester.getSize(find.byType(LiveConnectionButton)), controlSize);
       expect(find.byKey(const ValueKey('live-connection-retry')), findsNothing);
       socket.pending!.completeError(
         StateError('Synthetic transport diagnostic'),

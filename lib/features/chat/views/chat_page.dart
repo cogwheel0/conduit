@@ -163,10 +163,12 @@ class _ChatToolbarActionDescriptor {
   const _ChatToolbarActionDescriptor({
     required this.widget,
     required this.nativeAction,
+    this.icon,
   });
 
   final Widget widget;
   final ConduitNativeToolbarAction nativeAction;
+  final IconData? icon;
 }
 
 @visibleForTesting
@@ -4234,7 +4236,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
     final hasMessages = ref.watch(hasChatMessagesProvider);
-    var showNewChatAction = activeConversation != null || hasMessages;
+    final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
     final selectedModel = ref.watch(selectedModelProvider);
     final isHermes =
@@ -4243,22 +4245,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final showConnectionIssue =
         !isHermes &&
         ref.watch(liveConnectionDisconnectedProvider).value == true;
-    final trailingActionCount =
-        (showNewChatAction ? 1 : 0) + 1 + (showConnectionIssue ? 1 : 0);
-    var maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
+    List<_ChatToolbarActionDescriptor> buildActions({bool compact = false}) =>
+        _buildAdaptiveToolbarActions(
+          context: context,
+          activeConversation: activeConversation,
+          isHermes: isHermes,
+          isTemporary: isTemporary,
+          hasMessages: hasMessages,
+          showNewChatAction: showNewChatAction,
+          compact: compact,
+        );
+    var actionDescriptors = buildActions();
+    double modelWidth() => resolveConduitAdaptiveLeadingPillWidth(
       context,
-      trailingActionCount: trailingActionCount,
+      trailingActionCount:
+          actionDescriptors.length + (showConnectionIssue ? 1 : 0),
       maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
     );
-    // The model picker takes priority over the extra New Chat shortcut when
-    // a connection warning uses the last space in a narrow toolbar.
-    if (showConnectionIssue && showNewChatAction && maxModelWidth == 0) {
-      showNewChatAction = false;
-      maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
-        context,
-        trailingActionCount: trailingActionCount - 1,
-        maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
-      );
+    var maxModelWidth = modelWidth();
+    // Keep the model picker while preserving secondary actions in More.
+    if (showConnectionIssue && maxModelWidth == 0) {
+      actionDescriptors = buildActions(compact: true);
+      maxModelWidth = modelWidth();
     }
     // Hide the picker only for a true single-agent Hermes-only install. Mixed
     // setups must retain a way to switch back to an OpenWebUI model.
@@ -4275,16 +4283,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       showModelDropdown: showModelDropdown,
       hermesBot: hermesBot,
       hermesBotActive: hermesBot != null && ref.watch(isChatStreamingProvider),
-    );
-    final actionDescriptors = _buildAdaptiveToolbarActions(
-      context: context,
-      activeConversation: activeConversation,
-      isHermes:
-          (selectedModel != null && isHermesModel(selectedModel)) ||
-          isNativeHermesConversation(activeConversation),
-      isTemporary: isTemporary,
-      hasMessages: hasMessages,
-      showNewChatAction: showNewChatAction,
     );
     final actionWidgets = buildConduitAdaptiveToolbarActionWidgets([
       if (showConnectionIssue) const LiveConnectionButton(),
@@ -4358,6 +4356,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
+    bool compact = false,
   }) {
     final actions = <_ChatToolbarActionDescriptor>[];
     final defaultTint = context.conduitTheme.textPrimary;
@@ -4389,7 +4388,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       context: context,
       activeConversation: activeConversation,
       tintColor: defaultTint,
+      collapsedActions: compact ? List.of(actions) : const [],
     );
+    if (compact) actions.clear();
     if (overflowButton != null) {
       actions.add(overflowButton);
     }
@@ -4406,6 +4407,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
     assert(iosSymbol != null);
     return _ChatToolbarActionDescriptor(
+      icon: icon,
       widget: ConduitAdaptiveAppBarIconButton(
         icon: icon,
         iosSymbol: iosSymbol,
@@ -4466,6 +4468,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required BuildContext context,
     required Conversation? activeConversation,
     required Color tintColor,
+    List<_ChatToolbarActionDescriptor> collapsedActions = const [],
   }) {
     final items = <AdaptivePopupMenuEntry>[];
     final callbacks = <Future<void> Function()>[];
@@ -4476,6 +4479,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       required Object icon,
       String? iosSymbol,
       bool isDestructive = false,
+      bool enabled = true,
       required Future<void> Function() onSelected,
     }) {
       final index = callbacks.length;
@@ -4486,6 +4490,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           label: label,
           icon: icon,
           isDestructive: isDestructive,
+          enabled: enabled,
         ),
       );
       nativeItems.add(
@@ -4493,8 +4498,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           label: label,
           iosSymbol: iosSymbol,
           isDestructive: isDestructive,
+          enabled: enabled,
           onSelected: () => unawaited(onSelected()),
         ),
+      );
+    }
+
+    for (final descriptor in collapsedActions) {
+      final action = descriptor.nativeAction;
+      addItem(
+        label: action.accessibilityLabel,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: action.iosSymbol,
+          materialIcon: descriptor.icon!,
+        ),
+        iosSymbol: action.iosSymbol,
+        enabled: action.enabled,
+        onSelected: () async => action.onPressed?.call(),
       );
     }
 

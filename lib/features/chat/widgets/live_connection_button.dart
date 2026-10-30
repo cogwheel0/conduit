@@ -162,7 +162,7 @@ class _LiveConnectionButtonState extends ConsumerState<LiveConnectionButton> {
     final l10n = AppLocalizations.of(context)!;
     if (_reconnecting) {
       return SizedBox.square(
-        dimension: 44,
+        dimension: conduitScaledControlExtent(context),
         child: Center(
           child: AdaptiveProgressIndicator(semanticLabel: l10n.connecting),
         ),
