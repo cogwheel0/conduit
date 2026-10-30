@@ -548,6 +548,20 @@
   "@filters": {
     "description": "Header for toggle filters section."
   },
+  "composerDraftLoadFailed": "Your saved draft could not be loaded. Try again before replacing it.",
+  "composerDraftSaveFailed": "Your draft could not be saved on this device. Keep the app open and try again.",
+  "savedRecording": "Saved recording",
+  "recordingDiscard": "Discard recording",
+  "recordingTranscriptionFailed": "Transcription failed. Recording saved.",
+  "recordingDiscardConfirmation": "Are you sure you want to discard this recording?",
+  "recordingDiscardFailed": "Could not discard this recording. Try again.",
+  "recordingLoadFailed": "Could not load recordings. Retry",
+  "recordingSaveFailed": "Your recording could not be saved on this device. Keep the app open and retry.",
+  "transcribeOnServer": "Transcribe on server",
+  "transcribeOnDevice": "Transcribe on device",
+  "recordingRecoveryUnavailable": "This speech recognizer cannot keep audio recordings. Transcribed text is still saved with your draft. Choose Server speech-to-text to keep audio.",
+  "exportRecording": "Export recording",
+  "recordingExportFailed": "Could not export this recording. Try again.",
   "voiceInput": "Hlasový vstup",
   "@voiceInput": {
     "description": "Label for voice input feature."
@@ -6171,19 +6185,5 @@
   "chatHandoffPromptTitle": "Prepnúť na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovať v novom chate s modelom {model}. Navrhnutá správa počká v poli na písanie, kým ju neodošlete.",
   "chatHandoffStartNewChat": "Začať nový chat",
-  "chatHandoffStayHere": "Zostať tu",
-  "composerDraftLoadFailed": "Your saved draft could not be loaded. Try again before replacing it.",
-  "composerDraftSaveFailed": "Your draft could not be saved on this device. Keep the app open and try again.",
-  "savedRecording": "Saved recording",
-  "recordingDiscard": "Discard recording",
-  "recordingTranscriptionFailed": "Transcription failed. Recording saved.",
-  "recordingDiscardConfirmation": "Are you sure you want to discard this recording?",
-  "recordingDiscardFailed": "Could not discard this recording. Try again.",
-  "recordingLoadFailed": "Could not load recordings. Retry",
-  "recordingSaveFailed": "Your recording could not be saved on this device. Keep the app open and retry.",
-  "transcribeOnServer": "Transcribe on server",
-  "transcribeOnDevice": "Transcribe on device",
-  "recordingRecoveryUnavailable": "This speech recognizer cannot keep audio recordings. Transcribed text is still saved with your draft. Choose Server speech-to-text to keep audio.",
-  "exportRecording": "Export recording",
-  "recordingExportFailed": "Could not export this recording. Try again."
+  "chatHandoffStayHere": "Zostať tu"
 }
