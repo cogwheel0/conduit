@@ -97,6 +97,22 @@ void main() {
     expect(state.activeMessageId, 'garden-guide');
   });
 
+  test('a pause error event remains recoverable during a seek', () async {
+    speech.seekable = true;
+    await play();
+    final pending = Completer<Duration?>();
+    speech.seekResult = pending.future;
+    final seek = controller.skip(const Duration(seconds: 15));
+    speech.pauseErrorEvent = true;
+    await controller.pause();
+    pending.complete(null);
+    await seek;
+    final state = container.read(textToSpeechControllerProvider);
+    expect(state.status, TtsPlaybackStatus.error);
+    expect(state.activeMessageId, 'garden-guide');
+    expect(state.errorMessage, 'Synthetic pause failure');
+  });
+
   test('stop cancels a request still initializing', () async {
     final initialization = Completer<bool>();
     speech.initialization = initialization.future;
@@ -265,6 +281,7 @@ class _Speech extends Fake implements TextToSpeechService {
   Duration? get playbackDuration => null;
   final spoken = <String>[];
   bool failPause = false;
+  bool pauseErrorEvent = false;
   Future<bool>? initialization;
   Future<void>? pauseResult;
   Future<void>? resumeResult;
@@ -328,6 +345,10 @@ class _Speech extends Fake implements TextToSpeechService {
   Future<void> pause() async {
     await pauseResult;
     if (failPause) throw StateError('Synthetic pause failure');
+    if (pauseErrorEvent) {
+      onError?.call('Synthetic pause failure');
+      return;
+    }
     onPause?.call();
   }
 

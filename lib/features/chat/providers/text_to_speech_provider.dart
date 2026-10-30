@@ -341,7 +341,11 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     final epoch = _requestEpoch;
     try {
       await _service.pause();
-      if (ref.mounted && epoch == _requestEpoch) {
+      if (ref.mounted &&
+          epoch == _requestEpoch &&
+          state.seeking &&
+          (state.status == TtsPlaybackStatus.speaking ||
+              state.status == TtsPlaybackStatus.paused)) {
         _handlePause(userInitiated: true);
       }
     } catch (error) {
