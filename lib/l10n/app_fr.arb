@@ -4256,5 +4256,7 @@
   "chatHandoffPromptTitle": "Passer à {model} ?",
   "chatHandoffPromptMessage": "Votre serveur propose de continuer dans un nouveau chat avec {model}. Tout message suggéré reste dans la zone de saisie jusqu'à ce que vous l'envoyiez.",
   "chatHandoffStartNewChat": "Démarrer un nouveau chat",
-  "chatHandoffStayHere": "Rester ici"
+  "chatHandoffStayHere": "Rester ici",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices"
 }

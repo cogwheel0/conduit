@@ -5428,7 +5428,7 @@ private final class NativeOptionsSelectorTableViewController: UIViewController, 
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
         ])
         tableView.register(
             NativeSheetOptionTableViewCell.self,

@@ -4256,5 +4256,7 @@
   "chatHandoffPromptTitle": "切換到 {model}？",
   "chatHandoffPromptMessage": "伺服器建議使用 {model} 在新對話中繼續。建議的訊息會留在輸入框中，直到你傳送。",
   "chatHandoffStartNewChat": "開始新對話",
-  "chatHandoffStayHere": "留在這裡"
+  "chatHandoffStayHere": "留在這裡",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices"
 }

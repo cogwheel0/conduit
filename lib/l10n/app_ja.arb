@@ -5865,5 +5865,7 @@
   "chatHandoffPromptTitle": "{model} に切り替えますか？",
   "chatHandoffPromptMessage": "サーバーが {model} との新しいチャットで続けることを提案しています。提案されたメッセージは、送信するまで入力欄に残ります。",
   "chatHandoffStartNewChat": "新しいチャットを開始",
-  "chatHandoffStayHere": "このままにする"
+  "chatHandoffStayHere": "このままにする",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices"
 }

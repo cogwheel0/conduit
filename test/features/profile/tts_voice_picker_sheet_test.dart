@@ -67,6 +67,21 @@ void main() {
           lessThanOrEqualTo(tester.getTopLeft(search).dy),
         );
         expect(tester.getTopLeft(search).dy, greaterThan(400));
+        tester.view.viewInsets = FakeViewPadding(
+          bottom: 260 * tester.view.devicePixelRatio,
+        );
+        addTearDown(tester.view.resetViewInsets);
+        await tester.pumpAndSettle();
+        final keyboardTop =
+            tester.view.physicalSize.height / tester.view.devicePixelRatio -
+            260;
+        expect(tester.getBottomLeft(search).dy, lessThanOrEqualTo(keyboardTop));
+        expect(
+          tester.getBottomLeft(pill).dy,
+          lessThan(tester.getTopLeft(search).dy),
+        );
+        tester.view.resetViewInsets();
+        await tester.pumpAndSettle();
         await tester.tap(pill);
         await tester.pumpAndSettle();
         await tester.tap(find.text('French').last);

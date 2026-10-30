@@ -4294,5 +4294,7 @@
   "chatHandoffPromptTitle": "Переключиться на {model}?",
   "chatHandoffPromptMessage": "Сервер предлагает продолжить в новом чате с {model}. Предложенное сообщение останется в поле ввода, пока вы его не отправите.",
   "chatHandoffStartNewChat": "Начать новый чат",
-  "chatHandoffStayHere": "Остаться здесь"
+  "chatHandoffStayHere": "Остаться здесь",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices"
 }
