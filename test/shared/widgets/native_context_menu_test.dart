@@ -1,3 +1,5 @@
+import 'package:conduit/core/services/ios_native_dropdown_bridge.dart';
+
 import 'dart:async';
 import 'dart:ui' as ui;
 
@@ -118,6 +120,21 @@ void main() {
     await gesture.up();
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('initialization coalesces in flight but rechecks a later host', (
+    tester,
+  ) async {
+    final fixture = _MenuFixture();
+    addTearDown(fixture.dispose);
+    final bridge = IosNativeDropdownBridge.instance;
+    final first = bridge.initializeContextMenu();
+    final second = bridge.initializeContextMenu();
+    expect(identical(first, second), isTrue);
+    expect(await first, isTrue);
+    expect(fixture.initializations, 1);
+    expect(await bridge.initializeContextMenu(), isTrue);
+    expect(fixture.initializations, 2);
   });
 
   testWidgets('menu presentation and dismissal leave source pixels unchanged', (
@@ -339,6 +356,7 @@ class _MenuFixture {
   final selection = Completer<String?>();
   final cancellations = <List<Object?>>[];
   final haptics = <Object?>[];
+  int initializations = 0;
   final _messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   final _channels = <BasicMessageChannel<Object?>>[];
@@ -357,7 +375,10 @@ class _MenuFixture {
       _messenger.setMockDecodedMessageHandler<Object?>(channel, callback);
     }
 
-    handle('initializeContextMenu', (_) async => [available]);
+    handle('initializeContextMenu', (_) async {
+      initializations++;
+      return [available];
+    });
     handle('showContextMenu', (message) async {
       if (!prepared.isCompleted) prepared.complete(message! as List<Object?>);
       return [await selection.future];

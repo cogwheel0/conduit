@@ -29,8 +29,15 @@ class IosNativeDropdownBridge {
 
   final NativeDropdownHostApi _api = NativeDropdownHostApi();
 
-  /// Checks native support before enabling the message menu gesture.
-  Future<bool> initializeContextMenu() async {
+  Future<bool>? _contextMenuInitialization;
+
+  /// Coalesce simultaneous checks, but recheck a later host view.
+  Future<bool> initializeContextMenu() =>
+      _contextMenuInitialization ??= _initializeContextMenu().whenComplete(
+        () => _contextMenuInitialization = null,
+      );
+
+  Future<bool> _initializeContextMenu() async {
     try {
       return await _api.initializeContextMenu();
     } catch (error, stackTrace) {
