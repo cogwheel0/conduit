@@ -20,6 +20,7 @@ final class PreferenceKeys {
   static const String voiceSttLanguageCode = 'voice_stt_language_code';
   static const String socketTransportMode = 'socket_transport_mode';
   static const String quickPills = 'quick_pills';
+  static const String inlineMessageActions = 'inline_message_actions_v1';
   static const String chatWebSearchEnabled = 'chat_web_search_enabled';
   static const String chatImageGenerationEnabled =
       'chat_image_generation_enabled';

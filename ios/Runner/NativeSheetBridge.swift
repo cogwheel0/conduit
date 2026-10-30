@@ -682,7 +682,7 @@ private struct NativeSheetDetail {
     let title: String
     let subtitle: String?
     let items: [NativeSheetItem]
-    let sections: [NativeSheetSection]
+    var sections: [NativeSheetSection]
     let confirmActionId: String?
     let confirmActionLabel: String?
     /// When set (0...1], sheet uses a single custom detent at this fraction of `maximumDetentValue`.
@@ -766,12 +766,14 @@ private struct NativeSheetDetail {
 private struct NativeSheetSection {
     let title: String?
     let footer: String?
-    let items: [NativeSheetItem]
+    var items: [NativeSheetItem]
+    let reorderActionId: String?
 
-    init(title: String?, footer: String?, items: [NativeSheetItem]) {
+    init(title: String?, footer: String?, items: [NativeSheetItem], reorderActionId: String? = nil) {
         self.title = title
         self.footer = footer
         self.items = items
+        self.reorderActionId = reorderActionId
     }
 
     init?(_ payload: [String: Any]) {
@@ -780,6 +782,7 @@ private struct NativeSheetSection {
         guard !items.isEmpty else { return nil }
         title = payload["title"] as? String
         footer = payload["footer"] as? String
+        reorderActionId = payload["reorderActionId"] as? String
     }
 }
 
@@ -904,6 +907,7 @@ private extension PlatformNativeSheetSection {
         ]
         payload["title"] = title
         payload["footer"] = footer
+        payload["reorderActionId"] = reorderActionId
         return payload
     }
 }
@@ -1633,6 +1637,9 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             onSelect: { [weak self] item in self?.handleCurrentSheetSelection(item) },
             onControlChanged: { [weak self] item, value in
                 self?.handleCurrentSheetControlChanged(item, value: value)
+            },
+            onReorder: { [weak self] actionId, ids in
+                self?.sendControlChanged(id: actionId, value: ids)
             },
             onConfirmAction: { [weak self] actionId in
                 self?.handleCurrentSheetConfirmAction(actionId)
@@ -4442,6 +4449,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     private let canNavigate: (NativeSheetItem) -> Bool
     private let onSelect: (NativeSheetItem) -> Void
     private let onControlChanged: (NativeSheetItem, Any?) -> Void
+    private let onReorder: (String, [String]) -> Void
     private let onConfirmAction: (String) -> Void
     private let onClose: () -> Void
     private var pendingTextValues: [String: String] = [:]
@@ -4477,6 +4485,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         canNavigate: @escaping (NativeSheetItem) -> Bool,
         onSelect: @escaping (NativeSheetItem) -> Void,
         onControlChanged: @escaping (NativeSheetItem, Any?) -> Void,
+        onReorder: @escaping (String, [String]) -> Void,
         onConfirmAction: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -4484,6 +4493,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         self.canNavigate = canNavigate
         self.onSelect = onSelect
         self.onControlChanged = onControlChanged
+        self.onReorder = onReorder
         self.onConfirmAction = onConfirmAction
         self.onClose = onClose
         super.init(style: .insetGrouped)
@@ -4500,6 +4510,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         title = newDetail.title
         navigationItem.title = newDetail.title
         refreshNavigationAction()
+        tableView.setEditing(tableSections.contains { $0.reorderActionId != nil }, animated: false)
         tableView.reloadData()
     }
 
@@ -4550,6 +4561,48 @@ private final class NativeDetailTableViewController: UITableViewController {
         tableView.estimatedRowHeight = NativeSheetSettingsStyle.defaultCellHeight
         tableView.rowHeight = UITableView.automaticDimension
         NativeSheetSettingsStyle.apply(to: tableView)
+        tableView.allowsSelectionDuringEditing = true
+        tableView.setEditing(tableSections.contains { $0.reorderActionId != nil }, animated: false)
+    }
+
+    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+        tableSections[indexPath.section].reorderActionId != nil
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        editingStyleForRowAt indexPath: IndexPath
+    ) -> UITableViewCell.EditingStyle { .none }
+
+    override func tableView(
+        _ tableView: UITableView,
+        shouldIndentWhileEditingRowAt indexPath: IndexPath
+    ) -> Bool { false }
+
+    /// Clamps cross-section drags to the source section while preserving same-section moves.
+    override func tableView(
+        _ tableView: UITableView,
+        targetIndexPathForMoveFromRowAt source: IndexPath,
+        toProposedIndexPath proposed: IndexPath
+    ) -> IndexPath {
+        guard source.section != proposed.section else { return proposed }
+        return IndexPath(
+            row: proposed.section < source.section ? 0 : tableSections[source.section].items.count - 1,
+            section: source.section
+        )
+    }
+
+    /// Updates local order before delegating persistence with the complete ordered item IDs.
+    override func tableView(
+        _ tableView: UITableView,
+        moveRowAt source: IndexPath,
+        to destination: IndexPath
+    ) {
+        guard source.section == destination.section,
+              let actionId = tableSections[source.section].reorderActionId else { return }
+        let item = detail.sections[source.section].items.remove(at: source.row)
+        detail.sections[source.section].items.insert(item, at: destination.row)
+        onReorder(actionId, detail.sections[source.section].items.map(\.id))
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -4671,6 +4724,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         default:
             let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
             configureCell(cell, item: item)
+            cell.showsReorderControl = tableSections[indexPath.section].reorderActionId != nil
             return cell
         }
     }
@@ -4715,8 +4769,10 @@ private final class NativeDetailTableViewController: UITableViewController {
         tableSections[indexPath.section].items[indexPath.row]
     }
 
+    /// Resets reused accessories and keeps toggles available while reorder handles are visible.
     private func configureCell(_ cell: UITableViewCell, item: NativeSheetItem) {
         cell.accessoryView = nil
+        cell.editingAccessoryView = nil
         cell.accessoryType = .none
         cell.selectionStyle = .default
 
@@ -4733,6 +4789,7 @@ private final class NativeDetailTableViewController: UITableViewController {
                 self?.onControlChanged(item, toggle?.isOn ?? false)
             }, for: .valueChanged)
             cell.accessoryView = toggle
+            cell.editingAccessoryView = toggle
             cell.selectionStyle = .none
 
         case "searchablePicker":

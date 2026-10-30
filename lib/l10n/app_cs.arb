@@ -1500,6 +1500,13 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "Automatické akce",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
+  "messageActionsTitle": "Akce zpráv",
+  "messageActionsDescription": "Vyberte akce zobrazované pod odpověďmi. Přetažením zapnutých akcí změníte jejich pořadí. Ostatní akce zůstanou v nabídce Více.",
+  "messageActionsInline": "Pod odpověďmi",
+  "messageActionsReorder": "Přetažením změníte pořadí",
+  "messageActionsReset": "Obnovit výchozí nastavení",
   "chatSettings": "Chat",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."

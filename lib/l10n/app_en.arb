@@ -1748,6 +1748,18 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "Automatic actions",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
+  "messageActionsTitle": "Message actions",
+  "@messageActionsTitle": {"description": "Response action customization in Chat settings."},
+  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
+  "@messageActionsDescription": {"description": "Response action customization in Chat settings."},
+  "messageActionsInline": "Below responses",
+  "@messageActionsInline": {"description": "Section containing visible response actions in their chosen order."},
+  "messageActionsReorder": "Drag to reorder",
+  "@messageActionsReorder": {"description": "Accessibility label for a response-action drag handle."},
+  "messageActionsReset": "Reset to defaults",
+  "@messageActionsReset": {"description": "Response action customization in Chat settings."},
   "chatSettings": "Chat",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."

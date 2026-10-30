@@ -32,6 +32,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';
+import 'message_actions_settings_page.dart';
 import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/expandable_card.dart';
@@ -105,6 +106,21 @@ class AppCustomizationPage extends ConsumerWidget {
           _buildQuickPillsSection(context, ref, settings),
           _sectionGap,
         ],
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.more_horiz,
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: AppLocalizations.of(context)!.messageActionsTitle,
+          subtitle: AppLocalizations.of(context)!.messageActionsDescription,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const MessageActionsSettingsPage(),
+            ),
+          ),
+        ),
+        _sectionGap,
         _buildChatSection(context, ref, settings),
         if (hasOpenWebUiAccount) ...[
           _sectionGap,

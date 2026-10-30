@@ -108,7 +108,9 @@ class NativeSheetPresentationAdmission {
 }
 
 /// Reads a provider once; both `Ref.read` and `WidgetRef.read` fit.
-typedef NativeSheetProviderReader = T Function<T>(ProviderListenable<T> provider);
+typedef NativeSheetProviderReader = T Function<T>(
+  ProviderListenable<T> provider,
+);
 
 /// Which root rows the signed-in account is offered right now, read from the
 /// providers the Flutter Settings page watches.
@@ -145,9 +147,10 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
 
 /// The saved Open WebUI accounts besides the active one, read now; null
 /// when they could not be read.
-int? readNativeOtherAccountCount(NativeSheetProviderReader read) => read(
-  openWebUiAccountsProvider,
-).value?.where((entry) => !entry.isActive).length;
+int? readNativeOtherAccountCount(NativeSheetProviderReader read) =>
+    read(openWebUiAccountsProvider).value
+        ?.where((entry) => !entry.isActive)
+        .length;
 
 /// The native Accounts page, read now.
 NativeSheetDetailConfig readNativeAccountsDetail(
@@ -204,7 +207,9 @@ nativeHydratedServerReasoningEffort({
   final policy = model.explicitlyRejectsReasoningEffort
       ? ReasoningEffortPolicy.unsupported
       : ReasoningEffortPolicy.generic;
-  final fallback = model.advertisesReasoningEffort ? personalizationEffort : null;
+  final fallback = model.advertisesReasoningEffort
+      ? personalizationEffort
+      : null;
   return (
     policy: policy,
     value:
@@ -716,6 +721,11 @@ class NativeSheetHydrationService {
         return;
       case 'memory-manage':
         await _hydrateNativeMemoryManageDetail(ctx, l10n);
+        return;
+      case 'message-actions':
+        await _applyNativeDetail(
+          buildNativeMessageActionsDetail(l10n, _ref.read(appSettingsProvider)),
+        );
         return;
       case 'quick-pills':
         await _hydrateNativeQuickPillsDetail(ctx, l10n);
@@ -1419,6 +1429,7 @@ class NativeSheetHydrationService {
           ],
         ),
         detailSheets: [
+          buildNativeMessageActionsDetail(l10n, appSettings),
           buildNativeLoadingDetail(
             l10n: l10n,
             id: 'default-model',
@@ -1548,6 +1559,9 @@ class NativeSheetHydrationService {
             _nativeChatAdvancedSection(l10n, _ref.read(appSettingsProvider)),
           ],
         ),
+        detailSheets: [
+          buildNativeMessageActionsDetail(l10n, _ref.read(appSettingsProvider)),
+        ],
       );
       await _patchNativeDetailError(
         NativeSheetRoutes.dataConnection,
@@ -1561,6 +1575,12 @@ class NativeSheetHydrationService {
     AppSettings appSettings,
   ) {
     return [
+      NativeSheetItemConfig(
+        id: 'message-actions',
+        title: l10n.messageActionsTitle,
+        subtitle: l10n.messageActionsDescription,
+        sfSymbol: 'ellipsis.circle',
+      ),
       NativeSheetItemConfig(
         id: 'send-on-enter',
         title: l10n.sendOnEnter,

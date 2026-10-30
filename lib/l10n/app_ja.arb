@@ -1500,6 +1500,13 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "アクションを自動選択",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
+  "messageActionsTitle": "メッセージアクション",
+  "messageActionsDescription": "回答の下に表示するアクションを選択します。有効なアクションをドラッグして順序を変更できます。それ以外のアクションは「その他」に残ります。",
+  "messageActionsInline": "回答の下",
+  "messageActionsReorder": "ドラッグして並べ替え",
+  "messageActionsReset": "初期設定に戻す",
   "chatSettings": "チャット",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."

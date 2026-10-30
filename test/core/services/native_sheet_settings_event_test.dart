@@ -179,6 +179,111 @@ void main() {
     return container;
   }
 
+  testWidgets('native automatic actions persist and reject stale reordering', (
+    tester,
+  ) async {
+    final patches = _recordPatches();
+    final container = await pumpApp(tester);
+    for (final automatic in [false, true]) {
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: 'message-actions-automatic',
+          value: automatic,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        container.read(appSettingsProvider).inlineMessageActions,
+        automatic ? isNull : defaultInlineMessageActions,
+      );
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        automatic ? isNull : defaultInlineMessageActions,
+      );
+    }
+    expect(
+      patches.where((patch) => patch.detailId == 'message-actions'),
+      hasLength(2),
+    );
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'message-actions-reorder',
+        value: [
+          'message-action:tts',
+          'message-action:copy',
+          'message-action:regenerate',
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(appSettingsProvider).inlineMessageActions, isNull);
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'message-action:share',
+        value: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(appSettingsProvider).inlineMessageActions, isNull);
+  });
+
+  testWidgets(
+    'native message action reordering saves and rejects stale choices',
+    (tester) async {
+      final patches = _recordPatches();
+      final container = await pumpApp(tester);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setInlineMessageActions(defaultInlineMessageActions);
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: 'message-actions-reorder',
+          value: [
+            'message-action:regenerate',
+            'message-action:copy',
+            'message-action:tts',
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(container.read(appSettingsProvider).inlineMessageActions, [
+        'regenerate',
+        'copy',
+        'tts',
+      ]);
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'regenerate',
+        'copy',
+        'tts',
+      ]);
+      expect(patches.where((patch) => patch.detailId == 'message-actions'), isEmpty);
+      for (final invalid in [
+        ['message-action:share', 'message-action:copy', 'message-action:tts'],
+        ['message-action:copy', 'message-action:copy', 'message-action:tts'],
+        ['message-action:copy'],
+        [
+          'message-action:regenerate',
+          'message-action:copy',
+          'message-action:tts',
+          1,
+        ],
+      ]) {
+        NativeSheetBridge.instance.onControlChanged(
+          PlatformNativeSheetControlChangedEvent(
+            id: 'message-actions-reorder',
+            value: invalid,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(container.read(appSettingsProvider).inlineMessageActions, [
+          'regenerate',
+          'copy',
+          'tts',
+        ]);
+      }
+    },
+  );
+
   for (final visible in <bool>[true, false]) {
     testWidgets(
       visible
