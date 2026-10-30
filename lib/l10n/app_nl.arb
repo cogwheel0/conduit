@@ -4256,5 +4256,19 @@
   "chatHandoffPromptTitle": "Overschakelen naar {model}?",
   "chatHandoffPromptMessage": "Je server stelt voor om verder te gaan in een nieuwe chat met {model}. Een voorgesteld bericht blijft in het invoerveld staan tot je het verstuurt.",
   "chatHandoffStartNewChat": "Nieuwe chat starten",
-  "chatHandoffStayHere": "Hier blijven"
+  "chatHandoffStayHere": "Hier blijven",
+  "composerDraftLoadFailed": "Your saved draft could not be loaded. Try again before replacing it.",
+  "composerDraftSaveFailed": "Your draft could not be saved on this device. Keep the app open and try again.",
+  "savedRecording": "Saved recording",
+  "recordingDiscard": "Discard recording",
+  "recordingTranscriptionFailed": "Transcription failed. Recording saved.",
+  "recordingDiscardConfirmation": "Are you sure you want to discard this recording?",
+  "recordingDiscardFailed": "Could not discard this recording. Try again.",
+  "recordingLoadFailed": "Could not load recordings. Retry",
+  "recordingSaveFailed": "Your recording could not be saved on this device. Keep the app open and retry.",
+  "transcribeOnServer": "Transcribe on server",
+  "transcribeOnDevice": "Transcribe on device",
+  "recordingRecoveryUnavailable": "This speech recognizer cannot keep audio recordings. Transcribed text is still saved with your draft. Choose Server speech-to-text to keep audio.",
+  "exportRecording": "Export recording",
+  "recordingExportFailed": "Could not export this recording. Try again."
 }

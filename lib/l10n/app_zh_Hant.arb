@@ -4256,5 +4256,19 @@
   "chatHandoffPromptTitle": "切換到 {model}？",
   "chatHandoffPromptMessage": "伺服器建議使用 {model} 在新對話中繼續。建議的訊息會留在輸入框中，直到你傳送。",
   "chatHandoffStartNewChat": "開始新對話",
-  "chatHandoffStayHere": "留在這裡"
+  "chatHandoffStayHere": "留在這裡",
+  "composerDraftLoadFailed": "Your saved draft could not be loaded. Try again before replacing it.",
+  "composerDraftSaveFailed": "Your draft could not be saved on this device. Keep the app open and try again.",
+  "savedRecording": "Saved recording",
+  "recordingDiscard": "Discard recording",
+  "recordingTranscriptionFailed": "Transcription failed. Recording saved.",
+  "recordingDiscardConfirmation": "Are you sure you want to discard this recording?",
+  "recordingDiscardFailed": "Could not discard this recording. Try again.",
+  "recordingLoadFailed": "Could not load recordings. Retry",
+  "recordingSaveFailed": "Your recording could not be saved on this device. Keep the app open and retry.",
+  "transcribeOnServer": "Transcribe on server",
+  "transcribeOnDevice": "Transcribe on device",
+  "recordingRecoveryUnavailable": "This speech recognizer cannot keep audio recordings. Transcribed text is still saved with your draft. Choose Server speech-to-text to keep audio.",
+  "exportRecording": "Export recording",
+  "recordingExportFailed": "Could not export this recording. Try again."
 }

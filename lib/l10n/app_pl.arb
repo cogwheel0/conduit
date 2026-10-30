@@ -7962,5 +7962,8 @@
   "recordingSaveFailed": "Nie udało się zapisać nagrania na tym urządzeniu. Nie zamykaj aplikacji i spróbuj ponownie.",
   "transcribeOnServer": "Transkrypcja na serwerze",
   "transcribeOnDevice": "Transkrypcja na urządzeniu",
-  "recordingRecoveryUnavailable": "Ten mechanizm rozpoznawania mowy nie może zapisywać nagrań. Transkrypcja nadal jest zapisywana w szkicu. Aby zachowywać nagrania, wybierz rozpoznawanie mowy na serwerze."
+  "recordingRecoveryUnavailable": "Ten mechanizm rozpoznawania mowy nie może zapisywać nagrań. Transkrypcja nadal jest zapisywana w szkicu. Aby zachowywać nagrania, wybierz rozpoznawanie mowy na serwerze.",
+  "recordingDiscardConfirmation": "Czy na pewno chcesz odrzucić to nagranie?",
+  "exportRecording": "Eksportuj nagranie",
+  "recordingExportFailed": "Nie udało się wyeksportować nagrania."
 }
