@@ -368,6 +368,8 @@
   },
   "analyzing": "Analizando…",
   "analyzed": "Analizado",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Personalización",
   "appCustomizationSubtitle": "Tema, idioma, voz y quick actions",
   "quickActionsDescription": "Accesos directos en chat",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "¿Cambiar a {model}?",
   "chatHandoffPromptMessage": "Tu servidor sugiere continuar en una nueva conversación con {model}. Cualquier mensaje sugerido esperará en el cuadro de texto hasta que lo envíes.",
   "chatHandoffStartNewChat": "Iniciar nueva conversación",
-  "chatHandoffStayHere": "Quedarme aquí",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer."
+  "chatHandoffStayHere": "Quedarme aquí"
 }

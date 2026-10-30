@@ -368,6 +368,8 @@
   },
   "analyzing": "分析中…",
   "analyzed": "已分析",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "自定義",
   "appCustomizationSubtitle": "主題、語言、語音和 quick actions",
   "quickActionsDescription": "聊天快捷方式",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "切換到 {model}？",
   "chatHandoffPromptMessage": "伺服器建議使用 {model} 在新對話中繼續。建議的訊息會留在輸入框中，直到你傳送。",
   "chatHandoffStartNewChat": "開始新對話",
-  "chatHandoffStayHere": "留在這裡",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer."
+  "chatHandoffStayHere": "留在這裡"
 }

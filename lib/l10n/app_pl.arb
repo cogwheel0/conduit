@@ -1716,6 +1716,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
+  "showComposerNotesButton": "Pokaż przycisk notatek",
+  "showComposerNotesButtonDescription": "Pokaż przycisk tworzenia notatki w polu wiadomości.",
   "appCustomization": "Personalizacja",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -2142,8 +2144,6 @@
   "@transportModeWsInfo": {
     "description": "Footnote text for the WebSocket-only transport mode."
   },
-  "showComposerNotesButton": "Pokaż przycisk notatek",
-  "showComposerNotesButtonDescription": "Pokaż przycisk tworzenia notatki w polu wiadomości.",
   "notes": "Notatki",
   "@notes": {
     "description": "Navigation item and page title for notes feature."

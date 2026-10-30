@@ -1474,6 +1474,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "カスタマイズ",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -5865,7 +5867,5 @@
   "chatHandoffPromptTitle": "{model} に切り替えますか？",
   "chatHandoffPromptMessage": "サーバーが {model} との新しいチャットで続けることを提案しています。提案されたメッセージは、送信するまで入力欄に残ります。",
   "chatHandoffStartNewChat": "新しいチャットを開始",
-  "chatHandoffStayHere": "このままにする",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer."
+  "chatHandoffStayHere": "このままにする"
 }

@@ -368,6 +368,8 @@
   },
   "analyzing": "Analyse…",
   "analyzed": "Analysé",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Personnalisation",
   "appCustomizationSubtitle": "Thème, langue, voix et quick actions",
   "quickActionsDescription": "Raccourcis dans le chat",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "Passer à {model} ?",
   "chatHandoffPromptMessage": "Votre serveur propose de continuer dans un nouveau chat avec {model}. Tout message suggéré reste dans la zone de saisie jusqu'à ce que vous l'envoyiez.",
   "chatHandoffStartNewChat": "Démarrer un nouveau chat",
-  "chatHandoffStayHere": "Rester ici",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer."
+  "chatHandoffStayHere": "Rester ici"
 }

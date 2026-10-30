@@ -1474,6 +1474,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Prispôsobenie",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -6171,7 +6173,5 @@
   "chatHandoffPromptTitle": "Prepnúť na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovať v novom chate s modelom {model}. Navrhnutá správa počká v poli na písanie, kým ju neodošlete.",
   "chatHandoffStartNewChat": "Začať nový chat",
-  "chatHandoffStayHere": "Zostať tu",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer."
+  "chatHandoffStayHere": "Zostať tu"
 }

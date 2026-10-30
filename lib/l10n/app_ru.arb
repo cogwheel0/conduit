@@ -374,6 +374,8 @@
   },
   "analyzing": "Анализирую…",
   "analyzed": "Проанализировано",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Настройка",
   "appCustomizationSubtitle": "Тема, язык, голос и quick actions",
   "quickActionsDescription": "Быстрые клавиши в чате",
@@ -4294,7 +4296,5 @@
   "chatHandoffPromptTitle": "Переключиться на {model}?",
   "chatHandoffPromptMessage": "Сервер предлагает продолжить в новом чате с {model}. Предложенное сообщение останется в поле ввода, пока вы его не отправите.",
   "chatHandoffStartNewChat": "Начать новый чат",
-  "chatHandoffStayHere": "Остаться здесь",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer."
+  "chatHandoffStayHere": "Остаться здесь"
 }
