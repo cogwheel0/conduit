@@ -217,6 +217,14 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(container.read(appSettingsProvider).inlineMessageActions, isNull);
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'message-action:share',
+        value: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(appSettingsProvider).inlineMessageActions, isNull);
   });
 
   testWidgets(

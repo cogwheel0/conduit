@@ -1502,11 +1502,11 @@
   },
   "messageActionsAutomatic": "Automatické akcie",
   "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
-  "messageActionsTitle": "Message actions",
-  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
-  "messageActionsInline": "Below responses",
-  "messageActionsReorder": "Drag to reorder",
-  "messageActionsReset": "Reset to defaults",
+  "messageActionsTitle": "Akcie správ",
+  "messageActionsDescription": "Vyberte akcie zobrazené pod odpoveďami. Poradie zapnutých akcií zmeníte potiahnutím. Ostatné akcie zostanú v ponuke Viac.",
+  "messageActionsInline": "Pod odpoveďami",
+  "messageActionsReorder": "Potiahnutím zmeníte poradie",
+  "messageActionsReset": "Obnoviť predvolené nastavenia",
   "chatSettings": "Chat",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."

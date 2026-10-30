@@ -1422,9 +1422,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setMessageActionVisible(String id, bool visible) async {
     await _pendingLoad;
     if (!ref.mounted) return;
-    final selected = {
-      ...(state.inlineMessageActions ?? defaultInlineMessageActions),
-    };
+    final current = state.inlineMessageActions;
+    if (current == null) return;
+    final selected = {...current};
     visible ? selected.add(id) : selected.remove(id);
     return setInlineMessageActions(selected.toList());
   }
