@@ -4519,7 +4519,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     if (overflowModel case final model?) {
       addItem(
-        label: model.label,
+        label: '${AppLocalizations.of(context)!.chooseModel}: ${model.label}',
         icon: conduitAdaptivePopupMenuIcon(
           iosSymbol: 'square.stack.3d.up',
           materialIcon: Icons.smart_toy_outlined,

@@ -202,7 +202,7 @@ void main() {
                 .map((entry) => entry.label);
             if (width < 320 && disconnected) {
               expect(modelWidth, 0);
-              expect(labels, contains('Fixture model'));
+              expect(labels, contains('Choose Model: Fixture model'));
             }
             if (disconnected || width <= 320) {
               expect(labels, contains('New Chat'));
@@ -222,7 +222,9 @@ void main() {
               expect(
                 loadingMore.items
                     .whereType<AdaptivePopupMenuItem<int>>()
-                    .singleWhere((entry) => entry.label == 'Fixture model')
+                    .singleWhere(
+                      (entry) => entry.label == 'Choose Model: Fixture model',
+                    )
                     .enabled,
                 isFalse,
               );
@@ -232,7 +234,7 @@ void main() {
                 find.byType(ConduitAdaptiveToolbarOverflowButton<int>),
               );
               await tester.pumpAndSettle();
-              await tester.tap(find.text('Fixture model').last);
+              await tester.tap(find.text('Choose Model: Fixture model').last);
               await tester.pump();
               await tester.pump(const Duration(milliseconds: 500));
               expect(find.byType(ModelSelectorSheet), findsOneWidget);
