@@ -338,6 +338,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         }
     }
 
+    /** Completes pending synthesis with an error and deletes its incomplete file. */
     private fun cancelSynthesis() {
         mainHandler.removeCallbacks(synthesisTimeoutTask)
         val pending = fileSynthesis ?: return

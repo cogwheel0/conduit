@@ -448,6 +448,7 @@ private final class NativeIosTtsAudioFile: NSObject, AVSpeechSynthesizerDelegate
         synthesizer.delegate = self
     }
 
+    /// Starts file synthesis with a two-minute deadline; buffers are written on the main queue.
     func start() {
         let timeout = DispatchWorkItem { [weak self] in self?.cancel() }
         self.timeout = timeout
@@ -458,6 +459,7 @@ private final class NativeIosTtsAudioFile: NSObject, AVSpeechSynthesizerDelegate
         }
     }
 
+    /// Writes admitted buffers until the empty end marker; empty audio and write errors cancel.
     private func append(_ buffer: AVAudioPCMBuffer) {
         guard completion != nil else { return }
         if buffer.frameLength == 0 {
@@ -492,6 +494,7 @@ private final class NativeIosTtsAudioFile: NSObject, AVSpeechSynthesizerDelegate
         cancel()
     }
 
+    /// Closes the file and delivers one result, retaining audio only on success.
     private func finish(_ value: Any) {
         guard let completion else { return }
         self.completion = nil
