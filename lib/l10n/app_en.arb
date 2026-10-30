@@ -777,6 +777,7 @@
   "@recordingDiscardConfirmation": {"description": "Confirmation before permanently discarding an unsent audio recording."},
   "recordingDiscardFailed": "Could not discard this recording. Try again.",
   "recordingCaptureInterrupted": "Recording interrupted. Saved audio may be incomplete.",
+  "@recordingCaptureInterrupted": {"description": "Details explaining that a capture failure may have left only part of a saved recording."},
   "@recordingDiscardFailed": {"description": "Error shown when discarding a saved recording fails."},
   "recordingLoadFailed": "Could not load recordings. Retry",
   "@recordingLoadFailed": {"description": "Error shown when a saved recording cannot be loaded."},

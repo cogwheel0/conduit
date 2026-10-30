@@ -186,6 +186,7 @@
   "recordingTranscriptionFailed": "Transcription failed. Recording saved.",
   "recordingDiscardConfirmation": "Are you sure you want to discard this recording?",
   "recordingDiscardFailed": "Could not discard this recording. Try again.",
+  "recordingCaptureInterrupted": "녹음이 중단되었습니다. 저장된 오디오가 완전하지 않을 수 있습니다.",
   "recordingLoadFailed": "Could not load recordings. Retry",
   "recordingSaveFailed": "Your recording could not be saved on this device. Keep the app open and retry.",
   "transcribeOnServer": "Transcribe on server",

@@ -555,6 +555,7 @@
   "recordingTranscriptionFailed": "Transcription failed. Recording saved.",
   "recordingDiscardConfirmation": "Are you sure you want to discard this recording?",
   "recordingDiscardFailed": "Could not discard this recording. Try again.",
+  "recordingCaptureInterrupted": "Nahrávanie bolo prerušené. Uložený zvuk nemusí byť úplný.",
   "recordingLoadFailed": "Could not load recordings. Retry",
   "recordingSaveFailed": "Your recording could not be saved on this device. Keep the app open and retry.",
   "transcribeOnServer": "Transcribe on server",

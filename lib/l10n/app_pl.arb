@@ -768,6 +768,7 @@
   "recordingDiscard": "Odrzuć nagranie",
   "recordingTranscriptionFailed": "Nie udało się utworzyć transkrypcji. Nagranie jest zapisane. Spróbuj ponownie lub wybierz inną metodę transkrypcji.",
   "recordingDiscardFailed": "Nie udało się odrzucić nagrania. Spróbuj ponownie.",
+  "recordingCaptureInterrupted": "Nagrywanie przerwane. Zapisane nagranie może być niekompletne.",
   "recordingLoadFailed": "Nie udało się wczytać nagrań. Ponów",
   "recordingSaveFailed": "Nie udało się zapisać nagrania na tym urządzeniu. Nie zamykaj aplikacji i spróbuj ponownie.",
   "transcribeOnServer": "Transkrypcja na serwerze",

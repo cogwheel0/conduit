@@ -145,6 +145,7 @@
   "recordingTranscriptionFailed": "Transcription failed. Recording saved.",
   "recordingDiscardConfirmation": "Are you sure you want to discard this recording?",
   "recordingDiscardFailed": "Could not discard this recording. Try again.",
+  "recordingCaptureInterrupted": "Grabación interrumpida. El audio guardado puede estar incompleto.",
   "recordingLoadFailed": "Could not load recordings. Retry",
   "recordingSaveFailed": "Your recording could not be saved on this device. Keep the app open and retry.",
   "transcribeOnServer": "Transcribe on server",
