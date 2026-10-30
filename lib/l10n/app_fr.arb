@@ -443,6 +443,8 @@
   "ttsPitch": "Hauteur",
   "ttsVolume": "Volume",
   "ttsPreview": "Aperçu de la voix",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices",
   "ttsSystemDefault": "Système par défaut",
   "ttsSelectVoice": "Sélectionner la voix",
   "ttsPreviewText": "Ceci est un aperçu de la voix sélectionnée.",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "Passer à {model} ?",
   "chatHandoffPromptMessage": "Votre serveur propose de continuer dans un nouveau chat avec {model}. Tout message suggéré reste dans la zone de saisie jusqu'à ce que vous l'envoyiez.",
   "chatHandoffStartNewChat": "Démarrer un nouveau chat",
-  "chatHandoffStayHere": "Rester ici",
-  "ttsAllLanguages": "All languages",
-  "ttsSearchVoices": "Search voices"
+  "chatHandoffStayHere": "Rester ici"
 }

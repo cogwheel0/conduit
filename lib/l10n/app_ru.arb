@@ -449,6 +449,8 @@
   "ttsPitch": "Высота тона",
   "ttsVolume": "Громкость",
   "ttsPreview": "Предпросмотр голоса",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices",
   "ttsSystemDefault": "Системное значение по умолчанию",
   "ttsSelectVoice": "Выбрать голос",
   "ttsPreviewText": "Это предварительный просмотр выбранного голоса.",
@@ -4294,7 +4296,5 @@
   "chatHandoffPromptTitle": "Переключиться на {model}?",
   "chatHandoffPromptMessage": "Сервер предлагает продолжить в новом чате с {model}. Предложенное сообщение останется в поле ввода, пока вы его не отправите.",
   "chatHandoffStartNewChat": "Начать новый чат",
-  "chatHandoffStayHere": "Остаться здесь",
-  "ttsAllLanguages": "All languages",
-  "ttsSearchVoices": "Search voices"
+  "chatHandoffStayHere": "Остаться здесь"
 }

@@ -443,6 +443,8 @@
   "ttsPitch": "Toonhoogte",
   "ttsVolume": "Volume",
   "ttsPreview": "Stemvoorbeeld",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices",
   "ttsSystemDefault": "Systeemstandaard",
   "ttsSelectVoice": "Selecteer stem",
   "ttsPreviewText": "Dit is een voorbeeld van de geselecteerde stem.",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "Overschakelen naar {model}?",
   "chatHandoffPromptMessage": "Je server stelt voor om verder te gaan in een nieuwe chat met {model}. Een voorgesteld bericht blijft in het invoerveld staan tot je het verstuurt.",
   "chatHandoffStartNewChat": "Nieuwe chat starten",
-  "chatHandoffStayHere": "Hier blijven",
-  "ttsAllLanguages": "All languages",
-  "ttsSearchVoices": "Search voices"
+  "chatHandoffStayHere": "Hier blijven"
 }

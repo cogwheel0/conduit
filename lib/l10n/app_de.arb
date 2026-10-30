@@ -445,6 +445,8 @@
   "ttsPitch": "Tonhöhe",
   "ttsVolume": "Lautstärke",
   "ttsPreview": "Stimme vorschau",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices",
   "ttsSystemDefault": "Systemstandard",
   "ttsSelectVoice": "Stimme auswählen",
   "ttsPreviewText": "Dies ist eine Vorschau der ausgewählten Stimme.",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "Zu {model} wechseln?",
   "chatHandoffPromptMessage": "Dein Server schlägt vor, in einem neuen Chat mit {model} weiterzumachen. Eine vorgeschlagene Nachricht wartet im Eingabefeld, bis du sie sendest.",
   "chatHandoffStartNewChat": "Neuen Chat starten",
-  "chatHandoffStayHere": "Hierbleiben",
-  "ttsAllLanguages": "All languages",
-  "ttsSearchVoices": "Search voices"
+  "chatHandoffStayHere": "Hierbleiben"
 }

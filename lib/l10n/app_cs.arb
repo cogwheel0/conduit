@@ -1692,6 +1692,8 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices",
   "ttsSystemDefault": "Výchozí systémový",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
@@ -6171,7 +6173,5 @@
   "chatHandoffPromptTitle": "Přepnout na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovat v novém chatu s modelem {model}. Navržená zpráva počká v poli pro psaní, dokud ji neodešlete.",
   "chatHandoffStartNewChat": "Začít nový chat",
-  "chatHandoffStayHere": "Zůstat tady",
-  "ttsAllLanguages": "All languages",
-  "ttsSearchVoices": "Search voices"
+  "chatHandoffStayHere": "Zůstat tady"
 }

@@ -443,6 +443,8 @@
   "ttsPitch": "音调",
   "ttsVolume": "音量",
   "ttsPreview": "预览语音",
+  "ttsAllLanguages": "All languages",
+  "ttsSearchVoices": "Search voices",
   "ttsSystemDefault": "系统默认",
   "ttsSelectVoice": "选择语音",
   "ttsPreviewText": "这是所选语音的预览。",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "切换到 {model}？",
   "chatHandoffPromptMessage": "服务器建议使用 {model} 在新对话中继续。建议的消息会留在输入框中，直到你发送。",
   "chatHandoffStartNewChat": "开始新对话",
-  "chatHandoffStayHere": "留在这里",
-  "ttsAllLanguages": "All languages",
-  "ttsSearchVoices": "Search voices"
+  "chatHandoffStayHere": "留在这里"
 }
