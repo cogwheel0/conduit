@@ -113,7 +113,7 @@ dependencies:
   json_annotation: ^4.12.0
   freezed_annotation: ^3.0.0
   wakelock_plus: ^1.7.0
-  share_plus: ^13.2.1
+  share_plus: ^13.3.1
   riverpod_annotation: ^4.0.7
   flutter_local_notifications: ^22.1.0
   connectivity_plus: ^7.3.0
