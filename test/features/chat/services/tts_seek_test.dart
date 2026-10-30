@@ -25,6 +25,9 @@ void main() {
         );
     player.duration = const Duration(seconds: 20);
     player.failDuration = false;
+    player.failProbe = null;
+    player.failDurationAfter = null;
+    player.probes = 0;
     player.failSeek = false;
     player.addGate = null;
     player.addWaiting = false;
@@ -151,6 +154,33 @@ void main() {
     expect(await File(player.lastProbed!.uri.toFilePath()).exists(), isFalse);
     expect(device.rendered, isNotEmpty);
   });
+
+  for (final probe in [2, 3]) {
+    test(
+      'probe failure at clip $probe reports an error and stops the queue',
+      () async {
+        final events = <TtsEvent>[];
+        final sub = manager.events.listen(events.add);
+        addTearDown(sub.cancel);
+        player.failProbe = probe;
+        // Lookahead can recover on its regular retry. Keep this failure persistent.
+        player.failDurationAfter = probe;
+        manager.setServerSpeech(_Server());
+        await manager.updateConfig(
+          const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+        );
+        await manager.speak(
+          'First strip.\n\nSecond strip.\n\nThird strip.',
+          useServer: true,
+          seekable: true,
+        );
+        await _until(() => events.whereType<TtsError>().isNotEmpty);
+        expect(player.playing, isFalse);
+        expect(manager.canSeek, isFalse);
+        player.failDurationAfter = null;
+      },
+    );
+  }
 
   test('unknown duration still plays cloud audio without seeking', () async {
     manager.setServerSpeech(_Server());
@@ -353,12 +383,19 @@ class _Player extends NullAudioPlayback {
 
   bool failSeek = false;
   bool failDuration = false;
+  int? failProbe;
+  int probes = 0;
+  int? failDurationAfter;
   Duration? duration = const Duration(seconds: 20);
   AudioClip? lastProbed;
   @override
   Future<Duration?> durationOf(AudioClip clip) async {
     lastProbed = clip;
-    if (failDuration) throw StateError('Synthetic invalid audio');
+    if (failDuration ||
+        ++probes == failProbe ||
+        (failDurationAfter != null && probes >= failDurationAfter!)) {
+      throw StateError('Synthetic invalid audio');
+    }
     return duration;
   }
 

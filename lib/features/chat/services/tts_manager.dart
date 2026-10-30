@@ -1234,10 +1234,10 @@ class TtsManager {
         ).timeout(_serverInitialLookaheadTimeout);
         if (_activeSession?.id == session.id) {
           _setBufferedServerChunk(1, secondChunk);
-          _serverLastEnqueuedIndex = 1;
           initialSources.add(
             await _audioSourceForServerChunk(session.id, 1, secondChunk),
           );
+          _serverLastEnqueuedIndex = 1;
           prefetchStartIndex = 2;
         }
       } on TimeoutException {
@@ -1515,7 +1515,9 @@ class TtsManager {
             }
           }
         })
-        .catchError((_) {});
+        .catchError((Object error) {
+          if (session.seekable) _failAudioSession(session, error);
+        });
     await _serverPlaylistSerial;
   }
 
