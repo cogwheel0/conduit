@@ -66,6 +66,7 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../widgets/live_connection_button.dart';
 import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/utils/chat_list_back.dart';
 
@@ -4235,7 +4236,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final hasMessages = ref.watch(hasChatMessagesProvider);
     final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
-    final trailingActionCount = (showNewChatAction ? 1 : 0) + 1;
+    final selectedModel = ref.watch(selectedModelProvider);
+    final isHermes =
+        (selectedModel != null && isHermesModel(selectedModel)) ||
+        isNativeHermesConversation(activeConversation);
+    final showConnectionIssue =
+        !isHermes &&
+        ref.watch(liveConnectionDisconnectedProvider).value == true;
+    final trailingActionCount =
+        (showNewChatAction ? 1 : 0) + 1 + (showConnectionIssue ? 1 : 0);
     final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: trailingActionCount,
@@ -4243,7 +4252,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     // Hide the picker only for a true single-agent Hermes-only install. Mixed
     // setups must retain a way to switch back to an OpenWebUI model.
-    final selectedModel = ref.watch(selectedModelProvider);
     final showModelDropdown = shouldShowChatModelDropdown(
       selectedModel: selectedModel,
       isHermesOnly: ref.watch(hermesOnlyModeProvider),
@@ -4269,6 +4277,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       showNewChatAction: showNewChatAction,
     );
     final actionWidgets = buildConduitAdaptiveToolbarActionWidgets([
+      if (showConnectionIssue) const LiveConnectionButton(),
       for (final action in actionDescriptors) action.widget,
     ]);
     final useNativeActionGroup =
@@ -4277,9 +4286,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         actionDescriptors.isNotEmpty &&
         actionDescriptors.length <= 3;
     final cupertinoTrailing = useNativeActionGroup
-        ? ConduitNativeToolbarActionGroup(
-            actions: [
-              for (final action in actionDescriptors) action.nativeAction,
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showConnectionIssue) const LiveConnectionButton(),
+              ConduitNativeToolbarActionGroup(
+                actions: [
+                  for (final action in actionDescriptors) action.nativeAction,
+                ],
+              ),
             ],
           )
         : Row(mainAxisSize: MainAxisSize.min, children: actionWidgets);

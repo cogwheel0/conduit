@@ -3389,6 +3389,10 @@
   "@close": {
     "description": "Button label to close a dialog or sheet."
   },
+  "liveConnectionRetry": "Aktualizacje na żywo są rozłączone. Stuknij, aby połączyć ponownie.",
+  "@liveConnectionRetry": {"description": "Live update socket connection recovery in the chat toolbar."},
+  "liveConnectionRetryFailed": "Aktualizacje na żywo nadal są rozłączone. Stuknij ikonę połączenia, aby spróbować ponownie.",
+  "@liveConnectionRetryFailed": {"description": "Live update socket connection recovery in the chat toolbar."},
   "connectionHealth": "Stan połączenia",
   "@connectionHealth": {
     "description": "Section title for connection health information."
