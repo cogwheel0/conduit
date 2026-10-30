@@ -121,6 +121,8 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
         return nil
     }
 
+    /// File synthesis requires nonempty text and replaces any pending task.
+    /// Returns a local path and durationMs, or a FlutterError on failure.
     private func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "isAvailable":
