@@ -3951,7 +3951,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return _wrapWithComposerLineMeasurement(
       compactControls: compactControls,
       child: _wrapWithFallbackAttachmentPanel(
-        composer: composer,
+        composer: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [const SpeechPlaybackBar(), composer],
+        ),
         localAttachmentsOnly: isHermesComposer,
         attachmentAvailability: attachmentAvailability,
       ),
@@ -4043,7 +4046,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SpeechPlaybackBar(),
           composer,
           if (widget.managesSystemKeyboardInset)
             SizedBox(
