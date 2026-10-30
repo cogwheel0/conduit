@@ -113,6 +113,26 @@ void main() {
     expect(state.errorMessage, 'Synthetic pause failure');
   });
 
+  test('initialization errors keep the message available for retry', () async {
+    final errors = <TextToSpeechState>[];
+    final sub = container.listen(textToSpeechControllerProvider, (_, next) {
+      if (next.status == TtsPlaybackStatus.error) errors.add(next);
+    });
+    addTearDown(sub.close);
+    speech.initialization = Future.error(
+      StateError('Synthetic initialization failure'),
+    );
+    await play();
+    expect(errors, isNotEmpty);
+    expect(
+      errors.every((state) => state.activeMessageId == 'garden-guide'),
+      isTrue,
+    );
+    speech.initialization = null;
+    await controller.retry();
+    expect(speech.spoken, ['A blue flower grows near the gate.']);
+  });
+
   test('stop cancels a request still initializing', () async {
     final initialization = Completer<bool>();
     speech.initialization = initialization.future;

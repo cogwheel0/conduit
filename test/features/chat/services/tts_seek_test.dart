@@ -211,6 +211,42 @@ void main() {
     },
   );
 
+  test('an explicit pause while buffering reports paused', () async {
+    await manager.speak('A folded square.', seekable: true);
+    final events = <TtsEvent>[];
+    final sub = manager.events.listen(events.add);
+    addTearDown(sub.cancel);
+    player.processing = AudioProcessingState.buffering;
+    await manager.pause();
+    await pumpEventQueue();
+    expect(events.whereType<TtsPaused>(), hasLength(1));
+  });
+
+  for (final resume in [false, true]) {
+    test(
+      'a stale native ${resume ? 'resume' : 'pause'} error cannot fail new speech',
+      () async {
+        await manager.speak('First paper square.');
+        final result = Completer<bool>();
+        if (resume) {
+          device.resumeResult = result.future;
+        } else {
+          device.pauseResult = result.future;
+        }
+        final events = <TtsEvent>[];
+        final sub = manager.events.listen(events.add);
+        addTearDown(sub.cancel);
+        final previous = resume ? manager.resume() : manager.pause();
+        await manager.speak('Another paper square.');
+        result.completeError(StateError('Synthetic delayed control error'));
+        await previous;
+        await pumpEventQueue();
+        expect(events.whereType<TtsError>(), isEmpty);
+        expect(manager.isPlaying, isTrue);
+      },
+    );
+  }
+
   test('paused seeking stays paused and clamps to both ends', () async {
     await manager.speak('A paper triangle.', seekable: true);
     await manager.pause();
@@ -500,6 +536,12 @@ void main() {
 
 class _Device extends NativeTtsService {
   final rendered = <String>[];
+  Future<bool>? pauseResult;
+  Future<bool>? resumeResult;
+  @override
+  Future<bool> pause() async => await (pauseResult ?? Future.value(true));
+  @override
+  Future<bool> resume() async => await (resumeResult ?? Future.value(true));
   int liveSpeech = 0;
   Completer<NativeTtsAudio>? pending;
   final pendingChunks = <String, Completer<NativeTtsAudio>>{};

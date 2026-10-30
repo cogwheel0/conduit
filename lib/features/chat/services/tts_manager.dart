@@ -763,13 +763,15 @@ class TtsManager {
       if (session.usesAudioPlayer) {
         await _player.pause();
         if (_activeSession?.id == session.id &&
-            _player.processingState == AudioProcessingState.completed) {
+            (_player.processingState != AudioProcessingState.ready ||
+                _isTransitioningChunks)) {
           _emitEvent(const TtsPaused());
         }
       } else {
         await _nativeTts.pause();
       }
     } catch (e) {
+      if (_activeSession?.id != session.id) return;
       _emitEvent(TtsError(e.toString()));
     }
   }
@@ -789,11 +791,13 @@ class TtsManager {
         } else {
           await _playQueuedAudio(session);
         }
+        if (_activeSession?.id != session.id) return;
         _emitEvent(const TtsResumed());
       } else {
         await _nativeTts.resume();
       }
     } catch (e) {
+      if (_activeSession?.id != session.id) return;
       _emitEvent(TtsError(e.toString()));
     }
   }

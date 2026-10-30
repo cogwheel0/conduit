@@ -196,7 +196,6 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
             available: false,
             status: TtsPlaybackStatus.error,
             errorMessage: error.toString(),
-            clearActiveMessageId: true,
           );
           return false;
         });
