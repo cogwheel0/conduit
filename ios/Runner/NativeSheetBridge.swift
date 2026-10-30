@@ -5389,7 +5389,7 @@ private final class NativeModelTagButton: UIButton {
     }
 }
 
-private final class NativeOptionsSelectorTableViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
+final class NativeOptionsSelectorTableViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     private let configuration: NativeOptionsSelectorConfiguration
     private let onSelect: (String) -> Void
     private let onClose: () -> Void
@@ -5399,7 +5399,7 @@ private final class NativeOptionsSelectorTableViewController: UIViewController, 
     private var query = ""
     private var filteredOptions: [NativeSheetOption]
 
-    init(
+    fileprivate init(
         configuration: NativeOptionsSelectorConfiguration,
         onSelect: @escaping (String) -> Void,
         onClose: @escaping () -> Void
@@ -5409,6 +5409,19 @@ private final class NativeOptionsSelectorTableViewController: UIViewController, 
         self.onClose = onClose
         filteredOptions = configuration.options
         super.init(nibName: nil, bundle: nil)
+    }
+
+    static func makeForTesting(
+        _ payload: [String: Any], filterGroup: String?
+    ) -> UIViewController? {
+        guard let configuration = NativeOptionsSelectorConfiguration(payload) else { return nil }
+        let controller = NativeOptionsSelectorTableViewController(
+            configuration: configuration, onSelect: { _ in }, onClose: {}
+        )
+        controller.selectedFilter = filterGroup
+        controller.loadViewIfNeeded()
+        controller.applyFilters()
+        return controller
     }
 
     required init?(coder: NSCoder) {

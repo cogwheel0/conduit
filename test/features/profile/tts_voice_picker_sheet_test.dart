@@ -138,6 +138,7 @@ void main() {
             expect(find.text('Iris'), findsOneWidget);
             expect(find.text('Reed'), findsNothing);
             expect(find.text('System default'), findsNothing);
+            expect(find.text('Cloud voice'), findsNothing);
             await tester.tap(pill);
             await tester.pumpAndSettle();
             await tester.tap(find.text('All languages').last);
