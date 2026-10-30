@@ -285,6 +285,7 @@ void main() {
           null,
         ),
       );
+      final tools = _RefreshWorkspaceTools();
       final router = GoRouter(
         initialLocation: WorkspaceSection.tools.path,
         routes: [
@@ -303,7 +304,7 @@ void main() {
             workspaceCapabilitiesProvider.overrideWith(
               (ref) async => _capabilities,
             ),
-            workspaceToolsProvider.overrideWith(_RefreshWorkspaceTools.new),
+            workspaceToolsProvider.overrideWith(() => tools),
           ],
           child: MaterialApp.router(
             routerConfig: router,
@@ -322,13 +323,23 @@ void main() {
       await gesture.moveBy(const Offset(0, 60));
       await tester.pump(const Duration(milliseconds: 100));
       expect(calls, isEmpty);
-      await gesture.moveBy(const Offset(0, 400));
-      await tester.pump();
       await gesture.up();
+      await tester.pumpAndSettle();
+      expect(calls, isEmpty);
+      expect(tools.refreshCalls, 0);
+      final refreshGesture = await tester.startGesture(
+        tester.getCenter(find.byType(CustomScrollView)),
+      );
+      await refreshGesture.moveBy(const Offset(0, 60));
+      await tester.pump(const Duration(milliseconds: 100));
+      await refreshGesture.moveBy(const Offset(0, 400));
+      await tester.pump();
+      await refreshGesture.up();
       await tester.pumpAndSettle();
       expect(calls.map((call) => call.arguments), [
         'HapticFeedbackType.mediumImpact',
       ]);
+      expect(tools.refreshCalls, 1);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     },
@@ -803,6 +814,13 @@ class _TestWorkspaceTools extends WorkspaceTools {
 }
 
 class _RefreshWorkspaceTools extends _TestWorkspaceTools {
+  int refreshCalls = 0;
+
+  @override
+  Future<void> refresh() async {
+    refreshCalls++;
+  }
+
   @override
   Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async =>
       WorkspaceCollectionState(
