@@ -429,6 +429,37 @@ void main() {
     },
   );
 
+  test(
+    'a completed cloud queue resumes after a buffered append finishes',
+    () async {
+      final third = Completer<SynthesizedSpeech>();
+      final append = Completer<void>();
+      addTearDown(() {
+        if (!append.isCompleted) append.complete();
+      });
+      manager.setServerSpeech(_Server()..pending['Third strip.'] = third);
+      await manager.updateConfig(
+        const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+      );
+      await manager.speak(
+        'First strip.\n\nSecond strip.\n\nThird strip.',
+        useServer: true,
+        seekable: true,
+      );
+      player.addGate = append;
+      third.complete(_audio);
+      await _until(() => player.addWaiting);
+      player.at(1, const Duration(seconds: 20));
+      player.complete();
+      append.complete();
+      await _until(() => player.clips.length == 3);
+      await pumpEventQueue();
+      expect(player.currentIndex, 2);
+      expect(player.processingState, AudioProcessingState.ready);
+      expect(player.playing, isTrue);
+    },
+  );
+
   test('terminal seek failure stops audio and clears the session', () async {
     final events = <TtsEvent>[];
     final sub = manager.events.listen(events.add);

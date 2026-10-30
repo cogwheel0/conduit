@@ -1466,7 +1466,7 @@ class TtsManager {
     }
 
     if (_hasBufferedServerChunk(nextIndex)) {
-      _serverWaitingForNext = false;
+      _serverWaitingForNext = true;
       unawaited(_enqueueBufferedServerChunks(session));
     } else {
       _serverWaitingForNext = true;
