@@ -1692,6 +1692,8 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "すべての言語",
+  "ttsSearchVoices": "音声を検索",
   "ttsSystemDefault": "システム既定",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."

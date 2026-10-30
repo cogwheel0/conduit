@@ -1247,6 +1247,7 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
   var ancestorHasMoreSiblings: [Bool]
   var showBranch: Bool
   var hasMoreSiblings: Bool
+  var filterGroup: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1260,6 +1261,7 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
     let ancestorHasMoreSiblings = pigeonVar_list[6] as! [Bool]
     let showBranch = pigeonVar_list[7] as! Bool
     let hasMoreSiblings = pigeonVar_list[8] as! Bool
+    let filterGroup: String? = nilOrValue(pigeonVar_list[9])
 
     return PlatformNativeSheetOption(
       id: id,
@@ -1270,7 +1272,8 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
       destructive: destructive,
       ancestorHasMoreSiblings: ancestorHasMoreSiblings,
       showBranch: showBranch,
-      hasMoreSiblings: hasMoreSiblings
+      hasMoreSiblings: hasMoreSiblings,
+      filterGroup: filterGroup
     )
   }
   func toList() -> [Any?] {
@@ -1284,13 +1287,14 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
       ancestorHasMoreSiblings,
       showBranch,
       hasMoreSiblings,
+      filterGroup,
     ]
   }
   static func == (lhs: PlatformNativeSheetOption, rhs: PlatformNativeSheetOption) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.label, rhs.label) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.enabled, rhs.enabled) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.ancestorHasMoreSiblings, rhs.ancestorHasMoreSiblings) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showBranch, rhs.showBranch) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.hasMoreSiblings, rhs.hasMoreSiblings)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.label, rhs.label) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.enabled, rhs.enabled) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.ancestorHasMoreSiblings, rhs.ancestorHasMoreSiblings) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showBranch, rhs.showBranch) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.hasMoreSiblings, rhs.hasMoreSiblings) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filterGroup, rhs.filterGroup)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1304,10 +1308,11 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: ancestorHasMoreSiblings, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: showBranch, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: hasMoreSiblings, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: filterGroup, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetOption(id: \(String(describing: id)), label: \(String(describing: label)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), enabled: \(String(describing: enabled)), destructive: \(String(describing: destructive)), ancestorHasMoreSiblings: \(String(describing: ancestorHasMoreSiblings)), showBranch: \(String(describing: showBranch)), hasMoreSiblings: \(String(describing: hasMoreSiblings)))"
+    return "PlatformNativeSheetOption(id: \(String(describing: id)), label: \(String(describing: label)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), enabled: \(String(describing: enabled)), destructive: \(String(describing: destructive)), ancestorHasMoreSiblings: \(String(describing: ancestorHasMoreSiblings)), showBranch: \(String(describing: showBranch)), hasMoreSiblings: \(String(describing: hasMoreSiblings)), filterGroup: \(String(describing: filterGroup)))"
   }
 }
 
@@ -1441,6 +1446,7 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
   /// Draws the row as the sheet's profile summary: its large avatar beside
   /// the row's own title and subtitle.
   var usesProfileAvatar: Bool? = nil
+  var filterAllLabel: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1477,6 +1483,7 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     let checked: Bool? = nilOrValue(pigeonVar_list[29])
     let accent: Bool? = nilOrValue(pigeonVar_list[30])
     let usesProfileAvatar: Bool? = nilOrValue(pigeonVar_list[31])
+    let filterAllLabel: String? = nilOrValue(pigeonVar_list[32])
 
     return PlatformNativeSheetItem(
       id: id,
@@ -1510,7 +1517,8 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
       avatarBytes: avatarBytes,
       checked: checked,
       accent: accent,
-      usesProfileAvatar: usesProfileAvatar
+      usesProfileAvatar: usesProfileAvatar,
+      filterAllLabel: filterAllLabel
     )
   }
   func toList() -> [Any?] {
@@ -1547,13 +1555,14 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
       checked,
       accent,
       usesProfileAvatar,
+      filterAllLabel,
     ]
   }
   static func == (lhs: PlatformNativeSheetItem, rhs: PlatformNativeSheetItem) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconAsset, rhs.iconAsset) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconSize, rhs.iconSize) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showsDisclosure, rhs.showsDisclosure) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissOnSelect, rhs.dismissOnSelect) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionId, rhs.actionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionValue, rhs.actionValue) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceIndex, rhs.sourceIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceUrl, rhs.sourceUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceType, rhs.sourceType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.snippet, rhs.snippet) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.faviconUrl, rhs.faviconUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.queries, rhs.queries) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.links, rhs.links) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pending, rhs.pending) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.min, rhs.min) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.max, rhs.max) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.divisions, rhs.divisions) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarName, rhs.avatarName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarBytes, rhs.avatarBytes) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.checked, rhs.checked) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.accent, rhs.accent) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.usesProfileAvatar, rhs.usesProfileAvatar)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconAsset, rhs.iconAsset) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.iconSize, rhs.iconSize) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showsDisclosure, rhs.showsDisclosure) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.dismissOnSelect, rhs.dismissOnSelect) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionId, rhs.actionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.actionValue, rhs.actionValue) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.url, rhs.url) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.kind, rhs.kind) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceIndex, rhs.sourceIndex) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceUrl, rhs.sourceUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sourceType, rhs.sourceType) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.snippet, rhs.snippet) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.faviconUrl, rhs.faviconUrl) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.queries, rhs.queries) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.links, rhs.links) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.pending, rhs.pending) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.min, rhs.min) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.max, rhs.max) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.divisions, rhs.divisions) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarName, rhs.avatarName) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.avatarBytes, rhs.avatarBytes) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.checked, rhs.checked) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.accent, rhs.accent) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.usesProfileAvatar, rhs.usesProfileAvatar) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filterAllLabel, rhs.filterAllLabel)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1590,10 +1599,11 @@ struct PlatformNativeSheetItem: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: checked, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: accent, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: usesProfileAvatar, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: filterAllLabel, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetItem(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), iconAsset: \(String(describing: iconAsset)), iconSize: \(String(describing: iconSize)), showsDisclosure: \(String(describing: showsDisclosure)), destructive: \(String(describing: destructive)), dismissOnSelect: \(String(describing: dismissOnSelect)), actionId: \(String(describing: actionId)), actionValue: \(String(describing: actionValue)), url: \(String(describing: url)), kind: \(String(describing: kind)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), options: \(String(describing: options)), sourceIndex: \(String(describing: sourceIndex)), sourceUrl: \(String(describing: sourceUrl)), sourceType: \(String(describing: sourceType)), snippet: \(String(describing: snippet)), faviconUrl: \(String(describing: faviconUrl)), queries: \(String(describing: queries)), links: \(String(describing: links)), pending: \(String(describing: pending)), min: \(String(describing: min)), max: \(String(describing: max)), divisions: \(String(describing: divisions)), avatarName: \(String(describing: avatarName)), avatarBytes: \(String(describing: avatarBytes)), checked: \(String(describing: checked)), accent: \(String(describing: accent)), usesProfileAvatar: \(String(describing: usesProfileAvatar)))"
+    return "PlatformNativeSheetItem(id: \(String(describing: id)), title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), iconAsset: \(String(describing: iconAsset)), iconSize: \(String(describing: iconSize)), showsDisclosure: \(String(describing: showsDisclosure)), destructive: \(String(describing: destructive)), dismissOnSelect: \(String(describing: dismissOnSelect)), actionId: \(String(describing: actionId)), actionValue: \(String(describing: actionValue)), url: \(String(describing: url)), kind: \(String(describing: kind)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), options: \(String(describing: options)), sourceIndex: \(String(describing: sourceIndex)), sourceUrl: \(String(describing: sourceUrl)), sourceType: \(String(describing: sourceType)), snippet: \(String(describing: snippet)), faviconUrl: \(String(describing: faviconUrl)), queries: \(String(describing: queries)), links: \(String(describing: links)), pending: \(String(describing: pending)), min: \(String(describing: min)), max: \(String(describing: max)), divisions: \(String(describing: divisions)), avatarName: \(String(describing: avatarName)), avatarBytes: \(String(describing: avatarBytes)), checked: \(String(describing: checked)), accent: \(String(describing: accent)), usesProfileAvatar: \(String(describing: usesProfileAvatar)), filterAllLabel: \(String(describing: filterAllLabel)))"
   }
 }
 
@@ -2280,6 +2290,7 @@ struct PlatformNativeSheetOptionsSelectorRequest: Hashable, CustomStringConverti
   var selectedOptionId: String? = nil
   var searchable: Bool
   var options: [PlatformNativeSheetOption]
+  var filterAllLabel: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -2289,13 +2300,15 @@ struct PlatformNativeSheetOptionsSelectorRequest: Hashable, CustomStringConverti
     let selectedOptionId: String? = nilOrValue(pigeonVar_list[2])
     let searchable = pigeonVar_list[3] as! Bool
     let options = pigeonVar_list[4] as! [PlatformNativeSheetOption]
+    let filterAllLabel: String? = nilOrValue(pigeonVar_list[5])
 
     return PlatformNativeSheetOptionsSelectorRequest(
       title: title,
       subtitle: subtitle,
       selectedOptionId: selectedOptionId,
       searchable: searchable,
-      options: options
+      options: options,
+      filterAllLabel: filterAllLabel
     )
   }
   func toList() -> [Any?] {
@@ -2305,13 +2318,14 @@ struct PlatformNativeSheetOptionsSelectorRequest: Hashable, CustomStringConverti
       selectedOptionId,
       searchable,
       options,
+      filterAllLabel,
     ]
   }
   static func == (lhs: PlatformNativeSheetOptionsSelectorRequest, rhs: PlatformNativeSheetOptionsSelectorRequest) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.selectedOptionId, rhs.selectedOptionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.searchable, rhs.searchable) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.selectedOptionId, rhs.selectedOptionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.searchable, rhs.searchable) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.options, rhs.options) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filterAllLabel, rhs.filterAllLabel)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -2321,10 +2335,11 @@ struct PlatformNativeSheetOptionsSelectorRequest: Hashable, CustomStringConverti
     ConduitPlatformApisPigeonInternal.deepHash(value: selectedOptionId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: searchable, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: options, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: filterAllLabel, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetOptionsSelectorRequest(title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), selectedOptionId: \(String(describing: selectedOptionId)), searchable: \(String(describing: searchable)), options: \(String(describing: options)))"
+    return "PlatformNativeSheetOptionsSelectorRequest(title: \(String(describing: title)), subtitle: \(String(describing: subtitle)), selectedOptionId: \(String(describing: selectedOptionId)), searchable: \(String(describing: searchable)), options: \(String(describing: options)), filterAllLabel: \(String(describing: filterAllLabel)))"
   }
 }
 

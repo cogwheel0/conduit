@@ -1692,6 +1692,8 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "Všetky jazyky",
+  "ttsSearchVoices": "Hľadať hlasy",
   "ttsSystemDefault": "Predvolený systémový",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."

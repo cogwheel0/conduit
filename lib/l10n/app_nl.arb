@@ -443,6 +443,8 @@
   "ttsPitch": "Toonhoogte",
   "ttsVolume": "Volume",
   "ttsPreview": "Stemvoorbeeld",
+  "ttsAllLanguages": "Alle talen",
+  "ttsSearchVoices": "Stemmen zoeken",
   "ttsSystemDefault": "Systeemstandaard",
   "ttsSelectVoice": "Selecteer stem",
   "ttsPreviewText": "Dit is een voorbeeld van de geselecteerde stem.",

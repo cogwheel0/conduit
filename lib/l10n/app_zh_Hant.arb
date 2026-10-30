@@ -443,6 +443,8 @@
   "ttsPitch": "音調",
   "ttsVolume": "音量",
   "ttsPreview": "預覽語音",
+  "ttsAllLanguages": "所有語言",
+  "ttsSearchVoices": "搜尋語音",
   "ttsSystemDefault": "系統默認",
   "ttsSelectVoice": "選擇語音",
   "ttsPreviewText": "這是所選語音的預覽。",

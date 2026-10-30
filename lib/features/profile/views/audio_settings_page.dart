@@ -25,6 +25,7 @@ import '../widgets/customization_tile.dart';
 import '../widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../widgets/stt_language_picker.dart';
+import '../widgets/tts_voice_picker_sheet.dart';
 import 'voice_provider_settings_page.dart';
 
 bool shouldShowDeviceSttLanguageSetting(
@@ -469,136 +470,81 @@ class AudioSettingsPage extends ConsumerWidget {
     return formatTtsVoiceDisplayName(voice);
   }
 
-  Future<void> _showVoicePickerSheet(
+  Future<List<Map<String, dynamic>>?> _loadVoices(
     BuildContext context,
     WidgetRef ref,
     AppSettings settings,
   ) async {
     final l10n = AppLocalizations.of(context)!;
     final ttsService = ref.read(textToSpeechServiceProvider);
-
-    await ttsService.updateSettings(engine: settings.ttsEngine);
-    final voices = await ttsService.getAvailableVoices();
-    if (!context.mounted) {
-      return;
-    }
-    if (voices.isEmpty) {
+    try {
+      await ttsService.updateSettings(engine: settings.ttsEngine);
+      final voices = await ttsService.getAvailableVoices();
+      if (!context.mounted) return null;
+      if (voices.isNotEmpty) return voices;
       UiUtils.showMessage(context, l10n.ttsNoVoicesAvailable);
-      return;
+    } catch (_) {
+      if (context.mounted) UiUtils.showMessage(context, l10n.errorMessage);
     }
+    return null;
+  }
 
-    final notifier = ref.read(appSettingsProvider.notifier);
-    final voiceOptions = buildTtsVoiceOptions(l10n, settings.ttsEngine, voices);
-    final selectedOptionId = selectedTtsVoiceOptionId(settings, voices);
-    if (Platform.isIOS) {
-      try {
-        final selectedId = await NativeSheetBridge.instance
-            .presentOptionsSelector(
-              title: l10n.ttsSelectVoice,
-              selectedOptionId: selectedOptionId,
-              options: [
+  Future<void> _showVoicePickerSheet(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final voices = await _loadVoices(context, ref, settings);
+    if (voices == null || !context.mounted) return;
+    final options = buildTtsVoiceOptions(l10n, settings.ttsEngine, voices);
+    final selectedId = selectedTtsVoiceOptionId(settings, voices);
+
+    Future<String?> pick() async {
+      if (Platform.isIOS) {
+        try {
+          return await NativeSheetBridge.instance.presentOptionsSelector(
+            title: l10n.ttsSelectVoice,
+            selectedOptionId: selectedId,
+            filterAllLabel: l10n.ttsAllLanguages,
+            options: [
+              NativeSheetOptionConfig(
+                id: ttsSystemDefaultVoiceId,
+                label: l10n.ttsSystemDefault,
+                filterGroup: '',
+              ),
+              for (final option in options)
                 NativeSheetOptionConfig(
-                  id: ttsSystemDefaultVoiceId,
-                  label: l10n.ttsSystemDefault,
+                  id: option.id,
+                  label: option.label,
+                  subtitle: option.subtitle,
+                  filterGroup: ttsVoiceLanguageLabel(option.voice),
                 ),
-                for (final option in voiceOptions)
-                  NativeSheetOptionConfig(
-                    id: option.id,
-                    label: option.label,
-                    subtitle: option.subtitle,
-                  ),
-              ],
-              rethrowErrors: true,
-            );
-        if (selectedId == null) {
-          return;
-        }
-        if (selectedId == ttsSystemDefaultVoiceId) {
-          if (settings.ttsEngine == TtsEngine.server) {
-            await notifier.setTtsServerVoiceSelection(null, null);
-          } else {
-            await notifier.setTtsDeviceVoiceSelection(null, null);
-          }
-          return;
-        }
-        final selectedVoice = findTtsVoiceOption(
-          l10n,
-          settings.ttsEngine,
-          voices,
-          selectedId,
-        );
-        if (selectedVoice == null) {
-          return;
-        }
-        if (settings.ttsEngine == TtsEngine.server) {
-          await notifier.setTtsServerVoiceSelection(
-            selectedVoice.id,
-            selectedVoice.label,
+            ],
+            rethrowErrors: true,
           );
-        } else {
-          await notifier.setTtsDeviceVoiceSelection(
-            selectedVoice.id,
-            selectedVoice.label,
-          );
-        }
-        return;
-      } catch (_) {}
-      if (!context.mounted) {
-        return;
+        } catch (_) {}
       }
+      if (!context.mounted) return null;
+      return showAdaptiveSelectionSheet<String>(
+        context: context,
+        builder: (_) =>
+            TtsVoicePickerSheet(voices: options, selectedId: selectedId),
+      );
     }
 
-    await showAdaptiveSelectionSheet<void>(
-      context: context,
-      builder: (sheetContext) {
-        return AdaptiveSelectionSheet(
-          title: l10n.ttsSelectVoice,
-          itemCount: voiceOptions.length + 1,
-          initialChildSize: 0.68,
-          minChildSize: 0.42,
-          maxChildSize: 0.9,
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return AdaptiveSelectionTile(
-                title: l10n.ttsSystemDefault,
-                selected: selectedOptionId == ttsSystemDefaultVoiceId,
-                onTap: () async {
-                  if (settings.ttsEngine == TtsEngine.server) {
-                    await notifier.setTtsServerVoiceSelection(null, null);
-                  } else {
-                    await notifier.setTtsDeviceVoiceSelection(null, null);
-                  }
-                  if (!sheetContext.mounted) return;
-                  Navigator.of(sheetContext).pop();
-                },
-              );
-            }
-
-            final option = voiceOptions[index - 1];
-            return AdaptiveSelectionTile(
-              title: option.label,
-              subtitle: option.subtitle,
-              selected: option.id == selectedOptionId,
-              onTap: () async {
-                if (settings.ttsEngine == TtsEngine.server) {
-                  await notifier.setTtsServerVoiceSelection(
-                    option.id,
-                    option.label,
-                  );
-                } else {
-                  await notifier.setTtsDeviceVoiceSelection(
-                    option.id,
-                    option.label,
-                  );
-                }
-                if (!sheetContext.mounted) return;
-                Navigator.of(sheetContext).pop();
-              },
-            );
-          },
-        );
-      },
-    );
+    final id = await pick();
+    if (id == null) return;
+    final option = id == ttsSystemDefaultVoiceId
+        ? null
+        : options.where((option) => option.id == id).firstOrNull;
+    if (id != ttsSystemDefaultVoiceId && option == null) return;
+    final notifier = ref.read(appSettingsProvider.notifier);
+    if (settings.ttsEngine == TtsEngine.server) {
+      await notifier.setTtsServerVoiceSelection(option?.id, option?.label);
+    } else {
+      await notifier.setTtsDeviceVoiceSelection(option?.id, option?.label);
+    }
   }
 
   Future<void> _previewTtsVoice(BuildContext context, WidgetRef ref) async {

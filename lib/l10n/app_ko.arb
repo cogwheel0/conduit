@@ -563,6 +563,8 @@
   "ttsPitch": "음높이",
   "ttsVolume": "볼륨",
   "ttsPreview": "음성 미리보기",
+  "ttsAllLanguages": "모든 언어",
+  "ttsSearchVoices": "음성 검색",
   "ttsSystemDefault": "시스템 기본값",
   "ttsSelectVoice": "음성 선택",
   "ttsPreviewText": "선택한 음성의 미리보기입니다.",

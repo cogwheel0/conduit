@@ -862,10 +862,12 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     sfSymbol: 'person.wave.2',
     kind: NativeSheetItemKind.searchablePicker,
     value: selectedVoiceId,
+    filterAllLabel: l10n.ttsAllLanguages,
     options: [
       NativeSheetOptionConfig(
         id: ttsSystemDefaultVoiceId,
         label: l10n.ttsSystemDefault,
+        filterGroup: '',
       ),
       for (final option in voiceOptions)
         NativeSheetOptionConfig(
@@ -873,6 +875,7 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
           label: option.label,
           subtitle: option.subtitle,
           sfSymbol: 'person.wave.2',
+          filterGroup: ttsVoiceLanguageLabel(option.voice),
         ),
     ],
   );

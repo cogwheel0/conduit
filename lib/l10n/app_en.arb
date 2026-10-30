@@ -2026,6 +2026,10 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "All languages",
+  "@ttsAllLanguages": {"description": "Short voice catalog filter label that includes every language."},
+  "ttsSearchVoices": "Search voices",
+  "@ttsSearchVoices": {"description": "Search field hint in the voice picker."},
   "ttsSystemDefault": "System default",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."

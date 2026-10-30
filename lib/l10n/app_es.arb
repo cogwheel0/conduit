@@ -443,6 +443,8 @@
   "ttsPitch": "Tono",
   "ttsVolume": "Volumen",
   "ttsPreview": "Vista previa de voz",
+  "ttsAllLanguages": "Todos los idiomas",
+  "ttsSearchVoices": "Buscar voces",
   "ttsSystemDefault": "Predeterminado del sistema",
   "ttsSelectVoice": "Seleccionar voz",
   "ttsPreviewText": "Esta es una vista previa de la voz seleccionada.",

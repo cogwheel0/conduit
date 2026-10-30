@@ -1359,6 +1359,7 @@ class PlatformNativeSheetOption {
     required this.ancestorHasMoreSiblings,
     required this.showBranch,
     required this.hasMoreSiblings,
+    this.filterGroup,
   });
 
   String id;
@@ -1379,6 +1380,8 @@ class PlatformNativeSheetOption {
 
   bool hasMoreSiblings;
 
+  String? filterGroup;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -1390,6 +1393,7 @@ class PlatformNativeSheetOption {
       ancestorHasMoreSiblings,
       showBranch,
       hasMoreSiblings,
+      filterGroup,
     ];
   }
 
@@ -1409,6 +1413,7 @@ class PlatformNativeSheetOption {
       ancestorHasMoreSiblings: (result[6]! as List<Object?>).cast<bool>(),
       showBranch: result[7]! as bool,
       hasMoreSiblings: result[8]! as bool,
+      filterGroup: result[9] as String?,
     );
   }
 
@@ -1430,7 +1435,8 @@ class PlatformNativeSheetOption {
         _deepEquals(destructive, other.destructive) &&
         _deepEquals(ancestorHasMoreSiblings, other.ancestorHasMoreSiblings) &&
         _deepEquals(showBranch, other.showBranch) &&
-        _deepEquals(hasMoreSiblings, other.hasMoreSiblings);
+        _deepEquals(hasMoreSiblings, other.hasMoreSiblings) &&
+        _deepEquals(filterGroup, other.filterGroup);
   }
 
   @override
@@ -1439,7 +1445,7 @@ class PlatformNativeSheetOption {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetOption(id: $id, label: $label, subtitle: $subtitle, sfSymbol: $sfSymbol, enabled: $enabled, destructive: $destructive, ancestorHasMoreSiblings: $ancestorHasMoreSiblings, showBranch: $showBranch, hasMoreSiblings: $hasMoreSiblings)';
+    return 'PlatformNativeSheetOption(id: $id, label: $label, subtitle: $subtitle, sfSymbol: $sfSymbol, enabled: $enabled, destructive: $destructive, ancestorHasMoreSiblings: $ancestorHasMoreSiblings, showBranch: $showBranch, hasMoreSiblings: $hasMoreSiblings, filterGroup: $filterGroup)';
   }
 }
 
@@ -1590,6 +1596,7 @@ class PlatformNativeSheetItem {
     this.checked,
     this.accent,
     this.usesProfileAvatar,
+    this.filterAllLabel,
   });
 
   String id;
@@ -1662,6 +1669,8 @@ class PlatformNativeSheetItem {
   /// the row's own title and subtitle.
   bool? usesProfileAvatar;
 
+  String? filterAllLabel;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -1696,6 +1705,7 @@ class PlatformNativeSheetItem {
       checked,
       accent,
       usesProfileAvatar,
+      filterAllLabel,
     ];
   }
 
@@ -1738,6 +1748,7 @@ class PlatformNativeSheetItem {
       checked: result[29] as bool?,
       accent: result[30] as bool?,
       usesProfileAvatar: result[31] as bool?,
+      filterAllLabel: result[32] as String?,
     );
   }
 
@@ -1781,7 +1792,8 @@ class PlatformNativeSheetItem {
         _deepEquals(avatarBytes, other.avatarBytes) &&
         _deepEquals(checked, other.checked) &&
         _deepEquals(accent, other.accent) &&
-        _deepEquals(usesProfileAvatar, other.usesProfileAvatar);
+        _deepEquals(usesProfileAvatar, other.usesProfileAvatar) &&
+        _deepEquals(filterAllLabel, other.filterAllLabel);
   }
 
   @override
@@ -1790,7 +1802,7 @@ class PlatformNativeSheetItem {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar)';
+    return 'PlatformNativeSheetItem(id: $id, title: $title, subtitle: $subtitle, sfSymbol: $sfSymbol, iconAsset: $iconAsset, iconSize: $iconSize, showsDisclosure: $showsDisclosure, destructive: $destructive, dismissOnSelect: $dismissOnSelect, actionId: $actionId, actionValue: $actionValue, url: $url, kind: $kind, value: $value, placeholder: $placeholder, options: $options, sourceIndex: $sourceIndex, sourceUrl: $sourceUrl, sourceType: $sourceType, snippet: $snippet, faviconUrl: $faviconUrl, queries: $queries, links: $links, pending: $pending, min: $min, max: $max, divisions: $divisions, avatarName: $avatarName, avatarBytes: $avatarBytes, checked: $checked, accent: $accent, usesProfileAvatar: $usesProfileAvatar, filterAllLabel: $filterAllLabel)';
   }
 }
 
@@ -2652,6 +2664,7 @@ class PlatformNativeSheetOptionsSelectorRequest {
     this.selectedOptionId,
     required this.searchable,
     required this.options,
+    this.filterAllLabel,
   });
 
   String title;
@@ -2664,8 +2677,17 @@ class PlatformNativeSheetOptionsSelectorRequest {
 
   List<PlatformNativeSheetOption> options;
 
+  String? filterAllLabel;
+
   List<Object?> _toList() {
-    return <Object?>[title, subtitle, selectedOptionId, searchable, options];
+    return <Object?>[
+      title,
+      subtitle,
+      selectedOptionId,
+      searchable,
+      options,
+      filterAllLabel,
+    ];
   }
 
   Object encode() {
@@ -2680,6 +2702,7 @@ class PlatformNativeSheetOptionsSelectorRequest {
       selectedOptionId: result[2] as String?,
       searchable: result[3]! as bool,
       options: (result[4]! as List<Object?>).cast<PlatformNativeSheetOption>(),
+      filterAllLabel: result[5] as String?,
     );
   }
 
@@ -2697,7 +2720,8 @@ class PlatformNativeSheetOptionsSelectorRequest {
         _deepEquals(subtitle, other.subtitle) &&
         _deepEquals(selectedOptionId, other.selectedOptionId) &&
         _deepEquals(searchable, other.searchable) &&
-        _deepEquals(options, other.options);
+        _deepEquals(options, other.options) &&
+        _deepEquals(filterAllLabel, other.filterAllLabel);
   }
 
   @override
@@ -2706,7 +2730,7 @@ class PlatformNativeSheetOptionsSelectorRequest {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetOptionsSelectorRequest(title: $title, subtitle: $subtitle, selectedOptionId: $selectedOptionId, searchable: $searchable, options: $options)';
+    return 'PlatformNativeSheetOptionsSelectorRequest(title: $title, subtitle: $subtitle, selectedOptionId: $selectedOptionId, searchable: $searchable, options: $options, filterAllLabel: $filterAllLabel)';
   }
 }
 
