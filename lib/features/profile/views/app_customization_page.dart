@@ -98,6 +98,28 @@ class AppCustomizationPage extends ConsumerWidget {
           activeTheme,
         ),
         _sectionGap,
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.note_add_outlined,
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.showComposerNotesButton,
+          subtitle: l10n.showComposerNotesButtonDescription,
+          toggled: settings.showComposerNotesButton,
+          trailing: AdaptiveSwitch(
+            key: const Key('appearance-composer-notes-toggle'),
+            value: settings.showComposerNotesButton,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setShowComposerNotesButton(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setShowComposerNotesButton(!settings.showComposerNotesButton),
+        ),
+        _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
       ],
       AppCustomizationSection.chat => <Widget>[

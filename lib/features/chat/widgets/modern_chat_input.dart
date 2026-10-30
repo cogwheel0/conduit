@@ -3260,6 +3260,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final codeInterpreterOffer = ref.watch(codeInterpreterOfferProvider);
     final l10n = AppLocalizations.of(context)!;
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
+    final showNotesButton = ref.watch(
+      appSettingsProvider.select(
+        (settings) => settings.showComposerNotesButton,
+      ),
+    );
     final isCreatingDraftNote = ref.watch(
       noteCreatorProvider.select((state) => state.isLoading),
     );
@@ -3612,6 +3617,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final bool showCreateDraftNoteAction =
         !showCompactComposer &&
         notesEnabled &&
+        showNotesButton &&
         _hasText &&
         !isGenerating &&
         !_isRecording;

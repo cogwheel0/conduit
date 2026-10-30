@@ -7,6 +7,7 @@ final class PreferenceKeys {
       'disable_haptics_while_streaming';
   static const String citationShowTitles = 'citation_show_titles';
   static const String highContrast = 'high_contrast';
+  static const String showComposerNotesButton = 'show_composer_notes_button';
   static const String darkMode = 'dark_mode';
   static const String defaultModel = 'default_model';
   static const String openRouterImageGenerationModel =
@@ -29,6 +30,7 @@ final class PreferenceKeys {
   static const String webSearchRegion = 'web_search_region_v1';
   static const String directVoiceProvider = 'direct_voice_provider_v1';
   static const String sendOnEnterKey = 'send_on_enter';
+
   /// Holds the active Open WebUI *account* id. The key predates accounts:
   /// an account's id is the id its server config always had.
   static const String activeServerId = 'active_server_id';

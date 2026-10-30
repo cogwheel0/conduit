@@ -474,6 +474,8 @@
   },
   "analyzing": "분석 중…",
   "analyzed": "분석 완료",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "사용자 정의",
   "appCustomizationSubtitle": "테마, 언어, 음성 및 빠른 액션",
   "quickActionsDescription": "채팅의 빠른 액션",

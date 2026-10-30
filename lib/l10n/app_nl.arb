@@ -368,6 +368,8 @@
   },
   "analyzing": "Analyseren…",
   "analyzed": "Geanalyseerd",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Aanpassing",
   "appCustomizationSubtitle": "Thema, taal, stem en quick actions",
   "quickActionsDescription": "Snelkoppelingen in chat",

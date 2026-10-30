@@ -19,7 +19,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 
 void main() {
-  testWidgets('Appearance contains only display and language settings', (
+  testWidgets('Appearance contains display, language and composer visibility', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -30,6 +30,7 @@ void main() {
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Display'), findsNothing);
     expect(find.text('App Language'), findsWidgets);
+    expect(find.text('Show Notes button'), findsOneWidget);
     expect(find.text('Quick actions in chat'), findsNothing);
     expect(find.text('Send with Enter'), findsNothing);
     expect(find.text('Transport mode'), findsNothing);
@@ -50,6 +51,53 @@ void main() {
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      'Appearance saves Notes button visibility on ${platform.name}',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        addTearDown(PreferencesStore.debugReset);
+        await tester.runAsync(() async {
+          SharedPreferences.setMockInitialValues(<String, Object>{});
+          PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+        });
+        await tester.pumpWidget(
+          _sectionHarness(
+            AppCustomizationSection.appearance,
+            persistSettings: true,
+            platform: platform,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final toggle = find.byKey(
+          const Key('appearance-composer-notes-toggle'),
+        );
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.ensureVisible(toggle);
+          expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+          await tester.tap(toggle);
+          await tester.pumpAndSettle();
+          expect(
+            PreferencesStore.get<bool>(PreferenceKeys.showComposerNotesButton),
+            isFalse,
+          );
+          expect(tester.getSemantics(toggle), isSemantics(isToggled: false));
+          await tester.tap(toggle);
+          await tester.pumpAndSettle();
+          expect(
+            PreferencesStore.get<bool>(PreferenceKeys.showComposerNotesButton),
+            isTrue,
+          );
+          expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+          expect(tester.takeException(), isNull);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+
     testWidgets(
       'quick actions save selection and clearing on ${platform.name}',
       (tester) async {

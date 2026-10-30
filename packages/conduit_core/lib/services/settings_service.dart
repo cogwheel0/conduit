@@ -381,7 +381,7 @@ class SettingsService {
     required String ttsServerVoiceIdKey,
     required String ttsServerVoiceNameKey,
   }) async {
-    // Web search preferences are written only by their own setters, so a
+    // Web search and composer appearance are written by their own setters, so a
     // bulk save of a stale snapshot can't undo a concurrent change.
     await PreferencesStore.putAll(scopedUpdates);
 
@@ -736,6 +736,8 @@ class SettingsService {
           get<bool>(PreferenceKeys.citationShowTitles) ??
           false,
       highContrast: get<bool>(_highContrastKey) ?? false,
+      showComposerNotesButton:
+          get<bool>(PreferenceKeys.showComposerNotesButton) ?? true,
       darkMode: get<bool>(_darkModeKey) ?? true,
       defaultModel: get<String>(_defaultModelKey),
       openRouterImageGenerationModel: get<String>(
@@ -856,6 +858,7 @@ class AppSettings {
   final bool disableHapticsWhileStreaming;
   final bool citationShowTitles;
   final bool highContrast;
+  final bool showComposerNotesButton;
   final bool darkMode;
   final String? defaultModel;
   final String? openRouterImageGenerationModel;
@@ -908,6 +911,7 @@ class AppSettings {
     this.disableHapticsWhileStreaming = false,
     this.citationShowTitles = false,
     this.highContrast = false,
+    this.showComposerNotesButton = true,
     this.darkMode = true,
     this.defaultModel,
     this.openRouterImageGenerationModel,
@@ -955,6 +959,7 @@ class AppSettings {
     bool? disableHapticsWhileStreaming,
     bool? citationShowTitles,
     bool? highContrast,
+    bool? showComposerNotesButton,
     bool? darkMode,
     Object? defaultModel = const _DefaultValue(),
     Object? openRouterImageGenerationModel = const _DefaultValue(),
@@ -1002,6 +1007,8 @@ class AppSettings {
           disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
       citationShowTitles: citationShowTitles ?? this.citationShowTitles,
       highContrast: highContrast ?? this.highContrast,
+      showComposerNotesButton:
+          showComposerNotesButton ?? this.showComposerNotesButton,
       darkMode: darkMode ?? this.darkMode,
       defaultModel: defaultModel is _DefaultValue
           ? this.defaultModel
@@ -1080,6 +1087,7 @@ class AppSettings {
         other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
         other.citationShowTitles == citationShowTitles &&
         other.highContrast == highContrast &&
+        other.showComposerNotesButton == showComposerNotesButton &&
         other.darkMode == darkMode &&
         other.defaultModel == defaultModel &&
         other.openRouterImageGenerationModel ==
@@ -1130,6 +1138,7 @@ class AppSettings {
       disableHapticsWhileStreaming,
       citationShowTitles,
       highContrast,
+      showComposerNotesButton,
       darkMode,
       defaultModel,
       openRouterImageGenerationModel,
@@ -1328,6 +1337,15 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       ),
     );
     if (next != state) state = next;
+  }
+
+  Future<void> setShowComposerNotesButton(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(showComposerNotesButton: value);
+    await SettingsService._putPreference(
+      PreferenceKeys.showComposerNotesButton,
+      value,
+    );
   }
 
   Future<void> setHighContrast(bool value) async {
@@ -1599,6 +1617,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
 
   Future<void> resetToDefaults() async {
     const defaultSettings = AppSettings();
+    await SettingsService._putOrRemove(
+      PreferenceKeys.showComposerNotesButton,
+      null,
+    );
     await SettingsService.saveSettings(defaultSettings);
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(

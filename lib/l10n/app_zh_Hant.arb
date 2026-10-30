@@ -368,6 +368,8 @@
   },
   "analyzing": "分析中…",
   "analyzed": "已分析",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "自定義",
   "appCustomizationSubtitle": "主題、語言、語音和 quick actions",
   "quickActionsDescription": "聊天快捷方式",

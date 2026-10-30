@@ -374,6 +374,8 @@
   },
   "analyzing": "Анализирую…",
   "analyzed": "Проанализировано",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Настройка",
   "appCustomizationSubtitle": "Тема, язык, голос и quick actions",
   "quickActionsDescription": "Быстрые клавиши в чате",

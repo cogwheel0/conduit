@@ -368,6 +368,8 @@
   },
   "analyzing": "Analyse…",
   "analyzed": "Analysé",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Personnalisation",
   "appCustomizationSubtitle": "Thème, langue, voix et quick actions",
   "quickActionsDescription": "Raccourcis dans le chat",
