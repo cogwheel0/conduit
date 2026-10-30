@@ -2113,7 +2113,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final voiceOverlayHeight = voice.isActive
         ? (voice.isCollapsed ? 72.0 : 180.0)
         : 0.0;
-    return Spacing.lg + _inputHeight + voiceOverlayHeight;
+    // The measured composer includes transparent headroom for the scroll fade.
+    // The last message already has its own bottom margin.
+    return math.max(0, _inputHeight - Spacing.xl) + voiceOverlayHeight;
   }
 
   /// User-initiated scroll to bottom (e.g. button tap).
