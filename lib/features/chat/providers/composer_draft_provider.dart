@@ -31,12 +31,13 @@ typedef ComposerDraftKey = ({
   String chatId,
 });
 
-/// Non-chat composers keep their input local to the mounted editor.
+/// Non-chat composers keep input local to the mounted editor and authenticated owner.
 ComposerDraftContext ephemeralComposerDraftContext({
   required String scope,
   required String chatId,
+  required Object session,
 }) => (
-  owner: (backend: 'ephemeral', account: '', principal: '', session: null),
+  owner: (backend: 'ephemeral', account: '', principal: '', session: session),
   scope: scope,
   chatId: chatId,
   store: null,

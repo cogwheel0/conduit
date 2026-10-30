@@ -232,6 +232,31 @@ void main() {
     expect(failures, isEmpty);
   });
 
+  test(
+    'ephemeral input is cleared for a different API or authentication session',
+    () async {
+      final api = Object();
+      final epoch = Object();
+      ComposerDraftContext ephemeral(Object currentApi, Object currentEpoch) =>
+          ephemeralComposerDraftContext(
+            scope: 'channel',
+            chatId: 'paper-room',
+            session: (currentApi, currentEpoch),
+          );
+      await binding.bind(ephemeral(api, epoch));
+      controller.text = 'Fold three blue paper circles.';
+      await tick();
+      final nextApi = Object();
+      await binding.bind(ephemeral(nextApi, epoch));
+      expect(controller.text, isEmpty);
+      controller.text = 'Arrange four amber tiles.';
+      await tick();
+      await binding.bind(ephemeral(nextApi, Object()));
+      expect(controller.text, isEmpty);
+      expect(failures, isEmpty);
+    },
+  );
+
   test('a late read cannot replace another chat', () async {
     final delayed = Completer<String?>();
     store.pendingRead = delayed;

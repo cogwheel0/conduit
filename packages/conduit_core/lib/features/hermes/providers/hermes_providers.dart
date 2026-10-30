@@ -2501,10 +2501,18 @@ class HermesSessionsController
     }
     await service.deleteSession(id);
     if (connectionIdentity != null) {
-      await draftDatabase!.composerDraftsDao.deleteDraft(
-        'hermes:$connectionIdentity',
-        'local:hermes_$id',
-      );
+      try {
+        await draftDatabase!.composerDraftsDao.deleteDraft(
+          'hermes:$connectionIdentity',
+          'local:hermes_$id',
+        );
+      } catch (error) {
+        DebugLogger.warning(
+          'hermes-draft-cleanup-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
     }
     if (configController.sessionActionAdmissionIsCurrent(admission) &&
         identical(ref.read(hermesApiServiceProvider), service)) {

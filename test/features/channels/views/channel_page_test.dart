@@ -182,6 +182,7 @@ void main() {
       ).toList();
       expect(draftContexts.map((draft) => draft.scope), containsAll(['channel', 'thread:channel-1']));
       expect(draftContexts.every((draft) => draft.temporary && draft.store == null), isTrue);
+      expect(draftContexts.every((draft) => draft.owner.session == (firstApi, firstAuthEpoch)), isTrue);
 
       check(
         tester

@@ -1062,7 +1062,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                             if (pcmGeneration == generation) {
                                 pcmSource?.stop()
                                 if (pcmGeneration == generation) {
-                                    emitError("AUDIO_CAPTURE_FAILED", "Unable to preserve dictation audio", "android_audio")
+                                    emitError("AUDIO_PRESERVATION_FAILED", "Unable to preserve dictation audio", "android_audio")
                                 }
                             }
                         }

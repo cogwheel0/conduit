@@ -1757,15 +1757,24 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                 ),
               RepaintBoundary(
                 child: ProviderScope(
-                  overrides: [composerDraftContextProvider.overrideWithValue(
-                    ephemeralComposerDraftContext(scope: 'channel', chatId: widget.channelId),
-                  )],
+                  overrides: [
+                    composerDraftContextProvider.overrideWithValue(
+                      ephemeralComposerDraftContext(
+                        scope: 'channel',
+                        chatId: widget.channelId,
+                        session: (
+                          ref.watch(apiServiceProvider),
+                          ref.watch(openWebUiAuthSessionEpochProvider),
+                        ),
+                      ),
+                    ),
+                  ],
                   child: ModernChatInput(
-                  onSendMessage: _sendMessage,
-                  placeholder: l10n.channelInputPlaceholder,
-                  overflowButtonBuilder: _buildAttachmentButton,
-                  bottomPadding: 0,
-                ),
+                    onSendMessage: _sendMessage,
+                    placeholder: l10n.channelInputPlaceholder,
+                    overflowButtonBuilder: _buildAttachmentButton,
+                    bottomPadding: 0,
+                  ),
                 ),
               ),
             ],
