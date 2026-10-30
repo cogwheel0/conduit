@@ -33,7 +33,6 @@ import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 
-
 import 'package:conduit_core/database/database_provider.dart';
 
 import 'package:conduit_core/database/app_database.dart';
@@ -2115,7 +2114,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         : 0.0;
     // The measured composer includes transparent headroom for the scroll fade.
     // The last message already has its own bottom margin.
-    return math.max(0, _inputHeight - Spacing.xl) + voiceOverlayHeight;
+    return voice.isActive
+        ? Spacing.lg + _inputHeight + voiceOverlayHeight
+        : math.max(0, _inputHeight - Spacing.xl);
   }
 
   /// User-initiated scroll to bottom (e.g. button tap).
@@ -3336,7 +3337,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [bubble, ChatBranchSwitcher(messageId: messageId)],
+            children: [
+              bubble,
+              ChatBranchSwitcher(messageId: messageId),
+            ],
           );
         },
       );

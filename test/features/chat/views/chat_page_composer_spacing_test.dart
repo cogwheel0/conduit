@@ -1,5 +1,6 @@
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -90,97 +91,125 @@ class _Connectivity extends Fake implements ConnectivityService {
   int get lastLatencyMs => 0;
 }
 
+class _Voice extends ChatVoiceModeController {
+  _Voice(this.active);
+  final bool active;
+  @override
+  ChatVoiceModeSnapshot build() => ChatVoiceModeSnapshot(
+    phase: active ? ChatVoiceModePhase.listening : ChatVoiceModePhase.idle,
+    isCollapsed: true,
+  );
+}
+
 void main() {
-  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
-    testWidgets(
-      'latest response stays close to the composer on ${platform.name}',
-      (tester) async {
-        tester.view.physicalSize = const Size(400, 800);
-        tester.view.devicePixelRatio = 1;
-        tester.view.padding = const FakeViewPadding(bottom: 34);
-        addTearDown(tester.view.reset);
-        PlatformUiCapabilities.debugPlatformOverride = platform;
-        PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
-        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-        final container = ProviderContainer(
-          overrides: [
-            apiServiceProvider.overrideWithValue(
-              ApiService(
-                serverConfig: const ServerConfig(
-                  id: 'spacing',
-                  name: 'Example server',
-                  url: 'https://spacing.example.test',
+  for (final activeVoice in [false, true]) {
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+      testWidgets(
+        'latest response stays close to the composer on ${platform.name} with voice $activeVoice',
+        (tester) async {
+          tester.view.physicalSize = const Size(400, 800);
+          tester.view.devicePixelRatio = 1;
+          tester.view.padding = const FakeViewPadding(bottom: 34);
+          addTearDown(tester.view.reset);
+          PlatformUiCapabilities.debugPlatformOverride = platform;
+          PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+          addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+          final container = ProviderContainer(
+            overrides: [
+              apiServiceProvider.overrideWithValue(
+                ApiService(
+                  serverConfig: const ServerConfig(
+                    id: 'spacing',
+                    name: 'Example server',
+                    url: 'https://spacing.example.test',
+                  ),
+                  workerManager: WorkerManager(),
                 ),
-                workerManager: WorkerManager(),
+              ),
+              appDatabaseProvider.overrideWith((ref) => null),
+              connectivityServiceProvider.overrideWithValue(_Connectivity()),
+              isAuthenticatedProvider2.overrideWithValue(false),
+              reviewerModeProvider.overrideWithValue(false),
+              selectedModelProvider.overrideWith(_SelectedModel.new),
+              chatMessagesProvider.overrideWith(_Messages.new),
+              optimizedStorageServiceProvider.overrideWithValue(_Storage()),
+              isChatStreamingProvider.overrideWith((ref) => false),
+              conversationsProvider.overrideWith(_Conversations.new),
+              modelsProvider.overrideWith(_Models.new),
+              foldersProvider.overrideWith(_Folders.new),
+              toolsListProvider.overrideWith(_Tools.new),
+              textToSpeechControllerProvider.overrideWith(_Speech.new),
+              chatVoiceModeControllerProvider.overrideWith(
+                () => _Voice(activeVoice),
+              ),
+            ],
+          );
+          addTearDown(container.dispose);
+          addTearDown(() async => tester.pumpWidget(const SizedBox.shrink()));
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp(
+                theme: AppTheme.light(TweakcnThemes.t3Chat)
+                    .copyWith(platform: platform),
+                localizationsDelegates: conduitLocalizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                home: const ChatPage(),
               ),
             ),
-            appDatabaseProvider.overrideWith((ref) => null),
-            connectivityServiceProvider.overrideWithValue(_Connectivity()),
-            isAuthenticatedProvider2.overrideWithValue(false),
-            reviewerModeProvider.overrideWithValue(false),
-            selectedModelProvider.overrideWith(_SelectedModel.new),
-            chatMessagesProvider.overrideWith(_Messages.new),
-            optimizedStorageServiceProvider.overrideWithValue(_Storage()),
-            isChatStreamingProvider.overrideWith((ref) => false),
-            conversationsProvider.overrideWith(_Conversations.new),
-            modelsProvider.overrideWith(_Models.new),
-            foldersProvider.overrideWith(_Folders.new),
-            toolsListProvider.overrideWith(_Tools.new),
-            textToSpeechControllerProvider.overrideWith(_Speech.new),
-          ],
-        );
-        addTearDown(container.dispose);
-        addTearDown(() async => tester.pumpWidget(const SizedBox.shrink()));
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: container,
-            child: MaterialApp(
-              theme: AppTheme.light(TweakcnThemes.t3Chat)
-                  .copyWith(platform: platform),
-              localizationsDelegates: conduitLocalizationsDelegates,
-              supportedLocales: AppLocalizations.supportedLocales,
-              home: const ChatPage(),
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
-        FocusManager.instance.primaryFocus?.unfocus();
-        await tester.pumpAndSettle();
-
-        Future<void> expectGap() async {
-          final timeline = tester.widget<ChatTimelineViewport>(
-            find.byType(ChatTimelineViewport),
           );
-          expect(timeline.controller.hasRealContentOverflow, isTrue);
-          timeline.controller.jumpToLatest();
           await tester.pumpAndSettle();
-          final last = find.byWidgetPredicate(
-            (w) => w is AssistantMessageWidget && w.message.id == 'panel-19',
-          );
-          final actions = find.descendant(
-            of: last,
-            matching: find.byKey(const ValueKey('actions')),
-          );
-          final composer = find.byKey(const ValueKey('composer-native-shell'));
-          final gap =
-              tester.getTopLeft(composer).dy - tester.getBottomLeft(actions).dy;
-          expect(
-            gap,
-            closeTo(16, 1),
-            reason: 'Only the response margin should separate actions and the visible composer.',
-          );
-          expect(tester.takeException(), isNull);
-        }
+          FocusManager.instance.primaryFocus?.unfocus();
+          await tester.pumpAndSettle();
 
-        await expectGap();
-        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-        await tester.enterText(
-          find.byType(EditableText),
-          'Fold the next panel.\nAlign the corners.\nPress along the seam.\nKeep the edge straight.',
-        );
-        await tester.pumpAndSettle();
-        await expectGap();
-      },
-    );
+          Future<void> expectGap() async {
+            final timeline = tester.widget<ChatTimelineViewport>(
+              find.byType(ChatTimelineViewport),
+            );
+            expect(timeline.controller.hasRealContentOverflow, isTrue);
+            timeline.controller.jumpToLatest();
+            await tester.pumpAndSettle();
+            final last = find.byWidgetPredicate(
+              (w) => w is AssistantMessageWidget && w.message.id == 'panel-19',
+            );
+            final actions = find.descendant(
+              of: last,
+              matching: find.byKey(const ValueKey('actions')),
+            );
+            final composer = find.byKey(
+              const ValueKey('composer-native-shell'),
+            );
+            final gap =
+                tester.getTopLeft(composer).dy -
+                tester.getBottomLeft(actions).dy;
+            if (activeVoice) {
+              final pill = find.byKey(
+                const ValueKey('voice-overlay-collapsed'),
+              );
+              expect(
+                tester.getTopLeft(pill).dy - tester.getBottomLeft(actions).dy,
+                greaterThanOrEqualTo(8),
+              );
+            } else {
+              expect(
+                gap,
+                closeTo(16, 1),
+                reason: 'Only the response margin should separate actions and the visible composer.',
+              );
+            }
+            expect(tester.takeException(), isNull);
+          }
+
+          await expectGap();
+          tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+          await tester.enterText(
+            find.byType(EditableText),
+            'Fold the next panel.\nAlign the corners.\nPress along the seam.\nKeep the edge straight.',
+          );
+          await tester.pumpAndSettle();
+          await expectGap();
+        },
+      );
+    }
   }
 }
