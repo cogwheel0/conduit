@@ -4198,7 +4198,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Model loading can take a moment on a cold cache. Show that on the
     // selector itself and reject overlapping taps instead of letting the
     // control look dead (#692).
-    if (_isOpeningModelSelector) return;
+    if (_isOpeningModelSelector || ref.read(isLoadingConversationProvider)) return;
     setState(() => _isOpeningModelSelector = true);
     try {
       final models = await ref
@@ -4245,7 +4245,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final showConnectionIssue =
         !isHermes &&
         ref.watch(liveConnectionDisconnectedProvider).value == true;
-    var modelInOverflow = false;
+    ({String label, bool enabled})? overflowModel;
     List<_ChatToolbarActionDescriptor> buildActions({bool compact = false}) =>
         _buildAdaptiveToolbarActions(
           context: context,
@@ -4255,7 +4255,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           hasMessages: hasMessages,
           showNewChatAction: showNewChatAction,
           compact: compact,
-          modelInOverflow: modelInOverflow,
+          overflowModel: overflowModel,
         );
     var actionDescriptors = buildActions();
     double modelWidth() => resolveConduitAdaptiveLeadingPillWidth(
@@ -4278,7 +4278,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isHermesBot: hermesBot != null,
     );
     if (showModelDropdown && maxModelWidth < TouchTarget.minimum) {
-      modelInOverflow = true;
+      overflowModel = (
+        label: modelLabel,
+        enabled: !isLoadingConversation && !_isOpeningModelSelector,
+      );
       actionDescriptors = buildActions(compact: true);
       maxModelWidth = 0;
     }
@@ -4364,7 +4367,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool hasMessages,
     required bool showNewChatAction,
     bool compact = false,
-    bool modelInOverflow = false,
+    ({String label, bool enabled})? overflowModel,
   }) {
     final actions = <_ChatToolbarActionDescriptor>[];
     final defaultTint = context.conduitTheme.textPrimary;
@@ -4397,7 +4400,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       activeConversation: activeConversation,
       tintColor: defaultTint,
       collapsedActions: compact ? List.of(actions) : const [],
-      modelInOverflow: modelInOverflow,
+      overflowModel: overflowModel,
     );
     if (compact) actions.clear();
     if (overflowButton != null) {
@@ -4478,7 +4481,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required Conversation? activeConversation,
     required Color tintColor,
     List<_ChatToolbarActionDescriptor> collapsedActions = const [],
-    bool modelInOverflow = false,
+    ({String label, bool enabled})? overflowModel,
   }) {
     final items = <AdaptivePopupMenuEntry>[];
     final callbacks = <Future<void> Function()>[];
@@ -4514,15 +4517,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
-    if (modelInOverflow) {
+    if (overflowModel case final model?) {
       addItem(
-        label: AppLocalizations.of(context)!.chooseModel,
+        label: model.label,
         icon: conduitAdaptivePopupMenuIcon(
           iosSymbol: 'square.stack.3d.up',
           materialIcon: Icons.smart_toy_outlined,
         ),
         iosSymbol: 'square.stack.3d.up',
-        enabled: !_isOpeningModelSelector,
+        enabled: model.enabled,
         onSelected: () => _openModelSelector(context),
       );
     }

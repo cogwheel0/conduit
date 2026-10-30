@@ -202,7 +202,7 @@ void main() {
                 .map((entry) => entry.label);
             if (width < 320 && disconnected) {
               expect(modelWidth, 0);
-              expect(labels, contains('Choose Model'));
+              expect(labels, contains('Fixture model'));
             }
             if (disconnected || width <= 320) {
               expect(labels, contains('New Chat'));
@@ -213,11 +213,26 @@ void main() {
               }
             }
             if (width == 240 && disconnected && chatId == null) {
+              container.read(isLoadingConversationProvider.notifier).set(true);
+              await tester.pump();
+              final loadingMore = tester
+                  .widget<ConduitAdaptiveToolbarOverflowButton<int>>(
+                    find.byType(ConduitAdaptiveToolbarOverflowButton<int>),
+                  );
+              expect(
+                loadingMore.items
+                    .whereType<AdaptivePopupMenuItem<int>>()
+                    .singleWhere((entry) => entry.label == 'Fixture model')
+                    .enabled,
+                isFalse,
+              );
+              container.read(isLoadingConversationProvider.notifier).set(false);
+              await tester.pump();
               await tester.tap(
                 find.byType(ConduitAdaptiveToolbarOverflowButton<int>),
               );
               await tester.pumpAndSettle();
-              await tester.tap(find.text('Choose Model'));
+              await tester.tap(find.text('Fixture model').last);
               await tester.pump();
               await tester.pump(const Duration(milliseconds: 500));
               expect(find.byType(ModelSelectorSheet), findsOneWidget);
