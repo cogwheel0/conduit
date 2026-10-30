@@ -341,6 +341,9 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     final epoch = _requestEpoch;
     try {
       await _service.pause();
+      if (ref.mounted && epoch == _requestEpoch) {
+        _handlePause(userInitiated: true);
+      }
     } catch (error) {
       if (ref.mounted && epoch == _requestEpoch) {
         _handleError(error.toString());
@@ -476,8 +479,8 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     );
   }
 
-  void _handlePause() {
-    if (!ref.mounted) {
+  void _handlePause({bool userInitiated = false}) {
+    if (!ref.mounted || (state.seeking && !userInitiated)) {
       return;
     }
     _stopPlaybackClock();

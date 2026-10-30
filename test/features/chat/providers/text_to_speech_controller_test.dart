@@ -161,6 +161,31 @@ void main() {
     );
   });
 
+  for (final pauseWhileSeeking in [false, true]) {
+    test('a seek ignores its internal pause and preserves user pause intent '
+        '(user pause: $pauseWhileSeeking)', () async {
+      speech.seekable = true;
+      await play();
+      final pending = Completer<Duration?>();
+      speech.seekResult = pending.future;
+      final seek = controller.skip(const Duration(seconds: 15));
+      speech.onPause!();
+      expect(
+        container.read(textToSpeechControllerProvider).status,
+        TtsPlaybackStatus.speaking,
+      );
+      if (pauseWhileSeeking) await controller.pause();
+      pending.complete(const Duration(seconds: 15));
+      await seek;
+      expect(
+        container.read(textToSpeechControllerProvider).status,
+        pauseWhileSeeking
+            ? TtsPlaybackStatus.paused
+            : TtsPlaybackStatus.speaking,
+      );
+    });
+  }
+
   test('a cancelled paused seek refreshes control availability', () async {
     speech.seekable = true;
     await play();
