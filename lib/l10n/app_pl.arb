@@ -2142,6 +2142,8 @@
   "@transportModeWsInfo": {
     "description": "Footnote text for the WebSocket-only transport mode."
   },
+  "showComposerNotesButton": "Pokaż przycisk notatek",
+  "showComposerNotesButtonDescription": "Pokaż przycisk tworzenia notatki w polu wiadomości.",
   "notes": "Notatki",
   "@notes": {
     "description": "Navigation item and page title for notes feature."

@@ -1143,6 +1143,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           }
         case 'quick-pills-clear':
           await ref.read(appSettingsProvider.notifier).setQuickPills(const []);
+        case 'composer-notes-button':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setShowComposerNotesButton(value);
+          }
         case 'send-on-enter':
           if (value is bool) {
             await ref.read(appSettingsProvider.notifier).setSendOnEnter(value);

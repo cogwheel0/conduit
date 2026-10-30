@@ -381,7 +381,7 @@ class SettingsService {
     required String ttsServerVoiceIdKey,
     required String ttsServerVoiceNameKey,
   }) async {
-    // Web search preferences are written only by their own setters, so a
+    // Web search and composer appearance are written by their own setters, so a
     // bulk save of a stale snapshot can't undo a concurrent change.
     await PreferencesStore.putAll(scopedUpdates);
 
@@ -763,6 +763,8 @@ class SettingsService {
       chatImageGenerationEnabled: get<bool>(
         _chatImageGenerationEnabledKey,
       ),
+      showComposerNotesButton:
+          get<bool>(PreferenceKeys.showComposerNotesButton) ?? true,
       sendOnEnter: get<bool>(_sendOnEnterKey) ?? false,
       ttsVoice: get<String>(PreferenceKeys.ttsVoice),
       ttsVoiceName: get<String>(PreferenceKeys.ttsVoiceName),
@@ -868,6 +870,7 @@ class AppSettings {
   final List<String> quickPills; // e.g., ['web','image']
   final bool? chatWebSearchEnabled;
   final bool? chatImageGenerationEnabled;
+  final bool showComposerNotesButton;
   final bool sendOnEnter;
   final SttPreference sttPreference;
   final String? sttLanguageCode;
@@ -920,6 +923,7 @@ class AppSettings {
     this.quickPills = const [],
     this.chatWebSearchEnabled,
     this.chatImageGenerationEnabled,
+    this.showComposerNotesButton = true,
     this.sendOnEnter = false,
     this.sttPreference = SttPreference.deviceOnly,
     this.sttLanguageCode,
@@ -967,6 +971,7 @@ class AppSettings {
     List<String>? quickPills,
     bool? chatWebSearchEnabled,
     bool? chatImageGenerationEnabled,
+    bool? showComposerNotesButton,
     bool? sendOnEnter,
     SttPreference? sttPreference,
     Object? sttLanguageCode = const _DefaultValue(),
@@ -1022,6 +1027,8 @@ class AppSettings {
       chatWebSearchEnabled: chatWebSearchEnabled ?? this.chatWebSearchEnabled,
       chatImageGenerationEnabled:
           chatImageGenerationEnabled ?? this.chatImageGenerationEnabled,
+      showComposerNotesButton:
+          showComposerNotesButton ?? this.showComposerNotesButton,
       sendOnEnter: sendOnEnter ?? this.sendOnEnter,
       sttPreference: sttPreference ?? this.sttPreference,
       sttLanguageCode: sttLanguageCode is _DefaultValue
@@ -1093,6 +1100,7 @@ class AppSettings {
         other.chatImageGenerationEnabled == chatImageGenerationEnabled &&
         other.sttPreference == sttPreference &&
         other.sttLanguageCode == sttLanguageCode &&
+        other.showComposerNotesButton == showComposerNotesButton &&
         other.sendOnEnter == sendOnEnter &&
         other.ttsVoice == ttsVoice &&
         other.ttsVoiceName == ttsVoiceName &&
@@ -1142,6 +1150,7 @@ class AppSettings {
       chatImageGenerationEnabled,
       sttPreference,
       sttLanguageCode,
+      showComposerNotesButton,
       sendOnEnter,
       ttsVoice,
       ttsVoiceName,
@@ -1452,6 +1461,15 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     );
   }
 
+  Future<void> setShowComposerNotesButton(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(showComposerNotesButton: value);
+    await SettingsService._putPreference(
+      PreferenceKeys.showComposerNotesButton,
+      value,
+    );
+  }
+
   Future<void> setSendOnEnter(bool value) async {
     state = state.copyWith(sendOnEnter: value);
     await SettingsService.setSendOnEnter(value);
@@ -1603,6 +1621,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.directVoiceProvider,
+      null,
+    );
+    await SettingsService._putOrRemove(
+      PreferenceKeys.showComposerNotesButton,
       null,
     );
     state = defaultSettings;

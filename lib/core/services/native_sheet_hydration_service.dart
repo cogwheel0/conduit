@@ -1306,6 +1306,18 @@ class NativeSheetHydrationService {
           title: nativeAppearanceTitle(l10n),
           sections: [
             NativeSheetSectionConfig(items: themeItems),
+            NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: 'composer-notes-button',
+                  title: l10n.showComposerNotesButton,
+                  subtitle: l10n.showComposerNotesButtonDescription,
+                  sfSymbol: 'note.text.badge.plus',
+                  kind: NativeSheetItemKind.toggle,
+                  value: _ref.read(appSettingsProvider).showComposerNotesButton,
+                ),
+              ],
+            ),
             NativeSheetSectionConfig(items: [languageItem]),
           ],
         ),

@@ -1595,6 +1595,41 @@ void main() {
     );
   });
 
+  testWidgets('hiding the Notes shortcut preserves the composer draft', (
+    tester,
+  ) async {
+    Widget input(bool showNotes) => ProviderScope(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        notesFeatureEnabledProvider.overrideWith(
+          _EnabledNotesFeatureNotifier.new,
+        ),
+        appSettingsProvider.overrideWithValue(
+          AppSettings(showComposerNotesButton: showNotes),
+        ),
+      ],
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ModernChatInput(onSendMessage: (_) {}, onFileAttachment: _noop),
+        ),
+      ),
+    );
+    await tester.pumpWidget(input(true));
+    await tester.enterText(find.byType(TextField), 'Paper\nlantern');
+    await tester.pump();
+    await tester.pump();
+    final note = find.byKey(const ValueKey('create-draft-note-button'));
+    expect(note, findsOneWidget);
+    await tester.pumpWidget(input(false));
+    expect(note, findsNothing);
+    expect(find.text('Paper\nlantern'), findsOneWidget);
+    expect(find.byKey(const ValueKey('primary-btn-send')), findsOneWidget);
+    await tester.pumpWidget(input(true));
+    expect(note, findsOneWidget);
+  });
+
   testWidgets('secondary composer actions use plain icon buttons', (
     tester,
   ) async {

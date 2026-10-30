@@ -2238,6 +2238,14 @@
   "@transportModeWsInfo": {
     "description": "Footnote text for the WebSocket-only transport mode."
   },
+  "showComposerNotesButton": "Show Notes button",
+  "@showComposerNotesButton": {
+    "description": "Appearance setting for showing the Create note shortcut in the chat composer."
+  },
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "@showComposerNotesButtonDescription": {
+    "description": "Explains that this preference only changes the composer shortcut."
+  },
   "notes": "Notes",
   "@notes": {
     "description": "Navigation item and page title for notes feature."
