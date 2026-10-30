@@ -37,8 +37,10 @@ class _TtsVoicePickerSheetState extends State<TtsVoicePickerSheet> {
     bool matchesSearch(String value) => value.toLowerCase().contains(_query);
     final showsDefault = matchesSearch(l10n.ttsSystemDefault);
     final voices = widget.voices.where((voice) {
+      final language = ttsVoiceLanguageLabel(voice.voice);
       return (_language == null ||
-              ttsVoiceLanguageLabel(voice.voice) == _language) &&
+              language == _language ||
+              (language == null && voice.id == widget.selectedId)) &&
           (matchesSearch(voice.label) ||
               matchesSearch(voice.id) ||
               matchesSearch(voice.subtitle ?? ''));

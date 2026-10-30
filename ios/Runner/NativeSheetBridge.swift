@@ -5554,6 +5554,7 @@ private final class NativeOptionsSelectorTableViewController: UIViewController, 
             let matchesGroup = selectedFilter == nil
                 || option.filterGroup == ""
                 || option.filterGroup == selectedFilter
+                || (option.filterGroup == nil && option.id == configuration.selectedOptionId)
             let matchesQuery = query.isEmpty
                 || option.label.lowercased().contains(query)
                 || option.id.lowercased().contains(query)
