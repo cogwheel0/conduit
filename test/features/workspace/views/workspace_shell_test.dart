@@ -1,4 +1,6 @@
 import 'package:checks/checks.dart';
+import 'package:flutter/services.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -260,6 +262,72 @@ void main() {
       const Size.square(TouchTarget.minimum),
     );
   });
+
+  testWidgets(
+    'compact iOS collection emits one haptic only when refresh triggers',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final calls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'HapticFeedback.vibrate') calls.add(call);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final router = GoRouter(
+        initialLocation: WorkspaceSection.tools.path,
+        routes: [
+          GoRoute(
+            path: WorkspaceSection.tools.path,
+            builder: (_, _) =>
+                const WorkspacePage(section: WorkspaceSection.tools),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            reviewerModeProvider.overrideWithValue(false),
+            workspaceCapabilitiesProvider.overrideWith(
+              (ref) async => _capabilities,
+            ),
+            workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            theme: ThemeData(platform: TargetPlatform.iOS),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(calls, isEmpty);
+      expect(PlatformInfo.isIOS, isTrue);
+      final refresh = tester.widget<CupertinoSliverRefreshControl>(
+        find.byType(CupertinoSliverRefreshControl, skipOffstage: false),
+      );
+      await refresh.onRefresh!();
+      expect(calls.map((call) => call.arguments), [
+        'HapticFeedbackType.lightImpact',
+      ]);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
 
   testWidgets('compact shell switches sections through the app bar menu', (
     tester,
