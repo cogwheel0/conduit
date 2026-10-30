@@ -1,5 +1,6 @@
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/features/chat/widgets/live_connection_button.dart';
+import 'package:conduit/features/chat/widgets/model_selector_sheet.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -104,7 +105,7 @@ class _Connectivity extends Fake implements ConnectivityService {
 
 void main() {
   for (final disconnected in [true, false]) {
-    for (final width in [320.0, 390.0]) {
+    for (final width in [240.0, 280.0, 320.0, 390.0]) {
       for (final chatId in [null, 'saved-chat', 'local:paper']) {
         testWidgets(
           'model picker at ${width}px and 2x text for $chatId, disconnected: $disconnected',
@@ -116,6 +117,7 @@ void main() {
             PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
             addTearDown(PlatformUiCapabilities.resetDebugOverrides);
             final container = ProviderContainer(
+              retry: (_, _) => null,
               overrides: [
                 apiServiceProvider.overrideWithValue(
                   ApiService(
@@ -187,7 +189,10 @@ void main() {
             );
             final model = find.byType(ConduitAdaptiveAppBarModelSelector);
             expect(model, findsOneWidget);
-            expect(tester.getSize(model).width, greaterThanOrEqualTo(44));
+            final modelWidth = tester.getSize(model).width;
+            if (width >= 320 || (!disconnected && width == 280)) {
+              expect(modelWidth, greaterThanOrEqualTo(44));
+            }
             final more = tester
                 .widget<ConduitAdaptiveToolbarOverflowButton<int>>(
                   find.byType(ConduitAdaptiveToolbarOverflowButton<int>),
@@ -195,13 +200,28 @@ void main() {
             final labels = more.items
                 .whereType<AdaptivePopupMenuItem<int>>()
                 .map((entry) => entry.label);
-            if (disconnected || width == 320) {
+            if (width < 320 && disconnected) {
+              expect(modelWidth, 0);
+              expect(labels, contains('Choose Model'));
+            }
+            if (disconnected || width <= 320) {
               expect(labels, contains('New Chat'));
               if (chatId == null) {
                 expect(labels, contains('Temporary Chat'));
               } else if (chatId.startsWith('local:')) {
                 expect(labels, contains('Save Chat'));
               }
+            }
+            if (width == 240 && disconnected && chatId == null) {
+              await tester.tap(
+                find.byType(ConduitAdaptiveToolbarOverflowButton<int>),
+              );
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('Choose Model'));
+              await tester.pump();
+              await tester.pump(const Duration(milliseconds: 500));
+              expect(find.byType(ModelSelectorSheet), findsOneWidget);
+              expect(find.text('Fixture model'), findsOneWidget);
             }
             expect(tester.takeException(), isNull);
             await tester.pumpWidget(const SizedBox.shrink());
