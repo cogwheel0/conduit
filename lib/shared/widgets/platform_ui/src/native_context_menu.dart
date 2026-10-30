@@ -21,6 +21,7 @@ class NativeContextMenuViewport extends InheritedWidget {
   final EdgeInsets padding;
   final GlobalKey? bottomOverlay;
 
+  /// Global logical bounds after padding and bottom-overlay clipping; null if unmeasurable.
   static Rect? boundsOf(BuildContext context) {
     final element = context
         .getElementForInheritedWidgetOfExactType<NativeContextMenuViewport>();
@@ -95,6 +96,7 @@ class _NativeContextMenuState extends State<NativeContextMenu> {
     super.dispose();
   }
 
+  /// Replaces the current request and activates the fallback on capture or presentation errors.
   Future<void> _show() async {
     _clearFocus();
     final previous = _requestId;
@@ -112,6 +114,7 @@ class _NativeContextMenuState extends State<NativeContextMenu> {
     }
   }
 
+  /// Disposes only the expected overlay so an older request cannot clear a newer selection.
   void _clearFocus([OverlayEntry? expected]) {
     final entry = _focusOverlay;
     if (entry == null || (expected != null && !identical(entry, expected))) {
@@ -122,6 +125,8 @@ class _NativeContextMenuState extends State<NativeContextMenu> {
     entry.dispose();
   }
 
+  /// Captures visible painted pixels without relayout, ignoring stale requests.
+  /// The captured image and focus overlay are released on every completion path.
   Future<void> _captureAndShow(int requestId) async {
     final actions = List.of(widget.actions);
     final ready = await _ready;
@@ -246,6 +251,7 @@ class _Preview extends SingleChildRenderObjectWidget {
 }
 
 class _PreviewBoundary extends RenderRepaintBoundary {
+  /// Captures boundary-local bounds after painting; the caller owns image disposal.
   Future<ui.Image> capture(Rect bounds, {required double pixelRatio}) {
     assert(!debugNeedsPaint);
     final currentLayer = layer;

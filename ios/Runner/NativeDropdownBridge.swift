@@ -153,6 +153,7 @@ final class NativeDropdownBridge: ConduitBridge, NativeDropdownHostApi {
         NativeDropdownHostApiSetup.setUp(binaryMessenger: host.messenger, api: self)
     }
 
+    /// Installs on an available host view on iOS 26 or newer; otherwise returns false.
     func initializeContextMenu() throws -> Bool {
         guard #available(iOS 26.0, *),
               let view = host?.presentingViewController?.view else { return false }
@@ -160,6 +161,7 @@ final class NativeDropdownBridge: ConduitBridge, NativeDropdownHostApi {
         return true
     }
 
+    /// Rejects invalid configuration or preview bytes with PRESENTATION_FAILED.
     func showContextMenu(
         requestId: Int64,
         request: PlatformDropdownRequest,
@@ -310,6 +312,7 @@ private final class NativeMessageContextMenuPresenter: UIControl {
     private var showing = false
     private let previewImage = UIImageView()
 
+    /// Reuses the same host; changing hosts first dismisses and completes the old request.
     func install(on view: UIView) {
         guard sourceView !== view else { return }
         detach()
@@ -323,6 +326,7 @@ private final class NativeMessageContextMenuPresenter: UIControl {
         accessibilityElementsHidden = true
     }
 
+    /// Dismisses, completes the pending request, and removes the presenter from its host.
     func detach() {
         contextMenuInteraction?.dismissMenu()
         finish()
@@ -330,6 +334,8 @@ private final class NativeMessageContextMenuPresenter: UIControl {
         sourceView = nil
     }
 
+    /// Presents a PNG at the global logical source rect on an attached, idle host.
+    /// Completes with an action ID or nil on dismissal; unavailable presentation fails.
     func show(
         _ requestId: Int64,
         _ configuration: NativeDropdownConfiguration,
@@ -360,6 +366,7 @@ private final class NativeMessageContextMenuPresenter: UIControl {
         }
     }
 
+    /// Ignores other requests; a visible menu completes only after dismissal.
     func cancel(_ requestId: Int64) {
         guard self.requestId == requestId else { return }
         if showing {
@@ -369,6 +376,7 @@ private final class NativeMessageContextMenuPresenter: UIControl {
         finish()
     }
 
+    /// Clears state before replying, and ignores completion from a superseded request.
     private func finish(_ expectedId: Int64? = nil) {
         if let expectedId, expectedId != requestId { return }
         let completion = completion

@@ -46,6 +46,8 @@ class IosNativeDropdownBridge {
     }
   }
 
+  /// Presents a PNG at global logical bounds; nil means dismissal without selection.
+  /// Presentation errors propagate so the caller can activate its fallback.
   Future<String?> showContextMenu({
     required int requestId,
     required Rect sourceRect,
@@ -67,6 +69,7 @@ class IosNativeDropdownBridge {
     }
   }
 
+  /// Cancels only the identified request; cancellation errors are logged and suppressed.
   Future<void> cancelContextMenu(int requestId) async {
     try {
       await _api.cancelContextMenu(requestId);
