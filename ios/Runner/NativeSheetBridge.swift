@@ -4579,6 +4579,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         shouldIndentWhileEditingRowAt indexPath: IndexPath
     ) -> Bool { false }
 
+    /// Clamps cross-section drags to the source section while preserving same-section moves.
     override func tableView(
         _ tableView: UITableView,
         targetIndexPathForMoveFromRowAt source: IndexPath,
@@ -4591,6 +4592,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         )
     }
 
+    /// Updates local order before delegating persistence with the complete ordered item IDs.
     override func tableView(
         _ tableView: UITableView,
         moveRowAt source: IndexPath,
@@ -4767,6 +4769,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         tableSections[indexPath.section].items[indexPath.row]
     }
 
+    /// Resets reused accessories and keeps toggles available while reorder handles are visible.
     private func configureCell(_ cell: UITableViewCell, item: NativeSheetItem) {
         cell.accessoryView = nil
         cell.editingAccessoryView = nil
