@@ -269,6 +269,8 @@
   "imageGeneration": "Генерация изображений",
   "imageGenerationDescription": "Создавайте изображения из ваших запросов.",
   "copy": "Копировать",
+  "ttsSkipBackward": "Go back 15 seconds",
+  "ttsSkipForward": "Go forward 15 seconds",
   "ttsListen": "Прослушать",
   "ttsStop": "Остановить",
   "edit": "Редактировать",
@@ -4294,7 +4296,5 @@
   "chatHandoffPromptTitle": "Переключиться на {model}?",
   "chatHandoffPromptMessage": "Сервер предлагает продолжить в новом чате с {model}. Предложенное сообщение останется в поле ввода, пока вы его не отправите.",
   "chatHandoffStartNewChat": "Начать новый чат",
-  "chatHandoffStayHere": "Остаться здесь",
-  "ttsSkipBackward": "Go back 15 seconds",
-  "ttsSkipForward": "Go forward 15 seconds"
+  "chatHandoffStayHere": "Остаться здесь"
 }

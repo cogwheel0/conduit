@@ -263,6 +263,8 @@
   "imageGeneration": "圖像生成",
   "imageGenerationDescription": "從您的提示創建圖像。",
   "copy": "複製",
+  "ttsSkipBackward": "Go back 15 seconds",
+  "ttsSkipForward": "Go forward 15 seconds",
   "ttsListen": "收聽",
   "ttsStop": "停止",
   "edit": "編輯",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "切換到 {model}？",
   "chatHandoffPromptMessage": "伺服器建議使用 {model} 在新對話中繼續。建議的訊息會留在輸入框中，直到你傳送。",
   "chatHandoffStartNewChat": "開始新對話",
-  "chatHandoffStayHere": "留在這裡",
-  "ttsSkipBackward": "Go back 15 seconds",
-  "ttsSkipForward": "Go forward 15 seconds"
+  "chatHandoffStayHere": "留在這裡"
 }

@@ -263,6 +263,8 @@
   "imageGeneration": "Afbeeldingsgeneratie",
   "imageGenerationDescription": "Maak afbeeldingen van je prompts.",
   "copy": "Kopiëren",
+  "ttsSkipBackward": "Go back 15 seconds",
+  "ttsSkipForward": "Go forward 15 seconds",
   "ttsListen": "Luisteren",
   "ttsStop": "Stoppen",
   "edit": "Bewerken",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "Overschakelen naar {model}?",
   "chatHandoffPromptMessage": "Je server stelt voor om verder te gaan in een nieuwe chat met {model}. Een voorgesteld bericht blijft in het invoerveld staan tot je het verstuurt.",
   "chatHandoffStartNewChat": "Nieuwe chat starten",
-  "chatHandoffStayHere": "Hier blijven",
-  "ttsSkipBackward": "Go back 15 seconds",
-  "ttsSkipForward": "Go forward 15 seconds"
+  "chatHandoffStayHere": "Hier blijven"
 }

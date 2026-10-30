@@ -1118,6 +1118,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "Go back 15 seconds",
+  "ttsSkipForward": "Go forward 15 seconds",
   "ttsListen": "聞く",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
@@ -5865,7 +5867,5 @@
   "chatHandoffPromptTitle": "{model} に切り替えますか？",
   "chatHandoffPromptMessage": "サーバーが {model} との新しいチャットで続けることを提案しています。提案されたメッセージは、送信するまで入力欄に残ります。",
   "chatHandoffStartNewChat": "新しいチャットを開始",
-  "chatHandoffStayHere": "このままにする",
-  "ttsSkipBackward": "Go back 15 seconds",
-  "ttsSkipForward": "Go forward 15 seconds"
+  "chatHandoffStayHere": "このままにする"
 }

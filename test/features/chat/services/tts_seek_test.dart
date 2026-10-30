@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+import 'package:conduit_core/features/chat/server_speech/server_speech.dart';
+
 import 'package:conduit/features/chat/services/native_tts_service.dart';
 import 'package:conduit/features/chat/services/tts_manager.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -15,12 +18,26 @@ void main() {
 
   setUp(() async {
     device = _Device();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => Directory.systemTemp.path,
+        );
+    player.duration = const Duration(seconds: 20);
+    player.failDuration = false;
+    player.failSeek = false;
+    manager.setServerSpeech(null);
     await manager.debugSetNativeTtsService(device);
     await manager.initialize(config: const TtsConfig());
   });
 
   tearDown(() async {
     await manager.reset();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
   });
 
   test(
@@ -107,6 +124,97 @@ void main() {
     },
   );
 
+  test('late device fallback failure cannot clear a newer reply', () async {
+    manager.setServerSpeech(_Server());
+    player.failDuration = true;
+    final pending = Completer<NativeTtsAudio>();
+    device.pending = pending;
+    final events = <TtsEvent>[];
+    final sub = manager.events.listen(events.add);
+    addTearDown(sub.cancel);
+    final old = manager.speak('Old strip.', useServer: true, seekable: true);
+    await _until(() => device.rendered.isNotEmpty);
+    device.pending = null;
+    await manager.speak('New strip.', useServer: false, seekable: true);
+    pending.completeError(StateError('Synthetic canceled fallback'));
+    await old;
+    expect(manager.canSeek, isTrue);
+    expect(events.whereType<TtsError>(), isEmpty);
+  });
+
+  test('failed duration probes delete their speech file', () async {
+    manager.setServerSpeech(_Server());
+    player.failDuration = true;
+    await manager.speak('One folded strip.', useServer: true, seekable: true);
+    expect(await File(player.lastProbed!.uri.toFilePath()).exists(), isFalse);
+    expect(device.rendered, isNotEmpty);
+  });
+
+  test('unknown duration still plays cloud audio without seeking', () async {
+    manager.setServerSpeech(_Server());
+    player.duration = null;
+    await manager.speak('One folded strip.', useServer: true, seekable: true);
+    expect(player.playing, isTrue);
+    expect(device.rendered, isEmpty);
+    expect(manager.canSeek, isFalse);
+  });
+
+  test(
+    'forward seeking waits only for its target and respects a later pause',
+    () async {
+      final third = Completer<SynthesizedSpeech>();
+      final fourth = Completer<SynthesizedSpeech>();
+      final server = _Server()
+        ..pending['Third strip.'] = third
+        ..pending['Fourth strip.'] = fourth;
+      manager.setServerSpeech(server);
+      await manager.updateConfig(
+        const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+      );
+      await manager.speak(
+        'First strip.\n\nSecond strip.\n\nThird strip.\n\nFourth strip.',
+        useServer: true,
+        seekable: true,
+      );
+      player.at(1, const Duration(seconds: 15));
+      final seek = manager.seekRelative(const Duration(seconds: 15));
+      await pumpEventQueue();
+      await manager.resume();
+      await manager.pause();
+      third.complete(_audio);
+      expect(
+        await seek.timeout(const Duration(seconds: 2)),
+        const Duration(seconds: 50),
+      );
+      expect(fourth.isCompleted, isFalse);
+      expect(player.playing, isFalse);
+      fourth.complete(_audio);
+      await pumpEventQueue();
+    },
+  );
+
+  test('terminal seek failure stops audio and clears the session', () async {
+    final events = <TtsEvent>[];
+    final sub = manager.events.listen(events.add);
+    addTearDown(sub.cancel);
+    await manager.speak('A folded square.', seekable: true);
+    player.failSeek = true;
+    expect(await manager.seekRelative(const Duration(seconds: 15)), isNull);
+    await pumpEventQueue();
+    expect(player.playing, isFalse);
+    expect(manager.canSeek, isFalse);
+    expect(events.whereType<TtsError>(), hasLength(1));
+  });
+
+  test('device queue setup does not report a user pause', () async {
+    final events = <TtsEvent>[];
+    final sub = manager.events.listen(events.add);
+    addTearDown(sub.cancel);
+    await manager.speak('A folded triangle.', seekable: true);
+    await pumpEventQueue();
+    expect(events.whereType<TtsPaused>(), isEmpty);
+  });
+
   test('live conversational speech retains the existing device path', () async {
     await manager.speak('A paper kite.');
     expect(device.liveSpeech, 1);
@@ -173,6 +281,17 @@ class _Player extends NullAudioPlayback {
   int index = 0;
   Duration location = Duration.zero;
   bool playing = false;
+  bool failSeek = false;
+  bool failDuration = false;
+  Duration? duration = const Duration(seconds: 20);
+  AudioClip? lastProbed;
+  @override
+  Future<Duration?> durationOf(AudioClip clip) async {
+    lastProbed = clip;
+    if (failDuration) throw StateError('Synthetic invalid audio');
+    return duration;
+  }
+
   @override
   Stream<AudioPlaybackState> get stateChanges => states.stream;
   @override
@@ -196,11 +315,20 @@ class _Player extends NullAudioPlayback {
     Duration initialPosition = Duration.zero,
   }) async {
     at(initialIndex, initialPosition);
+    states.add(
+      const AudioPlaybackState(
+        playing: false,
+        processingState: AudioProcessingState.ready,
+      ),
+    );
   }
 
   @override
-  Future<void> seek(Duration? position, {int? index}) async =>
-      at(index ?? this.index, position ?? Duration.zero);
+  Future<void> seek(Duration? position, {int? index}) async {
+    if (failSeek) throw StateError('Synthetic seek failure');
+    at(index ?? this.index, position ?? Duration.zero);
+  }
+
   @override
   Future<void> play() async {
     playing = true;
@@ -225,4 +353,28 @@ class _Player extends NullAudioPlayback {
 
   @override
   Future<void> stop() => pause();
+}
+
+final _audio = (bytes: Uint8List.fromList([1, 2, 3]), mimeType: 'audio/wav');
+
+class _Server extends Fake implements ServerSpeechProvider {
+  final pending = <String, Completer<SynthesizedSpeech>>{};
+  @override
+  ServerSpeechSource get source => ServerSpeechSource.hermes;
+  @override
+  bool get canSynthesize => true;
+  @override
+  Future<SynthesizedSpeech> synthesize(
+    String text, {
+    String? preferredVoice,
+    double? speed,
+  }) async => await (pending[text]?.future ?? Future.value(_audio));
+}
+
+Future<void> _until(bool Function() condition) async {
+  for (var i = 0; i < 200; i++) {
+    if (condition()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+  fail('Synthetic operation did not start');
 }

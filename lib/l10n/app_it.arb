@@ -263,6 +263,8 @@
   "imageGeneration": "Generazione immagini",
   "imageGenerationDescription": "Crea immagini dai tuoi prompt.",
   "copy": "Copia",
+  "ttsSkipBackward": "Go back 15 seconds",
+  "ttsSkipForward": "Go forward 15 seconds",
   "ttsListen": "Ascolta",
   "ttsStop": "Interrompi",
   "edit": "Modifica",
@@ -4256,7 +4258,5 @@
   "chatHandoffPromptTitle": "Passare a {model}?",
   "chatHandoffPromptMessage": "Il tuo server suggerisce di continuare in una nuova chat con {model}. Un eventuale messaggio suggerito resta nel campo di testo finché non lo invii.",
   "chatHandoffStartNewChat": "Inizia nuova chat",
-  "chatHandoffStayHere": "Resta qui",
-  "ttsSkipBackward": "Go back 15 seconds",
-  "ttsSkipForward": "Go forward 15 seconds"
+  "chatHandoffStayHere": "Resta qui"
 }

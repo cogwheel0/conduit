@@ -1359,6 +1359,10 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "Go back 15 seconds",
+  "@ttsSkipBackward": {"description": "Accessibility label for jumping backward 15 seconds in read-aloud audio."},
+  "ttsSkipForward": "Go forward 15 seconds",
+  "@ttsSkipForward": {"description": "Accessibility label for jumping forward 15 seconds in read-aloud audio."},
   "ttsListen": "Listen",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
@@ -8871,9 +8875,5 @@
   "chatHandoffStayHere": "Stay here",
   "@chatHandoffStayHere": {
     "description": "Cancel button that keeps the user in the current chat instead of following the Open WebUI server's suggestion."
-  },
-  "ttsSkipBackward": "Go back 15 seconds",
-  "@ttsSkipBackward": {"description": "Accessibility label for jumping backward 15 seconds in read-aloud audio."},
-  "ttsSkipForward": "Go forward 15 seconds",
-  "@ttsSkipForward": {"description": "Accessibility label for jumping forward 15 seconds in read-aloud audio."}
+  }
 }

@@ -126,6 +126,29 @@ void main() {
     expect(container.read(textToSpeechControllerProvider).errorMessage, isNull);
   });
 
+  test(
+    'completion during initialization cannot erase the next retry',
+    () async {
+      await play();
+      final ready = Completer<bool>();
+      speech.initialization = ready.future;
+      final next = controller.toggleForMessage(
+        messageId: 'paper',
+        text: 'Fold a square.',
+      );
+      await pumpEventQueue();
+      speech.onComplete!();
+      ready.complete(true);
+      await next;
+      speech.onError!('Synthetic playback interruption');
+      await controller.retry();
+      expect(
+        speech.spoken.where((text) => text == 'Fold a square.'),
+        hasLength(2),
+      );
+    },
+  );
+
   test('stop forgets an interrupted request', () async {
     await play();
     speech.onError!('Synthetic audio interruption');
@@ -205,6 +228,7 @@ class _Speech extends Fake implements TextToSpeechService {
   Future<void>? pauseResult;
   Future<void>? resumeResult;
   VoidCallback? onStart;
+  VoidCallback? onComplete;
   VoidCallback? onCancel;
   VoidCallback? onPause;
   VoidCallback? onContinue;
@@ -228,6 +252,7 @@ class _Speech extends Fake implements TextToSpeechService {
     void Function(int, int)? onDeviceWordProgress,
   }) {
     this.onStart = onStart;
+    this.onComplete = onComplete;
     this.onCancel = onCancel;
     this.onPause = onPause;
     this.onContinue = onContinue;

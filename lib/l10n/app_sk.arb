@@ -1118,6 +1118,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "Go back 15 seconds",
+  "ttsSkipForward": "Go forward 15 seconds",
   "ttsListen": "Vypočuť",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
@@ -6171,7 +6173,5 @@
   "chatHandoffPromptTitle": "Prepnúť na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovať v novom chate s modelom {model}. Navrhnutá správa počká v poli na písanie, kým ju neodošlete.",
   "chatHandoffStartNewChat": "Začať nový chat",
-  "chatHandoffStayHere": "Zostať tu",
-  "ttsSkipBackward": "Go back 15 seconds",
-  "ttsSkipForward": "Go forward 15 seconds"
+  "chatHandoffStayHere": "Zostať tu"
 }

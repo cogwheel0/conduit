@@ -214,7 +214,8 @@ class TtsManager {
   final List<_AudioChunk?> _serverAudioBuffer = [];
   final Map<int, Duration> _clipDurations = {};
   Future<void>? _prefetchDone;
-  bool _audioPlaying = false;
+  Completer<void>? _bufferProgress;
+  bool _playbackRequested = false;
   int _serverCurrentIndex = -1;
   int _serverLastEnqueuedIndex = -1;
   bool _serverWaitingForNext = false;
@@ -337,7 +338,6 @@ class TtsManager {
     // Configure the host audio player for all platforms.
     if (!_playerConfigured) {
       _playerStateSub = _player.stateChanges.listen((state) {
-        _audioPlaying = state.playing;
         if (state.processingState == AudioProcessingState.completed) {
           _onServerAudioComplete();
         }
@@ -440,16 +440,15 @@ class TtsManager {
         },
       );
       if (shouldUseServer && _deviceEngineAvailable) {
+        // Each fallback owns its failures even if synthesis finishes late.
+        final fallbackSession = TtsPlaybackSession._(
+          id: ++_sessionCounter,
+          chunks: session.chunks,
+          useServerTts: false,
+          seekable: seekable,
+        );
+        _activeSession = fallbackSession;
         try {
-          // Create a new session with useServerTts: false so device TTS
-          // handlers emit events correctly
-          final fallbackSession = TtsPlaybackSession._(
-            id: ++_sessionCounter,
-            chunks: session.chunks,
-            useServerTts: false,
-            seekable: seekable,
-          );
-          _activeSession = fallbackSession;
           if (seekable) {
             await _startDeviceAudioPlayback(fallbackSession);
           } else {
@@ -457,6 +456,7 @@ class TtsManager {
           }
           return fallbackSession;
         } catch (e2) {
+          if (_activeSession?.id != fallbackSession.id) return null;
           _emitEvent(TtsError(e2.toString()));
         }
       } else {
@@ -558,7 +558,9 @@ class TtsManager {
   }
 
   bool get canSeek =>
-      _activeSession?.seekable == true && _clipDurations.isNotEmpty;
+      _activeSession?.seekable == true &&
+      _clipDurations.isNotEmpty &&
+      _clipDurations.length == _serverLastEnqueuedIndex + 1;
 
   Duration? get playbackPosition {
     if (!canSeek) return null;
@@ -593,40 +595,68 @@ class TtsManager {
     final target = current + offset < Duration.zero
         ? Duration.zero
         : current + offset;
-    final resumeAfterSeek = _audioPlaying;
-    await _player.pause();
-    // Forward seeking may need chunks that are still downloading. Backward
-    // seeking can use the existing queue immediately.
-    var available = Duration.zero;
-    for (var i = 0; _clipDurations.containsKey(i); i++) {
-      available += _clipDurations[i]!;
-    }
-    if (target > available) {
-      await _prefetchDone;
-      await _serverPlaylistSerial;
-    }
-    if (_activeSession?.id != session.id) return null;
-    var remaining = target;
-    var index = 0;
-    while (index < session.chunks.length - 1) {
+    try {
+      await _player.pause();
+      // Wake as soon as the queue reaches the target, not after later clips.
+      Duration available() {
+        var duration = Duration.zero;
+        for (
+          var i = 0;
+          i <= _serverLastEnqueuedIndex && _clipDurations.containsKey(i);
+          i++
+        ) {
+          duration += _clipDurations[i]!;
+        }
+        return duration;
+      }
+
+      while (_activeSession?.id == session.id &&
+          target >= available() &&
+          _serverLastEnqueuedIndex < session.chunks.length - 1) {
+        final pending = _prefetchDone;
+        if (pending == null) break;
+        final progress = _bufferProgress ??= Completer<void>();
+        final more = await Future.any([
+          progress.future.then((_) => true),
+          pending.then((_) => false),
+        ]);
+        if (!more) break;
+      }
+      if (_activeSession?.id != session.id) return null;
+      var remaining = target;
+      var index = 0;
+      while (index < session.chunks.length - 1) {
+        final duration = _clipDurations[index];
+        if (duration == null) throw StateError('Speech audio is not ready');
+        if (remaining < duration) break;
+        remaining -= duration;
+        index++;
+      }
       final duration = _clipDurations[index];
       if (duration == null) throw StateError('Speech audio is not ready');
-      if (remaining < duration) break;
-      remaining -= duration;
-      index++;
+      if (remaining > duration) remaining = duration;
+      // Progress is signalled only after the corresponding clip is enqueued.
+      await _player.seek(remaining, index: index);
+      if (_activeSession?.id != session.id) return null;
+      if (_playbackRequested) await _playQueuedAudio(session);
+      return playbackPosition;
+    } catch (error) {
+      _failAudioSession(session, error);
+      return null;
     }
-    final duration = _clipDurations[index];
-    if (duration == null) throw StateError('Speech audio is not ready');
-    if (remaining > duration) remaining = duration;
-    await _serverPlaylistSerial;
-    if (_activeSession?.id != session.id) return null;
-    await _player.seek(remaining, index: index);
-    if (_activeSession?.id != session.id) return null;
-    if (resumeAfterSeek) await _playQueuedAudio(session);
-    return playbackPosition;
+  }
+
+  void _failAudioSession(TtsPlaybackSession session, Object error) {
+    if (_activeSession?.id != session.id) return;
+    _activeSession = null;
+    _isTransitioningChunks = false;
+    _resetPlaybackState();
+    unawaited(_player.stop().catchError((Object _) {}));
+    _emitEvent(TtsError(error.toString()));
   }
 
   Future<void> _playQueuedAudio(TtsPlaybackSession session) async {
+    _playbackRequested = true;
     final playback = _player.play();
     if (!session.seekable) {
       await playback;
@@ -635,9 +665,7 @@ class TtsManager {
     // just_audio's play future completes at the end of the audio, not at start.
     unawaited(
       playback.catchError((Object error) {
-        if (_activeSession?.id == session.id) {
-          _emitEvent(TtsError(error.toString()));
-        }
+        _failAudioSession(session, error);
       }),
     );
   }
@@ -665,12 +693,20 @@ class TtsManager {
     _serverLastEnqueuedIndex = sources.length - 1;
     await _startServerBackgroundLease(session.id);
     if (_activeSession?.id != session.id) return;
-    await _player.setClips(sources);
-    await _playQueuedAudio(session);
+    _isTransitioningChunks = true;
+    try {
+      await _player.setClips(sources);
+      if (_activeSession?.id != session.id) return;
+      await _playQueuedAudio(session);
+    } catch (_) {
+      if (_activeSession?.id == session.id) _isTransitioningChunks = false;
+      rethrow;
+    }
   }
 
   /// Pauses the current playback.
   Future<void> pause() async {
+    _playbackRequested = false;
     final session = _activeSession;
     if (session == null) return;
 
@@ -687,6 +723,7 @@ class TtsManager {
 
   /// Resumes paused playback.
   Future<void> resume() async {
+    _playbackRequested = true;
     final session = _activeSession;
     if (session == null) return;
 
@@ -1454,6 +1491,8 @@ class TtsManager {
               await _player.addClip(source);
             }
             _serverLastEnqueuedIndex = nextIndex;
+            _bufferProgress?.complete();
+            _bufferProgress = null;
           }
 
           if (_serverWaitingForNext) {
@@ -1493,17 +1532,21 @@ class TtsManager {
     final file = File(p.join(dir.path, 'chunk_$index.$extension'));
     await file.writeAsBytes(chunk.bytes, flush: true);
     final source = AudioClip(uri: file.uri, tag: index);
-    if (_activeSession?.seekable == true) {
-      final duration = await _player.durationOf(source);
-      if (duration == null || duration <= Duration.zero) {
-        await file.delete();
-        throw StateError('Speech audio has no duration');
+    try {
+      if (_activeSession?.seekable == true) {
+        final duration = await _player.durationOf(source);
+        if (_activeSession?.id == sessionId &&
+            duration != null &&
+            duration > Duration.zero) {
+          _clipDurations[index] = duration;
+        }
       }
-      if (_activeSession?.id == sessionId) _clipDurations[index] = duration;
-    }
-    if (_activeSession?.id != sessionId) {
+      if (_activeSession?.id != sessionId) {
+        throw StateError('Speech session ended');
+      }
+    } catch (_) {
       await file.delete();
-      throw StateError('Speech session ended');
+      rethrow;
     }
     _serverTempFiles.add(file);
     return source;
@@ -1598,6 +1641,9 @@ class TtsManager {
     _serverAudioBuffer.clear();
     _clipDurations.clear();
     _prefetchDone = null;
+    _bufferProgress?.complete();
+    _bufferProgress = null;
+    _playbackRequested = false;
     _serverWaitingForNext = false;
     _serverRecoveringMissingChunk = false;
     _serverPlaybackVoice = null;

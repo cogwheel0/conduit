@@ -56,6 +56,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         val result: MethodChannel.Result
     )
     private var fileSynthesis: FileSynthesis? = null
+    private val synthesisTimeoutTask = Runnable { cancelSynthesis() }
     private val synthesisUtteranceIds = mutableSetOf<String>()
     private var activeUtterance: ActiveUtterance? = null
     private var pausedRequest: SpeakRequest? = null
@@ -114,6 +115,8 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                     }
                     if (engine.synthesizeToFile(text, params, file, id) != TextToSpeech.SUCCESS) {
                         cancelSynthesis()
+                    } else {
+                        mainHandler.postDelayed(synthesisTimeoutTask, 60_000)
                     }
                 } catch (_: Exception) {
                     if (fileSynthesis?.result === result) {
@@ -248,6 +251,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                             throw IllegalStateException("Empty speech audio")
                         }
                         fileSynthesis = null
+                        mainHandler.removeCallbacks(synthesisTimeoutTask)
                         pending.result.success(mapOf("path" to pending.file.path, "durationMs" to duration))
                     } catch (_: Exception) {
                         cancelSynthesis()
@@ -335,6 +339,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
     }
 
     private fun cancelSynthesis() {
+        mainHandler.removeCallbacks(synthesisTimeoutTask)
         val pending = fileSynthesis ?: return
         fileSynthesis = null
         tts?.stop()

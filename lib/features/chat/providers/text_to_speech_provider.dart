@@ -256,6 +256,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     // Finish the previous cancellation before publishing the playing state;
     // its callback clears the active message id (issue #709).
     if (!await _stopPlayback(epoch)) return;
+    _lastRequest = (messageId: messageId, text: text);
 
     _playbackClock.reset();
 
