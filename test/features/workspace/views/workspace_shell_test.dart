@@ -1,6 +1,5 @@
 import 'package:checks/checks.dart';
 import 'package:flutter/services.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -304,7 +303,7 @@ void main() {
             workspaceCapabilitiesProvider.overrideWith(
               (ref) async => _capabilities,
             ),
-            workspaceToolsProvider.overrideWith(_TestWorkspaceTools.new),
+            workspaceToolsProvider.overrideWith(_RefreshWorkspaceTools.new),
           ],
           child: MaterialApp.router(
             routerConfig: router,
@@ -317,16 +316,23 @@ void main() {
       await tester.pumpAndSettle();
       expect(calls, isEmpty);
       expect(PlatformInfo.isIOS, isTrue);
-      final refresh = tester.widget<CupertinoSliverRefreshControl>(
-        find.byType(CupertinoSliverRefreshControl, skipOffstage: false),
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(CustomScrollView)),
       );
-      await refresh.onRefresh!();
+      await gesture.moveBy(const Offset(0, 60));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(calls, isEmpty);
+      await gesture.moveBy(const Offset(0, 400));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
       expect(calls.map((call) => call.arguments), [
-        'HapticFeedbackType.lightImpact',
+        'HapticFeedbackType.mediumImpact',
       ]);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
   testWidgets('compact shell switches sections through the app bar menu', (
@@ -794,4 +800,20 @@ class _TestWorkspaceTools extends WorkspaceTools {
 
   @override
   Future<void> setQuery(String query) async {}
+}
+
+class _RefreshWorkspaceTools extends _TestWorkspaceTools {
+  @override
+  Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async =>
+      WorkspaceCollectionState(
+        items: List.generate(
+          20,
+          (index) => WorkspaceToolSummary(
+            id: 'tool-$index',
+            name: 'Paper tool $index',
+            userId: 'user-1',
+          ),
+        ),
+        total: 20,
+      );
 }

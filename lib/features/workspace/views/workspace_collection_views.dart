@@ -331,12 +331,7 @@ class _WorkspaceIosCollectionShellState
         : 0.0;
 
     final slivers = <Widget>[
-      CupertinoSliverRefreshControl(
-        onRefresh: () async {
-          ConduitHaptics.lightImpact();
-          await binding.onRefresh();
-        },
-      ),
+      CupertinoSliverRefreshControl(onRefresh: binding.onRefresh),
       if (nativeTopInset > 0)
         SliverToBoxAdapter(child: SizedBox(height: nativeTopInset)),
       if (showSearch)
