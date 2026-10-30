@@ -825,7 +825,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           // Prioritize files array over attachmentIds to avoid duplication
           if (attachmentContent != null)
             ConduitContextMenu(
-              key: ObjectKey(widget.message),
+              key: ValueKey(widget.message.id),
               actions: actions,
               useNativeMenu: true,
               child: attachmentContent,
@@ -841,7 +841,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
                     child: ConduitContextMenu(
-                      key: ObjectKey(widget.message),
+                      key: ValueKey(widget.message.id),
                       actions: actions,
                       useNativeMenu: true,
                       child: Container(

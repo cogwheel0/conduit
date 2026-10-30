@@ -33,7 +33,6 @@ import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 
-
 import 'package:conduit_core/database/database_provider.dart';
 
 import 'package:conduit_core/database/app_database.dart';
@@ -3334,7 +3333,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [bubble, ChatBranchSwitcher(messageId: messageId)],
+            children: [
+              bubble,
+              ChatBranchSwitcher(messageId: messageId),
+            ],
           );
         },
       );
@@ -4070,12 +4072,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: Consumer(
-                  builder: (context, listRef, _) {
-                    return RepaintBoundary(
-                      child: _buildMessagesList(theme, listRef),
-                    );
-                  },
+                child: NativeContextMenuViewport(
+                  padding: EdgeInsets.only(
+                    top:
+                        MediaQuery.viewPaddingOf(context).top +
+                        conduitAdaptiveToolbarHeightOf(context),
+                    bottom: math.max(0, _inputHeight - Spacing.xl),
+                  ),
+                  child: Consumer(
+                    builder: (context, listRef, _) {
+                      return RepaintBoundary(
+                        child: _buildMessagesList(theme, listRef),
+                      );
+                    },
+                  ),
                 ),
               ),
               Positioned(

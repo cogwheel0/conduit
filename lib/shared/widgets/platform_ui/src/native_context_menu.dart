@@ -9,6 +9,30 @@ import '../../../../core/services/haptic_service.dart';
 import '../../../../core/services/ios_native_dropdown_bridge.dart';
 import 'adaptive_layout.dart';
 
+/// The unobscured part of a viewport containing floating controls.
+class NativeContextMenuViewport extends InheritedWidget {
+  const NativeContextMenuViewport({
+    super.key,
+    required this.padding,
+    required super.child,
+  });
+
+  final EdgeInsets padding;
+
+  static Rect? boundsOf(BuildContext context) {
+    final element = context
+        .getElementForInheritedWidgetOfExactType<NativeContextMenuViewport>();
+    final box = element?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return null;
+    final scope = element!.widget as NativeContextMenuViewport;
+    return scope.padding.deflateRect(box.localToGlobal(Offset.zero) & box.size);
+  }
+
+  @override
+  bool updateShouldNotify(NativeContextMenuViewport oldWidget) =>
+      padding != oldWidget.padding;
+}
+
 /// Shows UIKit's floating menu without rebuilding or relaying out the child.
 /// Flutter's gesture arena continues to own normal taps and scrolling.
 class NativeContextMenu extends StatefulWidget {
@@ -101,6 +125,9 @@ class _NativeContextMenuState extends State<NativeContextMenu> {
     final viewport = RenderAbstractViewport.maybeOf(boundary);
     if (viewport case final RenderBox box) {
       rect = rect.intersect(box.localToGlobal(Offset.zero) & box.size);
+    }
+    if (NativeContextMenuViewport.boundsOf(context) case final visibleBounds?) {
+      rect = rect.intersect(visibleBounds);
     }
     rect = rect.intersect(Offset.zero & MediaQuery.sizeOf(context));
     if (rect.isEmpty) return;

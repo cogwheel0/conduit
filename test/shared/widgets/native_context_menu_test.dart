@@ -97,6 +97,29 @@ void main() {
     );
   }
 
+  testWidgets('a long preview excludes the floating composer', (tester) async {
+    final fixture = _MenuFixture();
+    addTearDown(fixture.dispose);
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_harness(controller, () {}, obscuredBottom: 80));
+    await tester.pumpAndSettle();
+    controller.jumpTo(300);
+    await tester.pump();
+    final viewport = tester.getRect(find.byKey(_viewportKey));
+    final gesture = await tester.startGesture(
+      viewport.topLeft + const Offset(100, 80),
+    );
+    final args = await _waitForMenu(tester, fixture);
+    final source = (args[1]! as PlatformDropdownRequest).sourceRect!;
+    expect(source.y + source.height, lessThanOrEqualTo(viewport.bottom - 80));
+    expect(tester.getRect(find.byType(RawImage)).bottom, viewport.bottom - 80);
+    fixture.selection.complete(null);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('menu presentation and dismissal leave source pixels unchanged', (
     tester,
   ) async {
@@ -255,6 +278,7 @@ Widget _harness(
   ScrollController controller,
   VoidCallback onCopy, {
   String? text,
+  double obscuredBottom = 0,
 }) => MaterialApp(
   home: Scaffold(
     body: Center(
@@ -264,27 +288,44 @@ Widget _harness(
           key: _viewportKey,
           width: 260,
           height: 240,
-          child: ListView(
-            controller: controller,
+          child: Stack(
             children: [
-              NativeContextMenu(
-                actions: [
-                  AdaptiveContextMenuAction(
-                    title: 'Copy',
-                    iosSymbol: 'doc.on.doc',
-                    onPressed: onCopy,
-                  ),
-                ],
-                fallbackBuilder: (_) => const Text('Fallback menu'),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  color: Colors.blue,
-                  child: Text(
-                    text ?? _longText,
-                    style: const TextStyle(fontSize: 18),
+              Positioned.fill(
+                child: NativeContextMenuViewport(
+                  padding: EdgeInsets.only(bottom: obscuredBottom),
+                  child: ListView(
+                    controller: controller,
+                    children: [
+                      NativeContextMenu(
+                        actions: [
+                          AdaptiveContextMenuAction(
+                            title: 'Copy',
+                            iosSymbol: 'doc.on.doc',
+                            onPressed: onCopy,
+                          ),
+                        ],
+                        fallbackBuilder: (_) => const Text('Fallback menu'),
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          color: Colors.blue,
+                          child: Text(
+                            text ?? _longText,
+                            style: const TextStyle(fontSize: 18),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+              if (obscuredBottom > 0)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: obscuredBottom,
+                  child: const ColoredBox(color: Colors.grey),
+                ),
             ],
           ),
         ),
