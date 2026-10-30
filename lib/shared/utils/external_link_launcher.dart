@@ -1,4 +1,6 @@
 import 'package:conduit_core/network/external_link.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -39,13 +41,31 @@ Future<bool> launchExternalLink(
     return false;
   }
   final launchMode = mode ?? defaultLaunchModeForAllowedExternalLink(uri);
+  ChromeSafariBrowser? browser;
   try {
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        launchMode == LaunchMode.inAppBrowserView &&
+        (uri.scheme == 'http' || uri.scheme == 'https')) {
+      browser = ChromeSafariBrowser();
+      await browser.open(
+        url: WebUri.uri(uri),
+        settings: ChromeSafariBrowserSettings(
+          presentationStyle: ModalPresentationStyle.OVER_FULL_SCREEN,
+          transitionStyle: ModalTransitionStyle.COVER_VERTICAL,
+          dismissButtonStyle: DismissButtonStyle.CLOSE,
+          barCollapsingEnabled: true,
+        ),
+      );
+      return true;
+    }
     return await launchUrl(
       uri,
       mode: launchMode,
       browserConfiguration: browserConfiguration,
     );
   } catch (err) {
+    browser?.dispose();
     DebugLogger.log('Unable to open url: $err', scope: scope);
     return false;
   }
