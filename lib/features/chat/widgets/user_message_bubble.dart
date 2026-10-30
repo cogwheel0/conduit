@@ -751,6 +751,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       if (!widget.readOnly)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.pencil,
+          sfSymbol: 'pencil',
           materialIcon: Icons.edit_outlined,
           label: l10n.edit,
           onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -758,6 +759,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.doc_on_clipboard,
+        sfSymbol: 'doc.on.doc',
         materialIcon: Icons.content_copy,
         label: l10n.copy,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -770,6 +772,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       if (!widget.readOnly)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.delete,
+          sfSymbol: 'trash',
           materialIcon: Icons.delete_outline,
           label: l10n.delete,
           destructive: true,
@@ -821,7 +824,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           // Display images outside and above the text bubble (iMessage style)
           // Prioritize files array over attachmentIds to avoid duplication
           if (attachmentContent != null)
-            ConduitContextMenu(actions: actions, child: attachmentContent),
+            ConduitContextMenu(
+              key: ObjectKey(widget.message),
+              actions: actions,
+              useNativeMenu: true,
+              child: attachmentContent,
+            ),
 
           // Display text bubble if there's text content
           if (hasText) const SizedBox(height: Spacing.xs),
@@ -833,7 +841,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
                     child: ConduitContextMenu(
+                      key: ObjectKey(widget.message),
                       actions: actions,
+                      useNativeMenu: true,
                       child: Container(
                         key: const Key('user-message-bubble-surface'),
                         padding: const EdgeInsets.symmetric(

@@ -29,6 +29,45 @@ class IosNativeDropdownBridge {
 
   final NativeDropdownHostApi _api = NativeDropdownHostApi();
 
+  /// Checks native support before enabling the message menu gesture.
+  Future<bool> initializeContextMenu() async {
+    try {
+      return await _api.initializeContextMenu();
+    } catch (error, stackTrace) {
+      _logNativeDropdownBridgeError('initializeContextMenu', error, stackTrace);
+      return false;
+    }
+  }
+
+  Future<String?> showContextMenu({
+    required int requestId,
+    required Rect sourceRect,
+    required List<IosNativeDropdownOption> options,
+    required Uint8List previewPng,
+  }) async {
+    try {
+      return await _api.showContextMenu(
+        requestId,
+        PlatformDropdownRequest(
+          options: options.map((option) => option.toPlatform()).toList(),
+          sourceRect: _rectToPlatform(sourceRect),
+        ),
+        previewPng,
+      );
+    } catch (error, stackTrace) {
+      _logNativeDropdownBridgeError('showContextMenu', error, stackTrace);
+      return null;
+    }
+  }
+
+  Future<void> cancelContextMenu(int requestId) async {
+    try {
+      await _api.cancelContextMenu(requestId);
+    } catch (error, stackTrace) {
+      _logNativeDropdownBridgeError('cancelContextMenu', error, stackTrace);
+    }
+  }
+
   Future<String?> show({
     required List<IosNativeDropdownOption> options,
     String? title,

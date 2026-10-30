@@ -54,6 +54,7 @@ class ConduitContextMenu extends StatefulWidget {
   final WidgetBuilder? topWidgetBuilder;
   final Widget Function(BuildContext context, Widget child)? previewBuilder;
   final bool stabilizePreviewSize;
+  final bool useNativeMenu;
 
   const ConduitContextMenu({
     super.key,
@@ -62,6 +63,7 @@ class ConduitContextMenu extends StatefulWidget {
     this.topWidgetBuilder,
     this.previewBuilder,
     this.stabilizePreviewSize = true,
+    this.useNativeMenu = false,
   });
 
   @override
@@ -82,6 +84,7 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
         AdaptiveContextMenuAction(
           title: action.label,
           icon: action.materialIcon,
+          iosSymbol: action.sfSymbol,
           isDestructive: action.destructive,
           onPressed: () {
             ConduitHaptics.selectionClick();
@@ -104,7 +107,13 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             0,
           ),
         ),
-        child: _buildCupertinoContextMenu(context),
+        child: widget.useNativeMenu && PlatformUiCapabilities.usesNativeIOS26
+            ? NativeContextMenu(
+                actions: adaptiveActions,
+                fallbackBuilder: _buildCupertinoContextMenu,
+                child: widget.child,
+              )
+            : _buildCupertinoContextMenu(context),
       );
     }
 
