@@ -122,6 +122,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final panelHeight in [52.0, 180.0]) {
+    testWidgets('preview excludes the measured voice panel at $panelHeight', (
+      tester,
+    ) async {
+      final fixture = _MenuFixture();
+      addTearDown(fixture.dispose);
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        _harness(
+          controller,
+          () {},
+          obscuredBottom: 20,
+          voicePanelHeight: panelHeight,
+          bottomOverlay: GlobalKey(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      controller.jumpTo(300);
+      await tester.pump();
+      final viewport = tester.getRect(find.byKey(_viewportKey));
+      final gesture = await tester.startGesture(
+        viewport.topLeft + const Offset(80, 20),
+      );
+      final args = await _waitForMenu(tester, fixture);
+      final source = (args[1]! as PlatformDropdownRequest).sourceRect!;
+      expect(source.y + source.height, viewport.bottom - 20 - panelHeight);
+      fixture.selection.complete(null);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('initialization coalesces in flight but rechecks a later host', (
     tester,
   ) async {
@@ -296,6 +330,8 @@ Widget _harness(
   VoidCallback onCopy, {
   String? text,
   double obscuredBottom = 0,
+  GlobalKey? bottomOverlay,
+  double voicePanelHeight = 0,
 }) => MaterialApp(
   home: Scaffold(
     body: Center(
@@ -310,6 +346,7 @@ Widget _harness(
               Positioned.fill(
                 child: NativeContextMenuViewport(
                   padding: EdgeInsets.only(bottom: obscuredBottom),
+                  bottomOverlay: bottomOverlay,
                   child: ListView(
                     controller: controller,
                     children: [
@@ -335,13 +372,13 @@ Widget _harness(
                   ),
                 ),
               ),
-              if (obscuredBottom > 0)
+              if (obscuredBottom + voicePanelHeight > 0)
                 Positioned(
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  height: obscuredBottom,
-                  child: const ColoredBox(color: Colors.grey),
+                  height: obscuredBottom + voicePanelHeight,
+                  child: ColoredBox(key: bottomOverlay, color: Colors.grey),
                 ),
             ],
           ),

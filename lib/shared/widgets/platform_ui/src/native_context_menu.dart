@@ -14,10 +14,12 @@ class NativeContextMenuViewport extends InheritedWidget {
   const NativeContextMenuViewport({
     super.key,
     required this.padding,
+    this.bottomOverlay,
     required super.child,
   });
 
   final EdgeInsets padding;
+  final GlobalKey? bottomOverlay;
 
   static Rect? boundsOf(BuildContext context) {
     final element = context
@@ -25,12 +27,24 @@ class NativeContextMenuViewport extends InheritedWidget {
     final box = element?.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return null;
     final scope = element!.widget as NativeContextMenuViewport;
-    return scope.padding.deflateRect(box.localToGlobal(Offset.zero) & box.size);
+    final bounds = scope.padding.deflateRect(
+      box.localToGlobal(Offset.zero) & box.size,
+    );
+    final overlay = scope.bottomOverlay?.currentContext?.findRenderObject();
+    if (overlay is RenderBox && overlay.hasSize && overlay.size.height > 0) {
+      return Rect.fromLTRB(
+        bounds.left,
+        bounds.top,
+        bounds.right,
+        math.min(bounds.bottom, overlay.localToGlobal(Offset.zero).dy),
+      );
+    }
+    return bounds;
   }
 
   @override
   bool updateShouldNotify(NativeContextMenuViewport oldWidget) =>
-      padding != oldWidget.padding;
+      padding != oldWidget.padding || bottomOverlay != oldWidget.bottomOverlay;
 }
 
 /// Shows UIKit's floating menu without rebuilding or relaying out the child.
