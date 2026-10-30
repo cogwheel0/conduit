@@ -717,6 +717,11 @@ class NativeSheetHydrationService {
       case 'memory-manage':
         await _hydrateNativeMemoryManageDetail(ctx, l10n);
         return;
+      case 'message-actions':
+        await _applyNativeDetail(
+          buildNativeMessageActionsDetail(l10n, _ref.read(appSettingsProvider)),
+        );
+        return;
       case 'quick-pills':
         await _hydrateNativeQuickPillsDetail(ctx, l10n);
         return;
@@ -1419,6 +1424,7 @@ class NativeSheetHydrationService {
           ],
         ),
         detailSheets: [
+          buildNativeMessageActionsDetail(l10n, appSettings),
           buildNativeLoadingDetail(
             l10n: l10n,
             id: 'default-model',
@@ -1561,6 +1567,12 @@ class NativeSheetHydrationService {
     AppSettings appSettings,
   ) {
     return [
+      NativeSheetItemConfig(
+        id: 'message-actions',
+        title: l10n.messageActionsTitle,
+        subtitle: l10n.messageActionsDescription,
+        sfSymbol: 'ellipsis.circle',
+      ),
       NativeSheetItemConfig(
         id: 'send-on-enter',
         title: l10n.sendOnEnter,

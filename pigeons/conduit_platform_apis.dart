@@ -444,11 +444,17 @@ class PlatformNativeSheetLink {
 }
 
 class PlatformNativeSheetSection {
-  PlatformNativeSheetSection({this.title, this.footer, required this.items});
+  PlatformNativeSheetSection({
+    this.title,
+    this.footer,
+    required this.items,
+    this.reorderActionId,
+  });
 
   String? title;
   String? footer;
   List<PlatformNativeSheetItem> items;
+  String? reorderActionId;
 }
 
 class PlatformNativeEditProfileSheetConfig {

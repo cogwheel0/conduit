@@ -179,6 +179,60 @@ void main() {
     return container;
   }
 
+  testWidgets(
+    'native message action reordering saves and rejects stale choices',
+    (tester) async {
+      final patches = _recordPatches();
+      final container = await pumpApp(tester);
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: 'message-actions-reorder',
+          value: [
+            'message-action:regenerate',
+            'message-action:copy',
+            'message-action:tts',
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(container.read(appSettingsProvider).inlineMessageActions, [
+        'regenerate',
+        'copy',
+        'tts',
+      ]);
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'regenerate',
+        'copy',
+        'tts',
+      ]);
+      expect(patches.where((patch) => patch.detailId == 'message-actions'), isEmpty);
+      for (final invalid in [
+        ['message-action:share', 'message-action:copy', 'message-action:tts'],
+        ['message-action:copy', 'message-action:copy', 'message-action:tts'],
+        ['message-action:copy'],
+        [
+          'message-action:regenerate',
+          'message-action:copy',
+          'message-action:tts',
+          1,
+        ],
+      ]) {
+        NativeSheetBridge.instance.onControlChanged(
+          PlatformNativeSheetControlChangedEvent(
+            id: 'message-actions-reorder',
+            value: invalid,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(container.read(appSettingsProvider).inlineMessageActions, [
+          'regenerate',
+          'copy',
+          'tts',
+        ]);
+      }
+    },
+  );
+
   for (final visible in <bool>[true, false]) {
     testWidgets(
       visible

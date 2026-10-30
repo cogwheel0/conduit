@@ -86,6 +86,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 
+import 'core/utils/message_action_settings.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
@@ -918,6 +919,54 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           (memories, owner) =>
               memories.deleteItem(Uri.decodeComponent(encoded), owner: owner),
         );
+        return;
+      }
+
+      if (event.id == 'message-actions-reorder' && value is List) {
+        final selected =
+            ref.read(appSettingsProvider).inlineMessageActions ??
+            defaultInlineMessageActions;
+        final ordered = value
+            .whereType<String>()
+            .map((id) => id.replaceFirst('message-action:', ''))
+            .toList();
+        if (value.length != selected.length ||
+            ordered.length != selected.length ||
+            ordered.toSet().length != selected.length ||
+            !ordered.every(selected.contains)) {
+          return;
+        }
+        // UIKit has already moved its row. Reloading the detail during its
+        // move animation would disturb the displayed cells.
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(ordered);
+        return;
+      }
+      if (event.id == 'message-actions-reset') {
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(null);
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
+        return;
+      }
+      if (event.id.startsWith('message-action:') && value is bool) {
+        final id = event.id.substring('message-action:'.length);
+        final context = NavigationService.context;
+        if (context == null ||
+            !context.mounted ||
+            !messageActionSettings(AppLocalizations.of(context)!)
+                .any((action) => action.id == id)) {
+          return;
+        }
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setMessageActionVisible(id, value);
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
         return;
       }
 

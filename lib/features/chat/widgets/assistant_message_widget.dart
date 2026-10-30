@@ -181,6 +181,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
 class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final _overflowButtonKey = GlobalKey();
+  final _inlineShareButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
   late CurvedAnimation _streamingContentFade;
@@ -2199,19 +2200,34 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final actions = includeActions
         ? _buildFooterActions()
         : const <_AssistantFooterAction>[];
+    final preferred = ref.watch(
+      appSettingsProvider.select((settings) => settings.inlineMessageActions),
+    );
+    String preferenceId(_AssistantFooterAction action) => switch (action.id) {
+      'retry' => 'regenerate',
+      'stop-merge' => 'merge',
+      _ => action.id,
+    };
     final forcedOverflowActions = actions
         .where((action) => action.id == 'share' || action.id == 'delete')
         .toList(growable: false);
     final inlineCandidateActions = actions
         .where((action) => action.id != 'share' && action.id != 'delete')
         .toList(growable: false);
-    final visibleActions = inlineCandidateActions
-        .take(maxInlineActions)
-        .toList(growable: false);
-    final overflowActions = [
-      ...inlineCandidateActions.skip(maxInlineActions),
-      ...forcedOverflowActions,
-    ];
+    final visibleActions = preferred == null
+        ? inlineCandidateActions.take(maxInlineActions).toList(growable: false)
+        : [
+            for (final id in preferred)
+              ...actions.where((action) => preferenceId(action) == id),
+          ];
+    final overflowActions = preferred == null
+        ? [
+            ...inlineCandidateActions.skip(maxInlineActions),
+            ...forcedOverflowActions,
+          ]
+        : actions
+              .where((action) => !preferred.contains(preferenceId(action)))
+              .toList(growable: false);
     final infoWidgets = <Widget>[
       if (activeSources.isNotEmpty)
         OpenWebUISourcesWidget(
@@ -2258,10 +2274,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final actionButtons = <Widget>[
       if (continueFromId == null) ?versionPager,
       for (final action in visibleActions)
-        _buildActionButton(
-          icon: action.icon,
-          label: action.label,
-          onTap: action.onTap,
+        KeyedSubtree(
+          key: action.id == 'share' ? _inlineShareButtonKey : null,
+          child: _buildActionButton(
+            icon: action.icon,
+            label: action.label,
+            onTap: action.onTap,
+          ),
         ),
       ?overflowButton,
     ];
@@ -2273,7 +2292,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       children: [
         if (continueFromId != null) pagerGroup!,
         if (actionButtons.isNotEmpty)
-          Row(mainAxisSize: MainAxisSize.min, children: actionButtons),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: actionButtons,
+          ),
         ...infoWidgets,
       ],
     );
@@ -2807,7 +2829,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Future<void> _shareResponse() async {
     final text = _shareableResponseText();
     if (!_responseCompleted || text.isEmpty) return;
-    final renderObject = _overflowButtonKey.currentContext?.findRenderObject();
+    final renderObject =
+        (_inlineShareButtonKey.currentContext ??
+                _overflowButtonKey.currentContext)
+            ?.findRenderObject();
     final origin = renderObject is RenderBox && renderObject.hasSize
         ? renderObject.localToGlobal(Offset.zero) & renderObject.size
         : null;

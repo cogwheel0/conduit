@@ -23,6 +23,7 @@ import 'package:conduit_core/providers/app_providers.dart'
 import '../../features/hermes/widgets/hermes_connection_switcher.dart'
     show hermesConnectionSummary;
 import 'account_display.dart';
+import 'message_action_settings.dart';
 import 'tts_voice_utils.dart';
 
 String nativeQuickActionsTitle(AppLocalizations l10n) {
@@ -1571,3 +1572,58 @@ String _nativeFormatHeartbeatRelative(
   lastHeartbeat,
   fallbackToDate: false,
 );
+
+NativeSheetDetailConfig buildNativeMessageActionsDetail(
+  AppLocalizations l10n,
+  AppSettings settings,
+) {
+  final selected = settings.inlineMessageActions ?? defaultInlineMessageActions;
+  final actions = messageActionSettings(l10n);
+  NativeSheetItemConfig item(
+    ({String id, String label, String symbol}) action,
+    bool visible,
+  ) => NativeSheetItemConfig(
+    id: 'message-action:${action.id}',
+    title: action.label,
+    sfSymbol: action.symbol,
+    kind: NativeSheetItemKind.toggle,
+    value: visible,
+  );
+  final inline = [
+    for (final id in selected)
+      for (final action in actions)
+        if (action.id == id) item(action, true),
+  ];
+  final overflow = [
+    for (final action in actions)
+      if (!selected.contains(action.id)) item(action, false),
+  ];
+  return NativeSheetDetailConfig(
+    id: 'message-actions',
+    title: l10n.messageActionsTitle,
+    sections: [
+      if (inline.isNotEmpty)
+        NativeSheetSectionConfig(
+          title: l10n.messageActionsInline,
+          footer: l10n.messageActionsDescription,
+          reorderActionId: 'message-actions-reorder',
+          items: inline,
+        ),
+      if (overflow.isNotEmpty)
+        NativeSheetSectionConfig(
+          title: l10n.more,
+          footer: inline.isEmpty ? l10n.messageActionsDescription : null,
+          items: overflow,
+        ),
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'message-actions-reset',
+            title: l10n.messageActionsReset,
+            sfSymbol: 'arrow.counterclockwise',
+          ),
+        ],
+      ),
+    ],
+  );
+}

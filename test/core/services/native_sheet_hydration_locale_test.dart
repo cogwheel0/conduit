@@ -364,6 +364,7 @@ void main() {
 
       final chats = await reopenChats(tester, native.service, native.patches);
 
+      expect(chats.detailSheets?.any((detail) => detail.id == 'message-actions'), isTrue);
       final advanced = chats.sections.last;
       check(advanced.footer).equals(l10n.advancedFeaturesFooter);
       check(advanced.items.map((r) => r.id)).deepEquals(['advanced-features']);
@@ -382,6 +383,7 @@ void main() {
             .items
             .map((r) => r.id),
       ).deepEquals([
+        'message-actions',
         'send-on-enter',
         'temporary-chat-default',
         'citation-show-titles',

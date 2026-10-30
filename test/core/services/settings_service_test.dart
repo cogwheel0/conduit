@@ -617,4 +617,55 @@ void main() {
           .equals('voice_call');
     });
   });
+  group('message action preferences', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test('custom actions and empty choices survive restart; reset restores defaults', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+      await notifier.setInlineMessageActions(['share', 'usage']);
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'share',
+        'usage',
+      ]);
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      expect(restarted.read(appSettingsProvider).inlineMessageActions, [
+        'share',
+        'usage',
+      ]);
+      await notifier.setInlineMessageActions([]);
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isEmpty,
+      );
+      await notifier.setInlineMessageActions(null);
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isNull,
+      );
+      expect(
+        PreferencesStore.containsKey(PreferenceKeys.inlineMessageActions),
+        isFalse,
+      );
+    });
+
+    test('copy and equality distinguish defaults from an empty selection', () {
+      const defaults = AppSettings();
+      final empty = defaults.copyWith(inlineMessageActions: <String>[]);
+      expect(empty, isNot(defaults));
+      expect(empty.copyWith(darkMode: false).inlineMessageActions, isEmpty);
+      expect(empty.copyWith(inlineMessageActions: null), defaults);
+      expect(
+        defaults.copyWith(inlineMessageActions: ['share']),
+        defaults.copyWith(inlineMessageActions: ['share']),
+      );
+    });
+  });
+
 }

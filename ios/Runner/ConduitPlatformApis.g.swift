@@ -1647,6 +1647,7 @@ struct PlatformNativeSheetSection: Hashable, CustomStringConvertible {
   var title: String? = nil
   var footer: String? = nil
   var items: [PlatformNativeSheetItem]
+  var reorderActionId: String? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1654,11 +1655,13 @@ struct PlatformNativeSheetSection: Hashable, CustomStringConvertible {
     let title: String? = nilOrValue(pigeonVar_list[0])
     let footer: String? = nilOrValue(pigeonVar_list[1])
     let items = pigeonVar_list[2] as! [PlatformNativeSheetItem]
+    let reorderActionId: String? = nilOrValue(pigeonVar_list[3])
 
     return PlatformNativeSheetSection(
       title: title,
       footer: footer,
-      items: items
+      items: items,
+      reorderActionId: reorderActionId
     )
   }
   func toList() -> [Any?] {
@@ -1666,13 +1669,14 @@ struct PlatformNativeSheetSection: Hashable, CustomStringConvertible {
       title,
       footer,
       items,
+      reorderActionId,
     ]
   }
   static func == (lhs: PlatformNativeSheetSection, rhs: PlatformNativeSheetSection) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.footer, rhs.footer) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.footer, rhs.footer) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.items, rhs.items) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.reorderActionId, rhs.reorderActionId)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1680,10 +1684,11 @@ struct PlatformNativeSheetSection: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: title, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: footer, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: items, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: reorderActionId, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetSection(title: \(String(describing: title)), footer: \(String(describing: footer)), items: \(String(describing: items)))"
+    return "PlatformNativeSheetSection(title: \(String(describing: title)), footer: \(String(describing: footer)), items: \(String(describing: items)), reorderActionId: \(String(describing: reorderActionId)))"
   }
 }
 

@@ -1845,7 +1845,12 @@ class PlatformNativeSheetLink {
 }
 
 class PlatformNativeSheetSection {
-  PlatformNativeSheetSection({this.title, this.footer, required this.items});
+  PlatformNativeSheetSection({
+    this.title,
+    this.footer,
+    required this.items,
+    this.reorderActionId,
+  });
 
   String? title;
 
@@ -1853,8 +1858,10 @@ class PlatformNativeSheetSection {
 
   List<PlatformNativeSheetItem> items;
 
+  String? reorderActionId;
+
   List<Object?> _toList() {
-    return <Object?>[title, footer, items];
+    return <Object?>[title, footer, items, reorderActionId];
   }
 
   Object encode() {
@@ -1867,6 +1874,7 @@ class PlatformNativeSheetSection {
       title: result[0] as String?,
       footer: result[1] as String?,
       items: (result[2]! as List<Object?>).cast<PlatformNativeSheetItem>(),
+      reorderActionId: result[3] as String?,
     );
   }
 
@@ -1882,7 +1890,8 @@ class PlatformNativeSheetSection {
     }
     return _deepEquals(title, other.title) &&
         _deepEquals(footer, other.footer) &&
-        _deepEquals(items, other.items);
+        _deepEquals(items, other.items) &&
+        _deepEquals(reorderActionId, other.reorderActionId);
   }
 
   @override
@@ -1891,7 +1900,7 @@ class PlatformNativeSheetSection {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetSection(title: $title, footer: $footer, items: $items)';
+    return 'PlatformNativeSheetSection(title: $title, footer: $footer, items: $items, reorderActionId: $reorderActionId)';
   }
 }
 

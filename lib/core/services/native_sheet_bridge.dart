@@ -781,16 +781,19 @@ class NativeSheetSectionConfig {
     required this.items,
     this.title,
     this.footer,
+    this.reorderActionId,
   });
 
   final String? title;
   final String? footer;
+  final String? reorderActionId;
   final List<NativeSheetItemConfig> items;
 
   Map<String, Object?> toMap() {
     return {
       'title': title,
       'footer': footer,
+      if (reorderActionId != null) 'reorderActionId': reorderActionId,
       'items': items.map((item) => item.toMap()).toList(),
     };
   }
@@ -1319,6 +1322,7 @@ extension on NativeSheetSectionConfig {
     return PlatformNativeSheetSection(
       title: title,
       footer: footer,
+      reorderActionId: reorderActionId,
       items: items.map((item) => item.toPlatform()).toList(),
     );
   }
