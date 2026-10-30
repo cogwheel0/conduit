@@ -92,6 +92,7 @@ enum ConduitBridgeRegistry {
   /// returns. BGTaskScheduler only accepts launch handlers registered then.
   static func applicationDidFinishLaunching() {
     BackgroundStreamingHandler.shared.registerBackgroundTasks()
+    if #available(iOS 16.2, *) { RecordingActivityBridge.endInterruptedActivities() }
   }
 
   /// Attaches every host-agnostic bridge to `host`'s messenger.
@@ -104,6 +105,7 @@ enum ConduitBridgeRegistry {
     NativeImageViewerBridge.shared.attach(to: host)
     NativeSymbolImageBridge.shared.attach(to: host)
     NativeSttBridge.shared.attach(to: host)
+    if #available(iOS 16.2, *) { RecordingActivityBridge.shared.attach(to: host) }
     PccBridge.shared.attach(to: host)
     VoiceAudioRouteBridge.shared.attach(to: host)
     RealtimeAudioBridge.shared.attach(to: host)

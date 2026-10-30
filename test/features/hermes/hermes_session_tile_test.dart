@@ -1,5 +1,10 @@
 import 'dart:async';
 
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:drift/native.dart';
+import '../../support/native_database.dart';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -91,11 +96,49 @@ void main() {
       ),
     );
 
-    await deleteHermesSession(widgetRef, 'session-1');
+    final db = container.read(directLocalDatabaseProvider);
+    final configController = container.read(hermesConfigProvider.notifier);
+    final identity = HermesLocalDocumentTrustStore.connectionIdentity(
+      endpointIdentity: HermesConfigController.connectionEndpoint(service.config.baseUrl)!,
+      principalId: configController.documentTrustPrincipalId(),
+    );
+    await pumpDatabaseOperation(tester, () async {
+      for (final scope in ['hermes:$identity', 'hermes:other-connection']) {
+        await db.composerDraftsDao.saveDraft(scope: scope, chatId: 'local:hermes_session-1', content: 'Three paper kites', updatedAt: 1);
+        await db.composerRecordingsDao.create(id: scope, scope: scope, chatId: 'local:hermes_session-1', createdAt: 1);
+      }
+    });
+    await pumpDatabaseOperation(tester, () => deleteHermesSession(widgetRef, 'session-1'));
 
+    await pumpDatabaseOperation(tester, () async {
+      expectSync(await db.composerDraftsDao.readDraft('hermes:$identity', 'local:hermes_session-1'), isNull);
+      expectSync(await db.composerRecordingsDao.watch('hermes:$identity', 'local:hermes_session-1').first, isEmpty);
+      expectSync(await db.composerDraftsDao.readDraft('hermes:other-connection', 'local:hermes_session-1'), isNotNull);
+      expectSync(await db.composerRecordingsDao.watch('hermes:other-connection', 'local:hermes_session-1').first, hasLength(1));
+    });
     check(service.deletedSessionIds).deepEquals(['session-1']);
     check(container.read(hermesActiveSessionProvider)).isNull();
     check(container.read(activeConversationProvider)).isNull();
+  });
+
+  test('remote deletion succeeds and reloads sessions when draft cleanup fails', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.customSelect('SELECT 1').get();
+    await database.customStatement('PRAGMA query_only = ON');
+    final service = _FakeHermesApiService();
+    final container = ProviderContainer(overrides: [
+      secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+      hermesApiServiceProvider.overrideWithValue(service),
+      directLocalDatabaseProvider.overrideWithValue(database),
+    ]);
+    addTearDown(container.dispose);
+    await container.read(hermesSessionsProvider.future);
+    expect(service.sessionListCalls, 1);
+    expect(await container.read(hermesSessionsProvider.notifier).delete('paper-session'), isTrue);
+    await container.read(hermesSessionsProvider.future);
+    expect(service.sessionListCalls, 2);
+    expect(service.deletedSessionIds, ['paper-session']);
   });
 
   testWidgets('serialized Hermes metadata cannot claim the active chat', (
@@ -873,8 +916,12 @@ class _FakeHermesApiService extends HermesApiService {
   final List<String> deletedSessionIds = [];
   final List<String> operationLog = [];
 
+  int sessionListCalls = 0;
   @override
-  Future<List<Map<String, dynamic>>> listSessions() async => const [];
+  Future<List<Map<String, dynamic>>> listSessions() async {
+    sessionListCalls++;
+    return const [];
+  }
 
   @override
   Future<List<Map<String, dynamic>>> getSessionMessages(

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
@@ -32,16 +35,35 @@ import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
+
+import '../../../support/native_database.dart';
 
 /// "Compare models" through the page that really admits the turn: a refusal
 /// is explained and the composer keeps what the user wrote.
 void main() {
   final l10n = AppLocalizationsEn();
 
+  setUpAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => Directory.systemTemp.path,
+        );
+  });
+  tearDownAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
+  });
+
   Future<void> settle(WidgetTester tester) async {
     for (var i = 0; i < 4; i++) {
       await tester.pump(const Duration(milliseconds: 400));
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     }
   }
 
@@ -51,11 +73,20 @@ void main() {
   Future<ProviderContainer> compareOnPage(
     WidgetTester tester, {
     AppDatabase? db,
+    bool ordinarySend = false,
+    bool holdDrain = false,
   }) async {
     final originalErrorWidgetBuilder = ErrorWidget.builder;
     final originalFlutterErrorOnError = FlutterError.onError;
+    late final ProviderContainer container;
     addTearDown(() async {
+      container.read(chatMessagesProvider.notifier)
+        ..clearMessages()
+        ..finishStreaming();
       await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
+      await settle(tester);
+      if (db != null) await pumpDatabaseOperation(tester, db.close);
       ErrorWidget.builder = originalErrorWidgetBuilder;
       FlutterError.onError = originalFlutterErrorOnError;
     });
@@ -68,7 +99,7 @@ void main() {
       ),
       ChatStorageKind.openWebUi,
     );
-    final container = ProviderContainer(
+    container = ProviderContainer(
       overrides: [
         appSettingsProvider.overrideWith(_Advanced.new),
         apiServiceProvider.overrideWithValue(
@@ -84,7 +115,7 @@ void main() {
         // Without a database a durable comparison cannot be admitted, so the
         // real admission refuses it before anything is written.
         appDatabaseProvider.overrideWith((ref) => db),
-        syncEngineProvider.overrideWith(_NoDrainEngine.new),
+        syncEngineProvider.overrideWith(() => _NoDrainEngine(hold: holdDrain)),
         isAuthenticatedProvider2.overrideWithValue(true),
         reviewerModeProvider.overrideWithValue(false),
         selectedModelProvider.overrideWith(_Selected.new),
@@ -110,7 +141,6 @@ void main() {
         ),
       ],
     );
-    addTearDown(container.dispose);
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -125,6 +155,12 @@ void main() {
     await settle(tester);
 
     await tester.enterText(find.byType(TextField), 'compare this');
+    if (ordinarySend) {
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+      await settle(tester);
+      return container;
+    }
     await tester.tap(
       find.byKey(const ValueKey<String>('composer-overflow-button')),
     );
@@ -161,7 +197,6 @@ void main() {
   testWidgets('an admitted comparison puts both answers in the chat and '
       'clears the draft', (tester) async {
     final db = AppDatabase(NativeDatabase.memory());
-    addTearDown(db.close);
     await tester.runAsync(
       () => db
           .into(db.chats)
@@ -188,6 +223,57 @@ void main() {
       ..clearMessages()
       ..finishStreaming();
   });
+
+  testWidgets(
+    'ordinary admission clears its draft before the network drain completes',
+    (tester) async {
+      final db = AppDatabase(NativeDatabase.memory());
+      await tester.runAsync(
+        () => db
+            .into(db.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: 'stored-chat',
+                title: 'A chat',
+                createdAt: 1,
+                updatedAt: 1,
+                bodySynced: const Value(true),
+              ),
+            ),
+      );
+      final container = await compareOnPage(
+        tester,
+        db: db,
+        ordinarySend: true,
+        holdDrain: true,
+      );
+      final engine =
+          container.read(syncEngineProvider.notifier) as _NoDrainEngine;
+      try {
+        // Drive both SQLite and widget callbacks while the network remains held.
+        final elapsed = Stopwatch()..start();
+        while (composerText(tester).isNotEmpty &&
+            elapsed.elapsed < const Duration(seconds: 10)) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 1)),
+          );
+          await tester.pump(const Duration(milliseconds: 1));
+        }
+        expect(composerText(tester), isEmpty);
+        expect(engine.gate.isCompleted, isFalse);
+        expect(
+          container.read(chatMessagesProvider).map((message) => message.role),
+          ['user', 'assistant'],
+        );
+      } finally {
+        engine.gate.complete();
+        await settle(tester);
+        container.read(chatMessagesProvider.notifier)
+          ..clearMessages()
+          ..finishStreaming();
+      }
+    },
+  );
 }
 
 class _Conversations extends Conversations {
@@ -263,9 +349,14 @@ class _QuietApi extends ApiService {
 
 /// A server drain that sends nothing: the turn stays exactly as admitted.
 class _NoDrainEngine extends SyncEngine {
+  _NoDrainEngine({this.hold = false});
+  final bool hold;
+  final gate = Completer<void>();
   @override
   SyncStatus build() => const SyncStatus();
 
   @override
-  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {}
+  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {
+    if (hold) await gate.future;
+  }
 }

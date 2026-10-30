@@ -609,6 +609,7 @@ private struct NativeTextEditorConfiguration {
     let valueId: String
     let sendActionId: String
     let closeActionId: String
+    let emitChanges: Bool
 
     init?(_ arguments: Any?) {
         guard let payload = arguments as? [String: Any] else {
@@ -622,6 +623,7 @@ private struct NativeTextEditorConfiguration {
         valueId = (payload["valueId"] as? String) ?? "text"
         sendActionId = (payload["sendActionId"] as? String) ?? "send"
         closeActionId = (payload["closeActionId"] as? String) ?? "close"
+        emitChanges = (payload["emitChanges"] as? Bool) ?? false
     }
 }
 
@@ -1089,6 +1091,7 @@ private extension PlatformNativeSheetTextEditorRequest {
             "valueId": valueId,
             "sendActionId": sendActionId,
             "closeActionId": closeActionId,
+            "emitChanges": emitChanges,
         ]
         payload["placeholder"] = placeholder
         payload["sendLabel"] = sendLabel
@@ -2082,6 +2085,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         pendingTextEditorResult = result
         let controller = NativeTextEditorViewController(
             configuration: configuration,
+            onChange: { [weak self] value in
+                guard configuration.emitChanges else { return }
+                self?.sendControlChanged(id: configuration.valueId, value: value)
+            },
             onClose: { [weak self] in
                 self?.resolvePendingTextEditorAfterDismiss(
                     actionId: configuration.closeActionId
@@ -6740,6 +6747,7 @@ private final class NativeModelAvatarView: UIView {
 
 private final class NativeTextEditorViewController: UIViewController, UITextViewDelegate {
     private let configuration: NativeTextEditorConfiguration
+    private let onChange: (String) -> Void
     private let onClose: () -> Void
     private let onSend: () -> Void
     private let textView = UITextView()
@@ -6749,10 +6757,12 @@ private final class NativeTextEditorViewController: UIViewController, UITextView
 
     init(
         configuration: NativeTextEditorConfiguration,
+        onChange: @escaping (String) -> Void,
         onClose: @escaping () -> Void,
         onSend: @escaping () -> Void
     ) {
         self.configuration = configuration
+        self.onChange = onChange
         self.onClose = onClose
         self.onSend = onSend
         super.init(nibName: nil, bundle: nil)
@@ -6827,6 +6837,7 @@ private final class NativeTextEditorViewController: UIViewController, UITextView
     }
 
     func textViewDidChange(_ textView: UITextView) {
+        onChange(textView.text ?? "")
         refreshActions()
     }
 

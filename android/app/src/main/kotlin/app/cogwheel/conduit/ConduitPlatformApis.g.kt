@@ -2346,7 +2346,8 @@ data class PlatformNativeSheetTextEditorRequest (
   val sendLabel: String? = null,
   val valueId: String,
   val sendActionId: String,
-  val closeActionId: String
+  val closeActionId: String,
+  val emitChanges: Boolean
 )
  {
   companion object {
@@ -2358,7 +2359,8 @@ data class PlatformNativeSheetTextEditorRequest (
       val valueId = pigeonVar_list[4] as String
       val sendActionId = pigeonVar_list[5] as String
       val closeActionId = pigeonVar_list[6] as String
-      return PlatformNativeSheetTextEditorRequest(title, value, placeholder, sendLabel, valueId, sendActionId, closeActionId)
+      val emitChanges = pigeonVar_list[7] as Boolean
+      return PlatformNativeSheetTextEditorRequest(title, value, placeholder, sendLabel, valueId, sendActionId, closeActionId, emitChanges)
     }
   }
   fun toList(): List<Any?> {
@@ -2370,6 +2372,7 @@ data class PlatformNativeSheetTextEditorRequest (
       valueId,
       sendActionId,
       closeActionId,
+      emitChanges,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -2380,7 +2383,7 @@ data class PlatformNativeSheetTextEditorRequest (
       return true
     }
     val other = other as PlatformNativeSheetTextEditorRequest
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.placeholder, other.placeholder) && ConduitPlatformApisPigeonUtils.deepEquals(this.sendLabel, other.sendLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.valueId, other.valueId) && ConduitPlatformApisPigeonUtils.deepEquals(this.sendActionId, other.sendActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.closeActionId, other.closeActionId)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.placeholder, other.placeholder) && ConduitPlatformApisPigeonUtils.deepEquals(this.sendLabel, other.sendLabel) && ConduitPlatformApisPigeonUtils.deepEquals(this.valueId, other.valueId) && ConduitPlatformApisPigeonUtils.deepEquals(this.sendActionId, other.sendActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.closeActionId, other.closeActionId) && ConduitPlatformApisPigeonUtils.deepEquals(this.emitChanges, other.emitChanges)
   }
 
   override fun hashCode(): Int {
@@ -2392,10 +2395,11 @@ data class PlatformNativeSheetTextEditorRequest (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.valueId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.sendActionId)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.closeActionId)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.emitChanges)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetTextEditorRequest(title=$title, value=$value, placeholder=$placeholder, sendLabel=$sendLabel, valueId=$valueId, sendActionId=$sendActionId, closeActionId=$closeActionId)"
+    return "PlatformNativeSheetTextEditorRequest(title=$title, value=$value, placeholder=$placeholder, sendLabel=$sendLabel, valueId=$valueId, sendActionId=$sendActionId, closeActionId=$closeActionId, emitChanges=$emitChanges)"
   }
 }
 

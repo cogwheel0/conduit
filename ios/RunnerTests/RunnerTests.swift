@@ -3565,6 +3565,41 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(gate.deliver(["type": "result"], token: token))
   }
 
+  func testDictationAudioOverflowReportsOneFailureAndStopsContinuousOutput() throws {
+    let input = try XCTUnwrap(AVAudioFormat(
+      commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false
+    ))
+    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: input, frameCapacity: 480))
+    buffer.frameLength = 480
+    buffer.floatChannelData?[0].initialize(repeating: 0, count: 480)
+    let entered = DispatchSemaphore(value: 0)
+    let resume = DispatchSemaphore(value: 0)
+    let overflow = expectation(description: "overflow reported")
+    var events: [[String: Any]] = []
+    let emitter = try NativeDictationAudioEmitter(format: input) { event in
+      if events.isEmpty {
+        entered.signal()
+        _ = resume.wait(timeout: .now() + 5)
+      }
+      events.append(event)
+      if event["type"] as? String == "error" { overflow.fulfill() }
+    }
+    emitter.append(buffer)
+    XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+    // The worker holds one lease; three more fill the pool. Later appends
+    // cannot wait for it and must report a single truncated-recording error.
+    for _ in 0..<5 { emitter.append(buffer) }
+    resume.signal()
+    wait(for: [overflow], timeout: 2)
+    // The worker has released its leases. An admitted buffer must still be suppressed.
+    emitter.append(buffer)
+    emitter.close()
+    let errors = events.filter { $0["type"] as? String == "error" }
+    XCTAssertEqual(errors.count, 1)
+    XCTAssertEqual(errors.first?["code"] as? String, "AUDIO_PRESERVATION_FAILED")
+    XCTAssertEqual(events.last?["type"] as? String, "error")
+  }
+
   func testNativeSttStopAcknowledgementTimeoutDoesNotCancelDeferredCleanup() async {
     let cleanupCanFinish = NativeSttShutdownCompletion()
     let cleanup = Task {

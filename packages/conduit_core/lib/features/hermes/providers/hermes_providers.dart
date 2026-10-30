@@ -9,6 +9,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/database/database_provider.dart';
 
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
@@ -2480,6 +2481,9 @@ class HermesSessionsController
             endpointIdentity: endpointIdentity,
             principalId: principalId,
           );
+    final draftDatabase = connectionIdentity == null
+        ? null
+        : ref.read(directLocalDatabaseProvider);
     if (connectionIdentity != null) {
       // Revoke durable provenance before the destructive request. A process
       // kill or lost response after the server commits deletion must not let a
@@ -2496,6 +2500,20 @@ class HermesSessionsController
       return false;
     }
     await service.deleteSession(id);
+    if (connectionIdentity != null) {
+      try {
+        await draftDatabase!.composerDraftsDao.deleteDraft(
+          'hermes:$connectionIdentity',
+          'local:hermes_$id',
+        );
+      } catch (error) {
+        DebugLogger.warning(
+          'hermes-draft-cleanup-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+    }
     if (configController.sessionActionAdmissionIsCurrent(admission) &&
         identical(ref.read(hermesApiServiceProvider), service)) {
       ref.invalidateSelf();

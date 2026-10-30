@@ -548,6 +548,21 @@
   "@filters": {
     "description": "Header for toggle filters section."
   },
+  "composerDraftLoadFailed": "保存した下書きを読み込めませんでした。置き換える前にもう一度お試しください。",
+  "composerDraftSaveFailed": "このデバイスに下書きを保存できませんでした。アプリを開いたまま、もう一度お試しください。",
+  "savedRecording": "保存済みの録音",
+  "recordingDiscard": "録音を破棄",
+  "recordingTranscriptionFailed": "文字起こしに失敗しました。録音は保存されています。",
+  "recordingDiscardConfirmation": "この録音を破棄してもよろしいですか？",
+  "recordingDiscardFailed": "この録音を破棄できませんでした。もう一度お試しください。",
+  "recordingCaptureInterrupted": "録音が中断されました。保存された音声は一部が欠けている可能性があります。",
+  "recordingLoadFailed": "録音を読み込めませんでした。再試行",
+  "recordingSaveFailed": "このデバイスに録音を保存できませんでした。アプリを開いたまま再試行してください。",
+  "transcribeOnServer": "サーバーで文字起こし",
+  "transcribeOnDevice": "デバイスで文字起こし",
+  "recordingRecoveryUnavailable": "この音声認識では録音を保持できません。文字起こししたテキストは引き続き下書きに保存されます。音声を保持するには、サーバーでの音声認識を選択してください。",
+  "exportRecording": "録音を書き出す",
+  "recordingExportFailed": "この録音を書き出せませんでした。もう一度お試しください。",
   "voiceInput": "音声入力",
   "@voiceInput": {
     "description": "Label for voice input feature."

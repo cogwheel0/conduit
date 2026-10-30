@@ -121,6 +121,67 @@ void main() {
     });
   });
 
+  test(
+    'native capture drains audio on stop without persisting voice calls',
+    () async {
+      final native = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(nativeStt: native);
+      addTearDown(service.dispose);
+      await service.initialize(forceLocalStt: true);
+      final bytes = <int>[];
+      var closed = false;
+      final stream = await service.startListening(
+        recording: VoiceInputRecording(
+          add: bytes.addAll,
+          close: () async => closed = true,
+        ),
+      );
+      final subscription = stream.listen((_) {});
+      expect(native.emitAudioRequested, isTrue);
+      native._events.add(
+        NativeSttEvent(type: 'audio', pcm: Uint8List.fromList([1, 2])),
+      );
+      await pumpEventQueue();
+      native.onStop = () async {
+        expect(closed, isFalse);
+        native._events.add(
+          NativeSttEvent(type: 'audio', pcm: Uint8List.fromList([3, 4])),
+        );
+        await pumpEventQueue();
+      };
+      await service.stopListening();
+      native.onStop = null;
+      expect(bytes, [1, 2, 3, 4]);
+      expect(closed, isTrue);
+      await subscription.cancel();
+      final next = await service.startListening();
+      final nextSub = next.listen((_) {});
+      expect(native.emitAudioRequested, isFalse);
+      await service.stopListening();
+      await nextSub.cancel();
+    },
+  );
+
+  test('incomplete recovery audio reports its typed error and drains the saved prefix', () async {
+    final native = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(nativeStt: native);
+    addTearDown(service.dispose);
+    await service.initialize(forceLocalStt: true);
+    final bytes = <int>[];
+    final failure = Completer<Object>();
+    final stream = await service.startListening(recording: VoiceInputRecording(
+      add: bytes.addAll, close: () async {},
+    ));
+    final subscription = stream.listen((_) {}, onError: failure.complete);
+    native._events.add(NativeSttEvent(type: 'audio', pcm: Uint8List.fromList([1, 2])));
+    native._events.add(const NativeSttEvent(type: 'error', code: 'AUDIO_PRESERVATION_FAILED', message: 'Synthetic overflow'));
+    final error = await failure.future;
+    expect(error, isA<NativeSttException>().having((error) => error.code, 'code', 'AUDIO_PRESERVATION_FAILED'));
+    await service.stopListening();
+    expect(bytes, [1, 2]);
+    await subscription.cancel();
+  });
+
   group('VoiceInputService on-device recognition language', () {
     test('leaves the native locale unset for automatic recognition', () async {
       final nativeStt = _FakeNativeSttService();
@@ -279,26 +340,28 @@ void main() {
     await nativeStt.dispose();
   });
 
-  test('server-only speech uses the device in a chat that cannot transcribe',
-      () async {
-    final nativeStt = _FakeNativeSttService();
-    final service = _SupportedVoiceInputService(
-      nativeStt: nativeStt,
-      serverSpeech: () => null,
-      supportsNativeResponseWaitCapture: true,
-    );
-    service.updatePreference(SttPreference.serverOnly);
-    check(service.prefersServerOnly).isFalse();
-    check(service.prefersDeviceOnly).isTrue();
+  test(
+    'server-only speech uses the device in a chat that cannot transcribe',
+    () async {
+      final nativeStt = _FakeNativeSttService();
+      final service = _SupportedVoiceInputService(
+        nativeStt: nativeStt,
+        serverSpeech: () => null,
+        supportsNativeResponseWaitCapture: true,
+      );
+      service.updatePreference(SttPreference.serverOnly);
+      check(service.prefersServerOnly).isFalse();
+      check(service.prefersDeviceOnly).isTrue();
 
-    await service.initialize();
-    await service.startListening();
-    check(service.isUsingNativeLocalStt).isTrue();
+      await service.initialize();
+      await service.startListening();
+      check(service.isUsingNativeLocalStt).isTrue();
 
-    await service.stopListening();
-    await service.dispose();
-    await nativeStt.dispose();
-  });
+      await service.stopListening();
+      await service.dispose();
+      await nativeStt.dispose();
+    },
+  );
 
   group('VoiceInputService server STT consumers', () {
     test('cancels a queued server recorder start after stop', () async {
@@ -389,6 +452,38 @@ void main() {
       await recorder.close();
     });
 
+    test(
+      'flushes captured audio before waiting for server transcription',
+      () async {
+        final captured = <int>[];
+        var closed = 0;
+        final stream = await service.startListening(
+          recording: VoiceInputRecording(
+            add: captured.addAll,
+            close: () async {
+              expect(recorder.calls, contains('stop'));
+              closed++;
+            },
+          ),
+        );
+        final subscription = stream.listen((_) {});
+        await pumpEventQueue();
+        recorder.audio.add(Uint8List.fromList([1, 2, 3, 4]));
+        await vad.heardAudio;
+        vad.speaking = speech.toList();
+        final stopped = service.stopListening();
+        await pumpEventQueue();
+        expect(captured, [1, 2, 3, 4]);
+        expect(closed, 1);
+        expect(reply.isCompleted, isFalse);
+        reply.complete({'text': 'A synthetic transcription'});
+        await stopped;
+        await service.stopListening();
+        expect(closed, 1);
+        await subscription.cancel();
+      },
+    );
+
     test('keeps the transcript of the pause that ended speech', () async {
       final texts = <String>[];
       var done = false;
@@ -414,27 +509,30 @@ void main() {
       check(done).isTrue();
     });
 
-    test('keeps the transcript when stop lands as the recorder stops', () async {
-      final texts = <String>[];
-      (await service.startListening()).listen(texts.add);
-      await pumpEventQueue();
+    test(
+      'keeps the transcript when stop lands as the recorder stops',
+      () async {
+        final texts = <String>[];
+        (await service.startListening()).listen(texts.add);
+        await pumpEventQueue();
 
-      // The pause's own stop is still shutting the microphone down.
-      final recorderStop = Completer<void>();
-      recorder.stopGate = recorderStop.future;
-      vad.endSpeech(speech);
-      await pumpEventQueue();
-      check(recorder.calls).contains('stop');
+        // The pause's own stop is still shutting the microphone down.
+        final recorderStop = Completer<void>();
+        recorder.stopGate = recorderStop.future;
+        vad.endSpeech(speech);
+        await pumpEventQueue();
+        check(recorder.calls).contains('stop');
 
-      final stopped = service.stopListening();
-      await pumpEventQueue();
-      recorderStop.complete();
-      await pumpEventQueue();
-      reply.complete(const {'text': 'quick tap'});
-      await stopped;
+        final stopped = service.stopListening();
+        await pumpEventQueue();
+        recorderStop.complete();
+        await pumpEventQueue();
+        reply.complete(const {'text': 'quick tap'});
+        await stopped;
 
-      check(texts).deepEquals(['quick tap']);
-    });
+        check(texts).deepEquals(['quick tap']);
+      },
+    );
 
     test('leaves a listen started meanwhile to its own speech', () async {
       final firstTexts = <String>[];
@@ -720,9 +818,8 @@ void main() {
       await voice.stopListening();
 
       check(uploads).length.equals(1);
-      check(samplesOf(uploads.single)).deepEquals([
-        for (final sample in moreWords) pcm(sample),
-      ]);
+      check(samplesOf(uploads.single))
+          .deepEquals([for (final sample in moreWords) pcm(sample)]);
       check(texts).deepEquals(['still talking']);
       check(done).isTrue();
     });
@@ -739,9 +836,8 @@ void main() {
       await vad.heardAudio;
       await voice.stopListening();
 
-      check(samplesOf(uploads.single)).deepEquals([
-        for (final sample in words) pcm(sample / 32768),
-      ]);
+      check(samplesOf(uploads.single))
+          .deepEquals([for (final sample in words) pcm(sample / 32768)]);
     });
 
     test('sends the words after a pause along with those before', () async {
@@ -785,9 +881,8 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 200));
       await pumpEventQueue();
 
-      check(
-        events.map((event) => (event.text, event.isFinal)),
-      ).deepEquals([('still talking', true)]);
+      check(events.map((event) => (event.text, event.isFinal)))
+          .deepEquals([('still talking', true)]);
       check(voice.isHoldingServerRecorderForResponse).isTrue();
       check(recorder.calls).not((calls) => calls.contains('stop'));
     });
@@ -1423,6 +1518,8 @@ class _FakeNativeSttService extends NativeSttService {
   String? availabilityLocaleId;
   final List<String?> availabilityLocaleIds = <String?>[];
   String? startLocaleId;
+  bool emitAudioRequested = false;
+  Future<void> Function()? onStop;
   int detachCalls = 0;
   int stopCalls = 0;
 
@@ -1464,8 +1561,10 @@ class _FakeNativeSttService extends NativeSttService {
     bool emitPartialResults = true,
     bool accumulateResults = true,
     bool allowOnlineFallback = true,
+    bool emitAudio = false,
   }) async {
     startLocaleId = localeId;
+    emitAudioRequested = emitAudio;
     return _events.stream;
   }
 
@@ -1477,5 +1576,6 @@ class _FakeNativeSttService extends NativeSttService {
   @override
   Future<void> stopListening() async {
     stopCalls += 1;
+    await onStop?.call();
   }
 }

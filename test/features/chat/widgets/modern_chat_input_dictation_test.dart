@@ -1,5 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
+import 'dart:typed_data';
+import 'package:drift/native.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/features/chat/composer/composer_draft_store.dart';
+import 'package:conduit/features/chat/providers/composer_draft_provider.dart';
+import '../../../support/native_database.dart';
+
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -22,9 +30,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
-/// Stopping server dictation, or sending while it records, hands what was
-/// said to the server; its text is in the composer when the stop returns
-/// (#752).
+/// Dictation transcribes into the draft; sending is a separate action.
 void main() {
   const model = Model(id: 'alpha', name: 'Alpha');
 
@@ -32,11 +38,12 @@ void main() {
   late _DictatingVoiceInput voice;
   late ProviderContainer container;
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(WidgetTester tester, {ComposerDraftContext? draftOwner}) async {
     sends = [];
     voice = _DictatingVoiceInput();
     container = ProviderContainer(
       overrides: [
+        if (draftOwner != null) composerDraftContextProvider.overrideWithValue(draftOwner),
         voiceInputServiceProvider.overrideWithValue(voice),
         voiceInputAvailableProvider.overrideWith((ref) async => true),
         selectedModelProvider.overrideWith(() => _Selected(model)),
@@ -89,16 +96,26 @@ void main() {
     expect(voice.listening, isTrue);
   }
 
-  testWidgets('send while recording sends what was said', (tester) async {
+  testWidgets('dictation preserves typed text and requires an explicit send', (
+    tester,
+  ) async {
     await pump(tester);
+    await tester.enterText(find.byType(TextField), 'A small garden.');
     await startDictation(tester);
+    expect(find.byKey(const ValueKey('primary-btn-send')), findsNothing);
 
-    voice.transcriptOnStop = 'book the table for eight';
-    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    voice.transcriptOnStop = 'Add a blue pot.';
+    await tester.tap(
+      find.byKey(const ValueKey('composer-dictation-stop-button')),
+    );
     await tester.pumpAndSettle();
 
     expect(voice.stopCalls, 1);
-    expect(sends, ['book the table for eight']);
+    expect(sends, isEmpty);
+    expect(composerText(tester), 'A small garden. Add a blue pot.');
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.pumpAndSettle();
+    expect(sends, ['A small garden. Add a blue pot.']);
   });
 
   testWidgets('stop while recording keeps what was said', (tester) async {
@@ -116,7 +133,21 @@ void main() {
     expect(sends, isEmpty);
   });
 
-  testWidgets('send keeps the text when the chat changed meanwhile', (
+  testWidgets('Enter stops dictation and keeps the combined text unsent', (
+    tester,
+  ) async {
+    await pump(tester);
+    await tester.enterText(find.byType(TextField), 'Four tiles');
+    await startDictation(tester);
+    voice.transcriptOnStop = 'and one blue tile';
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(voice.stopCalls, 1);
+    expect(sends, isEmpty);
+    expect(composerText(tester), 'Four tiles and one blue tile');
+  });
+
+  testWidgets('a late transcript stays in the chat that started it', (
     tester,
   ) async {
     await pump(tester);
@@ -125,7 +156,9 @@ void main() {
     voice
       ..transcriptOnStop = 'book the table for eight'
       ..stopGate = Completer<void>();
-    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.tap(
+      find.byKey(const ValueKey('composer-dictation-stop-button')),
+    );
     await tester.pump();
     // The user opens another chat while the server transcribes.
     container.read(activeConversationProvider.notifier).set(_stored('chat-b'));
@@ -133,30 +166,71 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(sends, isEmpty);
+    expect(composerText(tester), isEmpty);
+    container.read(activeConversationProvider.notifier).set(_stored('chat-a'));
+    await tester.pumpAndSettle();
     expect(composerText(tester), 'book the table for eight');
   });
 
-  testWidgets('send keeps the text when another chat was opened while '
-      'recording', (tester) async {
-    await pump(tester);
-    await startDictation(tester);
+  testWidgets(
+    'dictation stays with its starting chat after another chat opens while '
+    'recording',
+    (tester) async {
+      await pump(tester);
+      await startDictation(tester);
 
-    // The composer stays up across a chat switch, and so does the dictation.
-    container.read(activeConversationProvider.notifier).set(_stored('chat-b'));
-    await tester.pumpAndSettle();
-    voice.transcriptOnStop = 'book the table for eight';
-    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
-    await tester.pumpAndSettle();
+      voice.transcriptOnStop = 'book the table for eight';
+      // Switching chats stops capture; the final words stay with its owner.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_stored('chat-b'));
+      await tester.pumpAndSettle();
+      expect(voice.stopCalls, 1);
+      expect(sends, isEmpty);
+      expect(composerText(tester), isEmpty);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_stored('chat-a'));
+      await tester.pumpAndSettle();
+      expect(composerText(tester), 'book the table for eight');
+    },
+  );
 
-    expect(sends, isEmpty);
-    expect(composerText(tester), 'book the table for eight');
+  testWidgets('unmounting waits for the final audio before closing its writer', (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    final store = ComposerDraftStore(db);
+    final ComposerDraftContext owner = (
+      owner: (backend: 'example', account: 'paper', principal: 'reader', session: null),
+      scope: 'new:', chatId: '', store: store, temporary: false,
+    );
+    try {
+      await pump(tester, draftOwner: owner);
+      await tester.tap(find.byIcon(Icons.mic));
+      await pumpDatabaseOperation(tester, () => voice.recordingReady.future);
+      voice.recording!.add(Uint8List.fromList([1, 2]));
+      voice.tailOnStop = Uint8List.fromList([3, 4]);
+      voice.stopGate = Completer<void>();
+      await tester.pumpWidget(const SizedBox.shrink());
+      voice.stopGate!.complete();
+      await pumpDatabaseOperation(tester, () => voice.stopped.future);
+      final saved = await pumpDatabaseOperation(tester, () => store.recordings.watch('new:', '').firstWhere((rows) => rows.any((row) => row.byteCount > 0)));
+      expect(saved, hasLength(1));
+      final pcm = await pumpDatabaseOperation(tester, () => store.recordings.readPcm(saved.single.id));
+      expect(pcm, [1, 2, 3, 4]);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
+      await pumpDatabaseOperation(tester, db.close);
+    }
   });
 
-  testWidgets('send with nothing said sends nothing', (tester) async {
+  testWidgets('stopping with nothing said sends nothing', (tester) async {
     await pump(tester);
     await startDictation(tester);
 
-    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.tap(
+      find.byKey(const ValueKey('composer-dictation-stop-button')),
+    );
     await tester.pumpAndSettle();
 
     expect(voice.stopCalls, 1);
@@ -171,6 +245,10 @@ class _DictatingVoiceInput extends VoiceInputService {
   StreamController<String>? _run;
   String? transcriptOnStop;
   int stopCalls = 0;
+  VoiceInputRecording? recording;
+  Uint8List? tailOnStop;
+  final recordingReady = Completer<void>();
+  final stopped = Completer<void>();
 
   /// Holds the stop open, like a transcription still on its way.
   Completer<void>? stopGate;
@@ -181,6 +259,9 @@ class _DictatingVoiceInput extends VoiceInputService {
   bool get isSupportedPlatform => true;
 
   @override
+  bool get recordingRecoverySupported => true;
+
+  @override
   Future<bool> initialize({bool forceLocalStt = false}) async => true;
 
   @override
@@ -188,9 +269,12 @@ class _DictatingVoiceInput extends VoiceInputService {
     bool iosAudioSessionManagedExternally = false,
     bool nativeAccumulateResults = true,
     bool holdServerRecorderForResponseWait = false,
+    VoiceInputRecording? recording,
   }) async {
     final run = StreamController<String>.broadcast();
     _run = run;
+    this.recording = recording;
+    if (!recordingReady.isCompleted) recordingReady.complete();
     return run.stream;
   }
 
@@ -201,9 +285,11 @@ class _DictatingVoiceInput extends VoiceInputService {
     _run = null;
     if (run == null) return;
     await stopGate?.future;
+    if (tailOnStop case final tail?) recording?.add(tail);
     final transcript = transcriptOnStop;
     if (transcript != null) run.add(transcript);
     await run.close();
+    if (!stopped.isCompleted) stopped.complete();
   }
 
   @override

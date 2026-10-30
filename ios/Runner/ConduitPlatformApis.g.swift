@@ -2397,6 +2397,7 @@ struct PlatformNativeSheetTextEditorRequest: Hashable, CustomStringConvertible {
   var valueId: String
   var sendActionId: String
   var closeActionId: String
+  var emitChanges: Bool
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -2408,6 +2409,7 @@ struct PlatformNativeSheetTextEditorRequest: Hashable, CustomStringConvertible {
     let valueId = pigeonVar_list[4] as! String
     let sendActionId = pigeonVar_list[5] as! String
     let closeActionId = pigeonVar_list[6] as! String
+    let emitChanges = pigeonVar_list[7] as! Bool
 
     return PlatformNativeSheetTextEditorRequest(
       title: title,
@@ -2416,7 +2418,8 @@ struct PlatformNativeSheetTextEditorRequest: Hashable, CustomStringConvertible {
       sendLabel: sendLabel,
       valueId: valueId,
       sendActionId: sendActionId,
-      closeActionId: closeActionId
+      closeActionId: closeActionId,
+      emitChanges: emitChanges
     )
   }
   func toList() -> [Any?] {
@@ -2428,13 +2431,14 @@ struct PlatformNativeSheetTextEditorRequest: Hashable, CustomStringConvertible {
       valueId,
       sendActionId,
       closeActionId,
+      emitChanges,
     ]
   }
   static func == (lhs: PlatformNativeSheetTextEditorRequest, rhs: PlatformNativeSheetTextEditorRequest) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sendLabel, rhs.sendLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.valueId, rhs.valueId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sendActionId, rhs.sendActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.closeActionId, rhs.closeActionId)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.title, rhs.title) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.value, rhs.value) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.placeholder, rhs.placeholder) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sendLabel, rhs.sendLabel) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.valueId, rhs.valueId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sendActionId, rhs.sendActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.closeActionId, rhs.closeActionId) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.emitChanges, rhs.emitChanges)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -2446,10 +2450,11 @@ struct PlatformNativeSheetTextEditorRequest: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: valueId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: sendActionId, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: closeActionId, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: emitChanges, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetTextEditorRequest(title: \(String(describing: title)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), sendLabel: \(String(describing: sendLabel)), valueId: \(String(describing: valueId)), sendActionId: \(String(describing: sendActionId)), closeActionId: \(String(describing: closeActionId)))"
+    return "PlatformNativeSheetTextEditorRequest(title: \(String(describing: title)), value: \(String(describing: value)), placeholder: \(String(describing: placeholder)), sendLabel: \(String(describing: sendLabel)), valueId: \(String(describing: valueId)), sendActionId: \(String(describing: sendActionId)), closeActionId: \(String(describing: closeActionId)), emitChanges: \(String(describing: emitChanges)))"
   }
 }
 

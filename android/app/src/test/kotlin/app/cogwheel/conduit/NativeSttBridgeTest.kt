@@ -185,6 +185,50 @@ class NativeSttBridgeTest {
         return ShadowSpeechRecognizer.getLatestSpeechRecognizer()
     }
 
+    @Test
+    fun savedRecordingRejectsIncompletePcmBeforeOpeningRecognition() {
+        val result = RecordingResult()
+        bridge.onMethodCall(MethodCall("transcribeRecording", mapOf(
+            "pcm" to byteArrayOf(1),
+            "requestId" to "recording-a"
+        )), result)
+        assertEquals("INVALID_AUDIO", result.errorCode)
+        assertTrue(events.isEmpty())
+    }
+
+    @Test
+    fun savedRecordingCannotReplaceLiveDictation() {
+        val shadow = Shadow.extract<ShadowSpeechRecognizer>(start(null))
+        val result = RecordingResult()
+        bridge.onMethodCall(MethodCall("transcribeRecording", mapOf(
+            "pcm" to byteArrayOf(1, 0),
+            "requestId" to "recording-a"
+        )), result)
+        assertEquals("BUSY", result.errorCode)
+        assertFalse(shadow.isDestroyed)
+    }
+
+    @Test
+    fun cancellingRetiredRecordingDoesNotStopLiveDictation() {
+        val shadow = Shadow.extract<ShadowSpeechRecognizer>(start(null))
+        bridge.onMethodCall(MethodCall("cancelRecordingTranscription", mapOf(
+            "requestId" to "retired-recording"
+        )), IgnoreResult())
+        ShadowLooper.idleMainLooper()
+        assertFalse(shadow.isDestroyed)
+        shadow.triggerOnPartialResults(Bundle().apply {
+            putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("four tiles"))
+        })
+        assertEquals("four tiles", events.last { it["type"] == "result" }["text"])
+    }
+
+    private class RecordingResult : MethodChannel.Result {
+        var errorCode: String? = null
+        override fun success(result: Any?) { throw AssertionError("Unexpected success") }
+        override fun error(code: String, message: String?, details: Any?) { errorCode = code }
+        override fun notImplemented() { throw AssertionError("Method was not implemented") }
+    }
+
     private class IgnoreResult : MethodChannel.Result {
         var value: Any? = null
         override fun success(result: Any?) { value = result }

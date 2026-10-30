@@ -29,7 +29,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
 import 'package:go_router/go_router.dart';
+
+import '../../../support/native_database.dart';
 
 const _testUser = User(
   id: 'user-1',
@@ -128,6 +131,7 @@ class _RecordingVoiceInputService extends VoiceInputService {
     bool iosAudioSessionManagedExternally = false,
     bool nativeAccumulateResults = true,
     bool holdServerRecorderForResponseWait = false,
+    VoiceInputRecording? recording,
   }) async {
     beginListeningPreferences.add(preference);
     beginListeningUsesServer.add(prefersServerOnly);
@@ -500,9 +504,8 @@ void main() {
 
       check(voice.stopCalls).equals(1);
       final editor = tester.widget<FleatherEditor>(find.byType(FleatherEditor));
-      check(
-        editor.controller.document.toPlainText(),
-      ).contains('call the plumber');
+      check(editor.controller.document.toPlainText())
+          .contains('call the plumber');
     });
 
     testWidgets('checkbox toggles autosave canonical markdown', (tester) async {
@@ -768,7 +771,7 @@ void main() {
         // Closing the active database forces the back-navigation autosave to
         // fail after recovery has already cleared its dedicated retry callback.
         final failedDb = db;
-        await failedDb.close();
+        await pumpDatabaseOperation(tester, failedDb.close);
         db = AppDatabase(NativeDatabase.memory());
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
