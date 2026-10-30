@@ -14,6 +14,7 @@ class _Store extends ComposerDraftStore {
   final values = <String, String>{};
   final aliases = <String, String>{};
   Completer<String?>? pendingRead;
+  Completer<void>? pendingClear;
   bool failRead = false;
   bool failWrite = false;
 
@@ -44,6 +45,7 @@ class _Store extends ComposerDraftStore {
     String chatId,
     String content,
   ) async {
+    await pendingClear?.future;
     if (values[chatId] == content) values[chatId] = '';
   }
 
@@ -393,6 +395,26 @@ void main() {
       expect(controller.text, 'A newer input');
     },
   );
+  test('typing during committed cleanup survives rebinding', () async {
+    final origin = context('birch');
+    await binding.bind(origin);
+    controller.text = 'Sent text';
+    await tick();
+    final sent = controller.snapshotDraft();
+    final delayed = Completer<void>();
+    store.pendingClear = delayed;
+    final cleanup = binding.markSent(origin, sent);
+    await tick();
+    controller.text = 'Fold another blue panel';
+    await tick();
+    delayed.complete();
+    await cleanup;
+    await binding.bind(context('cedar'));
+    await binding.bind(origin);
+    expect(controller.text, 'Fold another blue panel');
+    expect(store.values['birch'], snapshot('Fold another blue panel'));
+  });
+
   test(
     'an exact native session remap carries the input to its new identity',
     () async {

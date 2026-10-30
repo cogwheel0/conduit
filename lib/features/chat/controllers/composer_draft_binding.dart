@@ -275,7 +275,7 @@ class ComposerDraftBinding {
         sentSnapshot,
       );
     }
-    _memory[key] = '';
+    if (_memory[key] == sentSnapshot) _memory[key] = '';
   }
 
   Future<void> flush() async {
