@@ -1457,6 +1457,11 @@
   "socketNotConnected": "Nicht verbunden",
   "socketConnected": "Verbunden",
   "socketDisconnected": "Getrennt",
+  "liveConnectionDetails": "Live updates disconnected. View connection details.",
+  "liveConnectionDetailsTitle": "Live updates",
+  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
+  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
+  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry.",
   "socketLatencyLabel": "Latenz",
   "socketReconnectsLabel": "Neuverbinden",
   "socketLastHeartbeat": "Letzter Heartbeat: {time}",
@@ -4256,10 +4261,5 @@
   "chatHandoffPromptTitle": "Zu {model} wechseln?",
   "chatHandoffPromptMessage": "Dein Server schlägt vor, in einem neuen Chat mit {model} weiterzumachen. Eine vorgeschlagene Nachricht wartet im Eingabefeld, bis du sie sendest.",
   "chatHandoffStartNewChat": "Neuen Chat starten",
-  "chatHandoffStayHere": "Hierbleiben",
-  "liveConnectionDetails": "Live updates disconnected. View connection details.",
-  "liveConnectionDetailsTitle": "Live updates",
-  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
-  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
-  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry."
+  "chatHandoffStayHere": "Hierbleiben"
 }

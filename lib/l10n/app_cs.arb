@@ -3433,6 +3433,11 @@
   "@socketDisconnected": {
     "description": "Socket health status when disconnected."
   },
+  "liveConnectionDetails": "Live updates disconnected. View connection details.",
+  "liveConnectionDetailsTitle": "Live updates",
+  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
+  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
+  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry.",
   "socketLatencyLabel": "Latence",
   "@socketLatencyLabel": {
     "description": "Metric label for socket latency."
@@ -6171,10 +6176,5 @@
   "chatHandoffPromptTitle": "Přepnout na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovat v novém chatu s modelem {model}. Navržená zpráva počká v poli pro psaní, dokud ji neodešlete.",
   "chatHandoffStartNewChat": "Začít nový chat",
-  "chatHandoffStayHere": "Zůstat tady",
-  "liveConnectionDetails": "Live updates disconnected. View connection details.",
-  "liveConnectionDetailsTitle": "Live updates",
-  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
-  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
-  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry."
+  "chatHandoffStayHere": "Zůstat tady"
 }

@@ -1455,6 +1455,11 @@
   "socketNotConnected": "未连接",
   "socketConnected": "已连接",
   "socketDisconnected": "已断开",
+  "liveConnectionDetails": "Live updates disconnected. View connection details.",
+  "liveConnectionDetailsTitle": "Live updates",
+  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
+  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
+  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry.",
   "socketLatencyLabel": "延迟",
   "socketReconnectsLabel": "重连",
   "socketLastHeartbeat": "上次心跳：{time}",
@@ -4256,10 +4261,5 @@
   "chatHandoffPromptTitle": "切换到 {model}？",
   "chatHandoffPromptMessage": "服务器建议使用 {model} 在新对话中继续。建议的消息会留在输入框中，直到你发送。",
   "chatHandoffStartNewChat": "开始新对话",
-  "chatHandoffStayHere": "留在这里",
-  "liveConnectionDetails": "Live updates disconnected. View connection details.",
-  "liveConnectionDetailsTitle": "Live updates",
-  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
-  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
-  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry."
+  "chatHandoffStayHere": "留在这里"
 }

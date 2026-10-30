@@ -1455,6 +1455,11 @@
   "socketNotConnected": "未連線",
   "socketConnected": "已連線",
   "socketDisconnected": "已中斷連線",
+  "liveConnectionDetails": "Live updates disconnected. View connection details.",
+  "liveConnectionDetailsTitle": "Live updates",
+  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
+  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
+  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry.",
   "socketLatencyLabel": "延遲",
   "socketReconnectsLabel": "重新連線",
   "socketLastHeartbeat": "上次心跳：{time}",
@@ -4256,10 +4261,5 @@
   "chatHandoffPromptTitle": "切換到 {model}？",
   "chatHandoffPromptMessage": "伺服器建議使用 {model} 在新對話中繼續。建議的訊息會留在輸入框中，直到你傳送。",
   "chatHandoffStartNewChat": "開始新對話",
-  "chatHandoffStayHere": "留在這裡",
-  "liveConnectionDetails": "Live updates disconnected. View connection details.",
-  "liveConnectionDetailsTitle": "Live updates",
-  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
-  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
-  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry."
+  "chatHandoffStayHere": "留在這裡"
 }
