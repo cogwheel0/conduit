@@ -923,9 +923,8 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       }
 
       if (event.id == 'message-actions-reorder' && value is List) {
-        final selected =
-            ref.read(appSettingsProvider).inlineMessageActions ??
-            defaultInlineMessageActions;
+        final selected = ref.read(appSettingsProvider).inlineMessageActions;
+        if (selected == null) return;
         final ordered = value
             .whereType<String>()
             .map((id) => id.replaceFirst('message-action:', ''))
