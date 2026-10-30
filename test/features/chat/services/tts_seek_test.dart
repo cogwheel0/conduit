@@ -144,6 +144,8 @@ void main() {
       second.complete(await _syntheticAudio());
       await _until(() => player.clips.length == 2);
       expect(player.playing, isFalse);
+      await pumpEventQueue();
+      expect(events.whereType<TtsPaused>(), hasLength(1));
       expect(events.whereType<TtsError>(), isEmpty);
       expect(events.whereType<TtsCompleted>(), isEmpty);
       await manager.resume();

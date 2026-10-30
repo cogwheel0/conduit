@@ -762,6 +762,10 @@ class TtsManager {
     try {
       if (session.usesAudioPlayer) {
         await _player.pause();
+        if (_activeSession?.id == session.id &&
+            _player.processingState == AudioProcessingState.completed) {
+          _emitEvent(const TtsPaused());
+        }
       } else {
         await _nativeTts.pause();
       }
