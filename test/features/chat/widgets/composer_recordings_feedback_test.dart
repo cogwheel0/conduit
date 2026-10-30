@@ -5,6 +5,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/features/chat/composer/composer_draft_store.dart';
+import 'package:conduit_core/features/chat/composer/composer_recording_store.dart';
 import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:drift/native.dart';
@@ -19,6 +20,23 @@ import '../../../support/native_database.dart';
 class _Settings extends AppSettingsNotifier {
   @override
   AppSettings build() => const AppSettings();
+}
+
+class _Store extends ComposerDraftStore {
+  _Store(super.db) : _recordings = _Recordings(db);
+  final _Recordings _recordings;
+  @override
+  _Recordings get recordings => _recordings;
+}
+
+class _Recordings extends ComposerRecordingStore {
+  _Recordings(super.db);
+  bool failDiscard = false;
+  @override
+  Future<void> discard(String id) {
+    if (failDiscard) throw StateError('Synthetic deletion failure');
+    return super.discard(id);
+  }
 }
 
 void main() {
@@ -37,7 +55,7 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
         final db = AppDatabase(NativeDatabase.memory());
-        final store = ComposerDraftStore(db);
+        final store = _Store(db);
         final ComposerDraftContext owner = (
           owner: (
             backend: 'example',
@@ -167,7 +185,27 @@ void main() {
           await tester.tap(find.text('Cancel').last);
           await settle();
           expect(find.textContaining('Saved recording'), findsOneWidget);
+          store.recordings.failDiscard = true;
           await choose('Discard recording');
+          await tester.tap(find.text('Discard recording').last);
+          await settle();
+          expect(find.text('Error'), findsOneWidget);
+          await tester.tap(find.byKey(const ValueKey('recording-error')));
+          await tester.pumpAndSettle();
+          expect(
+            find.text('Could not discard this recording. Try again.'),
+            findsOneWidget,
+          );
+          expect(find.text('Transcribe on device'), findsNothing);
+          store.recordings.failDiscard = false;
+          await tester.ensureVisible(find.text('Discard recording').last);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Discard recording').last);
+          await settle();
+          expect(
+            find.text('Are you sure you want to discard this recording?'),
+            findsOneWidget,
+          );
           await tester.tap(find.text('Discard recording').last);
           await settle();
           expect(find.textContaining('Saved recording'), findsNothing);

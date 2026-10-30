@@ -1610,6 +1610,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         )..where((t) => t.chatId.isIn(batch))).go();
         await (delete(chats)..where((t) => t.id.isIn(batch))).go();
       }
+      for (final id in ids) {
+        await attachedDatabase.composerDraftsDao.deleteChatDraft(id);
+      }
       await attachedDatabase.syncMetaDao.deleteChatRemapTargetsInvolving(ids);
       return ids;
     });

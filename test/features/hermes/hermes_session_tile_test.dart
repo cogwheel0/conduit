@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:conduit_core/database/database_provider.dart';
+import '../../support/native_database.dart';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -91,8 +94,26 @@ void main() {
       ),
     );
 
-    await deleteHermesSession(widgetRef, 'session-1');
+    final db = container.read(directLocalDatabaseProvider);
+    final configController = container.read(hermesConfigProvider.notifier);
+    final identity = HermesLocalDocumentTrustStore.connectionIdentity(
+      endpointIdentity: HermesConfigController.connectionEndpoint(service.config.baseUrl)!,
+      principalId: configController.documentTrustPrincipalId(),
+    );
+    await pumpDatabaseOperation(tester, () async {
+      for (final scope in ['hermes:$identity', 'hermes:other-connection']) {
+        await db.composerDraftsDao.saveDraft(scope: scope, chatId: 'local:hermes_session-1', content: 'Three paper kites', updatedAt: 1);
+        await db.composerRecordingsDao.create(id: scope, scope: scope, chatId: 'local:hermes_session-1', createdAt: 1);
+      }
+    });
+    await pumpDatabaseOperation(tester, () => deleteHermesSession(widgetRef, 'session-1'));
 
+    await pumpDatabaseOperation(tester, () async {
+      expectSync(await db.composerDraftsDao.readDraft('hermes:$identity', 'local:hermes_session-1'), isNull);
+      expectSync(await db.composerRecordingsDao.watch('hermes:$identity', 'local:hermes_session-1').first, isEmpty);
+      expectSync(await db.composerDraftsDao.readDraft('hermes:other-connection', 'local:hermes_session-1'), isNotNull);
+      expectSync(await db.composerRecordingsDao.watch('hermes:other-connection', 'local:hermes_session-1').first, hasLength(1));
+    });
     check(service.deletedSessionIds).deepEquals(['session-1']);
     check(container.read(hermesActiveSessionProvider)).isNull();
     check(container.read(activeConversationProvider)).isNull();

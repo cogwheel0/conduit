@@ -71,6 +71,26 @@ void main() {
     },
   );
 
+  test(
+    'send cleanup cannot overwrite a newer draft from another editor',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final original = ComposerDraftStore(db);
+      final newer = ComposerDraftStore(db);
+      await original.save('new:project', '', 'First paper lantern.');
+      await newer.save('new:project', '', 'Newer paper lantern.');
+      await original.clearIfUnchanged(
+        'new:project',
+        '',
+        'First paper lantern.',
+      );
+      expect(await newer.read('new:project', ''), 'Newer paper lantern.');
+      await newer.clearIfUnchanged('new:project', '', 'Newer paper lantern.');
+      expect(await newer.read('new:project', ''), isNull);
+    },
+  );
+
   test('a cleared input stays cleared after older queued edits', () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);

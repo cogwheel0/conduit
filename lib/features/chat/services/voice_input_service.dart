@@ -487,7 +487,7 @@ class VoiceInputService implements VoiceModeInput {
           ? 'Speech recognition failed'
           : message,
     );
-    _reportRecognitionError(exception);
+    _reportRecognitionError(error is NativeSttException ? error : exception);
     unawaited(_stopListening());
   }
 
@@ -601,6 +601,16 @@ class VoiceInputService implements VoiceModeInput {
     if (event.type == 'audio') {
       final pcm = event.pcm;
       if (pcm != null) _recording?.add(pcm);
+      return;
+    }
+    if (event.type == 'error' &&
+        event.code == 'AUDIO_PRESERVATION_FAILED' &&
+        _recording != null) {
+      _reportRecognitionError(NativeSttException(
+        event.message ?? 'Unable to preserve dictation audio',
+        code: event.code,
+      ));
+      if (_usingNativeLocalStt) unawaited(_stopListening());
       return;
     }
     if (!_isListening || !_usingNativeLocalStt) return;

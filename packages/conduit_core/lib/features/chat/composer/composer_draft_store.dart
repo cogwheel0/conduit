@@ -58,5 +58,25 @@ class ComposerDraftStore {
     });
   }
 
+  /// A send may finish after its editor is unmounted or a new editor opens.
+  /// Only retire the exact snapshot that the committed turn admitted.
+  Future<void> clearIfUnchanged(String scope, String chatId, String content) =>
+      _queue(
+        () => _database.transaction(() async {
+          final row = await _database.composerDraftsDao.readDraft(
+            scope,
+            chatId,
+          );
+          if (row?.content == content) {
+            await _database.composerDraftsDao.saveDraft(
+              scope: scope,
+              chatId: chatId,
+              content: '',
+              updatedAt: 0,
+            );
+          }
+        }),
+      );
+
   Future<void> flush() => _pending;
 }

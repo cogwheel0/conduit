@@ -3565,6 +3565,21 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(gate.deliver(["type": "result"], token: token))
   }
 
+  func testDictationAudioOverflowReportsOneFailureAndStopsContinuousOutput() throws {
+    let input = try XCTUnwrap(AVAudioFormat(
+      commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false
+    ))
+    let oversized = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: input, frameCapacity: 4097))
+    oversized.frameLength = 4097
+    var events: [[String: Any]] = []
+    let emitter = try NativeDictationAudioEmitter(format: input) { events.append($0) }
+    emitter.append(oversized)
+    emitter.append(oversized)
+    emitter.close()
+    XCTAssertEqual(events.count, 1)
+    XCTAssertEqual(events.first?["code"] as? String, "AUDIO_PRESERVATION_FAILED")
+  }
+
   func testNativeSttStopAcknowledgementTimeoutDoesNotCancelDeferredCleanup() async {
     let cleanupCanFinish = NativeSttShutdownCompletion()
     let cleanup = Task {

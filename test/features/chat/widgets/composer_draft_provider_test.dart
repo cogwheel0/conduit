@@ -8,6 +8,7 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:drift/native.dart';
@@ -22,8 +23,10 @@ class _Active extends ActiveConversationNotifier {
 }
 
 class _Selected extends SelectedModel {
+  _Selected([this.model]);
+  final Model? model;
   @override
-  Model? build() => null;
+  Model? build() => model;
 }
 
 class _Temporary extends TemporaryChatEnabled {
@@ -57,14 +60,15 @@ void main() {
   );
 
   ProviderContainer container(
-    Conversation conversation, {
+    Conversation? conversation, {
+    Model? selectedModel,
     bool temporary = false,
     String principal = 'principal-one',
   }) {
     final value = ProviderContainer(
       overrides: [
         activeConversationProvider.overrideWith(() => _Active(conversation)),
-        selectedModelProvider.overrideWith(_Selected.new),
+        selectedModelProvider.overrideWith(() => _Selected(selectedModel)),
         temporaryChatEnabledProvider.overrideWith(() => _Temporary(temporary)),
         currentUserProvider2.overrideWithValue(
           const User(
@@ -91,6 +95,28 @@ void main() {
     addTearDown(value.dispose);
     return value;
   }
+
+  test(
+    'new Hermes drafts persist separate scopes for each connection identity',
+    () async {
+      final model = hermesSyntheticModel();
+      final firstContainer = container(null, selectedModel: model);
+      final otherContainer = container(
+        null,
+        selectedModel: model,
+        principal: 'principal-two',
+      );
+      final first = firstContainer.read(composerDraftContextProvider);
+      final other = otherContainer.read(composerDraftContextProvider);
+      expect(first.scope, isNot(other.scope));
+      await first.store!.save(
+        first.scope,
+        first.chatId,
+        'Fold a paper lantern.',
+      );
+      expect(await other.store!.read(other.scope, other.chatId), isNull);
+    },
+  );
 
   test('stored account chats use their account database and own chat id', () {
     final context = container(chat(userId: 'reader'))

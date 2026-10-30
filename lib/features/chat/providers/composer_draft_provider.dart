@@ -31,6 +31,18 @@ typedef ComposerDraftKey = ({
   String chatId,
 });
 
+/// Non-chat composers keep their input local to the mounted editor.
+ComposerDraftContext ephemeralComposerDraftContext({
+  required String scope,
+  required String chatId,
+}) => (
+  owner: (backend: 'ephemeral', account: '', principal: '', session: null),
+  scope: scope,
+  chatId: chatId,
+  store: null,
+  temporary: true,
+);
+
 ComposerDraftKey composerDraftKey(ComposerDraftContext context) =>
     (owner: context.owner, scope: context.scope, chatId: context.chatId);
 
@@ -85,7 +97,7 @@ final composerDraftContextProvider = Provider<ComposerDraftContext>((ref) {
       ? hermes
             ? 'hermes:$hermesIdentity'
             : 'chat'
-      : 'new:${ref.watch(pendingFolderIdProvider) ?? ''}';
+      : '${hermes ? 'new:hermes:$hermesIdentity' : 'new'}:${ref.watch(pendingFolderIdProvider) ?? ''}';
   AppDatabase? database;
   if (!temporary && !readOnly && !(hermes && hermesIdentity == null)) {
     if (active != null) {

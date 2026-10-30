@@ -1,6 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
+import 'dart:typed_data';
+import 'package:drift/native.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/features/chat/composer/composer_draft_store.dart';
+import 'package:conduit/features/chat/providers/composer_draft_provider.dart';
+import '../../../support/native_database.dart';
 
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
@@ -32,11 +38,12 @@ void main() {
   late _DictatingVoiceInput voice;
   late ProviderContainer container;
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(WidgetTester tester, {ComposerDraftContext? draftOwner}) async {
     sends = [];
     voice = _DictatingVoiceInput();
     container = ProviderContainer(
       overrides: [
+        if (draftOwner != null) composerDraftContextProvider.overrideWithValue(draftOwner),
         voiceInputServiceProvider.overrideWithValue(voice),
         voiceInputAvailableProvider.overrideWith((ref) async => true),
         selectedModelProvider.overrideWith(() => _Selected(model)),
@@ -189,6 +196,34 @@ void main() {
     },
   );
 
+  testWidgets('unmounting waits for the final audio before closing its writer', (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    final store = ComposerDraftStore(db);
+    final ComposerDraftContext owner = (
+      owner: (backend: 'example', account: 'paper', principal: 'reader', session: null),
+      scope: 'new:', chatId: '', store: store, temporary: false,
+    );
+    try {
+      await pump(tester, draftOwner: owner);
+      await tester.tap(find.byIcon(Icons.mic));
+      await pumpDatabaseOperation(tester, () => voice.recordingReady.future);
+      voice.recording!.add(Uint8List.fromList([1, 2]));
+      voice.tailOnStop = Uint8List.fromList([3, 4]);
+      voice.stopGate = Completer<void>();
+      await tester.pumpWidget(const SizedBox.shrink());
+      voice.stopGate!.complete();
+      await pumpDatabaseOperation(tester, () => voice.stopped.future);
+      final saved = await pumpDatabaseOperation(tester, () => store.recordings.watch('new:', '').firstWhere((rows) => rows.any((row) => row.byteCount > 0)));
+      expect(saved, hasLength(1));
+      final pcm = await pumpDatabaseOperation(tester, () => store.recordings.readPcm(saved.single.id));
+      expect(pcm, [1, 2, 3, 4]);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
+      await pumpDatabaseOperation(tester, db.close);
+    }
+  });
+
   testWidgets('stopping with nothing said sends nothing', (tester) async {
     await pump(tester);
     await startDictation(tester);
@@ -210,6 +245,10 @@ class _DictatingVoiceInput extends VoiceInputService {
   StreamController<String>? _run;
   String? transcriptOnStop;
   int stopCalls = 0;
+  VoiceInputRecording? recording;
+  Uint8List? tailOnStop;
+  final recordingReady = Completer<void>();
+  final stopped = Completer<void>();
 
   /// Holds the stop open, like a transcription still on its way.
   Completer<void>? stopGate;
@@ -218,6 +257,9 @@ class _DictatingVoiceInput extends VoiceInputService {
 
   @override
   bool get isSupportedPlatform => true;
+
+  @override
+  bool get recordingRecoverySupported => true;
 
   @override
   Future<bool> initialize({bool forceLocalStt = false}) async => true;
@@ -231,6 +273,8 @@ class _DictatingVoiceInput extends VoiceInputService {
   }) async {
     final run = StreamController<String>.broadcast();
     _run = run;
+    this.recording = recording;
+    if (!recordingReady.isCompleted) recordingReady.complete();
     return run.stream;
   }
 
@@ -241,9 +285,11 @@ class _DictatingVoiceInput extends VoiceInputService {
     _run = null;
     if (run == null) return;
     await stopGate?.future;
+    if (tailOnStop case final tail?) recording?.add(tail);
     final transcript = transcriptOnStop;
     if (transcript != null) run.add(transcript);
     await run.close();
+    if (!stopped.isCompleted) stopped.complete();
   }
 
   @override

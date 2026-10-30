@@ -68,6 +68,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/native_sheet_bridge.dart';
+import '../services/native_stt_service.dart';
 
 import 'package:conduit_core/services/location_service.dart';
 
@@ -619,6 +620,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   ComposerRecordingSession? _recordingSession;
   String? _recordingTranscriptionErrorId;
+  String? _recordingCaptureErrorId;
   ComposerDraftContext? _transcribingRecordingOwner;
   bool _startingVoice = false;
   int _voiceStartGeneration = 0;
@@ -858,8 +860,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!kIsWeb && Platform.isIOS) {
       unawaited(IosKeyboardAttachmentBridge.instance.hide());
     }
-    _voiceService?.stopListening();
-    unawaited(_recordingSession?.close().catchError((Object _) {}));
+    final voice = _voiceService;
+    final recording = _recordingSession;
+    unawaited(() async {
+      try {
+        await voice?.stopListening();
+      } finally {
+        await recording?.close();
+      }
+    }().catchError((Object _) {}));
     super.dispose();
   }
 
@@ -4243,6 +4252,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             activeId: _isRecording ? _recordingSession?.id : null,
             transcribing: _isTranscribing,
             transcriptionErrorId: _recordingTranscriptionErrorId,
+            captureErrorId: _recordingCaptureErrorId,
             onTranscribingChanged: _recordingTranscribingChanged,
             onInsert: _appendRecordingTranscription,
           ),
@@ -5524,6 +5534,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       setState(() {
         _isRecording = true;
         _recordingTranscriptionErrorId = null;
+        _recordingCaptureErrorId = null;
       });
       _textSub?.cancel();
       _textSub = stream
@@ -5555,13 +5566,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               if (!mounted) return;
               setState(() => _isRecording = false);
             },
-            onError: (_) async {
+            onError: (Object error) async {
               await recording.stopped;
               if (!mounted) return;
               final saved = (recording.writer?.savedBytes ?? 0) > 0;
               setState(() {
                 _isRecording = false;
-                if (saved) _recordingTranscriptionErrorId = recording.id;
+                if (saved) {
+                  if (error is NativeSttException &&
+                      error.code == 'AUDIO_PRESERVATION_FAILED') {
+                    _recordingCaptureErrorId = recording.id;
+                  } else {
+                    _recordingTranscriptionErrorId = recording.id;
+                  }
+                }
               });
               if (!saved) {
                 _showVoiceUnavailable(

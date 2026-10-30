@@ -66,13 +66,15 @@ class ComposerDraftsDao extends DatabaseAccessor<AppDatabase>
     );
   });
 
-  Future<void> deleteChatDraft(String chatId) async {
-    await attachedDatabase.composerRecordingsDao.discardChat('chat', chatId);
-    await (delete(
-          composerDrafts,
-        )..where((row) => row.scope.equals('chat') & row.chatId.equals(chatId)))
-        .go();
-  }
+  Future<void> deleteChatDraft(String chatId) => deleteDraft('chat', chatId);
+
+  Future<void> deleteDraft(String scope, String chatId) => attachedDatabase.transaction(() async {
+    final resolved = await resolveChatId(scope, chatId);
+    await attachedDatabase.composerRecordingsDao.discardChat(scope, resolved);
+    await (delete(composerDrafts)..where(
+      (row) => row.scope.equals(scope) & row.chatId.equals(resolved),
+    )).go();
+  });
 
   /// Runs inside the owning remap's transaction. Keep the newest input if
   /// a crash-recovered server identity already has a draft.

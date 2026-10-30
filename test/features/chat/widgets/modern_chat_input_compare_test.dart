@@ -295,7 +295,7 @@ void main() {
   });
 
   composerTest(
-    'an accepted send retires only its captured audio and preserves a newer input',
+    'an accepted typed send retires untranscribed draft audio and preserves newer input',
     (tester) async {
       final admission = Completer<void>();
       late ProviderContainer container;

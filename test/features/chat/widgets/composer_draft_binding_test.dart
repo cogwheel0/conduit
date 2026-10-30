@@ -39,6 +39,15 @@ class _Store extends ComposerDraftStore {
   }
 
   @override
+  Future<void> clearIfUnchanged(
+    String scope,
+    String chatId,
+    String content,
+  ) async {
+    if (values[chatId] == content) values[chatId] = '';
+  }
+
+  @override
   Future<void> flush() async {}
 }
 
@@ -95,6 +104,49 @@ void main() {
     await binding.dispose();
     controller.dispose();
     await database.close();
+  });
+
+  test(
+    'sending an untouched restored new-chat draft removes its original row',
+    () async {
+      final origin = (
+        owner: context('a').owner,
+        scope: 'new:project',
+        chatId: '',
+        store: store as ComposerDraftStore?,
+        temporary: false,
+      );
+      store.values[''] = snapshot('Fold a paper lantern.');
+      await binding.bind(origin);
+      final sent = controller.snapshotDraft();
+      await binding.bind(context('created-chat'), preserveInput: true);
+      await binding.markSent(origin, sent);
+      expect(store.values[''], '');
+    },
+  );
+
+  test(
+    'a committed send retires its draft after the editor is disposed',
+    () async {
+      final origin = context('a');
+      store.values['a'] = snapshot('Fold a paper lantern.');
+      await binding.bind(origin);
+      final sent = controller.snapshotDraft();
+      await binding.dispose();
+      await binding.markSent(origin, sent);
+      expect(store.values['a'], '');
+    },
+  );
+
+  test('a disposed editor cannot clear a newer stored draft', () async {
+    final origin = context('a');
+    store.values['a'] = snapshot('Fold a paper lantern.');
+    await binding.bind(origin);
+    final sent = controller.snapshotDraft();
+    await binding.dispose();
+    store.values['a'] = snapshot('A newer paper lantern.');
+    await binding.markSent(origin, sent);
+    expect(store.values['a'], snapshot('A newer paper lantern.'));
   });
 
   test('late dictation stays with its original chat and preserves the visible input', () async {

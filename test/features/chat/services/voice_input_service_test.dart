@@ -162,6 +162,26 @@ void main() {
     },
   );
 
+  test('incomplete recovery audio reports its typed error and drains the saved prefix', () async {
+    final native = _FakeNativeSttService();
+    final service = _SupportedVoiceInputService(nativeStt: native);
+    addTearDown(service.dispose);
+    await service.initialize(forceLocalStt: true);
+    final bytes = <int>[];
+    final failure = Completer<Object>();
+    final stream = await service.startListening(recording: VoiceInputRecording(
+      add: bytes.addAll, close: () async {},
+    ));
+    final subscription = stream.listen((_) {}, onError: failure.complete);
+    native._events.add(NativeSttEvent(type: 'audio', pcm: Uint8List.fromList([1, 2])));
+    native._events.add(const NativeSttEvent(type: 'error', code: 'AUDIO_PRESERVATION_FAILED', message: 'Synthetic overflow'));
+    final error = await failure.future;
+    expect(error, isA<NativeSttException>().having((error) => error.code, 'code', 'AUDIO_PRESERVATION_FAILED'));
+    await service.stopListening();
+    expect(bytes, [1, 2]);
+    await subscription.cancel();
+  });
+
   group('VoiceInputService on-device recognition language', () {
     test('leaves the native locale unset for automatic recognition', () async {
       final nativeStt = _FakeNativeSttService();

@@ -1,3 +1,4 @@
+import '../../chat/providers/composer_draft_provider.dart';
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io' show Platform;
@@ -1755,11 +1756,16 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                   ),
                 ),
               RepaintBoundary(
-                child: ModernChatInput(
+                child: ProviderScope(
+                  overrides: [composerDraftContextProvider.overrideWithValue(
+                    ephemeralComposerDraftContext(scope: 'channel', chatId: widget.channelId),
+                  )],
+                  child: ModernChatInput(
                   onSendMessage: _sendMessage,
                   placeholder: l10n.channelInputPlaceholder,
                   overflowButtonBuilder: _buildAttachmentButton,
                   bottomPadding: 0,
+                ),
                 ),
               ),
             ],

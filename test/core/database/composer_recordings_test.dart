@@ -136,6 +136,55 @@ void main() {
     expect(await dao.readPcm('first'), isEmpty);
   });
 
+  test(
+    'bulk chat purge removes only reached drafts and raw recording chunks',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final store = ComposerDraftStore(db);
+      for (final id in ['stored', 'local:kept']) {
+        await addChat(db, id);
+        await store.save('chat', id, 'Fold a paper lantern.');
+        final writer = await store.recordings.begin(
+          id: id,
+          scope: 'chat',
+          chatId: id,
+          onFailure: () => fail('save failed'),
+        );
+        writer.add(Uint8List(4));
+        await writer.close();
+      }
+      expect(await db.chatsDao.purgeServerWideChats('reader'), ['stored']);
+      expect(await store.read('chat', 'stored'), isNull);
+      expect(await store.recordings.readPcm('stored'), isEmpty);
+      expect(await store.read('chat', 'local:kept'), isNotNull);
+      expect(await store.recordings.readPcm('local:kept'), isNotEmpty);
+    },
+  );
+
+  test(
+    'deleting a remapped draft uses the same identity for text and audio',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      await addChat(db, 'stored');
+      final store = ComposerDraftStore(db);
+      await store.save('chat', 'stored', 'Fold a paper lantern.');
+      final writer = await store.recordings.begin(
+        id: 'recording',
+        scope: 'chat',
+        chatId: 'stored',
+        onFailure: () => fail('save failed'),
+      );
+      writer.add(Uint8List(4));
+      await writer.close();
+      await db.syncMetaDao.setChatRemapTarget('local:old', 'stored');
+      await db.composerDraftsDao.deleteChatDraft('local:old');
+      expect(await store.read('chat', 'stored'), isNull);
+      expect(await store.recordings.readPcm('recording'), isEmpty);
+    },
+  );
+
   test('deleted chats reject new recordings and further writes', () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);

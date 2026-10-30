@@ -27,7 +27,7 @@ final recordingShareProvider =
       (_) => SharePlus.instance.share,
     );
 
-enum _RecordingError { export, transcription, discard }
+enum _RecordingError { export, transcription, discard, capture }
 
 /// Recoverable audio is part of the unsent draft, never chat history. Keying
 /// this widget by its owner also retires pending transcription UI when
@@ -40,6 +40,7 @@ class ComposerRecordings extends ConsumerStatefulWidget {
     this.activeId,
     this.transcribing = false,
     this.transcriptionErrorId,
+    this.captureErrorId,
     this.onTranscribingChanged,
   });
 
@@ -47,6 +48,7 @@ class ComposerRecordings extends ConsumerStatefulWidget {
   final String? activeId;
   final bool transcribing;
   final String? transcriptionErrorId;
+  final String? captureErrorId;
   final void Function(ComposerDraftContext, bool)? onTranscribingChanged;
   final void Function(String) onInsert;
 
@@ -74,19 +76,25 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
   @override
   void didUpdateWidget(covariant ComposerRecordings oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.transcriptionErrorId != oldWidget.transcriptionErrorId) {
+    if (widget.transcriptionErrorId != oldWidget.transcriptionErrorId ||
+        widget.captureErrorId != oldWidget.captureErrorId) {
       _takeTranscriptionError();
     }
   }
 
   void _takeTranscriptionError() {
-    if (widget.transcriptionErrorId == null) return;
-    _errorId = widget.transcriptionErrorId;
-    _error = _RecordingError.transcription;
+    if (widget.captureErrorId != null) {
+      _errorId = widget.captureErrorId;
+      _error = _RecordingError.capture;
+    } else if (widget.transcriptionErrorId != null) {
+      _errorId = widget.transcriptionErrorId;
+      _error = _RecordingError.transcription;
+    }
   }
 
   @override
   void dispose() {
+    ++_transcriptionGeneration;
     if (_busy != null) {
       final owner = widget.owner;
       final notify = widget.onTranscribingChanged;
@@ -174,16 +182,17 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
       final store = widget.owner.store!.recordings;
       final String text;
       if (onDevice) {
-        text = await _nativeStt.transcribeRecording(
-          await store.readPcm(id),
-          localeId: language,
-        );
+        final pcm = await store.readPcm(id);
+        if (!_ownsInput || generation != _transcriptionGeneration) return;
+        text = await _nativeStt.transcribeRecording(pcm, localeId: language);
       } else {
         if (speech?.canTranscribe != true) {
           throw StateError('STT unavailable');
         }
+        final wav = await store.readWav(id);
+        if (!_ownsInput || generation != _transcriptionGeneration) return;
         text = await speech!.transcribe(
-          await store.readWav(id),
+          wav,
           fileName: 'recording.wav',
           mimeType: 'audio/wav',
           language: language,
@@ -351,6 +360,8 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
                                 l10n.recordingTranscriptionFailed,
                               _RecordingError.discard =>
                                 l10n.recordingDiscardFailed,
+                              _RecordingError.capture =>
+                                l10n.recordingCaptureInterrupted,
                             },
                             enabled: false,
                           ),
@@ -358,6 +369,12 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
                             AdaptivePopupMenuItem<String>(
                               value: 'export',
                               label: l10n.exportRecording,
+                            )
+                          else if (_error == _RecordingError.discard)
+                            AdaptivePopupMenuItem<String>(
+                              value: 'discard',
+                              label: l10n.recordingDiscard,
+                              isDestructive: true,
                             )
                           else ...[
                             AdaptivePopupMenuItem<String>(
@@ -370,14 +387,15 @@ class _ComposerRecordingsState extends ConsumerState<ComposerRecordings> {
                             ),
                           ],
                         ],
-                        onSelected: (_, entry) => unawaited(
-                          entry.value == 'export'
-                              ? _export(_errorId!)
-                              : _transcribe(
-                                  _errorId!,
-                                  onDevice: entry.value == 'device',
-                                ),
-                        ),
+                        onSelected: (_, entry) =>
+                            unawaited(switch (entry.value) {
+                              'export' => _export(_errorId!),
+                              'discard' => _discard(_errorId!),
+                              _ => _transcribe(
+                                _errorId!,
+                                onDevice: entry.value == 'device',
+                              ),
+                            }),
                       ),
                     ),
                 ],

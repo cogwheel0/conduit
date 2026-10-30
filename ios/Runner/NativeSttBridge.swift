@@ -822,6 +822,12 @@ final class NativeSttEventDeliveryGate {
     return token
   }
 
+  var currentToken: NativeSttEventDeliveryToken? {
+    lock.lock()
+    defer { lock.unlock() }
+    return activeToken
+  }
+
   func deactivate() {
     lock.lock()
     activeToken = nil
@@ -1247,7 +1253,7 @@ final class NativeCallKitCallOwnership {
 /// Copies microphone frames on the tap, then normalizes them on a serial
 /// worker. Disk I/O stays in the owning Dart draft store, never on the audio
 /// render thread. Explicit stop drains this worker before acknowledging stop.
-private final class NativeDictationAudioEmitter {
+final class NativeDictationAudioEmitter {
   private let pool: NativeSttPCMBufferPool
   private let converter: AVAudioConverter
   private let format: AVAudioFormat
@@ -1256,6 +1262,9 @@ private final class NativeDictationAudioEmitter {
   private let queueKey = DispatchSpecificKey<UInt8>()
   private let lock = NSLock()
   private var closed = false
+  // Accessed only on the conversion queue. Stop emitting after the first
+  // gap so the saved prefix never pretends to be a continuous recording.
+  private var preservationFailed = false
 
   init(format input: AVAudioFormat, emit: @escaping ([String: Any]) -> Void) throws {
     guard let output = AVAudioFormat(
@@ -1274,7 +1283,10 @@ private final class NativeDictationAudioEmitter {
   }
 
   func append(_ source: AVAudioPCMBuffer) {
-    guard let lease = pool.copyFromTap(source) else { return }
+    guard let lease = pool.copyFromTap(source) else {
+      queue.async { [self] in reportPreservationFailure() }
+      return
+    }
     lock.lock()
     guard !closed else { lock.unlock(); lease.release(); return }
     queue.async { [self] in
@@ -1284,11 +1296,21 @@ private final class NativeDictationAudioEmitter {
     lock.unlock()
   }
 
+  private func reportPreservationFailure() {
+    guard !preservationFailed else { return }
+    preservationFailed = true
+    emit(["type": "error", "code": "AUDIO_PRESERVATION_FAILED", "message": "Unable to preserve dictation audio"])
+  }
+
   private func convert(_ source: AVAudioPCMBuffer?) {
+    guard !preservationFailed else { return }
     let capacity = source.map {
       AVAudioFrameCount(ceil(Double($0.frameLength) * 16000 / $0.format.sampleRate)) + 32
     } ?? 1024
-    guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return }
+    guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+      reportPreservationFailure()
+      return
+    }
     var supplied = false
     var error: NSError?
     let status = converter.convert(to: output, error: &error) { _, state in
@@ -1299,7 +1321,7 @@ private final class NativeDictationAudioEmitter {
       return source
     }
     if status == .error {
-      emit(["type": "error", "code": "AUDIO_PRESERVATION_FAILED", "message": "Unable to preserve dictation audio"])
+      reportPreservationFailure()
       return
     }
     guard output.frameLength > 0, let samples = output.int16ChannelData?[0] else { return }
@@ -1321,6 +1343,8 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
   static let shared = NativeSttBridge()
   private static let stopAcknowledgementTimeoutNanoseconds: UInt64 =
     1_000_000_000
+  private static let recordingDrainTimeoutNanoseconds: UInt64 =
+    30_000_000_000
   private static let callKitActivationTimeoutNanoseconds: UInt64 =
     5_000_000_000
 
@@ -1467,14 +1491,19 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
       }
     case "stop":
       let drainAudio = recordingAudio
+      let deliveryToken = eventDeliveryGate.currentToken
       recordingAudio = false
       if !drainAudio { eventDeliveryGate.deactivate() }
       let transition = lifecycle.beginStop()
       Task {
-        await waitForStopTransition(
+        let drained = await waitForStopTransition(
           transition,
           waitForFullShutdown: drainAudio
         )
+        if drainAudio, !drained, let token = deliveryToken,
+           lifecycle.isCurrent(transition.generation) {
+          emit(["type": "error", "code": "AUDIO_PRESERVATION_FAILED", "message": "Recording shutdown timed out"], token: token)
+        }
         // Audio delivery uses this same queue. A FIFO barrier keeps the last
         // admitted PCM event ahead of the stop reply and subscription teardown.
         DispatchQueue.main.async { [weak self] in
@@ -1775,15 +1804,13 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
   private func waitForStopTransition(
     _ transition: NativeSttLifecycleTransition,
     waitForFullShutdown: Bool
-  ) async {
-    if waitForFullShutdown {
-      await transition.shutdownTask.value
-    } else {
-      _ = await waitForNativeSttTask(
-        transition.shutdownTask,
-        timeoutNanoseconds: Self.stopAcknowledgementTimeoutNanoseconds
-      )
-    }
+  ) async -> Bool {
+    await waitForNativeSttTask(
+      transition.shutdownTask,
+      timeoutNanoseconds: waitForFullShutdown
+        ? Self.recordingDrainTimeoutNanoseconds
+        : Self.stopAcknowledgementTimeoutNanoseconds
+    )
   }
 
   private func finishCurrentSession(

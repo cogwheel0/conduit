@@ -107,6 +107,7 @@ class ComposerDraftBinding {
           if (!_restore(saved ?? '')) {
             throw const FormatException('Invalid local draft');
           }
+          _memory[composerDraftKey(next)] = _observed;
           _queued = saved ?? '';
         }
       } catch (_) {
@@ -151,6 +152,9 @@ class ComposerDraftBinding {
       if (revision == _revision) {
         if (!_restore(saved ?? '')) {
           throw const FormatException('Invalid local draft');
+        }
+        if (next.store != null || cached != null) {
+          _memory[composerDraftKey(next)] = _observed;
         }
         _queued = cached == null ? saved ?? '' : null;
       }
@@ -257,15 +261,21 @@ class ComposerDraftBinding {
     ComposerDraftContext origin,
     String sentSnapshot,
   ) async {
-    if (_disposed) return;
-    if (_context != null &&
+    if (!_disposed &&
+        _context != null &&
         composerDraftKey(_context!) == composerDraftKey(origin)) {
       await _save();
     }
     final key = composerDraftKey(origin);
-    if (_memory[key] != sentSnapshot) return;
+    if (!_disposed && _memory[key] != sentSnapshot) return;
+    if (origin.store != null) {
+      await origin.store!.clearIfUnchanged(
+        origin.scope,
+        origin.chatId,
+        sentSnapshot,
+      );
+    }
     _memory[key] = '';
-    await _write(origin, '');
   }
 
   Future<void> flush() async {

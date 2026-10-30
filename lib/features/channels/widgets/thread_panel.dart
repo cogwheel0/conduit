@@ -1,3 +1,4 @@
+import '../../chat/providers/composer_draft_provider.dart';
 import 'dart:async';
 import 'dart:developer' as developer;
 
@@ -255,12 +256,17 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
                           left: false,
                           right: false,
                           minimum: const EdgeInsets.only(bottom: Spacing.sm),
-                          child: ModernChatInput(
+                          child: ProviderScope(
+                  overrides: [composerDraftContextProvider.overrideWithValue(
+                    ephemeralComposerDraftContext(scope: 'thread:${widget.channelId}', chatId: widget.parentMessage.id),
+                  )],
+                  child: ModernChatInput(
                             onSendMessage: _sendReply,
                             placeholder: l10n.replyInputPlaceholder,
                             overflowButtonBuilder: widget.overflowButtonBuilder,
                             bottomPadding: 0,
                           ),
+                ),
                         ),
                       ),
                     ),

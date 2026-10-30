@@ -634,10 +634,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     }
   }
 
-  Future<void> _handleComposerSend(String text) async {
+  Future<chat.ChatSendPlaceholderHandle?> _handleComposerSend(
+    String text, {
+    void Function(chat.ChatSendPlaceholderHandle)? onPrepared,
+  }) async {
     if (_isSendingComposerMessage ||
         ref.read(conversationSelectionProvider).isLoading) {
-      return;
+      return null;
     }
 
     setState(() => _isSendingComposerMessage = true);
@@ -647,7 +650,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     try {
       final hasModel = await _ensureSelectedModel(container);
       if (!hasModel) {
-        return;
+        return null;
       }
 
       final attachedFiles = container.read(attachedFilesProvider);
@@ -685,6 +688,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         pendingFolderIdOverride: widget.folderId,
         onAssistantPlaceholderCreated: (handle) {
           pendingSend = handle;
+          onPrepared?.call(handle);
         },
       );
 
@@ -701,6 +705,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
               );
             }),
       );
+      return pendingSend;
     } catch (e, stackTrace) {
       // durableSend adds an optimistic streaming placeholder before its
       // throwable DB work; on failure recover the UI by finishing the
@@ -713,6 +718,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         stackTrace: stackTrace,
       );
       chat.recoverFailedChatSend(container, e, pendingSend);
+      return null;
     } finally {
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
@@ -1569,6 +1575,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                     'folder-page-composer-${widget.folderId}-$_composerResetNonce',
                   ),
                   onSendMessage: _handleComposerSend,
+                  onSendDraft: (text, onPrepared) =>
+                      _handleComposerSend(text, onPrepared: onPrepared),
                   onCompareSend: _handleCompareSend,
                   enabled:
                       !ref.watch(conversationSelectionProvider).isLoading &&

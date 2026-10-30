@@ -7,6 +7,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/features/chat/composer/composer_draft_store.dart';
+import 'package:conduit_core/features/chat/composer/composer_recording_store.dart';
 import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:drift/native.dart';
@@ -20,6 +21,25 @@ import '../../../support/native_database.dart';
 class _Settings extends AppSettingsNotifier {
   @override
   AppSettings build() => const AppSettings();
+}
+
+class _HeldStore extends ComposerDraftStore {
+  _HeldStore(super.db) : _recordings = _HeldRecordingStore(db);
+  final _HeldRecordingStore _recordings;
+  @override
+  _HeldRecordingStore get recordings => _recordings;
+}
+
+class _HeldRecordingStore extends ComposerRecordingStore {
+  _HeldRecordingStore(super.db);
+  final readEntered = Completer<void>();
+  final readMayFinish = Completer<void>();
+  @override
+  Future<Uint8List> readPcm(String id) async {
+    readEntered.complete();
+    await readMayFinish.future;
+    return super.readPcm(id);
+  }
 }
 
 void main() {
@@ -159,4 +179,114 @@ void main() {
       messenger.setMockMethodCallHandler(channel, null);
     }
   });
+
+  testWidgets(
+    'leaving while audio loads never starts a stale native transcription',
+    (tester) async {
+      final db = AppDatabase(NativeDatabase.memory());
+      final store = _HeldStore(db);
+      final ComposerDraftContext owner = (
+        owner: (
+          backend: 'account',
+          account: 'sample',
+          principal: 'reader',
+          session: null,
+        ),
+        scope: 'chat',
+        chatId: 'tiles',
+        store: store,
+        temporary: false,
+      );
+      final replies = <Completer<String>>[];
+      final cancelled = <String>[];
+      final inserted = <String>[];
+      final busy = <bool>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'cancelRecordingTranscription') {
+          cancelled.add((call.arguments as Map)['requestId'] as String);
+          return null;
+        }
+        final reply = Completer<String>();
+        replies.add(reply);
+        return reply.future;
+      });
+      final container = ProviderContainer(
+        overrides: [
+          composerDraftContextProvider.overrideWithValue(owner),
+          appSettingsProvider.overrideWith(_Settings.new),
+          serverSpeechProviderProvider.overrideWithValue(null),
+        ],
+      );
+      Future<void> settle() async {
+        for (var i = 0; i < 8; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 1)),
+          );
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+      }
+
+      Future<void> add(String id) => pumpDatabaseOperation(tester, () async {
+        final writer = await store.recordings.begin(
+          id: id,
+          scope: 'chat',
+          chatId: 'tiles',
+          onFailure: () => fail('Save failed'),
+        );
+        writer.add(Uint8List.fromList([1, 0, 2, 0]));
+        await writer.close();
+      });
+      try {
+        await pumpDatabaseOperation(
+          tester,
+          () => db
+              .into(db.chats)
+              .insert(
+                ChatsCompanion.insert(
+                  id: 'tiles',
+                  title: 'Tiles',
+                  createdAt: 1,
+                  updatedAt: 1,
+                ),
+              ),
+        );
+        await add('first');
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: ComposerRecordings(
+                  owner: owner,
+                  onInsert: inserted.add,
+                  onTranscribingChanged: (_, value) => busy.add(value),
+                ),
+              ),
+            ),
+          ),
+        );
+        await settle();
+        await tester.tap(find.byIcon(Icons.more_horiz));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Transcribe on device').last);
+        await pumpDatabaseOperation(
+          tester,
+          () => store.recordings.readEntered.future,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        store.recordings.readMayFinish.complete();
+        await settle();
+        expect(replies, isEmpty);
+        expect(inserted, isEmpty);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        container.dispose();
+        await tester.pump();
+        await pumpDatabaseOperation(tester, db.close);
+        messenger.setMockMethodCallHandler(channel, null);
+      }
+    },
+  );
 }
