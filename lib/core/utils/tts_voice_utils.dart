@@ -4,6 +4,36 @@ import 'package:conduit_core/services/settings_service.dart';
 
 const ttsSystemDefaultVoiceId = '__system_default__';
 
+typedef TtsVoiceLanguageOption = ({String code, String label});
+
+String? _voiceLanguageCode(Map<String, dynamic> voice) =>
+    (_cleanVoiceValue(voice['locale']) ?? _cleanVoiceValue(voice['language']))
+        ?.replaceAll('_', '-')
+        .toLowerCase();
+
+/// The displayed language group, or null when a voice has no locale metadata.
+String? ttsVoiceLanguageLabel(Map<String, dynamic> voice) {
+  final code = _voiceLanguageCode(voice);
+  return code == null
+      ? null
+      : _cleanVoiceValue(voice['languageName']) ?? code.toUpperCase();
+}
+
+List<TtsVoiceLanguageOption> buildTtsVoiceLanguageOptions(
+  Iterable<Map<String, dynamic>> voices,
+) {
+  final languages = <String, String>{};
+  for (final voice in voices) {
+    final code = _voiceLanguageCode(voice);
+    if (code == null) continue;
+    languages.putIfAbsent(code, () => ttsVoiceLanguageLabel(voice)!);
+  }
+  return [
+    for (final entry in languages.entries)
+      (code: entry.key, label: entry.value),
+  ]..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+}
+
 class TtsVoiceOptionData {
   const TtsVoiceOptionData({
     required this.id,
@@ -21,11 +51,17 @@ class TtsVoiceOptionData {
 List<TtsVoiceOptionData> buildTtsVoiceOptions(
   AppLocalizations l10n,
   TtsEngine engine,
-  Iterable<Map<String, dynamic>> voices,
-) {
+  Iterable<Map<String, dynamic>> voices, {
+  String? languageCode,
+}) {
   final seen = <String>{};
   final options = <TtsVoiceOptionData>[];
   for (final voice in voices) {
+    if (languageCode != null &&
+        _voiceLanguageCode(voice) !=
+            languageCode.replaceAll('_', '-').toLowerCase()) {
+      continue;
+    }
     final id = ttsVoiceIdFor(engine, voice);
     if (id.isEmpty || !seen.add(id)) {
       continue;

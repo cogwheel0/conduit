@@ -445,6 +445,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     String? subtitle,
     String? selectedOptionId,
     bool searchable = true,
+    String? filterAllLabel,
     bool rethrowErrors = false,
   }) async {
     if (!_isIOS || options.isEmpty) return null;
@@ -455,6 +456,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           subtitle: subtitle,
           selectedOptionId: selectedOptionId,
           searchable: searchable,
+          filterAllLabel: filterAllLabel,
           options: options.map((option) => option.toPlatform()).toList(),
         ),
       );
@@ -1029,6 +1031,7 @@ class NativeSheetItemConfig {
     this.checked = false,
     this.accent = false,
     this.usesProfileAvatar = false,
+    this.filterAllLabel,
   });
 
   final String id;
@@ -1078,8 +1081,12 @@ class NativeSheetItemConfig {
   /// this row's own title and subtitle.
   final bool usesProfileAvatar;
 
+  /// Enables the picker filter pill; this is its unfiltered label.
+  final String? filterAllLabel;
+
   Map<String, Object?> toMap() {
     return {
+      if (filterAllLabel != null) 'filterAllLabel': filterAllLabel,
       'id': id,
       'title': title,
       'subtitle': subtitle,
@@ -1143,6 +1150,7 @@ class NativeSheetOptionConfig {
     this.ancestorHasMoreSiblings = const <bool>[],
     this.showBranch = false,
     this.hasMoreSiblings = false,
+    this.filterGroup,
   });
 
   final String id;
@@ -1155,8 +1163,12 @@ class NativeSheetOptionConfig {
   final bool showBranch;
   final bool hasMoreSiblings;
 
+  /// Label in the picker filter menu. Empty keeps an option in every group.
+  final String? filterGroup;
+
   Map<String, Object?> toMap() {
     return {
+      if (filterGroup != null) 'filterGroup': filterGroup,
       'id': id,
       'label': label,
       'subtitle': subtitle,
@@ -1435,6 +1447,7 @@ extension on NativeSheetItemConfig {
       checked: checked,
       accent: accent,
       usesProfileAvatar: usesProfileAvatar,
+      filterAllLabel: filterAllLabel,
     );
   }
 }
@@ -1476,6 +1489,7 @@ extension on NativeSheetOptionConfig {
       ancestorHasMoreSiblings: ancestorHasMoreSiblings,
       showBranch: showBranch,
       hasMoreSiblings: hasMoreSiblings,
+      filterGroup: filterGroup,
     );
   }
 }

@@ -151,6 +151,7 @@ private struct NativeEditProfileSheetCopy {
 private struct NativeSheetOption {
     let id: String
     let label: String
+    let filterGroup: String?
     let subtitle: String?
     let sfSymbol: String?
     let enabled: Bool
@@ -170,6 +171,7 @@ private struct NativeSheetOption {
 
         self.id = id
         self.label = label
+        filterGroup = payload["filterGroup"] as? String
         subtitle = payload["subtitle"] as? String
         sfSymbol = payload["sfSymbol"] as? String
         enabled = payload["enabled"] as? Bool ?? true
@@ -197,6 +199,7 @@ private struct NativeSheetItem {
     let value: Any?
     let placeholder: String?
     let options: [NativeSheetOption]
+    let filterAllLabel: String?
     let sourceIndex: Int?
     let sourceUrl: String?
     let sourceType: String?
@@ -250,6 +253,7 @@ private struct NativeSheetItem {
         placeholder = payload["placeholder"] as? String
         options = (payload["options"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetOption.init)
+        filterAllLabel = payload["filterAllLabel"] as? String
         sourceIndex = NativeSheetItem.optionalInt(payload["sourceIndex"])
         sourceUrl = payload["sourceUrl"] as? String
         sourceType = payload["sourceType"] as? String
@@ -540,19 +544,22 @@ private struct NativeOptionsSelectorConfiguration {
     let selectedOptionId: String?
     let searchable: Bool
     let options: [NativeSheetOption]
+    let filterAllLabel: String?
 
     init(
         title: String,
         subtitle: String?,
         selectedOptionId: String?,
         searchable: Bool,
-        options: [NativeSheetOption]
+        options: [NativeSheetOption],
+        filterAllLabel: String? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
         self.selectedOptionId = selectedOptionId
         self.searchable = searchable
         self.options = options
+        self.filterAllLabel = filterAllLabel
     }
 
     init?(_ arguments: Any?) {
@@ -571,6 +578,7 @@ private struct NativeOptionsSelectorConfiguration {
         selectedOptionId = payload["selectedOptionId"] as? String
         searchable = payload["searchable"] as? Bool ?? true
         options = parsedOptions
+        filterAllLabel = payload["filterAllLabel"] as? String
     }
 }
 
@@ -962,6 +970,7 @@ private extension PlatformNativeSheetItem {
         payload["checked"] = checked
         payload["accent"] = accent
         payload["usesProfileAvatar"] = usesProfileAvatar
+        payload["filterAllLabel"] = filterAllLabel
         return payload
     }
 }
@@ -999,6 +1008,7 @@ private extension PlatformNativeSheetOption {
         ]
         payload["subtitle"] = subtitle
         payload["sfSymbol"] = sfSymbol
+        payload["filterGroup"] = filterGroup
         return payload
     }
 }
@@ -1063,6 +1073,7 @@ private extension PlatformNativeSheetOptionsSelectorRequest {
         ]
         payload["subtitle"] = subtitle
         payload["selectedOptionId"] = selectedOptionId
+        payload["filterAllLabel"] = filterAllLabel
         return payload
     }
 }
@@ -1702,7 +1713,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             subtitle: item.subtitle,
             selectedOptionId: item.selectedOptionId,
             searchable: true,
-            options: item.options
+            options: item.options,
+            filterAllLabel: item.filterAllLabel
         )
         let controller = NativeOptionsSelectorTableViewController(
             configuration: configuration,
@@ -5377,10 +5389,14 @@ private final class NativeModelTagButton: UIButton {
     }
 }
 
-private final class NativeOptionsSelectorTableViewController: UITableViewController {
+private final class NativeOptionsSelectorTableViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     private let configuration: NativeOptionsSelectorConfiguration
     private let onSelect: (String) -> Void
     private let onClose: () -> Void
+    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let filterButton = UIButton(type: .system)
+    private var selectedFilter: String?
+    private var query = ""
     private var filteredOptions: [NativeSheetOption]
 
     init(
@@ -5392,7 +5408,7 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         self.onSelect = onSelect
         self.onClose = onClose
         filteredOptions = configuration.options
-        super.init(style: .insetGrouped)
+        super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
@@ -5403,12 +5419,26 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         super.viewDidLoad()
         title = configuration.title
         navigationItem.rightBarButtonItem = closeButton()
+        view.backgroundColor = NativeSheetTheme.shared.background
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(tableView)
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
         tableView.register(
             NativeSheetOptionTableViewCell.self,
             forCellReuseIdentifier: "optionCell"
         )
         NativeSheetSettingsStyle.apply(to: tableView)
 
+        if configuration.filterAllLabel != nil {
+            configureFilterButton()
+        }
         if configuration.searchable {
             let searchController = UISearchController(searchResultsController: nil)
             searchController.searchResultsUpdater = self
@@ -5418,14 +5448,14 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         }
     }
 
-    override func tableView(
+    func tableView(
         _ tableView: UITableView,
         titleForFooterInSection section: Int
     ) -> String? {
         configuration.subtitle
     }
 
-    override func tableView(
+    func tableView(
         _ tableView: UITableView,
         willDisplayFooterView view: UIView,
         forSection section: Int
@@ -5433,11 +5463,11 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         NativeSheetSettingsStyle.applyHeaderFooterStyle(view)
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         filteredOptions.count
     }
 
-    override func tableView(
+    func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
@@ -5454,12 +5484,83 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         return cell
     }
 
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let option = filteredOptions[indexPath.row]
         guard option.enabled else { return }
         NativeSheetHaptics.selection()
         onSelect(option.id)
+    }
+
+    private func configureFilterButton() {
+        var style: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+            style = .glass()
+        } else {
+            style = .tinted()
+        }
+        style.cornerStyle = .capsule
+        style.image = UIImage(systemName: "chevron.down")
+        style.imagePlacement = .trailing
+        style.imagePadding = 6
+        style.buttonSize = .small
+        filterButton.configuration = style
+        filterButton.showsMenuAsPrimaryAction = true
+        filterButton.accessibilityIdentifier = "options-filter"
+        filterButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(filterButton)
+        let preferredBottom = filterButton.bottomAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8
+        )
+        preferredBottom.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            filterButton.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20
+            ),
+            filterButton.trailingAnchor.constraint(
+                lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20
+            ),
+            filterButton.bottomAnchor.constraint(
+                lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -8
+            ),
+            preferredBottom,
+        ])
+        tableView.contentInset.bottom = 52
+        updateFilterMenu()
+    }
+
+    private func updateFilterMenu() {
+        guard let allLabel = configuration.filterAllLabel else { return }
+        let groups = Set(configuration.options.compactMap(\.filterGroup))
+            .filter { !$0.isEmpty }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        filterButton.configuration?.title = selectedFilter ?? allLabel
+        filterButton.menu = UIMenu(children: ([nil] + groups.map(Optional.some)).map { group in
+            UIAction(
+                title: group ?? allLabel,
+                state: group == selectedFilter ? .on : .off
+            ) { [weak self] _ in
+                guard let self else { return }
+                NativeSheetHaptics.selection()
+                self.selectedFilter = group
+                self.updateFilterMenu()
+                self.applyFilters()
+            }
+        })
+    }
+
+    private func applyFilters() {
+        filteredOptions = configuration.options.filter { option in
+            let matchesGroup = selectedFilter == nil
+                || option.filterGroup == ""
+                || option.filterGroup == selectedFilter
+            let matchesQuery = query.isEmpty
+                || option.label.lowercased().contains(query)
+                || option.id.lowercased().contains(query)
+                || (option.subtitle?.lowercased().contains(query) ?? false)
+            return matchesGroup && matchesQuery
+        }
+        tableView.reloadData()
     }
 
     private func closeButton() -> UIBarButtonItem {
@@ -5472,17 +5573,10 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
 
 extension NativeOptionsSelectorTableViewController: UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {
-        let query = searchController.searchBar.text?
+        query = searchController.searchBar.text?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-        filteredOptions = query.isEmpty
-            ? configuration.options
-            : configuration.options.filter { option in
-                option.label.lowercased().contains(query)
-                    || option.id.lowercased().contains(query)
-                    || (option.subtitle?.lowercased().contains(query) ?? false)
-            }
-        tableView.reloadData()
+        applyFilters()
     }
 }
 

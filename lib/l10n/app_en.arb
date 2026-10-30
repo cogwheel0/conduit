@@ -8871,5 +8871,9 @@
   "chatHandoffStayHere": "Stay here",
   "@chatHandoffStayHere": {
     "description": "Cancel button that keeps the user in the current chat instead of following the Open WebUI server's suggestion."
-  }
+  },
+  "ttsAllLanguages": "All languages",
+  "@ttsAllLanguages": {"description": "Short voice catalog filter label that includes every language."},
+  "ttsSearchVoices": "Search voices",
+  "@ttsSearchVoices": {"description": "Search field hint in the voice picker."}
 }

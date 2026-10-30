@@ -30,6 +30,7 @@ class AdaptiveSelectionSheet extends StatelessWidget {
     required this.itemCount,
     required this.itemBuilder,
     this.description,
+    this.bottom,
     this.initialChildSize = 0.55,
     this.minChildSize = 0.32,
     this.maxChildSize = 0.82,
@@ -37,6 +38,7 @@ class AdaptiveSelectionSheet extends StatelessWidget {
 
   final String title;
   final String? description;
+  final Widget? bottom;
   final int itemCount;
   final Widget Function(BuildContext context, int index) itemBuilder;
   final double initialChildSize;
@@ -99,6 +101,7 @@ class AdaptiveSelectionSheet extends StatelessWidget {
                         ),
                       ),
                     ),
+                    ?bottom,
                   ],
                 ),
               ),
